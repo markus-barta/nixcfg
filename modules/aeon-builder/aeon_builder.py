@@ -168,7 +168,10 @@ def pf_rules(cfg, user):
         "# No DNS exception: the hostagent resolves through mDNSResponder, not as this user.",
         f"table <aeon_private> const {{ {private} }}",
         "pass in quick proto tcp from any to any port 22 keep state",
-        f"pass out quick on lo0 proto tcp from 127.0.0.1 to 127.0.0.1 port {first}:{last} user {user} keep state",
+        "# Lima's own ssh (limactl <-> hostagent vsock proxy): both directions, stateless,",
+        "# because the replies also come from a socket owned by this user.",
+        f"pass out quick on lo0 proto tcp from 127.0.0.1 to 127.0.0.1 port {first}:{last} user {user} no state",
+        f"pass out quick on lo0 proto tcp from 127.0.0.1 port {first}:{last} to 127.0.0.1 user {user} no state",
         f"block return out quick from any to <aeon_private> user {user}",
         "",
     ])

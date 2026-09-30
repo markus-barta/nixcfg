@@ -162,7 +162,8 @@ class RenderTests(unittest.TestCase):
     def test_pf_rules_block_private_ranges_for_ci_only(self):
         rules = ab.pf_rules(CFG, "ci")
         self.assertIn("block return out quick from any to <aeon_private> user ci", rules)
-        self.assertIn("port 60019:60023 user ci", rules)
+        self.assertIn("to 127.0.0.1 port 60019:60023 user ci no state", rules)
+        self.assertIn("from 127.0.0.1 port 60019:60023 to 127.0.0.1 user ci no state", rules)
         self.assertIn("100.64.0.0/10", rules)
         self.assertLess(rules.index("pass out quick on lo0"), rules.index("block return"))
         self.assertNotIn("port 53", rules, "no DNS exception for ci (AEON-438 ruling)")
