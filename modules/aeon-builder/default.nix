@@ -60,6 +60,7 @@ let
       labGuardUsers
       probeTargets
       requireNetworkBlock
+      proofMinutes
       blockedNetworks
       prePullImages
       runner
@@ -188,6 +189,11 @@ in
       default = true;
       description = "Every job VM must fail to reach the host and LAN before a runner is minted; otherwise the pool pauses.";
     };
+    proofMinutes = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 10;
+      description = "While idle, re-prove the network block with a throwaway VM this often.";
+    };
     probeTargets = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ "192.168.5.2:22" ];
@@ -224,30 +230,15 @@ in
       type = lib.types.anything;
       default = {
         id = 24240960;
-        include = [
-          "~DEFAULT_BRANCH"
-          "refs/heads/main"
-        ];
-        ruleTypes = [
-          "deletion"
-          "non_fast_forward"
-          "pull_request"
-          "required_status_checks"
-        ];
-        requiredChecks = [
-          "go"
-          "web"
-          "release-check"
-          "e2e"
-        ];
-        bypass = [
-          [
-            "RepositoryRole"
-            "pull_request"
-          ]
-        ];
+        expected = lib.importJSON ./paimos-main-ruleset.json;
       };
-      description = "The paimos main ruleset (AEON-411) checked before every mint; any drift pauses the pool.";
+      description = ''
+        The paimos main ruleset (AEON-411), checked before every mint and every
+        availability publish. It must equal the pinned copy exactly; any drift
+        pauses the pool. After an intended ruleset change, refresh the pin with
+        `gh api repos/inspr-at/paimos/rulesets/24240960` (keys enforcement,
+        target, conditions, bypass_actors, rules).
+      '';
     };
   };
 

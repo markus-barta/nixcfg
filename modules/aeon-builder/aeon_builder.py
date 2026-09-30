@@ -19,6 +19,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -88,30 +89,28 @@ def uses_cache_disk(run, cfg):
     return run.get("event") in cfg["cacheWriteEvents"]
 
 
+RULESET_KEYS = ("enforcement", "target", "conditions", "bypass_actors", "rules")
+
+
+def canonical(value):
+    """Order-insensitive form: lists of dicts are sorted by their JSON."""
+    if isinstance(value, dict):
+        return {k: canonical(v) for k, v in sorted(value.items())}
+    if isinstance(value, list):
+        items = [canonical(v) for v in value]
+        return sorted(items, key=lambda v: json.dumps(v, sort_keys=True))
+    return value
+
+
 def ruleset_problems(ruleset, expected):
-    """Compare the live main ruleset with the pinned expectation."""
-    problems = []
+    """The live main ruleset must equal the pinned one exactly (AEON-438):
+    enforcement, target, ref conditions, bypass actors, rules and parameters."""
     if not ruleset:
         return ["ruleset missing"]
+    problems = [f"{key} changed" for key in RULESET_KEYS
+                if canonical(ruleset.get(key)) != canonical(expected.get(key))]
     if ruleset.get("enforcement") != "active":
-        problems.append(f"enforcement {ruleset.get('enforcement')}")
-    if ruleset.get("target") != "branch":
-        problems.append("target is not branch")
-    include = ((ruleset.get("conditions") or {}).get("ref_name") or {}).get("include") or []
-    if not set(expected["include"]) & set(include):
-        problems.append("does not cover the default branch")
-    rules = {rule.get("type"): rule.get("parameters") or {} for rule in ruleset.get("rules") or []}
-    for kind in expected["ruleTypes"]:
-        if kind not in rules:
-            problems.append(f"rule {kind} missing")
-    checks = {c.get("context") for c in (rules.get("required_status_checks") or {}).get("required_status_checks", [])}
-    missing = sorted(set(expected["requiredChecks"]) - checks)
-    if missing:
-        problems.append("required checks missing: " + ", ".join(missing))
-    bypass = sorted((b.get("actor_type"), b.get("bypass_mode")) for b in ruleset.get("bypass_actors") or [])
-    allowed = sorted(tuple(b) for b in expected["bypass"])
-    if any(b not in allowed for b in bypass):
-        problems.append("unexpected bypass actors")
+        problems.insert(0, f"enforcement is {ruleset.get('enforcement')}")
     return problems
 
 
@@ -279,6 +278,12 @@ class GitHub:
     def job(self, job_id):
         return self.call("GET", self.repo_path(f"/actions/jobs/{job_id}"), READ)
 
+    def all_jobs(self, run_id):
+        return self.call("GET", self.repo_path(f"/actions/runs/{run_id}/jobs?filter=all&per_page=100"), READ).get("jobs", [])
+
+    def recent_runs(self):
+        return self.call("GET", self.repo_path("/actions/runs?per_page=30"), READ).get("workflow_runs", [])
+
     def sha_on_branch(self, sha):
         data = self.call("GET", self.repo_path(f"/compare/{sha}...{self.cfg['branch']}"), READ)
         return data.get("status") in ("ahead", "identical") and data.get("behind_by") == 0
@@ -421,6 +426,22 @@ echo "blocked"
 """
 
 
+def prove_network_block(cfg, lima, vm="aeon-probe"):
+    """Boot a throwaway clone and require the host, LAN and tailnet to be
+    unreachable while the internet works. This proves the pf anchor from the
+    outside: an absent or inactive anchor means the pool stays off."""
+    lima.delete(vm)
+    try:
+        lima.run("clone", "--tty=false", BASE_VM, vm, "--set",
+                 f".ssh.localPort = {cfg['sshPortBase'] - 1} | .additionalDisks = []")
+        lima.run("start", "--tty=false", vm)
+        probe = lima.run("shell", "--workdir", "/", vm, "--", "bash", "-c", PROBE, "probe",
+                         *host_probe_targets(cfg), check=False)
+        return probe.returncode == 0, (probe.stdout.strip() or probe.stderr.strip()[-200:])
+    finally:
+        lima.delete(vm)
+
+
 class Controller:
     def __init__(self, cfg, gh=None, lima=None, state=None):
         self.cfg = cfg
@@ -431,6 +452,7 @@ class Controller:
         self.workers = {}
         self.last_ruleset = 0.0
         self.ruleset_ok = False
+        self.last_proof = time.time()
 
     # -- slots
     def free_slots(self, data, pending):
@@ -438,17 +460,25 @@ class Controller:
         return self.cfg["slots"] - used
 
     def pause(self, reason):
+        """A failed protection check: refuse availability, stop minting and
+        cancel queued mbp2606 runs so nothing waits on a pool that is off."""
         log(f"PAUSE: {reason}")
         self.state.update(lambda d: d.update(mode="paused", alert=f"{now_utc().isoformat()} {reason}"))
         try:
             self.gh.clear()
         except BuilderError as err:
             log(f"clear availability failed: {err}")
+        try:
+            cancelled = cancel_label_runs(self.gh, self.cfg, statuses=("queued",))
+            if cancelled:
+                log(f"cancelled queued mbp2606 run(s): {', '.join(map(str, cancelled))}")
+        except BuilderError as err:
+            log(f"cancel after pause failed: {err}")
 
     def check_ruleset(self, force=False):
         if not force and time.time() - self.last_ruleset < 60 and self.ruleset_ok:
             return True
-        problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"])
+        problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
         self.last_ruleset = time.time()
         self.ruleset_ok = not problems
         if problems:
@@ -498,6 +528,15 @@ class Controller:
             thread.start()
         self.reap_finished_workers()
         data = self.state.load()
+        if data.get("mode") == "on" and self.cfg["requireNetworkBlock"] and not data["slots"] \
+                and time.time() - self.last_proof > self.cfg["proofMinutes"] * 60:
+            ok, detail = prove_network_block(self.cfg, self.lima)
+            self.last_proof = time.time()
+            if not ok:
+                self.pause(f"network block proof failed: {detail}")
+                return "paused"
+            self.state.update(lambda d: d.update(networkProof=now_utc().isoformat()))
+            data = self.state.load()
         if data.get("mode") == "on" and self.check_ruleset():
             self.gh.publish(availability_record(self.cfg, self.free_slots(data, pending)))
         if data.get("mode") == "draining" and not candidates and not data["slots"] and not self.workers:
@@ -522,7 +561,7 @@ class Controller:
             for slot in range(self.cfg["slots"]):
                 if str(slot) not in data["slots"]:
                     data["slots"][str(slot)] = {
-                        "jobId": job["id"], "runId": run["id"], "event": run["event"],
+                        "jobId": job["id"], "runId": run["id"], "attempt": run.get("run_attempt"), "event": run["event"],
                         "since": now_utc().isoformat(), "phase": "cloning",
                     }
                     self.state.save(data)
@@ -558,14 +597,14 @@ class Controller:
             if current.get("status") != "queued":
                 log(f"job {job['id']} no longer queued ({current.get('status')}); not minting")
                 return
-            name = f"mbp2606-s{slot}-{job['id']}"
+            name = f"mbp2606-s{slot}-{job['id']}-{secrets.token_hex(3)}"
             jit = self.gh.jit(name)
             runner_id = jit["runner"]["id"]
             self.set_slot(slot, phase="running", runner=name, runnerId=runner_id)
             log(f"slot {slot}: runner {name} for run {run['id']} job {job['id']} ({run['event']}, cache={'rw' if disk and disk.startswith('aeon-cache') else 'scratch' if disk else 'none'})")
             self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/start-runner", input=jit["encoded_jit_config"])
             self.wait_for_runner(slot, vm, job)
-            self.post_job_check(slot, vm)
+            self.post_job_check(slot, vm, name, job)
         except Exception as err:  # noqa: BLE001 - one slot must never kill the pool
             log(f"slot {slot}: {err}")
         finally:
@@ -622,17 +661,32 @@ class Controller:
             time.sleep(5)
         log(f"slot {slot}: job exceeded {self.cfg['maxJobMinutes']} min; stopping VM")
 
-    def post_job_check(self, slot, vm):
-        text = self.lima.shell(vm, "cat /var/lib/aeon/hook.log 2>/dev/null || true", check=False).stdout
-        allows, denies = parse_hook_log(text)
-        verified = set(map(str, self.state.load()["verifiedRuns"]))
-        if denies:
-            self.pause(f"slot {slot}: the job-started hook denied a job: {denies[0]}")
+    def find_runner_job(self, name, job):
+        """Which run, attempt and job did this runner actually take? Asked of the
+        API, never of the VM: the job had root there and could rewrite its logs."""
+        target = self.gh.job(job["id"])
+        if target.get("runner_name") == name:
+            return target
+        data = self.state.load()
+        run_ids = list(dict.fromkeys(data["verifiedRuns"][-20:] + [r["id"] for r in self.gh.recent_runs()]))
+        for run_id in run_ids:
+            for item in self.gh.all_jobs(run_id):
+                if item.get("runner_name") == name:
+                    return item
+        return None
+
+    def post_job_check(self, slot, vm, name, job):
+        took = self.lima.shell(vm, "test -s /var/lib/aeon/hook.log", check=False).returncode == 0
+        ran = self.find_runner_job(name, job)
+        verified = set(self.state.load()["verifiedRuns"])
+        if ran is None:
+            if took:
+                self.pause(f"slot {slot}: runner {name} ran a job the API cannot attribute")
             return
-        for item in allows:
-            if item.get("run") not in verified:
-                self.pause(f"slot {slot}: runner ran unverified run {item.get('run')}")
-                return
+        if ran.get("run_id") not in verified:
+            self.pause(f"slot {slot}: runner {name} ran job {ran.get('id')} of unverified run {ran.get('run_id')} (attempt {ran.get('run_attempt')})")
+            return
+        log(f"slot {slot}: post-job ok, {name} ran job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')} ({ran.get('conclusion')})")
 
     def run_forever(self):
         pidfile = STATE_DIR / "controller.pid"
@@ -662,6 +716,18 @@ class Controller:
 
 
 # ---------------------------------------------------------------- commands
+
+
+def cancel_label_runs(gh, cfg, statuses=("queued", "in_progress")):
+    cancelled = []
+    for status in ("queued", "in_progress"):
+        for run in gh.runs(status):
+            if run["id"] in cancelled:
+                continue
+            if any(wants_label(j, cfg["label"]) and j.get("status") in statuses for j in gh.jobs(run["id"])):
+                gh.cancel(run["id"])
+                cancelled.append(run["id"])
+    return cancelled
 
 
 def load_config(path):
@@ -719,9 +785,14 @@ def cmd_on(cfg, args):
     lima = Lima(cfg)
     prepare_base(cfg, lima)
     gh = GitHub(cfg)
-    problems = ruleset_problems(gh.ruleset(), cfg["ruleset"])
+    problems = ruleset_problems(gh.ruleset(), cfg["ruleset"]["expected"])
     if problems:
         raise BuilderError("main ruleset check failed: " + "; ".join(problems))
+    if cfg["requireNetworkBlock"]:
+        ok, detail = prove_network_block(cfg, lima)
+        if not ok:
+            raise BuilderError(f"network block missing ({detail}); install it: sudo aeon-builder pf-install")
+        state.update(lambda d: d.update(networkProof=now_utc().isoformat()))
     state.update(lambda d: (d.update(mode="on"), d.pop("alert", None)))
     if controller_pid():
         print("aeon-builder: on (controller already running)")
@@ -743,13 +814,7 @@ def cmd_off(cfg, args):
     gh.clear()
     if args.now:
         state.update(lambda d: d.update(mode="stopping"))
-        cancelled = set()
-        for status in ("queued", "in_progress"):
-            for run in gh.runs(status):
-                if any(wants_label(j, cfg["label"]) and j.get("status") in ("queued", "in_progress") for j in gh.jobs(run["id"])):
-                    if run["id"] not in cancelled:
-                        gh.cancel(run["id"])
-                        cancelled.add(run["id"])
+        cancelled = cancel_label_runs(gh, cfg)
         print(f"aeon-builder: hard stop, cancelled {len(cancelled)} run(s)")
     else:
         data = state.load()
@@ -787,6 +852,7 @@ def cmd_status(cfg, args):
     print(f"mode:        {data.get('mode')}{'  ⚠ ' + data['alert'] if data.get('alert') else ''}")
     print(f"controller:  {'pid ' + str(pid) if pid else 'not running'}")
     print(f"base VM:     {base}")
+    print(f"net block:   last proven {data.get('networkProof', 'never')[:19]}")
     print(f"slots:       {len(data['slots'])}/{cfg['slots']} busy ({cfg['slotCpus']} CPU / {cfg['slotMemoryGiB']} GiB each)")
     for slot, info in sorted(data["slots"].items()):
         print(f"  slot {slot}: {info.get('phase')} run {info.get('runId')} job {info.get('jobId')} {info.get('event')} since {info.get('since', '')[:19]}")

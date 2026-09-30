@@ -33,29 +33,12 @@ CFG = {
     "cacheDiskGiB": 60,
     "sshPortBase": 60020,
     "blockedNetworks": ["10.0.0.0/8", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8"],
-    "ruleset": {
-        "id": 24240960,
-        "include": ["~DEFAULT_BRANCH", "refs/heads/main"],
-        "ruleTypes": ["deletion", "non_fast_forward", "pull_request", "required_status_checks"],
-        "requiredChecks": ["go", "web", "release-check", "e2e"],
-        "bypass": [["RepositoryRole", "pull_request"]],
-    },
+    "requireNetworkBlock": False,
+    "proofMinutes": 10,
+    "ruleset": {"id": 24240960, "expected": json.loads((ROOT / "modules/aeon-builder/paimos-main-ruleset.json").read_text())},
 }
 
-LIVE_RULESET = {
-    "enforcement": "active",
-    "target": "branch",
-    "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
-    "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}],
-    "rules": [
-        {"type": "deletion"},
-        {"type": "non_fast_forward"},
-        {"type": "pull_request", "parameters": {"required_approving_review_count": 0}},
-        {"type": "required_status_checks", "parameters": {"required_status_checks": [
-            {"context": c, "integration_id": 15368} for c in ("go", "web", "release-check", "e2e")]}},
-    ],
-}
-
+LIVE_RULESET = json.loads((ROOT / "modules/aeon-builder/paimos-main-ruleset.json").read_text())
 
 def run(**overrides):
     base = {
@@ -118,17 +101,40 @@ class AdmissionTests(unittest.TestCase):
 
 
 class RulesetTests(unittest.TestCase):
-    def test_live_ruleset_passes(self):
-        self.assertEqual(ab.ruleset_problems(LIVE_RULESET, CFG["ruleset"]), [])
+    def expected(self):
+        return CFG["ruleset"]["expected"]
 
-    def test_drift_is_reported(self):
-        disabled = dict(LIVE_RULESET, enforcement="disabled")
-        self.assertTrue(ab.ruleset_problems(disabled, CFG["ruleset"]))
-        fewer = dict(LIVE_RULESET, rules=LIVE_RULESET["rules"][:2])
-        self.assertTrue(any("pull_request" in p for p in ab.ruleset_problems(fewer, CFG["ruleset"])))
-        bypass = dict(LIVE_RULESET, bypass_actors=[{"actor_type": "Integration", "bypass_mode": "always"}])
-        self.assertIn("unexpected bypass actors", ab.ruleset_problems(bypass, CFG["ruleset"]))
-        self.assertEqual(ab.ruleset_problems(None, CFG["ruleset"]), ["ruleset missing"])
+    def test_pinned_ruleset_covers_the_contract(self):
+        pinned = self.expected()
+        self.assertEqual(pinned["enforcement"], "active")
+        types = {r["type"] for r in pinned["rules"]}
+        self.assertLessEqual({"deletion", "non_fast_forward", "pull_request", "required_status_checks"}, types)
+        checks = next(r for r in pinned["rules"] if r["type"] == "required_status_checks")["parameters"]
+        self.assertLessEqual({"go", "web", "release-check", "e2e"}, {c["context"] for c in checks["required_status_checks"]})
+
+    def test_live_equal_passes_regardless_of_list_order(self):
+        live = json.loads(json.dumps(LIVE_RULESET))
+        live["rules"].reverse()
+        live["id"] = 24240960
+        self.assertEqual(ab.ruleset_problems(live, self.expected()), [])
+
+    def test_any_drift_is_reported(self):
+        def changed(fn):
+            live = json.loads(json.dumps(LIVE_RULESET))
+            fn(live)
+            return ab.ruleset_problems(live, self.expected())
+        self.assertIn("enforcement is evaluate", changed(lambda d: d.update(enforcement="evaluate")))
+        self.assertIn("rules changed", changed(lambda d: d["rules"].pop()))
+        self.assertIn("bypass_actors changed", changed(lambda d: d["bypass_actors"].append(
+            {"actor_id": 1, "actor_type": "Integration", "bypass_mode": "always"})))
+        self.assertIn("conditions changed", changed(lambda d: d["conditions"]["ref_name"]["exclude"].append("refs/heads/main")))
+
+        def loosen(d):
+            for rule in d["rules"]:
+                if rule["type"] == "required_status_checks":
+                    rule["parameters"]["required_status_checks"].pop()
+        self.assertIn("rules changed", changed(loosen))
+        self.assertEqual(ab.ruleset_problems(None, self.expected()), ["ruleset missing"])
 
 
 class RenderTests(unittest.TestCase):
@@ -247,6 +253,15 @@ class FakeGitHub:
     def jobs(self, run_id):
         return self._jobs.get(run_id, [])
 
+    def all_jobs(self, run_id):
+        return self._jobs.get(run_id, [])
+
+    def job(self, job_id):
+        return next(j for jobs in self._jobs.values() for j in jobs if j["id"] == job_id)
+
+    def recent_runs(self):
+        return self._runs
+
     def sha_on_branch(self, sha):
         return True
 
@@ -328,17 +343,42 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.state.load()["mode"], "paused")
         self.assertIn(None, gh.published)
 
-    def test_post_job_check_pauses_on_foreign_run(self):
-        ctl = self.controller(FakeGitHub([], {}))
+    class Lima:
+        def __init__(self, took):
+            self.took = took
+
+        def shell(self, vm, cmd, check=True):
+            return subprocess.CompletedProcess([], 0 if self.took else 1, "", "")
+
+    def post_job(self, jobs, runs, took=True):
+        gh = FakeGitHub(runs, jobs)
+        ctl = self.controller(gh)
         self.state.update(lambda d: d["verifiedRuns"].append(9))
+        ctl.lima = self.Lima(took)
+        ctl.post_job_check(0, "aeon-job-0", "mbp2606-s0-90-abc", {"id": 90})
+        return self.state.load()["mode"], gh
 
-        class Lima:
-            def shell(self, vm, cmd, check=True):
-                return subprocess.CompletedProcess([], 0, "aeon-hook allow run=666 attempt=1 job=go event=push sha=x\n", "")
-        ctl.lima = Lima()
-        ctl.post_job_check(0, "aeon-job-0")
-        self.assertEqual(self.state.load()["mode"], "paused")
+    def test_post_job_ok_when_the_runner_took_a_sibling_job_of_a_verified_run(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "mbp2606-s1-91-def", "labels": ["mbp2606"], "status": "completed"},
+                    {"id": 91, "run_id": 9, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"], "status": "completed"}]}
+        mode, _ = self.post_job(jobs, [run(id=9, status="completed")])
+        self.assertEqual(mode, "on")
 
+    def test_post_job_pauses_when_the_runner_ran_an_unverified_run(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "queued"}],
+                66: [{"id": 660, "run_id": 66, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"], "status": "queued"}]}
+        mode, gh = self.post_job(jobs, [run(id=9), run(id=66, event="pull_request")])
+        self.assertEqual(mode, "paused")
+        self.assertIn(None, gh.published)
+        self.assertEqual(sorted(gh.cancelled), [9, 66], "a pause cancels queued mbp2606 runs")
+
+    def test_post_job_pauses_on_unattributable_work(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "completed"}]}
+        self.assertEqual(self.post_job(jobs, [run(id=9, status="completed")], took=True)[0], "paused")
+
+    def test_idle_runner_that_never_took_a_job_is_fine(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "mbp2606-s3-93-x", "labels": ["mbp2606"], "status": "completed"}]}
+        self.assertEqual(self.post_job(jobs, [run(id=9, status="completed")], took=False)[0], "on")
 
 if __name__ == "__main__":
     unittest.main()
