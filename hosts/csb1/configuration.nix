@@ -410,8 +410,15 @@ in
     description = "Generate PAIMOS AEON host secrets once";
     wantedBy = [ "multi-user.target" ];
     # Declared from this side so compose-csb1's own requires list (pinned by T58) stays unchanged.
-    requiredBy = [ "compose-csb1.service" ];
-    before = [ "compose-csb1.service" ];
+    # The weekly updater also runs `up -d`, so it must not start the stack before these exist.
+    requiredBy = [
+      "compose-csb1.service"
+      "compose-csb1-update.service"
+    ];
+    before = [
+      "compose-csb1.service"
+      "compose-csb1-update.service"
+    ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -425,7 +432,12 @@ in
         if [ -d "$d/$f" ]; then rmdir "$d/$f"; fi
         if [ ! -s "$d/$f" ]; then
           umask 0277
-          head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40 > "$d/$f.tmp"
+          # 20 random bytes as hex: always exactly 40 characters (Aeon requires at least 32).
+          od -An -tx1 -N20 /dev/urandom | tr -d ' \n' > "$d/$f.tmp"
+          if [ "$(wc -c < "$d/$f.tmp")" -ne 40 ]; then
+            echo "aeon-secrets: generated $f has the wrong length" >&2
+            exit 1
+          fi
           chmod 0444 "$d/$f.tmp"
           mv "$d/$f.tmp" "$d/$f"
         fi
