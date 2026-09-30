@@ -402,7 +402,8 @@ in
   # A failed/missing renderer is a hard dependency, not an advisory Wants.
   # This merges with composeStack's docker.service requirement.
   # AEON-12: host-generated secrets for PAIMOS AEON (database passwords, session
-  # key). Generated once on csb1 and never leave it (not in git, not in agenix);
+  # key, messaging key, AEON-319 doctrine guard key). Generated once on csb1 and
+  # never leave it (not in git, not in agenix);
   # 0444 files inside a 0700 root directory, so only the containers that bind-mount
   # them (non-root users) can read them.
   systemd.services.aeon-secrets = {
@@ -419,7 +420,9 @@ in
     script = ''
       d=/var/lib/aeon-secrets
       install -d -m 0700 -o root -g root "$d"
-      for f in db-superuser-password db-password session-key messaging-key; do
+      for f in db-superuser-password db-password session-key messaging-key doctrine-guard-key; do
+        # A bind mount started before the file existed leaves an empty directory; rmdir only removes that.
+        if [ -d "$d/$f" ]; then rmdir "$d/$f"; fi
         if [ ! -s "$d/$f" ]; then
           umask 0277
           head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40 > "$d/$f.tmp"
