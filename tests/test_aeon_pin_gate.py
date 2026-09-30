@@ -237,8 +237,14 @@ class JobFixtures(unittest.TestCase):
             self.assertIn("aeon_pin_gate=not_applicable", self.run_mode("verify", None))
 
     def test_pin_classifier_logs_zero_tests(self):
-        with patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
-            self.assertIn("pharos_fast_lane=pin_only tests_ran=0", self.run_mode("classify", PIN))
+        output = self.run_mode("classify", PIN)
+        self.assertEqual(output.splitlines()[0], "pin_only=true")
+        self.assertIn("pharos_fast_lane=pin_only tests_ran=0", output)
+
+    def test_non_pin_classifier_requests_full_suite(self):
+        output = self.run_mode("classify", None)
+        self.assertEqual(output.splitlines()[0], "pin_only=false")
+        self.assertIn("pharos_fast_lane=full_suite", output)
 
 
 class WorkflowFixtures(unittest.TestCase):
@@ -256,6 +262,9 @@ class WorkflowFixtures(unittest.TestCase):
         self.assertEqual(steps[0]["with"]["fetch-depth"], 0)
         self.assertEqual(steps[1]["id"], "pin")
         self.assertIn(" classify", steps[1]["run"])
+        # Only the validated pin_only line may reach the step outputs.
+        self.assertIn("grep -E '^pin_only=(true|false)$'", steps[1]["run"])
+        self.assertIn('>> "$GITHUB_OUTPUT"', steps[1]["run"])
         for step in steps[2:]:
             with self.subTest(step=step.get("name", step.get("uses"))):
                 self.assertEqual(step["if"], "steps.pin.outputs.pin_only != 'true'")

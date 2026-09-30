@@ -11,7 +11,6 @@ import hashlib
 import http.client
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
@@ -190,10 +189,9 @@ def main():
     args = parser.parse_args()
     pin = classify(args.repo, args.base, args.head)
     if args.mode == "classify":
-        output = os.environ.get("GITHUB_OUTPUT")
-        if output:
-            with Path(output).open("a") as stream:
-                stream.write(f"pin_only={'true' if pin else 'false'}\n")
+        # The workflow copies this exact line into $GITHUB_OUTPUT; the script
+        # itself never opens a path taken from the environment.
+        print(f"pin_only={'true' if pin else 'false'}")
         if pin:
             print("pharos_fast_lane=pin_only tests_ran=0")
         else:
