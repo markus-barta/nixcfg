@@ -28,12 +28,7 @@ default on). `at.inspr.aeon-agentd` is the owned-session daemon.
 
 ### Aeon agentd (NIX-583)
 
-**Since 2026-09-30, disabled on mbp2607**: agentd runs from the Homebrew tap
-(`brew install inspr-at/tap/aeon-agentd`, paired with `aeon-agentd pair`,
-LaunchAgent `cm.aeon.agentd`); the Aeon CLI stays in Nix. The module below
-remains available as a fallback.
-
-`uzumaki.aeon.agentd` is a separate LaunchAgent (when enabled):
+`uzumaki.aeon.agentd` is a separate LaunchAgent enabled on mbp2607:
 `at.inspr.aeon-agentd`, using `aeon-agentd` from the reviewed
 `v260927160212.0.0` source `3f8d613473ff3ff37db50ecff9e5522de73cc974`.
 The classic package, label, registry, journal and children were retired in NIX-584.
