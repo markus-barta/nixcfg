@@ -282,6 +282,8 @@ class GitHub:
                 return self.etags[etag_key][1]
             detail = err.read()[:300].decode(errors="replace")
             raise BuilderError(f"{method} {path}: HTTP {err.code} {detail}") from None
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as err:
+            raise BuilderError(f"{method} {path}: {type(err).__name__}: {err}") from None
 
     def call(self, method, path, perms, body=None, cache=False):
         return self._raw(method, path, body, bearer=self.token(perms), etag_key=path if cache and method == "GET" else None)
@@ -394,7 +396,14 @@ class Lima:
         return self.run("shell", "--workdir", "/", name, "--", "bash", "-c", command, input=input, check=check, timeout=timeout)
 
     def delete(self, name):
-        self.run("delete", "--force", name, check=False)
+        """Delete and verify; True when the instance is gone."""
+        for _ in range(3):
+            self.run("delete", "--force", name, check=False)
+            if name not in self.instances():
+                return True
+            time.sleep(2)
+        log(f"limactl could not delete {name}")
+        return False
 
 
 # ---------------------------------------------------------------- state
@@ -430,12 +439,9 @@ class State:
         with State._thread_lock:
             depth = getattr(State._local, "depth", 0)
             if depth:
-                State._local.depth = depth + 1
-                try:
-                    yield
-                finally:
-                    State._local.depth = depth
-                return
+                # A nested read-modify-write would be overwritten by the outer
+                # save; refuse instead of losing it.
+                raise RuntimeError("nested State lock")
             self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
             with open(self.lockfile, "a") as handle:
                 fcntl.flock(handle, fcntl.LOCK_EX)
@@ -459,11 +465,15 @@ class State:
     def save(self, data):
         atomic_write(self.file, json.dumps(data, indent=2, sort_keys=True))
 
-    def update(self, fn):
+    def update(self, fn, then=None):
+        """Read-modify-write under the lock; `then` runs before the lock is
+        released, so ordering with other processes' publishes is kept."""
         with self.locked():
             data = self.load()
             fn(data)
             self.save(data)
+            if then:
+                then(data)
             return data
 
 
@@ -539,6 +549,7 @@ class Controller:
         self.slot_used_cache = {}
         self.slot_fresh = {}
         self.stop_event = threading.Event()
+        self.terminate_requested = False
 
     # -- slots
     def free_slots(self, data, pending):
@@ -555,12 +566,14 @@ class Controller:
         """A failed protection check: refuse availability, stop minting and
         cancel queued mbp2606 runs so nothing waits on a pool that is off."""
         log(f"PAUSE: {reason}")
+
+        def clear(_):
+            try:
+                self.gh.clear()
+            except BuilderError as err:
+                log(f"clear availability failed: {err}")
         self.state.update(lambda d: d.update(mode="paused", alert=f"{now_utc().isoformat()} {reason}")
-                          if d.get("mode") not in ("stopping", "off") else None)
-        try:
-            self.gh.clear()
-        except BuilderError as err:
-            log(f"clear availability failed: {err}")
+                          if d.get("mode") not in ("stopping", "off") else None, then=clear)
         try:
             cancelled = cancel_label_runs(self.gh, self.cfg, statuses=("queued",))
             if cancelled:
@@ -660,19 +673,26 @@ class Controller:
                 log(f"publish failed: {err}")
 
     def publish_once(self):
+        """The mode check and the remote write happen under the state lock, the
+        same lock pause() and `off` hold while clearing: a publish can never
+        land after a clear."""
         if self.mode() != "on" or not self.check_ruleset():
             return False
-        if self.mode() != "on":
-            return False
-        self.gh.publish(availability_record(self.cfg, self.free_slots(self.state.load(), self.pending)))
-        return True
+        published = []
+
+        def publish(data):
+            if data.get("mode") == "on":
+                self.gh.publish(availability_record(self.cfg, self.free_slots(data, self.pending)))
+                published.append(True)
+        self.state.update(lambda d: None, then=publish)
+        return bool(published)
 
     def sweep_stale_runners(self):
         """Registrations whose VM is gone (e.g. a denied job GitHub still counts
         as running) are deleted once GitHub lets go of them."""
-        live = {s.get("runner") for s in self.state.load()["slots"].values()}
         try:
             for runner in self.gh.runners():
+                live = {s.get("runner") for s in self.state.load()["slots"].values()}
                 if runner["name"].startswith("mbp2606-") and runner["name"] not in live and runner.get("status") == "offline":
                     try:
                         self.gh.delete_runner(runner["id"])
@@ -695,16 +715,19 @@ class Controller:
         for slot_key, info in list(data["slots"].items()):
             slot = int(slot_key)
             log(f"reconcile: slot {slot} was left {info.get('phase')} (run {info.get('runId')}); cleaning up")
+            self.lima.delete(f"aeon-job-{slot}")
+            if (info.get("disk") or "").startswith("aeon-cache-"):
+                self.tainted.add(slot)
+            try:
+                self.finish_disk(slot, info.get("disk"))
+            except Exception as err:  # noqa: BLE001
+                log(f"reconcile: slot {slot} disk: {err}")
+            self.release_slot(slot)
             if info.get("runnerId"):
                 try:
                     self.gh.delete_runner(info["runnerId"])
                 except BuilderError as err:
-                    log(f"reconcile: runner {info.get('runner')}: {err}")
-            self.lima.delete(f"aeon-job-{slot}")
-            if info.get("disk", "").startswith("aeon-cache-"):
-                self.tainted.add(slot)
-            self.finish_disk(slot, info.get("disk"))
-            self.release_slot(slot)
+                    log(f"reconcile: runner {info.get('runner')} deferred to the sweep: {err}")
         for name in self.lima.instances():
             if name.startswith("aeon-job-") or name == "aeon-probe":
                 self.lima.delete(name)
@@ -765,6 +788,7 @@ class Controller:
             if not self.minting_allowed():
                 return
             name = f"mbp2606-s{slot}-{job['id']}-{secrets.token_hex(3)}"
+            self.set_slot(slot, phase="minting", runner=name)
             jit = self.gh.jit(name)
             runner_id = jit["runner"]["id"]
             self.set_slot(slot, phase="waiting", runner=name, runnerId=runner_id)
@@ -786,14 +810,20 @@ class Controller:
             log(f"slot {slot}: {err}")
             self.tainted.add(slot)
         finally:
+            # Local cleanup first and unconditionally; GitHub last (a stale
+            # registration is swept later, a leaked VM is not).
+            if not self.lima.delete(vm):
+                self.tainted.add(slot)
+            for step in (lambda: self.finish_disk(slot, disk), lambda: self.release_slot(slot)):
+                try:
+                    step()
+                except Exception as err:  # noqa: BLE001
+                    log(f"slot {slot}: cleanup step failed: {err}")
             if runner_id:
                 try:
                     self.gh.delete_runner(runner_id)
                 except BuilderError as err:
-                    log(f"slot {slot}: runner cleanup failed: {err}")
-            self.lima.delete(vm)
-            self.finish_disk(slot, disk)
-            self.release_slot(slot)
+                    log(f"slot {slot}: runner cleanup deferred to the sweep: {err}")
 
     def unverified_label_runs(self):
         """Before every mint: no queued job that could take an mbp2606 runner
@@ -991,9 +1021,9 @@ class Controller:
         atomic_write(STATE_DIR / "controller.pid", str(os.getpid()))
 
         def terminate(*_):
-            # Stop like `off --now` for our own VMs: workers see `stopping`,
-            # delete their VMs and runners, then the loop ends.
-            self.state.update(lambda d: d.update(mode="stopping") if d.get("mode") in ("on", "draining", "paused") else None)
+            # Only a flag: the handler may interrupt a State update in this
+            # thread. The loop turns it into `stopping` (like off --now).
+            self.terminate_requested = True
         signal.signal(signal.SIGTERM, terminate)
         log("controller started")
         self.reconcile()
@@ -1007,18 +1037,28 @@ class Controller:
                     log(f"tick failed: {err}")
                     mode = self.mode()
                 self.reap_finished_workers()
-                if mode in ("off", "paused") and not self.workers:
+                if self.terminate_requested:
+                    self.state.update(lambda d: d.update(mode="stopping") if d.get("mode") in ("on", "draining", "paused") else None)
+                    mode = self.mode()
+                busy = bool(self.workers) or bool(self.proof and self.proof.is_alive())
+                if mode in ("off", "paused") and not busy:
                     break
-                if mode == "stopping" and not self.workers:
+                if mode == "stopping" and not busy:
                     self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "stopping" else None)
                     break
                 time.sleep(self.cfg["pollSeconds"])
         finally:
             self.stop_event.set()
-            try:
-                self.gh.clear()
-            except BuilderError as err:
-                log(f"clear availability failed: {err}")
+            if self.proof and self.proof.is_alive():
+                self.proof.join(timeout=180)
+            self.lima.delete("aeon-probe")
+
+            def clear(_):
+                try:
+                    self.gh.clear()
+                except BuilderError as err:
+                    log(f"clear availability failed: {err}")
+            self.state.update(lambda d: None, then=clear)
             (STATE_DIR / "controller.pid").unlink(missing_ok=True)
             log("controller stopped")
             lock.close()
@@ -1139,16 +1179,19 @@ def cmd_off(cfg, args):
     running. Returns 2 while the pool is still draining, so callers (the
     mbp2606-builder wrapper) do not hand the machine back too early."""
     state = State()
-    if args.now:
-        state.update(lambda d: d.update(mode="stopping") if controller_pid() else d.update(mode="off"))
-    else:
-        state.update(lambda d: d.update(mode="draining" if controller_pid() else "off")
-                     if d.get("mode") in ("on", "paused") else None)
     gh = GitHub(cfg)
-    try:
-        gh.clear()
-    except BuilderError as err:
-        print(f"aeon-builder: warning, availability not cleared ({err}); it expires in 30 s", file=sys.stderr)
+    running = controller_pid()
+
+    def clear(_):
+        try:
+            gh.clear()
+        except BuilderError as err:
+            print(f"aeon-builder: warning, availability not cleared ({err}); it expires in 30 s", file=sys.stderr)
+    if args.now:
+        state.update(lambda d: d.update(mode="stopping" if running else "off"), then=clear)
+    else:
+        state.update(lambda d: d.update(mode="draining" if running else "off")
+                     if d.get("mode") in ("on", "paused") else None, then=clear)
     if args.now:
         try:
             cancelled = cancel_label_runs(gh, cfg)
@@ -1166,9 +1209,11 @@ def cmd_off(cfg, args):
         print("aeon-builder: still draining in the background; `aeon-builder status` shows progress")
         return 2
     lima = Lima(cfg)
-    for name in lima.instances():
-        if name.startswith("aeon-job-") or name == "aeon-probe":
-            lima.delete(name)
+    leftovers = [n for n in lima.instances() if n.startswith("aeon-job-") or n == "aeon-probe"]
+    stuck = [n for n in leftovers if not lima.delete(n)]
+    if stuck:
+        print(f"aeon-builder: could not delete {', '.join(stuck)}; the machine is NOT free", file=sys.stderr)
+        return 3
     try:
         for runner in gh.runners():
             if runner["name"].startswith("mbp2606-"):
