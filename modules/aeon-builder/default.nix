@@ -21,6 +21,7 @@ let
     provisionScript = ./provision-base.sh;
     hookScript = ./job-started.sh;
     startRunnerScript = ./start-runner.sh;
+    cacheLockScript = ./cache-lock.sh;
   };
 
   # Any change to what goes into the base VM rebuilds it on the next `on`.
@@ -74,6 +75,7 @@ let
     provisionScript = "${scripts.provisionScript}";
     hookScript = "${scripts.hookScript}";
     startRunnerScript = "${scripts.startRunnerScript}";
+    cacheLockScript = "${scripts.cacheLockScript}";
   };
 
   configFile = pkgs.writeText "aeon-builder.json" (builtins.toJSON settings);

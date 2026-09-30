@@ -11,7 +11,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
   build-essential ca-certificates curl git jq unzip zip xz-utils python3 \
-  libicu-dev libkrb5-3 zlib1g libssl3 acl
+  libicu-dev libkrb5-3 zlib1g libssl3 acl cryptsetup-bin
 
 # Runner user: Docker for service containers, passwordless sudo because
 # workflows expect hosted-runner parity. The VM is thrown away after one job.
@@ -35,6 +35,7 @@ rm -f "$tarball"
 install -d -m 0755 /opt/aeon
 install -m 0755 /tmp/job-started.sh /opt/aeon/job-started.sh
 install -m 0755 /tmp/start-runner /opt/aeon/start-runner
+install -m 0755 /tmp/cache-lock /opt/aeon/cache-lock
 install -m 0644 /tmp/allowlist.json /opt/aeon/allowlist.json
 
 cat >/opt/aeon/run-runner <<'EOF'
@@ -72,6 +73,6 @@ for image in "$@"; do
 done
 
 apt-get clean
-rm -f /tmp/provision-base.sh /tmp/job-started.sh /tmp/start-runner /tmp/allowlist.json
+rm -f /tmp/provision-base.sh /tmp/job-started.sh /tmp/start-runner /tmp/cache-lock /tmp/allowlist.json
 sync
 echo "base provisioned: actions-runner ${version}"

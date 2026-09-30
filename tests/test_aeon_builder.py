@@ -194,6 +194,7 @@ class HookTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         (self.tmp / "allow.json").write_text(json.dumps(ab.allowlist_document(CFG)))
         self.log = self.tmp / "hook.log"
+        self.log.write_text("")
 
     def hook(self, payload=None, **env):
         event = self.tmp / "event.json"
@@ -201,7 +202,9 @@ class HookTests(unittest.TestCase):
         base = {
             "PATH": os.environ["PATH"],
             "AEON_ALLOWLIST": str(self.tmp / "allow.json"),
-            "AEON_HOOK_LOG": str(self.log),
+            "AEON_STATE_DIR": str(self.tmp),
+            "AEON_TEST_DENY": "1",
+            "AEON_CACHE_WAIT": "2",
             "GITHUB_REPOSITORY": REPO,
             "GITHUB_EVENT_NAME": "push",
             "GITHUB_REF": "refs/heads/main",
@@ -214,10 +217,24 @@ class HookTests(unittest.TestCase):
         base.update(env)
         return subprocess.run(["bash", str(ROOT / "modules/aeon-builder/job-started.sh")], env=base, capture_output=True, text=True)
 
-    def test_allowed_job_passes_and_is_logged(self):
+    def test_allowed_job_waits_for_the_controller_then_passes(self):
+        (self.tmp / "cache-ready").write_text("")
         proc = self.hook()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("aeon-hook allow run=42", self.log.read_text())
+        self.assertIn("run=42", (self.tmp / "admitted").read_text())
+
+    def test_admitted_job_without_controller_confirmation_is_killed(self):
+        proc = self.hook()
+        self.assertEqual(proc.returncode, 97, "deny path (kill + poweroff in the VM)")
+        self.assertIn("did not confirm admission", self.log.read_text())
+
+    def test_deny_path_kills_and_powers_off_before_returning(self):
+        text = (ROOT / "modules/aeon-builder/job-started.sh").read_text()
+        deny = text[text.index("deny() {"):text.index("\n}\n", text.index("deny() {"))]
+        self.assertLess(deny.index("pkill -9"), deny.index("poweroff -ff"))
+        self.assertLess(deny.index("poweroff -ff"), deny.index("sleep infinity"))
+        self.assertLess(deny.index(">>\"$LOG\""), deny.index("pkill"), "the deny is logged first")
 
     def test_crafted_jobs_fail_closed(self):
         cases = [
@@ -233,7 +250,7 @@ class HookTests(unittest.TestCase):
         ]
         for env in cases:
             with self.subTest(env=env):
-                self.assertNotEqual(self.hook(**env).returncode, 0)
+                self.assertEqual(self.hook(**env).returncode, 97)
         self.assertNotEqual(self.hook(payload={"repository": {"full_name": REPO}, "pull_request": {"number": 9}}).returncode, 0)
         self.assertNotEqual(self.hook(payload={"repository": {"full_name": "evil/paimos"}}).returncode, 0)
         self.assertNotIn("allow", self.log.read_text())
@@ -376,11 +393,52 @@ class ControllerTests(unittest.TestCase):
 
     def test_post_job_pauses_on_unattributable_work(self):
         jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "completed"}]}
-        self.assertEqual(self.post_job(jobs, [run(id=9, status="completed")], took=True)[0], "paused")
+        self.assertEqual(self.post_job(jobs, [run(id=9, status="completed")])[0], "paused")
 
-    def test_idle_runner_that_never_took_a_job_is_fine(self):
-        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "mbp2606-s3-93-x", "labels": ["mbp2606"], "status": "completed"}]}
-        self.assertEqual(self.post_job(jobs, [run(id=9, status="completed")], took=False)[0], "on")
+    def admit(self, jobs, runs):
+        gh = FakeGitHub(runs, jobs)
+        ctl = self.controller(gh)
+        self.state.update(lambda d: (d["verifiedRuns"].append(9), d["slots"].__setitem__("0", {"jobId": 90})))
+        calls = []
+
+        class Lima:
+            def run(self, *args, input=None, check=True):
+                calls.append((args, input))
+                return subprocess.CompletedProcess([], 0, "", "")
+        ctl.lima = Lima()
+        ctl.slot_key = lambda slot: "k" * 128
+        sleep = ab.time.sleep
+        ab.time.sleep = lambda s: None
+        self.addCleanup(setattr, ab.time, "sleep", sleep)
+        return ctl.admit(0, "aeon-job-0", "mbp2606-s0-90-abc", {"id": 90}), calls, gh
+
+    def test_cache_unlocks_only_after_api_attribution_to_a_verified_run(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "run_attempt": 1, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
+        verdict, calls, _ = self.admit(jobs, [run(id=9)])
+        self.assertEqual(verdict, "ok")
+        self.assertIn("unlock", calls[0][0])
+        self.assertEqual(calls[0][1], "k" * 128)
+
+    def test_racing_unverified_job_never_gets_the_key(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "queued"}],
+                66: [{"id": 660, "run_id": 66, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"], "status": "in_progress"}]}
+        verdict, calls, gh = self.admit(jobs, [run(id=9), run(id=66, event="push", head_branch="work/x")])
+        self.assertEqual(verdict, "unverified")
+        self.assertEqual(calls, [], "no unlock")
+        self.assertEqual(self.state.load()["mode"], "paused")
+
+    def test_rescan_before_mint_cancels_any_unverified_label_job(self):
+        jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606"]}],
+                5: [{"id": 50, "status": "queued", "labels": ["mbp2606"]}]}
+        gh = FakeGitHub([run(id=9), run(id=5, event="push", head_branch="work/x")], jobs)
+        ctl = self.controller(gh)
+        self.assertEqual(ctl.unverified_label_runs(), [5])
+        self.assertEqual(gh.cancelled, [5])
+        self.assertIn(9, self.state.load()["verifiedRuns"])
+
+    def test_clone_keeps_filesystem_of_copied_disks(self):
+        self.assertIn('"format": false', ab.clone_expression(CFG, 1, "aeon-scratch-1", fresh=False))
+        self.assertIn('"format": true', ab.clone_expression(CFG, 1, "aeon-cache-1", fresh=True))
 
 if __name__ == "__main__":
     unittest.main()
