@@ -154,10 +154,18 @@ class LockTests(unittest.TestCase):
         [t.join() for t in threads]
         self.assertEqual(state.load()["n"], 200)
 
-    def test_nested_update_does_not_deadlock(self):
+    def test_nested_update_is_refused_not_silently_lost(self):
         state = ab.State(self.tmp)
-        state.update(lambda d: state.update(lambda e: e.__setitem__("inner", 1)))
-        self.assertIn("mode", state.load())
+        with self.assertRaises(RuntimeError):
+            state.update(lambda d: state.update(lambda e: e.__setitem__("inner", 1)))
+        state.update(lambda d: d.__setitem__("after", 1))
+        self.assertEqual(state.load()["after"], 1, "the lock is released after the refusal")
+
+    def test_then_runs_under_the_lock(self):
+        state = ab.State(self.tmp)
+        seen = []
+        state.update(lambda d: d.update(mode="paused"), then=lambda d: seen.append(d["mode"]))
+        self.assertEqual(seen, ["paused"])
 
     def test_one_controller_lock(self):
         old = ab.STATE_DIR
@@ -412,6 +420,23 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(ctl.tick(), "off")
         self.assertEqual(gh.published, [])
         self.assertEqual(ctl.tick(), "off")
+
+    def test_publish_never_lands_after_a_pause(self):
+        gh = FakeGitHub([], {})
+        ctl = self.controller(gh)
+        ctl.pause("test")
+        self.assertFalse(ctl.publish_once())
+        self.assertEqual(gh.published, [None], "only the clear")
+
+    def test_transport_errors_become_builder_errors(self):
+        gh = ab.GitHub.__new__(ab.GitHub)
+        gh.etags = {}
+        import urllib.error
+        real = ab.urllib.request.urlopen
+        ab.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("dns"))
+        self.addCleanup(setattr, ab.urllib.request, "urlopen", real)
+        with self.assertRaises(ab.BuilderError):
+            gh._raw("GET", "/x", bearer="t")
 
     def test_ruleset_drift_pauses_and_clears(self):
         gh = FakeGitHub([run(id=9)], {9: [{"id": 1, "status": "queued", "labels": ["mbp2606"]}]})
