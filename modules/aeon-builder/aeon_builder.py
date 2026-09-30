@@ -328,7 +328,9 @@ class GitHub:
         self.call("POST", self.repo_path(f"/actions/runs/{run_id}/cancel"), CANCEL, {})
 
     def ruleset(self):
-        return self.call("GET", self.repo_path(f"/rulesets/{self.cfg['ruleset']['id']}"), ADMIN_READ)
+        # administration:read gets the ruleset without bypass_actors (GitHub hides
+        # them), which the exact comparison rightly rejects; write sees them.
+        return self.call("GET", self.repo_path(f"/rulesets/{self.cfg['ruleset']['id']}"), ADMIN_WRITE)
 
     def jit(self, name):
         body = {"name": name, "runner_group_id": 1, "labels": self.cfg["runnerLabels"], "work_folder": "_work"}
