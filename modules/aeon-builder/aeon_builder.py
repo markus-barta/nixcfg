@@ -84,6 +84,14 @@ def wants_label(job, label):
     return label.lower() in [str(item).lower() for item in job.get("labels") or []]
 
 
+def could_take(job, runner_labels):
+    """GitHub assigns a queued job to any runner whose labels include ALL of the
+    job's runs-on labels (case-insensitive). `runs-on: self-hosted` alone
+    therefore fits an mbp2606 runner too, so sweeps match subsets, not the label."""
+    wanted = {str(item).lower() for item in job.get("labels") or []}
+    return bool(wanted) and wanted <= {label.lower() for label in runner_labels}
+
+
 def uses_cache_disk(run, cfg):
     """Trusted caches are writable only by pushes to the branch (AEON-438)."""
     return run.get("event") in cfg["cacheWriteEvents"]
@@ -645,15 +653,16 @@ class Controller:
             self.release_slot(slot)
 
     def unverified_label_runs(self):
-        """Before every mint: no queued mbp2606 job of an unverified run may
-        exist, whatever its event or ref. Cancel them and report whether any did."""
+        """Before every mint: no queued job that could take an mbp2606 runner
+        (its labels a subset of ours) may belong to an unverified run, whatever
+        its event or ref. Cancel those runs and report whether any existed."""
         data = self.state.load()
         found = []
         for status in ("queued", "in_progress"):
             for run in self.gh.runs(status):
                 if run["id"] in data["verifiedRuns"] or run["id"] in found:
                     continue
-                if not any(j.get("status") == "queued" and wants_label(j, self.cfg["label"]) for j in self.gh.jobs(run["id"])):
+                if not any(j.get("status") == "queued" and could_take(j, self.cfg["runnerLabels"]) for j in self.gh.jobs(run["id"])):
                     continue
                 ok, reason = verify_run(run, self.cfg, self.gh.sha_on_branch)
                 if ok:
@@ -857,7 +866,7 @@ def cancel_label_runs(gh, cfg, statuses=("queued", "in_progress")):
         for run in gh.runs(status):
             if run["id"] in cancelled:
                 continue
-            if any(wants_label(j, cfg["label"]) and j.get("status") in statuses for j in gh.jobs(run["id"])):
+            if any(could_take(j, cfg["runnerLabels"]) and j.get("status") in statuses for j in gh.jobs(run["id"])):
                 gh.cancel(run["id"])
                 cancelled.append(run["id"])
     return cancelled
