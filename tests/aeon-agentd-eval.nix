@@ -130,12 +130,12 @@ in
     pairedPreflightScript = builtins.head (
       builtins.match ".*(/nix/store/[a-z0-9]+-aeon-agentd-paired-preflight\\.py).*" paired.config.home.activation.aeonAgentdPreflight.data
     );
-    homePackages = map (p: p.name or "") enabled.config.home.packages;
+    homePackages = map (p: p.name or "") host.config.home.packages;
     agentdName = host.pkgs.aeon-agentd.name;
     runtimeFiles = {
-      node = enabled.config.home.file.".local/share/aeon-agentd/bin/node".source;
+      node = host.config.home.file.".local/share/aeon-agentd/bin/node".source;
       sdk =
-        enabled.config.home.file.".local/share/aeon-agentd/lib/node_modules/@anthropic-ai/claude-agent-sdk".source;
+        host.config.home.file.".local/share/aeon-agentd/lib/node_modules/@anthropic-ai/claude-agent-sdk".source;
     };
     claudeRuntime =
       let
