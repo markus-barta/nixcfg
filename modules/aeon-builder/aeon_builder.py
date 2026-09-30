@@ -128,13 +128,16 @@ def availability_record(cfg, free_slots, now=None):
     }
 
 
-def clone_expression(cfg, slot, disk):
+def clone_expression(cfg, slot, disk, fresh=True):
+    """A cloned disk keeps its filesystem (labelled for its source disk), so only
+    a fresh disk lets Lima format; otherwise Lima just mounts partition 1."""
     ports = cfg["sshPortBase"] + slot
+    fmt = "true" if fresh else "false"
     expr = [
         f".cpus = {int(cfg['slotCpus'])}",
         f'.memory = "{int(cfg["slotMemoryGiB"])}GiB"',
         f".ssh.localPort = {ports}",
-        '.additionalDisks = [{"name": "%s", "format": true, "fsType": "ext4"}]' % disk if disk else ".additionalDisks = []",
+        '.additionalDisks = [{"name": "%s", "format": %s, "fsType": "ext4"}]' % (disk, fmt) if disk else ".additionalDisks = []",
     ]
     return " | ".join(expr)
 
@@ -461,6 +464,8 @@ class Controller:
         self.last_ruleset = 0.0
         self.ruleset_ok = False
         self.last_proof = time.time()
+        self.tainted = set()
+        self.slot_used_cache = {}
 
     # -- slots
     def free_slots(self, data, pending):
@@ -584,22 +589,27 @@ class Controller:
         with self.lock:
             self.state.update(lambda d: d["slots"].pop(str(slot), None))
 
+    # -- one job VM
     def serve(self, slot, run, job):
         vm = f"aeon-job-{slot}"
         runner_id = None
+        disk = None
         try:
-            disk = self.prepare_disk(slot, run)
+            disk, fresh = self.prepare_disk(slot, run)
             self.lima.delete(vm)
-            self.lima.run("clone", "--tty=false", BASE_VM, vm, "--set", clone_expression(self.cfg, slot, disk))
+            self.lima.run("clone", "--tty=false", BASE_VM, vm, "--set", clone_expression(self.cfg, slot, disk, fresh))
             self.lima.run("start", "--tty=false", vm)
             self.set_slot(slot, phase="probing", vm=vm, disk=disk)
             if self.cfg["requireNetworkBlock"]:
-                targets = host_probe_targets(self.cfg)
-                probe = self.lima.run("shell", "--workdir", "/", vm, "--", "bash", "-c", PROBE, "probe", *targets, check=False)
+                probe = self.lima.run("shell", "--workdir", "/", vm, "--", "bash", "-c", PROBE, "probe",
+                                      *host_probe_targets(self.cfg), check=False)
                 if probe.returncode != 0:
                     self.pause(f"network block check failed in {vm}: {probe.stdout.strip() or probe.stderr.strip()[-200:]}")
                     return
             if not self.check_ruleset(force=True):
+                return
+            if self.unverified_label_runs():
+                log(f"slot {slot}: unverified mbp2606 jobs were queued; cancelled them, not minting this tick")
                 return
             current = self.gh.job(job["id"])
             if current.get("status") != "queued":
@@ -608,13 +618,20 @@ class Controller:
             name = f"mbp2606-s{slot}-{job['id']}-{secrets.token_hex(3)}"
             jit = self.gh.jit(name)
             runner_id = jit["runner"]["id"]
-            self.set_slot(slot, phase="running", runner=name, runnerId=runner_id)
-            log(f"slot {slot}: runner {name} for run {run['id']} job {job['id']} ({run['event']}, cache={'rw' if disk and disk.startswith('aeon-cache') else 'scratch' if disk else 'none'})")
+            self.set_slot(slot, phase="waiting", runner=name, runnerId=runner_id)
+            log(f"slot {slot}: runner {name} for run {run['id']} attempt {run.get('run_attempt')} job {job['id']} ({run['event']}, disk {disk})")
             self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/start-runner", input=jit["encoded_jit_config"])
-            self.wait_for_runner(slot, vm, job)
-            self.post_job_check(slot, vm, name, job)
+            outcome = self.wait_for_runner(slot, vm, name, job)
+            if outcome == "ran":
+                if not self.post_job_check(slot, vm, name, job):
+                    self.tainted.add(slot)
+            elif outcome in ("denied", "unverified", "unattributed"):
+                self.tainted.add(slot)
+            if slot not in self.tainted:
+                self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/cache-lock", "lock", check=False)
         except Exception as err:  # noqa: BLE001 - one slot must never kill the pool
             log(f"slot {slot}: {err}")
+            self.tainted.add(slot)
         finally:
             if runner_id:
                 try:
@@ -622,52 +639,157 @@ class Controller:
                 except BuilderError as err:
                     log(f"slot {slot}: runner cleanup failed: {err}")
             self.lima.delete(vm)
-            self.drop_scratch(slot)
+            self.finish_disk(slot, disk)
             self.release_slot(slot)
 
+    def unverified_label_runs(self):
+        """Before every mint: no queued mbp2606 job of an unverified run may
+        exist, whatever its event or ref. Cancel them and report whether any did."""
+        data = self.state.load()
+        found = []
+        for status in ("queued", "in_progress"):
+            for run in self.gh.runs(status):
+                if run["id"] in data["verifiedRuns"] or run["id"] in found:
+                    continue
+                if not any(j.get("status") == "queued" and wants_label(j, self.cfg["label"]) for j in self.gh.jobs(run["id"])):
+                    continue
+                ok, reason = verify_run(run, self.cfg, self.gh.sha_on_branch)
+                if ok:
+                    self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
+                    continue
+                log(f"reject run {run['id']} ({run.get('event')}): {reason}; cancelling")
+                try:
+                    self.gh.cancel(run["id"])
+                except BuilderError as err:
+                    log(f"cancel {run['id']} failed: {err}")
+                self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
+                found.append(run["id"])
+        return found
+
+    # -- cache disks: trusted slot disk for verified pushes, throwaway clone otherwise
+    def disk_file(self, name):
+        return HOME / ".lima/_disks" / name / "datadisk"
+
+    def good_copy(self, slot):
+        return STATE_DIR / "good" / f"aeon-cache-{slot}.datadisk"
+
+    def slot_key(self, slot):
+        path = CONFIG_DIR / "cache-keys" / f"slot-{slot}"
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            atomic_write(path, secrets.token_hex(64))
+        return path.read_text().strip()
+
     def prepare_disk(self, slot, run):
+        """Returns (disk name, fresh). A fresh disk is formatted by Lima."""
         cache = f"aeon-cache-{slot}"
-        disks = self.lima.disks()
-        if cache not in disks:
+        if cache not in self.lima.disks():
             self.lima.run("disk", "create", cache, "--size", f"{self.cfg['cacheDiskGiB']}GiB", "--format", "raw")
+            good = self.good_copy(slot)
+            if good.exists():
+                subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(cache))], check=True)
+                return cache, False
+            return cache, True
         if uses_cache_disk(run, self.cfg):
-            return cache
-        # Read trusted caches, write only a disposable copy: an APFS clone of the disk.
+            return cache, not self.good_copy(slot).exists()
+        # Dispatch: read the last known-good cache, write only a disposable clone.
         scratch = f"aeon-scratch-{slot}"
         self.drop_scratch(slot)
-        src = HOME / ".lima/_disks" / cache
-        dst = HOME / ".lima/_disks" / scratch
-        dst.mkdir(mode=0o700)
-        for item in src.iterdir():
-            if item.name != "in_use_by" and item.is_file():
-                subprocess.run(["/bin/cp", "-c", str(item), str(dst / item.name)], check=True)
-        return scratch
+        self.lima.run("disk", "create", scratch, "--size", f"{self.cfg['cacheDiskGiB']}GiB", "--format", "raw")
+        good = self.good_copy(slot)
+        if good.exists():
+            subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(scratch))], check=True)
+            return scratch, False
+        return scratch, True
+
+    def finish_disk(self, slot, disk):
+        """Keep a known-good APFS clone after a clean verified push; restore it
+        after any deny, pause or mismatch (the unlocked cache was root-readable)."""
+        if disk and disk.startswith("aeon-scratch-"):
+            self.drop_scratch(slot)
+            return
+        if not disk:
+            return
+        good = self.good_copy(slot)
+        if slot in self.tainted:
+            log(f"slot {slot}: cache disk tainted; restoring the last known-good copy")
+            if good.exists():
+                subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(disk))], check=True)
+            else:
+                self.lima.run("disk", "delete", "--force", disk, check=False)
+            self.tainted.discard(slot)
+            return
+        if self.slot_used_cache.pop(slot, False):
+            good.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            tmp = good.with_suffix(".tmp")
+            tmp.unlink(missing_ok=True)
+            subprocess.run(["/bin/cp", "-c", str(self.disk_file(disk)), str(tmp)], check=True)
+            os.replace(tmp, good)
 
     def drop_scratch(self, slot):
         scratch = f"aeon-scratch-{slot}"
         if scratch in self.lima.disks():
             self.lima.run("disk", "delete", "--force", scratch, check=False)
 
-    def wait_for_runner(self, slot, vm, job):
+    # -- the job's lifetime
+    def vm_running(self, vm):
+        return (self.lima.instances().get(vm) or {}).get("status") == "Running"
+
+    def wait_for_runner(self, slot, vm, name, job):
+        """Returns ran | idle | denied | unverified | unattributed | timeout | stopped."""
         deadline = time.time() + self.cfg["maxJobMinutes"] * 60
         idle_since = None
+        unlocked = False
         while time.time() < deadline:
+            if self.state.load().get("mode") == "stopping":
+                log(f"slot {slot}: hard stop")
+                return "stopped"
+            if not self.vm_running(vm):
+                self.pause(f"slot {slot}: {vm} powered off during a job (the hook denies by powering off)")
+                return "denied"
             active = self.lima.shell(vm, "systemctl is-active aeon-runner", check=False).stdout.strip()
+            admitted = self.lima.shell(vm, "test -e /var/lib/aeon/admitted", check=False).returncode == 0
+            if admitted and not unlocked:
+                verdict = self.admit(slot, vm, name, job)
+                if verdict != "ok":
+                    return verdict
+                unlocked = True
             if active != "active":
-                return
-            took = self.lima.shell(vm, "test -s /var/lib/aeon/hook.log", check=False).returncode == 0
-            if not took:
+                return "ran" if admitted else "idle"
+            if not admitted:
                 current = self.gh.job(job["id"])
                 if current.get("status") != "queued":
                     idle_since = idle_since or time.time()
                     if time.time() - idle_since > 60:
                         log(f"slot {slot}: job {job['id']} went elsewhere ({current.get('status')}); retiring idle runner")
-                        return
-            if self.state.load().get("mode") == "stopping":
-                log(f"slot {slot}: hard stop")
-                return
-            time.sleep(5)
+                        return "idle"
+            time.sleep(3)
         log(f"slot {slot}: job exceeded {self.cfg['maxJobMinutes']} min; stopping VM")
+        return "timeout"
+
+    def admit(self, slot, vm, name, job):
+        """The hook admitted a job; confirm through the API which job this runner
+        took, then hand the cache key over. Anything else kills the VM."""
+        ran = None
+        for _ in range(10):
+            ran = self.find_runner_job(name, job)
+            if ran:
+                break
+            time.sleep(2)
+        verified = set(self.state.load()["verifiedRuns"])
+        if ran is None:
+            self.pause(f"slot {slot}: hook admitted a job the API cannot attribute to {name}")
+            return "unattributed"
+        if ran.get("run_id") not in verified:
+            self.pause(f"slot {slot}: {name} took job {ran.get('id')} of unverified run {ran.get('run_id')} attempt {ran.get('run_attempt')}")
+            return "unverified"
+        self.set_slot(slot, phase="running", ranJob=ran.get("id"), ranRun=ran.get("run_id"), ranAttempt=ran.get("run_attempt"))
+        size = max(self.cfg["cacheDiskGiB"] - 4, 8)
+        self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/cache-lock", "unlock", str(size),
+                      input=self.slot_key(slot))
+        self.slot_used_cache[slot] = True
+        log(f"slot {slot}: admitted job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')}; cache unlocked")
+        return "ok"
 
     def find_runner_job(self, name, job):
         """Which run, attempt and job did this runner actually take? Asked of the
@@ -684,17 +806,16 @@ class Controller:
         return None
 
     def post_job_check(self, slot, vm, name, job):
-        took = self.lima.shell(vm, "test -s /var/lib/aeon/hook.log", check=False).returncode == 0
         ran = self.find_runner_job(name, job)
         verified = set(self.state.load()["verifiedRuns"])
         if ran is None:
-            if took:
-                self.pause(f"slot {slot}: runner {name} ran a job the API cannot attribute")
-            return
+            self.pause(f"slot {slot}: runner {name} ran a job the API cannot attribute")
+            return False
         if ran.get("run_id") not in verified:
             self.pause(f"slot {slot}: runner {name} ran job {ran.get('id')} of unverified run {ran.get('run_id')} (attempt {ran.get('run_attempt')})")
-            return
+            return False
         log(f"slot {slot}: post-job ok, {name} ran job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')} ({ran.get('conclusion')})")
+        return True
 
     def run_forever(self):
         pidfile = STATE_DIR / "controller.pid"
@@ -772,7 +893,8 @@ def prepare_base(cfg, lima, force=False):
         allow = Path(tmp) / "allowlist.json"
         allow.write_text(json.dumps(allowlist_document(cfg), indent=2))
         for src, dst in ((cfg["provisionScript"], "/tmp/provision-base.sh"), (cfg["hookScript"], "/tmp/job-started.sh"),
-                         (cfg["startRunnerScript"], "/tmp/start-runner"), (str(allow), "/tmp/allowlist.json")):
+                         (cfg["startRunnerScript"], "/tmp/start-runner"), (cfg["cacheLockScript"], "/tmp/cache-lock"),
+                         (str(allow), "/tmp/allowlist.json")):
             lima.run("copy", src, f"{BASE_VM}:{dst}")
     lima.run("shell", "--workdir", "/", BASE_VM, "--", "sudo", "bash", "/tmp/provision-base.sh",
              cfg["runner"]["version"], cfg["runner"]["sha256"], *cfg["prePullImages"], timeout=1800)

@@ -1,17 +1,30 @@
 #!/usr/bin/env bash
 # NIX-600 / AEON-438 mode B: runner-side admission, baked into the base image.
-# ACTIONS_RUNNER_HOOK_JOB_STARTED runs this before the first step; a non-zero
-# exit fails the job before any repository code runs. The repository cannot
-# change this file, so it holds even when a PR edits the workflow's runs-on.
+# ACTIONS_RUNNER_HOOK_JOB_STARTED runs this before the first step. A failing
+# hook does NOT stop the job in actions/runner (always() steps and action pre:
+# steps still run), so a deny kills the runner and powers the VM off before this
+# script could ever return. The repository cannot change this file.
+#
+# On admission it leaves a marker and waits until the controller, after its own
+# API attribution of this runner's job, has unlocked the encrypted cache.
 set -uo pipefail
 
 ALLOW="${AEON_ALLOWLIST:-/opt/aeon/allowlist.json}"
-LOG="${AEON_HOOK_LOG:-/var/lib/aeon/hook.log}"
+STATE="${AEON_STATE_DIR:-/var/lib/aeon}"
+LOG="$STATE/hook.log"
+WAIT="${AEON_CACHE_WAIT:-240}"
 
 deny() {
   echo "aeon-hook deny run=${GITHUB_RUN_ID:-?} reason=$*" >>"$LOG"
-  echo "::error::mbp2606 admission denied: $*" >&2
-  exit 1
+  echo "::error::mbp2606 admission denied: $* (runner and VM are being killed)" >&2
+  sync
+  exec >/dev/null 2>&1 </dev/null
+  if [ -n "${AEON_TEST_DENY:-}" ]; then
+    exit 97
+  fi
+  sudo -n /usr/bin/pkill -9 -f 'Runner\.(Listener|Worker)'
+  sudo -n /sbin/poweroff -ff
+  sleep infinity
 }
 
 [ -r "$ALLOW" ] || deny "allowlist missing"
@@ -31,4 +44,12 @@ event="${GITHUB_EVENT_PATH:-}"
 [ -z "$(jq -r '.pull_request // empty | tostring' "$event")" ] || deny "pull request payload"
 [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || deny "sha ${GITHUB_SHA:-unset}"
 
-echo "aeon-hook allow run=${GITHUB_RUN_ID:-} attempt=${GITHUB_RUN_ATTEMPT:-} job=${GITHUB_JOB:-} event=${GITHUB_EVENT_NAME} sha=${GITHUB_SHA}" >>"$LOG"
+line="run=${GITHUB_RUN_ID:-} attempt=${GITHUB_RUN_ATTEMPT:-} job=${GITHUB_JOB:-} event=${GITHUB_EVENT_NAME} sha=${GITHUB_SHA}"
+echo "aeon-hook allow $line" >>"$LOG"
+echo "$line" >"$STATE/admitted"
+
+for _ in $(seq 1 "$WAIT"); do
+  [ -e "$STATE/cache-ready" ] && exit 0
+  sleep 1
+done
+deny "controller did not confirm admission within ${WAIT}s"
