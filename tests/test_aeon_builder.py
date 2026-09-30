@@ -246,7 +246,8 @@ class HookTests(unittest.TestCase):
     def test_deny_path_kills_and_powers_off_before_returning(self):
         text = (ROOT / "modules/aeon-builder/job-started.sh").read_text()
         deny = text[text.index("deny() {"):text.index("\n}\n", text.index("deny() {"))]
-        self.assertLess(deny.index("pkill -9"), deny.index("poweroff -ff"))
+        self.assertLess(deny.index("pkill -STOP"), deny.index("poweroff -ff"), "freeze, never kill, before poweroff")
+        self.assertNotIn("pkill -9", deny)
         self.assertLess(deny.index("poweroff -ff"), deny.index("sleep infinity"))
         self.assertLess(deny.index(">>\"$LOG\""), deny.index("pkill"), "the deny is logged first")
 

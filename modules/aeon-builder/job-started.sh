@@ -22,7 +22,10 @@ deny() {
   if [ -n "${AEON_TEST_DENY:-}" ]; then
     exit 97
   fi
-  sudo -n /usr/bin/pkill -9 -f 'Runner\.(Listener|Worker)'
+  # Freeze, do not kill: the runner is a systemd service, and killing its main
+  # process makes systemd reap the whole unit, this hook included, before the
+  # poweroff below runs (seen in the NIX-600 race harness).
+  sudo -n /usr/bin/pkill -STOP -f 'Runner\.(Listener|Worker)'
   sudo -n /sbin/poweroff -ff
   sleep infinity
 }

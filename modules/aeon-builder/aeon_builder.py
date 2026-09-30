@@ -778,6 +778,9 @@ class Controller:
             if not self.vm_running(vm):
                 self.pause(f"slot {slot}: {vm} powered off during a job (the hook denies by powering off)")
                 return "denied"
+            if self.lima.shell(vm, "grep -q '^aeon-hook deny' /var/lib/aeon/hook.log", check=False).returncode == 0:
+                self.pause(f"slot {slot}: the job-started hook denied a job on {name}")
+                return "denied"
             active = self.lima.shell(vm, "systemctl is-active aeon-runner", check=False).stdout.strip()
             admitted = self.lima.shell(vm, "test -e /var/lib/aeon/admitted", check=False).returncode == 0
             if admitted and not unlocked:
