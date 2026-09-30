@@ -46,6 +46,7 @@ let
       repo
       label
       runnerLabels
+      classLabels
       events
       workflows
       branch
@@ -120,6 +121,18 @@ in
         "mbp2606"
       ];
       description = "Never a hosted label (ubuntu-latest, …): AEON-438's ci-runner-guard rejects those.";
+    };
+    classLabels = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {
+        push = "mbp2606-push";
+        workflow_dispatch = "mbp2606-dispatch";
+      };
+      description = ''
+        AEON-459: each runner also gets exactly one class label for its verified
+        run's event, and only jobs carrying exactly that class are minted for, so
+        a push runner can never take a dispatch job (or the reverse).
+      '';
     };
     events = lib.mkOption {
       type = lib.types.listOf lib.types.str;
