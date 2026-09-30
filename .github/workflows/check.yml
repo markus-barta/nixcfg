@@ -7,6 +7,8 @@ on:
     paths-ignore:
       - "docker/**"
   workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
   pull_request:
     paths-ignore:
       - "docker/**"
@@ -40,93 +42,133 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Keep the required job reporting success. Only its expensive steps are
+      # omitted for an exact pin replacement; any other diff runs every step.
+      - name: Classify the Aeon pin diff
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: python3 scripts/aeon-pin-gate.py classify
 
       - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+        if: steps.pin.outputs.pin_only != 'true'
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Verify Pharos host preferences and correlated outcomes
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T08-pharos-host-preferences.sh
 
       - name: Verify Pharos beacon healthcheck contract
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T20-pharos-beacon-healthcheck.sh
 
       - name: Reject mixed or mutable Pharos fleet pins
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T21-pharos-release-rollout.sh
 
       - name: Verify deterministic Pharos fleet release updates
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T22-pharos-release-update.sh
 
       - name: Verify clean transactional Pharos release proposals
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T51-pharos-release-proposals.sh
 
       - name: Verify dual-era Pharos release ordering
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T66-pharos-calendar-release.sh
 
       - name: Verify Janus container least privilege and shell-free runtime
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T23-janus-container-hardening.sh
 
       - name: Verify Janus production role authorization deployment
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T19-janus-role-deployment.sh
 
       - name: Reject deprecated NixOS host-platform and scripted-initrd options
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T24-nixos-deprecation-cleanup.sh
 
       - name: Enforce IR bridge destination and log boundaries
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T25-ir-bridge-boundaries.sh
 
       - name: Verify hsb1 IR bridge witness and bridge contracts (OPS-223/224/225)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T87-ir-bridge-watch.sh
 
       - name: Verify hsb1 Time Machine two-cap design and witness (OPS-226)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T89-tm-watch.sh
 
       - name: Enforce funkeykid config and sound path boundaries
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T26-funkeykid-path-boundaries.sh
 
       - name: Reject mutable GitHub Actions references
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T27-github-actions-pins.sh
 
       - name: Verify the Pharos provisioning executor boundary
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T28-pharos-provisioning-executor.sh
 
       - name: Verify the Pharos Janus consumer projection boundary
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T29-pharos-janus-consumer-boundary.sh
 
       - name: Verify managed-service declaration generation
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p ripgrep --run tests/T30-managed-service-manifest.sh
 
       - name: Verify Janus host-envelope module
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T31-janus-host-envelope.sh
 
       - name: Verify managed-secret production preflight
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p ripgrep --run tests/T32-managed-secret-production-preflight.sh
 
       - name: Keep Traefik ACME bind sources boot-safe
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh
 
       - name: Verify tests guard against bash 3.2 false passes
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T33-bash-version-guards.sh
 
       - name: Verify HAUSV snapshot and application alerts
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T34-hausv-alerts.sh
 
       - name: Verify HAUSV graceful-stop budget
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T36-hausv-stop-grace.sh
 
       - name: Verify csb1 tailnet witness contract (OPS-181)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T44-tailnet-watch.sh
 
       - name: Verify mailbridge authorization, queue and alert failure handling (OPS-196)
+        if: steps.pin.outputs.pin_only != 'true'
         run: python3 -m unittest discover -s tests -p 'test_mailbridge_watch.py' -v
 
       - name: Verify attended mail consent boundaries (OPS-196)
+        if: steps.pin.outputs.pin_only != 'true'
         run: python3 -m unittest discover -s tests -p 'test_mailbridge_consent.py' -v
 
       - name: Verify Pharos deployment evidence reaches beacons through a directory (OPS-186)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T45-pharos-evidence-mount.sh
 
       - name: Verify csb1 fleet drift watch contract (OPS-187)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T46-fleet-drift.sh
 
       # OPS-188: contract tests that existed but ran nowhere. An unwired test is
@@ -134,164 +176,216 @@ jobs:
       # pre-OPS-186 evidence mount, and T41 asserted the opposite of its own
       # rule — none of it visible because none of it ran.
       - name: Verify SSH route matrix (OPS-146)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T04-markus-ssh-routes.sh
 
       - name: Verify Janus/Pharos env-file boundary
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T06-janus-pharos-env-file.sh
 
       - name: Verify Pharos auth bootstrap
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T07-pharos-auth-bootstrap.sh
 
       - name: Verify speedtest-tracker secret boundary (NIX-290)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T09-speedtest-tracker-secret-boundary.sh
 
       - name: Verify no legacy whoami in production (NIX-292)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh
 
       - name: Verify Pharos kernel posture
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T11-pharos-kernel-posture.sh
 
       - name: Verify csb0 restic wrapper behaviour (NIX-294)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T12-csb0-restic-wrapper.sh
 
       - name: Verify Pharos guarded deploy wiring
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T13-pharos-guarded-deploy.sh
 
       - name: Verify Pharos action agent behaviour
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T15-pharos-action-agent.sh
 
       - name: Verify Janus/Pharos retirement wiring
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T17-janus-pharos-retirement.sh
 
       - name: Verify Pharos retirement executor behaviour
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T18-pharos-retirement-executor.sh
 
       - name: Verify managed-secret readiness verdict discipline
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T33-managed-secret-readiness-verdict.sh
 
       - name: Verify csb0 ops-alerts poller contract (OPS-104/107/115)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T35-ops-alerts.sh
 
       - name: Verify revision traceability (OPS-106 / NIX-348)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T36-revision-traceability.sh
 
       - name: Verify compose-stack contract and YAML equivalence (OPS-116/117)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
 
       - name: Verify stale compose updater generation guard (NIX-496)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T59-compose-update-generation.sh
 
       - name: Verify Pharos deployment evidence wiring (NIX-348 / OPS-186)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T38-pharos-deployment-evidence.sh
 
       - name: Verify static uid/gid collision gate (NIX-354)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T39-static-id-gate.sh
 
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T47-agenix-recipient-integrity.sh
 
       - name: Verify secrets audit comment parsing (NIX-291)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T62-secrets-audit-comments.sh
 
       - name: Verify every macOS common export has a host consumer (NIX-89)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T63-macos-common-exports.sh
 
       - name: Verify fleet Nix maintenance policy (NIX-164)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T64-fleet-nix-maintenance.sh
 
       - name: Verify current-system Attic push contract (NIX-24)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T65-attic-current-system.sh
 
       - name: Verify classic Paimos is retired and Aeon redirects remain (NIX-584)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T48-paimos-delivery-stage.sh
 
       - name: Verify Pharos Flow host config contract (NIX-442 / PHAROS-257)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T71-pharos-flow-host.sh
 
       - name: Verify Janus Flow host config contract (NIX-481 / JANUS-458)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T76-janus-flow-host.sh
 
       - name: Verify declared host health thresholds (NIX-281)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T49-host-health-thresholds.sh
 
       - name: Verify Grok Bot plugin never renders absent usage as 0% (OPS-192)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T50-codexbar-grokbot-plugin.sh
 
       - name: Verify HostDash host-side HTTP status evidence (NIX-343)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T52-hostdash-http-status.sh
 
       # NIX-403: the stable T42 wiring delegates to the focused multi-path mode
       # in nixcfg's exact pinned inspr-modules doctrine checker.
       - name: Verify both doctrine consumption paths agree
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T42-doctrine-paths-agree.sh
 
       - name: Verify published routing-edge pin and inactive csb1 consumer (NIX-447)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T74-public-routing-consumer.sh
 
       - name: Verify published Aithema workspace pin and inactive csb1 consumer (NIX-498)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T78-aithema-workspace-consumer.sh
 
       - name: Verify csb1 Traefik 3.7.13 pin and isolated provider proof (NIX-448)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T75-csb1-traefik-3713-isolated.sh
 
       - name: Verify legacy hosts remain compatible with shared Flow routing (NIX-501)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "python3 tests/T79-legacy-flow-routing.py"
 
       - name: Checkout pinned public routing validation source (NIX-501)
+        if: steps.pin.outputs.pin_only != 'true'
         run: git submodule update --init --depth 1 -- doctrine
 
       - name: Lint agent-instruction surfaces for model names — roles only (NIX-568)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T88-model-role-lint.sh
 
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
 
       - name: Verify declarative csb1 Aithema speech settings (NIX-504)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq --run "bash tests/T82-aithema-speech-settings.sh"
 
       - name: Verify protected Aithema conversation credential (NIX-501)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq python3 coreutils --run "bash tests/T81-aithema-paimos-credential.sh"
 
       - name: Verify NIX-501 Paimos provider handoff (NIX-501)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq --run "bash tests/T83-nix501-paimos-provider-handoff.sh"
 
       - name: Verify Pi INSPR kernel wiring (NIX-506)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 --run "bash tests/T84-pi-inspr-kernel.sh"
 
       - name: Verify JoeDesk canonical slash and OAuth routing (NIX-462)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "python3 tests/T76-joe-slash-routing.py"
 
       - name: Verify bounded paper Gateway session recovery (HOSTD-58)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "bash tests/T77-ib-gateway-session-supervisor.sh"
 
       - name: Verify fleet-safe doctrine-private boundary
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"
 
       - name: Verify operator inspr CLI fleet configuration
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T55-inspr-cli-fleet-config.sh
 
       - name: Verify justfile SSH fallbacks avoid dead routes (NIX-342)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T60-justfile-ssh-fallbacks.sh
 
       - name: Verify local and hosted formatters share one pin (NIX-336)
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T61-format-tool-pin.sh
 
       - name: Verify classic Paimos workstation surface is retired (NIX-584)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T56-paimos-agentd-home-manager.sh
 
       - name: Verify Higgsfield CLI Home Manager contract
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
 
       # Eval-only on Linux (store paths, consumer wiring, offline --check of the
       # update step); the realised build and signature checks run on macOS.
       - name: Verify the pinned Cursor CLI package and its consumers (NIX-514)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p jq curl --run tests/T85-cursor-agent-package.sh
 
       - name: Verify isolated Aeon daemon enrollment and launch contract (NIX-583)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run 'python3 tests/test_aeon_agentd.py -v'
 
       # NIX-519 — offline lock and unsupported-host safety test.
       - name: Verify Cursor CLI update script safety (NIX-519)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p jq --run tests/T86-update-cursor-agent-safety.sh
 
       # NIX-445 — agent browser-launch guard. On Linux this runs the portable
@@ -303,40 +397,72 @@ jobs:
       # in its own output (`scope=eval-only reason=not-darwin`); they run on the
       # macOS workstation. No browser is ever launched, on either platform.
       - name: Verify the macOS agent browser-launch guard contract (NIX-445)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T72-agent-browser-guard.sh
 
       # This one is fully portable: it drives the Node child-process preload
       # against a fake executable, so it is a real gate on Linux too.
       - name: Verify the Node child-process browser preload (NIX-445)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 nodejs --run tests/T73-agent-browser-guard-preload.sh
 
       - name: Verify safe Codex repair deferral after AI CLI updates (NIX-467)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 nodejs just jq --run "python3 tests/test_codex_doctor.py -v && python3 tests/test_update_ai_clis.py -v"
 
       - name: Verify local Pi launcher and doctrine loading
+        if: steps.pin.outputs.pin_only != 'true'
         run: |
           nix-shell -p python3 --run 'python3 tests/test_pi_local.py'
           nix-shell -p nodejs --run 'node --test tests/pi-local-*.test.mjs'
 
       - name: Verify hsb0 NCPS warmer current fleet target
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T68-ncps-warmer-fleet.sh
 
       - name: Verify classic PPM container is absent (NIX-584)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
       - name: Verify csb1 inspr-auth Cloudflare edge boundary
+        if: steps.pin.outputs.pin_only != 'true'
         run: >-
           nix-shell -p 'python3.withPackages (ps: [ ps.pyyaml ])'
           --run "python3 tests/test_inspr_auth_edge_fetch.py -v && tests/T58-inspr-auth-edge.py --online"
 
       - name: Verify headscale DERP-map fallback contract (OPS-180)
+        if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh
 
       - name: Verify HAUSV PostgreSQL Phase-0 contract
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T40-hausv-postgres.sh
 
       - name: Verify HAUSV tailnet fixture preview contract
+        if: steps.pin.outputs.pin_only != 'true'
         run: tests/T41-hausv-next.sh
+
+  # NIX-591: stable required status, including ordinary PRs and merge queues.
+  # Repository protection must require aeon-pin-gate when this change lands.
+  aeon-pin-gate:
+    name: aeon-pin-gate
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Verify pin classification and release metadata fixtures
+        run: python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
+      - name: Verify the Aeon image digest and release commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/aeon-pin-gate.py verify
 
   check:
     name: 🔎️ Eval flake

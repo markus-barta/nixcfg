@@ -65,6 +65,32 @@ immediately. Exhausted retries still fail the gate. The offline tests inject
 failures and replace sleep, so they need neither network access nor delays.
 This gate never changes the reviewed ranges or their hashes.
 
+## Aeon pin CI fast lane (NIX-591)
+
+`.github/workflows/check.yml` keeps the Pharos job reporting on every run. It
+omits the Pharos suite only when the complete merge-base-to-head diff replaces
+exactly the Aeon `image` line in `hosts/csb1/docker/compose-spec.nix`. Both lines
+must contain an Aeon calendar version and immutable SHA256 digest. Any additional
+line, file, service change, or mode change runs the full suite. Pin automation
+must leave the separate release header comment unchanged to qualify.
+
+The independent `aeon-pin-gate` job always reports. Exact pin replacements must
+resolve on public GHCR by both tag and digest, with matching manifest bytes and
+digest headers, and their release tag's commit must be reachable from paimos
+`main`. Other changes report `not_applicable`. Attestation verification remains
+deferred to AEON-407; it is not claimed by this gate. The repository's required
+checks must include `aeon-pin-gate` when the workflow change lands.
+
+PRs use the checked-out merge commit; merge queues use the whole group against
+`merge_group.base_sha`; pushes use `before`. Manual dispatch without a base runs
+the full suite. Pin runs log `pharos_fast_lane=pin_only tests_ran=0`.
+
+Portable fixtures need Python, Git, and Ruby/Psych, without NixOS or live services:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
+```
+
 ## Test Philosophy
 
 ### When Tests Live Where
