@@ -286,8 +286,7 @@ class HomeManagerTests(unittest.TestCase):
     def test_opt_in_without_classic_agentd(self):
         e = self.evidence
         self.assertFalse(e["moduleDefaultEnabled"])
-        # mbp2607 runs agentd from the Homebrew tap (AEON-339); Nix agentd is off.
-        self.assertFalse(e["hostEnabled"])
+        self.assertTrue(e["hostEnabled"])
         self.assertFalse(e["defaultEnabled"])
         self.assertFalse(e["defaultHasService"])
         self.assertEqual(e["assertions"], [])
