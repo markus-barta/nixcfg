@@ -14,7 +14,9 @@ call uses an installation token cut down to the one permission it needs.
 
 import argparse
 import base64
+import contextlib
 import datetime as dt
+import fcntl
 import ipaddress
 import json
 import os
@@ -314,6 +316,9 @@ class GitHub:
     def job(self, job_id):
         return self.call("GET", self.repo_path(f"/actions/jobs/{job_id}"), READ)
 
+    def run(self, run_id):
+        return self.call("GET", self.repo_path(f"/actions/runs/{run_id}"), READ)
+
     def all_jobs(self, run_id):
         return self.paged(self.repo_path(f"/actions/runs/{run_id}/jobs?filter=all"), "jobs", READ)
 
@@ -409,24 +414,57 @@ def atomic_write(path, text, mode=0o600):
 
 
 class State:
+    """state.json shared by the controller's threads and the CLI process. Every
+    read-modify-write holds an flock (processes) and an RLock (threads)."""
+
+    _thread_lock = threading.RLock()
+    _local = threading.local()
+
     def __init__(self, root=STATE_DIR):
         self.root = root
         self.file = root / "state.json"
+        self.lockfile = root / "state.lock"
+
+    @contextlib.contextmanager
+    def locked(self):
+        with State._thread_lock:
+            depth = getattr(State._local, "depth", 0)
+            if depth:
+                State._local.depth = depth + 1
+                try:
+                    yield
+                finally:
+                    State._local.depth = depth
+                return
+            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with open(self.lockfile, "a") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+                State._local.depth = 1
+                try:
+                    yield
+                finally:
+                    State._local.depth = 0
+                    fcntl.flock(handle, fcntl.LOCK_UN)
 
     def load(self):
         try:
-            return json.loads(self.file.read_text())
+            data = json.loads(self.file.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
-            return {"mode": "off", "slots": {}, "verifiedRuns": [], "cancelledRuns": []}
+            data = {}
+        data.setdefault("mode", "off")
+        for key, empty in (("slots", {}), ("verifiedRuns", []), ("cancelledRuns", [])):
+            data.setdefault(key, empty)
+        return data
 
     def save(self, data):
         atomic_write(self.file, json.dumps(data, indent=2, sort_keys=True))
 
     def update(self, fn):
-        data = self.load()
-        fn(data)
-        self.save(data)
-        return data
+        with self.locked():
+            data = self.load()
+            fn(data)
+            self.save(data)
+            return data
 
 
 def log(message):
@@ -493,23 +531,32 @@ class Controller:
         self.state = state or State()
         self.lock = threading.Lock()
         self.workers = {}
-        self.last_ruleset = 0.0
-        self.ruleset_ok = False
+        self.pending = 0
         self.last_proof = time.time()
+        self.proof = None
+        self.last_sweep = 0.0
         self.tainted = set()
         self.slot_used_cache = {}
         self.slot_fresh = {}
+        self.stop_event = threading.Event()
 
     # -- slots
     def free_slots(self, data, pending):
         used = len(data["slots"]) + pending
         return self.cfg["slots"] - used
 
+    def mode(self):
+        return self.state.load().get("mode")
+
+    def minting_allowed(self):
+        return self.mode() in ("on", "draining")
+
     def pause(self, reason):
         """A failed protection check: refuse availability, stop minting and
         cancel queued mbp2606 runs so nothing waits on a pool that is off."""
         log(f"PAUSE: {reason}")
-        self.state.update(lambda d: d.update(mode="paused", alert=f"{now_utc().isoformat()} {reason}"))
+        self.state.update(lambda d: d.update(mode="paused", alert=f"{now_utc().isoformat()} {reason}")
+                          if d.get("mode") not in ("stopping", "off") else None)
         try:
             self.gh.clear()
         except BuilderError as err:
@@ -521,19 +568,17 @@ class Controller:
         except BuilderError as err:
             log(f"cancel after pause failed: {err}")
 
-    def check_ruleset(self, force=False):
-        if not force and time.time() - self.last_ruleset < 60 and self.ruleset_ok:
-            return True
+    def check_ruleset(self, force=True):
+        """Always a fresh read (before every mint and every publish); `force`
+        stays for call-site clarity."""
         problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
-        self.last_ruleset = time.time()
-        self.ruleset_ok = not problems
         if problems:
             self.pause("main ruleset changed: " + "; ".join(problems))
-        return self.ruleset_ok
+        return not problems
 
     def tick(self):
-        data = self.state.load()
-        mode = data.get("mode")
+        self.reap_finished_workers()
+        mode = self.mode()
         if mode not in ("on", "draining"):
             return mode
         candidates = []
@@ -543,24 +588,25 @@ class Controller:
                     candidates.append((run, job))
         pending = 0
         for run, job in candidates:
-            with self.lock:
-                data = self.state.load()
-                assigned = {s["jobId"] for s in data["slots"].values()}
+            data = self.state.load()
+            if not self.minting_allowed():
+                break
+            assigned = {s["jobId"] for s in data["slots"].values()}
             if job["id"] in assigned or job["id"] in self.workers:
                 continue
             if run["id"] in data["cancelledRuns"]:
                 continue
             ok, reason = (True, "ok") if run["id"] in data["verifiedRuns"] else verify_run(run, self.cfg, self.gh.sha_on_branch)
             if not ok:
-                log(f"reject run {run['id']} ({run.get('event')} {run.get('head_repository', {}).get('full_name')}): {reason}; cancelling")
+                log(f"reject run {run['id']} ({run.get('event')} {(run.get('head_repository') or {}).get('full_name')}): {reason}; cancelling")
                 try:
                     self.gh.cancel(run["id"])
                 except BuilderError as err:
                     log(f"cancel {run['id']} failed: {err}")
-                self.state.update(lambda d: d["cancelledRuns"].append(run["id"]))
+                self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
                 continue
             if run["id"] not in data["verifiedRuns"]:
-                self.state.update(lambda d: d["verifiedRuns"].append(run["id"]))
+                self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
             slot = self.claim_slot(job, run)
             if slot is None:
                 pending += 1
@@ -568,61 +614,132 @@ class Controller:
             thread = threading.Thread(target=self.serve, args=(slot, run, job), daemon=True)
             self.workers[job["id"]] = thread
             thread.start()
-        self.reap_finished_workers()
+        self.pending = pending
+        self.maybe_prove()
+        if time.time() - self.last_sweep > 60:
+            self.last_sweep = time.time()
+            self.sweep_stale_runners()
         data = self.state.load()
-        if data.get("mode") == "on" and self.cfg["requireNetworkBlock"] and not data["slots"] \
-                and time.time() - self.last_proof > self.cfg["proofMinutes"] * 60:
-            ok, detail = prove_network_block(self.cfg, self.lima)
-            self.last_proof = time.time()
-            if not ok:
-                self.pause(f"network block proof failed: {detail}")
-                return "paused"
-            self.state.update(lambda d: d.update(networkProof=now_utc().isoformat()))
-            data = self.state.load()
-        if data.get("mode") == "on" and self.check_ruleset():
-            self.gh.publish(availability_record(self.cfg, self.free_slots(data, pending)))
         if data.get("mode") == "draining" and not candidates and not data["slots"] and not self.workers:
-            self.state.update(lambda d: d.update(mode="off"))
+            self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "draining" else None)
             log("drained; pool is off")
             return "off"
         for key in ("verifiedRuns", "cancelledRuns"):
             if len(data[key]) > 500:
                 self.state.update(lambda d, k=key: d.__setitem__(k, d[k][-300:]))
-        return data.get("mode")
+        return self.mode()
+
+    def maybe_prove(self):
+        """Re-prove the network block in the background while the pool idles;
+        a proof never delays availability renewal."""
+        if self.proof and self.proof.is_alive():
+            return
+        data = self.state.load()
+        if data.get("mode") != "on" or not self.cfg["requireNetworkBlock"] or data["slots"] \
+                or time.time() - self.last_proof < self.cfg["proofMinutes"] * 60:
+            return
+        self.last_proof = time.time()
+
+        def prove():
+            ok, detail = prove_network_block(self.cfg, self.lima)
+            if ok:
+                self.state.update(lambda d: d.update(networkProof=now_utc().isoformat()))
+            else:
+                self.pause(f"network block proof failed: {detail}")
+        self.proof = threading.Thread(target=prove, daemon=True)
+        self.proof.start()
+
+    def publisher(self):
+        """Refresh AEON_MBP2606_AVAILABILITY every few seconds, independent of
+        the tick's API and VM work, each time after a fresh ruleset check."""
+        interval = min(5, self.cfg["pollSeconds"])
+        while not self.stop_event.wait(interval):
+            try:
+                self.publish_once()
+            except Exception as err:  # noqa: BLE001 - an expired record falls back to hosted
+                log(f"publish failed: {err}")
+
+    def publish_once(self):
+        if self.mode() != "on" or not self.check_ruleset():
+            return False
+        if self.mode() != "on":
+            return False
+        self.gh.publish(availability_record(self.cfg, self.free_slots(self.state.load(), self.pending)))
+        return True
+
+    def sweep_stale_runners(self):
+        """Registrations whose VM is gone (e.g. a denied job GitHub still counts
+        as running) are deleted once GitHub lets go of them."""
+        live = {s.get("runner") for s in self.state.load()["slots"].values()}
+        try:
+            for runner in self.gh.runners():
+                if runner["name"].startswith("mbp2606-") and runner["name"] not in live and runner.get("status") == "offline":
+                    try:
+                        self.gh.delete_runner(runner["id"])
+                        log(f"deleted stale runner registration {runner['name']}")
+                    except BuilderError:
+                        pass
+        except BuilderError as err:
+            log(f"runner sweep failed: {err}")
 
     def reap_finished_workers(self):
         for job_id, thread in list(self.workers.items()):
             if not thread.is_alive():
                 del self.workers[job_id]
 
+    def reconcile(self):
+        """A controller that died (SIGKILL, crash, reboot) leaves slots, VMs and
+        registrations behind. Clean them before serving: the slot disks count as
+        tainted because nobody watched them."""
+        data = self.state.load()
+        for slot_key, info in list(data["slots"].items()):
+            slot = int(slot_key)
+            log(f"reconcile: slot {slot} was left {info.get('phase')} (run {info.get('runId')}); cleaning up")
+            if info.get("runnerId"):
+                try:
+                    self.gh.delete_runner(info["runnerId"])
+                except BuilderError as err:
+                    log(f"reconcile: runner {info.get('runner')}: {err}")
+            self.lima.delete(f"aeon-job-{slot}")
+            if info.get("disk", "").startswith("aeon-cache-"):
+                self.tainted.add(slot)
+            self.finish_disk(slot, info.get("disk"))
+            self.release_slot(slot)
+        for name in self.lima.instances():
+            if name.startswith("aeon-job-") or name == "aeon-probe":
+                self.lima.delete(name)
+
     def claim_slot(self, job, run):
         if not self.check_ruleset():
             return None
-        with self.lock:
-            data = self.state.load()
+        claimed = []
+
+        def claim(data):
+            if data.get("mode") not in ("on", "draining"):
+                return
             for slot in range(self.cfg["slots"]):
                 if str(slot) not in data["slots"]:
                     data["slots"][str(slot)] = {
                         "jobId": job["id"], "runId": run["id"], "attempt": run.get("run_attempt"), "event": run["event"],
                         "since": now_utc().isoformat(), "phase": "cloning",
                     }
-                    self.state.save(data)
-                    return slot
-        return None
+                    claimed.append(slot)
+                    return
+        self.state.update(claim)
+        return claimed[0] if claimed else None
 
     def set_slot(self, slot, **fields):
-        with self.lock:
-            self.state.update(lambda d: d["slots"][str(slot)].update(fields))
+        self.state.update(lambda d: d["slots"].get(str(slot), {}).update(fields))
 
     def release_slot(self, slot):
-        with self.lock:
-            self.state.update(lambda d: d["slots"].pop(str(slot), None))
+        self.state.update(lambda d: d["slots"].pop(str(slot), None))
 
     # -- one job VM
     def serve(self, slot, run, job):
         vm = f"aeon-job-{slot}"
         runner_id = None
         disk = None
+        self.slot_used_cache[slot] = False
         try:
             disk, fresh = self.prepare_disk(slot, run)
             self.slot_fresh[slot] = fresh
@@ -636,7 +753,7 @@ class Controller:
                 if probe.returncode != 0:
                     self.pause(f"network block check failed in {vm}: {probe.stdout.strip() or probe.stderr.strip()[-200:]}")
                     return
-            if not self.check_ruleset(force=True):
+            if not self.minting_allowed() or not self.check_ruleset(force=True):
                 return
             if self.unverified_label_runs():
                 log(f"slot {slot}: unverified mbp2606 jobs were queued; cancelled them, not minting this tick")
@@ -645,11 +762,15 @@ class Controller:
             if current.get("status") != "queued":
                 log(f"job {job['id']} no longer queued ({current.get('status')}); not minting")
                 return
+            if not self.minting_allowed():
+                return
             name = f"mbp2606-s{slot}-{job['id']}-{secrets.token_hex(3)}"
             jit = self.gh.jit(name)
             runner_id = jit["runner"]["id"]
             self.set_slot(slot, phase="waiting", runner=name, runnerId=runner_id)
             log(f"slot {slot}: runner {name} for run {run['id']} attempt {run.get('run_attempt')} job {job['id']} ({run['event']}, disk {disk})")
+            if not self.minting_allowed():
+                return
             self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/start-runner", input=jit["encoded_jit_config"])
             outcome = self.wait_for_runner(slot, vm, name, job)
             if outcome == "ran":
@@ -657,6 +778,8 @@ class Controller:
                     self.tainted.add(slot)
             elif outcome in ("denied", "unverified", "unattributed"):
                 self.tainted.add(slot)
+            elif outcome == "class-mismatch":
+                log(f"slot {slot}: VM stopped before unlocking; the job it took fails and needs a rerun")
             if slot not in self.tainted:
                 self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/cache-lock", "lock", check=False)
         except Exception as err:  # noqa: BLE001 - one slot must never kill the pool
@@ -736,10 +859,11 @@ class Controller:
     def finish_disk(self, slot, disk):
         """Keep a known-good APFS clone after a clean verified push; restore it
         after any deny, pause or mismatch (the unlocked cache was root-readable)."""
-        if disk and disk.startswith("aeon-scratch-"):
+        if not disk or disk.startswith("aeon-scratch-"):
+            # The trusted disk was never attached: nothing to snapshot or restore.
             self.drop_scratch(slot)
-            return
-        if not disk:
+            self.slot_used_cache.pop(slot, None)
+            self.tainted.discard(slot)
             return
         good = self.good_copy(slot)
         if slot in self.tainted:
@@ -772,7 +896,7 @@ class Controller:
         idle_since = None
         unlocked = False
         while time.time() < deadline:
-            if self.state.load().get("mode") == "stopping":
+            if self.mode() == "stopping":
                 log(f"slot {slot}: hard stop")
                 return "stopped"
             if not self.vm_running(vm):
@@ -817,12 +941,19 @@ class Controller:
         if ran.get("run_id") not in verified:
             self.pause(f"slot {slot}: {name} took job {ran.get('id')} of unverified run {ran.get('run_id')} attempt {ran.get('run_attempt')}")
             return "unverified"
-        self.set_slot(slot, phase="running", ranJob=ran.get("id"), ranRun=ran.get("run_id"), ranAttempt=ran.get("run_attempt"))
+        disk = self.state.load()["slots"].get(str(slot), {}).get("disk") or ""
+        event = self.gh.run(ran["run_id"]).get("event")
+        if disk.startswith("aeon-cache-") and event not in self.cfg["cacheWriteEvents"]:
+            # The runner was minted for a push but took a verified dispatch (same
+            # labels). The trusted disk is attached, so never unlock it for this job.
+            log(f"slot {slot}: {name} took {event} job {ran.get('id')} but holds the trusted cache disk; stopping the VM unlocked")
+            return "class-mismatch"
+        self.set_slot(slot, phase="running", ranJob=ran.get("id"), ranRun=ran.get("run_id"), ranAttempt=ran.get("run_attempt"), ranEvent=event)
         size = max(self.cfg["cacheDiskGiB"] - 4, 8)
         init = ["--init"] if self.slot_fresh.get(slot) else []
         self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/cache-lock", "unlock", str(size), *init,
                       input=self.slot_key(slot))
-        self.slot_used_cache[slot] = True
+        self.slot_used_cache[slot] = disk.startswith("aeon-cache-")
         log(f"slot {slot}: admitted job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')}; cache unlocked")
         return "ok"
 
@@ -853,30 +984,44 @@ class Controller:
         return True
 
     def run_forever(self):
-        pidfile = STATE_DIR / "controller.pid"
-        atomic_write(pidfile, str(os.getpid()))
-        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        lock = acquire_controller_lock()
+        if lock is None:
+            log("another controller holds the lock; exiting")
+            return
+        atomic_write(STATE_DIR / "controller.pid", str(os.getpid()))
+
+        def terminate(*_):
+            # Stop like `off --now` for our own VMs: workers see `stopping`,
+            # delete their VMs and runners, then the loop ends.
+            self.state.update(lambda d: d.update(mode="stopping") if d.get("mode") in ("on", "draining", "paused") else None)
+        signal.signal(signal.SIGTERM, terminate)
         log("controller started")
+        self.reconcile()
+        publisher = threading.Thread(target=self.publisher, daemon=True)
+        publisher.start()
         try:
             while True:
                 try:
                     mode = self.tick()
                 except Exception as err:  # noqa: BLE001 - keep polling through API hiccups
                     log(f"tick failed: {err}")
-                    mode = self.state.load().get("mode")
+                    mode = self.mode()
+                self.reap_finished_workers()
                 if mode in ("off", "paused") and not self.workers:
                     break
                 if mode == "stopping" and not self.workers:
-                    self.state.update(lambda d: d.update(mode="off"))
+                    self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "stopping" else None)
                     break
                 time.sleep(self.cfg["pollSeconds"])
         finally:
+            self.stop_event.set()
             try:
                 self.gh.clear()
             except BuilderError as err:
                 log(f"clear availability failed: {err}")
-            pidfile.unlink(missing_ok=True)
+            (STATE_DIR / "controller.pid").unlink(missing_ok=True)
             log("controller stopped")
+            lock.close()
 
 
 # ---------------------------------------------------------------- commands
@@ -897,13 +1042,28 @@ def load_config(path):
     return json.loads(Path(path).read_text())
 
 
-def controller_pid():
+def acquire_controller_lock():
+    """One controller per user: an flock held for the controller's lifetime."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    handle = open(STATE_DIR / "controller.lock", "a")
     try:
-        pid = int((STATE_DIR / "controller.pid").read_text())
-        os.kill(pid, 0)
-        return pid
-    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
         return None
+    return handle
+
+
+def controller_pid():
+    """The running controller's pid, or None. The lock, not the pid file, decides."""
+    probe = acquire_controller_lock()
+    if probe is not None:
+        probe.close()
+        return None
+    try:
+        return int((STATE_DIR / "controller.pid").read_text())
+    except (FileNotFoundError, ValueError):
+        return -1
 
 
 def lab_vms(cfg):
@@ -975,35 +1135,52 @@ def cmd_on(cfg, args):
 
 
 def cmd_off(cfg, args):
+    """Local state first, GitHub second: an API outage must never keep the pool
+    running. Returns 2 while the pool is still draining, so callers (the
+    mbp2606-builder wrapper) do not hand the machine back too early."""
     state = State()
-    gh = GitHub(cfg)
-    gh.clear()
     if args.now:
-        state.update(lambda d: d.update(mode="stopping"))
-        cancelled = cancel_label_runs(gh, cfg)
-        print(f"aeon-builder: hard stop, cancelled {len(cancelled)} run(s)")
+        state.update(lambda d: d.update(mode="stopping") if controller_pid() else d.update(mode="off"))
     else:
-        data = state.load()
-        if data.get("mode") in ("on", "paused"):
-            state.update(lambda d: d.update(mode="draining" if controller_pid() else "off"))
+        state.update(lambda d: d.update(mode="draining" if controller_pid() else "off")
+                     if d.get("mode") in ("on", "paused") else None)
+    gh = GitHub(cfg)
+    try:
+        gh.clear()
+    except BuilderError as err:
+        print(f"aeon-builder: warning, availability not cleared ({err}); it expires in 30 s", file=sys.stderr)
+    if args.now:
+        try:
+            cancelled = cancel_label_runs(gh, cfg)
+            print(f"aeon-builder: hard stop, cancelled {len(cancelled)} run(s)")
+        except BuilderError as err:
+            print(f"aeon-builder: warning, cancelling runs failed ({err})", file=sys.stderr)
+    else:
         print("aeon-builder: draining — availability cleared, queued mbp2606 jobs are still served")
     deadline = time.time() + args.wait * 60
     while time.time() < deadline and controller_pid():
         data = state.load()
         print(f"  {data.get('mode')}: {len(data['slots'])} job VM(s) busy", flush=True)
         time.sleep(10)
-    lima = Lima(cfg)
     if controller_pid():
         print("aeon-builder: still draining in the background; `aeon-builder status` shows progress")
-        return
+        return 2
+    lima = Lima(cfg)
     for name in lima.instances():
-        if name.startswith("aeon-job-"):
+        if name.startswith("aeon-job-") or name == "aeon-probe":
             lima.delete(name)
-    for runner in gh.runners():
-        if runner["name"].startswith("mbp2606-"):
-            gh.delete_runner(runner["id"])
-    state.update(lambda d: (d.update(mode="off"), d.__setitem__("slots", {})))
-    print("aeon-builder: off — no runners, no job VMs")
+    try:
+        for runner in gh.runners():
+            if runner["name"].startswith("mbp2606-"):
+                try:
+                    gh.delete_runner(runner["id"])
+                except BuilderError as err:
+                    print(f"aeon-builder: runner {runner['name']} not deleted yet ({err})", file=sys.stderr)
+    except BuilderError as err:
+        print(f"aeon-builder: warning, runner cleanup failed ({err})", file=sys.stderr)
+    state.update(lambda d: d.update(mode="off"))
+    print("aeon-builder: off — no job VMs")
+    return 0
 
 
 def cmd_status(cfg, args):
@@ -1085,8 +1262,9 @@ def main(argv=None):
         if args.command == "rebuild-base":
             prepare_base(cfg, Lima(cfg), force=True)
         else:
-            {"on": cmd_on, "off": cmd_off, "status": cmd_status, "pf-rules": cmd_pf_rules,
-             "pf-install": cmd_pf_install, "controller": cmd_controller}[args.command](cfg, args)
+            code = {"on": cmd_on, "off": cmd_off, "status": cmd_status, "pf-rules": cmd_pf_rules,
+                    "pf-install": cmd_pf_install, "controller": cmd_controller}[args.command](cfg, args)
+            return code or 0
     except BuilderError as err:
         print(f"aeon-builder: {err}", file=sys.stderr)
         return 1

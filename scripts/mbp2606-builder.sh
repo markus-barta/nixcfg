@@ -65,7 +65,10 @@ EOF
   fi
   ;;
 off)
-  as_ci off "$@"
+  if ! as_ci off "$@"; then
+    echo "pool still draining or off failed; Colima stays stopped. Run 'just mbp2606-builder off' again later." >&2
+    exit 2
+  fi
   as_mba <<EOF
 set -euo pipefail
 $MBA_LIB
