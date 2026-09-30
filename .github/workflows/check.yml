@@ -386,6 +386,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run 'python3 tests/test_aeon_agentd.py -v'
 
+      - name: Verify the mbp2606 runner pool admission, hook and controller (NIX-600)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 jq --run 'python3 tests/test_aeon_builder.py -v'
+
       # NIX-519 — offline lock and unsupported-host safety test.
       - name: Verify Cursor CLI update script safety (NIX-519)
         if: steps.pin.outputs.pin_only != 'true'
