@@ -17,6 +17,7 @@ import base64
 import contextlib
 import datetime as dt
 import fcntl
+import http.client
 import ipaddress
 import json
 import os
@@ -280,9 +281,12 @@ class GitHub:
         except urllib.error.HTTPError as err:
             if err.code == 304 and etag_key in self.etags:
                 return self.etags[etag_key][1]
-            detail = err.read()[:300].decode(errors="replace")
+            try:
+                detail = err.read()[:300].decode(errors="replace")
+            except (http.client.HTTPException, OSError):
+                detail = ""
             raise BuilderError(f"{method} {path}: HTTP {err.code} {detail}") from None
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as err:
+        except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError) as err:
             raise BuilderError(f"{method} {path}: {type(err).__name__}: {err}") from None
 
     def call(self, method, path, perms, body=None, cache=False):
@@ -385,8 +389,14 @@ class Lima:
         return proc
 
     def instances(self):
-        out = self.run("list", "--json", check=False).stdout
-        return {item["name"]: item for item in (json.loads(line) for line in out.splitlines() if line.strip())}
+        """Raises when limactl cannot list: an unknown inventory is never 'empty'."""
+        proc = self.run("list", "--json", check=False)
+        if proc.returncode != 0:
+            raise BuilderError(f"limactl list failed: {proc.stderr.strip()[-200:]}")
+        try:
+            return {item["name"]: item for item in (json.loads(line) for line in proc.stdout.splitlines() if line.strip())}
+        except (ValueError, KeyError) as err:
+            raise BuilderError(f"limactl list output unreadable: {err}") from None
 
     def disks(self):
         out = self.run("disk", "list", "--json", check=False).stdout
@@ -399,8 +409,11 @@ class Lima:
         """Delete and verify; True when the instance is gone."""
         for _ in range(3):
             self.run("delete", "--force", name, check=False)
-            if name not in self.instances():
-                return True
+            try:
+                if name not in self.instances():
+                    return True
+            except BuilderError as err:
+                log(f"cannot verify deletion of {name}: {err}")
             time.sleep(2)
         log(f"limactl could not delete {name}")
         return False
@@ -702,6 +715,23 @@ class Controller:
         except BuilderError as err:
             log(f"runner sweep failed: {err}")
 
+    def retire_slot(self, slot, vm, disk):
+        """Release a slot only when its VM is provably gone and its disk is
+        settled. Otherwise it stays occupied as `stuck` (the pool pauses): a
+        surviving VM must never get its disk restored or its slot reused."""
+        if not self.lima.delete(vm):
+            self.set_slot(slot, phase="stuck")
+            self.pause(f"slot {slot}: {vm} could not be deleted; slot held until an operator cleans it")
+            return False
+        try:
+            self.finish_disk(slot, disk)
+        except Exception as err:  # noqa: BLE001
+            self.set_slot(slot, phase="stuck")
+            self.pause(f"slot {slot}: cache disk could not be settled ({err}); slot held")
+            return False
+        self.release_slot(slot)
+        return True
+
     def reap_finished_workers(self):
         for job_id, thread in list(self.workers.items()):
             if not thread.is_alive():
@@ -715,21 +745,18 @@ class Controller:
         for slot_key, info in list(data["slots"].items()):
             slot = int(slot_key)
             log(f"reconcile: slot {slot} was left {info.get('phase')} (run {info.get('runId')}); cleaning up")
-            self.lima.delete(f"aeon-job-{slot}")
             if (info.get("disk") or "").startswith("aeon-cache-"):
                 self.tainted.add(slot)
-            try:
-                self.finish_disk(slot, info.get("disk"))
-            except Exception as err:  # noqa: BLE001
-                log(f"reconcile: slot {slot} disk: {err}")
-            self.release_slot(slot)
+            if not self.retire_slot(slot, f"aeon-job-{slot}", info.get("disk")):
+                continue
             if info.get("runnerId"):
                 try:
                     self.gh.delete_runner(info["runnerId"])
                 except BuilderError as err:
                     log(f"reconcile: runner {info.get('runner')} deferred to the sweep: {err}")
+        held = {f"aeon-job-{k}" for k in self.state.load()["slots"]}
         for name in self.lima.instances():
-            if name.startswith("aeon-job-") or name == "aeon-probe":
+            if (name.startswith("aeon-job-") and name not in held) or name == "aeon-probe":
                 self.lima.delete(name)
 
     def claim_slot(self, job, run):
@@ -812,13 +839,7 @@ class Controller:
         finally:
             # Local cleanup first and unconditionally; GitHub last (a stale
             # registration is swept later, a leaked VM is not).
-            if not self.lima.delete(vm):
-                self.tainted.add(slot)
-            for step in (lambda: self.finish_disk(slot, disk), lambda: self.release_slot(slot)):
-                try:
-                    step()
-                except Exception as err:  # noqa: BLE001
-                    log(f"slot {slot}: cleanup step failed: {err}")
+            self.retire_slot(slot, vm, disk)
             if runner_id:
                 try:
                     self.gh.delete_runner(runner_id)
@@ -1179,10 +1200,16 @@ def cmd_off(cfg, args):
     running. Returns 2 while the pool is still draining, so callers (the
     mbp2606-builder wrapper) do not hand the machine back too early."""
     state = State()
-    gh = GitHub(cfg)
     running = controller_pid()
+    try:
+        gh = GitHub(cfg)
+    except Exception as err:  # noqa: BLE001 - broken credentials must not block a local stop
+        print(f"aeon-builder: warning, GitHub App unusable ({err}); stopping locally only", file=sys.stderr)
+        gh = None
 
     def clear(_):
+        if gh is None:
+            return
         try:
             gh.clear()
         except BuilderError as err:
@@ -1192,7 +1219,7 @@ def cmd_off(cfg, args):
     else:
         state.update(lambda d: d.update(mode="draining" if running else "off")
                      if d.get("mode") in ("on", "paused") else None, then=clear)
-    if args.now:
+    if args.now and gh is not None:
         try:
             cancelled = cancel_label_runs(gh, cfg)
             print(f"aeon-builder: hard stop, cancelled {len(cancelled)} run(s)")
@@ -1209,11 +1236,19 @@ def cmd_off(cfg, args):
         print("aeon-builder: still draining in the background; `aeon-builder status` shows progress")
         return 2
     lima = Lima(cfg)
-    leftovers = [n for n in lima.instances() if n.startswith("aeon-job-") or n == "aeon-probe"]
-    stuck = [n for n in leftovers if not lima.delete(n)]
+    try:
+        leftovers = [n for n in lima.instances() if n.startswith("aeon-job-") or n == "aeon-probe"]
+        stuck = [n for n in leftovers if not lima.delete(n)]
+    except BuilderError as err:
+        print(f"aeon-builder: cannot list VMs ({err}); the machine is NOT known to be free", file=sys.stderr)
+        return 3
     if stuck:
         print(f"aeon-builder: could not delete {', '.join(stuck)}; the machine is NOT free", file=sys.stderr)
         return 3
+    if gh is None:
+        state.update(lambda d: d.update(mode="off"))
+        print("aeon-builder: off locally — no job VMs; GitHub cleanup skipped")
+        return 0
     try:
         for runner in gh.runners():
             if runner["name"].startswith("mbp2606-"):

@@ -438,6 +438,39 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(ab.BuilderError):
             gh._raw("GET", "/x", bearer="t")
 
+    def test_failed_vm_deletion_holds_the_slot(self):
+        gh = FakeGitHub([], {})
+        ctl = self.controller(gh)
+        self.state.update(lambda d: d["slots"].__setitem__("2", {"jobId": 1, "disk": "aeon-cache-2"}))
+
+        class StuckLima:
+            def delete(self, name):
+                return False
+        ctl.lima = StuckLima()
+        restored = []
+        ctl.finish_disk = lambda slot, disk: restored.append(slot)
+        self.assertFalse(ctl.retire_slot(2, "aeon-job-2", "aeon-cache-2"))
+        data = self.state.load()
+        self.assertEqual(data["slots"]["2"]["phase"], "stuck")
+        self.assertEqual(restored, [], "a surviving VM's disk is never restored underneath it")
+        self.assertEqual(data["mode"], "paused")
+
+    def test_unknown_vm_inventory_is_an_error_not_empty(self):
+        lima = ab.Lima.__new__(ab.Lima)
+        lima.run = lambda *a, **k: subprocess.CompletedProcess([], 1, "", "boom")
+        with self.assertRaises(ab.BuilderError):
+            lima.instances()
+
+    def test_truncated_http_response_becomes_builder_error(self):
+        import http.client
+        gh = ab.GitHub.__new__(ab.GitHub)
+        gh.etags = {}
+        real = ab.urllib.request.urlopen
+        ab.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(http.client.IncompleteRead(b"x"))
+        self.addCleanup(setattr, ab.urllib.request, "urlopen", real)
+        with self.assertRaises(ab.BuilderError):
+            gh._raw("GET", "/x", bearer="t")
+
     def test_ruleset_drift_pauses_and_clears(self):
         gh = FakeGitHub([run(id=9)], {9: [{"id": 1, "status": "queued", "labels": ["mbp2606"]}]})
         gh.ruleset = lambda: dict(LIVE_RULESET, enforcement="evaluate")
