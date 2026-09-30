@@ -52,7 +52,10 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: python3 scripts/aeon-pin-gate.py classify
+        run: |
+          python3 scripts/aeon-pin-gate.py classify > "$RUNNER_TEMP/aeon-pin-classify.out"
+          cat "$RUNNER_TEMP/aeon-pin-classify.out"
+          grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
 
       - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
         if: steps.pin.outputs.pin_only != 'true'

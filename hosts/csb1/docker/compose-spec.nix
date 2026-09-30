@@ -170,7 +170,8 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260930094206.0.0.
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm). The release is the image pin below;
+    # a release pin changes that one line only (NIX-591 fast lane).
     # Database password, session key, messaging key and the AEON-319 doctrine guard key are
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
