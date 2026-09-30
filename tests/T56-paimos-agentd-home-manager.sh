@@ -47,7 +47,7 @@ fi
 # Nix-managed Aeon agentd is off; classic launchd agent is gone; paimos is Aeon.
 aeon_enabled=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.aeon.agentd.enable')
 [[ "$aeon_enabled" == "false" ]] || fail "mbp2607 must not run the Nix aeon-agentd (brew path), got $aeon_enabled"
-has_aeon_agent=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.launchd.agents' --apply 'agents: agents ? aeon-agentd && agents.aeon-agentd.enable')
+has_aeon_agent=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.launchd.agents' --apply 'agents: agents ? aeon-agentd')
 [[ "$has_aeon_agent" == "false" ]] || fail "at.inspr.aeon-agentd must not be declared on mbp2607 ($has_aeon_agent)"
 aeon_cli=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.aeon.cli.enable')
 [[ "$aeon_cli" == "true" ]] || fail "the aeon CLI stays in Nix on mbp2607, got $aeon_cli"
