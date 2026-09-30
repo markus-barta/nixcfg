@@ -438,6 +438,20 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [5])
         self.assertIn(9, self.state.load()["verifiedRuns"])
 
+    def test_sweep_catches_jobs_whose_labels_are_a_subset(self):
+        labels = CFG["runnerLabels"]
+        for runs_on in (["self-hosted"], ["Self-Hosted", "linux"], ["ARM64"], ["self-hosted", "Linux", "ARM64", "mbp2606"]):
+            self.assertTrue(ab.could_take({"labels": runs_on}, labels), runs_on)
+        for runs_on in (["ubuntu-latest"], ["self-hosted", "macos"], [], None):
+            self.assertFalse(ab.could_take({"labels": runs_on}, labels), runs_on)
+        jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606"]}],
+                4: [{"id": 40, "status": "queued", "labels": ["self-hosted"]}],
+                3: [{"id": 30, "status": "queued", "labels": ["ubuntu-latest"]}]}
+        gh = FakeGitHub([run(id=9), run(id=4, event="pull_request"), run(id=3, event="pull_request")], jobs)
+        ctl = self.controller(gh)
+        self.assertEqual(ctl.unverified_label_runs(), [4])
+        self.assertEqual(gh.cancelled, [4], "hosted PR jobs are left alone")
+
     def test_clone_keeps_filesystem_of_copied_disks(self):
         self.assertIn('"format": false', ab.clone_expression(CFG, 1, "aeon-scratch-1", fresh=False))
         self.assertIn('"format": true', ab.clone_expression(CFG, 1, "aeon-cache-1", fresh=True))
