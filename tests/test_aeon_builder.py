@@ -22,6 +22,7 @@ CFG = {
     "repo": REPO,
     "label": "mbp2606",
     "runnerLabels": ["self-hosted", "Linux", "ARM64", "mbp2606"],
+    "classLabels": {"push": "mbp2606-push", "workflow_dispatch": "mbp2606-dispatch"},
     "events": ["push", "workflow_dispatch"],
     "workflows": [".github/workflows/ci.yml", ".github/workflows/test-runner-smoke.yml"],
     "branch": "main",
@@ -396,7 +397,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [7], "cancel once")
 
     def test_verified_jobs_get_slots_and_availability_counts_down(self):
-        jobs = [{"id": 900 + i, "status": "queued", "labels": ["self-hosted", "Linux", "ARM64", "mbp2606"]} for i in range(5)]
+        jobs = [{"id": 900 + i, "status": "queued", "labels": ["self-hosted", "Linux", "ARM64", "mbp2606", "mbp2606-push"]} for i in range(5)]
         gh = FakeGitHub([run(id=9)], {9: jobs})
         ctl = self.controller(gh)
         ctl.tick()
@@ -491,7 +492,7 @@ class ControllerTests(unittest.TestCase):
             gh._raw("GET", "/x", bearer="t")
 
     def test_ruleset_drift_pauses_and_clears(self):
-        gh = FakeGitHub([run(id=9)], {9: [{"id": 1, "status": "queued", "labels": ["mbp2606"]}]})
+        gh = FakeGitHub([run(id=9)], {9: [{"id": 1, "status": "queued", "labels": ["mbp2606", "mbp2606-push"]}]})
         gh.ruleset = lambda: dict(LIVE_RULESET, enforcement="evaluate")
         ctl = self.controller(gh)
         ctl.tick()
@@ -583,11 +584,11 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.state.load()["mode"], "paused")
 
     def test_rescan_before_mint_cancels_any_unverified_label_job(self):
-        jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606"]}],
-                5: [{"id": 50, "status": "queued", "labels": ["mbp2606"]}]}
+        jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606", "mbp2606-push"]}],
+                5: [{"id": 50, "status": "queued", "labels": ["mbp2606", "mbp2606-push"]}]}
         gh = FakeGitHub([run(id=9), run(id=5, event="push", head_branch="work/x")], jobs)
         ctl = self.controller(gh)
-        self.assertEqual(ctl.unverified_label_runs(), [5])
+        self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, run())), [5])
         self.assertEqual(gh.cancelled, [5])
         self.assertIn(9, self.state.load()["verifiedRuns"])
 
@@ -599,13 +600,49 @@ class ControllerTests(unittest.TestCase):
             self.assertFalse(ab.could_take({"labels": runs_on}, labels), runs_on)
         for runs_on in ([], None):
             self.assertTrue(ab.could_take({"labels": runs_on}, labels), "missing labels fail closed")
-        jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606"]}],
+        jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606", "mbp2606-push"]}],
                 4: [{"id": 40, "status": "queued", "labels": ["self-hosted"]}],
                 3: [{"id": 30, "status": "queued", "labels": ["ubuntu-latest"]}]}
         gh = FakeGitHub([run(id=9), run(id=4, event="pull_request"), run(id=3, event="pull_request")], jobs)
         ctl = self.controller(gh)
-        self.assertEqual(ctl.unverified_label_runs(), [4])
+        self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, run())), [4])
         self.assertEqual(gh.cancelled, [4], "hosted PR jobs are left alone")
+
+    def test_mint_labels_carry_exactly_one_class(self):
+        self.assertEqual(ab.mint_labels(CFG, run()), ["self-hosted", "Linux", "ARM64", "mbp2606", "mbp2606-push"])
+        self.assertEqual(ab.mint_labels(CFG, run(event="workflow_dispatch"))[-1], "mbp2606-dispatch")
+
+    def test_class_rules(self):
+        push, dispatch = run(), run(event="workflow_dispatch")
+        base = ["self-hosted", "Linux", "ARM64", "mbp2606"]
+        self.assertTrue(ab.class_ok({"labels": base + ["mbp2606-push"]}, push, CFG))
+        self.assertTrue(ab.class_ok({"labels": base + ["MBP2606-Dispatch"]}, dispatch, CFG))
+        for labels in (base, base + ["mbp2606-dispatch"], base + ["mbp2606-push", "mbp2606-dispatch"]):
+            self.assertFalse(ab.class_ok({"labels": labels}, push, CFG), labels)
+        push_runner = ab.mint_labels(CFG, push)
+        self.assertFalse(ab.could_take({"labels": base + ["mbp2606-dispatch"]}, push_runner), "a push runner never fits a dispatch job")
+        self.assertTrue(ab.could_take({"labels": base}, push_runner), "base-only jobs still fit, so they are swept")
+
+    def test_verified_job_without_its_class_is_cancelled_not_minted(self):
+        gh = FakeGitHub([run(id=9)], {9: [{"id": 90, "status": "queued", "labels": ["self-hosted", "Linux", "ARM64", "mbp2606"]}]})
+        ctl = self.controller(gh)
+        ctl.tick()
+        self.assertEqual(self.served, [])
+        self.assertEqual(gh.cancelled, [9])
+
+    def test_sweep_cancels_base_only_jobs_of_verified_runs_but_keeps_other_classes(self):
+        base = ["self-hosted", "Linux", "ARM64", "mbp2606"]
+        jobs = {9: [{"id": 90, "status": "queued", "labels": base + ["mbp2606-push"]}],
+                8: [{"id": 80, "status": "queued", "labels": base}],
+                7: [{"id": 70, "status": "queued", "labels": base + ["mbp2606-dispatch"]}]}
+        gh = FakeGitHub([run(id=9), run(id=8), run(id=7, event="workflow_dispatch")], jobs)
+        ctl = self.controller(gh)
+        self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, run())), [8])
+        self.assertEqual(gh.cancelled, [8], "the dispatch job cannot take a push runner, so it stays")
+
+    def test_pause_sweeps_every_pool_label(self):
+        self.assertIn("mbp2606-dispatch", ab.pool_labels(CFG))
+        self.assertIn("mbp2606-push", ab.pool_labels(CFG))
 
     def test_clone_keeps_filesystem_of_copied_disks(self):
         self.assertIn('"format": false', ab.clone_expression(CFG, 1, "aeon-scratch-1", fresh=False))
