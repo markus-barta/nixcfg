@@ -2,7 +2,9 @@
 # NIX-600: the slot cache is a LUKS2 container file on the Lima data disk.
 # At boot a job sees only ciphertext; the controller sends the key on stdin
 # after it has attributed this runner's job to a verified run through the API.
-#   cache-lock unlock <size-GiB>   (key on stdin)  → mounted at /opt/aeon-cache
+#   cache-lock unlock <size-GiB> [--init]  (key on stdin) → mounted at /opt/aeon-cache
+#     --init only for a disk the controller just created; a missing container on
+#     an existing disk is an error, never silently replaced.
 #   cache-lock lock                                 → unmounted and closed
 set -euo pipefail
 
@@ -16,12 +18,18 @@ container="$mnt/cache.luks"
 case "${1:-}" in
 unlock)
   size="${2:?size in GiB}"
+  init="${3:-}"
   install -d -m 0700 /run/aeon
   umask 077
   key=/run/aeon/cache.key
+  trap 'rm -f "$key"' EXIT
   cat >"$key"
   fresh=""
   if [ ! -e "$container" ]; then
+    [ "$init" = "--init" ] || {
+      echo "cache container missing on an existing disk" >&2
+      exit 4
+    }
     truncate -s "${size}G" "$container"
     cryptsetup luksFormat --batch-mode --type luks2 --pbkdf pbkdf2 \
       --pbkdf-force-iterations 1000 --key-file "$key" "$container"
