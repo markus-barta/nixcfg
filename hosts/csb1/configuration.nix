@@ -402,15 +402,23 @@ in
   # A failed/missing renderer is a hard dependency, not an advisory Wants.
   # This merges with composeStack's docker.service requirement.
   # AEON-12: host-generated secrets for PAIMOS AEON (database passwords, session
-  # key). Generated once on csb1 and never leave it (not in git, not in agenix);
+  # key, messaging key, AEON-319 doctrine guard key). Generated once on csb1 and
+  # never leave it (not in git, not in agenix);
   # 0444 files inside a 0700 root directory, so only the containers that bind-mount
   # them (non-root users) can read them.
   systemd.services.aeon-secrets = {
     description = "Generate PAIMOS AEON host secrets once";
     wantedBy = [ "multi-user.target" ];
     # Declared from this side so compose-csb1's own requires list (pinned by T58) stays unchanged.
-    requiredBy = [ "compose-csb1.service" ];
-    before = [ "compose-csb1.service" ];
+    # The weekly updater also runs `up -d`, so it must not start the stack before these exist.
+    requiredBy = [
+      "compose-csb1.service"
+      "compose-csb1-update.service"
+    ];
+    before = [
+      "compose-csb1.service"
+      "compose-csb1-update.service"
+    ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -419,10 +427,17 @@ in
     script = ''
       d=/var/lib/aeon-secrets
       install -d -m 0700 -o root -g root "$d"
-      for f in db-superuser-password db-password session-key messaging-key; do
+      for f in db-superuser-password db-password session-key messaging-key doctrine-guard-key; do
+        # A bind mount started before the file existed leaves an empty directory; rmdir only removes that.
+        if [ -d "$d/$f" ]; then rmdir "$d/$f"; fi
         if [ ! -s "$d/$f" ]; then
           umask 0277
-          head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40 > "$d/$f.tmp"
+          # 20 random bytes as hex: always exactly 40 characters (Aeon requires at least 32).
+          od -An -tx1 -N20 /dev/urandom | tr -d ' \n' > "$d/$f.tmp"
+          if [ "$(wc -c < "$d/$f.tmp")" -ne 40 ]; then
+            echo "aeon-secrets: generated $f has the wrong length" >&2
+            exit 1
+          fi
           chmod 0444 "$d/$f.tmp"
           mv "$d/$f.tmp" "$d/$f"
         fi

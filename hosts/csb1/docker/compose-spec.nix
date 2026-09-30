@@ -171,7 +171,8 @@ in
       ];
     };
     # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260929232203.0.0.
-    # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
+    # Database password, session key, messaging key and the AEON-319 doctrine guard key are
+    # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
       image = "ghcr.io/inspr-at/aeon:260929232203.0.0@sha256:d9ca7b66a9fceb263fa58810604001f777576c782bab5b695cb58cd2e6cd5236"; # release 12d, pairing guide, add account, release history
@@ -186,6 +187,7 @@ in
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
         "AEON_SESSION_KEY_FILE=/run/secrets/aeon-session-key"
         "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
+        "AEON_DOCTRINE_GUARD_KEY_FILE=/run/secrets/aeon-doctrine-guard-key"
         "AEON_OIDC_ISSUER=https://auth.inspr.at"
         "AEON_OIDC_CLIENT_ID=392036080846700555@inspr.at"
         "AEON_BOOTSTRAP_ADMIN_EMAIL=markus@barta.com"
@@ -195,6 +197,8 @@ in
         "/var/lib/aeon-secrets/db-password:/run/secrets/aeon-db-password:ro"
         "/var/lib/aeon-secrets/session-key:/run/secrets/aeon-session-key:ro"
         "/var/lib/aeon-secrets/messaging-key:/run/secrets/aeon-messaging-key:ro"
+        # Long form with create_host_path false: a missing key fails the start instead of binding a directory.
+        (privateBind "/var/lib/aeon-secrets/doctrine-guard-key" "/run/secrets/aeon-doctrine-guard-key")
       ];
       depends_on = [ "aeon-db" ];
       # Chromium renders quote PDFs in-process (AEON-91): measured cgroup peak 278 MiB
