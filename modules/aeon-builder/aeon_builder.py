@@ -100,6 +100,34 @@ def could_take(job, runner_labels):
     return wanted <= {label.lower() for label in runner_labels}
 
 
+def job_classes(job, cfg):
+    """The class labels (mbp2606-push, mbp2606-dispatch) a job asks for."""
+    names = {name.lower() for name in cfg["classLabels"].values()}
+    return {str(item).lower() for item in job.get("labels") or []} & names
+
+
+def expected_class(run, cfg):
+    return cfg["classLabels"].get(run.get("event"))
+
+
+def class_ok(job, run, cfg):
+    """AEON-459: a mint candidate carries exactly one class label, the one its
+    run's verified event maps to. Anything else is never minted for."""
+    expected = expected_class(run, cfg)
+    return expected is not None and job_classes(job, cfg) == {expected.lower()}
+
+
+def mint_labels(cfg, run):
+    """Base labels plus exactly one class label: a push runner can never take a
+    dispatch job and vice versa (GitHub matches runs-on as a subset)."""
+    return list(cfg["runnerLabels"]) + [expected_class(run, cfg)]
+
+
+def pool_labels(cfg):
+    """Every label any pool runner can carry: the widest sweep target."""
+    return list(cfg["runnerLabels"]) + sorted(set(cfg["classLabels"].values()))
+
+
 def uses_cache_disk(run, cfg):
     """Trusted caches are writable only by pushes to the branch (AEON-438)."""
     return run.get("event") in cfg["cacheWriteEvents"]
@@ -343,8 +371,8 @@ class GitHub:
         # them), which the exact comparison rightly rejects; write sees them.
         return self.call("GET", self.repo_path(f"/rulesets/{self.cfg['ruleset']['id']}"), ADMIN_WRITE)
 
-    def jit(self, name):
-        body = {"name": name, "runner_group_id": 1, "labels": self.cfg["runnerLabels"], "work_folder": "_work"}
+    def jit(self, name, labels):
+        body = {"name": name, "runner_group_id": 1, "labels": labels, "work_folder": "_work"}
         return self.call("POST", self.repo_path("/actions/runners/generate-jitconfig"), ADMIN_WRITE, body)
 
     def runners(self):
@@ -645,6 +673,15 @@ class Controller:
                 continue
             if run["id"] not in data["verifiedRuns"]:
                 self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
+            if not class_ok(job, run, self.cfg):
+                log(f"reject run {run['id']} job {job['id']}: labels {job.get('labels')} do not carry exactly the "
+                    f"{expected_class(run, self.cfg)} class for a {run.get('event')}; cancelling")
+                try:
+                    self.gh.cancel(run["id"])
+                except BuilderError as err:
+                    log(f"cancel {run['id']} failed: {err}")
+                self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
+                continue
             slot = self.claim_slot(job, run)
             if slot is None:
                 pending += 1
@@ -817,7 +854,8 @@ class Controller:
                     return
             if not self.minting_allowed() or not self.check_ruleset(force=True):
                 return
-            if self.unverified_label_runs():
+            labels = mint_labels(self.cfg, run)
+            if self.unverified_label_runs(labels):
                 log(f"slot {slot}: unverified mbp2606 jobs were queued; cancelled them, not minting this tick")
                 return
             current = self.gh.job(job["id"])
@@ -828,7 +866,7 @@ class Controller:
                 return
             name = f"mbp2606-s{slot}-{job['id']}-{secrets.token_hex(3)}"
             self.set_slot(slot, phase="minting", runner=name)
-            jit = self.gh.jit(name)
+            jit = self.gh.jit(name, labels)
             runner_id = jit["runner"]["id"]
             self.set_slot(slot, phase="waiting", runner=name, runnerId=runner_id)
             log(f"slot {slot}: runner {name} for run {run['id']} attempt {run.get('run_attempt')} job {job['id']} ({run['event']}, disk {disk})")
@@ -858,21 +896,29 @@ class Controller:
                 except BuilderError as err:
                     log(f"slot {slot}: runner cleanup deferred to the sweep: {err}")
 
-    def unverified_label_runs(self):
-        """Before every mint: no queued job that could take an mbp2606 runner
-        (its labels a subset of ours) may belong to an unverified run, whatever
-        its event or ref. Cancel those runs and report whether any existed."""
+    def unverified_label_runs(self, labels):
+        """Before every mint of a runner with `labels`: every queued job that
+        could take it (its runs-on a subset) must be a class-correct job of a
+        verified run. Cancel the runs of all others, whatever their event or ref,
+        and report whether any existed (the caller then does not mint)."""
         data = self.state.load()
         found = []
         for run in self.gh.active_runs():
-            if run["id"] in data["verifiedRuns"] or run["id"] in found:
+            if run["id"] in found:
                 continue
-            if not any(j.get("status") == "queued" and could_take(j, self.cfg["runnerLabels"]) for j in self.gh.jobs(run["id"])):
+            takers = [j for j in self.gh.jobs(run["id"]) if j.get("status") == "queued" and could_take(j, labels)]
+            if not takers:
                 continue
-            ok, reason = verify_run(run, self.cfg, self.gh.sha_on_branch)
+            if run["id"] in data["verifiedRuns"]:
+                ok, reason = True, "ok"
+            else:
+                ok, reason = verify_run(run, self.cfg, self.gh.sha_on_branch)
+                if ok:
+                    self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
+            if ok and all(class_ok(j, run, self.cfg) for j in takers):
+                continue
             if ok:
-                self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
-                continue
+                reason = "a queued job lacks its exact class label"
             log(f"reject run {run['id']} ({run.get('event')}): {reason}; cancelling")
             try:
                 self.gh.cancel(run["id"])
@@ -1105,7 +1151,7 @@ def cancel_label_runs(gh, cfg, statuses=("queued", "in_progress")):
     for run in gh.active_runs():
         if run["id"] in cancelled:
             continue
-        if any(could_take(j, cfg["runnerLabels"]) and j.get("status") in statuses for j in gh.jobs(run["id"])):
+        if any(could_take(j, pool_labels(cfg)) and j.get("status") in statuses for j in gh.jobs(run["id"])):
             gh.cancel(run["id"])
             cancelled.append(run["id"])
     return cancelled
