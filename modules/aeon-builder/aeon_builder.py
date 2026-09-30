@@ -165,10 +165,10 @@ def pf_rules(cfg, user):
     return "\n".join([
         "# aeon-builder (NIX-600): Lima usernet egress leaves the Mac as this user.",
         "# Keep it off the LAN, the tailnet and host loopback; the internet stays open.",
+        "# No DNS exception: the hostagent resolves through mDNSResponder, not as this user.",
         f"table <aeon_private> const {{ {private} }}",
         "pass in quick proto tcp from any to any port 22 keep state",
         f"pass out quick on lo0 proto tcp from 127.0.0.1 to 127.0.0.1 port {first}:{last} user {user} keep state",
-        f"pass out quick proto {{ tcp, udp }} from any to {{ 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 }} port 53 user {user} keep state",
         f"block return out quick from any to <aeon_private> user {user}",
         "",
     ])
@@ -412,6 +412,10 @@ def host_probe_targets(cfg):
         ip = ipaddress.ip_address(addr)
         if not ip.is_loopback and not ip.is_link_local:
             targets.append(f"{addr}:22")
+    route = subprocess.run(["/sbin/route", "-n", "get", "default"], capture_output=True, text=True).stdout
+    gateway = re.search(r"gateway: (\d+\.\d+\.\d+\.\d+)", route)
+    if gateway:
+        targets += [f"{gateway.group(1)}:53", f"{gateway.group(1)}:80", f"{gateway.group(1)}:443"]
     return sorted(set(targets))
 
 
@@ -420,6 +424,7 @@ leaks=""
 for t in "$@"; do
   if timeout 3 bash -c "</dev/tcp/${t%:*}/${t#*:}" 2>/dev/null; then leaks="$leaks $t"; fi
 done
+getent hosts api.github.com >/dev/null || { echo "name resolution broken"; exit 3; }
 timeout 5 bash -c '</dev/tcp/api.github.com/443' 2>/dev/null || { echo "internet unreachable"; exit 3; }
 if [ -n "$leaks" ]; then echo "reachable:$leaks"; exit 2; fi
 echo "blocked"

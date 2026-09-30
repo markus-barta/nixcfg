@@ -165,6 +165,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn("port 60019:60023 user ci", rules)
         self.assertIn("100.64.0.0/10", rules)
         self.assertLess(rules.index("pass out quick on lo0"), rules.index("block return"))
+        self.assertNotIn("port 53", rules, "no DNS exception for ci (AEON-438 ruling)")
 
     @unittest.skipUnless(shutil.which("pfctl"), "pfctl not available")
     def test_pf_rules_parse(self):
