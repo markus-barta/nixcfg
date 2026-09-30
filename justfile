@@ -1643,3 +1643,14 @@ cursor-review release='':
 [group('ai')]
 codex-doctor *args:
     ./scripts/codex-doctor.sh {{ args }}
+
+# Runs `aeon-builder` as the `ci` user over ssh; `off` clears availability, lets
+# queued jobs finish and removes every runner and job VM (use it when mailina
+# needs the Mac). `on --resume` clears a pause after reading its alert.
+# The pool and the AEON workers' remote Go lane (mba's Colima) take turns:
+# `on` waits for running remote tests and stops Colima; `off` starts it again.
+
+# mbp2606 runner pool for inspr-at/paimos (NIX-600): on | off | off --now | status
+[group('ci')]
+mbp2606-builder action='status' *args='':
+    ./scripts/mbp2606-builder.sh {{ quote(action) }} {{ args }}

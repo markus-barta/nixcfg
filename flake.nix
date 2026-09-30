@@ -291,6 +291,12 @@
         mkDarwinHomeModule "aarch64-darwin" "mbp2606"
           ./hosts/mbp2606/home-mailina.nix;
 
+      # Third user: the runner pool for inspr-at/paimos (NIX-600). No personal
+      # identity or secrets; see hosts/mbp2606/home-ci.nix.
+      homeConfigurations."ci@mbp2606" =
+        mkDarwinHomeModule "aarch64-darwin" "mbp2606"
+          ./hosts/mbp2606/home-ci.nix;
+
       # Apple Silicon — MacBook Pro, commissioned 2026-07 (NIX-215). First host
       # on the YYMM naming scheme (PPM KB: NIX/guideline/host-naming-scheme) and
       # first with user `markus` (mba retired for new hosts). Fresh start — no
