@@ -466,6 +466,7 @@ class Controller:
         self.last_proof = time.time()
         self.tainted = set()
         self.slot_used_cache = {}
+        self.slot_fresh = {}
 
     # -- slots
     def free_slots(self, data, pending):
@@ -596,6 +597,7 @@ class Controller:
         disk = None
         try:
             disk, fresh = self.prepare_disk(slot, run)
+            self.slot_fresh[slot] = fresh
             self.lima.delete(vm)
             self.lima.run("clone", "--tty=false", BASE_VM, vm, "--set", clone_expression(self.cfg, slot, disk, fresh))
             self.lima.run("start", "--tty=false", vm)
@@ -681,22 +683,23 @@ class Controller:
         return path.read_text().strip()
 
     def prepare_disk(self, slot, run):
-        """Returns (disk name, fresh). A fresh disk is formatted by Lima."""
+        """Returns (disk name, fresh). Only a disk created right here is fresh:
+        Lima repartitions a `format: true` disk on every boot (its label probe
+        races udev), so an existing disk is always attached with format false."""
         cache = f"aeon-cache-{slot}"
-        if cache not in self.lima.disks():
+        good = self.good_copy(slot)
+        if uses_cache_disk(run, self.cfg):
+            if cache in self.lima.disks():
+                return cache, False
             self.lima.run("disk", "create", cache, "--size", f"{self.cfg['cacheDiskGiB']}GiB", "--format", "raw")
-            good = self.good_copy(slot)
             if good.exists():
                 subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(cache))], check=True)
                 return cache, False
             return cache, True
-        if uses_cache_disk(run, self.cfg):
-            return cache, not self.good_copy(slot).exists()
         # Dispatch: read the last known-good cache, write only a disposable clone.
         scratch = f"aeon-scratch-{slot}"
         self.drop_scratch(slot)
         self.lima.run("disk", "create", scratch, "--size", f"{self.cfg['cacheDiskGiB']}GiB", "--format", "raw")
-        good = self.good_copy(slot)
         if good.exists():
             subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(scratch))], check=True)
             return scratch, False
@@ -785,7 +788,8 @@ class Controller:
             return "unverified"
         self.set_slot(slot, phase="running", ranJob=ran.get("id"), ranRun=ran.get("run_id"), ranAttempt=ran.get("run_attempt"))
         size = max(self.cfg["cacheDiskGiB"] - 4, 8)
-        self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/cache-lock", "unlock", str(size),
+        init = ["--init"] if self.slot_fresh.get(slot) else []
+        self.lima.run("shell", "--workdir", "/", vm, "--", "sudo", "/opt/aeon/cache-lock", "unlock", str(size), *init,
                       input=self.slot_key(slot))
         self.slot_used_cache[slot] = True
         log(f"slot {slot}: admitted job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')}; cache unlocked")

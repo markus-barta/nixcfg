@@ -407,6 +407,7 @@ class ControllerTests(unittest.TestCase):
                 return subprocess.CompletedProcess([], 0, "", "")
         ctl.lima = Lima()
         ctl.slot_key = lambda slot: "k" * 128
+        ctl.slot_fresh = {0: False}
         sleep = ab.time.sleep
         ab.time.sleep = lambda s: None
         self.addCleanup(setattr, ab.time, "sleep", sleep)
@@ -417,6 +418,7 @@ class ControllerTests(unittest.TestCase):
         verdict, calls, _ = self.admit(jobs, [run(id=9)])
         self.assertEqual(verdict, "ok")
         self.assertIn("unlock", calls[0][0])
+        self.assertNotIn("--init", calls[0][0], "an existing disk is never re-initialised")
         self.assertEqual(calls[0][1], "k" * 128)
 
     def test_racing_unverified_job_never_gets_the_key(self):
