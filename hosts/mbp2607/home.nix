@@ -55,7 +55,12 @@ in
     # NIX-583: dedicated Cursor/Codex enrollment and one-run estimates approved.
     # Account allowance windows remain person-managed in Aeon.
     agentd = {
-      enable = true;
+      # Markus, 2026-09-29: agentd on mbp2607 moves to the Homebrew tap path
+      # (`brew install inspr-at/tap/aeon-agentd` + `aeon-agentd pair`, AEON-339);
+      # the aeon CLI stays in Nix. Brew's service (cm.aeon.agentd) refuses to
+      # install while at.inspr.aeon-agentd is loaded, so the Nix daemon is off.
+      # The settings below stay for a fallback to the Nix-managed daemon.
+      enable = false;
       daemonId = "aeon-6f4608dd-775c-4184-83a7-e2cc448bfd62";
       workspace = "${config.home.homeDirectory}/Code";
       agentKeyFile = "${config.home.homeDirectory}/Library/Application Support/aeon/agentd/agent.key";
@@ -64,11 +69,7 @@ in
       codexPath = lib.getExe pkgs.codex;
       # Markus approved one short test per account; windows are enrolled externally.
       estimates.requests = 1;
-      # NIX-589 / AEON-285: mbp2607 is paired with Claude (`aeon-agentd pair`,
-      # approved 2026-09-29), but paired mode stays OFF until Aeon fixes the
-      # daemon socket path: under the default pairing root it exceeds macOS's
-      # 104-byte sun_path limit and `serve --setup-root` exits with
-      # "bind: invalid argument". Re-enable once that Aeon release is pinned.
+      # NIX-589: paired mode is not used here (the brew path pairs instead).
       paired.enable = false;
     };
     cli = {
