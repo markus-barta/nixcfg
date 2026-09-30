@@ -39,6 +39,9 @@ STATE_DIR = HOME / ".local/state/aeon-builder"
 DEFAULT_CONFIG = CONFIG_DIR / "config.json"
 
 READ = {"actions": "read", "metadata": "read"}
+# Every run status in which a job can still be waiting for a runner.
+ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "pending", "requested")
+MAX_PAGES = 20
 CANCEL = {"actions": "write"}
 ADMIN_READ = {"administration": "read"}
 ADMIN_WRITE = {"administration": "write"}
@@ -89,7 +92,9 @@ def could_take(job, runner_labels):
     job's runs-on labels (case-insensitive). `runs-on: self-hosted` alone
     therefore fits an mbp2606 runner too, so sweeps match subsets, not the label."""
     wanted = {str(item).lower() for item in job.get("labels") or []}
-    return bool(wanted) and wanted <= {label.lower() for label in runner_labels}
+    if not wanted:
+        return True  # missing evidence: fail closed
+    return wanted <= {label.lower() for label in runner_labels}
 
 
 def uses_cache_disk(run, cfg):
@@ -283,17 +288,34 @@ class GitHub:
     def repo_path(self, suffix):
         return f"/repos/{self.cfg['repo']}{suffix}"
 
+    def paged(self, path, key, perms, cache=False):
+        items = []
+        sep = "&" if "?" in path else "?"
+        for page in range(1, MAX_PAGES + 1):
+            batch = self.call("GET", f"{path}{sep}per_page=100&page={page}", perms, cache=cache).get(key, [])
+            items.extend(batch)
+            if len(batch) < 100:
+                return items
+        raise BuilderError(f"{path}: more than {MAX_PAGES} pages; refusing to decide on a partial list")
+
     def runs(self, status):
-        return self.call("GET", self.repo_path(f"/actions/runs?status={status}&per_page=100"), READ, cache=True).get("workflow_runs", [])
+        return self.paged(self.repo_path(f"/actions/runs?status={status}"), "workflow_runs", READ, cache=True)
+
+    def active_runs(self):
+        seen = {}
+        for status in ACTIVE_STATUSES:
+            for run in self.runs(status):
+                seen[run["id"]] = run
+        return list(seen.values())
 
     def jobs(self, run_id):
-        return self.call("GET", self.repo_path(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100"), READ, cache=True).get("jobs", [])
+        return self.paged(self.repo_path(f"/actions/runs/{run_id}/jobs?filter=latest"), "jobs", READ, cache=True)
 
     def job(self, job_id):
         return self.call("GET", self.repo_path(f"/actions/jobs/{job_id}"), READ)
 
     def all_jobs(self, run_id):
-        return self.call("GET", self.repo_path(f"/actions/runs/{run_id}/jobs?filter=all&per_page=100"), READ).get("jobs", [])
+        return self.paged(self.repo_path(f"/actions/runs/{run_id}/jobs?filter=all"), "jobs", READ)
 
     def recent_runs(self):
         return self.call("GET", self.repo_path("/actions/runs?per_page=30"), READ).get("workflow_runs", [])
@@ -513,11 +535,7 @@ class Controller:
         if mode not in ("on", "draining"):
             return mode
         candidates = []
-        seen_runs = {}
-        for status in ("queued", "in_progress"):
-            for run in self.gh.runs(status):
-                seen_runs[run["id"]] = run
-        for run in seen_runs.values():
+        for run in self.gh.active_runs():
             for job in self.gh.jobs(run["id"]):
                 if job.get("status") == "queued" and wants_label(job, self.cfg["label"]):
                     candidates.append((run, job))
@@ -658,23 +676,22 @@ class Controller:
         its event or ref. Cancel those runs and report whether any existed."""
         data = self.state.load()
         found = []
-        for status in ("queued", "in_progress"):
-            for run in self.gh.runs(status):
-                if run["id"] in data["verifiedRuns"] or run["id"] in found:
-                    continue
-                if not any(j.get("status") == "queued" and could_take(j, self.cfg["runnerLabels"]) for j in self.gh.jobs(run["id"])):
-                    continue
-                ok, reason = verify_run(run, self.cfg, self.gh.sha_on_branch)
-                if ok:
-                    self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
-                    continue
-                log(f"reject run {run['id']} ({run.get('event')}): {reason}; cancelling")
-                try:
-                    self.gh.cancel(run["id"])
-                except BuilderError as err:
-                    log(f"cancel {run['id']} failed: {err}")
-                self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
-                found.append(run["id"])
+        for run in self.gh.active_runs():
+            if run["id"] in data["verifiedRuns"] or run["id"] in found:
+                continue
+            if not any(j.get("status") == "queued" and could_take(j, self.cfg["runnerLabels"]) for j in self.gh.jobs(run["id"])):
+                continue
+            ok, reason = verify_run(run, self.cfg, self.gh.sha_on_branch)
+            if ok:
+                self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
+                continue
+            log(f"reject run {run['id']} ({run.get('event')}): {reason}; cancelling")
+            try:
+                self.gh.cancel(run["id"])
+            except BuilderError as err:
+                log(f"cancel {run['id']} failed: {err}")
+            self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
+            found.append(run["id"])
         return found
 
     # -- cache disks: trusted slot disk for verified pushes, throwaway clone otherwise
@@ -862,13 +879,12 @@ class Controller:
 
 def cancel_label_runs(gh, cfg, statuses=("queued", "in_progress")):
     cancelled = []
-    for status in ("queued", "in_progress"):
-        for run in gh.runs(status):
-            if run["id"] in cancelled:
-                continue
-            if any(could_take(j, cfg["runnerLabels"]) and j.get("status") in statuses for j in gh.jobs(run["id"])):
-                gh.cancel(run["id"])
-                cancelled.append(run["id"])
+    for run in gh.active_runs():
+        if run["id"] in cancelled:
+            continue
+        if any(could_take(j, cfg["runnerLabels"]) and j.get("status") in statuses for j in gh.jobs(run["id"])):
+            gh.cancel(run["id"])
+            cancelled.append(run["id"])
     return cancelled
 
 

@@ -31,7 +31,7 @@ CFG = {
     "slotMemoryGiB": 7,
     "slotDiskGiB": 60,
     "cacheDiskGiB": 60,
-    "sshPortBase": 60020,
+    "sshPortBase": 41020,
     "blockedNetworks": ["10.0.0.0/8", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8"],
     "requireNetworkBlock": False,
     "proofMinutes": 10,
@@ -137,6 +137,20 @@ class RulesetTests(unittest.TestCase):
         self.assertEqual(ab.ruleset_problems(None, self.expected()), ["ruleset missing"])
 
 
+class PagingTests(unittest.TestCase):
+    def test_paged_follows_full_pages_and_refuses_partial_lists(self):
+        gh = ab.GitHub.__new__(ab.GitHub)
+        pages = {1: list(range(100)), 2: list(range(100, 150))}
+        gh.call = lambda method, path, perms, cache=False: {"jobs": pages.get(int(path.rsplit("page=", 1)[1]), [])}
+        self.assertEqual(len(gh.paged("/x?filter=all", "jobs", {})), 150)
+        gh.call = lambda method, path, perms, cache=False: {"jobs": list(range(100))}
+        with self.assertRaises(ab.BuilderError):
+            gh.paged("/x", "jobs", {})
+
+    def test_active_statuses_cover_every_waiting_state(self):
+        self.assertEqual(set(ab.ACTIVE_STATUSES), {"queued", "in_progress", "waiting", "pending", "requested"})
+
+
 class RenderTests(unittest.TestCase):
     def test_availability_record_matches_schema_1(self):
         import datetime as dt
@@ -151,19 +165,19 @@ class RenderTests(unittest.TestCase):
         expr = ab.base_expression(CFG)
         self.assertIn(".mounts = []", expr)
         self.assertIn('"ignore": true', expr)
-        self.assertIn(".ssh.localPort = 60019", expr)
+        self.assertIn(".ssh.localPort = 41019", expr)
 
     def test_clone_uses_slot_port_and_disk(self):
         expr = ab.clone_expression(CFG, 2, "aeon-cache-2")
-        self.assertIn(".ssh.localPort = 60022", expr)
+        self.assertIn(".ssh.localPort = 41022", expr)
         self.assertIn('"name": "aeon-cache-2"', expr)
         self.assertIn(".additionalDisks = []", ab.clone_expression(CFG, 0, None))
 
     def test_pf_rules_block_private_ranges_for_ci_only(self):
         rules = ab.pf_rules(CFG, "ci")
         self.assertIn("block return out quick from any to <aeon_private> user ci", rules)
-        self.assertIn("to 127.0.0.1 port 60019:60023 user ci no state", rules)
-        self.assertIn("from 127.0.0.1 port 60019:60023 to 127.0.0.1 user ci no state", rules)
+        self.assertIn("to 127.0.0.1 port 41019:41023 user ci no state", rules)
+        self.assertIn("from 127.0.0.1 port 41019:41023 to 127.0.0.1 user ci no state", rules)
         self.assertIn("100.64.0.0/10", rules)
         self.assertLess(rules.index("pass out quick on lo0"), rules.index("block return"))
         self.assertNotIn("port 53", rules, "no DNS exception for ci (AEON-438 ruling)")
@@ -271,6 +285,9 @@ class FakeGitHub:
 
     def jobs(self, run_id):
         return self._jobs.get(run_id, [])
+
+    def active_runs(self):
+        return [r for r in self._runs if r.get("status", "queued") in ab.ACTIVE_STATUSES]
 
     def all_jobs(self, run_id):
         return self._jobs.get(run_id, [])
@@ -442,8 +459,10 @@ class ControllerTests(unittest.TestCase):
         labels = CFG["runnerLabels"]
         for runs_on in (["self-hosted"], ["Self-Hosted", "linux"], ["ARM64"], ["self-hosted", "Linux", "ARM64", "mbp2606"]):
             self.assertTrue(ab.could_take({"labels": runs_on}, labels), runs_on)
-        for runs_on in (["ubuntu-latest"], ["self-hosted", "macos"], [], None):
+        for runs_on in (["ubuntu-latest"], ["self-hosted", "macos"]):
             self.assertFalse(ab.could_take({"labels": runs_on}, labels), runs_on)
+        for runs_on in ([], None):
+            self.assertTrue(ab.could_take({"labels": runs_on}, labels), "missing labels fail closed")
         jobs = {9: [{"id": 90, "status": "queued", "labels": ["mbp2606"]}],
                 4: [{"id": 40, "status": "queued", "labels": ["self-hosted"]}],
                 3: [{"id": 30, "status": "queued", "labels": ["ubuntu-latest"]}]}
