@@ -399,8 +399,20 @@ class Lima:
             raise BuilderError(f"limactl list output unreadable: {err}") from None
 
     def disks(self):
-        out = self.run("disk", "list", "--json", check=False).stdout
-        return {item["name"]: item for item in (json.loads(line) for line in out.splitlines() if line.strip())}
+        """Raises when limactl cannot list disks: unknown is never 'none'."""
+        proc = self.run("disk", "list", "--json", check=False)
+        if proc.returncode != 0:
+            raise BuilderError(f"limactl disk list failed: {proc.stderr.strip()[-200:]}")
+        try:
+            return {item["name"]: item for item in (json.loads(line) for line in proc.stdout.splitlines() if line.strip())}
+        except (ValueError, KeyError) as err:
+            raise BuilderError(f"limactl disk list output unreadable: {err}") from None
+
+    def delete_disk(self, name):
+        """Delete a disk and verify it is gone; raises otherwise."""
+        self.run("disk", "delete", "--force", name, check=False)
+        if name in self.disks():
+            raise BuilderError(f"disk {name} could not be deleted")
 
     def shell(self, name, command, input=None, check=True, timeout=300):
         return self.run("shell", "--workdir", "/", name, "--", "bash", "-c", command, input=input, check=check, timeout=timeout)
@@ -922,7 +934,7 @@ class Controller:
             if good.exists():
                 subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(disk))], check=True)
             else:
-                self.lima.run("disk", "delete", "--force", disk, check=False)
+                self.lima.delete_disk(disk)  # raises: retire_slot then holds the slot
             self.tainted.discard(slot)
             return
         if self.slot_used_cache.pop(slot, False):
@@ -935,7 +947,7 @@ class Controller:
     def drop_scratch(self, slot):
         scratch = f"aeon-scratch-{slot}"
         if scratch in self.lima.disks():
-            self.lima.run("disk", "delete", "--force", scratch, check=False)
+            self.lima.delete_disk(scratch)
 
     # -- the job's lifetime
     def vm_running(self, vm):

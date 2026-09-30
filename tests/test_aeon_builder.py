@@ -455,6 +455,25 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(restored, [], "a surviving VM's disk is never restored underneath it")
         self.assertEqual(data["mode"], "paused")
 
+    def test_tainted_disk_that_cannot_be_deleted_holds_the_slot(self):
+        ctl = self.controller(FakeGitHub([], {}))
+        self.state.update(lambda d: d["slots"].__setitem__("1", {"jobId": 1, "disk": "aeon-cache-1"}))
+        old_state = ab.STATE_DIR
+        ab.STATE_DIR = self.tmp
+        self.addCleanup(setattr, ab, "STATE_DIR", old_state)
+
+        class Lima:
+            def delete(self, name):
+                return True
+
+            def delete_disk(self, name):
+                raise ab.BuilderError("disk busy")
+        ctl.lima = Lima()
+        ctl.tainted.add(1)
+        self.assertFalse(ctl.retire_slot(1, "aeon-job-1", "aeon-cache-1"))
+        self.assertEqual(self.state.load()["slots"]["1"]["phase"], "stuck")
+        self.assertIn(1, ctl.tainted, "still tainted until the disk is really gone")
+
     def test_unknown_vm_inventory_is_an_error_not_empty(self):
         lima = ab.Lima.__new__(ab.Lima)
         lima.run = lambda *a, **k: subprocess.CompletedProcess([], 1, "", "boom")
