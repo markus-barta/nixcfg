@@ -43,18 +43,14 @@ if grep -Fq 'paimosAgentd' "$repo_root/hosts/mbp2607/home.nix"; then
   fail 'mbp2607 must not enable classic paimosAgentd'
 fi
 
-# Live mbp2607: Aeon agentd stays; classic launchd agent is gone; paimos is Aeon.
-aeon_json=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.launchd.agents.aeon-agentd')
-python3 - "$aeon_json" <<'PY'
-import json, sys
-agent = json.loads(sys.argv[1])
-assert agent.get("enable") is True, agent
-config = agent["config"]
-assert config["Label"] == "at.inspr.aeon-agentd", config
-args = config["ProgramArguments"]
-assert args[0].endswith("/bin/aeon-agentd"), args
-assert args[1] == "serve", args
-PY
+# Live mbp2607: agentd runs from the Homebrew tap (NIX-589/AEON-339), so the
+# Nix-managed Aeon agentd is off; classic launchd agent is gone; paimos is Aeon.
+aeon_enabled=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.aeon.agentd.enable')
+[[ "$aeon_enabled" == "false" ]] || fail "mbp2607 must not run the Nix aeon-agentd (brew path), got $aeon_enabled"
+has_aeon_agent=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.launchd.agents' --apply 'agents: agents ? aeon-agentd && agents.aeon-agentd.enable')
+[[ "$has_aeon_agent" == "false" ]] || fail "at.inspr.aeon-agentd must not be declared on mbp2607 ($has_aeon_agent)"
+aeon_cli=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.aeon.cli.enable')
+[[ "$aeon_cli" == "true" ]] || fail "the aeon CLI stays in Nix on mbp2607, got $aeon_cli"
 
 has_classic=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.launchd.agents' --apply 'agents: agents ? paimos-agentd')
 [[ "$has_classic" == "false" ]] || fail "classic paimos-agentd launchd agent is still present ($has_classic)"
@@ -65,4 +61,4 @@ alias_default=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus
 has_wrapper=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.home.packages' --apply 'ps: builtins.any (p: (p.name or "") == "paimos-classic") ps')
 [[ "$has_wrapper" == "true" ]] || fail "paimos-classic must be installed on mbp2607, got $has_wrapper"
 
-printf 'T56 passed: classic agentd retired; paimos is Aeon; paimos-classic remains for pma\n'
+printf 'T56 passed: classic agentd retired; Nix aeon-agentd off (brew path); aeon CLI in Nix; paimos-classic remains for pma\n'
