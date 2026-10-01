@@ -17,7 +17,16 @@ if ! git -C "$repo_root" diff --quiet HEAD -- modules/shared/compose-stack hosts
 fi
 revision=$(git -C "$repo_root" rev-parse HEAD)
 export OPS248_FLAKE_REF="git+file://${repo_root}?rev=${revision}&shallow=1"
-nix eval --no-write-lock-file --impure --json --file "$repo_root/tests/compose-refresh-eval.nix" |
+export OPS248_COMPARISON_FLAKE_REF=""
+if (($#)); then
+  if [[ $# != 2 || $1 != --compare-revision || ! $2 =~ ^[0-9a-f]{40}$ ]]; then
+    echo 'usage: T93-compose-scoped-refresh.sh [--compare-revision FAKE_AEON_PIN_COMMIT]' >&2
+    exit 2
+  fi
+  export OPS248_COMPARISON_FLAKE_REF="git+file://${repo_root}?rev=${2}&shallow=1"
+fi
+eval_result=$(nix eval --no-write-lock-file --impure --json --file "$repo_root/tests/compose-refresh-eval.nix")
+printf '%s\n' "$eval_result" |
   python3 -c '
 import json, sys
 checks = json.load(sys.stdin)
