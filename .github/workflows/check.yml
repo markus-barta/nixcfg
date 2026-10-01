@@ -332,6 +332,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
 
+      - name: Verify scoped Compose refresh and Janus restart triggers (OPS-248)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T93-compose-scoped-refresh.sh
+
       - name: Verify declarative csb1 Aithema speech settings (NIX-504)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq --run "bash tests/T82-aithema-speech-settings.sh"

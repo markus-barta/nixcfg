@@ -313,11 +313,6 @@ in
     # Re-archive only after those mounts migrate (reopened NIX-116, OPS-144).
     reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb1/docker";
-    postRecreate = [
-      "hostdash-auth"
-      "hostdash"
-      "traefik"
-    ];
     # 🔴 removeOrphans stays FALSE on csb1, permanently-until-audited: project
     # csb1 contains Janus-managed containers driven from a second compose file
     # plus smoke-test leftovers. Profile-gated services are exempt from orphan
@@ -348,19 +343,26 @@ in
     # generations. The explicit dependency below upgrades this Wants/After to
     # Requires for csb1: a missing private fragment must block reconciliation.
     extraAfter = [ "inspr-edge-config.service" ];
-    extraRestartTriggers = [
-      hostdashCsb1
+    # OPS-248: normal Compose convergence sees only the affected consumer's
+    # input digest. An Aeon-only pin no longer force-recreates the public edge.
+    serviceRefreshTriggers.hostdash = [ config.environment.etc."hostdash/csb1".source ];
+    serviceRefreshTriggers.hostdash-auth = [ config.age.secrets.csb-hostdash-oauth2-proxy-env.file ];
+    serviceRefreshTriggers.inspr-auth = [ config.age.secrets.csb1-inspr-auth-env.file ];
+    serviceRefreshTriggers.traefik = [
+      ./docker/traefik/static.yml
+      ./docker/traefik/dynamic.yml
+      config.age.secrets.traefik-variables.file
       config.age.secrets.csb1-inspr-auth-env.file
-      ./scripts/render-inspr-edge-config.sh
-      ./shared-flow.nix
-      ./legacy-flow-routing.nix
-      ./scripts/render-shared-flow-config.sh
+      config.systemd.services.inspr-edge-config.script
     ]
     ++ lib.optionals sharedFlow.active [
       config.services.inspr.routingEdge.generatedFragmentFile
       legacyFlowFragmentFile
-    ]
-    ++ lib.optionals janusFlowHost.active [
+      config.systemd.services.inspr-shared-flow-config.script
+    ];
+    # Janus consumes this env_file; its rotation still reconciles the stack
+    # without declaring the unrelated Traefik container stale.
+    extraRestartTriggers = lib.optionals janusFlowHost.active [
       config.age.secrets.csb1-janus-flow-api-key.file
     ];
     spec = import ./docker/compose-spec.nix;
@@ -1081,8 +1083,8 @@ in
       # /home/mba/docker is still live — NIX-116 archive reverted (see above).
     ];
 
-  # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate
-  # (OPS-116/122): hostdash-auth → hostdash → traefik, same order.
+  # csb1-hostdash lived here — superseded by composeStack. OPS-248 uses
+  # consumer-specific refresh inputs rather than an unconditional recreate chain.
 
   # Restic must never live-walk the SQLite database and its blob directories.
   # This timer briefly quiesces HAUSV and atomically publishes one coherent
@@ -1264,13 +1266,19 @@ in
     # a reviewed image, catalog, policy, or profile change recreates the exact
     # networkless container even though the stable /etc paths do not change.
     restartTriggers = [
-      config.nixcfg.composeStack.renderedFile # OPS-127: was readFile of the yml
-      (builtins.readFile ./docker/janus/managed-service-production/secretspec.toml)
-      (builtins.readFile ./docker/janus/managed-service-production/managed-env-files.toml)
-      (builtins.readFile ./docker/janus/managed-service-production/hooks.toml)
-      (builtins.readFile ./docker/janus/managed-service-production/web-transaction-catalog.json)
-      (builtins.readFile ./docker/janus/managed-service-production/release-channels-v1.json)
-      (builtins.readFile ./docker/janus/managed-service-production/release-admission.json)
+      (builtins.toJSON config.nixcfg.composeStack.serviceDefinitions.janus-managed-transactiond)
+      # toJSON copies path inputs individually into the store. Plain toString
+      # would retain the enclosing flake source path and couple every commit.
+      (builtins.toJSON config.age.secrets.csb1-janus-managed-host-signing-key.file)
+      (builtins.toJSON config.age.secrets.csb1-janus-managed-age-identity.file)
+    ]
+    ++ map (name: builtins.toJSON config.environment.etc."janus/managed/${name}".source) [
+      "secretspec.toml"
+      "managed-env-files.toml"
+      "hooks.toml"
+      "web-transaction-catalog.json"
+      "release-channels-v1.json"
+      "release-admission.json"
     ];
     requires = [
       "docker.service"

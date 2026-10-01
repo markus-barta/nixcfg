@@ -304,7 +304,7 @@ test "$(
   nix eval \
     "${flake_ref}#nixosConfigurations.csb1.config.systemd.services.janus-managed-transactiond.restartTriggers" \
     --json | jq 'length'
-)" = "7"
+)" = "9" # own service definition, two bound-key references, six contracts (OPS-248)
 grep -Fq 'Restart = "always";' "${host}"
 grep -Fq 'profiles = [' "${compose}"
 grep -Fq 'user = "100:101";' "${compose}"

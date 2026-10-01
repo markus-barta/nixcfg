@@ -201,6 +201,30 @@ the ONLY sanctioned substitute for the absent reconcile unit — restart
 policies survive crashes, but a REMOVED container is not recreated until
 PR-2 restores reconciliation.)
 
+### Scoped refresh inputs (OPS-248)
+
+The stack reconciles through `/etc/compose/csb1/docker-compose.yml` under its
+existing Compose lock. HostDash, hostdash-auth, Traefik and inspr-auth carry a
+`cm.barta.compose.refresh` label derived from their declared external inputs.
+Changing the HostDash artifact, bound config, renderer or encrypted credential
+source changes only the relevant consumers' configurations. Normal `up -d`
+then recreates them; an Aeon-only image pin does not force-recreate the edge.
+The first switch adopting these labels intentionally refreshes those four
+containers once.
+
+Janus transactiond has its own restart trigger: its rendered service and
+referenced resources, six mounted contracts, and its two bound credential
+sources. Its unit remains ordered after stack reconciliation, without requiring
+the stack to succeed. The whole Compose file is no longer a Janus restart input.
+
+Refresh inputs contain immutable references, never decrypted credentials. A
+manual runtime-file replacement outside these declarations still needs an
+explicit targeted recreate through the Compose lock. Renderer dependencies and
+the existing three-attempt reconcile retry remain in place. No separate
+last-success fingerprint is advanced on failure; Compose tracks the containers
+it actually converged. T93 verifies the selective inputs and generated units
+without building or activating the host.
+
 ### OPS-136 — who owns the 5 (zitadel, zitadel-postgres, inspr-auth, inspr-www, paimos-www)
 
 Identify the current phase by the compose project label:

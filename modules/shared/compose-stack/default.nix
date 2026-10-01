@@ -74,9 +74,47 @@ let
         dns_search = config.networking.search;
       };
 
-  renderedSpec = cfg.spec // {
-    services = lib.mapAttrs (_: withHostDns) (cfg.spec.services or { });
-  };
+  # OPS-248: stable mount/env_file paths hide content changes from Compose.
+  # Put only that consumer's declared input digest into its service config;
+  # Compose then owns recreate detection and retry, without a second stamp.
+  refreshLabel = "cm.barta.compose.refresh";
+  withRefresh =
+    name: service:
+    let
+      triggers = cfg.serviceRefreshTriggers.${name} or [ ];
+      labels = service.labels or [ ];
+      digest = builtins.hashString "sha256" (builtins.toJSON triggers);
+      ownsLabel =
+        if builtins.isAttrs labels then
+          builtins.hasAttr refreshLabel labels
+        else
+          lib.any (label: label == refreshLabel || lib.hasPrefix "${refreshLabel}=" label) labels;
+    in
+    if triggers == [ ] then
+      service
+    else
+      assert lib.assertMsg (!ownsLabel) "composeStack: ${name} declares reserved ${refreshLabel} label";
+      service
+      // {
+        labels =
+          if builtins.isAttrs labels then
+            labels // { ${refreshLabel} = digest; }
+          else
+            labels ++ [ "${refreshLabel}=${digest}" ];
+      };
+
+  renderedSpec =
+    assert lib.assertMsg (lib.all (name: builtins.hasAttr name (cfg.spec.services or { })) (
+      builtins.attrNames cfg.serviceRefreshTriggers
+    )) "composeStack: serviceRefreshTriggers names a service absent from the spec";
+    cfg.spec
+    // {
+      services = lib.mapAttrs (name: service: withRefresh name (withHostDns service)) (
+        cfg.spec.services or { }
+      );
+    };
+
+  serviceDefinition = import ./service-definition.nix { inherit lib; };
 
   # Compose reads JSON — YAML is a superset — so the spec never round-trips
   # through a YAML writer that could reorder or requote anything.
@@ -205,6 +243,21 @@ in
       '';
     };
 
+    serviceRefreshTriggers = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf lib.types.anything);
+      default = { };
+      description = ''
+        Per-service inputs hidden behind stable bind or env_file paths. Their
+        digest becomes a reserved cm.barta.compose.refresh label, so normal
+        Compose reconciliation recreates only the affected consumer. Use
+        immutable artifacts, config files, renderer inputs and encrypted-source
+        references, NEVER plaintext credentials. Empty lists leave services
+        unchanged. Declarative input changes must cover every runtime renderer
+        that replaces a mounted file; manual runtime rotations still require an
+        explicit targeted reconcile. Prefer this over unconditional postRecreate.
+      '';
+    };
+
     extraAfter = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -330,9 +383,21 @@ in
       readOnly = true;
       default = renderedSpec;
       description = ''
-        The final spec after DNS injection. The equivalence gate evaluates this
+        The final spec after DNS and per-service refresh-label injection. The equivalence gate evaluates this
         directly with `nix eval --json`, so verification needs no build and can
         run from macOS.
+      '';
+    };
+
+    serviceDefinitions = lib.mkOption {
+      type = lib.types.attrs;
+      readOnly = true;
+      default = lib.mapAttrs (name: _: serviceDefinition renderedSpec name) renderedSpec.services;
+      description = ''
+        Each rendered service plus its referenced network/volume/config/secret
+        declarations. Consumers with separate systemd units can trigger on their
+        own definition instead of the whole stack. Stable bind-file contents and
+        credential sources still need explicit restart triggers.
       '';
     };
   };
@@ -418,7 +483,7 @@ in
           # names, which is exactly how the hsb1 cutover failed its first attempt.
           script =
             let
-              compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
+              compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${lib.escapeShellArg "/etc/compose/${cfg.stackName}/docker-compose.yml"} ${projectDirFlag}";
               locked = "${pkgs.util-linux}/bin/flock -w 570 /run/lock/compose-${cfg.stackName}.lock";
             in
             ''
