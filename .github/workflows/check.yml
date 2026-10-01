@@ -324,6 +324,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T88-model-role-lint.sh
 
+      - name: Verify the macOS Home Manager Nix GC agents exist on mbp2607 only (NIX-603)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T90-nix-gc-home-manager.sh
+
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
