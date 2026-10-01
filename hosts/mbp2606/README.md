@@ -60,6 +60,13 @@ material, and rewriting it would force a pointless rekey.
   private machine.
 - The `m5-*` key names are retained because the material was deliberately
   carried forward.
+- Nix garbage collection (NIX-603): the store is shared by every account on
+  this Mac, so exactly one account collects it. `mba` runs the weekly (Sunday
+  04:00, all dead paths) and low-space (below 100 GiB free) user launchd
+  agents of `uzumaki.nixGc`; `mailina` and `ci` deliberately do not. Operate,
+  pause and the rule for store-linked binaries: see `hosts/mbp2607/README.md`.
+  Agents need a graphical session of `mba`; if it is ever logged out, no
+  collection runs.
 
 ## Inbound SSH (declarative)
 

@@ -89,6 +89,10 @@ in
     role = "workstation";
     fish.editor = "nano"; # Options: nano, vim, code, etc.
     stasysmo.enable = true; # System metrics in Starship prompt
+    # NIX-603: this Mac's store is shared by mba, mailina and ci, and nothing
+    # collected it (47k dead paths on 2026-10-01). Exactly one account per Mac
+    # runs the agents; mba has a graphical session, which user agents need.
+    nixGc.enable = true;
   };
 
   # ============================================================================
