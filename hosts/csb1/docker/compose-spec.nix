@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260930115354.0.0@sha256:fceff43ddd6e11473b1fa17669dbf1fc720dfaa4828b3ab2ff2a67a5dbc3aa2d"; # release 14.1: AEON-439/441 attach security, AEON-402 agents cleanup
+      image = "ghcr.io/inspr-at/aeon:261001072608.0.0@sha256:e7278c4ce218f277f2e3c436bc7ed77d235f5fe4bdf1e6c959075cb29ca03b7b"; # release 114 Intact Ion (AEON-482)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
