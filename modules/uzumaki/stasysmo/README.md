@@ -139,10 +139,13 @@ glyph widths, SSH, pressure priority, hostile snapshots, kill switch and fallbac
 Daemon tests check bounds, atomic generations, permissions, interval clamp,
 failed samples and one Linux child per tick. Darwin compiles the helper with `cc`
 and checks real samples when the APIs are available. A sandbox denial is reported
-as a skip locally and fails the Darwin CI gate.
+as a skip: run `bash tests/T91-stasysmo.sh --suite daemon` on a real Mac (outside any
+sandbox) before deploying the helper.
 
-`.github/workflows/check.yml` runs the portable suite on Linux and a native sampler
-job on macOS. `modules/uzumaki/stasysmo/tests/run-all.sh` runs the same assertions
+`.github/workflows/check.yml` runs the portable suite on Linux. A macOS CI job for the
+native sampler is deliberately absent: GitHub's macOS runner fails inside the Nix
+installer before any test runs, so the sampler is proven on real Macs instead.
+`modules/uzumaki/stasysmo/tests/run-all.sh` runs the same assertions
 once, without the former Bash counter abort. Host tests under
 `hosts/{hsb0,hsb1,hsb8}/tests` perform read-only deployed-service checks; run those
 only on the intended host after deployment. No automated fixture uses live

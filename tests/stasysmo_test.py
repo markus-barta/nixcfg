@@ -82,7 +82,19 @@ def pty_prompt(cols, init, environment):
                 os.write(master, b'\x1b[%d;%dR' % (screen.cursor.y + 1, screen.cursor.x + 1))
             if b'\x1b[?u' in pending:
                 os.write(master, b'\x1b[?0u')
-            pending = re.sub(rb'\x1bP.*?\x1b\\', b'', pending, flags=re.S)
+            # Drop complete DCS sequences (ESC P ... ESC \) with a linear scan: a regex over
+            # terminal output is a polynomial-ReDoS shape (CodeQL py/polynomial-redos).
+            kept = bytearray()
+            pos = 0
+            while True:
+                start = pending.find(b'\x1bP', pos)
+                end = pending.find(b'\x1b\\', start + 2) if start >= 0 else -1
+                if start < 0 or end < 0:
+                    kept += pending[pos:]  # no (complete) DCS left; an incomplete one stays pending
+                    break
+                kept += pending[pos:start]
+                pos = end + 2
+            pending = bytes(kept)
             dcs = pending.find(b'\x1bP')
             if dcs >= 0:
                 stream.feed(pending[:dcs])
