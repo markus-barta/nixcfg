@@ -213,30 +213,82 @@ function latestExecutions(rows) {
   return [...latest.values()].sort((a, b) => a.identity.id.localeCompare(b.identity.id)).map(({ row }) => row);
 }
 
-function combineIntervals(entries) {
-  const sorted = entries.map((entry) => ({
-    fromInclusive: entry.fromInclusive,
-    toExclusive: entry.toExclusive,
-    receiptIds: [...new Set(entry.receiptIds)].sort(),
-  })).sort((a, b) => a.fromInclusive.localeCompare(b.fromInclusive) || a.toExclusive.localeCompare(b.toExclusive));
+export function combineIntervals(entries) {
+  if (!entries.length) return [];
+  // Sort once (O(n log n)), then merge abutting/overlapping ranges while
+  // accumulating receiptIds in a Set. Sorting ids only when a merged run
+  // closes keeps this linear in receipt-id references instead of quadratic.
+  const sorted = entries
+    .map((entry) => ({
+      fromInclusive: entry.fromInclusive,
+      toExclusive: entry.toExclusive,
+      receiptIds: entry.receiptIds,
+    }))
+    .sort((a, b) => a.fromInclusive.localeCompare(b.fromInclusive) || a.toExclusive.localeCompare(b.toExclusive));
   const result = [];
-  for (const entry of sorted) {
-    const prior = result.at(-1);
-    if (!prior || entry.fromInclusive > prior.toExclusive) {
-      result.push(entry);
+  let fromInclusive = sorted[0].fromInclusive;
+  let toExclusive = sorted[0].toExclusive;
+  let idSet = new Set(sorted[0].receiptIds);
+  for (let index = 1; index < sorted.length; index += 1) {
+    const entry = sorted[index];
+    if (entry.fromInclusive > toExclusive) {
+      result.push({ fromInclusive, toExclusive, receiptIds: [...idSet].sort() });
+      fromInclusive = entry.fromInclusive;
+      toExclusive = entry.toExclusive;
+      idSet = new Set(entry.receiptIds);
       continue;
     }
-    prior.toExclusive = prior.toExclusive > entry.toExclusive ? prior.toExclusive : entry.toExclusive;
-    prior.receiptIds = [...new Set([...prior.receiptIds, ...entry.receiptIds])].sort();
+    if (entry.toExclusive > toExclusive) toExclusive = entry.toExclusive;
+    for (const id of entry.receiptIds) idSet.add(id);
   }
+  result.push({ fromInclusive, toExclusive, receiptIds: [...idSet].sort() });
   return result;
 }
 
+function coverageIntervalEntries(receipts, completeOnly) {
+  const entries = [];
+  for (const receipt of receipts) {
+    if (completeOnly && receipt.coverageStatus !== "complete") continue;
+    entries.push({
+      fromInclusive: receipt.window.fromInclusive,
+      toExclusive: receipt.window.toExclusive,
+      receiptIds: [receipt.receiptId],
+    });
+  }
+  return entries;
+}
+
+function sameIntervalList(left, right) {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a.fromInclusive !== b.fromInclusive || a.toExclusive !== b.toExclusive) return false;
+    const aIds = a.receiptIds || [];
+    const bIds = b.receiptIds || [];
+    if (aIds.length !== bIds.length) return false;
+    for (let i = 0; i < aIds.length; i += 1) {
+      if (aIds[i] !== bIds[i]) return false;
+    }
+    if (a.reason !== undefined || b.reason !== undefined) {
+      if (a.reason !== b.reason) return false;
+    }
+  }
+  return true;
+}
+
+function sameCoverage(left, right) {
+  return left?.status === right?.status &&
+    left?.target?.fromInclusive === right?.target?.fromInclusive &&
+    left?.target?.toExclusive === right?.target?.toExclusive &&
+    sameIntervalList(left?.completeIntervals || [], right?.completeIntervals || []) &&
+    sameIntervalList(left?.knownIntervals || [], right?.knownIntervals || []) &&
+    sameIntervalList(left?.gaps || [], right?.gaps || []);
+}
+
 function coverageFor(target, receipts) {
-  const knownIntervals = combineIntervals(receipts.map((receipt) => ({ ...receipt.window, receiptIds: [receipt.receiptId] })));
-  const completeIntervals = combineIntervals(receipts
-    .filter((receipt) => receipt.coverageStatus === "complete")
-    .map((receipt) => ({ ...receipt.window, receiptIds: [receipt.receiptId] })));
+  const knownIntervals = combineIntervals(coverageIntervalEntries(receipts, false));
+  const completeIntervals = combineIntervals(coverageIntervalEntries(receipts, true));
   const gaps = [];
   let cursor = target.fromInclusive;
   for (const complete of completeIntervals) {
@@ -526,7 +578,7 @@ export function validateBestAvailableHistoryState(value) {
   const canonicalReceiptOrder = [...state.receipts]
     .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   if (stable(canonicalReceiptOrder) !== stable(state.receipts)) fail("history receipts are not canonical");
-  if (stable(state.coverage) !== stable(coverageFor(target, state.receipts))) fail("history coverage is not canonical");
+  if (!sameCoverage(state.coverage, coverageFor(target, state.receipts))) fail("history coverage is not canonical");
   return true;
 }
 

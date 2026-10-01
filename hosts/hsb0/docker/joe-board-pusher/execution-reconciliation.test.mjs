@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
+  combineIntervals,
   effectiveExecutionRecords,
   reconcileExecutionCapture,
   validateBestAvailableHistoryState,
@@ -182,4 +183,64 @@ test("coalescing preserves other dates, partial and non-subsumed proofs, wrong a
   const tampered = structuredClone(advanced);
   tampered.receipts.find((receipt) => receipt.executionIds)?.executionIds.push("invented.synthetic.01");
   assert.throws(() => validateBestAvailableHistoryState(tampered), /execution identities are invalid/);
+});
+
+test("combineIntervals merges overlaps/abutments, keeps gaps, and unions sorted receiptIds in O(n log n)", () => {
+  assert.deepEqual(combineIntervals([]), []);
+  assert.deepEqual(combineIntervals([
+    { fromInclusive: "2026-09-11T10:00:00.000Z", toExclusive: "2026-09-11T11:00:00.000Z", receiptIds: ["b", "a"] },
+    { fromInclusive: "2026-09-11T11:00:00.000Z", toExclusive: "2026-09-11T12:00:00.000Z", receiptIds: ["a", "c"] },
+    { fromInclusive: "2026-09-11T13:00:00.000Z", toExclusive: "2026-09-11T14:00:00.000Z", receiptIds: ["d"] },
+    { fromInclusive: "2026-09-11T10:30:00.000Z", toExclusive: "2026-09-11T10:45:00.000Z", receiptIds: ["e"] },
+  ]), [
+    {
+      fromInclusive: "2026-09-11T10:00:00.000Z",
+      toExclusive: "2026-09-11T12:00:00.000Z",
+      receiptIds: ["a", "b", "c", "e"],
+    },
+    {
+      fromInclusive: "2026-09-11T13:00:00.000Z",
+      toExclusive: "2026-09-11T14:00:00.000Z",
+      receiptIds: ["d"],
+    },
+  ]);
+
+  const many = [];
+  for (let index = 0; index < 1500; index += 1) {
+    const start = new Date(Date.UTC(2026, 8, 11, 4, 0, 0) + index * 60_000).toISOString();
+    const end = new Date(Date.UTC(2026, 8, 11, 4, 0, 0) + (index + 30) * 60_000).toISOString();
+    many.push({ fromInclusive: start, toExclusive: end, receiptIds: [`r${String(index).padStart(4, "0")}`] });
+  }
+  const started = performance.now();
+  const merged = combineIntervals(many);
+  const elapsedMs = performance.now() - started;
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].receiptIds.length, 1500);
+  assert.equal(merged[0].receiptIds[0], "r0000");
+  assert.equal(merged[0].receiptIds.at(-1), "r1499");
+  assert.ok(elapsedMs < 50, `combineIntervals took ${elapsedMs}ms for 1500 overlapping intervals`);
+});
+
+test("many overlapping known receipts still produce canonical merged coverage", () => {
+  let state = null;
+  for (let index = 0; index < 40; index += 1) {
+    const hour = 10 + Math.floor(index / 10);
+    const minute = (index % 10) * 5;
+    const from = `2026-09-11T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00Z`;
+    const toMinute = minute + 15;
+    const toHour = hour + Math.floor(toMinute / 60);
+    const to = `2026-09-11T${String(toHour).padStart(2, "0")}:${String(toMinute % 60).padStart(2, "0")}:00Z`;
+    state = reconcile(state, capture({
+      id: `known-overlap-${index}`,
+      capturedAt: `2026-09-11T${String(toHour).padStart(2, "0")}:${String(toMinute % 60).padStart(2, "0")}:01Z`,
+      window: { fromInclusive: from, toExclusive: to },
+      coverageStatus: "known",
+    }));
+  }
+  assert.equal(state.receipts.length, 40);
+  assert.equal(state.coverage.status, "known");
+  assert.equal(state.coverage.knownIntervals.length, 1);
+  assert.equal(state.coverage.knownIntervals[0].receiptIds.length, 40);
+  assert.equal(state.coverage.completeIntervals.length, 0);
+  assert.equal(validateBestAvailableHistoryState(state), true);
 });
