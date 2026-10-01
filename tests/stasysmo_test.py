@@ -263,7 +263,7 @@ class LayoutTests(Fixture):
 
     def test_kill_switch_error_and_missing_starship(self):
         path = self.make_repo()
-        normal = self.fish(f'cd {fish_quote(path)}; set -g COLUMNS 120; set -g STASYSMO_COMPOSER 0; fish_prompt').stdout
+        normal = self.fish(f'cd {fish_quote(path)}; set -g COLUMNS 120; set -g STASYSMO_FISH_LAYOUT 0; fish_prompt').stdout
         self.assertIn('Code/ops', normal)
         self.assertNotIn('', normal)
         broken = self.fish(f'cd {fish_quote(path)}; set -g COLUMNS 120; functions -e __stasysmo_read; fish_prompt').stdout
