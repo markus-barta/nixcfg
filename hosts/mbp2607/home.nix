@@ -98,6 +98,7 @@ in
   uzumaki = {
     enable = true;
     role = "workstation";
+    codex.exitAlias.enable = false; # NIX-605: explicit off; the option defaults to isDarwin
     fish.editor = "nano"; # Options: nano, vim, code, etc.
     stasysmo.enable = true; # System metrics in Starship prompt
     # NIX-603: nothing ever collected this Mac's store (362 GB, 85% dead on
