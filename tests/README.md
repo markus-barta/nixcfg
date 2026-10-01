@@ -136,7 +136,7 @@ Examples:
 - `T87-ir-bridge-watch.sh` — hsb1 IR bridge witness wiring + unit/engine tests, and the bridge's send/stale-event/SIGTERM contracts (OPS-223, OPS-224, OPS-225)
 - `T88-model-role-lint.sh` — agent-instruction surfaces name roles, never models; runs the pinned doctrine's `model-role-doctrine.sh --lint` (NIX-568)
 - `T89-tm-watch.sh` — hsb1 Time Machine: Samba `max size` ≤ refquota pairing, 7-day sanoid, tm-watch witness wiring + unit/engine tests (OPS-226)
-- `T90-nix-gc-home-manager.sh` — macOS standalone Home Manager: weekly dead-paths-only Nix GC (Sunday 04:00) plus a 30 min low-space guard exist on mbp2607 only; eval-only, no GC runs (NIX-603)
+- `T90-nix-gc-home-manager.sh` — macOS standalone Home Manager: weekly dead-paths-only Nix GC (Sunday 04:00) plus a 30 min low-space guard exist on exactly one account per Mac (markus@mbp2607, mba@mbp2606), none elsewhere; eval-only, no GC runs (NIX-603)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
 
 ## Janus Flow private-file lifecycle (NIX-574)
