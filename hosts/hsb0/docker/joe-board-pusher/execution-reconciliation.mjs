@@ -21,22 +21,96 @@ function text(value, label) {
   return value;
 }
 
+const CANONICAL_ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const CANONICAL_ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const EXPLICIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function instant(value, label) {
   const source = text(value, label);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(source)) {
-    fail(`${label} must have an explicit timezone`);
+  // Canonical UTC ISO is already what Date#toISOString emits — skip reformat.
+  if (CANONICAL_ISO_MS.test(source)) {
+    if (!Number.isFinite(Date.parse(source))) fail(`${label} is invalid`);
+    return source;
   }
+  if (CANONICAL_ISO_Z.test(source)) {
+    if (!Number.isFinite(Date.parse(source))) fail(`${label} is invalid`);
+    return `${source.slice(0, -1)}.000Z`;
+  }
+  if (!EXPLICIT_INSTANT.test(source)) fail(`${label} must have an explicit timezone`);
   const epoch = Date.parse(source);
   if (!Number.isFinite(epoch)) fail(`${label} is invalid`);
   return new Date(epoch).toISOString();
 }
 
+const stableMemo = new WeakMap();
+
 function stable(value) {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+    const cached = stableMemo.get(value);
+    if (cached !== undefined) return cached;
   }
-  return JSON.stringify(value);
+  let encoded;
+  if (Array.isArray(value)) encoded = `[${value.map(stable).join(",")}]`;
+  else if (value && typeof value === "object") {
+    encoded = `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+  } else {
+    encoded = JSON.stringify(value);
+  }
+  // Only memoize frozen graphs — mutable inputs can change underfoot.
+  if (value && typeof value === "object" && Object.isFrozen(value)) stableMemo.set(value, encoded);
+  return encoded;
+}
+
+/** Structural equality matching `stable()` key-order semantics (no stringification). */
+function sameValue(left, right) {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right || left === null || right === null) return left === right;
+  if (typeof left !== "object") return false;
+  if (Array.isArray(left)) {
+    if (!Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!sameValue(left[index], right[index])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const key = leftKeys[index];
+    if (key !== rightKeys[index] || !sameValue(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+function sameStringList(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function isSortedUniqueStrings(ids) {
+  for (let index = 0; index < ids.length; index += 1) {
+    const id = ids[index];
+    if (typeof id !== "string" || !id) return false;
+    if (index > 0 && ids[index - 1] >= id) return false;
+  }
+  return true;
+}
+
+function isCanonicalReceiptOrder(receipts) {
+  for (let index = 1; index < receipts.length; index += 1) {
+    const prior = receipts[index - 1];
+    const next = receipts[index];
+    if (prior.capturedAt.localeCompare(next.capturedAt) > 0) return false;
+    if (prior.capturedAt === next.capturedAt && prior.receiptId.localeCompare(next.receiptId) > 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function digest(value) {
@@ -186,14 +260,15 @@ function mergeCommissions(existing, incoming) {
 
 function mergeExact(existing, incoming, identify, label) {
   const rows = existing.map((row) => structuredClone(row));
-  const seen = new Map(rows.map((row) => [identify(row), stable(row)]));
+  const seen = new Map(rows.map((row) => [identify(row), row]));
   for (const row of incoming) {
     const id = identify(row);
-    const encoded = stable(row);
-    if (seen.has(id) && seen.get(id) !== encoded) fail(`conflicting ${label} ${id}`);
-    if (!seen.has(id)) {
-      seen.set(id, encoded);
-      rows.push(structuredClone(row));
+    const prior = seen.get(id);
+    if (prior && !sameValue(prior, row)) fail(`conflicting ${label} ${id}`);
+    if (!prior) {
+      const copy = structuredClone(row);
+      seen.set(id, copy);
+      rows.push(copy);
     }
   }
   if (rows.length > MAX_RECORDS) fail(`${label} record limit exceeded`);
@@ -398,13 +473,13 @@ function completeReceiptLineage(receipt) {
       typeof receipt.completenessAssertion?.provider !== "string" ||
       typeof metadata?.adapterId !== "string" || typeof metadata.adapterVersion !== "string" ||
       !SHA256.test(metadata.endpointIdentitySha256 || "")) return null;
-  return stable({
+  return {
     sourceKind: receipt.source.kind,
     provider: receipt.completenessAssertion.provider,
     adapterId: metadata.adapterId,
     adapterVersion: metadata.adapterVersion,
     endpointIdentitySha256: metadata.endpointIdentitySha256,
-  });
+  };
 }
 
 function hasIdentityMembership(receipt) {
@@ -423,13 +498,13 @@ function sameReceiptFacts(left, right) {
     left.commissionIdentityDigest === right.commissionIdentityDigest &&
     left.commissionCount === right.commissionCount &&
     left.payloadDigest === right.payloadDigest &&
-    stable(left.executionIds) === stable(right.executionIds) &&
-    stable(left.commissionIds) === stable(right.commissionIds);
+    sameStringList(left.executionIds, right.executionIds) &&
+    sameStringList(left.commissionIds, right.commissionIds);
 }
 
 function sameCompleteLineage(left, right) {
   const leftLineage = completeReceiptLineage(left);
-  return leftLineage !== null && leftLineage === completeReceiptLineage(right);
+  return leftLineage !== null && sameValue(leftLineage, completeReceiptLineage(right));
 }
 
 function newReceiptSubsumes(existing, incoming) {
@@ -456,7 +531,8 @@ function contradictsKnownExecutions(receipt, effective) {
 function coalesceReceipts(receipts, incoming, executions) {
   const sameProof = receipts.find((existing) =>
     sameCompleteLineage(existing, incoming) &&
-    stable(existing.window) === stable(incoming.window) &&
+    existing.window.fromInclusive === incoming.window.fromInclusive &&
+    existing.window.toExclusive === incoming.window.toExclusive &&
     sameReceiptFacts(existing, incoming));
   if (sameProof) return receipts;
   const effective = latestExecutions(executions);
@@ -475,7 +551,7 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   }
   const receipt = receiptFor(capture);
   if (prior !== null) validateBestAvailableHistoryState(prior);
-  if (prior && (prior.account !== capture.account || stable(prior.classifier) !== stable(capture.classifier))) {
+  if (prior && (prior.account !== capture.account || !sameValue(prior.classifier, capture.classifier))) {
     fail("history capture configuration mismatch");
   }
   let receipts = prior ? prior.receipts.map((item) => structuredClone(item)) : [];
@@ -486,8 +562,8 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   if (!existingReceipt) receipts = coalesceReceipts(receipts, receipt, executions);
   receipts.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   const commissions = mergeCommissions(prior?.commissions || [], capture.commissions);
-  const durableChanged = !prior || stable(receipts) !== stable(prior.receipts) ||
-    stable(executions) !== stable(prior.executions) || stable(commissions) !== stable(prior.commissions);
+  const durableChanged = !prior || !sameValue(receipts, prior.receipts) ||
+    !sameValue(executions, prior.executions) || !sameValue(commissions, prior.commissions);
   if (prior && !durableChanged) return deepFreeze(structuredClone(prior));
   const target = prior ? {
     fromInclusive: prior.target.fromInclusive < requestedTarget.fromInclusive ? prior.target.fromInclusive : requestedTarget.fromInclusive,
@@ -516,7 +592,7 @@ export function validateBestAvailableHistoryState(value) {
   const state = record(value, "best-available history state");
   if (state.schema !== HISTORY_STATE_SCHEMA || state.version !== 1) fail("best-available history schema mismatch");
   text(state.account, "history account");
-  if (stable(normalizedClassifier(state.classifier)) !== stable(state.classifier)) fail("history classifier is not canonical");
+  if (!sameValue(normalizedClassifier(state.classifier), state.classifier)) fail("history classifier is not canonical");
   const target = interval(state.target, "history target");
   instant(state.createdAt, "history createdAt");
   instant(state.updatedAt, "history updatedAt");
@@ -525,8 +601,8 @@ export function validateBestAvailableHistoryState(value) {
   }
   const executions = state.executions.map((row) => validateExecution(row, state.account));
   const commissions = state.commissions.map(validateCommission);
-  if (stable(mergeExact([], executions, executionId, "execution")) !== stable(executions)) fail("history executions are not canonical");
-  if (stable(mergeCommissions([], commissions)) !== stable(commissions)) fail("history commissions are not canonical");
+  if (!sameValue(mergeExact([], executions, executionId, "execution"), executions)) fail("history executions are not canonical");
+  if (!sameValue(mergeCommissions([], commissions), commissions)) fail("history commissions are not canonical");
   const receiptIds = new Set();
   for (const receipt of state.receipts) {
     if (receipt?.schema !== HISTORY_RECEIPT_SCHEMA || !SHA256.test(receipt.receiptId || "")) fail("history receipt is invalid");
@@ -557,8 +633,7 @@ export function validateBestAvailableHistoryState(value) {
       [receipt.commissionIds, receipt.commissionCount, receipt.commissionIdentityDigest, "commission"],
     ]) {
       if (ids !== undefined && (!Array.isArray(ids) || ids.length !== count ||
-          ids.some((id) => typeof id !== "string" || !id) ||
-          stable([...new Set(ids)].sort()) !== stable(ids) || digest(ids) !== identityDigest)) {
+          !isSortedUniqueStrings(ids) || digest(ids) !== identityDigest)) {
         fail(`history receipt ${label} identities are invalid`);
       }
     }
@@ -575,9 +650,7 @@ export function validateBestAvailableHistoryState(value) {
       payloadDigest: receipt.payloadDigest,
     })) fail("history receipt digest mismatch");
   }
-  const canonicalReceiptOrder = [...state.receipts]
-    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
-  if (stable(canonicalReceiptOrder) !== stable(state.receipts)) fail("history receipts are not canonical");
+  if (!isCanonicalReceiptOrder(state.receipts)) fail("history receipts are not canonical");
   if (!sameCoverage(state.coverage, coverageFor(target, state.receipts))) fail("history coverage is not canonical");
   return true;
 }
