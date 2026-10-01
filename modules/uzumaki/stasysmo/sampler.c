@@ -17,6 +17,7 @@
 
 static volatile sig_atomic_t stopping;
 static const char *sample_error = "CPU delta unavailable";
+static bool no_delta; // set when no CPU tick landed between two reads (transient, not a failure)
 static void stop(int sig) { (void)sig; stopping = 1; }
 
 static bool number(const char *text, unsigned long *value) {
@@ -45,12 +46,26 @@ static int private_dir(const char *path) {
     return fd;
 }
 
+// Per-CPU tick counters summed over all processors (the source Activity Monitor uses).
+// host_statistics(HOST_CPU_LOAD_INFO) was measured unusable here: on an idle Apple Silicon Mac it
+// returned identical counters for 71-73 % of 100 ms windows and 17 % of 250 ms windows
+// (host_processor_info: 0 %), because idle cores in tickless idle only account lazily.
+// Sums are kept modulo 2^32 on purpose: callers only subtract two readings.
 static bool cpu_ticks(host_cpu_load_info_data_t *ticks) {
-    mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
+    natural_t processors = 0;
+    processor_info_array_t info = NULL;
+    mach_msg_type_number_t count = 0;
     mach_port_t host = mach_host_self();
-    kern_return_t result = host_statistics(host, HOST_CPU_LOAD_INFO, (host_info_t)ticks, &count);
+    kern_return_t result = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &processors, &info, &count);
     mach_port_deallocate(mach_task_self(), host);
-    return result == KERN_SUCCESS;
+    if (result != KERN_SUCCESS || !info) return false;
+    uint64_t sum[CPU_STATE_MAX] = {0};
+    const processor_cpu_load_info_data_t *load = (const processor_cpu_load_info_data_t *)info;
+    for (natural_t cpu = 0; cpu < processors; cpu++)
+        for (unsigned state = 0; state < CPU_STATE_MAX; state++) sum[state] += load[cpu].cpu_ticks[state];
+    vm_deallocate(mach_task_self(), (vm_address_t)info, (vm_size_t)count * sizeof(integer_t));
+    for (unsigned state = 0; state < CPU_STATE_MAX; state++) ticks->cpu_ticks[state] = (natural_t)sum[state];
+    return true;
 }
 
 static unsigned percent(uint64_t used, uint64_t total) {
@@ -63,6 +78,7 @@ static bool sample(host_cpu_load_info_data_t *previous, unsigned *cpu,
                    unsigned *ram, unsigned *swap, double *load) {
     host_cpu_load_info_data_t ticks;
     vm_statistics64_data_t vm;
+    no_delta = false;
     mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
     mach_port_t host = mach_host_self();
     kern_return_t result = host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&vm, &count);
@@ -90,7 +106,7 @@ static bool sample(host_cpu_load_info_data_t *previous, unsigned *cpu,
         total += delta;
         if (i == CPU_STATE_IDLE) idle = delta;
     }
-    if (!total) { sample_error = "CPU delta unavailable"; errno = EAGAIN; return false; }
+    if (!total) { sample_error = "CPU delta unavailable"; errno = EAGAIN; no_delta = true; return false; }
     uint64_t anonymous = vm.internal_page_count > vm.purgeable_count
         ? vm.internal_page_count - vm.purgeable_count : 0;
     uint64_t pages = anonymous + (uint64_t)vm.wire_count + vm.compressor_page_count;
@@ -140,7 +156,14 @@ int main(int argc, char **argv) {
     for (unsigned long sequence = 0; !stopping; sequence++) {
         unsigned cpu, ram, swap;
         double load;
-        if (sample(&previous, &cpu, &ram, &swap, &load)) {
+        bool ok = sample(&previous, &cpu, &ram, &swap, &load);
+        // Safety net: if two reads ever show no elapsed tick, `previous` is untouched on failure,
+        // so a short wait widens the window instead of failing the sample.
+        for (int retry = 0; !ok && no_delta && retry < 5 && !stopping; retry++) {
+            pause_ms(100);
+            ok = sample(&previous, &cpu, &ram, &swap, &load);
+        }
+        if (ok) {
             if (publish(dir, sequence, cpu, ram, swap, load, (unsigned long)processors)) {
                 published++;
                 warned = false;
