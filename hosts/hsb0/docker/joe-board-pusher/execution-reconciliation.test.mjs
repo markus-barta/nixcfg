@@ -244,3 +244,40 @@ test("many overlapping known receipts still produce canonical merged coverage", 
   assert.equal(state.coverage.completeIntervals.length, 0);
   assert.equal(validateBestAvailableHistoryState(state), true);
 });
+
+test("idempotent capture replay stays durable-equal without depending on stable() stringification", () => {
+  const row = execution("struct.synthetic.01", "2026-09-11T11:00:00Z");
+  const window = { fromInclusive: "2026-09-11T04:00:00Z", toExclusive: "2026-09-11T12:00:00Z" };
+  const first = reconcile(null, capture({
+    id: "struct-1", capturedAt: "2026-09-11T12:00:01Z", window,
+    executions: [row], commissions: [commission(row.execution.execId)],
+  }));
+  const replay = reconcile(first, capture({
+    id: "struct-1", capturedAt: "2026-09-11T12:00:01Z", window,
+    executions: [row], commissions: [commission(row.execution.execId)],
+  }));
+  assert.deepEqual(replay, first);
+  assert.equal(validateBestAvailableHistoryState(first), true);
+  assert.equal(validateBestAvailableHistoryState(replay), true);
+});
+
+test("canonical receipt identity lists reject unsorted or duplicate ids", () => {
+  const row = execution("order.synthetic.01", "2026-09-11T11:00:00Z");
+  const window = { fromInclusive: "2026-09-11T04:00:00Z", toExclusive: "2026-09-11T12:00:00Z" };
+  const state = reconcile(null, capture({
+    id: "order-1", capturedAt: "2026-09-11T12:00:01Z", window,
+    executions: [row], commissions: [commission(row.execution.execId)],
+  }));
+  const unsorted = structuredClone(state);
+  const withIds = unsorted.receipts.find((receipt) => Array.isArray(receipt.executionIds));
+  assert.ok(withIds);
+  withIds.executionIds = ["z.last", "a.first"];
+  withIds.executionCount = 2;
+  assert.throws(() => validateBestAvailableHistoryState(unsorted), /execution identities are invalid/);
+
+  const duplicated = structuredClone(state);
+  const dupIds = duplicated.receipts.find((receipt) => Array.isArray(receipt.executionIds));
+  dupIds.executionIds = ["same.id", "same.id"];
+  dupIds.executionCount = 2;
+  assert.throws(() => validateBestAvailableHistoryState(duplicated), /execution identities are invalid/);
+});

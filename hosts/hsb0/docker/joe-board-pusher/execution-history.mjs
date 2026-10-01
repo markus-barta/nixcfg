@@ -56,11 +56,21 @@ function integer(value, label, { positive = false } = {}) {
   return result;
 }
 
+const CANONICAL_ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const CANONICAL_ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const EXPLICIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function explicitIso(value, label) {
   const source = text(value, label);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(source)) {
-    fail(`${label} must have an explicit timezone`);
+  if (CANONICAL_ISO_MS.test(source)) {
+    if (!Number.isFinite(Date.parse(source))) fail(`${label} is invalid`);
+    return source;
   }
+  if (CANONICAL_ISO_Z.test(source)) {
+    if (!Number.isFinite(Date.parse(source))) fail(`${label} is invalid`);
+    return `${source.slice(0, -1)}.000Z`;
+  }
+  if (!EXPLICIT_INSTANT.test(source)) fail(`${label} must have an explicit timezone`);
   const epoch = Date.parse(source);
   if (!Number.isFinite(epoch)) fail(`${label} is invalid`);
   return new Date(epoch).toISOString();
@@ -90,8 +100,9 @@ function formatter(timeZone) {
   return value;
 }
 
-function executionTime(value) {
-  const source = text(value, "execution time");
+const executionTimeCache = new Map();
+
+function executionTimeUncached(source) {
   if (/^\d{4}-\d{2}-\d{2}T/.test(source)) return explicitIso(source, "execution time");
   const match = source.match(/^(\d{4})(\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\s+(.+)$/);
   if (!match) fail("execution time is unsupported");
@@ -111,6 +122,16 @@ function executionTime(value) {
   }
   if (candidates.length !== 1) fail("execution time is invalid or ambiguous");
   return new Date(candidates[0]).toISOString();
+}
+
+function executionTime(value) {
+  const source = text(value, "execution time");
+  const cached = executionTimeCache.get(source);
+  if (cached !== undefined) return cached;
+  const result = executionTimeUncached(source);
+  if (executionTimeCache.size >= MAX_RECORDS) executionTimeCache.clear();
+  executionTimeCache.set(source, result);
+  return result;
 }
 
 function readArtifact(filePath, fsImpl = fs) {

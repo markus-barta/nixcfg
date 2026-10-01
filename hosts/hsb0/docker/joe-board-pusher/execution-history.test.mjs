@@ -449,3 +449,30 @@ test("CLI previews without writes, imports atomically, and reruns idempotently",
   assert.equal(second.status, 0, second.stderr);
   assert.equal(JSON.parse(second.stdout).receiptCount, 1);
 });
+
+test("executionTime cheap-path keeps canonical UTC ISO and Eastern conversion semantics", () => {
+  const isoRow = {
+    contract: { conId: 1001, symbol: "MSFT", secType: "STK", currency: "USD", multiplier: 1 },
+    execution: {
+      execId: "iso.trade.01",
+      time: "2026-09-10T16:00:00.000Z",
+      acctNumber: ACCOUNT,
+      clientId: 51,
+      side: "BOT",
+      shares: 1,
+      price: 10,
+    },
+  };
+  assert.equal(normalizeEconomicExecution(isoRow).execution.time, "2026-09-10T16:00:00.000Z");
+  const bareZ = structuredClone(isoRow);
+  bareZ.execution.time = "2026-09-10T16:00:00Z";
+  assert.equal(normalizeEconomicExecution(bareZ).execution.time, "2026-09-10T16:00:00.000Z");
+  const offset = structuredClone(isoRow);
+  offset.execution.time = "2026-09-10T18:00:00+02:00";
+  assert.equal(normalizeEconomicExecution(offset).execution.time, "2026-09-10T16:00:00.000Z");
+  const eastern = structuredClone(isoRow);
+  eastern.execution.time = "20260910 12:00:00 US/Eastern";
+  assert.equal(normalizeEconomicExecution(eastern).execution.time, "2026-09-10T16:00:00.000Z");
+  // Cached Eastern path must remain identical on repeat.
+  assert.equal(normalizeEconomicExecution(eastern).execution.time, "2026-09-10T16:00:00.000Z");
+});
