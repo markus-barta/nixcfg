@@ -46,7 +46,7 @@ import { projectBook } from "./project.mjs";
 import { createConnectionSupervisor } from "./pusher-recovery.mjs";
 import { createBrokerSessionAdapter, waitForExecutionCycle } from "./pusher-state.mjs";
 import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
-import { contractsNeedingFlatNetMarks, createFlatNetMarkController } from "./flat-net-marks.mjs";
+import { contractsNeedingFlatNetMarks, createFlatNetMarkController, createNoOpFlatNetMarkController } from "./flat-net-marks.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -79,6 +79,17 @@ const INTERVAL_SEC = parseIntervalSec();
 let connectionSupervisor = null;
 let portfolioRefresh = null;
 let flatNetMarks = null;
+
+const FLAT_NET_MARKS_DISABLE_PATH = "/var/lib/joe-board-pusher/disable-flat-net-marks";
+function flatNetMarksEnabled() {
+  if (String(process.env.JOE_FLAT_NET_MARKS ?? "") === "0") return false;
+  try {
+    return !fs.existsSync(FLAT_NET_MARKS_DISABLE_PATH);
+  } catch {
+    return true;
+  }
+}
+
 
 const adapter = createBrokerSessionAdapter({
   targetAccount: ACCOUNT,
@@ -409,13 +420,22 @@ portfolioRefresh = createPortfolioRefreshController({
   refresh: () => adapter.refreshPortfolio(),
   onEvent: (event) => console.log(JSON.stringify(event)),
 });
-flatNetMarks = createFlatNetMarkController({
-  request: (tickerId, contract) => connectionSupervisor?.activeApi?.reqMktData(tickerId, contract, "", false, false),
-  cancel: (tickerId) => connectionSupervisor?.activeApi?.cancelMktData(tickerId),
-  setMarketDataType: (type) => connectionSupervisor?.activeApi?.reqMarketDataType(type),
-  onEvent: (event) => console.log(JSON.stringify(event)),
-});
+if (flatNetMarksEnabled()) {
+  flatNetMarks = createFlatNetMarkController({
+    request: (tickerId, contract) => connectionSupervisor?.activeApi?.reqMktData(tickerId, contract, "", false, false),
+    cancel: (tickerId) => connectionSupervisor?.activeApi?.cancelMktData(tickerId),
+    setMarketDataType: (type) => connectionSupervisor?.activeApi?.reqMarketDataType(type),
+    onEvent: (event) => console.log(JSON.stringify(event)),
+  });
+} else {
+  flatNetMarks = createNoOpFlatNetMarkController();
+  console.log(JSON.stringify({ event: "flat_net_marks_disabled", reason: process.env.JOE_FLAT_NET_MARKS === "0" ? "env" : "disable-file" }));
+}
 function syncFlatNetMarks() {
+  if (!flatNetMarksEnabled()) {
+    flatNetMarks?.reset();
+    return;
+  }
   const book = adapter.snapshot();
   const state = familyAdapter.inspectState();
   if (!book || !state) return;

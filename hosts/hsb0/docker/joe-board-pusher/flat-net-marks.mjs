@@ -134,8 +134,10 @@ export function mergeFlatNetMarks(portfolio = [], marks = []) {
 
 /**
  * Paper market-data subscription for the contracts selected above.
- * Only an accepted tick records a price and moves its clock. Resubscribe
- * requests a new explicit callback; it does not refresh the previous clock.
+ * Only an accepted tick records a price and moves its clock. After the first
+ * accepted tick the subscription is cancelled; the cached mark is kept until
+ * refreshAfterMs, when sync requests a new explicit callback. Resubscribe does
+ * not refresh the previous clock by itself.
  */
 export function createFlatNetMarkController({
   request,
@@ -182,9 +184,10 @@ export function createFlatNetMarkController({
           marketDataTypeSet = true;
         }
         const tickerId = existing?.tickerId || nextTickerId++;
-        const entry = existing || { key: row.key, contract: row.contract, tickerId, marketPrice: null, markObservedAt: null };
+        const entry = existing || { key: row.key, contract: row.contract, tickerId, marketPrice: null, markObservedAt: null, cancelled: false };
         entry.contract = row.contract;
         entry.tickerId = tickerId;
+        entry.cancelled = false;
         byKey.set(row.key, entry);
         try {
           request(tickerId, row.contract);
@@ -204,6 +207,12 @@ export function createFlatNetMarkController({
       entry.marketPrice = marketPrice;
       entry.markObservedAt = now();
       onEvent({ event: "flat_net_mark_observed", tickerId });
+      // Stop streaming after the first honest mark; sync re-requests when stale.
+      if (!entry.cancelled) {
+        try { cancel(entry.tickerId); } catch {}
+        entry.cancelled = true;
+        onEvent({ event: "flat_net_mark_cancelled", tickerId });
+      }
       return true;
     },
 
@@ -216,5 +225,15 @@ export function createFlatNetMarkController({
           markObservedAt: entry.markObservedAt,
         }));
     },
+  };
+}
+
+/** No-op controller used when flat-net streaming is ops-disabled. */
+export function createNoOpFlatNetMarkController() {
+  return {
+    reset() {},
+    sync() {},
+    onTick() { return false; },
+    marks() { return []; },
   };
 }

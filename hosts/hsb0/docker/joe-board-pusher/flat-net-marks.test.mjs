@@ -130,3 +130,60 @@ test("shared-account open lot with a flat broker net uses an explicit mark and s
   });
   assert.deepEqual(alreadyMarked, []);
 });
+
+test("cancel-after-mark keeps the cached price and only resubscribes after refreshAfterMs", () => {
+  const contract = stock("NVDA", 5001);
+  const needed = [{ key: "conId:5001", contract }];
+  let nowMs = Date.parse(MARK_AT);
+  const cancels = [];
+  const requests = [];
+  const events = [];
+  const controller = createFlatNetMarkController({
+    request(tickerId, requested) { requests.push({ tickerId, symbol: requested.symbol, at: nowMs }); },
+    cancel(tickerId) { cancels.push({ tickerId, at: nowMs }); },
+    setMarketDataType() {},
+    onEvent: (event) => events.push(event),
+    now: () => new Date(nowMs).toISOString(),
+    refreshAfterMs: 240_000,
+  });
+
+  controller.sync(needed);
+  assert.equal(requests.length, 1);
+  const tickerId = requests[0].tickerId;
+
+  assert.equal(controller.onTick(tickerId, 4, 11.5), true);
+  assert.deepEqual(controller.marks(), [{
+    contract: { ...contract },
+    marketPrice: 11.5,
+    markObservedAt: new Date(nowMs).toISOString(),
+  }]);
+  assert.equal(cancels.length, 1);
+  assert.equal(cancels[0].tickerId, tickerId);
+  assert.equal(events.filter((e) => e.event === "flat_net_mark_cancelled").length, 1);
+
+  // Further ticks for the same sub do not cancel again.
+  assert.equal(controller.onTick(tickerId, 4, 11.75), true);
+  assert.equal(cancels.length, 1);
+  assert.equal(events.filter((e) => e.event === "flat_net_mark_cancelled").length, 1);
+  assert.equal(controller.marks()[0].marketPrice, 11.75);
+
+  // Fresh enough: sync keeps the cache and does not resubscribe.
+  nowMs += 60_000;
+  controller.sync(needed);
+  assert.equal(requests.length, 1);
+  assert.equal(controller.marks()[0].marketPrice, 11.75);
+
+  // Stale: sync requests a new callback; prior mark remains until a new tick.
+  nowMs += 200_000;
+  controller.sync(needed);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].tickerId, tickerId);
+  assert.equal(controller.marks()[0].marketPrice, 11.75);
+
+  assert.equal(controller.onTick(tickerId, 68, 12.25), true);
+  assert.equal(cancels.length, 3); // refresh sync cancel + post-mark cancel (plus original)
+  // refresh path: sync cancels before request (cancel #2), then onTick cancels (cancel #3)
+  assert.equal(events.filter((e) => e.event === "flat_net_mark_cancelled").length, 2);
+  assert.equal(controller.marks()[0].marketPrice, 12.25);
+  assert.equal(controller.marks()[0].markObservedAt, new Date(nowMs).toISOString());
+});
