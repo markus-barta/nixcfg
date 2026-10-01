@@ -21,7 +21,7 @@ let
       ;
   };
   # NIX-603 established that mba has no GUI launchd domain on this Mac.
-  # Preserve its StaSysMo opt-in (fish can still render), omit an unloadable job.
+  # Preserve its StaSysMo setting (fish can still render), omit an unloadable job.
   hasLaunchdDomain = !((config.theme.hostname or "") == "mbp2606" && config.home.username == "mba");
 in
 {

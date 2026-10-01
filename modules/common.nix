@@ -416,7 +416,7 @@ in
     # The home.stateVersion option does not have a default and must be set
     home.stateVersion = "24.11";
 
-    # Forward system opt-in to each managed fish account; no launchd on Linux.
+    # Forward the default-on system setting to each managed fish account; no launchd on Linux.
     services.stasysmo.enable = lib.mkIf (config.services.stasysmo.enable or false) true;
 
     # Starship config now managed by theme-hm.nix (per-host colors)

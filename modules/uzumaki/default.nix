@@ -23,7 +23,7 @@
 # Features:
 #   - Fish functions: pingt, stress, helpfish, hostcolors, hostsecrets, sourcefish
 #   - Zellij terminal multiplexer
-#   - StaSysMo system monitoring (opt-in via uzumaki.stasysmo.enable)
+#   - StaSysMo system monitoring (default on; opt out via uzumaki.stasysmo.enable)
 #   - Role-based defaults (server/desktop/workstation)
 #
 {

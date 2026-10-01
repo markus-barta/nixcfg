@@ -2,6 +2,7 @@
 """NIX-604. Every write uses a private fixture; never contacts a live daemon."""
 import argparse
 import fcntl
+import json
 import os
 from pathlib import Path
 import pty
@@ -31,6 +32,7 @@ COLORS = dict(LIGHTEST='b4f9f8', PRIMARY='7dcfff', SECONDARY='7aa2f7',
               SUDO_FG='e0af68', STASYSMO_COLOR_MUTED='242', HOSTNAME='fixture',
               PALETTE_NAME='fixture', PALETTE_KEY='fixture', CATEGORY='fixture',
               PL_LEFT_HARD='', PL_RIGHT_HARD='', PL_LEFT_SOFT='', PL_RIGHT_SOFT='')
+RENDERED_INIT_JSON = None
 
 
 def fish_quote(value):
@@ -50,20 +52,21 @@ def pty_prompt(cols, init, environment):
     pid, master = pty.fork()
     if pid == 0:
         fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 12, cols, 0, 0))
-        os.environ.update(environment, TERM='xterm-256color', COLUMNS=str(cols), LINES='12')
-        os.execvp('fish', ['fish', '--no-config', '-i', '-C', init])
+        os.environ.update(environment, COLUMNS=str(cols), LINES='12')
+        startup = 'if test "$TERM" != dumb; starship init fish | source; end\n' + init
+        os.execvp('fish', ['fish', '--no-config', '--private', '-i', '-C', startup])
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 12, cols, 0, 0))
     screen = pyte.Screen(cols, 12)
     stream = pyte.ByteStream(screen)
     raw = bytearray()
     pending = b''
     last_read = time.monotonic()
-    deadline = last_read + 5
+    deadline = last_read + 10
     try:
         while time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], .05)
             if not ready:
-                if raw and time.monotonic() - last_read > .3:
+                if raw and time.monotonic() - last_read >= 1.0:
                     break
                 continue
             try:
@@ -122,7 +125,14 @@ class Fixture(unittest.TestCase):
         self.config = self.home / 'starship.toml'
         render_template('tokyonight-uzumaki.toml', self.config)
         self.env = dict(os.environ, HOME=str(self.home), USER='runner',
+                        XDG_CONFIG_HOME=str(self.home / '.config'), XDG_CACHE_HOME=str(self.home / '.cache'),
+                        XDG_DATA_HOME=str(self.home / '.local/share'),
                         TERM='xterm-256color', COLORTERM='truecolor', STARSHIP_CONFIG=str(self.config), STARSHIP_CACHE=str(self.home / 'starship-cache'))
+        for key in list(self.env):
+            if key.startswith('GIT_'):
+                self.env.pop(key)
+        self.env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=str(self.home / 'no-git-config'),
+                        GIT_CEILING_DIRECTORIES=str(self.home))
         self.env.pop('SSH_TTY', None)
         self.env.pop('SSH_CONNECTION', None)
         self.init = f'''
@@ -221,6 +231,200 @@ class ReaderTests(Fixture):
 
 
 class LayoutTests(Fixture):
+    def assert_two_lines(self, output, width):
+        lines = output.splitlines()
+        self.assertEqual(len(lines), 2, (width, output))
+        for line in lines:
+            screen = pyte.Screen(1000, 1)
+            pyte.Stream(screen).feed(line)
+            self.assertLessEqual(screen.cursor.x, width - 1, (width, output))
+        first = pyte.Screen(1000, 1)
+        pyte.Stream(first).feed(lines[0])
+        self.assertFalse(first.display[0].startswith('…'), (width, output))
+        return first.display[0].rstrip()
+
+    def test_real_starship_key_bindings(self):
+        path = self.home / 'keymap-directory'
+        path.mkdir()
+        for binding, mode, command, expected in (
+                ('fish_default_key_bindings', 'default', 'true', '❯'),
+                ('fish_default_key_bindings', 'default', 'false', '✗'),
+                ('fish_vi_key_bindings', 'insert', 'true', '❯'),
+                ('fish_vi_key_bindings', 'insert', 'false', '✗'),
+                ('fish_vi_key_bindings', 'default', 'true', '❮')):
+            with self.subTest(binding=binding, mode=mode, command=command):
+                init = self.init + f'cd {fish_quote(path)}; set -g fish_key_bindings {binding}; {binding}; set -g fish_bind_mode {mode}; {command}'
+                screen, raw = pty_prompt(120, init, self.env)
+                text = '\n'.join(screen.display)
+                self.assertIn(expected, text, raw)
+                if mode == 'insert' or binding == 'fish_default_key_bindings':
+                    self.assertNotIn('❮', text, raw)
+                # Prove the test exercised real Starship fish initialization.
+                self.assertEqual(self.fish('starship init fish | source; printf "%s" "$STARSHIP_SHELL"').stdout, 'fish')
+
+    def test_exact_fit_all_widths(self):
+        paths = (self.home / ('non-repo-' + 'x' * 120), self.make_repo(True))
+        paths[0].mkdir()
+        # One fish process per path; real profiles/branch and real path shortening.
+        for path in paths:
+            script = f'cd {fish_quote(path)}\n'
+            for width in range(5, 161):
+                script += f'set -g COLUMNS {width}; __stasysmo_compose 0 0; or exit 42; printf "%s\\0" "$__stasysmo_output"\n'
+            result = subprocess.run(['fish', '--no-config', '-c', self.init + script],
+                                    env=self.env, text=True, capture_output=True, timeout=45, check=True)
+            outputs = result.stdout.split('\0')
+            self.assertEqual(len(outputs), 157)
+            self.assertEqual(outputs[-1], '')
+            for width, output in zip(range(5, 161), outputs[:-1]):
+                first = self.assert_two_lines(output, width)
+                # Strip the known chain decoration, leaving actual directory text.
+                directory = first.replace('░▒▓', '').replace('', '').replace('', '').strip()
+                self.assertTrue(directory, (width, path, output))
+                if path.name not in directory:
+                    self.assertIn(path.name[:max(1, width - 6)], directory, (width, path, output))
+                    self.assertIn('…', directory, (width, path, output))
+        # Force exactly zero padding at every width, without extra Starship startups.
+        script = f'''function __stasysmo_render
+    set -g __stasysmo_lines (string repeat -n (math "$COLUMNS - 1") x) '{int(time.time())} 12:00:00' '❯ '
+end
+'''
+        for width in range(5, 161):
+            script += f'set -g COLUMNS {width}; __stasysmo_compose 0 0; or exit 42; printf "%s\\0" "$__stasysmo_output"\n'
+        outputs = self.fish(script).stdout.split('\0')
+        self.assertEqual(len(outputs), 157)
+        for width, output in zip(range(5, 161), outputs[:-1]):
+            self.assertEqual(self.assert_two_lines(output, width), 'x' * (width - 1))
+        for width in (5, 6, 24, 36, 37, 60):
+            init = self.init + f'cd {fish_quote(paths[0])}; true'
+            _, raw = pty_prompt(width, init, self.env)
+            # Fish's own prompt markers isolate the prompt from startup warnings.
+            start = raw.find(b'\x1b]133;A')
+            self.assertGreaterEqual(start, 0, raw)
+            payload = raw.find(b'\x1b\\', start)
+            self.assertGreaterEqual(payload, 0, raw)
+            end = raw.find(b'\x1b]133;B', payload + 2)
+            self.assertGreater(end, payload, raw)
+            screen = pyte.Screen(width, 12)
+            pyte.ByteStream(screen).feed(raw[payload + 2:end])
+            rows = [row.rstrip() for row in screen.display if row.strip()]
+            self.assertEqual(len(rows), 2, (width, rows, raw))
+            self.assertFalse(rows[0].startswith('…'), (width, rows, raw))
+            self.assertIn('❯', rows[1], (width, rows, raw))
+            for row in rows:
+                self.assertLessEqual(wcswidth(row), width - 1, (width, rows, raw))
+
+    def test_nonrepo_long_paths_never_empty(self):
+        paths = [self.home / 'nix/store' / ('a' * 32 + '-source'), self.home / ('x' * 120)]
+        for path in paths:
+            path.mkdir(parents=True)
+        # Read-only real store directory also exercises discovery outside the checkout
+        # when the local sandbox requires fixtures to live inside the worktree.
+        store_source = next((p for p in Path('/nix/store').glob('*-source') if p.is_dir()), None)
+        if store_source:
+            paths.append(store_source)
+        for path in paths:
+            git = subprocess.run(['git', '-C', str(path), 'rev-parse', '--show-toplevel'],
+                                 env=self.env, capture_output=True)
+            self.assertNotEqual(git.returncode, 0, path)
+            for width in (24, 30, 40, 60):
+                budget = width - 5  # compact chain's four decoration columns
+                result = self.fish(f'cd {fish_quote(path)}; __stasysmo_path {budget}').stdout
+                self.assertTrue(result, (path, width))
+                self.assertLessEqual(wcswidth(result), budget)
+                if wcswidth(path.name) > budget:
+                    self.assertIn('…', result)
+                    self.assertIn(path.name[:3], result)
+                else:
+                    self.assertIn(path.name, result)
+                    self.assertTrue(result == path.name or result.startswith(('…/', '~/', '/')), result)
+                first = self.assert_two_lines(self.compose(width, path), width)
+                self.assertTrue(first.replace('', '').replace('', '').strip(), first)
+
+    def test_double_slash_terminates(self):
+        for width in (6, 3):
+            script = self.init + f'cd //; set -g COLUMNS {width}; printf "%s\\n" "$PWD"; __stasysmo_path (math "max(1, $COLUMNS - 5)")'
+            result = subprocess.run(['fish', '--no-config', '-c', script], env=self.env,
+                                    text=True, capture_output=True, timeout=1, check=True)
+            self.assertEqual(result.stdout.splitlines()[0], '//')
+            self.assertTrue(result.stdout.splitlines()[1])
+
+    def test_dumb_terminal_does_not_install_wrapper(self):
+        env = dict(self.env, TERM='dumb')
+        original = 'function fish_prompt; printf "plain> "; end\nfunction fish_right_prompt; printf "right"; end\n'
+        result = subprocess.run(
+            ['fish', '--no-config', '-c', original + self.init + 'fish_prompt; fish_right_prompt'],
+            env=env, text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout, 'plain> right')
+        self.assertNotIn('\x1b', result.stdout)
+        # TERM can also change after the wrapper was installed.
+        result = self.fish('set -gx TERM dumb; fish_prompt').stdout
+        self.assertNotIn('', result)
+        self.assertNotIn('\x1b', result)
+        self.assertTrue(result.strip())
+        result = subprocess.run(['fish', '--no-config', '-c', 'starship init fish | source\n' +
+                                 self.init + 'set -gx TERM dumb; fish_prompt'],
+                                env=self.env, text=True, capture_output=True, check=True)
+        self.assertNotIn('\x1b', result.stdout)
+        self.assertNotIn('', result.stdout)
+        self.assertTrue(result.stdout.strip())
+
+    def test_pty_waits_through_loaded_runner_pause(self):
+        init = self.init + 'printf "pre-prompt\\n"; sleep 0.6; true'
+        screen, raw = pty_prompt(120, init, self.env)
+        self.assertIn('❯', '\n'.join(screen.display), raw)
+
+    def test_fish_config_escaper_round_trips(self):
+        # Exercise the production replacement table, not an independent copy.
+        # Nix evaluation of the entire init is also gated by stasysmo-init-eval.nix.
+        source = (MODULE / 'fish-init.nix').read_text()
+        body = source.split('quote = value:', 1)[1].split(';', 1)[0].strip()
+        decoder = json.JSONDecoder()
+        prefix, end = decoder.raw_decode(body)
+        body = body[end:].strip()
+        self.assertTrue(body.startswith('+ lib.replaceStrings '), body)
+        body = body[len('+ lib.replaceStrings '):].strip()
+        tables = []
+        for _ in range(2):
+            self.assertTrue(body.startswith('['), body)
+            body = body[1:].strip()
+            table = []
+            while not body.startswith(']'):
+                value, end = decoder.raw_decode(body)
+                table.append(value)
+                body = body[end:].strip()
+            tables.append(table)
+            body = body[1:].strip()
+        self.assertTrue(body.startswith('value + '), body)
+        suffix = json.loads(body[len('value + '):])
+        replacements = dict(zip(*tables, strict=True))
+        values = ['trailing\\', "single'quote", "quote'and\\", 'two\\\\', '',
+                  '$(touch MUST-NOT-EXIST); $HOME', 'line\nbreak']
+        script = ''
+        for i, value in enumerate(values):
+            quoted = prefix + ''.join(replacements.get(char, char) for char in value) + suffix
+            script += f'set -g STASYSMO_PROBE_{i} {quoted}\nprintf "%s\\0" "$STASYSMO_PROBE_{i}"\n'
+        syntax = subprocess.run(['fish', '--no-config', '-n', '-c', script], env=self.env,
+                                text=True, capture_output=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        result = self.fish(script).stdout.split('\0')
+        self.assertEqual(result, values + [''])
+        for value in ('snapshot', 'cfg.icons.${metric}', 'cfg.display.spacerIconValue', 'cfg.display.spacerMetrics'):
+            self.assertIn('quote ' + value, source)
+
+    def test_nix_generated_config_round_trips(self):
+        if not RENDERED_INIT_JSON:
+            self.skipTest('Nix evaluation is unavailable; OPS/CI nix-shell supplies STASYSMO_TEST_INIT_JSON')
+        rendered = json.loads(Path(RENDERED_INIT_JSON).read_text())
+        script = rendered['fishInit']
+        expected = []
+        for key, value in rendered['expected'].items():
+            script += f'printf "%s\\0" ${key}\n'
+            expected.extend(value if isinstance(value, list) else [value])
+        syntax = subprocess.run(['fish', '--no-config', '-n', '-c', script], env=self.env,
+                                text=True, capture_output=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertEqual(self.fish(script).stdout.split('\0'), expected + [''])
+
     def test_widths_profiles_and_real_tty(self):
         for long in (False, True):
             path = self.make_repo(long)
@@ -358,6 +562,113 @@ class LayoutTests(Fixture):
 
 
 class DaemonTests(Fixture):
+    def native_binary(self):
+        if os.uname().sysname != 'Darwin':
+            self.skipTest('Mach sampler runs on Darwin; Linux collector is tested here')
+        compiler = shutil.which('cc')
+        if not compiler:
+            self.skipTest('native compile requires cc (OPS hardware gate)')
+        binary = self.home / 'sampler'
+        subprocess.run([compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2',
+                        str(MODULE / 'sampler.c'), '-o', str(binary)], env=self.env, check=True)
+        return binary
+
+    def test_native_count_and_load_rounding(self):
+        binary = self.native_binary()  # also compile the actual daemon without overrides
+        harness = self.home / 'sampler-bounds.c'
+        harness.write_text('''#include <mach/mach.h>
+#include <stdbool.h>
+static mach_msg_type_number_t returned_count;
+static natural_t returned_processors = 2;
+static integer_t fixture[CPU_STATE_MAX * 2];
+static bool released;
+static kern_return_t test_processor_info(host_t host, processor_flavor_t flavor,
+        natural_t *processors, processor_info_array_t *info, mach_msg_type_number_t *count) {
+    (void)host; (void)flavor;
+    *processors = returned_processors; *info = fixture; *count = returned_count;
+    return KERN_SUCCESS;
+}
+static kern_return_t test_deallocate(vm_map_t target, vm_address_t address, vm_size_t size) {
+    (void)target; (void)address; (void)size; released = true; return KERN_SUCCESS;
+}
+#define host_processor_info test_processor_info
+#define vm_deallocate test_deallocate
+#define main sampler_entry
+#include "''' + str(MODULE / 'sampler.c') + '''"
+#undef main
+int main(int argc, char **argv) {
+    if (argc != 2) return 2;
+    host_cpu_load_info_data_t ticks;
+    mach_msg_type_number_t invalid[] = {0, CPU_STATE_MAX - 1, CPU_STATE_MAX * 2 - 1,
+                                       CPU_STATE_MAX * 2 + 1};
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        returned_count = invalid[i]; released = false;
+        if (cpu_ticks(&ticks) || !released) return 10;
+    }
+    returned_processors = 0; returned_count = 0; released = false;
+    if (cpu_ticks(&ticks) || !released) return 11;
+    returned_processors = 2; returned_count = CPU_STATE_MAX * 2; released = false;
+    for (unsigned i = 0; i < CPU_STATE_MAX * 2; i++) fixture[i] = (integer_t)(i + 1);
+    if (!cpu_ticks(&ticks) || !released) return 12;
+    for (unsigned i = 0; i < CPU_STATE_MAX; i++)
+        if (ticks.cpu_ticks[i] != 2 * i + CPU_STATE_MAX + 2) return 13;
+    int dir = private_dir(argv[1]);
+    if (dir < 0) return 14;
+    double loads[] = {0, 1.234, 9999.994, 9999.995, 9999.999, 10000.0, 1e300};
+    for (unsigned i = 0; i < sizeof(loads) / sizeof(loads[0]); i++) {
+        if (!publish(dir, i, 16, 48, 12, loads[i], 10)) return 15;
+        char name[40]; snprintf(name, sizeof(name), "record.%u", i);
+        if (renameat(dir, "snapshot", dir, name)) return 16;
+    }
+    if (publish(dir, 100, 16, 48, 12, -1, 10) ||
+        publish(dir, 101, 16, 48, 12, NAN, 10) ||
+        publish(dir, 102, 16, 48, 12, INFINITY, 10)) return 17;
+    close(dir); return 0;
+}
+''')
+        subprocess.run([shutil.which('cc'), '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2',
+                        '-include', 'math.h', str(harness), '-o', str(binary)], env=self.env, check=True)
+        destination = self.home / 'bounds-cache'
+        result = subprocess.run([str(binary), str(destination)], env=self.env, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, 'native count/rounding harness: ' + str(result.returncode))
+        for i, expected in enumerate(('0.00', '1.23', '9999.99', '9999.99', '9999.99', '9999.99', '9999.99')):
+            self.assertEqual((destination / f'record.{i}').read_text().split()[5], expected)
+        self.assertEqual(list(destination.glob('.snapshot.*')), [])
+
+    def test_native_cache_deletion_and_replacement(self):
+        binary = self.native_binary()
+        for action in ('delete', 'replace'):
+            destination = self.home / ('native-' + action)
+            proc = subprocess.Popen([str(binary), '500', str(destination)], env=self.env, stderr=subprocess.PIPE)
+            try:
+                deadline = time.monotonic() + 5
+                while not (destination / 'snapshot').exists() and proc.poll() is None and time.monotonic() < deadline:
+                    time.sleep(.01)
+                if not (destination / 'snapshot').exists():
+                    proc.terminate()
+                    diagnostics = proc.communicate(timeout=2)[1].decode()
+                    if 'Operation not permitted' in diagnostics and os.environ.get('GITHUB_ACTIONS') != 'true':
+                        self.skipTest('native sampling blocked by sandbox: ' + diagnostics.strip())
+                    self.fail('native sampler did not publish: ' + diagnostics)
+                self.check_snapshot(destination / 'snapshot', 0o600)
+                if action == 'delete':
+                    (destination / 'snapshot').unlink()
+                    destination.rmdir()
+                else:
+                    destination.rename(self.home / 'old-native-cache')
+                    destination.mkdir(mode=0o700)
+                started = time.monotonic()
+                try:
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    self.fail('sampler stayed alive after cache ' + action + ' for two intervals')
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertLessEqual(time.monotonic() - started, 1.0)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate(timeout=2)
+
     def check_snapshot(self, snapshot, mode):
         self.assertEqual(snapshot.stat().st_mode & 0o777, mode)
         record = snapshot.read_text()
@@ -371,14 +682,7 @@ class DaemonTests(Fixture):
         self.assertGreater(int(fields[6]), 0)
 
     def test_native_sample_atomic_permissions_and_clamp(self):
-        if os.uname().sysname != 'Darwin':
-            self.skipTest('Mach sampler runs on Darwin; Linux collector is tested here')
-        compiler = shutil.which('cc')
-        if not compiler:
-            self.skipTest('native compile requires cc (OPS hardware gate)')
-        binary = self.home / 'sampler'
-        subprocess.run([compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2',
-                        str(MODULE / 'sampler.c'), '-o', str(binary)], check=True)
+        binary = self.native_binary()
         destination = self.home / 'native-cache'
         # Empty PATH proves the helper does not invoke external sampler commands.
         env = dict(self.env, PATH=str(self.home / 'empty-path'))
@@ -566,9 +870,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--benchmark', action='store_true')
     parser.add_argument('--benchmark-path', help='read-only existing git repository')
+    parser.add_argument('--rendered-init-json', default=os.environ.get('STASYSMO_TEST_INIT_JSON'),
+                        help='OPS output from stasysmo-init-eval.nix for full Nix/fish round-trip')
     parser.add_argument('--case', help='single unittest method name')
     parser.add_argument('--suite', choices=('all', 'layout', 'reader', 'daemon'), default='all')
     args, remaining = parser.parse_known_args()
+    RENDERED_INIT_JSON = args.rendered_init_json
     if args.benchmark:
         benchmark(args.benchmark_path)
         raise SystemExit(0)

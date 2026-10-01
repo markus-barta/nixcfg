@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <mach/mach.h>
+#include <math.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -46,6 +47,13 @@ static int private_dir(const char *path) {
     return fd;
 }
 
+static bool current_dir(int fd, const char *path) {
+    struct stat opened, resolved;
+    return !fstat(fd, &opened) && opened.st_nlink != 0 &&
+        !lstat(path, &resolved) && S_ISDIR(resolved.st_mode) &&
+        opened.st_dev == resolved.st_dev && opened.st_ino == resolved.st_ino;
+}
+
 // Per-CPU tick counters summed over all processors (the source Activity Monitor uses).
 // host_statistics(HOST_CPU_LOAD_INFO) was measured unusable here: on an idle Apple Silicon Mac it
 // returned identical counters for 71-73 % of 100 ms windows and 17 % of 250 ms windows
@@ -59,6 +67,10 @@ static bool cpu_ticks(host_cpu_load_info_data_t *ticks) {
     kern_return_t result = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &processors, &info, &count);
     mach_port_deallocate(mach_task_self(), host);
     if (result != KERN_SUCCESS || !info) return false;
+    if (!processors || (uint64_t)count != (uint64_t)processors * CPU_STATE_MAX) {
+        vm_deallocate(mach_task_self(), (vm_address_t)info, (vm_size_t)count * sizeof(integer_t));
+        return false;
+    }
     uint64_t sum[CPU_STATE_MAX] = {0};
     const processor_cpu_load_info_data_t *load = (const processor_cpu_load_info_data_t *)info;
     for (natural_t cpu = 0; cpu < processors; cpu++)
@@ -97,7 +109,7 @@ static bool sample(host_cpu_load_info_data_t *previous, unsigned *cpu,
     if (sysctlbyname("vm.swapusage", &usage, &swap_size, NULL, 0)) {
         sample_error = "vm.swapusage"; return false;
     }
-    if (getloadavg(load, 1) != 1 || !(*load >= 0.0 && *load <= 9999.99)) {
+    if (getloadavg(load, 1) != 1 || !isfinite(*load) || *load < 0.0) {
         sample_error = "load average"; return false;
     }
     uint64_t total = 0, idle = 0;
@@ -119,6 +131,9 @@ static bool sample(host_cpu_load_info_data_t *previous, unsigned *cpu,
 
 static bool publish(int dir, unsigned long sequence, unsigned cpu, unsigned ram,
                     unsigned swap, double load, unsigned long ncpu) {
+    if (!isfinite(load) || load < 0.0) return false;
+    load = round(fmin(load, 10000.0) * 100.0) / 100.0;
+    if (load > 9999.99) load = 9999.99;
     char name[80], record[128];
     snprintf(name, sizeof(name), ".snapshot.%ld.%lu", (long)getpid(), sequence);
     int length = snprintf(record, sizeof(record), "v1 %lld %u %u %u %.2f %lu\n",
@@ -154,6 +169,11 @@ int main(int argc, char **argv) {
     bool warned = false;
     unsigned long published = 0;
     for (unsigned long sequence = 0; !stopping; sequence++) {
+        if (!current_dir(dir, argv[2])) {
+            fprintf(stderr, "stasysmo: cache directory removed or replaced\n");
+            close(dir);
+            return 1;
+        }
         unsigned cpu, ram, swap;
         double load;
         bool ok = sample(&previous, &cpu, &ram, &swap, &load);
@@ -164,6 +184,11 @@ int main(int argc, char **argv) {
             ok = sample(&previous, &cpu, &ram, &swap, &load);
         }
         if (ok) {
+            if (!current_dir(dir, argv[2])) {
+                fprintf(stderr, "stasysmo: cache directory removed or replaced\n");
+                close(dir);
+                return 1;
+            }
             if (publish(dir, sequence, cpu, ram, swap, load, (unsigned long)processors)) {
                 published++;
                 warned = false;

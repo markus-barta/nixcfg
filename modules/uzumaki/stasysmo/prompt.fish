@@ -1,7 +1,17 @@
 # Loaded after Starship. Every profile is a complete powerline chain.
+test "$TERM" != dumb; or return
+
+function __stasysmo_keymap
+    switch "$fish_key_bindings"
+        case fish_hybrid_key_bindings fish_vi_key_bindings fish_helix_key_bindings
+            printf '%s' "$fish_bind_mode"
+        case '*'
+            printf insert
+    end
+end
+
 function __stasysmo_render --argument-names profile code duration job_count
-    set -l keymap insert
-    set -q fish_bind_mode; and set keymap "$fish_bind_mode"
+    set -l keymap (__stasysmo_keymap)
     set -l pipeline "$code"
     set -q __stasysmo_pipeline; and set pipeline "$__stasysmo_pipeline"
     set -g __stasysmo_lines (command starship prompt --profile="$profile" --terminal-width=10000 --status="$code" --pipestatus="$pipeline" --keymap="$keymap" --cmd-duration="$duration" --jobs="$job_count" 2>/dev/null)
@@ -78,12 +88,20 @@ function __stasysmo_path --argument-names budget
     set -l components (string split / -- "$path" | string match -v '')
     # Locate a repo root with filesystem predicates; no git process in this path.
     set -l root "$PWD"
-    while test "$root" != /; and not test -e "$root/.git"
-        set root (string replace -r '/[^/]+$' '' -- "$root")
+    set -l attempts 0
+    while test "$root" != /; and not test -e "$root/.git"; and test "$attempts" -lt 256
+        set attempts (math "$attempts + 1")
+        set -l parent (string replace -r '/[^/]+$' '' -- "$root")
+        test "$parent" != "$root"; or begin
+            set root /
+            break
+        end
+        set root "$parent"
         test -n "$root"; or set root /
     end
+    test -e "$root/.git"; or set root /
     set -l repo (string replace -r '^.*/' '' -- "$root")
-    for start in $components
+    while test (count $components) -gt 1
         # Remove complete leading components, never bytes from a directory name.
         set -e components[1]
         set -l candidate '…/'(string join / -- $components)
@@ -96,6 +114,7 @@ function __stasysmo_path --argument-names budget
         end
     end
     set -l last (string replace -r '^.*/' '' -- "$path")
+    test -n "$last"; or set last /
     if test -n "$repo"; and test "$repo" != "$last"
         set -l candidate "…/$repo/$last"
         if test (string length --visible -- "$candidate") -le "$budget"
@@ -166,7 +185,24 @@ function __stasysmo_compose --argument-names code duration
         test "$remote" = 1; and set profile stasysmo_ssh_short
         set -lx STASYSMO_DIRECTORY ''
         __stasysmo_render "$profile" "$code" "$duration" "$job_count"; or return 1
-        set -l budget (math "$width - "(string length --visible -- "$root$__stasysmo_lines[1]")" - 2")
+        # An exported empty value still renders the two interior spaces.
+        set -l budget (math "$width - "(string length --visible -- "$root$__stasysmo_lines[1]"))
+        if test "$budget" -lt 2; and test "$remote" != 1
+            # At four/five columns the caps fit only without interior spaces.
+            set -l directory (__stasysmo_path (math "$width - 2"))
+            set -g __stasysmo_output (begin
+                    set_color "$STASYSMO_DARKEST"
+                    printf ''
+                    set_color -b "$STASYSMO_DARKEST" "$STASYSMO_MUTED_LIGHT"
+                    printf '%s' "$directory"
+                    set_color normal
+                    set_color "$STASYSMO_DARKEST"
+                    printf ''
+                    set_color normal
+                    printf '\n%s' "$__stasysmo_lines[3]"
+                end | string collect)
+            return 0
+        end
         if test "$budget" -lt 1
             # At extreme widths SSH identity gets its own bounded row.
             set -l identity (string shorten --max="$width" --char='…' -- "$USER@$hostname")
@@ -180,11 +216,12 @@ function __stasysmo_compose --argument-names code duration
     end
     set -l pad (math "$width - "(string length --visible -- "$left")" - "(string length --visible -- "$right"))
     test "$pad" -ge 0; or return 1
-    set -g __stasysmo_output (printf '%s%s%s\e[0m\n%s' "$left" (string repeat -n "$pad" ' ') "$right" "$__stasysmo_lines[3]" | string collect)
+    set -l padding (string repeat -n "$pad" ' ')
+    set -g __stasysmo_output (printf '%s%s%s\e[0m\n%s' "$left" "$padding" "$right" "$__stasysmo_lines[3]" | string collect)
 end
 
 function __stasysmo_fallback --argument-names code
-    set -l plain (command starship prompt --status="$code" --terminal-width="$COLUMNS" 2>/dev/null)
+    set -l plain (command starship prompt --status="$code" --terminal-width="$COLUMNS" --keymap=(__stasysmo_keymap) 2>/dev/null)
     if test "$status" = 0; and test (count $plain) -gt 0
         printf '%s\n' $plain
     else
@@ -204,6 +241,14 @@ end
 function fish_prompt
     set -l result $status $pipestatus
     set -l code "$result[1]"
+    if test "$TERM" = dumb
+        if functions -q __stasysmo_original_prompt
+            __stasysmo_original_prompt
+        else
+            printf '> '
+        end
+        return
+    end
     set -g __stasysmo_pipeline (string join ' ' -- $result[2..-1])
     set -l duration "$CMD_DURATION"
     set -q STASYSMO_FISH_LAYOUT; and test "$STASYSMO_FISH_LAYOUT" = 0; and begin
