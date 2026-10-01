@@ -34,6 +34,16 @@
 # copied into a worktree lost libresolv). Reference such tools through an
 # out-link (`nix build -o <link>`, an indirect GC root), never a copy.
 #
+# WHICH ACCOUNT
+# =============
+# User launchd agents only run inside a graphical (Aqua) session of their own
+# user. A user who is not logged in at the console has no `gui/<uid>` domain,
+# and `launchctl bootstrap` fails with "125: Domain does not support specified
+# action" (mbp2606's `mba`, 2026-10-01: the plists were installed but never
+# loaded). Enable the module for the account that owns the console session,
+# and for exactly ONE account per Mac, because the store is shared by every
+# account. Check with `launchctl print gui/$(id -u)` before opting a user in.
+#
 # OPERATE
 # =======
 #   status    launchctl list | grep nix-gc
@@ -53,12 +63,16 @@ let
   cfg = config.uzumaki.nixGc;
   logFile = "${config.home.homeDirectory}/Library/Logs/nix-gc.log";
 
+  # Homes that do not manage nix.* (e.g. the mbp2606 ci account) leave
+  # nix.package null; fall back to the nixpkgs one.
+  nixPackage = if config.nix.package != null then config.nix.package else pkgs.nix;
+
   gc = pkgs.writeShellApplication {
     name = "nix-gc-guarded";
     runtimeInputs = [
       pkgs.coreutils
       pkgs.findutils
-      config.nix.package
+      nixPackage
     ];
     text = ''
       mode=''${1:-weekly}
@@ -120,8 +134,9 @@ in
   options.uzumaki.nixGc = {
     enable = lib.mkEnableOption ''
       weekly dead-paths-only Nix GC plus a low-space guard (macOS standalone
-      Home Manager, NIX-603). Enable it for exactly ONE user per Mac: the
-      store is shared by every account on the machine'';
+      Home Manager, NIX-603). Enable it for exactly ONE user per Mac, the one
+      that owns a graphical session (user agents need one): the store is
+      shared by every account on the machine'';
 
     minFreeGiB = lib.mkOption {
       type = lib.types.ints.positive;

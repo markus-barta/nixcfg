@@ -19,7 +19,10 @@
 { pkgs, ... }:
 
 {
-  imports = [ ../../modules/aeon-builder ];
+  imports = [
+    ../../modules/aeon-builder
+    ../../modules/uzumaki/nix-gc.nix # NIX-603: weekly Nix GC for this Mac's shared store
+  ];
 
   home.username = "ci";
   home.homeDirectory = "/Users/ci";
@@ -33,4 +36,10 @@
   ];
 
   services.aeonBuilder.enable = true;
+
+  # NIX-603: collect this Mac's Nix store (shared by mba, mailina and ci; 47k
+  # dead paths on 2026-10-01). ci owns the console session, which user launchd
+  # agents need; mba has none, so the agents cannot live there. One account per
+  # Mac only.
+  uzumaki.nixGc.enable = true;
 }
