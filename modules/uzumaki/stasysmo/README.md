@@ -1,414 +1,179 @@
-# StaSysMo - Starship System Monitoring
+# StaSysMo v2
 
-System metrics (CPU, RAM, Load, Swap) displayed in your Starship prompt with threshold-based coloring.
+A persistent sampler publishes a single snapshot. Fish reads it with builtins
+and composes the first prompt line; Starship renders the left chain and input
+character. Metrics spawn no processes. Bash and zsh get a clean left-only
+Starship prompt. StaSysMo defaults on for every host with `uzumaki.enable = true`.
+Set `uzumaki.stasysmo.enable = false` to opt out; only hosts that opt out keep the
+legacy template. Standalone service users configure `services.stasysmo.enable`.
 
-## Overview
+## Layout
 
-StaSysMo consists of:
+`prompt.fish` loads after Starship, retains its original function for diagnostics,
+and makes `fish_right_prompt` empty. Complete Starship profiles supply correctly
+coloured powerline chains. The default profile contains no compositor delimiters,
+clock, metrics or right rail.
 
-- **Daemon**: Background service sampling metrics every 5 seconds
-- **Reader**: Starship custom module displaying formatted metrics
-- **Config**: Centralized configuration (no magic numbers!)
+The compositor measures `string length --visible`, including caps and separators,
+and leaves one column spare. As space runs out, it removes clock, duration, load,
+swap, RAM, CPU, nix-shell and sudo information, with the failure badge retained
+longest. Elevated and critical metrics outlive healthy metrics. The configured
+sudo symbol is empty, so there is no sudo query or visible sudo segment.
+
+Once the rail is gone, complete profiles remove languages/docker, hash, local
+user@host, jobs, git status, branch and OS icon, in that order. SSH retains
+user@host. Only then does the directory lose leading components: `…/` marks a
+component boundary, the repo root and final component are retained when they
+fit, then the final component alone. A final name that cannot fit is ellipsised.
+At an extreme SSH width where identity plus a directory cannot fit, identity
+gets a separate bounded row. The directory is always present.
+At five/six terminal columns the local chain omits interior spaces so both caps
+and a nonempty directory still fit in two lines. Repo discovery stops after 256
+ancestors or when the parent substitution makes no progress (including `//`).
+
+Profiles rerender only on overflow: the normal path makes one Starship call;
+the most extreme widths can require ten. Each reduced profile has complete
+caps/transitions, avoiding recolouring fragments of an already rendered chain.
+`git_commit` replaces the shell-based hash, the root warning is fish-native, and
+Starship's command timeout is back to 500 ms.
+
+Disable composition for a session:
+
+```fish
+set -g STASYSMO_FISH_LAYOUT 0
+```
+
+Re-enable with `set -e STASYSMO_FISH_LAYOUT`. Runtime failures use the plain left-only
+Starship prompt. An absent/failing Starship still leaves a builtin directory and
+input prompt. `SYSOP_NOTE` is no longer inserted into the prompt.
+The wrapper is not installed for `TERM=dumb`; if TERM changes after installation,
+it uses the original prompt or a plain builtin prompt. Keymaps follow Starship's
+fish initialization: vi/hybrid/helix use `fish_bind_mode`, emacs uses `insert`,
+preserving `❯` on success and `✗` on failure.
+
+## Snapshot and security
+
+One record is published by a unique same-directory temporary file and atomic
+rename, so a reader sees one complete generation:
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│  daemon (systemd/launchd) → /dev/shm/stasysmo/ or /tmp/stasysmo/ │
-│                                    ↓                             │
-│                            reader (starship)                     │
-│                                    ↓                             │
-│              Prompt: C 5% M 52% L 1.2 S 2%                       │
-│                      (icons render as Nerd Font glyphs)          │
-└──────────────────────────────────────────────────────────────────┘
+v1 <epoch_seconds> <cpu_percent> <ram_percent> <swap_percent> <loadavg1> <logical_cpus>
 ```
 
-## Metrics Explained
+There is exactly one trailing newline. Percentages are integers 0–100; load has
+two decimal places and is below 10000; CPU count is 1–9999. The reader bounds its
+read to 129 characters and validates the entire record before arithmetic. It
+rejects malformed records, controls, symlinks and nonregular files including
+FIFOs. It never evaluates snapshot text and never writes to the sampler directory.
+The reader uses Starship's existing time field for epoch/clock, avoiding a `date`
+child on fish versions without `EPOCHSECONDS`. Custom icons/spacers enter the
+fish configuration through fish single-quote escaping (backslashes and quotes).
+External nix-shell text is bounded to
+known states; no arbitrary note text is rendered.
 
-| Metric   | Icon | What it shows  | How it's measured                                                                                                                                 |
-| -------- | ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **CPU**  | C    | CPU usage %    | **Linux**: Delta of `/proc/stat` between samples (accurate over interval). **macOS**: Sum of all process CPU% via `ps`, normalized by core count. |
-| **RAM**  | M    | Memory usage % | **Linux**: `(MemTotal - MemAvailable) / MemTotal` from `/proc/meminfo`. **macOS**: `(active + wired + speculative pages) / total` via `vm_stat`.  |
-| **Load** | L    | 1-min load avg | **Linux**: First field of `/proc/loadavg`. **macOS**: `sysctl vm.loadavg`. Represents average runnable processes.                                 |
-| **Swap** | S    | Swap usage %   | **Linux**: `(SwapTotal - SwapFree) / SwapTotal` from `/proc/meminfo`. **macOS**: `used / total` from `sysctl vm.swapusage`. Hidden if 0%.         |
+| Platform | Snapshot                                 | Directory | File | Writer                       |
+| -------- | ---------------------------------------- | --------- | ---- | ---------------------------- |
+| macOS    | `$HOME/Library/Caches/stasysmo/snapshot` | 0700      | 0600 | That account's native helper |
+| NixOS    | `/run/stasysmo/snapshot`                 | 0755      | 0644 | systemd DynamicUser service  |
 
-### Update Interval & Accuracy
+Linux's record contains public host metrics and is readable by local prompt
+accounts. A 0600 file owned by DynamicUser would be unreadable by those accounts.
+The service directory is writable only by its owner. Darwin verifies the leaf
+owner/mode with a no-follow directory descriptor and publishes with `openat` +
+`renameat`. Existing unsafe directories are rejected rather than repaired.
+This protects accounts from each other's snapshots; it does not treat the
+owner of a fish configuration as an adversarial isolation boundary.
 
-- **Default interval**: 5 seconds (configurable via `daemon.interval`)
-- **CPU%**: Calculated as delta between samples, so accuracy improves with interval
-- **RAM/Swap/Load**: Point-in-time snapshots, no delta needed
-- **Staleness**: If data is older than `staleThreshold` (default 10s), shows `?`
+Missing or invalid data produces no metrics. A valid snapshot older than
+`max(3 × effective interval, 15 seconds)` or in the future produces one muted `?`.
+A sampler failure preserves the previous generation until it goes stale.
 
-## Files
+## Sampling and settings
 
-| File               | Purpose                                 |
-| ------------------ | --------------------------------------- |
-| `config.nix`       | Centralized configuration defaults      |
-| `daemon.sh`        | Background daemon (Linux + macOS)       |
-| `reader.sh`        | Starship custom module                  |
-| `icons.sh`         | Nerd Font icons (generated by Python)   |
-| `nixos.nix`        | NixOS module (systemd)                  |
-| `home-manager.nix` | Home Manager module (launchd for macOS) |
+Default interval: 2000 ms. `services.stasysmo.daemon.interval` accepts integers
+from 500 through 60000 milliseconds; Nix rejects other values. Both collectors
+also clamp nonnegative CLI intervals to that range. Fractional waits never truncate to
+zero. The first CPU value uses a 100 ms warm-up delta.
 
-## Usage
+Darwin's persistent C helper uses Mach CPU tick deltas; RAM is
+`max(internal − purgeable, 0) + wired + compressor` pages over `hw.memsize`.
+Swap uses `vm.swapusage`, load uses `getloadavg`, and CPU count uses `sysconf`.
+No sampling subprocesses, `ps`, `vm_stat` or `kern.cp_time` are involved. The
+launchd label remains `com.stasysmo.daemon`, with KeepAlive and RunAtLoad. Logs
+are per account under `$HOME/Library/Logs/stasysmo-daemon{,.error}.log`.
+The established headless mba account on mbp2606 retains its StaSysMo setting but
+gets no unloadable GUI launchd job. Account enable settings are unchanged.
+The helper verifies the cache directory's link count and device/inode each tick
+and before publication. Removal or replacement exits nonzero so launchd can
+restart it. Per-CPU Mach buffers must match the reported processor count before
+reading; finite nonnegative loads are rounded, then capped at 9999.99.
 
-### NixOS
+Linux reads `/proc/stat`, `/proc/loadavg`, and `/proc/meminfo` once per tick for
+both RAM and swap. RAM uses MemAvailable. Bash handles parsing, math and time.
+It needs one `mv` child per tick because Bash has no rename builtin; a private
+FIFO supplies builtin `read -t` waiting. `mkfifo` and `unlink` run only at startup.
+The FIFO is unlinked immediately after opening. systemd's existing hardening
+remains, with `RuntimeDirectory=stasysmo` replacing unused `sysmon` and `/dev/shm`.
 
-```nix
-# In configuration.nix
-imports = [ ../../modules/shared/stasysmo/nixos.nix ];
+| Metric                   | Elevated | Critical |
+| ------------------------ | -------- | -------- |
+| CPU                      | 50%      | 80%      |
+| RAM                      | 70%      | 90%      |
+| Load / logical CPU count | 0.7      | 1.0      |
+| Swap, Linux              | 33%      | 66%      |
+| Swap, Darwin             | 50%      | 75%      |
 
-services.stasysmo.enable = true;
+`services.stasysmo.metrics.*.thresholds`, icons, colours and spacers remain
+configurable. `display.maxBudget`, `display.minTerminalWidth`, `display.terminalWidth`
+and `display.staleThreshold` are removed: layout follows fit and staleness follows
+interval. None of the current hosts overrides them. Disk thresholds remain
+metadata for the existing HostDash health library; disk is not a prompt sample.
+Its historical raw-load bands remain separate from the normalized prompt bands.
+
+`stasysmo-reader` remains a thin safe compatibility command because the existing
+`stasysmod` fish debug function calls it. It launches fish once, uses the same
+validator/formatter, and is outside the prompt path. `stasysmod` remains usable.
+The historical template is retained only for hosts that opt out, whose generated
+configuration must remain identical.
+
+## Tests
+
+From the repository root:
+
+```sh
+nix-shell tests/stasysmo-shell.nix --run 'bash tests/T91-stasysmo.sh'
+nix-shell tests/stasysmo-shell.nix --run 'bash tests/T91-stasysmo.sh --benchmark'
 ```
 
-### macOS (Home Manager)
-
-```nix
-# In home.nix
-imports = [ ../../modules/shared/stasysmo/home-manager.nix ];
-
-services.stasysmo.enable = true;
-```
-
-## Configuration
-
-All settings are in `config.nix`. Override via module options:
-
-```nix
-services.stasysmo = {
-  enable = true;
-
-  # Daemon
-  daemon.interval = 5000;  # Sampling interval in ms
-
-  # Display
-  display = {
-    maxBudget = 45;           # Max characters for metrics
-    minTerminalWidth = 0;     # Hide if terminal narrower (0 = always show)
-    staleThreshold = 10;      # Seconds before data is "stale"
-    spacerIconValue = "";     # Between icon and value (e.g., "C5%" vs "C 5%")
-    spacerMetrics = " ";      # Between metrics (e.g., "5% 52%" vs "5%  52%")
-  };
-
-  # Thresholds (trigger color changes)
-  metrics.cpu.thresholds = { elevated = 50; critical = 80; };
-  metrics.ram.thresholds = { elevated = 70; critical = 90; };
-  metrics.load.thresholds = { elevated = 2.0; critical = 4.0; };
-  metrics.swap.thresholds = { elevated = 10; critical = 50; };
-
-  # Colors (ANSI 256)
-  colors.muted = 242;     # Gray - normal state
-  colors.elevated = 255;  # White - noticeable
-  colors.critical = 196;  # Red - urgent
-};
-```
-
-### Using Presets
-
-`config.nix` provides predefined constants so you don't have to type Unicode or remember magic numbers:
-
-```nix
-let
-  stasysmo = import ../../modules/shared/stasysmo/config.nix;
-in {
-  services.stasysmo = {
-    enable = true;
-
-    # Use preset intervals instead of raw milliseconds
-    daemon.interval = stasysmo.presets.interval.fast;  # 2000ms
-
-    display = {
-      # Use preset budgets
-      maxBudget = stasysmo.presets.budget.compact;     # 30 chars
-
-      # Use preset spacers (includes Unicode characters)
-      spacerIconValue = stasysmo.presets.spacer.thin;  # U+2009 thin space
-      spacerMetrics = stasysmo.presets.spacer.dot;     # " . " with bullet
-    };
-  };
-}
-```
-
-### Available Presets
-
-| Category     | Preset      | Value  | Description                |
-| ------------ | ----------- | ------ | -------------------------- |
-| **spacer**   | `none`      | `""`   | No space                   |
-|              | `hair`      | U+200A | Hair space (thinnest)      |
-|              | `thin`      | U+2009 | Thin space                 |
-|              | `narrow`    | U+202F | Narrow no-break space      |
-|              | `normal`    | ` `    | Regular ASCII space        |
-|              | `en`        | U+2002 | En space (half em)         |
-|              | `em`        | U+2003 | Em space (full width)      |
-|              | `double`    | `  `   | Two regular spaces         |
-|              | `pipe`      | `\|`   | Box drawing pipe separator |
-|              | `dot`       | `.`    | Bullet separator (U+2022)  |
-|              | `diamond`   | `X`    | Diamond separator (U+25C6) |
-|              | `bar`       | `\|`   | ASCII pipe separator       |
-| **interval** | `realtime`  | 500    | 0.5s - very responsive     |
-|              | `fast`      | 1000   | 1s - responsive            |
-|              | `normal`    | 2500   | 2.5s - balanced            |
-|              | `relaxed`   | 5000   | 5s - low overhead          |
-|              | `lazy`      | 10000  | 10s - minimal              |
-| **budget**   | `minimal`   | 20     | Just CPU+RAM               |
-|              | `compact`   | 30     | CPU, RAM, Load             |
-|              | `normal`    | 45     | All metrics                |
-|              | `wide`      | 60     | Generous spacing           |
-|              | `unlimited` | 200    | No limit                   |
-| **stale**    | `strict`    | 5      | Mark stale quickly         |
-|              | `normal`    | 10     | Default                    |
-|              | `tolerant`  | 20     | More forgiving             |
-|              | `relaxed`   | 60     | Very tolerant              |
-
-### Threshold Behavior
-
-| State        | Color | When                           |
-| ------------ | ----- | ------------------------------ |
-| **Muted**    | Gray  | Value below elevated threshold |
-| **Elevated** | White | Value ≥ elevated, < critical   |
-| **Critical** | Red   | Value ≥ critical threshold     |
-
-## Icons
-
-Icons are Nerd Font glyphs stored in `icons.sh`. In the terminal with a Nerd Font, they render as graphical icons. In editors without Nerd Fonts, they may appear as `?` or boxes.
-
-| Metric | Text | Nerd Font Code | Glyph Name                    |
-| ------ | ---- | -------------- | ----------------------------- |
-| CPU    | C    | `\uf4bc`       | nf-oct-cpu                    |
-| RAM    | M    | `\uefc5`       | nf-md-memory                  |
-| Load   | L    | `\U000f029a`   | nf-md-pulse                   |
-| Swap   | S    | `\U000f0fb4`   | nf-md-swap_horizontal_variant |
-
-### Regenerating Icons
-
-Icons are generated by Python to preserve Unicode (Nix/shell can corrupt them):
-
-```bash
-python3 << 'PYTHON'
-icons = {
-    'CPU_ICON': '\uf4bc',
-    'RAM_ICON': '\uefc5',
-    'LOAD_ICON': '\U000f029a',
-    'SWAP_ICON': '\U000f0fb4',
-}
-with open('icons.sh', 'w') as f:
-    f.write('# Generated by Python - DO NOT EDIT MANUALLY\n')
-    for name, char in icons.items():
-        f.write(f'{name}="{char}"\n')
-PYTHON
-```
-
-**⚠️ DO NOT edit icons.sh manually** - always regenerate with Python.
-
-## Starship Integration
-
-StaSysMo adds a custom module to `../theme/starship-themes/tokyonight-uzumaki.toml`:
-
-```toml
-[custom.stasysmo]
-command = "stasysmo-reader"
-when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
-format = "[$output ]($style)"
-style = ""
-```
-
-## Platform Support
-
-| Platform | Daemon          | Output Directory     |
-| -------- | --------------- | -------------------- |
-| NixOS    | systemd service | `/dev/shm/stasysmo/` |
-| macOS    | launchd agent   | `/tmp/stasysmo/`     |
-
-## Testing
-
-See `tests/` directory for automated and manual tests.
-
-```bash
-# Run all tests
-cd tests
-./run-all.sh
-
-# Run specific test
-./T01-daemon.sh
-```
-
-## Troubleshooting
-
-### Metrics not showing
-
-1. Check daemon is running:
-   - NixOS: `systemctl status stasysmo-daemon`
-   - macOS: `launchctl list | grep stasysmo`
-
-2. Check output files exist:
-
-   ```bash
-   ls -la /dev/shm/stasysmo/  # Linux
-   ls -la /tmp/stasysmo/      # macOS
-   ```
-
-3. Check for errors:
-   - macOS: `cat /tmp/stasysmo-daemon.error.log`
-
-### Icons not displaying
-
-1. Ensure Nerd Font is installed
-2. Check terminal supports Unicode
-3. Verify icons.sh has correct characters:
-   ```bash
-   cat icons.sh | od -c | head -20
-   ```
-
----
-
-## Development Notes
-
-Technical reference for continuing development. Documents design decisions, pitfalls, and solutions discovered during initial implementation.
-
-### Architecture Decisions
-
-| Decision                             | Rationale                                                                         |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| Daemon + reader separation           | CPU% requires delta calculation; pre-compute in daemon, instant read in prompt    |
-| RAM-backed files (`/dev/shm`)        | Zero I/O latency; macOS falls back to `/tmp` (SSD, acceptable)                    |
-| Fixed budget (45 chars)              | Decouples reader from prompt layout; simpler than dynamic width                   |
-| Platform-specific Nix modules        | `nixos.nix` (systemd) vs `home-manager.nix` (launchd) - cleaner than conditionals |
-| Python-generated `icons.sh`          | Only reliable way to preserve Unicode through Nix evaluation and shell sourcing   |
-| Placeholder substitution in template | `__PL_LEFT_SOFT__` → `` prevents Unicode corruption during text edits             |
-
-### Terminal Width Detection
-
-**Problem**: Starship custom modules run in subprocesses where `$COLUMNS` is unset and `tput cols` returns default (80).
-
-**Solution**: Use `/dev/tty` to query the controlling terminal directly:
-
-```bash
-width=$(stty size < /dev/tty 2>/dev/null | awk '{print $2}') || \
-width=$(tput cols < /dev/tty 2>/dev/null) || \
-width=80
-```
-
-**Why it works**: Even in a subprocess with piped stdin/stdout, `/dev/tty` always refers to the controlling terminal of the session.
-
-### ANSI Color Preservation
-
-**Problem**: `\033[0m` (full reset) clears Starship's background color, breaking powerline segment transitions.
-
-**Solution**: Use `\033[39m` (reset foreground only) to preserve the `bg:` style set by Starship:
-
-```bash
-ansi_reset() { printf '\033[39m'; }  # NOT \033[0m
-```
-
-### Powerline Character Handling
-
-**Problem**: Nerd Font glyphs (`, `) are corrupted when editing `../theme/starship-themes/tokyonight-uzumaki.toml` in editors without Nerd Font support.
-
-**Solution**: Use ASCII placeholders in template, substitute in `theme-hm.nix`:
-
-```nix
-# ../theme/starship-themes/tokyonight-uzumaki.toml
-format = "[__PL_LEFT_SOFT__](fg:__DARKEST__)"
-
-# theme-hm.nix (builtins.replaceStrings)
-"__PL_LEFT_SOFT__" → ""  # U+E0B6
-```
-
-Placeholders: `__PL_LEFT_HARD__` (), `__PL_RIGHT_HARD__` (), `__PL_LEFT_SOFT__` (), `__PL_RIGHT_SOFT__` ()
-
-### macOS-Specific Issues
-
-| Issue                     | Solution                                                           |
-| ------------------------- | ------------------------------------------------------------------ |
-| `bash 3.2` (no `mapfile`) | Use `while IFS= read -r` loop instead                              |
-| `vm_stat` output format   | `grep -oE '[0-9]+\.'` (no `$` anchor - trailing whitespace varies) |
-| Swap thresholds           | macOS pre-swaps aggressively; use 50%/75% vs Linux 33%/66%         |
-| `$COLUMNS` unset          | Detect via `stty size < /dev/tty`                                  |
-
-### Bash Arithmetic Pitfalls
-
-**Problem**: `((metric_count++))` exits with code 1 when `metric_count=0`, triggering `set -e`.
-
-**Solution**: Use explicit assignment:
-
-```bash
-metric_count=$((metric_count + 1))  # NOT ((metric_count++))
-```
-
-### Variable Expansion for Empty Strings
-
-**Problem**: `${VAR:-default}` uses default if VAR is unset OR empty. Can't pass empty string as spacer.
-
-**Solution**: Use `${VAR-default}` (no colon) - uses default only if unset:
-
-```bash
-spacer="${SPACER_ICON_VALUE-}"  # Allows empty string
-```
-
-### Starship Format String Syntax
-
-Segment format with background color transitions:
-
-```toml
-# Rounded left cap (transition into segment)
-[__PL_LEFT_SOFT__](fg:__DARKEST__)
-
-# Segment content with background
-[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)
-
-# Transition to next segment (different bg)
-[__PL_LEFT_SOFT__](fg:__DARKER__ bg:__DARKEST__)
-```
-
-Key insight: The cap character's foreground must match the segment's background; the cap's background must match the previous segment's background (or none for first segment).
-
-### Progressive Hiding
-
-Terminal width thresholds for metric visibility:
-
-| Width   | Behavior                |
-| ------- | ----------------------- |
-| < 60    | Hide all (no artifacts) |
-| 60-79   | Show 1 metric (CPU)     |
-| 80-99   | Show 2 metrics          |
-| 100-129 | Show 3 metrics          |
-| ≥ 130   | Show all 4 metrics      |
-
-**Artifact prevention**: Only emit output if at least one metric will be shown:
-
-```bash
-[[ -z "$output" ]] && exit 0  # No output = no segment
-```
-
-### Debug Mode
-
-Set `STASYSMO_DEBUG=1` in Nix config for runtime diagnostics. Only displays in interactive TTY (not in Starship subprocess):
-
-```
-┌─ StaSysMo Debug ─────────────────────────────────
-│ WIDTH: tput=156 COLUMNS=unset → using 156
-│ SLOTS: hideAll=60 show1=80 ... → max_metrics=4
-│ STALE: timestamp=... now=... age=1s threshold=10s
-│ DATA: cpu=6% ram=51% load=7.47 swap=59%
-│ OUTPUT: metrics_shown=4 visible_chars=36 budget=45
-└──────────────────────────────────────────────────
-```
-
-### Known Issues (Backlog)
-
-1. **Trailing space after `nix_shell` segment**: A single space appears after the `)` powerline cap. Source not yet identified in Starship format strings. See enhancements backlog.
-
-### Testing Strategy
-
-Automated tests (`tests/run-all.sh`) cover:
-
-- Platform detection
-- Daemon file creation
-- Output file format
-- Reader output format
-- Width threshold behavior
-
-Manual verification required for:
-
-- Visual powerline transitions
-- Color rendering
-- Nerd Font icon display
-- Real terminal width responsiveness
+The shell uses the hosts' `flake.lock` nixpkgs revision. `tests/stasysmo_test.py`
+uses private HOME/cache/git/proc fixtures. The controlling-PTY + pyte test answers
+fish's terminal queries and checks widths 150, 120, 100, 80, 74, 60, 50, 46, 40, 30,
+24, monotonic removals, visible directory text, width limits, arrow cell colours,
+glyph widths, SSH, pressure priority, hostile snapshots, kill switch and fallback.
+Daemon tests check bounds, atomic generations, permissions, interval clamp,
+failed samples and one Linux child per tick. Darwin compiles the helper with `cc`
+and checks real samples when the APIs are available. A sandbox denial is reported
+as a skip: run `bash tests/T91-stasysmo.sh --suite daemon` on a real Mac (outside any
+sandbox) before deploying the helper.
+Regression tests source real Starship initialization for emacs and vi keymaps,
+sweep every width 5–160 in batches, force zero padding at each width, check long
+non-repo paths, time-limit `//`, preserve dumb terminals and round-trip fish
+escaping. Native tests inject short/long CPU buffers and rounding-boundary loads;
+real-Mac tests require deletion/replacement to exit within two 500 ms intervals.
+The PTY capture waits at least one second after the last output.
+
+The pinned test shell evaluates `tests/stasysmo-init-eval.nix` with its nixpkgs
+library and sets `STASYSMO_TEST_INIT_JSON`. Its assertions exercise interval
+rejection and produce custom fish initialization as JSON, which T91 syntax-checks
+and round-trips. OPS can also supply the file with `--rendered-init-json`. Outside
+the Nix shell this gate reports a skip; portable tests still exercise the
+production escape table directly.
+
+`.github/workflows/check.yml` runs the portable suite on Linux. A macOS CI job for the
+native sampler is deliberately absent: GitHub's macOS runner fails inside the Nix
+installer before any test runs, so the sampler is proven on real Macs instead.
+`modules/uzumaki/stasysmo/tests/run-all.sh` runs the same assertions
+once, without the former Bash counter abort. Host tests under
+`hosts/{hsb0,hsb1,hsb8}/tests` perform read-only deployed-service checks; run those
+only on the intended host after deployment. No automated fixture uses live
+`/tmp/stasysmo`, `/dev/shm/stasysmo`, sudo or a remote host.

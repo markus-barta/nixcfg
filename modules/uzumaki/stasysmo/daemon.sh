@@ -1,269 +1,108 @@
 #!/usr/bin/env bash
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                   StaSysMo Daemon - System Metrics Collector                  ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-#
-# Collects system metrics (CPU, RAM, Load, Swap) every N seconds and writes
-# them to a RAM-backed directory for fast reading by stasysmo-reader.
-#
-# Platform Support:
-#   - Linux: /proc/stat, /proc/meminfo, /proc/loadavg
-#   - macOS: ps, vm_stat, sysctl
-#
-# Output Directory:
-#   - Linux: /dev/shm/stasysmo/ (RAM-backed tmpfs)
-#   - macOS: /tmp/stasysmo/ (SSD-backed, acceptable for small files)
-#
-# Usage: stasysmo-daemon [interval_ms]
-#   interval_ms: Sampling interval in milliseconds (default: 5000)
-#
-
+# Linux collector. systemd owns/creates the directory; readers never write.
+# Bash has no rename primitive: mv is the sole child per tick. A private FIFO
+# lets read -t supply the fractional wait without a second child for sleep.
 set -euo pipefail
 
-# ════════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
-# ════════════════════════════════════════════════════════════════════════════════
+INTERVAL_MS=${1:-2000}
+STASYSMO_DIR=${2:-/run/stasysmo}
+SAMPLE_COUNT=${3:-0}
+PROC_ROOT=${STASYSMO_PROC_ROOT:-/proc}
+[[ $INTERVAL_MS =~ ^[0-9]{1,8}$ && $SAMPLE_COUNT =~ ^[0-9]{1,8}$ ]] || exit 2
+INTERVAL_MS=$((10#$INTERVAL_MS))
+SAMPLE_COUNT=$((10#$SAMPLE_COUNT))
+((INTERVAL_MS >= 500)) || INTERVAL_MS=500
+((INTERVAL_MS <= 60000)) || INTERVAL_MS=60000
+printf -v INTERVAL_S '%d.%03d' "$((INTERVAL_MS / 1000))" "$((INTERVAL_MS % 1000))"
+[[ -d $STASYSMO_DIR && ! -L $STASYSMO_DIR && -O $STASYSMO_DIR ]] || exit 1
+umask 077
+set -C # Unique temporary names never follow planted symlinks or overwrite files.
+wait_file="$STASYSMO_DIR/.wait.$$"
+mkfifo -- "$wait_file"
+exec {wait_fd}<>"$wait_file"
+# Bash has no unlink primitive either; one startup child removes the opened FIFO.
+unlink -- "$wait_file"
+wait_tick() { read -r -t "$1" -u "$wait_fd" _ || :; }
 
-INTERVAL_MS="${1:-5000}"
-INTERVAL_S=$((INTERVAL_MS / 1000))
-
-# Detect platform and set output directory
-if [[ "$(uname)" == "Darwin" ]]; then
-  PLATFORM="darwin"
-  STASYSMO_DIR="/tmp/stasysmo"
-else
-  PLATFORM="linux"
-  STASYSMO_DIR="/dev/shm/stasysmo"
-fi
-
-# ════════════════════════════════════════════════════════════════════════════════
-# INITIALIZATION
-# ════════════════════════════════════════════════════════════════════════════════
-
-# Create output directory
-mkdir -p "$STASYSMO_DIR"
-
-# Previous CPU sample for delta calculation (Linux only)
-# Initialize to -1 to detect first run (no valid baseline yet)
-prev_cpu_total=-1
-prev_cpu_idle=0
-
-# ════════════════════════════════════════════════════════════════════════════════
-# LINUX METRIC FUNCTIONS
-# ════════════════════════════════════════════════════════════════════════════════
-
-get_cpu_linux() {
-  # Read CPU times from /proc/stat
-  # Format: cpu user nice system idle iowait irq softirq steal guest guest_nice
-  read -r _ user nice system idle iowait irq softirq steal _ _ </proc/stat
-
-  # Calculate totals
-  local idle_total=$((idle + iowait))
-  local non_idle=$((user + nice + system + irq + softirq + steal))
-  local total=$((idle_total + non_idle))
-
-  # First run: no baseline yet, just store values and return 0
-  if [[ $prev_cpu_total -lt 0 ]]; then
-    prev_cpu_total=$total
-    prev_cpu_idle=$idle_total
-    CPU_RESULT=0
-    return
-  fi
-
-  # Calculate delta from previous sample
-  local total_delta=$((total - prev_cpu_total))
-  local idle_delta=$((idle_total - prev_cpu_idle))
-
-  # Store for next iteration (these are GLOBAL variables)
-  prev_cpu_total=$total
-  prev_cpu_idle=$idle_total
-
-  # Calculate CPU percentage (avoid division by zero)
-  if [[ $total_delta -gt 0 ]]; then
-    CPU_RESULT=$(((total_delta - idle_delta) * 100 / total_delta))
-  else
-    CPU_RESULT=0
-  fi
+previous_total=0
+previous_idle=0
+sequence=0
+read_cpu() {
+  local kind user nice system idle iowait irq softirq steal rest line
+  local -a counters
+  ncpu=0
+  IFS= read -r line <"$PROC_ROOT/stat" || return 1
+  read -r kind user nice system idle iowait irq softirq steal rest <<<"$line"
+  [[ $kind == cpu ]] || return 1
+  counters=("$user" "$nice" "$system" "$idle" "$iowait" "$irq" "$softirq" "$steal")
+  for counter in "${counters[@]}"; do
+    [[ $counter =~ ^[0-9]{1,15}$ ]] || return 1
+  done
+  # Values are kernel decimal integers, validated before Bash arithmetic.
+  idle_total=$((10#$idle + 10#$iowait))
+  total=$((idle_total + 10#$user + 10#$nice + 10#$system + 10#$irq + 10#$softirq + 10#$steal))
+  while read -r kind rest; do
+    [[ $kind =~ ^cpu[0-9]+$ ]] && ncpu=$((ncpu + 1))
+  done <"$PROC_ROOT/stat"
+  ((ncpu > 0 && ncpu <= 9999))
 }
 
-get_ram_linux() {
-  # Parse /proc/meminfo for memory usage
-  local mem_total mem_available
-  while IFS=': ' read -r key value _; do
+read_memory() {
+  local key value rest mem_total='' mem_available='' swap_total='' swap_free=''
+  while read -r key value rest; do
     case "$key" in
-    MemTotal) mem_total=$value ;;
-    MemAvailable) mem_available=$value ;;
+    MemTotal: | MemAvailable: | SwapTotal: | SwapFree:)
+      [[ $value =~ ^[0-9]{1,15}$ ]] || return 1
+      value=$((10#$value))
+      case "$key" in
+      MemTotal:) mem_total=$value ;;
+      MemAvailable:) mem_available=$value ;;
+      SwapTotal:) swap_total=$value ;;
+      SwapFree:) swap_free=$value ;;
+      esac
+      ;;
     esac
-  done </proc/meminfo
+  done <"$PROC_ROOT/meminfo"
+  [[ -n $mem_total && -n $mem_available && -n $swap_total && -n $swap_free ]] || return 1
+  ((mem_total > 0 && mem_available <= mem_total && swap_free <= swap_total)) || return 1
+  ram=$(((mem_total - mem_available) * 100 / mem_total))
+  swap=0
+  ((swap_total == 0)) || swap=$(((swap_total - swap_free) * 100 / swap_total))
+}
 
-  # Calculate used percentage
-  if [[ -n "$mem_total" && -n "$mem_available" && $mem_total -gt 0 ]]; then
-    local used=$((mem_total - mem_available))
-    echo $((used * 100 / mem_total))
-  else
-    echo "0"
+sample() {
+  local delta idle_delta
+  read_cpu && read_memory || return 1
+  read -r load _ <"$PROC_ROOT/loadavg" || return 1
+  [[ $load =~ ^(0|[1-9][0-9]{0,3})\.[0-9]{2}$ ]] || return 1
+  delta=$((total - previous_total))
+  idle_delta=$((idle_total - previous_idle))
+  if ((delta <= 0 || idle_delta < 0 || idle_delta > delta)); then
+    # Recover after counter resets/hotplug; this generation remains untouched.
+    previous_total=$total
+    previous_idle=$idle_total
+    return 1
   fi
+  cpu=$(((delta - idle_delta) * 100 / delta))
+  previous_total=$total
+  previous_idle=$idle_total
+  # %()T is a Bash builtin, including under the pinned Nix Bash.
+  printf -v epoch '%(%s)T' -1
+  temp="$STASYSMO_DIR/.snapshot.$$.${sequence}"
+  printf 'v1 %s %s %s %s %s %s\n' "$epoch" "$cpu" "$ram" "$swap" "$load" "$ncpu" >"$temp" || return 1
+  # System metrics are deliberately readable across local accounts, never writable.
+  # Open under the right umask instead of spawning chmod after every sample.
+  mv -fT -- "$temp" "$STASYSMO_DIR/snapshot"
 }
 
-get_swap_linux() {
-  # Parse /proc/meminfo for swap usage
-  local swap_total=0 swap_free=0
-  while IFS=': ' read -r key value _; do
-    case "$key" in
-    SwapTotal) swap_total=$value ;;
-    SwapFree) swap_free=$value ;;
-    esac
-  done </proc/meminfo
-
-  # Calculate used percentage
-  if [[ $swap_total -gt 0 ]]; then
-    local used=$((swap_total - swap_free))
-    echo $((used * 100 / swap_total))
-  else
-    echo "0"
-  fi
-}
-
-get_load_linux() {
-  # Read 1-minute load average from /proc/loadavg
-  read -r load1 _ </proc/loadavg
-  echo "$load1"
-}
-
-# ════════════════════════════════════════════════════════════════════════════════
-# MACOS METRIC FUNCTIONS
-# ════════════════════════════════════════════════════════════════════════════════
-
-get_cpu_darwin() {
-  # Sum all process CPU usage (simpler than parsing top)
-  # Note: This can exceed 100% on multi-core systems, so we cap it
-  local cpu_sum
-  cpu_sum=$(ps -A -o %cpu | awk '{sum += $1} END {print int(sum)}')
-
-  # Get number of CPU cores to normalize
-  local cores
-  cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
-
-  # Normalize to 0-100 range
-  local cpu_pct=$((cpu_sum / cores))
-  if [[ $cpu_pct -gt 100 ]]; then
-    cpu_pct=100
-  fi
-  echo "$cpu_pct"
-}
-
-get_ram_darwin() {
-  # Parse vm_stat output for memory usage
-  local page_size pages_active=0 pages_speculative=0 pages_wired=0
-
-  page_size=$(sysctl -n hw.pagesize 2>/dev/null || echo 4096)
-
-  # Parse vm_stat (values are in pages)
-  # Format: "Pages active:                   1234567."
-  # Note: We only use active, wired, and speculative for "used" memory
-  while IFS= read -r line; do
-    # Extract the numeric value (remove trailing period)
-    # Note: Don't anchor to $ - some systems may have trailing whitespace
-    local value
-    value=$(echo "$line" | grep -oE '[0-9]+\.' | tr -d '.')
-
-    case "$line" in
-    "Pages active:"*) pages_active=${value:-0} ;;
-    "Pages speculative:"*) pages_speculative=${value:-0} ;;
-    "Pages wired down:"*) pages_wired=${value:-0} ;;
-    esac
-  done < <(vm_stat 2>/dev/null)
-
-  # Get total physical memory
-  local mem_total
-  mem_total=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
-
-  # Calculate used memory (active + wired + speculative)
-  # Free = free + inactive (inactive is reclaimable)
-  local used_pages=$((pages_active + pages_wired + pages_speculative))
-  local used_bytes=$((used_pages * page_size))
-
-  if [[ $mem_total -gt 0 ]]; then
-    echo $((used_bytes * 100 / mem_total))
-  else
-    echo "0"
-  fi
-}
-
-get_swap_darwin() {
-  # Parse sysctl vm.swapusage
-  # Format: vm.swapusage: total = 2048.00M  used = 123.45M  free = 1924.55M  (encrypted)
-  local swap_info
-  swap_info=$(sysctl vm.swapusage 2>/dev/null || echo "")
-
-  if [[ -n "$swap_info" ]]; then
-    local total used
-    # Extract total and used values (in MB)
-    total=$(echo "$swap_info" | grep -oE 'total = [0-9.]+' | grep -oE '[0-9.]+')
-    used=$(echo "$swap_info" | grep -oE 'used = [0-9.]+' | grep -oE '[0-9.]+')
-
-    if [[ -n "$total" && -n "$used" ]]; then
-      # Use awk for floating point calculation
-      awk -v t="$total" -v u="$used" 'BEGIN { if (t > 0) printf "%d", (u/t)*100; else print "0" }'
-      return
-    fi
-  fi
-  echo "0"
-}
-
-get_load_darwin() {
-  # Parse sysctl vm.loadavg
-  # Format: vm.loadavg: { 1.23 4.56 7.89 }
-  local load_info
-  load_info=$(sysctl vm.loadavg 2>/dev/null || echo "")
-
-  if [[ -n "$load_info" ]]; then
-    # Extract first (1-min) load average
-    echo "$load_info" | awk '{print $3}' | tr -d '{'
-  else
-    echo "0.00"
-  fi
-}
-
-# ════════════════════════════════════════════════════════════════════════════════
-# MAIN LOOP
-# ════════════════════════════════════════════════════════════════════════════════
-
-write_metrics() {
-  local cpu ram swap load timestamp
-
-  if [[ "$PLATFORM" == "darwin" ]]; then
-    cpu=$(get_cpu_darwin)
-    ram=$(get_ram_darwin)
-    swap=$(get_swap_darwin)
-    load=$(get_load_darwin)
-  else
-    # IMPORTANT: Don't use $() for get_cpu_linux - it runs in a subshell
-    # and loses the prev_cpu_* variable updates needed for delta calculation!
-    get_cpu_linux # Updates CPU_RESULT and prev_cpu_* globals
-    cpu=$CPU_RESULT
-    ram=$(get_ram_linux)
-    swap=$(get_swap_linux)
-    load=$(get_load_linux)
-  fi
-
-  timestamp=$(date +%s)
-
-  # Write metrics atomically (write to temp, then move)
-  echo "$cpu" >"$STASYSMO_DIR/cpu.tmp" && mv "$STASYSMO_DIR/cpu.tmp" "$STASYSMO_DIR/cpu"
-  echo "$ram" >"$STASYSMO_DIR/ram.tmp" && mv "$STASYSMO_DIR/ram.tmp" "$STASYSMO_DIR/ram"
-  echo "$swap" >"$STASYSMO_DIR/swap.tmp" && mv "$STASYSMO_DIR/swap.tmp" "$STASYSMO_DIR/swap"
-  echo "$load" >"$STASYSMO_DIR/load.tmp" && mv "$STASYSMO_DIR/load.tmp" "$STASYSMO_DIR/load"
-  echo "$timestamp" >"$STASYSMO_DIR/timestamp.tmp" && mv "$STASYSMO_DIR/timestamp.tmp" "$STASYSMO_DIR/timestamp"
-}
-
-# Global variable for CPU result (avoids subshell issues)
-CPU_RESULT=0
-
-# Main loop
-# Note: First CPU sample on Linux will be 0 (establishing baseline),
-# subsequent samples will show accurate delta-based percentage
-while true; do
-  write_metrics
-  sleep "$INTERVAL_S"
+read_cpu || exit 1
+previous_total=$total
+previous_idle=$idle_total
+wait_tick 0.100
+umask 022 # /run snapshot is public read-only; Darwin snapshots are 0600.
+while :; do
+  sample || : # Keep the previous generation on a sampling failure.
+  sequence=$((sequence + 1))
+  ((SAMPLE_COUNT == 0 || sequence < SAMPLE_COUNT)) || break
+  wait_tick "$INTERVAL_S"
 done

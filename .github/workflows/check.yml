@@ -328,6 +328,12 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T90-nix-gc-home-manager.sh
 
+      - name: Verify StaSysMo snapshots and real fish prompt layouts (NIX-604)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: >-
+          nix-shell tests/stasysmo-shell.nix
+          --run 'bash tests/T91-stasysmo.sh && shellcheck modules/uzumaki/stasysmo/daemon.sh modules/uzumaki/stasysmo/reader.sh modules/uzumaki/stasysmo/tests/*.sh tests/T91-stasysmo.sh && fish -n modules/uzumaki/stasysmo/prompt.fish && fish -n modules/uzumaki/stasysmo/reader.fish'
+
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
