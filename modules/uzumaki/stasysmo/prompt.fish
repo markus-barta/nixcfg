@@ -206,7 +206,7 @@ function fish_prompt
     set -l code "$result[1]"
     set -g __stasysmo_pipeline (string join ' ' -- $result[2..-1])
     set -l duration "$CMD_DURATION"
-    set -q STASYSMO_COMPOSER; and test "$STASYSMO_COMPOSER" = 0; and begin
+    set -q STASYSMO_FISH_LAYOUT; and test "$STASYSMO_FISH_LAYOUT" = 0; and begin
         __stasysmo_fallback "$code"
         return
     end

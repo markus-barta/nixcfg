@@ -36,10 +36,10 @@ Starship's command timeout is back to 500 ms.
 Disable composition for a session:
 
 ```fish
-set -g STASYSMO_COMPOSER 0
+set -g STASYSMO_FISH_LAYOUT 0
 ```
 
-Re-enable with `set -e STASYSMO_COMPOSER`. Runtime failures use the plain left-only
+Re-enable with `set -e STASYSMO_FISH_LAYOUT`. Runtime failures use the plain left-only
 Starship prompt. An absent/failing Starship still leaves a builtin directory and
 input prompt. `SYSOP_NOTE` is no longer inserted into the prompt.
 
