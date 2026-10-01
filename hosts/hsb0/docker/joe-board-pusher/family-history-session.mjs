@@ -11,6 +11,11 @@ function clone(value) {
   return structuredClone(value);
 }
 
+/** Keep frozen snapshots shared; clone only mutable values. */
+function hold(value) {
+  return value && typeof value === "object" && Object.isFrozen(value) ? value : clone(value);
+}
+
 function iso(value) {
   const epoch = new Date(value || "").getTime();
   return Number.isFinite(epoch) ? new Date(epoch).toISOString() : null;
@@ -22,6 +27,28 @@ function stable(value) {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function sameValue(left, right) {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right || left === null || right === null) return left === right;
+  if (typeof left !== "object") return false;
+  if (Array.isArray(left)) {
+    if (!Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!sameValue(left[index], right[index])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const key = leftKeys[index];
+    if (key !== rightKeys[index] || !sameValue(left[key], right[key])) return false;
+  }
+  return true;
 }
 
 function digest(value) {
@@ -100,7 +127,7 @@ function captureAddsFacts(state, executions, commissions) {
   const priorCommissions = new Map((state.commissions || []).map((row) => [row?.execId, row]));
   return executions.some((row) => {
     const prior = priorExecutions.get(row.execution.execId);
-    return !prior || stable(prior) !== stable(row);
+    return !prior || !sameValue(prior, row);
   }) || commissions.some((row) => {
     const prior = priorCommissions.get(row.execId);
     return !prior || stable(prior) !== stable(row);
@@ -109,7 +136,7 @@ function captureAddsFacts(state, executions, commissions) {
 
 function historyIdentityReason(state, { targetAccount, classifier, historyStart, through }) {
   if (state?.account !== targetAccount) return "family history account does not match configured account";
-  if (stable(state.classifier) !== stable(classifier)) {
+  if (!sameValue(state.classifier, classifier)) {
     return "family history classifier does not match configured family";
   }
   const fromInclusive = iso(state?.target?.fromInclusive);
@@ -123,7 +150,7 @@ function historyIdentityReason(state, { targetAccount, classifier, historyStart,
 
 function bootstrapCaptureReason(capture, { targetAccount, classifier, historyStart }) {
   if (capture?.account !== targetAccount) return "legacy family capture account does not match configured account";
-  if (stable(capture.classifier) !== stable(classifier)) {
+  if (!sameValue(capture.classifier, classifier)) {
     return "legacy family capture classifier does not match configured family";
   }
   const fromInclusive = iso(capture?.window?.fromInclusive);
@@ -318,7 +345,7 @@ export function createFamilyHistorySessionAdapter({
       });
       if (identityReason) throw new Error(identityReason);
       store.save(next);
-      state = clone(next);
+      state = hold(next);
       seeded = {
         capturedAt: capture.capturedAt,
         executionCount: capture.executions.length,
@@ -456,7 +483,7 @@ export function createFamilyHistorySessionAdapter({
       });
       if (identityReason) throw new Error(identityReason);
       store.save(next);
-      state = clone(next);
+      state = hold(next);
     } catch (error) {
       block(`family history reconciliation failed: ${error?.message || error}`);
       return false;
@@ -566,7 +593,7 @@ export function createFamilyHistorySessionAdapter({
         const row = normalizeExecutionRow({ contract, execution });
         if (row?.execution?.acctNumber !== targetAccount) throw new Error("execution account mismatch");
         const prior = activeCycle.executions.get(row.execution.execId);
-        if (prior && stable(prior) !== stable(row)) throw new Error(`conflicting execution ${row.execution.execId}`);
+        if (prior && !sameValue(prior, row)) throw new Error(`conflicting execution ${row.execution.execId}`);
         activeCycle.executions.set(row.execution.execId, row);
         if (activeCycle.executions.size > MAX_CAPTURE_RECORDS) throw new Error("execution record limit exceeded");
       } catch (error) {
@@ -596,7 +623,7 @@ export function createFamilyHistorySessionAdapter({
         return;
       }
       const prior = activeCycle.commissions.get(row.execId);
-      if (prior && stable(prior) !== stable(row)) {
+      if (prior && !sameValue(prior, row)) {
         retryCycle(`history commission callback conflicted for ${row.execId}`);
         return;
       }
@@ -641,7 +668,7 @@ export function createFamilyHistorySessionAdapter({
     try {
       const through = iso(now());
       if (!through) throw new Error("current clock is unavailable");
-      return extendProjectionTarget(projectHistory({ state: clone(state) }), state, through);
+      return extendProjectionTarget(projectHistory({ state: hold(state) }), state, through);
     } catch (error) {
       return { ok: false, reason: `family history projection failed: ${error?.message || error}` };
     }
@@ -676,16 +703,16 @@ export function createFamilyHistorySessionAdapter({
         through: current,
       });
       if (identityReason) throw new Error(identityReason);
-      if (state && stable(next) === stable(state)) return { ok: true, state: clone(state) };
+      if (state && sameValue(next, state)) return { ok: true, state: hold(state) };
       store.save(next);
-      state = clone(next);
+      state = hold(next);
       hooks.onUpdated?.({
         capturedAt: next.updatedAt,
         executionCount: next.executions.length,
         commissionCount: next.commissions.length,
         missingCommissionCount: 0,
       });
-      return { ok: true, state: clone(state) };
+      return { ok: true, state: hold(state) };
     } catch (error) {
       const reason = `official family history import failed: ${error?.message || error}`;
       unavailable(reason);
@@ -705,7 +732,7 @@ export function createFamilyHistorySessionAdapter({
     get blockedReason() { return blockedReason; },
     get startupReason() { return startupReason; },
     get retryReason() { return retryReason; },
-    inspectState() { return state ? clone(state) : null; },
+    inspectState() { return state ? hold(state) : null; },
   };
 }
 
