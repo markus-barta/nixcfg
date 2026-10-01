@@ -407,6 +407,7 @@ in
     imports = [
       # Themed starship, zellij, and eza (consolidated into uzumaki)
       ./uzumaki/theme/theme-hm.nix
+      ./uzumaki/stasysmo/home-manager.nix
     ];
 
     # Pass hostname explicitly (builtins.getEnv doesn't work during NixOS eval)
@@ -414,6 +415,9 @@ in
 
     # The home.stateVersion option does not have a default and must be set
     home.stateVersion = "24.11";
+
+    # Forward system opt-in to each managed fish account; no launchd on Linux.
+    services.stasysmo.enable = lib.mkIf (config.services.stasysmo.enable or false) true;
 
     # Starship config now managed by theme-hm.nix (per-host colors)
     # Old static config removed: home.file.".config/starship.toml".source = ./shared/starship.toml;

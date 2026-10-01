@@ -81,7 +81,13 @@ let
   # ════════════════════════════════════════════════════════════════════════════
 
   # Read the template file (contains all Unicode characters intact)
-  starshipTemplate = builtins.readFile ./starship-themes/tokyonight-uzumaki.toml;
+  stasysmoEnabled = config.services.stasysmo.enable or false;
+  starshipTemplate = builtins.readFile (
+    if stasysmoEnabled then
+      ./starship-themes/tokyonight-uzumaki.toml
+    else
+      ./starship-themes/tokyonight-uzumaki-legacy.toml
+  );
 
   # Build the starship config by substituting ONLY color placeholders (ASCII-safe)
   mkStarshipConfig =
@@ -299,13 +305,26 @@ in
       LS_COLORS = "di=1;34:ln=36:ex=1;32:or=31";
     };
 
-    # Fish-specific: eza config dir and LS_COLORS (fish doesn't source bash profiles)
-    programs.fish.interactiveShellInit = lib.mkIf config.theme.eza.enable ''
-      # Tell eza where to find theme.yml
-      set -gx EZA_CONFIG_DIR "$HOME/.config/eza"
-      # LS_COLORS for basic ls compatibility
-      set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
-    '';
+    programs.fish.interactiveShellInit = lib.mkMerge [
+      (lib.mkIf stasysmoEnabled (
+        lib.mkOrder 1400 ''
+          set -g STASYSMO_DARKEST '${lib.removePrefix "#" palette.gradient.darkest}'
+          set -g STASYSMO_DARKER '${lib.removePrefix "#" palette.gradient.darker}'
+          set -g STASYSMO_MUTED_LIGHT '${lib.removePrefix "#" palette.text.mutedLight}'
+          set -g STASYSMO_ERROR '${lib.removePrefix "#" status.error.bg}'
+          set -g STASYSMO_ROOT_BG '${lib.removePrefix "#" status.root.bg}'
+          set -g STASYSMO_ROOT_FG '${lib.removePrefix "#" status.root.fg}'
+        ''
+      ))
+
+      # Fish-specific: eza config dir and LS_COLORS (fish doesn't source bash profiles)
+      (lib.mkIf config.theme.eza.enable ''
+        # Tell eza where to find theme.yml
+        set -gx EZA_CONFIG_DIR "$HOME/.config/eza"
+        # LS_COLORS for basic ls compatibility
+        set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
+      '')
+    ];
 
     # ══════════════════════════════════════════════════════════════════════════
     # TOKYO NIGHT OVERRIDES - Override hokage's catppuccin theming
