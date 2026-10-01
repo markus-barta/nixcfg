@@ -773,7 +773,10 @@ int main(int argc, char **argv) {
                     self.check_snapshot(snapshot, 0o644)
                     fields = snapshot.read_text().split()
                     self.assertEqual(fields[3:7], ['48', '12', '1.23', '2'])
-                    inode_generations.add(snapshot.stat().st_ino)
+                    # ext4 reuses freed inode numbers (an atomic rename alternates between two), so an inode
+                    # alone undercounts generations on Linux; every publication is written at a new time.
+                    stat = snapshot.stat()
+                    inode_generations.add((stat.st_ino, stat.st_mtime_ns))
                 self.assertLess(time.monotonic() - started, 8)
                 time.sleep(.01)
             self.assertEqual(proc.returncode, 0, proc.stderr.read().decode())
