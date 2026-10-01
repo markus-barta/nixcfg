@@ -100,6 +100,9 @@ in
     role = "workstation";
     fish.editor = "nano"; # Options: nano, vim, code, etc.
     stasysmo.enable = true; # System metrics in Starship prompt
+    # NIX-603: nothing ever collected this Mac's store (362 GB, 85% dead on
+    # 2026-10-01). One user per Mac only: the store is shared by all accounts.
+    nixGc.enable = true;
     # NIX-578: native headless Chrome is supported outside Codex. Keep Codex's
     # refusal and the strict opt-in tools; preserve the NIX-288 export below.
     agentBrowserGuard = {

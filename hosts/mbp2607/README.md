@@ -133,6 +133,26 @@ retirement. NIX-528 remains the pending configuration-version adoption proposal;
 this candidate retains Git/HM generation identity and the dependency's calendar
 version.
 
+### Nix garbage collection (NIX-603)
+
+mbp2607 is standalone Home Manager (no nix-darwin), so the daemon-side
+`min-free`/`max-free` cannot be declared here, and nothing collected the store
+until 2026-10-01 (362 GB on disk, 85% dead paths). `uzumaki.nixGc.enable`
+(`modules/uzumaki/nix-gc.nix`, enabled in `home.nix`) installs two user launchd
+agents: `nix-gc` (Sunday 04:00, all dead paths) and `nix-gc-lowspace` (every
+30 min, only below 100 GiB free, capped at 60 GiB per run). Dead paths only: no
+generation is deleted. Log: `~/Library/Logs/nix-gc.log`.
+
+- Status: `launchctl list | grep nix-gc`. Run now:
+  `launchctl kickstart gui/$(id -u)/org.nix-community.home.nix-gc`.
+- Pause: `launchctl bootout gui/$(id -u)/org.nix-community.home.nix-gc` (and
+  `...nix-gc-lowspace`). A `home-manager switch` re-loads them, so set
+  `uzumaki.nixGc.enable = false` to keep them off.
+- Never copy a store-linked binary out of the store: on 2026-10-01 a copied
+  `aeon` CLI lost `libresolv` after a collection. Link it with
+  `nix build -o <link>` (an indirect GC root) instead.
+- Enable it for one user per Mac only; the store is shared by every account.
+
 ## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
