@@ -253,3 +253,19 @@ nix build .#checks.x86_64-linux.qownnotes
 
 - `paimos` / PPM (`pm.barta.cm`) — How tests fit into the review process
 - [hsb0 Tests](../hosts/hsb0/tests/) — Example host-specific test suite
+
+## StaSysMo v2 (T91 / NIX-604)
+
+```sh
+nix-shell tests/stasysmo-shell.nix --run 'bash tests/T91-stasysmo.sh'
+nix-shell tests/stasysmo-shell.nix --run 'bash tests/T91-stasysmo.sh --benchmark'
+```
+
+The shell uses the hosts' pinned nixpkgs. Tests use private HOME/snapshot/git/proc
+fixtures and a controlling fish PTY rendered by pyte. They assert all eleven
+requested widths, directory visibility, monotonic removals, rail priority,
+powerline cell colours, glyph widths, hostile files and fallback behaviour.
+The Linux collector test checks atomic generations and one child per tick;
+the Darwin test compiles the native sampler and checks real output on macOS.
+The check workflow runs both the Linux suite and a native macOS job. Local
+sandbox API denials are explicit skips, never reported as runtime proof.
