@@ -328,6 +328,12 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T90-nix-gc-home-manager.sh
 
+      - name: Verify StaSysMo snapshots and real fish prompt layouts (NIX-604)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: >-
+          nix-shell tests/stasysmo-shell.nix
+          --run 'bash tests/T91-stasysmo.sh && shellcheck modules/uzumaki/stasysmo/daemon.sh modules/uzumaki/stasysmo/reader.sh modules/uzumaki/stasysmo/tests/*.sh tests/T91-stasysmo.sh && fish -n modules/uzumaki/stasysmo/prompt.fish && fish -n modules/uzumaki/stasysmo/reader.fish'
+
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
@@ -452,6 +458,21 @@ jobs:
       - name: Verify HAUSV tailnet fixture preview contract
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T41-hausv-next.sh
+
+  stasysmo-darwin:
+    name: StaSysMo native macOS sampler
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: Compile and verify native sampling, atomic generations and interval clamp
+        run: >-
+          nix-shell tests/stasysmo-shell.nix
+          --run 'bash tests/T91-stasysmo.sh --suite daemon'
 
   # NIX-591: stable required status, including ordinary PRs and merge queues.
   # Repository protection must require aeon-pin-gate when this change lands.
