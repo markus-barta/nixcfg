@@ -52,6 +52,9 @@ def pty_prompt(cols, init, environment):
     pid, master = pty.fork()
     if pid == 0:
         fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 12, cols, 0, 0))
+        # Replace, never merge: `update` would keep inherited keys the fixture deliberately removed
+        # (SSH_CONNECTION/SSH_TTY when the suite runs over ssh made line 1 grow an identity row).
+        os.environ.clear()
         os.environ.update(environment, COLUMNS=str(cols), LINES='12')
         startup = 'if test "$TERM" != dumb; starship init fish | source; end\n' + init
         os.execvp('fish', ['fish', '--no-config', '--private', '-i', '-C', startup])
