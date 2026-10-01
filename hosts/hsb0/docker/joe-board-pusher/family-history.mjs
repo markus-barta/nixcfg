@@ -15,6 +15,10 @@ function clone(value) {
   return structuredClone(value);
 }
 
+function hold(value) {
+  return value && typeof value === "object" && Object.isFrozen(value) ? value : clone(value);
+}
+
 function iso(value) {
   const epoch = Date.parse(value || "");
   return Number.isFinite(epoch) ? new Date(epoch).toISOString() : null;
@@ -391,7 +395,7 @@ export function createFamilyHistoryIngestor({
       const item = await fetchCapture();
       const next = reconcileExecutionCapture({ prior: state, capture: item.capture, target: item.target });
       store.save(next);
-      state = clone(next);
+      state = hold(next);
       lastError = null;
       hooks.onUpdated?.(clone(state));
       return true;
@@ -415,6 +419,6 @@ export function createFamilyHistoryIngestor({
     get requestInFlight() { return inFlight; },
     get fatalReason() { return fatalReason; },
     get lastError() { return lastError; },
-    inspectState() { return state ? clone(state) : null; },
+    inspectState() { return state ? hold(state) : null; },
   };
 }

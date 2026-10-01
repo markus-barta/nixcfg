@@ -250,6 +250,8 @@ row when the account itself is flat. Account-portfolio callbacks omit that
 contract once the broker net is zero, so the paper session requests delayed-frozen
 market data for the open virtual names and records only an explicit last or close
 tick. The tick's own clock is the mark time. No tick leaves the lot fail-closed.
+After the first accepted last/close tick the market-data subscription is cancelled; the cached mark is held until a 240s refresh window, then re-requested. Ops can kill streaming without an image swap via `JOE_FLAT_NET_MARKS=0` or by touching `/var/lib/joe-board-pusher/disable-flat-net-marks` (no-op controller / sync skipped).
+
 KEEP names are never requested. Exact KEEP stays SXR8×1401 and TSLA×1. A
 client ID outside the dated ownership policy still fails loud.
 

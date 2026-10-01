@@ -21,26 +21,114 @@ function text(value, label) {
   return value;
 }
 
+const CANONICAL_ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const CANONICAL_ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const EXPLICIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function instant(value, label) {
   const source = text(value, label);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(source)) {
-    fail(`${label} must have an explicit timezone`);
+  // Canonical UTC ISO is already what Date#toISOString emits — skip reformat.
+  if (CANONICAL_ISO_MS.test(source)) {
+    if (!Number.isFinite(Date.parse(source))) fail(`${label} is invalid`);
+    return source;
   }
+  if (CANONICAL_ISO_Z.test(source)) {
+    if (!Number.isFinite(Date.parse(source))) fail(`${label} is invalid`);
+    return `${source.slice(0, -1)}.000Z`;
+  }
+  if (!EXPLICIT_INSTANT.test(source)) fail(`${label} must have an explicit timezone`);
   const epoch = Date.parse(source);
   if (!Number.isFinite(epoch)) fail(`${label} is invalid`);
   return new Date(epoch).toISOString();
 }
 
+const stableMemo = new WeakMap();
+
 function stable(value) {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+    const cached = stableMemo.get(value);
+    if (cached !== undefined) return cached;
   }
-  return JSON.stringify(value);
+  let encoded;
+  if (Array.isArray(value)) encoded = `[${value.map(stable).join(",")}]`;
+  else if (value && typeof value === "object") {
+    encoded = `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+  } else {
+    encoded = JSON.stringify(value);
+  }
+  // Only memoize frozen graphs — mutable inputs can change underfoot.
+  if (value && typeof value === "object" && Object.isFrozen(value)) stableMemo.set(value, encoded);
+  return encoded;
 }
 
+/** Structural equality matching `stable()` key-order semantics (no stringification). */
+function sameValue(left, right) {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right || left === null || right === null) return left === right;
+  if (typeof left !== "object") return false;
+  if (Array.isArray(left)) {
+    if (!Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!sameValue(left[index], right[index])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const key = leftKeys[index];
+    if (key !== rightKeys[index] || !sameValue(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+function sameStringList(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function isSortedUniqueStrings(ids) {
+  for (let index = 0; index < ids.length; index += 1) {
+    const id = ids[index];
+    if (typeof id !== "string" || !id) return false;
+    if (index > 0 && ids[index - 1] >= id) return false;
+  }
+  return true;
+}
+
+function isCanonicalReceiptOrder(receipts) {
+  for (let index = 1; index < receipts.length; index += 1) {
+    const prior = receipts[index - 1];
+    const next = receipts[index];
+    if (prior.capturedAt.localeCompare(next.capturedAt) > 0) return false;
+    if (prior.capturedAt === next.capturedAt && prior.receiptId.localeCompare(next.receiptId) > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const digestMemo = new WeakMap();
+const verifiedReceiptIds = new WeakMap();
+
 function digest(value) {
-  return createHash("sha256").update(stable(value)).digest("hex");
+  if (value && typeof value === "object") {
+    const cached = digestMemo.get(value);
+    if (cached !== undefined) return cached;
+  }
+  const encoded = createHash("sha256").update(stable(value)).digest("hex");
+  if (value && typeof value === "object" && Object.isFrozen(value)) digestMemo.set(value, encoded);
+  return encoded;
+}
+
+/** Prefer sharing frozen rows; clone only mutable inputs. */
+function cloneRow(row) {
+  return row && typeof row === "object" && Object.isFrozen(row) ? row : structuredClone(row);
 }
 
 function deepFreeze(value) {
@@ -145,7 +233,7 @@ function validateExecution(row, account) {
   if (!/^[A-Z]{3}$/.test(text(row.contract.currency, "contract currency").toUpperCase())) fail("contract currency is invalid");
   correctionIdentity(row);
   finiteNumbers(row, "execution record");
-  return structuredClone(row);
+  return cloneRow(row);
 }
 
 function validateCommission(row) {
@@ -157,7 +245,7 @@ function validateCommission(row) {
     fail("commission realizedPNL is invalid");
   }
   finiteNumbers(row, "commission report");
-  return structuredClone(row);
+  return cloneRow(row);
 }
 
 function mergeCommissions(existing, incoming) {
@@ -184,16 +272,35 @@ function mergeCommissions(existing, incoming) {
   return [...byId.values()].sort((left, right) => commissionId(left).localeCompare(commissionId(right)));
 }
 
+function isSortedUniqueBy(rows, identify) {
+  let previous = null;
+  for (const row of rows) {
+    const id = identify(row);
+    if (previous !== null && previous.localeCompare(id) >= 0) return false;
+    previous = id;
+  }
+  return true;
+}
+
 function mergeExact(existing, incoming, identify, label) {
-  const rows = existing.map((row) => structuredClone(row));
-  const seen = new Map(rows.map((row) => [identify(row), stable(row)]));
+  if (!incoming.length) {
+    if (existing.length > MAX_RECORDS) fail(`${label} record limit exceeded`);
+    if (!isSortedUniqueBy(existing, identify)) {
+      // Mirror previous mergeExact([]) behavior: duplicates/disorder fail closed.
+      fail(`conflicting ${label}`);
+    }
+    return existing;
+  }
+  const rows = existing.map(cloneRow);
+  const seen = new Map(rows.map((row) => [identify(row), row]));
   for (const row of incoming) {
     const id = identify(row);
-    const encoded = stable(row);
-    if (seen.has(id) && seen.get(id) !== encoded) fail(`conflicting ${label} ${id}`);
-    if (!seen.has(id)) {
-      seen.set(id, encoded);
-      rows.push(structuredClone(row));
+    const prior = seen.get(id);
+    if (prior && !sameValue(prior, row)) fail(`conflicting ${label} ${id}`);
+    if (!prior) {
+      const copy = cloneRow(row);
+      seen.set(id, copy);
+      rows.push(copy);
     }
   }
   if (rows.length > MAX_RECORDS) fail(`${label} record limit exceeded`);
@@ -213,30 +320,82 @@ function latestExecutions(rows) {
   return [...latest.values()].sort((a, b) => a.identity.id.localeCompare(b.identity.id)).map(({ row }) => row);
 }
 
-function combineIntervals(entries) {
-  const sorted = entries.map((entry) => ({
-    fromInclusive: entry.fromInclusive,
-    toExclusive: entry.toExclusive,
-    receiptIds: [...new Set(entry.receiptIds)].sort(),
-  })).sort((a, b) => a.fromInclusive.localeCompare(b.fromInclusive) || a.toExclusive.localeCompare(b.toExclusive));
+export function combineIntervals(entries) {
+  if (!entries.length) return [];
+  // Sort once (O(n log n)), then merge abutting/overlapping ranges while
+  // accumulating receiptIds in a Set. Sorting ids only when a merged run
+  // closes keeps this linear in receipt-id references instead of quadratic.
+  const sorted = entries
+    .map((entry) => ({
+      fromInclusive: entry.fromInclusive,
+      toExclusive: entry.toExclusive,
+      receiptIds: entry.receiptIds,
+    }))
+    .sort((a, b) => a.fromInclusive.localeCompare(b.fromInclusive) || a.toExclusive.localeCompare(b.toExclusive));
   const result = [];
-  for (const entry of sorted) {
-    const prior = result.at(-1);
-    if (!prior || entry.fromInclusive > prior.toExclusive) {
-      result.push(entry);
+  let fromInclusive = sorted[0].fromInclusive;
+  let toExclusive = sorted[0].toExclusive;
+  let idSet = new Set(sorted[0].receiptIds);
+  for (let index = 1; index < sorted.length; index += 1) {
+    const entry = sorted[index];
+    if (entry.fromInclusive > toExclusive) {
+      result.push({ fromInclusive, toExclusive, receiptIds: [...idSet].sort() });
+      fromInclusive = entry.fromInclusive;
+      toExclusive = entry.toExclusive;
+      idSet = new Set(entry.receiptIds);
       continue;
     }
-    prior.toExclusive = prior.toExclusive > entry.toExclusive ? prior.toExclusive : entry.toExclusive;
-    prior.receiptIds = [...new Set([...prior.receiptIds, ...entry.receiptIds])].sort();
+    if (entry.toExclusive > toExclusive) toExclusive = entry.toExclusive;
+    for (const id of entry.receiptIds) idSet.add(id);
   }
+  result.push({ fromInclusive, toExclusive, receiptIds: [...idSet].sort() });
   return result;
 }
 
+function coverageIntervalEntries(receipts, completeOnly) {
+  const entries = [];
+  for (const receipt of receipts) {
+    if (completeOnly && receipt.coverageStatus !== "complete") continue;
+    entries.push({
+      fromInclusive: receipt.window.fromInclusive,
+      toExclusive: receipt.window.toExclusive,
+      receiptIds: [receipt.receiptId],
+    });
+  }
+  return entries;
+}
+
+function sameIntervalList(left, right) {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a.fromInclusive !== b.fromInclusive || a.toExclusive !== b.toExclusive) return false;
+    const aIds = a.receiptIds || [];
+    const bIds = b.receiptIds || [];
+    if (aIds.length !== bIds.length) return false;
+    for (let i = 0; i < aIds.length; i += 1) {
+      if (aIds[i] !== bIds[i]) return false;
+    }
+    if (a.reason !== undefined || b.reason !== undefined) {
+      if (a.reason !== b.reason) return false;
+    }
+  }
+  return true;
+}
+
+function sameCoverage(left, right) {
+  return left?.status === right?.status &&
+    left?.target?.fromInclusive === right?.target?.fromInclusive &&
+    left?.target?.toExclusive === right?.target?.toExclusive &&
+    sameIntervalList(left?.completeIntervals || [], right?.completeIntervals || []) &&
+    sameIntervalList(left?.knownIntervals || [], right?.knownIntervals || []) &&
+    sameIntervalList(left?.gaps || [], right?.gaps || []);
+}
+
 function coverageFor(target, receipts) {
-  const knownIntervals = combineIntervals(receipts.map((receipt) => ({ ...receipt.window, receiptIds: [receipt.receiptId] })));
-  const completeIntervals = combineIntervals(receipts
-    .filter((receipt) => receipt.coverageStatus === "complete")
-    .map((receipt) => ({ ...receipt.window, receiptIds: [receipt.receiptId] })));
+  const knownIntervals = combineIntervals(coverageIntervalEntries(receipts, false));
+  const completeIntervals = combineIntervals(coverageIntervalEntries(receipts, true));
   const gaps = [];
   let cursor = target.fromInclusive;
   for (const complete of completeIntervals) {
@@ -326,12 +485,20 @@ function receiptFor(capture) {
   return { schema: HISTORY_RECEIPT_SCHEMA, receiptId: digest(facts), ...facts, executionIds, commissionIds };
 }
 
+const newYorkDateCache = new Map();
+
 function newYorkDate(value) {
+  const key = typeof value === "string" ? value : String(value);
+  const cached = newYorkDateCache.get(key);
+  if (cached !== undefined) return cached;
   const parts = {};
   for (const part of newYorkFormatter.formatToParts(new Date(value))) {
     if (part.type !== "literal") parts[part.type] = Number(part.value);
   }
-  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  const result = `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  if (newYorkDateCache.size >= 20_000) newYorkDateCache.clear();
+  newYorkDateCache.set(key, result);
+  return result;
 }
 
 function receiptNewYorkDate(receipt) {
@@ -346,13 +513,13 @@ function completeReceiptLineage(receipt) {
       typeof receipt.completenessAssertion?.provider !== "string" ||
       typeof metadata?.adapterId !== "string" || typeof metadata.adapterVersion !== "string" ||
       !SHA256.test(metadata.endpointIdentitySha256 || "")) return null;
-  return stable({
+  return {
     sourceKind: receipt.source.kind,
     provider: receipt.completenessAssertion.provider,
     adapterId: metadata.adapterId,
     adapterVersion: metadata.adapterVersion,
     endpointIdentitySha256: metadata.endpointIdentitySha256,
-  });
+  };
 }
 
 function hasIdentityMembership(receipt) {
@@ -371,13 +538,13 @@ function sameReceiptFacts(left, right) {
     left.commissionIdentityDigest === right.commissionIdentityDigest &&
     left.commissionCount === right.commissionCount &&
     left.payloadDigest === right.payloadDigest &&
-    stable(left.executionIds) === stable(right.executionIds) &&
-    stable(left.commissionIds) === stable(right.commissionIds);
+    sameStringList(left.executionIds, right.executionIds) &&
+    sameStringList(left.commissionIds, right.commissionIds);
 }
 
 function sameCompleteLineage(left, right) {
   const leftLineage = completeReceiptLineage(left);
-  return leftLineage !== null && leftLineage === completeReceiptLineage(right);
+  return leftLineage !== null && sameValue(leftLineage, completeReceiptLineage(right));
 }
 
 function newReceiptSubsumes(existing, incoming) {
@@ -404,7 +571,8 @@ function contradictsKnownExecutions(receipt, effective) {
 function coalesceReceipts(receipts, incoming, executions) {
   const sameProof = receipts.find((existing) =>
     sameCompleteLineage(existing, incoming) &&
-    stable(existing.window) === stable(incoming.window) &&
+    existing.window.fromInclusive === incoming.window.fromInclusive &&
+    existing.window.toExclusive === incoming.window.toExclusive &&
     sameReceiptFacts(existing, incoming));
   if (sameProof) return receipts;
   const effective = latestExecutions(executions);
@@ -423,10 +591,10 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   }
   const receipt = receiptFor(capture);
   if (prior !== null) validateBestAvailableHistoryState(prior);
-  if (prior && (prior.account !== capture.account || stable(prior.classifier) !== stable(capture.classifier))) {
+  if (prior && (prior.account !== capture.account || !sameValue(prior.classifier, capture.classifier))) {
     fail("history capture configuration mismatch");
   }
-  let receipts = prior ? prior.receipts.map((item) => structuredClone(item)) : [];
+  let receipts = prior ? prior.receipts.map(cloneRow) : [];
   const existingReceipt = receipts.find((item) => item.receiptId === receipt.receiptId);
   const reusedSource = receipts.find((item) => item.source.id === receipt.source.id);
   if (reusedSource && reusedSource.receiptId !== receipt.receiptId) fail("capture source was previously bound to different facts");
@@ -434,9 +602,9 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   if (!existingReceipt) receipts = coalesceReceipts(receipts, receipt, executions);
   receipts.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   const commissions = mergeCommissions(prior?.commissions || [], capture.commissions);
-  const durableChanged = !prior || stable(receipts) !== stable(prior.receipts) ||
-    stable(executions) !== stable(prior.executions) || stable(commissions) !== stable(prior.commissions);
-  if (prior && !durableChanged) return deepFreeze(structuredClone(prior));
+  const durableChanged = !prior || !sameValue(receipts, prior.receipts) ||
+    !sameValue(executions, prior.executions) || !sameValue(commissions, prior.commissions);
+  if (prior && !durableChanged) return prior;
   const target = prior ? {
     fromInclusive: prior.target.fromInclusive < requestedTarget.fromInclusive ? prior.target.fromInclusive : requestedTarget.fromInclusive,
     toExclusive: prior.target.toExclusive > requestedTarget.toExclusive ? prior.target.toExclusive : requestedTarget.toExclusive,
@@ -460,11 +628,14 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   return deepFreeze(state);
 }
 
+const validatedHistoryStates = new WeakSet();
+
 export function validateBestAvailableHistoryState(value) {
   const state = record(value, "best-available history state");
+  if (Object.isFrozen(state) && validatedHistoryStates.has(state)) return true;
   if (state.schema !== HISTORY_STATE_SCHEMA || state.version !== 1) fail("best-available history schema mismatch");
   text(state.account, "history account");
-  if (stable(normalizedClassifier(state.classifier)) !== stable(state.classifier)) fail("history classifier is not canonical");
+  if (!sameValue(normalizedClassifier(state.classifier), state.classifier)) fail("history classifier is not canonical");
   const target = interval(state.target, "history target");
   instant(state.createdAt, "history createdAt");
   instant(state.updatedAt, "history updatedAt");
@@ -473,8 +644,9 @@ export function validateBestAvailableHistoryState(value) {
   }
   const executions = state.executions.map((row) => validateExecution(row, state.account));
   const commissions = state.commissions.map(validateCommission);
-  if (stable(mergeExact([], executions, executionId, "execution")) !== stable(executions)) fail("history executions are not canonical");
-  if (stable(mergeCommissions([], commissions)) !== stable(commissions)) fail("history commissions are not canonical");
+  // Sorted-unique identity order is the canonical mergeExact/mergeCommissions shape.
+  if (!isSortedUniqueBy(executions, executionId)) fail("history executions are not canonical");
+  if (!isSortedUniqueBy(commissions, commissionId)) fail("history commissions are not canonical");
   const receiptIds = new Set();
   for (const receipt of state.receipts) {
     if (receipt?.schema !== HISTORY_RECEIPT_SCHEMA || !SHA256.test(receipt.receiptId || "")) fail("history receipt is invalid");
@@ -505,34 +677,39 @@ export function validateBestAvailableHistoryState(value) {
       [receipt.commissionIds, receipt.commissionCount, receipt.commissionIdentityDigest, "commission"],
     ]) {
       if (ids !== undefined && (!Array.isArray(ids) || ids.length !== count ||
-          ids.some((id) => typeof id !== "string" || !id) ||
-          stable([...new Set(ids)].sort()) !== stable(ids) || digest(ids) !== identityDigest)) {
+          !isSortedUniqueStrings(ids) || digest(ids) !== identityDigest)) {
         fail(`history receipt ${label} identities are invalid`);
       }
     }
-    if (receipt.receiptId !== digest({
-      source: receipt.source,
-      capturedAt: receipt.capturedAt,
-      window: receipt.window,
-      coverageStatus: receipt.coverageStatus,
-      completenessAssertion: receipt.completenessAssertion,
-      executionIdentityDigest: receipt.executionIdentityDigest,
-      executionCount: receipt.executionCount,
-      commissionIdentityDigest: receipt.commissionIdentityDigest,
-      commissionCount: receipt.commissionCount,
-      payloadDigest: receipt.payloadDigest,
-    })) fail("history receipt digest mismatch");
+    const cachedReceiptId = verifiedReceiptIds.get(receipt);
+    if (cachedReceiptId === receipt.receiptId) {
+      // Frozen receipt already proved its content digest on a prior validate.
+    } else {
+      const expectedId = digest({
+        source: receipt.source,
+        capturedAt: receipt.capturedAt,
+        window: receipt.window,
+        coverageStatus: receipt.coverageStatus,
+        completenessAssertion: receipt.completenessAssertion,
+        executionIdentityDigest: receipt.executionIdentityDigest,
+        executionCount: receipt.executionCount,
+        commissionIdentityDigest: receipt.commissionIdentityDigest,
+        commissionCount: receipt.commissionCount,
+        payloadDigest: receipt.payloadDigest,
+      });
+      if (receipt.receiptId !== expectedId) fail("history receipt digest mismatch");
+      if (Object.isFrozen(receipt)) verifiedReceiptIds.set(receipt, receipt.receiptId);
+    }
   }
-  const canonicalReceiptOrder = [...state.receipts]
-    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
-  if (stable(canonicalReceiptOrder) !== stable(state.receipts)) fail("history receipts are not canonical");
-  if (stable(state.coverage) !== stable(coverageFor(target, state.receipts))) fail("history coverage is not canonical");
+  if (!isCanonicalReceiptOrder(state.receipts)) fail("history receipts are not canonical");
+  if (!sameCoverage(state.coverage, coverageFor(target, state.receipts))) fail("history coverage is not canonical");
+  if (Object.isFrozen(state)) validatedHistoryStates.add(state);
   return true;
 }
 
 export function effectiveExecutionRecords(state) {
   validateBestAvailableHistoryState(state);
-  return deepFreeze(latestExecutions(state.executions).map((row) => structuredClone(row)));
+  return deepFreeze(latestExecutions(state.executions).map(cloneRow));
 }
 
 export function bestAvailableHistoryDigest(state) {

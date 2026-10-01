@@ -39,7 +39,36 @@ function stable(value) {
 }
 
 function sameRecord(left, right) {
-  return stable(left) === stable(right);
+  if (Object.is(left, right)) return true;
+  // Match stable(): arrays preserve holes as null; object keys with undefined values are omitted.
+  if (typeof left !== typeof right || left === null || right === null) return left === right;
+  if (typeof left !== "object") return false;
+  if (Array.isArray(left)) {
+    if (!Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      const a = left[index];
+      const b = right[index];
+      // stable() encodes both null and undefined array slots as "null".
+      if (a == null && b == null) continue;
+      if (!sameRecord(a, b)) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left).sort().filter((key) => {
+    const value = left[key];
+    return value !== undefined && typeof value !== "function" && typeof value !== "symbol";
+  });
+  const rightKeys = Object.keys(right).sort().filter((key) => {
+    const value = right[key];
+    return value !== undefined && typeof value !== "function" && typeof value !== "symbol";
+  });
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const key = leftKeys[index];
+    if (key !== rightKeys[index] || !sameRecord(left[key], right[key])) return false;
+  }
+  return true;
 }
 
 function executionId(row) {
@@ -341,40 +370,56 @@ export function createFileFamilyStateStore(filePath, fsImpl = fs) {
   };
 }
 
+const newYorkDayFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const newYorkDayStartFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
+const newYorkDayCache = new Map();
+const newYorkDayStartCache = new Map();
+
 function newYorkDay(value) {
+  const key = typeof value === "string" ? value : String(value);
+  if (newYorkDayCache.has(key)) return newYorkDayCache.get(key);
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  if (Number.isNaN(date.getTime())) {
+    newYorkDayCache.set(key, null);
+    return null;
+  }
+  const parts = newYorkDayFormatter.formatToParts(date);
   const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${fields.year}-${fields.month}-${fields.day}`;
+  const result = `${fields.year}-${fields.month}-${fields.day}`;
+  if (newYorkDayCache.size >= 20_000) newYorkDayCache.clear();
+  newYorkDayCache.set(key, result);
+  return result;
 }
 
 function newYorkDayStart(value) {
   const day = newYorkDay(value);
   if (!day) return null;
+  if (newYorkDayStartCache.has(day)) return newYorkDayStartCache.get(day);
   const expected = [...day.split("-").map(Number), 0, 0, 0];
   const naive = Date.UTC(expected[0], expected[1] - 1, expected[2]);
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  });
   const matches = [];
   for (let offset = -14 * 60; offset <= 14 * 60; offset += 15) {
     const candidate = naive - offset * 60_000;
     const actual = {};
-    for (const part of formatter.formatToParts(new Date(candidate))) {
+    for (const part of newYorkDayStartFormatter.formatToParts(new Date(candidate))) {
       if (part.type !== "literal") actual[part.type] = Number(part.value);
     }
     if ([actual.year, actual.month, actual.day, actual.hour, actual.minute, actual.second]
       .every((part, index) => part === expected[index])) matches.push(candidate);
   }
-  return matches.length === 1 ? new Date(matches[0]).toISOString() : null;
+  const result = matches.length === 1 ? new Date(matches[0]).toISOString() : null;
+  if (newYorkDayStartCache.size >= 366 * 3) newYorkDayStartCache.clear();
+  newYorkDayStartCache.set(day, result);
+  return result;
 }
 
 function contractIdentity(contract) {
@@ -572,6 +617,7 @@ export function createFamilySessionAdapter({
   if (!loaded.ok) blockedReason = loaded.reason;
   else state = loaded.state ? clone(loaded.state) : null;
 
+  let lastVerifiedHistory = null;
   function verifiedContinuity() {
     if (!state?.requiresVerifiedHistory) return { reason: null, history: null, receipts: [] };
     if (typeof getVerifiedHistoryState !== "function") {
@@ -580,8 +626,16 @@ export function createFamilySessionAdapter({
     let history;
     try {
       history = getVerifiedHistoryState();
-      validateBestAvailableHistoryState(history);
+      if (!history) {
+        lastVerifiedHistory = null;
+        return { reason: "authoritative execution coverage across midnight is unavailable", history: null, receipts: [] };
+      }
+      if (history !== lastVerifiedHistory) {
+        validateBestAvailableHistoryState(history);
+        lastVerifiedHistory = history;
+      }
     } catch (error) {
+      lastVerifiedHistory = null;
       return { reason: `authoritative history is invalid: ${error?.message || error}`, history: null, receipts: [] };
     }
     if (history.account !== targetAccount || !sameRecord(history.classifier, classifier)) {

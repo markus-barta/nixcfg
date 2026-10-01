@@ -103,12 +103,20 @@ const newYorkFormatter = new Intl.DateTimeFormat("en-CA", {
   hourCycle: "h23",
 });
 
+const newYorkPartsCache = new Map();
+
 function newYorkParts(epoch) {
+  const key = Number(epoch);
+  const cached = newYorkPartsCache.get(key);
+  if (cached !== undefined) return cached;
   const result = {};
-  for (const part of newYorkFormatter.formatToParts(new Date(epoch))) {
+  for (const part of newYorkFormatter.formatToParts(new Date(key))) {
     if (part.type !== "literal") result[part.type] = Number(part.value);
   }
-  return [result.year, result.month, result.day, result.hour, result.minute, result.second];
+  const parts = [result.year, result.month, result.day, result.hour, result.minute, result.second];
+  if (newYorkPartsCache.size >= 50_000) newYorkPartsCache.clear();
+  newYorkPartsCache.set(key, parts);
+  return parts;
 }
 
 function parseNewYorkLocal(parts, label) {
