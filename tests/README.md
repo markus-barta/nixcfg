@@ -137,6 +137,7 @@ Examples:
 - `T88-model-role-lint.sh` — agent-instruction surfaces name roles, never models; runs the pinned doctrine's `model-role-doctrine.sh --lint` (NIX-568)
 - `T89-tm-watch.sh` — hsb1 Time Machine: Samba `max size` ≤ refquota pairing, 7-day sanoid, tm-watch witness wiring + unit/engine tests (OPS-226)
 - `T90-nix-gc-home-manager.sh` — macOS standalone Home Manager: weekly dead-paths-only Nix GC (Sunday 04:00) plus a 30 min low-space guard exist on exactly one account per Mac, the one owning the console session (markus@mbp2607, ci@mbp2606), none elsewhere; eval-only, no GC runs (NIX-603)
+- `T92-compose-published-ports.sh` — evaluates csb0/csb1 Compose port declarations only; accepts exact 127.0.0.1 or 100.64.0.x binds and host/service/port/protocol-specific Traefik exceptions, rejects ranges and ambiguous mappings, and proves a seeded `5432:5432` fails on each spec (OPS-246). `--self-test` runs the short/long-syntax policy cases without Nix. This checks published-port declarations, not live listeners or host-network services.
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
 
 ## Janus Flow private-file lifecycle (NIX-574)

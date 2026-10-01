@@ -328,6 +328,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T90-nix-gc-home-manager.sh
 
+      - name: Reject unapproved public Compose ports on csb0/csb1 (OPS-246)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T92-compose-published-ports.sh
+
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
