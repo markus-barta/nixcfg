@@ -10,7 +10,8 @@ nix-shell tests/stasysmo-shell.nix --run 'bash modules/uzumaki/stasysmo/tests/ru
 ```
 
 The shared implementation is `tests/stasysmo_test.py`, launched by
-`tests/T91-stasysmo.sh`; CI uses the pinned shell on Linux and macOS.
+`tests/T91-stasysmo.sh`; CI uses the pinned shell on Linux. Native macOS checks
+run on a real Mac outside the agent sandbox.
 
 | Entry               | Assertions                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -22,9 +23,16 @@ The shared implementation is `tests/stasysmo_test.py`, launched by
 | T05-starship.sh     | Layout plus kill switch, error fallback, missing Starship, SSH, pressure, hostile PTY and glyph widths |
 
 `run-all.sh` runs each assertion once, using unittest counters. A Darwin API
-permission denial is explicitly skipped locally; it is a failure on CI's Darwin
-runner. Linux skips only the Darwin API test. Missing required Python dependencies
+permission denial is explicitly skipped locally; an unexpected API failure fails.
+Linux skips the three Darwin tests. A run outside the pinned Nix shell also skips
+the generated-init gate unless `--rendered-init-json` is supplied. Missing Python dependencies
 fail at startup; the pinned shell supplies pyte and wcwidth.
+The layout suite also covers real Starship emacs/vi keymaps, batched widths 5–160,
+zero-padding widths, non-repo paths, `//` timeouts, dumb terminals, fish escaping
+and a delayed PTY prompt. Native tests cover cache deletion/replacement and
+injected CPU count/load rounding bounds. OPS supplies the evaluated
+`tests/stasysmo-init-eval.nix` JSON with T91's `--rendered-init-json` for the full
+Nix/fish and interval validation gate; the pinned shell supplies it automatically.
 
 `host-check.sh` is a separate read-only deployment check used by the three host
 suites. It examines `/run/stasysmo/snapshot` and installed fish definitions.

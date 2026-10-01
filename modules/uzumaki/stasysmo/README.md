@@ -3,8 +3,9 @@
 A persistent sampler publishes a single snapshot. Fish reads it with builtins
 and composes the first prompt line; Starship renders the left chain and input
 character. Metrics spawn no processes. Bash and zsh get a clean left-only
-Starship prompt. The feature remains opt-in through `uzumaki.stasysmo.enable`
-or `services.stasysmo.enable`.
+Starship prompt. StaSysMo defaults on for every host with `uzumaki.enable = true`.
+Set `uzumaki.stasysmo.enable = false` to opt out; only hosts that opt out keep the
+legacy template. Standalone service users configure `services.stasysmo.enable`.
 
 ## Layout
 
@@ -26,6 +27,9 @@ component boundary, the repo root and final component are retained when they
 fit, then the final component alone. A final name that cannot fit is ellipsised.
 At an extreme SSH width where identity plus a directory cannot fit, identity
 gets a separate bounded row. The directory is always present.
+At five/six terminal columns the local chain omits interior spaces so both caps
+and a nonempty directory still fit in two lines. Repo discovery stops after 256
+ancestors or when the parent substitution makes no progress (including `//`).
 
 Profiles rerender only on overflow: the normal path makes one Starship call;
 the most extreme widths can require ten. Each reduced profile has complete
@@ -42,6 +46,10 @@ set -g STASYSMO_FISH_LAYOUT 0
 Re-enable with `set -e STASYSMO_FISH_LAYOUT`. Runtime failures use the plain left-only
 Starship prompt. An absent/failing Starship still leaves a builtin directory and
 input prompt. `SYSOP_NOTE` is no longer inserted into the prompt.
+The wrapper is not installed for `TERM=dumb`; if TERM changes after installation,
+it uses the original prompt or a plain builtin prompt. Keymaps follow Starship's
+fish initialization: vi/hybrid/helix use `fish_bind_mode`, emacs uses `insert`,
+preserving `❯` on success and `✗` on failure.
 
 ## Snapshot and security
 
@@ -59,7 +67,8 @@ rejects malformed records, controls, symlinks and nonregular files including
 FIFOs. It never evaluates snapshot text and never writes to the sampler directory.
 The reader uses Starship's existing time field for epoch/clock, avoiding a `date`
 child on fish versions without `EPOCHSECONDS`. Custom icons/spacers enter the
-fish configuration through shell quoting. External nix-shell text is bounded to
+fish configuration through fish single-quote escaping (backslashes and quotes).
+External nix-shell text is bounded to
 known states; no arbitrary note text is rendered.
 
 | Platform | Snapshot                                 | Directory | File | Writer                       |
@@ -81,8 +90,9 @@ A sampler failure preserves the previous generation until it goes stale.
 
 ## Sampling and settings
 
-Default interval: 2000 ms. `services.stasysmo.daemon.interval` accepts milliseconds
-and both collectors clamp it to 500–60000 ms. Fractional waits never truncate to
+Default interval: 2000 ms. `services.stasysmo.daemon.interval` accepts integers
+from 500 through 60000 milliseconds; Nix rejects other values. Both collectors
+also clamp nonnegative CLI intervals to that range. Fractional waits never truncate to
 zero. The first CPU value uses a 100 ms warm-up delta.
 
 Darwin's persistent C helper uses Mach CPU tick deltas; RAM is
@@ -91,8 +101,12 @@ Swap uses `vm.swapusage`, load uses `getloadavg`, and CPU count uses `sysconf`.
 No sampling subprocesses, `ps`, `vm_stat` or `kern.cp_time` are involved. The
 launchd label remains `com.stasysmo.daemon`, with KeepAlive and RunAtLoad. Logs
 are per account under `$HOME/Library/Logs/stasysmo-daemon{,.error}.log`.
-The established headless mba account on mbp2606 retains its StaSysMo opt-in but
-gets no unloadable GUI launchd job. Other account opt-ins are unchanged.
+The established headless mba account on mbp2606 retains its StaSysMo setting but
+gets no unloadable GUI launchd job. Account enable settings are unchanged.
+The helper verifies the cache directory's link count and device/inode each tick
+and before publication. Removal or replacement exits nonzero so launchd can
+restart it. Per-CPU Mach buffers must match the reported processor count before
+reading; finite nonnegative loads are rounded, then capped at 9999.99.
 
 Linux reads `/proc/stat`, `/proc/loadavg`, and `/proc/meminfo` once per tick for
 both RAM and swap. RAM uses MemAvailable. Bash handles parsing, math and time.
@@ -119,7 +133,7 @@ Its historical raw-load bands remain separate from the normalized prompt bands.
 `stasysmo-reader` remains a thin safe compatibility command because the existing
 `stasysmod` fish debug function calls it. It launches fish once, uses the same
 validator/formatter, and is outside the prompt path. `stasysmod` remains usable.
-The historical template is retained only for disabled hosts, whose generated
+The historical template is retained only for hosts that opt out, whose generated
 configuration must remain identical.
 
 ## Tests
@@ -141,6 +155,19 @@ failed samples and one Linux child per tick. Darwin compiles the helper with `cc
 and checks real samples when the APIs are available. A sandbox denial is reported
 as a skip: run `bash tests/T91-stasysmo.sh --suite daemon` on a real Mac (outside any
 sandbox) before deploying the helper.
+Regression tests source real Starship initialization for emacs and vi keymaps,
+sweep every width 5–160 in batches, force zero padding at each width, check long
+non-repo paths, time-limit `//`, preserve dumb terminals and round-trip fish
+escaping. Native tests inject short/long CPU buffers and rounding-boundary loads;
+real-Mac tests require deletion/replacement to exit within two 500 ms intervals.
+The PTY capture waits at least one second after the last output.
+
+The pinned test shell evaluates `tests/stasysmo-init-eval.nix` with its nixpkgs
+library and sets `STASYSMO_TEST_INIT_JSON`. Its assertions exercise interval
+rejection and produce custom fish initialization as JSON, which T91 syntax-checks
+and round-trips. OPS can also supply the file with `--rendered-init-json`. Outside
+the Nix shell this gate reports a skip; portable tests still exercise the
+production escape table directly.
 
 `.github/workflows/check.yml` runs the portable suite on Linux. A macOS CI job for the
 native sampler is deliberately absent: GitHub's macOS runner fails inside the Nix

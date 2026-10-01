@@ -1,11 +1,11 @@
-# Fish-native reader configuration. Shell quoting keeps custom icons/spacers data.
+# Fish-native reader configuration. Fish quoting keeps custom icons/spacers data.
 {
   lib,
   cfg,
   snapshot,
 }:
 let
-  quote = lib.escapeShellArg;
+  quote = value: "'" + lib.replaceStrings [ "\\" "'" ] [ "\\\\" "\\'" ] value + "'";
   effectiveInterval = lib.min 60000 (lib.max 500 cfg.daemon.interval);
   stale = lib.max 15 (builtins.div (effectiveInterval * 3 + 999) 1000);
   bands =

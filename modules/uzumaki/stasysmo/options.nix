@@ -19,9 +19,9 @@ in
 
   daemon = {
     interval = lib.mkOption {
-      type = lib.types.int;
+      type = lib.types.ints.between 500 60000;
       default = defaultConfig.daemon.intervalMs;
-      description = "Sampling interval in milliseconds";
+      description = "Sampling interval in milliseconds (500–60000; default 2000)";
     };
   };
 
