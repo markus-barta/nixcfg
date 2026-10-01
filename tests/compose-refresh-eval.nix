@@ -3,6 +3,8 @@
 let
   flakeRef = builtins.getEnv "OPS248_FLAKE_REF";
   flake = builtins.getFlake flakeRef;
+  sourceRootText = builtins.unsafeDiscardStringContext flake.outPath;
+  comparisonRef = builtins.getEnv "OPS248_COMPARISON_FLAKE_REF";
   inherit (flake.inputs.nixpkgs) lib;
   host = flake.nixosConfigurations.csb1;
   base = host.config;
@@ -26,7 +28,11 @@ let
   fixture = builtins.toFile "ops248-public-fixture" "synthetic input reference; not a credential\n";
   rotate = name: alter { age.secrets.${name}.file = lib.mkForce fixture; };
   fails = value: !(builtins.tryEval (builtins.deepSeq value true)).success;
-  aeon = specVariant { services.aeon.image = "example.invalid/ops248/aeon:probe"; };
+  aeon =
+    if comparisonRef == "" then
+      specVariant { services.aeon.image = "example.invalid/ops248/aeon:probe"; }
+    else
+      (builtins.getFlake comparisonRef).nixosConfigurations.csb1.config;
   hostdash = alter { environment.etc."hostdash/csb1".source = lib.mkForce fixture; };
   hostdashAuth = rotate "csb-hostdash-oauth2-proxy-env";
   traefikEnv = rotate "traefik-variables";
@@ -97,6 +103,8 @@ let
   ];
 in
 {
+  comparisonUsesDifferentSource =
+    comparisonRef == "" || (builtins.getFlake comparisonRef).outPath != flake.outPath;
   aeonChangesOnlyAeon = changedServices aeon == [ "aeon" ];
   aeonRestartsStack = (stack base).restartTriggers != (stack aeon).restartTriggers;
   aeonPreservesStartScript = (stack base).script == (stack aeon).script;
@@ -107,8 +115,8 @@ in
   aeonPreservesJanusTriggerBytes =
     bytes (janus base).restartTriggers == bytes (janus aeon).restartTriggers;
   inputsDoNotRetainWholeSourcePath =
-    !(lib.hasInfix flake.outPath (bytes (compose base).serviceRefreshTriggers))
-    && !(lib.hasInfix flake.outPath (bytes (janus base).restartTriggers));
+    !(lib.hasInfix sourceRootText (bytes (compose base).serviceRefreshTriggers))
+    && !(lib.hasInfix sourceRootText (bytes (janus base).restartTriggers));
   aeonPreservesJanusUnitBytes =
     base.systemd.units."janus-managed-transactiond.service".text
     == aeon.systemd.units."janus-managed-transactiond.service".text;
