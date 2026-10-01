@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # NIX-603 — macOS standalone Home Manager gets a weekly dead-paths-only Nix GC
 # plus a low-space guard, and only where a host opts in: exactly one account per
-# Mac (the store is shared by every account on the machine). Eval-only: nothing
-# is built and no garbage collection runs.
+# Mac, the one that owns the console session (user launchd agents need a
+# graphical session; the store is shared by every account on the machine).
+# Eval-only: nothing is built and no garbage collection runs.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -16,9 +17,13 @@ module="$repo_root/modules/uzumaki/nix-gc.nix"
 home_module="$repo_root/modules/uzumaki/home-manager.nix"
 
 grep -Fq './nix-gc.nix' "$home_module" || fail 'uzumaki home-manager.nix does not import nix-gc.nix'
-for host in mbp2607 mbp2606; do
-  grep -Fq 'nixGc.enable = true;' "$repo_root/hosts/$host/home.nix" || fail "$host does not opt in to uzumaki.nixGc"
-done
+grep -Fq 'nixGc.enable = true;' "$repo_root/hosts/mbp2607/home.nix" || fail 'mbp2607 does not opt in to uzumaki.nixGc'
+grep -Fq 'uzumaki.nixGc.enable = true;' "$repo_root/hosts/mbp2606/home-ci.nix" || fail 'mbp2606 ci does not opt in to uzumaki.nixGc'
+# mba has no graphical session on mbp2606, so its user agents could never load
+# (2026-10-01: "Bootstrap failed: 125: Domain does not support specified action").
+if grep -Fq 'nixGc.enable = true;' "$repo_root/hosts/mbp2606/home.nix"; then
+  fail 'mba@mbp2606 must not opt in (no graphical session there; the agents would never load)'
+fi
 
 # Dead paths only: the collector must be `nix-store --gc`, never the variant
 # that can delete generations.
@@ -32,8 +37,8 @@ nixgc_agents() {
     --apply 'a: builtins.concatStringsSep "," (builtins.filter (n: builtins.match "nix-gc.*" n != null) (builtins.attrNames a))')
 }
 
-# Opted in: one account per Mac.
-for home in 'markus@mbp2607' 'mba@mbp2606'; do
+# Opted in: one account per Mac, the one that owns the console session.
+for home in 'markus@mbp2607' 'ci@mbp2606'; do
   agents=$(nixgc_agents "$home")
   [ "$agents" = 'nix-gc,nix-gc-lowspace' ] || fail "$home agents are '$agents', expected nix-gc,nix-gc-lowspace"
 
@@ -48,9 +53,9 @@ for home in 'markus@mbp2607' 'mba@mbp2606'; do
 done
 
 # Opted out: the other accounts on mbp2606 must stay inert.
-for home in 'mailina@mbp2606' 'ci@mbp2606'; do
+for home in 'mba@mbp2606' 'mailina@mbp2606'; do
   other=$(nixgc_agents "$home")
   [ -z "$other" ] || fail "$home unexpectedly has Nix GC agents: $other"
 done
 
-printf 'T90 ok: NIX-603 nix-gc agents on markus@mbp2607 and mba@mbp2606 only, weekly Sunday 04:00 + 30 min low-space guard\n'
+printf 'T90 ok: NIX-603 nix-gc agents on markus@mbp2607 and ci@mbp2606 only, weekly Sunday 04:00 + 30 min low-space guard\n'
