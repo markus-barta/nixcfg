@@ -45,6 +45,8 @@ rec {
         elevated = 50;
         critical = 80;
       };
+      priority = 100; # highest, first to show (HostDash contract)
+      suffix = "%";
       type = "int";
     };
     ram = {
@@ -52,6 +54,8 @@ rec {
         elevated = 70;
         critical = 90;
       };
+      priority = 90;
+      suffix = "%";
       type = "int";
     };
     # Root mount band used by HostDash; deliberately not a prompt metric.
@@ -60,6 +64,8 @@ rec {
         elevated = 80;
         critical = 90;
       };
+      priority = 80;
+      suffix = "%";
       type = "int";
     };
     load = {
@@ -72,6 +78,8 @@ rec {
         elevated = 2.0;
         critical = 4.0;
       }; # Existing dashboard contract
+      priority = 70;
+      suffix = "";
       type = "float";
     };
     swap = {
@@ -85,6 +93,8 @@ rec {
           critical = 75;
         };
       };
+      priority = 60;
+      suffix = "%";
       type = "int";
     };
   };
