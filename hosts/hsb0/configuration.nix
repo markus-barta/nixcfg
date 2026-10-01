@@ -30,7 +30,7 @@ let
         ]
         || (lib.hasSuffix ".mjs" name && !lib.hasSuffix ".test.mjs" name);
   };
-  joeBoardPusherSourceHash = builtins.hashString "sha256" (toString joeBoardPusherSource);
+  # Image tag is pinned explicitly below; source stays for build context + restart triggers.
 
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
@@ -105,13 +105,16 @@ in
     removeOrphans = true;
     autoUpdate.enable = true;
     autoUpdate.excludeFromPull = [ "joe-board-pusher" ];
-    # Build the pusher from the immutable, production-only Nix source. The
-    # source-derived tag and pull policy prevent reuse of a stale local image.
+    # Paper joe-board-pusher: pin the validated cancel-after-mark + reconcile-perf
+    # image so compose recreate cannot rebuild/reuse exclusive-era
+    # source-3594180a. Keep the filtered source in the closure (and as a
+    # restart trigger) for intentional rebuilds; bump the concrete tag when
+    # promoting a new paper image. pull_policy=never skips registry + rebuild.
     spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
       services.joe-board-pusher = {
         build = "${joeBoardPusherSource}";
-        image = "hsb0-joe-board-pusher:source-${joeBoardPusherSourceHash}";
-        pull_policy = "build";
+        image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+        pull_policy = "never";
       };
     };
   };
