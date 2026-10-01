@@ -1204,7 +1204,7 @@ in
   # StaSysMo - Starship System Monitoring
   # ============================================================================
   # Displays CPU, RAM, Load, Swap in the prompt with threshold-based coloring.
-  # Daemon writes to /dev/shm/stasysmo/ every 5 seconds.
+  # Daemon writes to service-owned /run/stasysmo; default 2000 ms, clamped 500..60000.
   # ============================================================================
   services.stasysmo.enable = true;
 

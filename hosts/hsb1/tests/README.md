@@ -9,7 +9,7 @@ Tests for Home Server Box 1 (hsb1) - NixOS server with home automation.
 | T00-nixos-base.sh      | NixOS system basics         | Remote (SSH)    |
 | T01-theme.sh           | Theme module (cyan palette) | Local (on host) |
 | T02-uzumaki-fish.sh    | Fish functions from uzumaki | Local (on host) |
-| T03-stasysmo.sh        | System metrics daemon       | Local (on host) |
+| T03-stasysmo.sh        | v2 snapshot and fish prompt | Local (on host) |
 | T04-docker-services.sh | Docker containers running   | Remote (SSH)    |
 
 ## Running Tests

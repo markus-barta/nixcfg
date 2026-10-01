@@ -134,7 +134,8 @@ in
     # StaSysMo - System Monitoring
     # ══════════════════════════════════════════════════════════════════════════
     # Enabled via uzumaki.stasysmo.enable
-    # The stasysmo/home-manager.nix module handles launchd service setup
+    # The stasysmo/home-manager.nix module loads the fish compositor after Starship
+    # and starts the native launchd sampler where a GUI domain exists.
 
     services.stasysmo.enable = cfg.stasysmo.enable;
 
