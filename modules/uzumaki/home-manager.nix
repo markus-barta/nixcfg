@@ -69,6 +69,7 @@ in
     ./aeon.nix # OPS-231 / NIX-584: Aeon client + consumer keys (`paimos` alias default)
     ./aeon-agentd.nix # NIX-583: isolated, opt-in Aeon owned-session daemon
     ./agent-browser-guard.nix # NIX-445: macOS agent browser-launch guard (opt-in per host)
+    ./nix-gc.nix # NIX-603: weekly Nix GC + low-space guard, macOS standalone HM (opt-in per host)
   ];
 
   # ══════════════════════════════════════════════════════════════════════════════
