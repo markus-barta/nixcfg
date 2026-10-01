@@ -138,6 +138,7 @@ Examples:
 - `T89-tm-watch.sh` — hsb1 Time Machine: Samba `max size` ≤ refquota pairing, 7-day sanoid, tm-watch witness wiring + unit/engine tests (OPS-226)
 - `T90-nix-gc-home-manager.sh` — macOS standalone Home Manager: weekly dead-paths-only Nix GC (Sunday 04:00) plus a 30 min low-space guard exist on exactly one account per Mac, the one owning the console session (markus@mbp2607, ci@mbp2606), none elsewhere; eval-only, no GC runs (NIX-603)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
+- `T93-compose-scoped-refresh.sh` — actual csb1 module evaluation: an Aeon-only pin preserves the start script and Janus trigger/unit bytes; HostDash, credentials, renderer and contract changes refresh their intended consumers. Also checks referenced-resource selection, reserved-label rejection, renderer ordering and failure retries (OPS-248). Requires a committed checkout; performs no builds, activation or credential resolution. `--compare-revision <commit>` substitutes a separate, already-created Aeon-only fixture commit to prove stability across different flake source paths.
 
 ## Janus Flow private-file lifecycle (NIX-574)
 

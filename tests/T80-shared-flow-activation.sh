@@ -252,7 +252,7 @@ for required in (
     if required not in routing:
         raise SystemExit(f"routing-edge active merge is missing: {required}")
 
-triggers_start = source.index("    extraRestartTriggers = [")
+triggers_start = source.index("    serviceRefreshTriggers.traefik = [")
 triggers_end = source.index("\n    spec = import ./docker/compose-spec.nix;", triggers_start)
 triggers = source[triggers_start:triggers_end]
 for required in (
