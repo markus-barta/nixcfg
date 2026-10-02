@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261002004358.0.0@sha256:beb3db7d4bd6a0e5bf3903aa12b574b4dfd6956ce29cbb9efda5cd952dc3119f"; # release 118 Rugged Ratio: AEON-520 (planning columns, status model + autopilot, scope codes, classic invite, run kinds, release pill, Go CI cache, release fixes 526/527)
+      image = "ghcr.io/inspr-at/aeon:261002081219.0.0@sha256:aeda592eed0c81b67ac272ee0b9bbd50487c202c679ad678b6b8c5730cc6b67d"; # release 119 Sunlit Sonde: AEON-538 (queue UI, live agent activity, link with one code, upgrade-safe autopilot, journal content, release header, tagger deadlock fix)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
