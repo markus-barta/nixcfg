@@ -172,6 +172,8 @@ See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
 Files and database are separate recovery points: restore the dump, then the files directory; `aeon files verify` reports referenced files that are missing or corrupt.
 
+Caveat until AEON-557 ships (code audit AEON-545, finding S1-001): the inventory behind `aeon files verify` only knows attachment rows. It cannot see avatars (`personal_profiles`), quote confirmation PDFs (`quote_confirmation_receipts`) or quote document profile assets, so a clean result does **not** prove those files are present. Never run `aeon files gc --apply` on csb1 (or any instance) until AEON-557 ships: it would delete exactly those files once they are 7+ days old. Nothing schedules the GC; do not add a timer for it.
+
 ---
 
 ## Network
