@@ -34,8 +34,9 @@ LaunchAgent `cm.aeon.agentd`); the Aeon CLI stays in Nix. The module below
 remains available as a fallback.
 
 `uzumaki.aeon.agentd` is a separate LaunchAgent (when enabled):
-`at.inspr.aeon-agentd`, using `aeon-agentd` from the reviewed
-`v260927160212.0.0` source `3f8d613473ff3ff37db50ecff9e5522de73cc974`.
+`at.inspr.aeon-agentd`, using `aeon-agentd` from the signed release asset pinned
+in `pkgs/aeon-agentd-signed` (same tag as the `aeon` input, currently
+`v261002081219.0.0`).
 The classic package, label, registry, journal and children were retired in NIX-584.
 This input also versions the Aeon CLI; its compatibility checks run during the
 package build. There is no daemon `version` command: use the derivation/store

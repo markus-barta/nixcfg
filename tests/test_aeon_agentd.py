@@ -312,7 +312,7 @@ class HomeManagerTests(unittest.TestCase):
 
     def test_option_docs_use_the_version_aware_pairing_command(self):
         text = self.evidence["pairedEnableDescription"]
-        # Release 12 (the pinned aeon input) has `pair` (AEON-333); workspace and
+        # `pair` exists since release 12 (AEON-333; the pinned aeon input is release 119); workspace and
         # pairing root stay explicit because `pair` would default to the cwd.
         self.assertIn("`aeon-agentd pair --workspace '<workspace>' --state-root '<paired.stateRoot>'", text)
         self.assertNotIn("aeon-agentd setup", text)
