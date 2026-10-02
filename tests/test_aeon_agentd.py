@@ -312,7 +312,7 @@ class HomeManagerTests(unittest.TestCase):
 
     def test_option_docs_use_the_version_aware_pairing_command(self):
         text = self.evidence["pairedEnableDescription"]
-        # Release 12 (the pinned aeon input) has `pair` (AEON-333); workspace and
+        # `pair` exists since release 12 (AEON-333; the pinned aeon input is release 119); workspace and
         # pairing root stay explicit because `pair` would default to the cwd.
         self.assertIn("`aeon-agentd pair --workspace '<workspace>' --state-root '<paired.stateRoot>'", text)
         self.assertNotIn("aeon-agentd setup", text)
@@ -401,7 +401,7 @@ class HomeManagerTests(unittest.TestCase):
         home = str(Path(e["pairedStateRootDefault"]).parents[3])
         script = Path(e["pairedPreflightScript"]).read_text()
         config = json.loads(json.loads(re.search(r"json\.loads\((\".*\")\)", script).group(1)))
-        # The pinned release (d6375207, release 12) has `pair` (AEON-333).
+        # The pinned release (670ca964, release 119) has `pair` (AEON-333, since release 12).
         self.assertEqual(config["pairHint"], "run `aeon-agentd pair --workspace " + e["workspace"]
                          + " --state-root '" + e["pairedStateRootDefault"] + "' --url https://aeon.barta.cm"
                          + " --harness claude --node-path " + home + "/.local/share/aeon-agentd/bin/node"
@@ -477,8 +477,8 @@ class HomeManagerTests(unittest.TestCase):
 
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
-        self.assertEqual(lock["locked"]["rev"], "d6375207f66578bfd0842c3653ea629b98059981")
-        self.assertEqual(lock["locked"]["narHash"], "sha256-MsGYvdcpkwo02c3ajOq0byKT6wGo4okRRp7IosNnxZc=")
+        self.assertEqual(lock["locked"]["rev"], "670ca964d0533f678e919a3eb9dd16dcc04c85cd")
+        self.assertEqual(lock["locked"]["narHash"], "sha256-/iWztE4AReTtOHa44GYj0wsk9Fq/2PZ7kYF8t8NYKlo=")
         source = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr",
             f'(builtins.getFlake "{ROOT}").inputs.aeon.outPath'], cwd=ROOT, text=True).strip()
         main = (Path(source) / "cmd/aeon-agentd/main.go").read_text()
