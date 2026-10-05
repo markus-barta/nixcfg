@@ -8,7 +8,7 @@ ib="$repo_root/modules/ib-desk-runner/ib.mjs"
 host="$repo_root/hosts/hsb0/configuration.nix"
 docs="$repo_root/hosts/hsb0/docs/IB-DESK-RUNNER.md"
 
-node --test "$repo_root/modules/ib-desk-runner/"
+node --test "$repo_root/modules/ib-desk-runner/"*.test.mjs
 
 grep -Fq 'IB_DESK_GATEWAY_PORT=4002' "$module"
 grep -Fq 'TRADING_MODE=paper' "$module"
