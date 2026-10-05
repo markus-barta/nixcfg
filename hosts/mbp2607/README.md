@@ -36,7 +36,7 @@ remains available as a fallback.
 `uzumaki.aeon.agentd` is a separate LaunchAgent (when enabled):
 `at.inspr.aeon-agentd`, using `aeon-agentd` from the signed release asset pinned
 in `pkgs/aeon-agentd-signed` (same tag as the `aeon` input, currently
-`v261002081219.0.0`).
+`v261005070923.0.0`).
 The classic package, label, registry, journal and children were retired in NIX-584.
 This input also versions the Aeon CLI; its compatibility checks run during the
 package build. There is no daemon `version` command: use the derivation/store
