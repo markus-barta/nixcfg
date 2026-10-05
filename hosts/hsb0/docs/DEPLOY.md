@@ -14,15 +14,24 @@ hsb0 access must perform exactly these steps:
    gh label create hsb0-paper-halt --repo markus-barta/oc-workspace-shared --color b60205
    ```
 
-2. On hsb0, from `/home/mba/Code/nixcfg`, create the agenix ciphertext and put
-   only the raw token in the editor (no `KEY=`, quotes, or other fields):
+2. On hsb0, from `/home/mba/Code/nixcfg`, add the ciphertext declaration to
+   `secrets/secrets.nix` before creating it:
+
+   ```nix
+   # Raw fine-grained GitHub token: Issues read/write only on the private
+   # markus-barta/oc-workspace-shared paper intent queue.
+   "hsb0-ib-desk-runner-github-token.age".publicKeys = markus ++ hsb0;
+   ```
+
+3. Create the agenix ciphertext and put only the raw token in the editor (no
+   `KEY=`, quotes, or other fields):
 
    ```bash
    cd /home/mba/Code/nixcfg
    agenix -e secrets/hsb0-ib-desk-runner-github-token.age
    ```
 
-3. Switch NixOS. Use `path:.` for the first switch because the newly created
+4. Switch NixOS. Use `path:.` for the first switch because the newly created
    ciphertext is intentionally absent from this code-only PR and therefore is
    not yet part of Git's flake source:
 
@@ -30,7 +39,7 @@ hsb0 access must perform exactly these steps:
    sudo nixos-rebuild switch --flake path:.#hsb0
    ```
 
-4. Verify the units without reading credentials or raw intent state:
+5. Verify the units without reading credentials or raw intent state:
 
    ```bash
    systemctl status ib-desk-runner.timer joel-ib-paper-flatten-own.timer
@@ -39,7 +48,7 @@ hsb0 access must perform exactly these steps:
    systemctl list-timers joel-ib-paper-flatten-own.timer
    ```
 
-5. Submit a recon intent using the contract in `IB-DESK-RUNNER.md` and retain
+6. Submit a recon intent using the contract in `IB-DESK-RUNNER.md` and retain
    its issue URL/result as the live proof. Preserve the encrypted `.age` file
    through the repository's normal reviewed secret-ciphertext workflow; never
    commit or print the raw token.
