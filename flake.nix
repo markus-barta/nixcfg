@@ -88,7 +88,7 @@
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
     # NIX-588/589: release 12 (stable107) brings `aeon-agentd pair`; its signed
     # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
-    aeon.url = "github:inspr-at/paimos/v261002081219.0.0"; # 670ca964d0533f678e919a3eb9dd16dcc04c85cd
+    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 73f40e0d89b35eefa7a3159a9fa39eaa48bdd5bf
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
@@ -136,12 +136,20 @@
           config.allowUnfree = true;
         };
       };
+      # Release 123 (v261005070923.0.0) shipped its flake with a stale Go vendorHash
+      # (nix build: specified sha256-J60v..., got sha256-JsIS...). Override it here
+      # until the upstream flake carries the right hash (release 124); then drop this.
+      aeonPackage =
+        system:
+        inputs.aeon.packages.${system}.aeon.overrideAttrs (_: {
+          vendorHash = "sha256-JsIS5JaePz2VcseoqRYnUZ9Ac8/eYuK3lcVpuJoMRjE=";
+        });
       # OPS-231 / NIX-584: Aeon client. `aeon-cli` is `aeon` only; `aeon-paimos`
       # is the upstream package including bin/paimos (argv0 compat).
       aeonCli =
         p:
         let
-          aeon = inputs.aeon.packages.${p.stdenv.hostPlatform.system}.aeon;
+          aeon = aeonPackage p.stdenv.hostPlatform.system;
         in
         p.runCommand "aeon-cli-${aeon.version}" { meta.mainProgram = "aeon"; } ''
           mkdir -p $out/bin
@@ -158,7 +166,7 @@
         # OPS-231 / NIX-584: see modules/uzumaki/aeon.nix for PATH ownership.
         aeon-cli = aeonCli final;
         # NIX-584: `paimos` is the Aeon client in paimos mode.
-        aeon-paimos = inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon;
+        aeon-paimos = aeonPackage final.stdenv.hostPlatform.system;
         # NIX-588 / AEON-285: macOS runs the Developer ID signed release binary
         # (Touch ID watch approval needs the team signature); Linux keeps the
         # source build.
