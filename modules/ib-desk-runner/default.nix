@@ -11,6 +11,7 @@ let
   source = pkgs.runCommand "ib-desk-runner-source" { } ''
     mkdir -p "$out"
     cp ${./policy.mjs} "$out/policy.mjs"
+    cp ${./security.mjs} "$out/security.mjs"
     cp ${./ib.mjs} "$out/ib.mjs"
     cp ${./runner.mjs} "$out/runner.mjs"
     cp ${./dry-run.mjs} "$out/dry-run.mjs"

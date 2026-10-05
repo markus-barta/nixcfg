@@ -2,10 +2,12 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
 import { ACCOUNT, KEEP, PAPER_PORT, mergeExecutions, ownedPositions } from "./policy.mjs";
+import { confinedPath } from "./security.mjs";
 
 // The runner deliberately reuses only the pinned pusher image's Node runtime and
 // installed @stoqey/ib dependency. It does not invoke or modify the pusher.
-const require = createRequire(process.env.IB_DESK_PACKAGE_JSON || "/app/package.json");
+const PACKAGE_JSON_PATH = confinedPath("/app", process.env.IB_DESK_PACKAGE_JSON || "/app/package.json", "package manifest path");
+const require = createRequire(PACKAGE_JSON_PATH);
 const { IBApi, EventName } = require("@stoqey/ib");
 
 const HOST = process.env.IB_DESK_GATEWAY_HOST || "100.64.0.6";
@@ -241,9 +243,10 @@ export async function placeProtectiveBracket(session, intent, resolved) {
 }
 
 function readPusherExecutions(filePath) {
+  const ledgerPath = confinedPath("/pusher-state", filePath, "ownership ledger path");
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(filePath, "utf8"));
+    parsed = JSON.parse(readFileSync(ledgerPath, "utf8"));
   } catch (error) {
     throw new Error(`durable ownership ledger unavailable: ${message(error)}`);
   }

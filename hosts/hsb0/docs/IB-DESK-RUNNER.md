@@ -121,11 +121,12 @@ The pure policy dry run never connects to IB or GitHub:
 
 ```bash
 node modules/ib-desk-runner/dry-run.mjs \
-  /path/to/intent.json /path/to/snapshot.json /path/to/state.json
+  ./intent.json ./snapshot.json ./state.json
 ```
 
-The snapshot JSON has `stockType`, `usdToEur`, `positions`, and `openOrders`; the optional
-state has a `placements` array. The CI gate runs the focused policy suite plus
+All input files must be beneath the directory where the command is run. The snapshot JSON
+has `stockType`, `usdToEur`, `positions`, and `openOrders`; the optional state has a
+`placements` array. The CI gate runs the focused policy suite plus
 static checks for paper-only wiring, KEEP, HALT, the declarative timer, and the
 absence of account-wide cancellation.
 
