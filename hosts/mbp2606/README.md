@@ -70,6 +70,31 @@ material, and rewriting it would force a pointless rekey.
   `/Users/ci/Library/Logs/nix-gc.log`); the rule for store-linked binaries is
   in `hosts/mbp2607/README.md`. If `ci` is ever logged out, no collection runs.
 
+## CI runner pool: main ruleset pin (OPS-264)
+
+The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
+main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
+including tightenings and merge-queue tuning. CI falls back to hosted runners
+automatically while the pool is unavailable.
+
+After an intentional ruleset change, regenerate the five pinned keys from the
+live ruleset, from the nixcfg checkout (Bash):
+
+```bash
+set -o pipefail
+gh api repos/inspr-at/paimos/rulesets/24240960 \
+  | jq -S '{enforcement, target, conditions, bypass_actors, rules}' \
+  > modules/aeon-builder/paimos-main-ruleset.json
+```
+
+Review the diff for weakening, run `python3 tests/test_aeon_builder.py -v`,
+and ship the pin through nixcfg's normal review path. Deploy the `ci@mbp2606`
+Home Manager generation, then run `aeon-builder on --resume` as `ci`.
+The regression tests require the five checks (`go`, `web`, `release-check`,
+`e2e`, `migration-compat`), PR protection, active enforcement and a merge queue.
+The supplied live policy retains the existing role-5 PR-only bypass; tests
+permit its removal but reject additional actors or broader bypass permissions.
+
 ## Inbound SSH (declarative)
 
 Since 2026-07-04 (NIX-215) `~/.ssh/authorized_keys` is managed by
