@@ -30,6 +30,8 @@ let
         ]
         || (lib.hasSuffix ".mjs" name && !lib.hasSuffix ".test.mjs" name);
   };
+  ibDeskRunnerTokenCiphertext = ../../secrets + "/hsb0-ib-desk-runner-github-token.age";
+  ibDeskRunnerTokenPresent = builtins.pathExists ibDeskRunnerTokenCiphertext;
   # Image tag is pinned explicitly below; source stays for build context + restart triggers.
 
   # ============================================================================
@@ -63,6 +65,7 @@ in
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
+    ../../modules/ib-desk-runner # Pull-based paper place/recon/owned-flatten path
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
@@ -972,6 +975,16 @@ in
     path = "/run/agenix/joe-board-push-token";
     mode = "444";
   };
+
+  # The ciphertext is intentionally created by the hsb0 operator at deploy
+  # time. Until it exists, evaluation stays green and the poll unit is gated by
+  # ConditionPathExists; no fallback credential is accepted.
+  age.secrets.hsb0-ib-desk-runner-github-token = lib.mkIf ibDeskRunnerTokenPresent {
+    file = ibDeskRunnerTokenCiphertext;
+    mode = "0400";
+  };
+
+  nixcfg.ibDeskRunner.enable = true;
 
   system.activationScripts.ib-gateway = ''
     mkdir -p /var/lib/ib-gateway/tws_settings
