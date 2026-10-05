@@ -109,9 +109,22 @@ class RulesetTests(unittest.TestCase):
         pinned = self.expected()
         self.assertEqual(pinned["enforcement"], "active")
         types = {r["type"] for r in pinned["rules"]}
-        self.assertLessEqual({"deletion", "non_fast_forward", "pull_request", "required_status_checks"}, types)
+        self.assertLessEqual({"deletion", "non_fast_forward", "pull_request", "required_status_checks", "merge_queue"}, types)
         checks = next(r for r in pinned["rules"] if r["type"] == "required_status_checks")["parameters"]
-        self.assertLessEqual({"go", "web", "release-check", "e2e"}, {c["context"] for c in checks["required_status_checks"]})
+        self.assertLessEqual({"go", "web", "release-check", "e2e", "migration-compat"},
+                             {c["context"] for c in checks["required_status_checks"] if c["integration_id"] == 15368})
+        self.assertFalse(checks["do_not_enforce_on_create"])
+        self.assertEqual(pinned["target"], "branch")
+        self.assertEqual(pinned["conditions"]["ref_name"], {"include": ["~DEFAULT_BRANCH"], "exclude": []})
+
+    def test_pinned_bypass_actors_cannot_exceed_the_reviewed_baseline(self):
+        # OPS-264: both the old pin and the supplied live ruleset retain this
+        # PR-only role bypass. Exact live equality precludes an empty pin today;
+        # removing it is a tightening, adding actors or widening it is not.
+        actors = self.expected()["bypass_actors"]
+        self.assertLessEqual(len(actors), 1)
+        for actor in actors:
+            self.assertEqual(actor, {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"})
 
     def test_live_equal_passes_regardless_of_list_order(self):
         live = json.loads(json.dumps(LIVE_RULESET))
