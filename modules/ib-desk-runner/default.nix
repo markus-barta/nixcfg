@@ -168,10 +168,11 @@ in
         message = "ibDeskRunner refuses a non-paper Gateway or any published live port 4001";
       }
       {
-        assertion = cfg.keepSymbols == [
-          "SXR8"
-          "TSLA"
-        ];
+        assertion =
+          cfg.keepSymbols == [
+            "SXR8"
+            "TSLA"
+          ];
         message = "ibDeskRunner KEEP must remain exactly SXR8 and TSLA";
       }
       {
