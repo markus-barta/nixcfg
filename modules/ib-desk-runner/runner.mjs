@@ -12,12 +12,22 @@ import path from "node:path";
 
 import { activeHalt, digest, mergeExecutions, newYorkDay, parseIntent, evaluatePlacement } from "./policy.mjs";
 import { flattenOwned, freshUsdToEur, openSession, placeProtectiveBracket, publicSnapshot, resolveStock } from "./ib.mjs";
+import {
+  confinedPath,
+  githubRepositoryUrl,
+  validatedIssueNumber,
+  validatedRepository,
+} from "./security.mjs";
 
-const STATE_PATH = process.env.IB_DESK_STATE || "/state/ledger.json";
-const AUDIT_PATH = process.env.IB_DESK_AUDIT || "/state/audit.jsonl";
-const LOCAL_HALT_PATH = process.env.IB_DESK_LOCAL_HALT || "/state/HALT";
-const OWNERSHIP_LEDGER = process.env.IB_DESK_OWNERSHIP_LEDGER || "/pusher-state/execution-history.json";
-const REPOSITORY = process.env.IB_DESK_GITHUB_REPOSITORY || "markus-barta/oc-workspace-shared";
+const STATE_PATH = confinedPath("/state", process.env.IB_DESK_STATE || "/state/ledger.json", "state path");
+const AUDIT_PATH = confinedPath("/state", process.env.IB_DESK_AUDIT || "/state/audit.jsonl", "audit path");
+const LOCAL_HALT_PATH = confinedPath("/state", process.env.IB_DESK_LOCAL_HALT || "/state/HALT", "local HALT path");
+const OWNERSHIP_LEDGER = confinedPath(
+  "/pusher-state",
+  process.env.IB_DESK_OWNERSHIP_LEDGER || "/pusher-state/execution-history.json",
+  "ownership ledger path",
+);
+const REPOSITORY = validatedRepository(process.env.IB_DESK_GITHUB_REPOSITORY || "markus-barta/oc-workspace-shared");
 const INTENT_LABEL = "hsb0-paper-intent";
 const HALT_LABEL = "hsb0-paper-halt";
 const ALLOWED_ACTOR = "markus-barta";
@@ -104,11 +114,13 @@ function extractJson(body) {
 class GitHub {
   constructor(token) {
     this.token = token;
-    this.base = `https://api.github.com/repos/${REPOSITORY}`;
   }
 
   async request(method, url, body) {
-    const response = await fetch(url.startsWith("http") ? url : `${this.base}${url}`, {
+    if (!(url instanceof URL) || url.origin !== "https://api.github.com") {
+      throw new Error("GitHub API URL is invalid");
+    }
+    const response = await fetch(url, {
       method,
       headers: {
         Accept: "application/vnd.github+json",
@@ -126,23 +138,33 @@ class GitHub {
   }
 
   async verifyPrivate() {
-    const repository = await this.request("GET", "");
+    const repository = await this.request("GET", githubRepositoryUrl(REPOSITORY));
     if (repository.private !== true || repository.full_name !== REPOSITORY) {
       throw new Error("intent queue must be the configured private repository");
     }
   }
 
   list(label) {
-    return this.request("GET", `/issues?state=open&labels=${encodeURIComponent(label)}&sort=created&direction=asc&per_page=50`);
+    const url = githubRepositoryUrl(REPOSITORY, "issues");
+    url.search = new URLSearchParams({
+      state: "open",
+      labels: label,
+      sort: "created",
+      direction: "asc",
+      per_page: "50",
+    }).toString();
+    return this.request("GET", url);
   }
 
   comment(number, result) {
+    const issueNumber = validatedIssueNumber(number);
     const rendered = JSON.stringify(result, null, 2);
-    return this.request("POST", `/issues/${number}/comments`, { body: `\`\`\`json\n${rendered}\n\`\`\`` });
+    return this.request("POST", githubRepositoryUrl(REPOSITORY, "issues", issueNumber, "comments"), { body: `\`\`\`json\n${rendered}\n\`\`\`` });
   }
 
   close(number) {
-    return this.request("PATCH", `/issues/${number}`, { state: "closed" });
+    const issueNumber = validatedIssueNumber(number);
+    return this.request("PATCH", githubRepositoryUrl(REPOSITORY, "issues", issueNumber), { state: "closed" });
   }
 }
 
@@ -326,10 +348,14 @@ async function processIssue(github, issue, state, halt) {
 }
 
 function readToken() {
-  const tokenFile = process.env.IB_DESK_GITHUB_TOKEN_FILE;
-  if (!tokenFile) throw new Error("GitHub token credential is not configured");
+  const tokenFile = confinedPath(
+    "/run/credentials",
+    process.env.IB_DESK_GITHUB_TOKEN_FILE || "",
+    "GitHub token credential path",
+  );
   const token = readFileSync(tokenFile, "utf8").trim();
   if (!token) throw new Error("GitHub token credential is empty");
+  if (/[\r\n]/.test(token)) throw new Error("GitHub token credential contains a newline");
   return token;
 }
 

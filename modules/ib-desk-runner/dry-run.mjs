@@ -1,11 +1,16 @@
 import { readFileSync } from "node:fs";
 
 import { evaluatePlacement, parseIntent } from "./policy.mjs";
+import { confinedPath } from "./security.mjs";
 
-const [intentPath, snapshotPath, statePath] = process.argv.slice(2);
-if (!intentPath || !snapshotPath) {
+const [intentArgument, snapshotArgument, stateArgument] = process.argv.slice(2);
+if (!intentArgument || !snapshotArgument) {
   throw new Error("usage: node dry-run.mjs INTENT.json SNAPSHOT.json [STATE.json]");
 }
+const inputRoot = process.cwd();
+const intentPath = confinedPath(inputRoot, intentArgument, "intent path");
+const snapshotPath = confinedPath(inputRoot, snapshotArgument, "snapshot path");
+const statePath = stateArgument ? confinedPath(inputRoot, stateArgument, "state path") : null;
 const intent = parseIntent(JSON.parse(readFileSync(intentPath, "utf8")));
 const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
 const state = statePath ? JSON.parse(readFileSync(statePath, "utf8")) : { initializedAt: new Date(Date.now() - 48 * 60 * 60_000).toISOString(), placements: [] };
