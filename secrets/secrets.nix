@@ -240,6 +240,10 @@ in
   # The Hover-era `hsb0-smtp-env.age` was retired in OPS-175 Phase 3 (2026-09-02).
   "hsb0-mailrelay-env.age".publicKeys = markus ++ hsb0;
 
+  # Raw fine-grained GitHub token: Issues read/write only on the private
+  # markus-barta/oc-workspace-shared paper intent queue.
+  "hsb0-ib-desk-runner-github-token.age".publicKeys = markus ++ hsb0;
+
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age
