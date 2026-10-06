@@ -16,8 +16,23 @@ export const LIMITS = Object.freeze({
   fxSafetyBuffer: 1.02,
 });
 
-function fail(message) {
-  throw new Error(message);
+function fail(message, publicCode = "invalid_intent") {
+  const error = new Error(message);
+  error.publicCode = publicCode;
+  throw error;
+}
+
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+export function validateKey(value, kind) {
+  if (typeof value !== "string" || RESERVED_KEYS.has(value.toLowerCase())) fail(`${kind} is invalid`);
+  const valid = kind === "intentId" ? /^[A-Za-z0-9][A-Za-z0-9._:-]{7,63}$/.test(value)
+    : kind === "desk" ? DESKS.includes(value)
+    : kind === "symbol" ? /^[A-Z][A-Z0-9.]{0,9}$/.test(value)
+    : kind === "orderRef" ? /^[a-z0-9]+\|\d{6}\|[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value)
+      && DESKS.includes(value.split("|")[0]) && !RESERVED_KEYS.has(value.split("|")[2].toLowerCase())
+    : false;
+  if (!valid) fail(`${kind} is invalid`);
+  return value;
 }
 
 function object(value, label) {
@@ -27,7 +42,7 @@ function object(value, label) {
 
 function exactKeys(value, allowed, label) {
   const extra = Object.keys(value).filter((key) => !allowed.includes(key));
-  if (extra.length) fail(`${label} has unsupported field(s): ${extra.join(", ")}`);
+  if (extra.length) fail(`${label} has unsupported field(s): ${extra.join(", ")}`, "unsupported_field");
 }
 
 function text(value, label, pattern) {
@@ -74,10 +89,11 @@ export function newYorkDay(epoch = Date.now()) {
 export function parseIntent(raw, now = Date.now()) {
   const value = object(raw, "intent");
   exactKeys(value, ["schema", "intentId", "desk", "action", "createdAt", "expiresAt", "order", "orderRef", "orderId"], "intent");
-  if (value.schema !== SCHEMA) fail(`schema must be ${SCHEMA}`);
-  const intentId = text(value.intentId, "intentId", /^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,63}$/);
+  if (value.schema !== SCHEMA) fail(`schema must be ${SCHEMA}`, "invalid_schema");
+  const intentId = validateKey(value.intentId, "intentId");
   const desk = text(value.desk, "desk").toLowerCase();
   if (!DESKS.includes(desk)) fail("desk is not authorized");
+  validateKey(desk, "desk");
   const action = text(value.action, "action").toLowerCase();
   if (!["recon", "place", "flatten", "cancel"].includes(action)) fail("action is not supported");
   const createdAt = instant(value.createdAt, "createdAt");
@@ -86,10 +102,10 @@ export function parseIntent(raw, now = Date.now()) {
   if (expiresAt <= now) fail("intent is expired");
   if (expiresAt - createdAt > 15 * 60_000) fail("intent validity exceeds 15 minutes");
   if (now - createdAt > 15 * 60_000) fail("intent is stale");
-  if (action !== "place" && value.order !== undefined) fail("order is allowed only for place");
+  if (action !== "place" && value.order !== undefined) fail("order is allowed only for place", "invalid_order");
   let orderRef;
   if (value.orderRef !== undefined) {
-    orderRef = text(value.orderRef, "orderRef", /^[a-z0-9]+\|\d{6}\|[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/);
+    orderRef = validateKey(value.orderRef, "orderRef");
     if (orderRef.split("|")[0] !== desk) fail("orderRef belongs to another desk");
   }
   if (["place", "flatten"].includes(action) && !orderRef) orderRef = `${desk}|${newYorkDay(createdAt).replaceAll("-", "").slice(2)}|${intentId}`;
@@ -100,8 +116,8 @@ export function parseIntent(raw, now = Date.now()) {
   if (action === "place") {
     order = object(value.order, "order");
     exactKeys(order, ["symbol", "side", "quantity", "limitPrice", "stopPrice", "currency"], "order");
-    const symbol = text(order.symbol, "symbol", /^[A-Z][A-Z0-9.]{0,9}$/).toUpperCase();
-    if (KEEP.includes(symbol)) fail(`${symbol} is KEEP and can never be traded`);
+    const symbol = validateKey(order.symbol, "symbol");
+    if (KEEP.includes(symbol)) fail(`${symbol} is KEEP and can never be traded`, "keep_protected");
     const side = text(order.side, "side").toUpperCase();
     if (!["BUY", "SELL"].includes(side)) fail("side must be BUY or SELL");
     if (!Number.isSafeInteger(order.quantity) || order.quantity <= 0) fail("quantity must be a positive integer");

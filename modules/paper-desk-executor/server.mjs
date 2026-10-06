@@ -9,6 +9,7 @@ import {
   brakeUsage,
   digest,
   parseIntent,
+  validateKey,
 } from "./policy.mjs";
 import {
   DEFAULT_PEERS,
@@ -25,8 +26,21 @@ import { admitIntent, openLedger } from "./state.mjs";
 
 const BODY_LIMIT = 65_536;
 
-function publicError(error) {
-  return String(error?.message || error).slice(0, 500);
+const PUBLIC_ERRORS = new Map([
+  ["invalid_schema", "intent schema is invalid"],
+  ["unsupported_field", "intent has unsupported field(s)"],
+  ["keep_protected", "KEEP symbols can never be traded"],
+  ["invalid_order", "order is allowed only for place"],
+  ["invalid_intent", "intent validation failed"],
+  ["intent_conflict", "intentId was already used with different content"],
+  ["body_too_large", "body is too large"],
+  ["uncertain", "broker outcome is uncertain; reconcile before another attempt"],
+  ["executor_error", "executor operation failed"],
+]);
+function publicFailure(error) {
+  const code = error?.code === "uncertain" ? "uncertain"
+    : PUBLIC_ERRORS.has(error?.publicCode) ? error.publicCode : "executor_error";
+  return { code, reason: PUBLIC_ERRORS.get(code) };
 }
 
 function send(response, status, body) {
@@ -54,6 +68,7 @@ async function readBody(request) {
     if (size > BODY_LIMIT) {
       const error = new Error("body is too large");
       error.statusCode = 413;
+      error.publicCode = "body_too_large";
       throw error;
     }
     chunks.push(chunk);
@@ -94,11 +109,8 @@ function claimRecord(state, intent) {
     if (prior.hash !== hash) {
       const error = new Error("intentId was already used with different content");
       error.statusCode = 409;
-      error.body = {
-        status: "rejected",
-        intentId: intent.intentId,
-        reason: error.message,
-      };
+      error.publicCode = "intent_conflict";
+      error.intentId = intent.intentId;
       throw error;
     }
     if (!prior.result || prior.status === "claimed") {
@@ -154,6 +166,13 @@ export function createServer(options) {
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
   let chain = Promise.resolve();
 
+  function logError(error) {
+    console.error(error);
+    try {
+      ledger.audit({ event: "executor_error", error: { name: error?.name, message: String(error?.message || error), stack: error?.stack, code: error?.code } });
+    } catch (auditError) { console.error(auditError); }
+  }
+
   function exclusive(work) {
     const run = chain.then(work, work);
     chain = run.then(() => {}, () => {});
@@ -167,9 +186,9 @@ export function createServer(options) {
       send(response, 403, { status: "rejected", reason: "source is not allowed" });
       return;
     }
-    const url = new URL(request.url || "/", "http://paper-desk.local");
-    const pathname = url.pathname;
     try {
+      const url = new URL(request.url || "/", "http://paper-desk.local");
+      const pathname = url.pathname;
       if (request.method === "GET" && pathname === "/v1/health") {
         const [reachable, body] = await Promise.all([
           Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
@@ -219,8 +238,15 @@ export function createServer(options) {
       }
 
       const intentMatch = pathname.match(/^\/v1\/intents\/([A-Za-z0-9][A-Za-z0-9._:-]{7,63})$/);
-      if (request.method === "GET" && intentMatch) {
-        const intentId = intentMatch[1];
+      if (request.method === "GET" && (intentMatch || pathname === "/v1/intents")) {
+        let intentId;
+        try {
+          intentId = validateKey(intentMatch ? intentMatch[1] : url.searchParams.get("intentId"), "intentId");
+        } catch (error) {
+          logError(error);
+          send(response, 400, { status: "rejected", ...publicFailure(error) });
+          return;
+        }
         const body = await exclusive(() => {
           const state = ledger.load();
           const record = state.intents[intentId];
@@ -254,7 +280,8 @@ export function createServer(options) {
         try {
           intent = parseIntent(parsed);
         } catch (error) {
-          send(response, 400, { status: "rejected", reason: publicError(error) });
+          logError(error);
+          send(response, 400, { status: "rejected", ...publicFailure(error) });
           return;
         }
         const outcome = await exclusive(async () => {
@@ -294,6 +321,7 @@ export function createServer(options) {
             ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result });
             return result;
           } catch (error) {
+            logError(error);
             const status = error?.code === "uncertain" ? "uncertain" : "rejected";
             const result = {
               status,
@@ -301,7 +329,7 @@ export function createServer(options) {
               desk: intent.desk,
               action: intent.action,
               observedAt: new Date().toISOString(),
-              reason: publicError(error),
+              ...publicFailure(error),
             };
             finish(state, intent, status, result);
             ledger.save(state);
@@ -315,14 +343,16 @@ export function createServer(options) {
 
       send(response, 404, { status: "not_found", reason: "unknown route" });
     } catch (error) {
+      logError(error);
       const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
-      send(response, status, error?.body || { status: "rejected", reason: publicError(error) });
+      send(response, status, { status: "rejected", ...publicFailure(error), ...(error.publicCode === "intent_conflict" ? { intentId: error.intentId } : {}) });
     }
   }
 
   const server = createHttpServer((request, response) => {
     handle(request, response).catch((error) => {
-      if (!response.headersSent) send(response, 500, { status: "rejected", reason: publicError(error) });
+      logError(error);
+      if (!response.headersSent) send(response, 500, { status: "rejected", ...publicFailure(error) });
       else response.end();
     });
   });
@@ -388,7 +418,7 @@ async function main() {
 const entry = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (entry) {
   main().catch((error) => {
-    console.error(publicError(error));
+    console.error(error);
     process.exit(1);
   });
 }
