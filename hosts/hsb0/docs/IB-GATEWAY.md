@@ -49,10 +49,9 @@ Gateway capability used by separately authorized paper clients.
 - IB API is **plaintext TCP**. Port is bound to the **Tailscale IP only**
   (`100.64.0.6:4002`). Firewall allows TCP `4002`, but compose does **not**
   publish on LAN `192.168.1.99` or `0.0.0.0`.
-- Mac must **not** run IB Gateway and must **not** run `ssh -L …4002…`.
-  Amy-box desks use the authenticated pull contract in
-  [IB-DESK-RUNNER.md](IB-DESK-RUNNER.md); they do not connect to the IB API or
-  join Tailscale. Only the co-located hsb0 runner reaches `100.64.0.6:4002`.
+- Mac must **not** run IB Gateway and must **not** run `ssh -L …4002…`. Desks
+  (Joe/Joel/J) point at `100.64.0.6:4002` over Tailscale
+  (`EXISTING_SESSION_DETECTED_ACTION=primary` on hsb0).
 - No Traefik. Watchtower disabled.
 
 ## Credentials (agenix)
@@ -68,14 +67,20 @@ Verify decrypt (should print only `***` length, not the secret):
 agenix -d secrets/hsb0-ib-gateway-password.age | wc -c
 ```
 
-## Desk access (pull runner)
+## Desk access (Tailscale direct)
 
-Desks never connect to the plaintext IB API. They submit short-lived,
-idempotent intents to a private GitHub Issues queue and read the runner's result
-comment over public HTTPS. See [IB-DESK-RUNNER.md](IB-DESK-RUNNER.md) for the
-contract and [DEPLOY.md](DEPLOY.md) for the human-only activation steps. Paper
-port stays `4002` only; do **not** reintroduce a Mac, an SSH local forward, or
-Amy-box Tailscale as a critical path.
+Desks on the Mac (and other tailnet clients) connect straight to hsb0:
+
+```bash
+# From Mac (Tailscale client 100.64.0.14) — should succeed
+nc -z -w 3 100.64.0.6 4002
+
+# Local Mac 4002 must stay free (no Gateway, no tunnel)
+nc -z -w 2 127.0.0.1 4002   # expect failure
+```
+
+Scripts default `IB_GATEWAY_HOST=100.64.0.6` (override via env). Paper port
+stays `4002` only. Do **not** reintroduce an SSH local forward.
 
 Confirm on hsb0 after switch:
 
