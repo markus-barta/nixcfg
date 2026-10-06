@@ -37,14 +37,31 @@ ref=$(jq -r '.ref' "$ALLOW")
 [ "${GITHUB_REPOSITORY:-}" = "$repo" ] || deny "repository ${GITHUB_REPOSITORY:-unset}"
 jq -e --arg e "${GITHUB_EVENT_NAME:-}" '.events | index($e) != null' "$ALLOW" >/dev/null ||
   deny "event ${GITHUB_EVENT_NAME:-unset}"
-[ "${GITHUB_REF:-}" = "$ref" ] || deny "ref ${GITHUB_REF:-unset}"
-jq -e --arg w "${GITHUB_WORKFLOW_REF:-}" '.workflowRefs | index($w) != null' "$ALLOW" >/dev/null ||
-  deny "workflow ${GITHUB_WORKFLOW_REF:-unset}"
+case "${GITHUB_EVENT_NAME:-}" in
+pull_request | merge_group)
+  # These workflows run on PR/merge-queue refs, not the configured branch.
+  # Keep the repository and workflow path allowlist; the controller verifies
+  # the API run and attributes the actual job before releasing the cache key.
+  workflow="${GITHUB_WORKFLOW_REF:-}"
+  [ "$workflow" != "${workflow%@*}" ] || deny "workflow ref missing"
+  jq -e --arg w "${workflow%@*}" '.workflowRefs | map(split("@")[0]) | index($w) != null' "$ALLOW" >/dev/null ||
+    deny "workflow ${GITHUB_WORKFLOW_REF:-unset}"
+  ;;
+*)
+  [ "${GITHUB_REF:-}" = "$ref" ] || deny "ref ${GITHUB_REF:-unset}"
+  jq -e --arg w "${GITHUB_WORKFLOW_REF:-}" '.workflowRefs | index($w) != null' "$ALLOW" >/dev/null ||
+    deny "workflow ${GITHUB_WORKFLOW_REF:-unset}"
+  ;;
+esac
 
 event="${GITHUB_EVENT_PATH:-}"
 [ -r "$event" ] || deny "event payload missing"
 [ "$(jq -r '.repository.full_name // empty' "$event")" = "$repo" ] || deny "payload repository"
-[ -z "$(jq -r '.pull_request // empty | tostring' "$event")" ] || deny "pull request payload"
+if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
+  [ "$(jq -r '.pull_request.head.repo.full_name // empty' "$event")" = "$repo" ] || deny "pull request head repository"
+else
+  [ -z "$(jq -r '.pull_request // empty | tostring' "$event")" ] || deny "pull request payload"
+fi
 [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || deny "sha ${GITHUB_SHA:-unset}"
 
 line="run=${GITHUB_RUN_ID:-} attempt=${GITHUB_RUN_ATTEMPT:-} job=${GITHUB_JOB:-} event=${GITHUB_EVENT_NAME} sha=${GITHUB_SHA}"

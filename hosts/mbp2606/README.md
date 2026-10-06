@@ -72,6 +72,16 @@ material, and rewriting it would force a pointless rekey.
 
 ## CI runner pool: main ruleset pin (OPS-264)
 
+The pool serves `push`, `workflow_dispatch`, same-repository `pull_request`,
+and `merge_group` runs of the allowlisted workflows in `inspr-at/paimos`.
+Push and dispatch still require `main` and a SHA reachable from it; PR and
+merge-queue runs may use their own branches and SHAs. Forks remain rejected.
+Jobs request `[self-hosted, Linux, ARM64, mbp2606, <class>]`, with exactly one
+class: `mbp2606-push`, `mbp2606-dispatch`, `mbp2606-pr`, or `mbp2606-mq`,
+respectively. Only pushes write the persistent cache; other events use a
+disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
+host RAM for remote-test.
+
 The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
 main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
 including tightenings and merge-queue tuning. CI falls back to hosted runners
