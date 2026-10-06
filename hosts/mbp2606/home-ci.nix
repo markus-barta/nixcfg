@@ -35,7 +35,19 @@
     pkgs.jq
   ];
 
-  services.aeonBuilder.enable = true;
+  services.aeonBuilder = {
+    enable = true;
+    events = [
+      "push"
+      "workflow_dispatch"
+      "pull_request"
+      "merge_group"
+    ];
+    cacheWriteEvents = [ "push" ];
+    slots = 4;
+    slotCpus = 4;
+    slotMemoryGiB = 6; # Leave host RAM for remote-test.
+  };
 
   # NIX-603: collect this Mac's Nix store (shared by mba, mailina and ci; 47k
   # dead paths on 2026-10-01). ci owns the console session, which user launchd
