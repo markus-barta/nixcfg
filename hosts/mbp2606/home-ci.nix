@@ -47,6 +47,10 @@
     slots = 4;
     slotCpus = 4;
     slotMemoryGiB = 6; # Leave host RAM for remote-test.
+    # Markus 2026-10-06 (via LEAD): "make it work, remove the security stuff for now".
+    # The network-block proof paused the pool (Lima host gateway 192.168.5.2:22 reachable).
+    # Re-enable with the proper isolated design (OPS-268).
+    requireNetworkBlock = false;
   };
 
   # NIX-603: collect this Mac's Nix store (shared by mba, mailina and ci; 47k
