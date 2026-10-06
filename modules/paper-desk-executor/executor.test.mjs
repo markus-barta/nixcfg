@@ -11,6 +11,7 @@ import { createServer } from "./server.mjs";
 import { executeIntent } from "./executor.mjs";
 import { flattenOwned, openSession, readPusherExecutions } from "./ib.mjs";
 import { parseIntent, newYorkDay } from "./policy.mjs";
+import { runClient } from "./client/paper-intent.mjs";
 
 const ACCOUNT = "DUR970597";
 const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickSnapshotEnd"].map((key) => [key, key]));
@@ -440,6 +441,67 @@ test("aggregate ownership cannot flatten another desk's shares", async () => {
   const h = harness({ history: [fill({ clientId: 702 }), other], positions: [{ ...contract(), position: 3 }], orders: [order()] });
   await assert.rejects(h.run(intent("flatten")), /aggregate desk ownership/);
   assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+});
+
+test("symbol flatten closes KO despite unrelated mismatches and leaves unrelated orders and positions alone", async () => {
+  for (const unrelatedDesk of ["j", "joe"]) {
+    const ko = { ...fill({ execId: "ko.1", shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
+    const unrelated = fill({ orderRef: ref(unrelatedDesk), shares: 7 });
+    const h = harness({ history: [ko, unrelated], positions: [{ ...ko.contract, position: 1 }], orders: [order({ ...ko.contract, orderRef: ref("joe"), action: "SELL", orderType: "STP" }), order({ orderId: 31, orderRef: ref("joe") })] });
+    const result = await h.run(intent("flatten", { desk: "joe", symbol: "KO" }));
+    assert.equal(result.status, "ok");
+    assert.deepEqual(h.broker.cancelled, [30]);
+    assert.equal(h.broker.placed.length, 1);
+    assert.equal(h.broker.placed[0].contract.symbol, "KO");
+    assert.equal(h.broker.placed[0].order.totalQuantity, 1);
+    assert.equal(h.broker.placed[0].order.action, "SELL");
+    assert.deepEqual(h.broker.orders.map((row) => row.orderId), [31]);
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("symbol flatten refuses missing or opposite-sign target broker positions before any mutation", async () => {
+  const ko = { ...fill({ execId: "ko.1", shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
+  for (const position of [undefined, 0, -1]) {
+    const h = harness({ history: [ko], positions: position === undefined ? [] : [{ ...ko.contract, position }], orders: [order({ ...ko.contract, orderRef: ref("joe") })] });
+    await assert.rejects(h.run(intent("flatten", { desk: "joe", symbol: "KO" })), /desk ownership does not reconcile with broker position for KO/);
+    assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+  }
+});
+
+test("flatten-all retains strict reconciliation of unrelated mismatches", async () => {
+  const ko = { ...fill({ execId: "ko.1", shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
+  const h = harness({ history: [ko, fill()], positions: [{ ...ko.contract, position: 1 }], orders: [order({ ...ko.contract, orderRef: ref("joe") })] });
+  await assert.rejects(h.run(intent("flatten", { desk: "joe" })), /desk ownership does not reconcile with broker position for AAPL/);
+  assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+});
+
+test("symbol flatten retains aggregate ownership checks across all desks on the target conId", async () => {
+  const own = { ...fill({ execId: "ko-own.1", shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
+  const other = { ...fill({ execId: "ko-other.1", clientId: 702, shares: 1 }), contract: own.contract };
+  const h = harness({ history: [own, other], positions: [{ ...own.contract, position: 1 }], orders: [order({ ...own.contract, orderRef: ref("joe") })] });
+  await assert.rejects(h.run(intent("flatten", { desk: "joe", symbol: "KO" })), /aggregate desk ownership exceeds broker position for KO/);
+  assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+});
+
+test("symbol legacy cancel scopes reconciliation and refuses a mismatched symbol selector", async () => {
+  const ko = { ...fill({ execId: "ko.1", clientId: 701, shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
+  const h = harness({ history: [ko, fill()], positions: [{ ...ko.contract, position: 1 }], orders: [order({ ...ko.contract, clientId: 701, orderRef: ref("joe") })] });
+  await assert.rejects(h.run(intent("cancel", { desk: "joe", orderId: 30, symbol: "AAPL" })), /cancel target/);
+  assert.deepEqual(h.broker.cancelled, []);
+  assert.equal((await h.run(intent("cancel", { desk: "joe", orderId: 30, symbol: "KO" }))).status, "ok");
+  assert.deepEqual(h.broker.cancelled, [30]); assert.deepEqual(h.broker.placed, []);
+});
+
+test("CLI carries optional flatten/cancel symbol into the validated intent", async () => {
+  for (const action of ["flatten", "cancel"]) {
+    let received;
+    const code = await runClient([action, "--desk", "joe", "--intent-id", "joe-scope-test", "--symbol", "ko", ...(action === "cancel" ? ["--order-id", "30"] : [])], {
+      fetch: async (_url, request) => { received = parseIntent(JSON.parse(request.body)); return { ok: true, text: async () => JSON.stringify({ status: "ok" }) }; },
+      write: () => {},
+    });
+    assert.equal(code, 0); assert.equal(received.symbol, "KO");
+  }
 });
 
 test("flatten partial/missing fills and expiry after cancellation stay uncertain", async () => {

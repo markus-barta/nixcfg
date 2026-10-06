@@ -398,24 +398,25 @@ export function deskPositions(executions, ownership, executorClientId) {
   return DESKS.flatMap((desk) => ownedPositions(executions, ownership[desk] || [], ACCOUNT, desk, executorClientId));
 }
 
-export function reconcileDeskPositions(executions, snapshot, ownership, executorClientId, { capSingleDesk = false } = {}) {
-  const attributed = deskPositions(executions, ownership, executorClientId);
+export function reconcileDeskPositions(executions, snapshot, ownership, executorClientId, { capSingleDesk = false, conId } = {}) {
+  // Scope by resolved contract, retaining every desk's ownership of that conId.
+  const attributed = deskPositions(conId === undefined ? executions : executions.filter((row) => Number(row.contract.conId) === conId), ownership, executorClientId);
   const totals = new Map();
   for (const row of attributed) {
     const actual = snapshot.positions.find((position) => position.conId === row.conId);
-    if (!actual || actual.symbol !== row.symbol || Math.sign(actual.position) !== Math.sign(row.quantity)) throw new Error("desk ownership does not reconcile with broker position");
+    if (!actual || actual.symbol !== row.symbol || Math.sign(actual.position) !== Math.sign(row.quantity)) throw new Error(`desk ownership does not reconcile with broker position for ${row.symbol}`);
     totals.set(row.conId, (totals.get(row.conId) || 0) + Math.abs(row.quantity));
   }
   for (const [conId, quantity] of totals) {
-    if (quantity > Math.abs(snapshot.positions.find((row) => row.conId === conId).position) + 1e-9 && !(capSingleDesk && attributed.filter((row) => row.conId === conId).length === 1)) throw new Error("aggregate desk ownership exceeds broker position; no cancellation or order allowed");
+    if (quantity > Math.abs(snapshot.positions.find((row) => row.conId === conId).position) + 1e-9 && !(capSingleDesk && attributed.filter((row) => row.conId === conId).length === 1)) throw new Error(`aggregate desk ownership exceeds broker position for ${attributed.find((row) => row.conId === conId).symbol}; no cancellation or order allowed`);
   }
 }
 
-function reconcileOwned(executions, snapshot, desk, ownershipClientIds, executorClientId) {
-  const owned = ownedPositions(executions, ownershipClientIds, ACCOUNT, desk, executorClientId);
+function reconcileOwned(executions, snapshot, desk, ownershipClientIds, executorClientId, conId) {
+  const owned = ownedPositions(conId === undefined ? executions : executions.filter((row) => Number(row.contract.conId) === conId), ownershipClientIds, ACCOUNT, desk, executorClientId);
   for (const row of owned) {
     const actual = snapshot.positions.find((position) => position.conId === row.conId);
-    if (!actual || actual.symbol !== row.symbol || !Number.isFinite(actual.position) || Math.sign(actual.position) !== Math.sign(row.quantity)) throw new Error("owned quantity does not reconcile with broker position; no cancellation or order allowed");
+    if (!actual || actual.symbol !== row.symbol || !Number.isFinite(actual.position) || Math.sign(actual.position) !== Math.sign(row.quantity)) throw new Error(`owned quantity does not reconcile with broker position for ${row.symbol}; no cancellation or order allowed`);
     row.quantity = Math.sign(row.quantity) * Math.min(Math.abs(row.quantity), Math.abs(actual.position));
   }
   return owned;
@@ -478,7 +479,7 @@ async function cancelDeskOrders(options) {
   const recon = await connect(reconClientId, { ordersOnly: true });
   try {
     cleanSnapshot(recon);
-    selected = recon.state.openOrders.filter((row) => intent.orderId ? row.orderId === intent.orderId : row.orderRef === intent.orderRef);
+    selected = recon.state.openOrders.filter((row) => (!intent.symbol || row.symbol === intent.symbol) && (intent.orderId ? row.orderId === intent.orderId : row.orderRef === intent.orderRef));
     if (!selected.length || selected.some((row) => !working(row) || !belongsToDesk(row, desk, ownershipClientIds, clientId))) throw new Error("cancel target is not this desk's working order");
     await preflightOrders(recon, selected);
   } finally { recon.close(); }
@@ -492,7 +493,7 @@ async function cancelDeskOrders(options) {
       const ownedEvidence = ownershipEvidence(evidence, history, options);
       executions = ownedEvidence.executions;
       ownershipExecutions = ownedEvidence.attributed;
-      reconcileDeskPositions(ownershipExecutions, evidence.state, ownership, clientId);
+      reconcileDeskPositions(ownershipExecutions, evidence.state, ownership, clientId, { conId: intent.symbol ? selected[0].conId : undefined });
     } finally { evidence.close(); }
   }
   onPlan({ clientId, orderRef: intent.orderRef || null, closing: [], cancellationTargets: selected.map((row) => ({ orderId: row.orderId, clientId: row.clientId, orderRef: row.orderRef, quantity: row.quantity })) });
@@ -512,19 +513,22 @@ export async function flattenOwned(options) {
   let ownershipExecutions;
   let orders;
   let owned;
+  let targetConId;
+  const inScope = (row) => targetConId === undefined || row.conId === targetConId;
   const reconcile = (session) => {
     cleanSnapshot(session);
     if (historyError) throw historyError;
     const evidence = ownershipEvidence(session, history, options);
     executions = evidence.executions;
     ownershipExecutions = evidence.attributed;
-    reconcileDeskPositions(ownershipExecutions, session.state, ownership, clientId, { capSingleDesk: true });
-    return reconcileOwned(ownershipExecutions, session.state, desk, ownershipClientIds, clientId);
+    reconcileDeskPositions(ownershipExecutions, session.state, ownership, clientId, { capSingleDesk: true, conId: targetConId });
+    return reconcileOwned(ownershipExecutions, session.state, desk, ownershipClientIds, clientId, targetConId);
   };
   const recon = await connect(reconClientId);
   try {
+    if (intent.symbol) targetConId = (await resolveStock(recon, intent.symbol)).contract.conId;
     owned = reconcile(recon);
-    orders = recon.state.openOrders;
+    orders = recon.state.openOrders.filter(inScope);
     await preflightOrders(recon, orders.filter((row) => belongsToDesk(row, desk, ownershipClientIds, clientId) && working(row) && !KEEP.includes(row.symbol)));
     for (const position of owned) {
       assertContract(position, position);
@@ -540,7 +544,7 @@ export async function flattenOwned(options) {
   try {
     const confirmation = await connect(reconClientId);
     try {
-      if (confirmation.state.openOrders.some((row) => working(row) && !KEEP.includes(row.symbol) && belongsToDesk(row, desk, ownershipClientIds, clientId))) throw new Error("owned working orders remain after cancellation; flatten refused");
+      if (confirmation.state.openOrders.some((row) => inScope(row) && working(row) && !KEEP.includes(row.symbol) && belongsToDesk(row, desk, ownershipClientIds, clientId))) throw new Error("owned working orders remain after cancellation; flatten refused");
       owned = reconcile(confirmation);
     } finally { confirmation.close(); }
     const placed = [];
