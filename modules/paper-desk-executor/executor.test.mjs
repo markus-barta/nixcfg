@@ -80,7 +80,7 @@ function harness(options = {}) {
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
 
-test("pusher history accepts 16–64 MiB files and refuses files above 64 MiB before reading", (t) => {
+test("pusher history accepts files up to 32 MiB (the pusher writer cap) and refuses larger files before reading", (t) => {
   const now = Date.now();
   const ledgerPath = "/pusher-state/family-history.json";
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: [fill()], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(now - 40 * 86400000).toISOString(), toExclusive: new Date(now).toISOString() } } };
