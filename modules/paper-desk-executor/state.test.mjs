@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { admitIntent, openLedger, pruneState, RETENTION_MS } from "./state.mjs";
+import { newYorkDay } from "./policy.mjs";
 
 test("retention preserves recent idempotency and unresolved evidence while pruning expired terminal claims", () => {
   const now = Date.now();
@@ -24,6 +25,21 @@ test("bounded admission refuses overload without discarding existing claims", ()
   const state = { intents: Object.fromEntries(Array.from({ length: 5000 }, (_, index) => [String(index), { status: "uncertain" }])), placements: [], executions: [] };
   assert.throws(() => admitIntent(state), /capacity/);
   assert.equal(Object.keys(state.intents).length, 5000);
+});
+
+test("first-order coverage dates survive pruning old filled placements", () => {
+  const now = Date.now();
+  const first = new Date(now - RETENTION_MS - 86400000).toISOString();
+  const state = { intents: {}, placements: [
+    { desk: "j", symbol: "AAPL", status: "filled", reservedAt: first },
+    { desk: "j", symbol: "AAPL", status: "submitted", reservedAt: new Date(now).toISOString() },
+  ], executions: [] };
+  pruneState(state, now);
+  assert.equal(state.placements.length, 1);
+  assert.equal(state.firstOrders.j.AAPL, newYorkDay(Date.parse(first)));
+  pruneState(state, now + RETENTION_MS + 1);
+  assert.deepEqual(state.placements, []);
+  assert.equal(state.firstOrders.j.AAPL, newYorkDay(Date.parse(first)));
 });
 
 test("audit rotation remains bounded and HALT and ledger persist independently", () => {

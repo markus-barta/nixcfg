@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { ACCOUNT } from "./policy.mjs";
+import { ACCOUNT, DESKS, newYorkDay } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
 
 export const RETENTION_MS = 14 * 24 * 60 * 60_000;
@@ -19,7 +19,25 @@ const MAX_INTENTS = 5000;
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
 const MAX_AUDIT_BYTES = 1024 * 1024;
 
+// First-order dates survive placement retention; they contain no fill quantities.
+export function rememberFirstOrders(state) {
+  if (!state.firstOrders) {
+    state.firstOrders = {};
+    // Older ledgers may already have pruned their earliest placements.
+    state.ownershipHistoryFrom = state.initializedAt;
+  }
+  for (const row of state.placements) {
+    if (!DESKS.includes(row.desk) || !/^[A-Z][A-Z0-9.]{0,9}$/.test(row.symbol || "")) continue;
+    const timestamp = Date.parse(row.reservedAt);
+    const day = Number.isFinite(timestamp) ? newYorkDay(timestamp) : row.day;
+    if (!day) throw new Error("first-order ownership date is missing");
+    const dates = state.firstOrders[row.desk] ||= {};
+    if (!dates[row.symbol] || day < dates[row.symbol]) dates[row.symbol] = day;
+  }
+}
+
 export function pruneState(state, now = Date.now()) {
+  rememberFirstOrders(state);
   for (const [id, row] of Object.entries(state.intents)) {
     if (!["claimed", "uncertain"].includes(row.status) && now - Date.parse(row.finishedAt || row.claimedAt) > RETENTION_MS) delete state.intents[id];
   }
@@ -58,6 +76,7 @@ export function openLedger(root) {
       schema: STATE_SCHEMA,
       account: ACCOUNT,
       initializedAt: new Date().toISOString(),
+      firstOrders: {},
       intents: {},
       placements: [],
       executions: [],
