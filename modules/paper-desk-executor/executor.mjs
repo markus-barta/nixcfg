@@ -1,4 +1,4 @@
-import { ACCOUNT, newYorkDay, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
+import { ACCOUNT, newYorkDay, normalizeOrderRef, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
 import { assertBrokerRuntime, deskPositions, flattenOwned, freshMarks, freshUsdToEur, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
 import { rememberFirstOrders } from "./state.mjs";
 
@@ -30,8 +30,8 @@ function resolveUncertain(state, broker, clientId, replayedClients) {
       resolution = working ? "partial" : complete ? "filled" : fills.length ? "partial" : "absent";
     } else {
       if (!ref) continue;
-      const fills = state.executions.filter((row) => row.execution.orderRef === ref && Number(row.execution.clientId) === clientId);
-      const orders = broker.openOrders.filter((row) => row.orderRef === ref && row.clientId === clientId && !["cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase()));
+      const fills = state.executions.filter((row) => normalizeOrderRef(row.execution.orderRef) === normalizeOrderRef(ref) && Number(row.execution.clientId) === clientId);
+      const orders = broker.openOrders.filter((row) => normalizeOrderRef(row.orderRef) === normalizeOrderRef(ref) && row.clientId === clientId && !["cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase()));
       if (record.action === "flatten") {
         const closing = plan?.closing || [];
         const complete = closing.length && closing.every((leg) => fills.filter((row) => Number(row.contract.conId) === leg.conId && ["BOT", "BUY"].includes(row.execution.side) === (leg.side === "BUY")).reduce((sum, row) => sum + Number(row.execution.shares), 0) >= leg.quantity);

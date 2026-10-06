@@ -232,7 +232,11 @@ brake is optional (`nixcfg.paperDeskExecutor.blockOnInitDay`, default false).
 `GET /v1/health` reports daily usage and last-reconciled concurrent usage by desk.
 
 Place accepts `orderRef: "desk|yymmdd|thesis-id"` (CLI `--order-ref`); omitting
-it generates a desk tag from the intent ID and host New York day. Every bracket
+it generates a desk tag from the intent ID and host New York day. Desk names
+and the desk segment of orderRefs are case-insensitive and normalize to lowercase;
+the date and thesis segments remain unchanged. Known desks are `j`, `j2`, `j3`,
+`j4`, `j5`, `joe`, and `joel`; runtime ownership client IDs must still be configured.
+New orders stamp lowercase desk tags. Every bracket
 leg carries that tag. New desk orders share executor client 705; recon uses 700. Tagged positions/orders enforce desk ownership; legacy orders without a desk-formatted tag
 are attributed only through the configured historical desk client IDs.
 `cancel` accepts exactly one top-level `orderRef` or `orderId` (CLI

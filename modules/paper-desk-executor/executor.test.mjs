@@ -112,6 +112,86 @@ test("executeIntent places accepted tagged bracket on initialization day using d
   assert.equal(state.placements[0].status, "submitted"); assert.equal(h.broker.live.size, 0);
 });
 
+test("uppercase intents stamp lowercase desk segments on new orders", async () => {
+  const h = harness();
+  const result = await h.run(intent("place", { desk: "J", orderRef: "J|261006|S1-AVGO" }));
+  assert.equal(result.desk, "j");
+  assert.equal(h.broker.placed.length, 2);
+  assert.ok(h.broker.placed.every((row) => row.order.orderRef === "j|261006|S1-AVGO"));
+});
+
+test("recon attributes J|261006|S1-AVGO orders and positions to j", async () => {
+  for (const clientId of [702, 705]) {
+    const bought = { ...fill({ clientId, orderRef: "J|261006|S1-AVGO" }), contract: contract("AVGO") };
+    const h = harness({ history: [bought], executions: [bought], positions: [{ ...contract("AVGO"), position: 2 }], orders: [order({ ...contract("AVGO"), clientId, orderRef: "J|261006|S1-AVGO" })] });
+    const result = await h.run(intent("recon", { desk: "J" }));
+    assert.equal(result.deskPositions[0].desk, "j");
+    assert.equal(result.deskPositions[0].quantity, 2);
+    assert.equal(result.positions[0].desks[0].desk, "j");
+    assert.equal(result.openOrders[0].desk, "j");
+    assert.equal(result.executions[0].desk, "j");
+  }
+});
+
+test("cancel matches only the desk segment case-insensitively", async () => {
+  for (const brokerDesk of ["J", "j"]) for (const requestDesk of ["J", "j"]) {
+    const h = harness({ orders: [order({ orderRef: `${brokerDesk}|261006|S1-AVGO` })] });
+    const result = await h.run(intent("cancel", { desk: requestDesk, orderRef: `${requestDesk}|261006|S1-AVGO` }));
+    assert.equal(result.status, "ok");
+    assert.deepEqual(h.broker.cancelled, [30]);
+    assert.deepEqual(h.broker.placed, []);
+  }
+  for (const orderRef of ["JOE|261006|S1-AVGO", "UNKNOWN|261006|S1-AVGO", "J|261006|s1-avgo", "J|261005|S1-AVGO"]) {
+    const h = harness({ orders: [order({ orderRef })] });
+    await assert.rejects(h.run(intent("cancel", { orderRef: "j|261006|S1-AVGO" })), /cancel target/);
+    if (orderRef.startsWith("JOE|") || orderRef.startsWith("UNKNOWN|")) await assert.rejects(h.run(intent("cancel", { orderId: 30 })), /cancel target/);
+    assert.deepEqual(h.broker.cancelled, []);
+  }
+});
+
+test("flatten owns uppercase tags and leaves another desk's orders and shares alone", async () => {
+  for (const clientId of [702, 705]) {
+    const bought = fill({ clientId, orderRef: "J|261006|S1-AVGO" });
+    const other = fill({ execId: "joe.1", orderId: 21, orderRef: "JOE|261006|S1-AVGO", shares: 3 });
+    const h = harness({ history: [bought, other], positions: [{ ...contract(), position: 5 }], orders: [order({ clientId, orderRef: bought.execution.orderRef, action: "SELL", orderType: "STP" }), order({ orderId: 31, orderRef: other.execution.orderRef, action: "SELL", orderType: "STP", quantity: 3 })] });
+    const result = await h.run(intent("flatten", { desk: "J", orderRef: "J|261006|close-AVGO" }));
+    assert.equal(result.status, "ok");
+    assert.deepEqual(h.broker.cancelled, [30]);
+    assert.equal(h.broker.placed.length, 1);
+    assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+    assert.equal(h.broker.placed[0].order.orderRef, "j|261006|close-AVGO");
+    assert.deepEqual(h.broker.orders.map((row) => row.orderId), [31]);
+  }
+});
+
+test("case variants of cached and fresh ownership references do not conflict", async () => {
+  const bought = fill({ orderRef: "j|261006|S1-AVGO" });
+  const state = ledger(); state.executions = [{ ...bought, execution: { ...bought.execution, orderRef: "J|261006|S1-AVGO" } }];
+  const h = harness({ history: [bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
+  assert.equal((await h.run(intent("flatten"), state)).status, "ok");
+  assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+});
+
+test("flatten refuses unknown shared-client desk tags before any side effect", async () => {
+  const unknown = fill({ orderRef: "UNKNOWN|261006|S1-AVGO" });
+  const h = harness({ history: [unknown], positions: [{ ...contract(), position: 2 }], orders: [order({ orderRef: unknown.execution.orderRef })] });
+  await assert.rejects(h.run(intent("flatten")), /ownership attribution/);
+  assert.deepEqual(h.broker.cancelled, []);
+  assert.deepEqual(h.broker.placed, []);
+});
+
+test("recon resolves lowercase uncertain references against uppercase broker evidence", async () => {
+  for (const evidence of ["fill", "order"]) {
+    const state = ledger(); const id = "j-case-uncertain";
+    state.intents.set(id, { status: "uncertain", action: "place", claimedAt: new Date().toISOString(), orderRef: "j|261006|S1-AVGO", result: { status: "uncertain" } });
+    state.placements.push({ intentId: id, orderRef: "j|261006|S1-AVGO", desk: "j", symbol: "AAPL", status: "uncertain", side: "BUY", quantity: 2, day: newYorkDay(), reservedAt: new Date().toISOString() });
+    const bought = fill({ orderRef: "J|261006|S1-AVGO" });
+    const h = harness(evidence === "fill" ? { executions: [bought], positions: [{ ...contract(), position: 2 }] } : { orders: [order({ orderRef: "J|261006|S1-AVGO" })] });
+    await h.run(intent("recon"), state);
+    assert.equal(state.intents.get(id).resolution.status, evidence === "fill" ? "filled" : "partial");
+  }
+});
+
 test("place reconciles overlapping pusher and live fills without losing live ownership metadata", async () => {
   const time = new Date().toISOString();
   const history = {
