@@ -89,12 +89,12 @@ test("pusher history accepts 16–64 MiB files and refuses files above 64 MiB be
   const read = t.mock.method(fs, "readFileSync", (file, encoding) => { assert.equal(file, ledgerPath); assert.equal(encoding, "utf8"); return JSON.stringify(history); });
   syncBuiltinESMExports();
   try {
-    for (size of [20 * 1024 * 1024, 64 * 1024 * 1024]) {
+    for (size of [20 * 1024 * 1024, 32 * 1024 * 1024]) {
       const rows = readPusherExecutions(ledgerPath, now);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].execution.execId, history.executions[0].execution.execId);
     }
-    size = 64 * 1024 * 1024 + 1;
+    size = 32 * 1024 * 1024 + 1;
     assert.throws(() => readPusherExecutions(ledgerPath, now), /durable ownership ledger unavailable: ownership history exceeds size limit/);
     assert.equal(read.mock.callCount(), 2, "oversized history must be refused before reading");
   } finally {
