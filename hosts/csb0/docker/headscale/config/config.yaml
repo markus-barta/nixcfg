@@ -120,12 +120,13 @@ dns:
 unix_socket: /var/run/headscale/headscale.sock
 unix_socket_permission: "0770"
 
-# ACL policy (file-based)
-# Start with empty ACLs (allow all)
-# Future: configure granular access control
+# ACL policy (file-based). OPS-266 stage 1: policy.hujson is allow-all (* -> *:*),
+# the same reach as an empty path on this fleet. policy-stage2.hujson is on this
+# mount and unused until policy.path is switched to it.
+# Rollback: path: "" (no policy) or this stage-1 path.
 policy:
   mode: file
-  path: ""
+  path: "/etc/headscale/policy.hujson"
 
 # Disable Tailscale's logtail telemetry
 logtail:

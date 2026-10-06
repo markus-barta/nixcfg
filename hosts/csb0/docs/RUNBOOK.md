@@ -476,6 +476,39 @@ docker exec headscale headscale nodes list         # all nodes still there
 # rollback: docker stop headscale; restore the tgz into the volume; re-pin the old tag; switch
 ```
 
+### ACL policy (OPS-266)
+
+Stage 1 is `policy.path: "/etc/headscale/policy.hujson"`. That file is one accept rule, `* -> *:*`. On headscale 0.29 `*` is the tailnet ranges only (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). That is today's allow-all: every NixOS host is `useRoutingFeatures = "client"` (no subnet router, no exit node). `policy-stage2.hujson` is on the same `./headscale/config:/etc/headscale` mount and is not referenced.
+
+The config directory is a bind mount of the git checkout. A pull updates the files on disk. Headscale reads `policy.path` at process start (SIGHUP reloads the file at the path it already has; a path change needs a restart). `just switch` recreates the container only when the compose spec changes.
+
+```bash
+# Stage 1 — deploy, then prove every node still reaches what it did
+cd ~/Code/nixcfg && git pull
+docker exec headscale headscale configtest
+docker exec headscale headscale policy check --file /etc/headscale/policy.hujson
+docker restart headscale
+docker exec headscale headscale nodes list
+# markus, gerhard, amy: same nodes and ports as before this change
+
+# Stage 2 — only after that check. Point policy.path at the stage-2 file:
+#   path: "/etc/headscale/policy-stage2.hujson"
+# or replace the contents of policy.hujson with policy-stage2.hujson. Then:
+docker restart headscale
+docker exec headscale headscale policy check --file /etc/headscale/policy-stage2.hujson
+# markus@ and gerhard@ still reach *:* (today's reach; no subnet route or exit
+# node is configured). A later route needs an explicit dst CIDR, a later exit
+# node needs autogroup:internet:*, on the markus@/gerhard@ rule — 0.29 `*` does
+# not cover either.
+# amy@ reaches only tcp 100.64.0.6:8470 (paper desk). Not :4002, not ssh, not any other host.
+# return traffic is stateful; hsb0 needs no rule towards amy
+
+# Rollback — empty path (no policy, allow all) or stage 1, then restart
+#   path: ""
+#   path: "/etc/headscale/policy.hujson"
+docker restart headscale
+```
+
 ### Connect a New Device
 
 > **Note:** The `--authkey` does NOT need a `--user` flag on the client side.
