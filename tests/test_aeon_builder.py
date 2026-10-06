@@ -257,6 +257,46 @@ class PagingTests(unittest.TestCase):
         self.assertEqual(set(ab.ACTIVE_STATUSES), {"queued", "in_progress", "waiting", "pending", "requested"})
 
 
+class BaseProvisionTests(unittest.TestCase):
+    def provision_commands(self, fail_disable=False):
+        # Execute only the package setup with shell functions replacing every
+        # external command. Never run runner setup or touch the host's services.
+        script = (ROOT / "modules/aeon-builder/provision-base.sh").read_text()
+        setup, separator, _ = script.partition("# Runner user:")
+        self.assertTrue(separator, "package setup boundary missing")
+        stubs = """
+systemctl() {
+  printf 'systemctl'; printf '\\t%s' "$@"; printf '\\n'
+  if [[ "$1" == disable ]]; then return TEST_DISABLE_STATUS; fi
+}
+apt-get() { printf 'apt-get'; printf '\\t%s' "$@"; printf '\\n'; }
+"""
+        stubs = stubs.replace("TEST_DISABLE_STATUS", "1" if fail_disable else "0")
+        proc = subprocess.run(["bash", "-c", stubs + setup, "provision-test", "test-version", "test-sha"],
+                              capture_output=True, text=True)
+        return proc, [line.split("\t") for line in proc.stdout.splitlines()]
+
+    def test_base_stops_and_masks_automatic_apt_before_installing_ci_shells(self):
+        proc, commands = self.provision_commands()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        units = {"unattended-upgrades.service", "apt-daily.timer", "apt-daily-upgrade.timer"}
+        self.assertEqual(commands[0][:3], ["systemctl", "disable", "--now"])
+        self.assertEqual(set(commands[0][3:]), units)
+        self.assertEqual(commands[1], ["systemctl", "stop", "apt-daily.service", "apt-daily-upgrade.service"])
+        self.assertEqual(commands[2], ["apt-get", "-o", "DPkg::Lock::Timeout=300", "purge", "-y", "-q", "unattended-upgrades"])
+        self.assertEqual(commands[3][:2], ["systemctl", "mask"])
+        self.assertEqual(set(commands[3][2:]), units | {"apt-daily.service", "apt-daily-upgrade.service"})
+        self.assertEqual(commands[4], ["apt-get", "update", "-q"])
+        self.assertEqual(commands[5][:3], ["apt-get", "install", "-y"])
+        self.assertTrue({"fish", "zsh"} <= set(commands[5]))
+        self.assertEqual(len(commands), 6)
+
+    def test_failed_disable_prevents_package_operations(self):
+        proc, commands = self.provision_commands(fail_disable=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(len(commands), 1, "must fail before APT if automatic updates cannot be disabled")
+
+
 class RenderTests(unittest.TestCase):
     def test_availability_record_matches_schema_2(self):
         import datetime as dt
