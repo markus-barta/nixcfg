@@ -159,6 +159,52 @@ test("trailing-today history gap is covered by account-scoped executions and clo
   assert.equal(h.broker.live.size, 0);
 });
 
+test("twenty-minute-old history uses fresh execution coverage for the trailing span", async (t) => {
+  const now = Date.parse("2026-10-06T18:54:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  for (const gapped of [false, true]) for (const clientId of [702, 705]) for (const action of ["flatten", "cancel"]) {
+    const coverage = intradayCoverage();
+    coverage.target.toExclusive = new Date(now - 20 * 60000).toISOString();
+    coverage.gaps[0].toExclusive = coverage.target.toExclusive;
+    if (!gapped) { coverage.status = "complete"; coverage.gaps = []; }
+    const opening = fill({ clientId, time: "20261006 14:00:00" });
+    const sold = fill({ clientId, execId: "trailing-sale.1", side: "SLD", shares: 1, time: "20261006 14:50:00", orderId: 21 });
+    const h = harness({ coverage, history: [opening], executions: [sold], positions: [{ ...contract(), position: 1 }], orders: [order({ clientId })] });
+    const result = await h.run(intent(action, action === "cancel" ? { orderId: 30 } : {}));
+    assert.equal(result.status, "ok");
+    assert.deepEqual(h.broker.cancelled, [30]);
+    if (action === "flatten") {
+      assert.equal(h.broker.placed.length, 1);
+      assert.equal(h.broker.placed[0].order.totalQuantity, 1);
+      assert.equal(h.broker.placed[0].order.action, "SELL");
+    } else assert.deepEqual(h.broker.placed, []);
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("lagging history still refuses invalid targets and missing or stale execution receipts before mutation", async (t) => {
+  const now = Date.parse("2026-10-06T18:54:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  for (const fault of ["yesterday", "future", "invalid", "missing-receipt", "stale-receipt"]) {
+    const coverage = { status: "complete", gaps: [], target: { fromInclusive: new Date(now - 40 * 86400000).toISOString(), toExclusive: new Date(now - 20 * 60000).toISOString() } };
+    if (fault === "yesterday") coverage.target.toExclusive = new Date(now - 86400000).toISOString();
+    if (fault === "future") coverage.target.toExclusive = new Date(now + 1).toISOString();
+    if (fault === "invalid") coverage.target.toExclusive = "invalid";
+    for (const clientId of [702, 705]) for (const action of ["flatten", "cancel"]) {
+      // Own unfilled cancellation deliberately needs no ownership history.
+      if (clientId === 705 && action === "cancel") continue;
+      const h = harness({ coverage, history: [fill({ clientId })], positions: [{ ...contract(), position: 2 }], orders: [order({ clientId })], onSnapshot: (session) => {
+        if (fault === "missing-receipt") session.state.executionSnapshot = null;
+        if (fault === "stale-receipt") session.state.executionSnapshot = { ...session.state.executionSnapshot, requestedAt: new Date(now - 120001).toISOString(), completedAt: new Date(now - 120001).toISOString() };
+      } });
+      await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /ownership history target|snapshot.*missing or stale/);
+      assert.deepEqual(h.broker.cancelled, []);
+      assert.deepEqual(h.broker.placed, []);
+      assert.equal(h.broker.live.size, 0);
+    }
+  }
+});
+
 test("a gap crossing New York midnight refuses legacy flatten/cancel with no broker mutation", async () => {
   const coverage = intradayCoverage();
   coverage.gaps[0].fromInclusive = new Date(Date.parse(coverage.gaps[0].fromInclusive) - 1).toISOString();
