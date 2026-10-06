@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -112,9 +112,14 @@ async function post(url, body) {
   return { status: response.status, body: await response.json() };
 }
 
-async function runCli(args) {
+async function runCli(args, origin) {
   let stdout = "";
-  const code = await runClient(args, { fetch, write: (line) => { stdout += `${line}\n`; } });
+  const code = await runClient(args, { fetch: (url, options) => {
+    const target = new URL(url);
+    assert.equal(target.origin, "http://100.64.0.6:8470");
+    assert.equal(options.redirect, "error");
+    return fetch(`${origin}${target.pathname}${target.search}`, options);
+  }, write: (line) => { stdout += `${line}\n`; } });
   return { code, stdout, stderr: "" };
 }
 
@@ -336,13 +341,12 @@ test("the desk client prints JSON for health, place, and status", async (t) => {
       return okResult(intent);
     },
   });
-  const health = await runCli(["health", "--url", ctx.url]);
+  const health = await runCli(["health"], ctx.url);
   assert.equal(health.code, 0);
   assert.equal(JSON.parse(health.stdout).gatewayReachable, true);
 
   const place = await runCli([
     "place",
-    "--url", ctx.url,
     "--desk", "j",
     "--intent-id", "j-20261006-cli1",
     "--symbol", "aapl",
@@ -350,7 +354,7 @@ test("the desk client prints JSON for health, place, and status", async (t) => {
     "--quantity", "2",
     "--limit", "100",
     "--stop", "99",
-  ]);
+  ], ctx.url);
   assert.equal(place.code, 0);
   assert.equal(JSON.parse(place.stdout).status, "ok");
   assert.equal(seen.schema, "barta.paper-desk-intent.v2");
@@ -358,13 +362,13 @@ test("the desk client prints JSON for health, place, and status", async (t) => {
   assert.equal(seen.order.side, "BUY");
   assert.equal(seen.order.quantity, 2);
 
-  const status = await runCli(["status", "--url", ctx.url, "--intent-id", "j-20261006-cli1"]);
+  const status = await runCli(["status", "--intent-id", "j-20261006-cli1"], ctx.url);
   assert.equal(status.code, 0);
   assert.equal(JSON.parse(status.stdout).status, "ok");
   assert.equal(JSON.parse(status.stdout).ledgerStatus, "done");
 
   const denied = await start(t, { allowlist: ["100.64.0.14"] });
-  const forbidden = await runCli(["health", "--url", denied.url]);
+  const forbidden = await runCli(["health"], denied.url);
   assert.equal(forbidden.code, 1);
   assert.equal(JSON.parse(forbidden.stdout).reason, "source is not allowed");
 });
@@ -395,4 +399,85 @@ test("client treats a 200 rejection as failure with JSON reason", async () => {
   const code = await runClient(["health"], { fetch: async () => new Response(JSON.stringify({ status: "rejected", reason: "broker refused" }), { status: 200 }), write: (line) => { output = line; } });
   assert.equal(code, 1);
   assert.equal(JSON.parse(output).reason, "broker refused");
+});
+
+test("client rejects unknown flags, reserved identifiers, and path input before fetching", async () => {
+  let calls = 0;
+  for (const args of [
+    ...["__proto__", "constructor", "prototype", "unknown", "url"].map((key) => ["health", `--${key}`, "http://127.0.0.1:9000"]),
+    ...["__proto__", "constructor", "prototype", "../health", "short", "https://example.com"].map((id) => ["status", "--intent-id", id]),
+    ["health", "--reason", "one", "--reason", "two"],
+    ["health", "--reason"],
+  ]) {
+    const code = await runClient(args, { fetch: async () => { calls++; throw new Error("must not fetch"); }, write: () => {} });
+    assert.notEqual(code, 0);
+  }
+  assert.equal(calls, 0);
+});
+
+test("client pins the origin and paths and permits only a validated environment override", async () => {
+  const previous = process.env.PAPER_DESK_EXECUTOR_ORIGIN;
+  const requests = [];
+  const options = { fetch: async (url, init) => {
+    requests.push({ url, init });
+    return new Response('{"status":"ok"}', { status: 200 });
+  }, write: () => {} };
+  try {
+    delete process.env.PAPER_DESK_EXECUTOR_ORIGIN;
+    assert.equal(await runClient(["health"], options), 0);
+    assert.equal(requests.at(-1).url, "http://100.64.0.6:8470/v1/health");
+    process.env.PAPER_DESK_EXECUTOR_ORIGIN = "http://100.64.255.254:1234";
+    assert.equal(await runClient(["status", "--intent-id", "safe-id:123"], options), 0);
+    assert.equal(requests.at(-1).url, "http://100.64.255.254:1234/v1/intents?intentId=safe-id%3A123");
+    assert.equal(requests.at(-1).init.redirect, "error");
+    assert.equal(await runClient(["halt", "--reason", "stop"], options), 0);
+    assert.equal(requests.at(-1).url, "http://100.64.255.254:1234/v1/halt");
+    const count = requests.length;
+    for (const origin of ["", "http://localhost:8470", "http://127.0.0.1:8470", "http://169.254.169.254:80", "https://100.64.0.6:8470", "http://100.65.0.6:8470", "http://100.64.256.1:8470", "http://100.64.1.256:8470", "http://100.64.00.6:8470", "http://100.64.0.6:0", "http://100.64.0.6:65536", "http://100.64.0.6:8470/", "http://100.64.0.6:8470@evil.test", "http://100.64.0.6:8470?x=1", "http://100.64.0.6:8470#fragment"]) {
+      process.env.PAPER_DESK_EXECUTOR_ORIGIN = origin;
+      assert.equal(await runClient(["health"], options), 2);
+    }
+    assert.equal(requests.length, count);
+  } finally {
+    if (previous === undefined) delete process.env.PAPER_DESK_EXECUTOR_ORIGIN;
+    else process.env.PAPER_DESK_EXECUTOR_ORIGIN = previous;
+  }
+});
+
+test("reserved intent keys are rejected before execution", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const ctx = await start(t);
+  for (const key of ["__proto__", "constructor", "prototype"]) {
+    for (const body of [valid({ intentId: key }), valid({ desk: key }), valid({ order: { ...valid().order, symbol: key } }), valid({ orderRef: `j|261006|${key}` })]) {
+      const response = await post(ctx.url, body);
+      assert.equal(response.status, 400);
+      assert.equal(response.body.code, "invalid_intent");
+    }
+  }
+  assert.equal(ctx.calls(), 0);
+});
+
+test("internal errors are recorded in audit and journal while clients receive stable errors", async (t) => {
+  const logged = [];
+  t.mock.method(console, "error", (error) => logged.push(error));
+  const error = new Error("private diagnostic /state/internal-file at internal:123");
+  const ctx = await start(t, { execute: async () => { throw error; } });
+  const intent = valid();
+  const response = await post(ctx.url, intent);
+  assert.equal(response.status, 422);
+  assert.equal(response.body.code, "executor_error");
+  assert.equal(response.body.reason, "executor operation failed");
+  assert.equal(JSON.stringify(response.body).includes("private diagnostic"), false);
+  assert.equal(logged.includes(error), true);
+  const events = readFileSync(openLedger(ctx.stateDir).auditPath, "utf8").trim().split("\n").map((row) => JSON.parse(row));
+  assert.equal(events.find((row) => row.event === "executor_error").error.stack, error.stack);
+  const replay = await post(ctx.url, intent);
+  assert.equal(replay.body.code, "executor_error");
+  const broken = await start(t);
+  const ledger = openLedger(broken.stateDir);
+  // Force a persistence failure with invalid JSON, without depending on permissions.
+  writeFileSync(ledger.statePath, "private invalid JSON");
+  const health = await fetch(`${broken.url}/v1/health`);
+  assert.equal(health.status, 500);
+  assert.deepEqual(await health.json(), { status: "rejected", code: "executor_error", reason: "executor operation failed" });
 });

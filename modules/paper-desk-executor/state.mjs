@@ -1,17 +1,20 @@
 import {
   appendFileSync,
   closeSync,
-  existsSync,
+  constants,
+  fstatSync,
   fsyncSync,
-  statSync,
+  linkSync,
   openSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
-import { ACCOUNT, DESKS, newYorkDay } from "./policy.mjs";
+import { ACCOUNT, newYorkDay, validateKey } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
 
 export const RETENTION_MS = 14 * 24 * 60 * 60_000;
@@ -19,24 +22,43 @@ const MAX_INTENTS = 5000;
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
 const MAX_AUDIT_BYTES = 1024 * 1024;
 
+function dictionary(value, kind) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`invalid ${kind} dictionary`);
+  const result = Object.create(null);
+  for (const [key, row] of Object.entries(value)) result[validateKey(key, kind)] = row;
+  return result;
+}
+
+function firstOrderDictionary(value) {
+  const result = dictionary(value, "desk");
+  for (const desk of Object.keys(result)) result[desk] = dictionary(result[desk], "symbol");
+  return result;
+}
+
 // First-order dates survive placement retention; they contain no fill quantities.
 export function rememberFirstOrders(state) {
   if (!state.firstOrders) {
-    state.firstOrders = {};
+    state.firstOrders = Object.create(null);
     // Older ledgers may already have pruned their earliest placements.
     state.ownershipHistoryFrom = state.initializedAt;
   }
+  state.firstOrders = firstOrderDictionary(state.firstOrders);
   for (const row of state.placements) {
-    if (!DESKS.includes(row.desk) || !/^[A-Z][A-Z0-9.]{0,9}$/.test(row.symbol || "")) continue;
+    if (row.desk === undefined && row.symbol === undefined) continue;
+    const desk = validateKey(row.desk, "desk");
+    const symbol = validateKey(row.symbol, "symbol");
+    if (row.intentId !== undefined) validateKey(row.intentId, "intentId");
+    if (row.orderRef !== undefined) validateKey(row.orderRef, "orderRef");
     const timestamp = Date.parse(row.reservedAt);
     const day = Number.isFinite(timestamp) ? newYorkDay(timestamp) : row.day;
     if (!day) throw new Error("first-order ownership date is missing");
-    const dates = state.firstOrders[row.desk] ||= {};
-    if (!dates[row.symbol] || day < dates[row.symbol]) dates[row.symbol] = day;
+    const dates = state.firstOrders[desk] ||= Object.create(null);
+    if (!dates[symbol] || day < dates[symbol]) dates[symbol] = day;
   }
 }
 
 export function pruneState(state, now = Date.now()) {
+  state.intents = dictionary(state.intents, "intentId");
   rememberFirstOrders(state);
   for (const [id, row] of Object.entries(state.intents)) {
     if (!["claimed", "uncertain"].includes(row.status) && now - Date.parse(row.finishedAt || row.claimedAt) > RETENTION_MS) delete state.intents[id];
@@ -51,17 +73,24 @@ export function admitIntent(state) {
 
 const STATE_SCHEMA = "barta.paper-desk-executor-state.v1";
 
-function writeAtomic(filePath, body) {
-  const temporary = `${filePath}.new`;
-  const handle = openSync(temporary, "w", 0o600);
+function writeAtomic(filePath, body, { exclusive = false } = {}) {
+  const temporary = `${filePath}.${randomUUID()}.new`;
+  const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try {
-    writeFileSync(handle, body);
-    fsyncSync(handle);
+    try {
+      writeFileSync(handle, body);
+      fsyncSync(handle);
+    } finally {
+      closeSync(handle);
+    }
+    // A hard link publishes a fully written initial ledger without replacing
+    // a ledger concurrently created by another process.
+    if (exclusive) linkSync(temporary, filePath);
+    else renameSync(temporary, filePath);
   } finally {
-    closeSync(handle);
+    try { unlinkSync(temporary); } catch (error) { if (error.code !== "ENOENT") throw error; }
   }
-  renameSync(temporary, filePath);
-  const directory = openSync(path.dirname(filePath), "r");
+  const directory = openSync(path.dirname(filePath), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
@@ -76,8 +105,8 @@ export function openLedger(root) {
       schema: STATE_SCHEMA,
       account: ACCOUNT,
       initializedAt: new Date().toISOString(),
-      firstOrders: {},
-      intents: {},
+      firstOrders: Object.create(null),
+      intents: Object.create(null),
       placements: [],
       executions: [],
     };
@@ -86,13 +115,27 @@ export function openLedger(root) {
   function audit(event) {
     let row = `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`;
     if (Buffer.byteLength(row) > 65536) row = `${JSON.stringify({ at: new Date().toISOString(), event: event.event, intentId: event.intentId, status: event.status, resultOmitted: "large result retained in ledger" })}\n`;
-    if (existsSync(auditPath) && statSync(auditPath).size + Buffer.byteLength(row) > MAX_AUDIT_BYTES) renameSync(auditPath, `${auditPath}.1`);
-    const handle = openSync(auditPath, "a", 0o600);
+    function openAudit() {
+      const handle = openSync(auditPath, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
+      if (!fstatSync(handle).isFile()) {
+        closeSync(handle);
+        throw new Error("executor audit is not a regular file");
+      }
+      return handle;
+    }
+    let handle = openAudit();
     try {
+      const info = fstatSync(handle);
+      if (info.size + Buffer.byteLength(row) > MAX_AUDIT_BYTES) {
+        renameSync(auditPath, `${auditPath}.1`);
+        closeSync(handle);
+        handle = undefined;
+        handle = openAudit();
+      }
       appendFileSync(handle, row);
       fsyncSync(handle);
     } finally {
-      closeSync(handle);
+      if (handle !== undefined) closeSync(handle);
     }
   }
 
@@ -104,25 +147,45 @@ export function openLedger(root) {
   }
 
   function load() {
-    if (!existsSync(statePath)) {
-      const state = initialState();
-      save(state);
-      audit({ event: "ledger_initialized", initializedAt: state.initializedAt });
-      return state;
+    let handle;
+    try {
+      handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const initial = initialState();
+      try {
+        writeAtomic(statePath, `${JSON.stringify(initial)}\n`, { exclusive: true });
+        audit({ event: "ledger_initialized", initializedAt: initial.initializedAt });
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+      handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     }
-    if (statSync(statePath).size > MAX_STATE_BYTES) throw new Error("executor ledger exceeds size limit");
-    const value = JSON.parse(readFileSync(statePath, "utf8"));
+    let value;
+    try {
+      const info = fstatSync(handle);
+      if (!info.isFile() || info.size > MAX_STATE_BYTES) throw new Error("executor ledger exceeds size limit or is not a regular file");
+      value = JSON.parse(readFileSync(handle, "utf8"));
+    } finally { closeSync(handle); }
     if (value?.schema !== STATE_SCHEMA || value?.account !== ACCOUNT
         || !Number.isFinite(Date.parse(value.initializedAt)) || !value.intents
         || Array.isArray(value.intents) || !Array.isArray(value.placements)
         || !Array.isArray(value.executions)) {
       throw new Error("executor state is invalid");
     }
+    value.intents = dictionary(value.intents, "intentId");
+    rememberFirstOrders(value);
     return value;
   }
 
   function haltBody() {
-    try { return readFileSync(haltPath, "utf8"); } catch (error) {
+    try {
+      const handle = openSync(haltPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        if (!fstatSync(handle).isFile()) throw new Error("local HALT is not a regular file");
+        return readFileSync(handle, "utf8");
+      } finally { closeSync(handle); }
+    } catch (error) {
       if (error?.code === "ENOENT") return "";
       throw error;
     }

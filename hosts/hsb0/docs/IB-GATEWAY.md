@@ -188,7 +188,16 @@ Host-local executor for paper intents. Trading desks on the tailnet submit
 JSON; hsb0 checks the Stage-0 brakes and is the process that talks to the
 paper Gateway for those intents. There is no API key and no GitHub queue.
 The desk CLI is `modules/paper-desk-executor/client/paper-intent.mjs`
-(`paper-intent recon|place|flatten|cancel|status|health|halt --url http://100.64.0.6:8470`).
+(`paper-intent recon|place|flatten|cancel|status|health|halt`). Its fixed default
+origin is `http://100.64.0.6:8470`; only `PAPER_DESK_EXECUTOR_ORIGIN` may override
+it, using an exact `http://100.64.x.y:port` origin (IPv4 octets 0–255, port
+1–65535). The CLI rejects unknown flags, including `--url`, and redirects.
+Status uses `GET /v1/intents?intentId=ID`; the existing `/v1/intents/ID` route
+remains available. IDs are 8–64 ASCII characters, start with an alphanumeric
+character, and otherwise allow alphanumerics, `.`, `_`, `:`, and `-`.
+Dictionary keys reject `__proto__`, `constructor`, and `prototype` (including
+order reference thesis IDs). Server exceptions return a stable `code` and
+`reason`; full diagnostics stay in the journal and local audit log.
 
 | Item    | Value                                                                                    |
 | ------- | ---------------------------------------------------------------------------------------- |
