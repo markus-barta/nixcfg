@@ -257,6 +257,98 @@ class PagingTests(unittest.TestCase):
         self.assertEqual(set(ab.ACTIVE_STATUSES), {"queued", "in_progress", "waiting", "pending", "requested"})
 
 
+class BaseProvisionTests(unittest.TestCase):
+    units = ("unattended-upgrades.service", "apt-daily.timer", "apt-daily-upgrade.timer",
+             "apt-daily.service", "apt-daily-upgrade.service")
+
+    def provision_commands(self, units=None, package_status="installed", fail=""):
+        # Execute only the package setup with shell functions replacing every
+        # external command. Never run runner setup or touch the host's services.
+        script = (ROOT / "modules/aeon-builder/provision-base.sh").read_text()
+        setup, separator, _ = script.partition("# Runner user:")
+        self.assertTrue(separator, "package setup boundary missing")
+        stubs = """
+exec 3>&1
+record() { printf '%s' "$1" >&3; shift; printf '\\t%s' "$@" >&3; printf '\\n' >&3; }
+systemctl() {
+  record systemctl "$@"
+  if [[ "$TEST_FAIL" == "systemctl $1" ]]; then return 5; fi
+  if [[ "$1" == list-unit-files ]]; then
+    case " $TEST_UNITS " in
+      *" $4 "*) printf '%s enabled\\n' "$4" ;;
+    esac
+  fi
+  return 0
+}
+dpkg-query() {
+  record dpkg-query "$@"
+  if [[ "$TEST_FAIL" == dpkg-query ]]; then return 2; fi
+  if [[ "$TEST_PACKAGE_STATUS" == absent ]]; then return 1; fi
+  printf '%s' "$TEST_PACKAGE_STATUS"
+}
+apt-get() {
+  record apt-get "$@"
+  if [[ " $* " == *" $TEST_FAIL "* ]]; then return 100; fi
+  return 0
+}
+"""
+        test_env = {**os.environ, "TEST_UNITS": " ".join(self.units if units is None else units),
+                    "TEST_PACKAGE_STATUS": package_status, "TEST_FAIL": fail}
+        proc = subprocess.run(["bash", "-c", stubs + setup, "provision-test", "test-version", "test-sha"],
+                              capture_output=True, text=True, env=test_env)
+        return proc, [line.split("\t") for line in proc.stdout.splitlines()]
+
+    def operations(self, commands):
+        return [cmd for cmd in commands if cmd[0] != "dpkg-query" and cmd[1] != "list-unit-files"]
+
+    def test_base_stops_and_masks_automatic_apt_before_installing_ci_shells(self):
+        proc, commands = self.provision_commands()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        operations = self.operations(commands)
+        expected = [["systemctl", "disable", "--now", unit] for unit in self.units[:3]]
+        expected += [["systemctl", "stop", unit] for unit in self.units[3:]]
+        expected += [["apt-get", "-o", "DPkg::Lock::Timeout=300", "purge", "-y", "-q", "unattended-upgrades"],
+                     ["systemctl", "mask", *self.units], ["apt-get", "update", "-q"]]
+        self.assertEqual(operations[:-1], expected)
+        self.assertEqual(operations[-1][:3], ["apt-get", "install", "-y"])
+        self.assertTrue({"fish", "zsh"} <= set(operations[-1]))
+
+    def test_missing_package_and_units_still_mask_and_install(self):
+        for package_status in ("absent", "config-files", "not-installed"):
+            with self.subTest(package_status=package_status):
+                proc, commands = self.provision_commands(units=(), package_status=package_status)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                operations = self.operations(commands)
+                self.assertEqual(operations[:-1], [["systemctl", "mask", *self.units],
+                                                  ["apt-get", "update", "-q"]])
+                self.assertEqual(operations[-1][:3], ["apt-get", "install", "-y"])
+                self.assertTrue({"fish", "zsh"} <= set(operations[-1]))
+
+    def test_cleanup_only_targets_present_units(self):
+        present = ("apt-daily.timer", "apt-daily-upgrade.service")
+        proc, commands = self.provision_commands(units=present, package_status="absent")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        operations = self.operations(commands)
+        self.assertEqual(operations[:3], [["systemctl", "disable", "--now", present[0]],
+                                         ["systemctl", "stop", present[1]],
+                                         ["systemctl", "mask", *self.units]])
+
+    def test_real_errors_abort_provisioning(self):
+        for failure, failed_command, status in (("systemctl list-unit-files", ["systemctl", "list-unit-files"], 5),
+                                                ("systemctl disable", ["systemctl", "disable"], 5),
+                                                ("systemctl stop", ["systemctl", "stop"], 5),
+                                                ("dpkg-query", ["dpkg-query"], 2),
+                                                ("purge", ["apt-get", "-o"], 100),
+                                                ("systemctl mask", ["systemctl", "mask"], 5),
+                                                ("update", ["apt-get", "update"], 100),
+                                                ("install", ["apt-get", "install"], 100)):
+            with self.subTest(failure=failure):
+                proc, commands = self.provision_commands(fail=failure)
+                self.assertEqual(proc.returncode, status, proc.stderr)
+                self.assertEqual(commands[-1][:len(failed_command)], failed_command,
+                                 "must stop at the failing command")
+
+
 class RenderTests(unittest.TestCase):
     def test_availability_record_matches_schema_2(self):
         import datetime as dt
