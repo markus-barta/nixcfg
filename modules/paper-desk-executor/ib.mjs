@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 
-import { ACCOUNT, KEEP, PAPER_PORT, DESKS, newYorkDay, belongsToDesk, assertSideEffect, mergeExecutions, ownedPositions } from "./policy.mjs";
+import { ACCOUNT, KEEP, PAPER_PORT, DESKS, newYorkDay, belongsToDesk, normalizeOrderRef, assertSideEffect, mergeExecutions, ownedPositions } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
 
 // The runner deliberately reuses only the pinned pusher image's Node runtime and
@@ -345,7 +345,7 @@ function ownershipEvidence(session, history, options) {
   const key = (execution, identity) => `${Number(execution.orderId)}:${identity}`;
   const addRef = (orderKey, orderRef) => {
     const refs = refsByOrder.get(orderKey) || new Set();
-    refs.add(orderRef); refsByOrder.set(orderKey, refs);
+    refs.add(normalizeOrderRef(orderRef)); refsByOrder.set(orderKey, refs);
   };
   for (const known of [...stateExecutions, ...rows]) {
     if (known.execution.acctNumber === ACCOUNT && Number(known.execution.clientId) === clientId && taggedDesk(known.execution)) addRef(key(known.execution, `conId:${Number(known.contract.conId)}`), known.execution.orderRef);
@@ -441,7 +441,7 @@ async function cancelOwnedOrders(orders, options) {
         if (history && (intent.action !== "cancel" || clientId !== executorClientId)) freshExecutionSnapshot(session, history.coverage);
         for (const order of candidates.filter((row) => row.clientId === clientId)) {
           const current = session.state.openOrders.find((row) => row.orderId === order.orderId && row.clientId === clientId);
-          if (!current || !working(current) || !belongsToDesk(current, desk, ownershipClientIds, executorClientId) || current.orderRef !== order.orderRef) throw new Error("cancel ownership/order changed during reconciliation");
+          if (!current || !working(current) || !belongsToDesk(current, desk, ownershipClientIds, executorClientId) || normalizeOrderRef(current.orderRef) !== normalizeOrderRef(order.orderRef)) throw new Error("cancel ownership/order changed during reconciliation");
           const resolved = await resolveStock(session, current.symbol);
           assertContract(resolved.contract, order);
           const status = [...session.state.statuses].reverse().find((row) => row.orderId === order.orderId);
@@ -481,7 +481,7 @@ async function cancelDeskOrders(options) {
   const recon = await connect(reconClientId, { ordersOnly: true });
   try {
     cleanSnapshot(recon);
-    selected = recon.state.openOrders.filter((row) => (!intent.symbol || row.symbol === intent.symbol) && (intent.orderId ? row.orderId === intent.orderId : row.orderRef === intent.orderRef));
+    selected = recon.state.openOrders.filter((row) => (!intent.symbol || row.symbol === intent.symbol) && (intent.orderId ? row.orderId === intent.orderId : normalizeOrderRef(row.orderRef) === intent.orderRef));
     if (!selected.length || selected.some((row) => !working(row) || !belongsToDesk(row, desk, ownershipClientIds, clientId))) throw new Error("cancel target is not this desk's working order");
     await preflightOrders(recon, selected);
   } finally { recon.close(); }

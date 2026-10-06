@@ -3,12 +3,15 @@ import test from "node:test";
 
 import {
   activeHalt,
+  belongsToDesk,
+  brakeUsage,
   evaluatePlacement,
   newYorkDay,
   mergeExecutions,
   ownedPositions,
   parseIntent,
   placementBudget,
+  thesisKey,
 } from "./policy.mjs";
 
 function valid(overrides = {}) {
@@ -39,6 +42,47 @@ test("accepts a bounded protective paper bracket", () => {
   const intent = parseIntent(valid());
   assert.deepEqual(placementBudget(intent.order, 0.9), { riskEur: 1.84, notionalEur: 183.6 });
   assert.equal(evaluatePlacement(intent, emptySnapshot, emptyState(), { stockType: "COMMON", usdToEur: 0.9 }).riskEur, 1.84);
+});
+
+test("desk identity normalizes any case without changing date or thesis", () => {
+  for (const desk of ["J", "J2", "J3", "J4", "J5", "JoE", "JoEl"]) {
+    const parsed = parseIntent(valid({ desk, orderRef: `${desk}|261006|S1-AVGO` }));
+    assert.equal(parsed.desk, desk.toLowerCase());
+    assert.equal(parsed.orderRef, `${desk.toLowerCase()}|261006|S1-AVGO`);
+    assert.ok(parseIntent(valid({ desk })).orderRef.startsWith(`${desk.toLowerCase()}|`));
+  }
+  assert.equal(parseIntent(valid({ desk: "J", orderRef: "j|261006|S1-AVGO" })).orderRef, "j|261006|S1-AVGO");
+  assert.equal(parseIntent(valid({ desk: "j", orderRef: "J|261006|S1-AVGO" })).desk, "j");
+  assert.throws(() => parseIntent(valid({ desk: "UNKNOWN" })), /not authorized/);
+  assert.throws(() => parseIntent(valid({ orderRef: "UNKNOWN|261006|S1-AVGO" })), /invalid/);
+  assert.throws(() => parseIntent(valid({ orderRef: "JOE|261006|S1-AVGO" })), /another desk/);
+  assert.equal(thesisKey("J|261006|S1-AVGO"), "j|S1-AVGO");
+  assert.notEqual(thesisKey("J|261006|S1-AVGO"), thesisKey("j|261006|s1-avgo"));
+});
+
+test("uppercase broker tags preserve desk and client ownership boundaries", () => {
+  for (const clientId of [702, 705]) {
+    const row = { clientId, orderRef: "J|261006|S1-AVGO" };
+    assert.equal(belongsToDesk(row, "j", [702], 705), true);
+    assert.equal(belongsToDesk(row, "joe", [702], 705), false);
+    assert.equal(belongsToDesk({ ...row, orderRef: "UNKNOWN|261006|S1-AVGO" }, "j", [702], 705), false);
+  }
+  assert.equal(belongsToDesk({ clientId: 999, orderRef: "J|261006|S1-AVGO" }, "j", [702], 705), false);
+  assert.equal(belongsToDesk({ clientId: 702, orderRef: "UNKNOWN|261006|S1-AVGO" }, "unknown", [702], 705), false);
+  assert.equal(belongsToDesk({ clientId: 702 }, "unknown", [702], 705), false);
+});
+
+test("j2, j3 and j4 receive independent daily and concurrent brakes", () => {
+  const opts = { stockType: "COMMON", usdToEur: 0.9 };
+  for (const desk of ["j2", "j3", "j4"]) {
+    const parsed = parseIntent(valid({ desk: desk.toUpperCase() }));
+    const state = { ...emptyState(), placements: [1, 2].map(() => ({ desk, day: newYorkDay(), riskEur: 1, status: "submitted" })) };
+    assert.throws(() => evaluatePlacement(parsed, emptySnapshot, state, opts), /daily new-order/);
+    assert.equal(brakeUsage(state).perDesk[desk].newToday, 2);
+    assert.equal(evaluatePlacement(parseIntent(valid()), emptySnapshot, state, opts).riskEur, 1.84);
+    const deskPositions = ["MSFT", "NVDA", "META"].map((symbol) => ({ desk, symbol, quantity: 1 }));
+    assert.throws(() => evaluatePlacement(parsed, { ...emptySnapshot, deskPositions }, emptyState(), opts), /desk concurrent/);
+  }
 });
 
 test("KEEP, stale, live-like, and weak-stop intents fail closed", () => {
@@ -206,6 +250,6 @@ test("uncertain placement blocks its symbol and thesis across New York days", ()
   const state = { ...emptyState(), placements: [{ desk: "j", symbol: "AAPL", orderRef: "j|261005|different-thesis", status: "uncertain" }] };
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, state, { stockType: "COMMON", usdToEur: 0.9 }), /piling/);
   state.placements[0].symbol = "AMD";
-  state.placements[0].orderRef = "j|261005|thesis-1";
+  state.placements[0].orderRef = "J|261005|thesis-1";
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, state, { stockType: "COMMON", usdToEur: 0.9 }), /unresolved/);
 });
