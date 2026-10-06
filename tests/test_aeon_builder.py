@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("aeon_builder", ROOT / "modules/aeon-builder/aeon_builder.py")
@@ -22,14 +23,15 @@ CFG = {
     "repo": REPO,
     "label": "mbp2606",
     "runnerLabels": ["self-hosted", "Linux", "ARM64", "mbp2606"],
-    "classLabels": {"push": "mbp2606-push", "workflow_dispatch": "mbp2606-dispatch"},
-    "events": ["push", "workflow_dispatch"],
+    "classLabels": {"push": "mbp2606-push", "workflow_dispatch": "mbp2606-dispatch",
+                    "pull_request": "mbp2606-pr", "merge_group": "mbp2606-mq"},
+    "events": ["push", "workflow_dispatch", "pull_request", "merge_group"],
     "workflows": [".github/workflows/ci.yml", ".github/workflows/test-runner-smoke.yml"],
     "branch": "main",
     "cacheWriteEvents": ["push"],
     "slots": 4,
     "slotCpus": 4,
-    "slotMemoryGiB": 7,
+    "slotMemoryGiB": 6,
     "slotDiskGiB": 60,
     "cacheDiskGiB": 60,
     "sshPortBase": 41020,
@@ -69,18 +71,38 @@ class AdmissionTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("head repository", reason)
 
-    def test_same_repo_pull_request_is_rejected(self):
-        self.assertFalse(self.verify(run(event="pull_request"))[0])
-        self.assertFalse(self.verify(run(event="pull_request_target"))[0])
+    def test_pr_and_merge_group_skip_branch_and_reachability_checks(self):
+        for event, branch in (("pull_request", "work/x"), ("merge_group", "gh-readonly-queue/main/pr-9-test")):
+            with self.subTest(event=event):
+                reachability = Mock(side_effect=AssertionError("must not check reachability"))
+                self.assertEqual(ab.verify_run(run(event=event, head_branch=branch), CFG, reachability), (True, "ok"))
+                reachability.assert_not_called()
 
-    def test_merge_group_schedule_and_other_workflows_are_rejected(self):
-        self.assertFalse(self.verify(run(event="merge_group"))[0])
-        self.assertFalse(self.verify(run(event="schedule"))[0])
+    def test_unconfigured_events_and_other_workflows_are_rejected(self):
+        for event in ("pull_request_target", "schedule", "unknown"):
+            self.assertFalse(self.verify(run(event=event))[0], event)
         self.assertFalse(self.verify(run(path=".github/workflows/release.yml"))[0])
 
-    def test_branch_and_reachability(self):
-        self.assertFalse(self.verify(run(head_branch="work/x"))[0])
-        self.assertFalse(self.verify(run(), on_branch=False)[0])
+    def test_push_and_dispatch_still_require_branch_and_reachability(self):
+        for event in ("push", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.verify(run(event=event, head_branch="work/x")), (False, "branch work/x"))
+                self.assertEqual(self.verify(run(event=event), on_branch=False), (False, "head sha not reachable from branch"))
+                reachability = Mock(return_value=True)
+                self.assertEqual(ab.verify_run(run(event=event), CFG, reachability), (True, "ok"))
+                reachability.assert_called_once_with(SHA)
+
+    def test_pr_and_merge_group_keep_other_admission_checks(self):
+        for event in ("pull_request", "merge_group"):
+            for override in ({"repository": {"full_name": "evil/paimos"}},
+                             {"head_repository": {"full_name": "evil/paimos"}},
+                             {"repository": None}, {"head_repository": None},
+                             {"path": ".github/workflows/release.yml"}, {"path": None},
+                             {"head_sha": "z" * 40}, {"head_sha": "a" * 39}, {"head_sha": None}):
+                with self.subTest(event=event, override=override):
+                    self.assertFalse(self.verify(run(event=event, head_branch="work/x", **override))[0])
+            cfg = {**CFG, "events": ["push", "workflow_dispatch"]}
+            self.assertFalse(ab.verify_run(run(event=event), cfg, lambda sha: True)[0])
 
     def test_missing_metadata_rejects(self):
         for key in ("repository", "head_repository", "event", "path", "head_branch", "head_sha"):
@@ -98,7 +120,35 @@ class AdmissionTests(unittest.TestCase):
 
     def test_only_pushes_get_the_trusted_cache(self):
         self.assertTrue(ab.uses_cache_disk(run(), CFG))
-        self.assertFalse(ab.uses_cache_disk(run(event="workflow_dispatch"), CFG))
+        for event in ("workflow_dispatch", "pull_request", "merge_group"):
+            self.assertFalse(ab.uses_cache_disk(run(event=event), CFG), event)
+
+
+@unittest.skipUnless(shutil.which("nix-instantiate"), "Nix is needed to check the host policy")
+class HostConfigTests(unittest.TestCase):
+    def test_host_policy_and_module_labels_match_the_exercised_config(self):
+        # Evaluate just the explicit host policy and module defaults offline;
+        # no flake inputs, Home Manager activation, or NixOS build is needed.
+        expr = '''let
+          root = builtins.toPath %s;
+          host = import (root + "/hosts/mbp2606/home-ci.nix") { pkgs = {}; };
+          module = import (root + "/modules/aeon-builder") {
+            config = {}; pkgs = {}; lib.mkOption = x: x;
+          };
+          options = module.options.services.aeonBuilder;
+        in {
+          inherit (host.services.aeonBuilder) enable events cacheWriteEvents slots slotCpus slotMemoryGiB;
+          classLabels = options.classLabels.default;
+          runnerLabels = options.runnerLabels.default;
+          repo = options.repo.default;
+          branch = options.branch.default;
+        }''' % json.dumps(str(ROOT))
+        proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        cfg = json.loads(proc.stdout)
+        self.assertTrue(cfg.pop("enable"))
+        self.assertEqual(cfg, {key: CFG[key] for key in cfg})
 
 
 class RulesetTests(unittest.TestCase):
@@ -228,6 +278,8 @@ class RenderTests(unittest.TestCase):
         self.assertIn(".ssh.localPort = 41022", expr)
         self.assertIn('"name": "aeon-cache-2"', expr)
         self.assertIn(".additionalDisks = []", ab.clone_expression(CFG, 0, None))
+        self.assertIn(".cpus = 4", expr)
+        self.assertIn('.memory = "6GiB"', expr)
 
     def test_pf_rules_block_private_ranges_for_ci_only(self):
         rules = ab.pf_rules(CFG, "ci")
@@ -293,6 +345,58 @@ class HookTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("aeon-hook allow run=42", self.log.read_text())
         self.assertIn("run=42", (self.tmp / "admitted").read_text())
+
+    def test_pr_and_merge_queue_refs_are_admitted(self):
+        (self.tmp / "cache-ready").write_text("")
+        for event, ref in (("pull_request", "refs/pull/9/merge"),
+                           ("merge_group", "refs/heads/gh-readonly-queue/main/pr-9-test")):
+            with self.subTest(event=event):
+                payload = {"repository": {"full_name": REPO}}
+                if event == "pull_request":
+                    payload["pull_request"] = {"head": {"repo": {"full_name": REPO}}}
+                proc = self.hook(payload=payload, GITHUB_EVENT_NAME=event, GITHUB_REF=ref,
+                                 GITHUB_WORKFLOW_REF=f"{REPO}/.github/workflows/ci.yml@{ref}")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn(f"event={event}", (self.tmp / "admitted").read_text())
+
+    def test_pr_and_merge_queue_keep_workflow_and_payload_checks(self):
+        (self.tmp / "cache-ready").write_text("")
+        for event in ("pull_request", "merge_group"):
+            for override in (
+                {"GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/release.yml@refs/pull/9/merge"},
+                {"GITHUB_WORKFLOW_REF": "evil/paimos/.github/workflows/ci.yml@refs/pull/9/merge"},
+                {"GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/ci.yml"},
+                {"GITHUB_REPOSITORY": "evil/paimos"}, {"GITHUB_SHA": "not-a-sha"},
+                {"payload": {"repository": {"full_name": "evil/paimos"}}},
+            ):
+                with self.subTest(event=event, override=override):
+                    args = {"GITHUB_EVENT_NAME": event, "payload": {"repository": {"full_name": REPO}}}
+                    if event == "pull_request":
+                        args["payload"]["pull_request"] = {"head": {"repo": {"full_name": REPO}}}
+                    proc = self.hook(**(args | override))
+                    self.assertEqual(proc.returncode, 97, proc.stderr)
+
+    def test_fork_pr_payload_is_rejected_even_when_cache_is_ready(self):
+        (self.tmp / "cache-ready").write_text("")
+        for head in ({"repo": {"full_name": "evil/paimos"}}, {"repo": None}, {}):
+            payload = {"repository": {"full_name": REPO}, "pull_request": {"head": head}}
+            proc = self.hook(payload=payload, GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/9/merge",
+                             GITHUB_WORKFLOW_REF=f"{REPO}/.github/workflows/ci.yml@refs/pull/9/merge")
+            self.assertEqual(proc.returncode, 97, proc.stderr)
+
+    def test_dispatch_still_requires_main_refs(self):
+        (self.tmp / "cache-ready").write_text("")
+        self.assertEqual(self.hook(GITHUB_EVENT_NAME="workflow_dispatch").returncode, 0)
+        for override in ({"GITHUB_REF": "refs/heads/work/x"},
+                         {"GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/ci.yml@refs/heads/work/x"}):
+            self.assertEqual(self.hook(GITHUB_EVENT_NAME="workflow_dispatch", **override).returncode, 97)
+
+    def test_pr_still_waits_for_controller_confirmation(self):
+        payload = {"repository": {"full_name": REPO}, "pull_request": {"head": {"repo": {"full_name": REPO}}}}
+        proc = self.hook(payload=payload, GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/9/merge",
+                         GITHUB_WORKFLOW_REF=f"{REPO}/.github/workflows/ci.yml@refs/pull/9/merge")
+        self.assertEqual(proc.returncode, 97)
+        self.assertIn("did not confirm admission", self.log.read_text())
 
     def test_admitted_job_without_controller_confirmation_is_killed(self):
         proc = self.hook()
@@ -401,7 +505,7 @@ class ControllerTests(unittest.TestCase):
 
     def test_unverified_run_is_cancelled_and_never_served(self):
         fork = run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"})
-        gh = FakeGitHub([fork], {7: [{"id": 70, "status": "queued", "labels": ["self-hosted", "mbp2606"]}]})
+        gh = FakeGitHub([fork], {7: [{"id": 70, "status": "queued", "labels": ab.mint_labels(CFG, fork)}]})
         ctl = self.controller(gh)
         ctl.tick()
         self.assertEqual(gh.cancelled, [7])
@@ -418,6 +522,56 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(ctl.publish_once())
         self.assertEqual(gh.published[-1]["idle_runners"], 0)
         self.assertTrue(gh.published[-1]["busy"])
+
+    def test_all_event_classes_can_fill_the_pool_together(self):
+        runs = [run(id=i, event=event, head_branch="work/x" if event in ("pull_request", "merge_group") else "main")
+                for i, event in enumerate(CFG["events"], start=1)]
+        jobs = {r["id"]: [{"id": r["id"] * 10, "status": "queued", "labels": ab.mint_labels(CFG, r)}] for r in runs}
+        gh = FakeGitHub(runs, jobs)
+        ctl = self.controller(gh)
+        ctl.tick()
+        self.assertEqual(sorted(self.served), [(i, i + 1, (i + 1) * 10) for i in range(4)])
+        self.assertEqual(gh.cancelled, [])
+        self.assertTrue(ctl.publish_once())
+        self.assertEqual(gh.published[-1]["idle_runners"], 0)
+
+    def test_jit_registration_uses_labels_matching_each_event_job(self):
+        for event in CFG["events"]:
+            with self.subTest(event=event):
+                r = run(id=9, event=event, head_branch="work/x" if event in ("pull_request", "merge_group") else "main")
+                labels = CFG["runnerLabels"] + [CFG["classLabels"][event]]
+                job = {"id": 90, "status": "queued", "labels": labels}
+                gh = FakeGitHub([r], {9: [job]})
+                gh.jit = Mock(return_value={"runner": {"id": 123}, "encoded_jit_config": "test-jit"})
+                gh.delete_runner = Mock()
+                ctl = ab.Controller(CFG, gh=gh, lima=Mock(), state=self.state)
+                ctl.prepare_disk = Mock(return_value=("aeon-cache-0" if event == "push" else "aeon-scratch-0", False))
+                ctl.retire_slot = Mock()
+                ctl.wait_for_runner = Mock(return_value="idle")
+                slot = ctl.claim_slot(job, r)
+                self.assertEqual(slot, 0)
+                ctl.serve(slot, r, job)
+                gh.jit.assert_called_once()
+                self.assertEqual(gh.jit.call_args.args[1], labels)
+                self.assertTrue(ab.could_take(job, gh.jit.call_args.args[1]))
+                gh.delete_runner.assert_called_once_with(123)
+                ctl.retire_slot.assert_called_once()
+                ctl.release_slot(slot)
+
+    def test_non_push_jobs_prepare_disposable_clones_of_known_good_cache(self):
+        good = self.tmp / "known-good.datadisk"
+        good.write_text("test cache")
+        for event in ("workflow_dispatch", "pull_request", "merge_group"):
+            with self.subTest(event=event):
+                lima = Mock()
+                lima.disks.return_value = []
+                ctl = ab.Controller(CFG, gh=FakeGitHub([], {}), lima=lima, state=self.state)
+                ctl.good_copy = Mock(return_value=good)
+                ctl.disk_file = lambda name: self.tmp / name
+                with patch.object(ab.subprocess, "run") as copy:
+                    self.assertEqual(ctl.prepare_disk(0, run(event=event)), ("aeon-scratch-0", False))
+                lima.run.assert_called_once_with("disk", "create", "aeon-scratch-0", "--size", "60GiB", "--format", "raw")
+                copy.assert_called_once_with(["/bin/cp", "-c", str(good), str(self.tmp / "aeon-scratch-0")], check=True)
 
     def test_hosted_jobs_are_ignored(self):
         gh = FakeGitHub([run(id=9)], {9: [{"id": 1, "status": "queued", "labels": ["ubuntu-latest"]}]})
@@ -574,19 +728,23 @@ class ControllerTests(unittest.TestCase):
         self.assertNotIn("--init", calls[0][0], "an existing disk is never re-initialised")
         self.assertEqual(calls[0][1], "k" * 128)
 
-    def test_trusted_disk_is_never_unlocked_for_a_dispatch_that_took_a_push_runner(self):
+    def test_trusted_disk_is_never_unlocked_for_non_push_jobs(self):
         jobs = {9: [{"id": 90, "run_id": 9, "run_attempt": 1, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
-        verdict, calls, _ = self.admit(jobs, [run(id=9, event="workflow_dispatch")])
-        self.assertEqual(verdict, "class-mismatch")
-        self.assertEqual(calls, [], "no unlock")
-        self.assertEqual(self.state.load()["mode"], "on", "a verified swap is no attack: no pause")
+        for event in ("workflow_dispatch", "pull_request", "merge_group"):
+            with self.subTest(event=event):
+                verdict, calls, _ = self.admit(jobs, [run(id=9, event=event)])
+                self.assertEqual(verdict, "class-mismatch")
+                self.assertEqual(calls, [], "no unlock")
+                self.assertEqual(self.state.load()["mode"], "on", "a verified swap is no attack: no pause")
 
-    def test_dispatch_on_scratch_disk_unlocks(self):
+    def test_non_push_jobs_on_scratch_disk_unlock(self):
         self.disk = "aeon-scratch-0"
         jobs = {9: [{"id": 90, "run_id": 9, "run_attempt": 1, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
-        verdict, calls, _ = self.admit(jobs, [run(id=9, event="workflow_dispatch")])
-        self.assertEqual(verdict, "ok")
-        self.assertIn("unlock", calls[0][0])
+        for event in ("workflow_dispatch", "pull_request", "merge_group"):
+            with self.subTest(event=event):
+                verdict, calls, _ = self.admit(jobs, [run(id=9, event=event)])
+                self.assertEqual(verdict, "ok")
+                self.assertIn("unlock", calls[0][0])
 
     def test_racing_unverified_job_never_gets_the_key(self):
         jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "queued"}],
@@ -622,19 +780,22 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [4], "hosted PR jobs are left alone")
 
     def test_mint_labels_carry_exactly_one_class(self):
-        self.assertEqual(ab.mint_labels(CFG, run()), ["self-hosted", "Linux", "ARM64", "mbp2606", "mbp2606-push"])
-        self.assertEqual(ab.mint_labels(CFG, run(event="workflow_dispatch"))[-1], "mbp2606-dispatch")
+        for event, label in CFG["classLabels"].items():
+            self.assertEqual(ab.mint_labels(CFG, run(event=event)), ["self-hosted", "Linux", "ARM64", "mbp2606", label])
 
     def test_class_rules(self):
-        push, dispatch = run(), run(event="workflow_dispatch")
         base = ["self-hosted", "Linux", "ARM64", "mbp2606"]
-        self.assertTrue(ab.class_ok({"labels": base + ["mbp2606-push"]}, push, CFG))
-        self.assertTrue(ab.class_ok({"labels": base + ["MBP2606-Dispatch"]}, dispatch, CFG))
-        for labels in (base, base + ["mbp2606-dispatch"], base + ["mbp2606-push", "mbp2606-dispatch"]):
-            self.assertFalse(ab.class_ok({"labels": labels}, push, CFG), labels)
-        push_runner = ab.mint_labels(CFG, push)
-        self.assertFalse(ab.could_take({"labels": base + ["mbp2606-dispatch"]}, push_runner), "a push runner never fits a dispatch job")
-        self.assertTrue(ab.could_take({"labels": base}, push_runner), "base-only jobs still fit, so they are swept")
+        for event, label in CFG["classLabels"].items():
+            r = run(event=event)
+            runner = ab.mint_labels(CFG, r)
+            self.assertTrue(ab.class_ok({"labels": base + [label.upper()]}, r, CFG))
+            self.assertTrue(ab.could_take({"labels": base + [label.upper()]}, runner))
+            self.assertFalse(ab.class_ok({"labels": base}, r, CFG))
+            self.assertTrue(ab.could_take({"labels": base}, runner), "base-only jobs still fit, so they are swept")
+            for other in set(CFG["classLabels"].values()) - {label}:
+                self.assertFalse(ab.class_ok({"labels": base + [other]}, r, CFG))
+                self.assertFalse(ab.class_ok({"labels": base + [label, other]}, r, CFG))
+                self.assertFalse(ab.could_take({"labels": base + [other]}, runner))
 
     def test_verified_job_without_its_class_is_cancelled_not_minted(self):
         gh = FakeGitHub([run(id=9)], {9: [{"id": 90, "status": "queued", "labels": ["self-hosted", "Linux", "ARM64", "mbp2606"]}]})
@@ -654,8 +815,8 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [8], "the dispatch job cannot take a push runner, so it stays")
 
     def test_pause_sweeps_every_pool_label(self):
-        self.assertIn("mbp2606-dispatch", ab.pool_labels(CFG))
-        self.assertIn("mbp2606-push", ab.pool_labels(CFG))
+        for label in CFG["classLabels"].values():
+            self.assertIn(label, ab.pool_labels(CFG))
 
     def test_clone_keeps_filesystem_of_copied_disks(self):
         self.assertIn('"format": false', ab.clone_expression(CFG, 1, "aeon-scratch-1", fresh=False))

@@ -127,11 +127,13 @@ in
       default = {
         push = "mbp2606-push";
         workflow_dispatch = "mbp2606-dispatch";
+        pull_request = "mbp2606-pr";
+        merge_group = "mbp2606-mq";
       };
       description = ''
         AEON-459: each runner also gets exactly one class label for its verified
         run's event, and only jobs carrying exactly that class are minted for, so
-        a push runner can never take a dispatch job (or the reverse).
+        jobs from different event classes cannot take each other's runners.
       '';
     };
     events = lib.mkOption {
