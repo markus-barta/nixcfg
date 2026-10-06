@@ -11,6 +11,7 @@ export const LIMITS = Object.freeze({
   notionalEur: 1000,
   newPerDay: 2,
   concurrent: 3,
+  fleetConcurrent: 6,
   minStopFraction: 0.005,
   fxSafetyBuffer: 1.02,
 });
@@ -72,13 +73,13 @@ export function newYorkDay(epoch = Date.now()) {
 
 export function parseIntent(raw, now = Date.now()) {
   const value = object(raw, "intent");
-  exactKeys(value, ["schema", "intentId", "desk", "action", "createdAt", "expiresAt", "order"], "intent");
+  exactKeys(value, ["schema", "intentId", "desk", "action", "createdAt", "expiresAt", "order", "orderRef", "orderId"], "intent");
   if (value.schema !== SCHEMA) fail(`schema must be ${SCHEMA}`);
   const intentId = text(value.intentId, "intentId", /^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,63}$/);
   const desk = text(value.desk, "desk").toLowerCase();
   if (!DESKS.includes(desk)) fail("desk is not authorized");
   const action = text(value.action, "action").toLowerCase();
-  if (!["recon", "place", "flatten"].includes(action)) fail("action is not supported");
+  if (!["recon", "place", "flatten", "cancel"].includes(action)) fail("action is not supported");
   const createdAt = instant(value.createdAt, "createdAt");
   const expiresAt = instant(value.expiresAt, "expiresAt");
   if (createdAt > now + 60_000) fail("createdAt is in the future");
@@ -86,6 +87,15 @@ export function parseIntent(raw, now = Date.now()) {
   if (expiresAt - createdAt > 15 * 60_000) fail("intent validity exceeds 15 minutes");
   if (now - createdAt > 15 * 60_000) fail("intent is stale");
   if (action !== "place" && value.order !== undefined) fail("order is allowed only for place");
+  let orderRef;
+  if (value.orderRef !== undefined) {
+    orderRef = text(value.orderRef, "orderRef", /^[a-z0-9]+\|\d{6}\|[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/);
+    if (orderRef.split("|")[0] !== desk) fail("orderRef belongs to another desk");
+  }
+  if (["place", "flatten"].includes(action) && !orderRef) orderRef = `${desk}|${newYorkDay(createdAt).replaceAll("-", "").slice(2)}|${intentId}`;
+  if (value.orderId !== undefined && (action !== "cancel" || !Number.isSafeInteger(value.orderId) || value.orderId <= 0)) fail("orderId is allowed only for cancel and must be positive");
+  if (action === "cancel" && Boolean(orderRef) === Boolean(value.orderId)) fail("cancel requires exactly one of orderRef or orderId");
+  if (!["place", "cancel", "flatten"].includes(action) && orderRef) fail("orderRef is allowed only for place, flatten or cancel");
   let order = null;
   if (action === "place") {
     order = object(value.order, "order");
@@ -113,6 +123,8 @@ export function parseIntent(raw, now = Date.now()) {
     createdAt: new Date(createdAt).toISOString(),
     expiresAt: new Date(expiresAt).toISOString(),
     ...(order ? { order } : {}),
+    ...(orderRef ? { orderRef } : {}),
+    ...(value.orderId ? { orderId: value.orderId } : {}),
   };
 }
 
@@ -122,8 +134,8 @@ export function placementBudget(order, usdToEur) {
   const riskEur = Math.abs(order.limitPrice - order.stopPrice) * order.quantity * bufferedFx;
   const notionalEur = order.limitPrice * order.quantity * bufferedFx;
   return {
-    riskEur: Math.round(riskEur * 100) / 100,
-    notionalEur: Math.round(notionalEur * 100) / 100,
+    riskEur: Math.ceil(riskEur * 100) / 100,
+    notionalEur: Math.ceil(notionalEur * 100) / 100,
   };
 }
 
@@ -141,7 +153,7 @@ function activeSymbols(snapshot) {
   return result;
 }
 
-export function brakeUsage(state, epoch = Date.now()) {
+export function brakeUsage(state, epoch = Date.now(), { blockOnInitDay = false } = {}) {
   const day = newYorkDay(epoch);
   const today = (state?.placements || []).filter((row) => row.day === day && row.status !== "rejected");
   const dailyRiskEur = Math.round(today.reduce((sum, row) => sum + Number(row.riskEur || 0), 0) * 100) / 100;
@@ -150,20 +162,34 @@ export function brakeUsage(state, epoch = Date.now()) {
     day,
     newToday: today.length,
     newPerDay: LIMITS.newPerDay,
+    newOrderLimitScope: "per_desk",
+    concurrentObservedAt: state.concurrentObservedAt || null,
     dailyRiskEur,
     dailyRiskEurLimit: LIMITS.dailyRiskEur,
     perNameRiskEur: LIMITS.perNameRiskEur,
     notionalEur: LIMITS.notionalEur,
     concurrent: LIMITS.concurrent,
+    fleetConcurrent: LIMITS.fleetConcurrent,
+    perDesk: Object.fromEntries(DESKS.map((desk) => [desk, {
+      newToday: today.filter((row) => row.desk === desk).length,
+      newPerDay: LIMITS.newPerDay,
+      concurrent: new Set([
+        ...(state.ownershipComplete === false ? state.accountActiveSymbols || [] : []),
+        ...(state.deskPositions || []).filter((row) => row.desk === desk && row.quantity !== 0 && !KEEP.includes(row.symbol)).map((row) => row.symbol),
+        ...(state.activeOrders || []).filter((row) => row.desk === desk && !KEEP.includes(row.symbol) && !["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())).map((row) => row.symbol),
+        ...(state.placements || []).filter((row) => row.desk === desk && ["reserved", "uncertain", "partial"].includes(row.status)).map((row) => row.symbol),
+      ]).size,
+      concurrentLimit: LIMITS.concurrent,
+    }])),
     minStopFraction: LIMITS.minStopFraction,
     fxSafetyBuffer: LIMITS.fxSafetyBuffer,
     keep: KEEP,
-    placementBlockedOnInitDay: !Number.isFinite(initializedAt) || newYorkDay(initializedAt) === day,
+    placementBlockedOnInitDay: blockOnInitDay && (!Number.isFinite(initializedAt) || newYorkDay(initializedAt) === day),
     ledgerInitializedAt: state?.initializedAt || null,
   };
 }
 
-export function evaluatePlacement(intent, snapshot, state, { halt = false, stockType, usdToEur } = {}) {
+export function evaluatePlacement(intent, snapshot, state, { halt = false, stockType, usdToEur, blockOnInitDay = false } = {}) {
   if (intent.action !== "place") fail("placement evaluation requires a place intent");
   if (halt) fail("HALT is active: new orders are refused");
   if (!["COMMON", "ADR"].includes(String(stockType || "").toUpperCase())) fail("contract is not proven to be a non-ETF stock");
@@ -172,16 +198,31 @@ export function evaluatePlacement(intent, snapshot, state, { halt = false, stock
   if (budget.notionalEur > LIMITS.notionalEur) fail(`notional ${budget.notionalEur} exceeds EUR ${LIMITS.notionalEur}`);
   // Daily brakes are keyed from the host clock, never the caller-controlled timestamp.
   const day = newYorkDay();
-  if (!Number.isFinite(Date.parse(state.initializedAt)) || newYorkDay(Date.parse(state.initializedAt)) === day) {
+  if (blockOnInitDay && (!Number.isFinite(Date.parse(state.initializedAt)) || newYorkDay(Date.parse(state.initializedAt)) === day)) {
     fail("new orders are refused on the ledger initialization day; prior daily risk is unproven");
   }
   const today = (state.placements || []).filter((row) => row.day === day && row.status !== "rejected");
-  if (today.length >= LIMITS.newPerDay) fail(`daily new-order limit ${LIMITS.newPerDay} reached`);
+  if (today.filter((row) => row.desk === intent.desk).length >= LIMITS.newPerDay) fail(`daily new-order limit ${LIMITS.newPerDay} reached`);
   const dailyRisk = today.reduce((sum, row) => sum + Number(row.riskEur || 0), 0);
   if (dailyRisk + budget.riskEur > LIMITS.dailyRiskEur) fail(`daily risk would exceed EUR ${LIMITS.dailyRiskEur}`);
   const symbols = activeSymbols(snapshot);
   if (symbols.has(intent.order.symbol)) fail("symbol already has account position or working order; piling is refused");
-  if (symbols.size >= LIMITS.concurrent) fail(`concurrent-name limit ${LIMITS.concurrent} reached`);
+  const deskSymbols = new Set((snapshot.deskPositions || []).filter((row) => row.desk === intent.desk && row.quantity !== 0 && !KEEP.includes(row.symbol)).map((row) => row.symbol));
+  if (snapshot.ownershipComplete === false) for (const symbol of symbols) deskSymbols.add(symbol);
+  for (const row of snapshot.openOrders || []) {
+    if (row.desk === intent.desk && !KEEP.includes(row.symbol) && !["cancelled", "filled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())) deskSymbols.add(row.symbol);
+  }
+  for (const row of state.placements || []) {
+    if (["reserved", "uncertain", "partial"].includes(row.status)) {
+      symbols.add(row.symbol);
+      if (row.desk === intent.desk) deskSymbols.add(row.symbol);
+    }
+  }
+  if (symbols.has(intent.order.symbol)) fail("symbol already has account position, working order or unresolved placement; piling is refused");
+  if (deskSymbols.size >= LIMITS.concurrent) fail(`desk concurrent-name limit ${LIMITS.concurrent} reached`);
+  if (symbols.size >= LIMITS.fleetConcurrent) fail(`fleet concurrent-name limit ${LIMITS.fleetConcurrent} reached`);
+  if ((state.placements || []).some((row) => thesisKey(row.orderRef) === thesisKey(intent.orderRef) && ["reserved", "uncertain", "partial"].includes(row.status))) fail("thesis has an unresolved intent; reconcile before retry");
+  if (Object.entries(state.intents || {}).some(([id, row]) => id !== intent.intentId && thesisKey(row.orderRef) === thesisKey(intent.orderRef) && ["claimed", "uncertain"].includes(row.status))) fail("thesis has an unresolved intent; reconcile before retry");
   return { ...budget, day, concurrentBefore: symbols.size, usdToEur, fxSafetyBuffer: LIMITS.fxSafetyBuffer };
 }
 
@@ -198,20 +239,25 @@ export function mergeExecutions(...collections) {
     const id = text(row.execution.execId, "execution execId");
     const identity = correctionIdentity(id);
     const prior = latest.get(identity.prefix);
-    if (!prior || identity.revision > prior.revision) latest.set(identity.prefix, { identity, row });
+    if (!prior || identity.revision > prior.identity.revision) latest.set(identity.prefix, { identity, row });
+    else if (identity.revision === prior.identity.revision && digest({ contract: row.contract, execution: row.execution }) !== digest({ contract: prior.row.contract, execution: prior.row.execution })) fail("conflicting duplicate execution revision");
   }
   return [...latest.values()].map(({ row }) => row);
 }
 
-export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT) {
+export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT, desk = null, executorClientId = null) {
   const clients = new Set(ownershipClientIds);
   const positions = new Map();
   for (const row of mergeExecutions(executions)) {
     const contract = row.contract;
     const execution = row.execution;
-    if (execution.acctNumber !== account || !clients.has(Number(execution.clientId))) continue;
+    if (execution.acctNumber !== account) continue;
+    if (desk) {
+      if (!belongsToDesk(execution, desk, ownershipClientIds, executorClientId)) continue;
+    } else if (!clients.has(Number(execution.clientId))) continue;
     const symbol = String(contract.symbol || "").toUpperCase();
     if (KEEP.includes(symbol)) continue;
+    if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(symbol) || !Number.isSafeInteger(Number(contract.conId)) || Number(contract.conId) <= 0) fail("owned contract identity is missing");
     if (String(contract.secType || "").toUpperCase() !== "STK") fail("owned execution is not stock");
     const side = String(execution.side || "").toUpperCase();
     const shares = positive(Number(execution.shares), "execution shares");
@@ -223,7 +269,10 @@ export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT
       currency: String(contract.currency || "").toUpperCase(),
       secType: "STK",
       quantity: 0,
+      ...(desk ? { desk, orderRefs: [] } : {}),
     };
+    if (prior.symbol !== symbol || prior.currency !== String(contract.currency || "").toUpperCase()) fail("conflicting contract identity");
+    if (desk && execution.orderRef && !prior.orderRefs.includes(execution.orderRef)) prior.orderRefs.push(execution.orderRef);
     prior.quantity += signed;
     positions.set(key, prior);
   }
@@ -236,3 +285,20 @@ export function activeHalt(localBody) {
   if (String(localBody || "").trim()) return { active: true, source: "local" };
   return { active: false, source: null };
 }
+
+export function belongsToDesk(row, desk, legacyClientIds, executorClientId) {
+  const clientId = Number(row.clientId);
+  const ref = String(row.orderRef || "");
+  if (/^[a-z0-9]+\|\d{6}\|[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(ref)) return ref.split("|")[0] === desk && (clientId === executorClientId || legacyClientIds.includes(clientId));
+  if (ref.includes("|")) return false;
+  return clientId !== executorClientId && legacyClientIds.includes(clientId);
+}
+
+export function assertSideEffect(intent, { getHalt = () => ({ active: false }), now = Date.now } = {}) {
+  if (!Number.isFinite(Date.parse(intent.expiresAt)) || Date.parse(intent.expiresAt) <= now()) fail("intent is expired before broker side effect");
+  const halt = getHalt();
+  if (intent.action === "place" && halt.active) fail("HALT is active: new orders are refused");
+  return halt;
+}
+
+export function thesisKey(ref) { const [desk, _date, thesis] = String(ref || "").split("|"); return thesis ? `${desk}|${thesis}` : ref; }
