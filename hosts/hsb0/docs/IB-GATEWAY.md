@@ -182,6 +182,110 @@ Restore `profiles = [ "ib-gateway" ];`, comment out the password volume/env,
 switch, confirm container gone. Settings under `/var/lib/ib-gateway/tws_settings`
 are kept.
 
+## Paper desk executor
+
+Host-local executor for paper intents. Trading desks on the tailnet submit
+JSON; hsb0 checks the Stage-0 brakes and is the process that talks to the
+paper Gateway for those intents. There is no API key and no GitHub queue.
+The desk CLI is `modules/paper-desk-executor/client/paper-intent.mjs`
+(`paper-intent recon|place|flatten|cancel|status|health|halt`). Its fixed default
+origin is `http://100.64.0.6:8470`; only `PAPER_DESK_EXECUTOR_ORIGIN` may override
+it, using an exact `http://100.64.x.y:port` origin (IPv4 octets 0–255, port
+1–65535). The CLI rejects unknown flags, including `--url`, and redirects.
+Status uses `GET /v1/intents?intentId=ID`; the existing `/v1/intents/ID` route
+remains available. IDs are 8–64 ASCII characters, start with an alphanumeric
+character, and otherwise allow alphanumerics, `.`, `_`, `:`, and `-`.
+Dictionary keys reject `__proto__`, `constructor`, and `prototype` (including
+order reference thesis IDs). Server exceptions return a stable `code` and
+`reason`; full diagnostics stay in the journal and local audit log.
+
+| Item    | Value                                                                                    |
+| ------- | ---------------------------------------------------------------------------------------- |
+| Bind    | `100.64.0.6:8470`, firewall permits only the listed source IPs on `tailscale0`           |
+| Peers   | `100.64.0.9` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403              |
+| Gateway | paper port `4002`. Live port `4001` is a hard startup error                              |
+| Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, owned `flatten` and `cancel`) |
+| State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                    |
+| Account | paper `DUR970597`                                                                        |
+
+The same `intentId` and the same body return the stored result. A different
+body is rejected. If the process dies after the claim is stored, the next
+submit returns `uncertain` and is not replayed.
+
+`POST /v1/halt` sets halt. Clearing halt is host-local:
+
+```bash
+sudo trash /var/lib/paper-desk-executor/HALT
+```
+
+Halt persists immediately, including during broker waits. New `place` orders
+recheck halt and intent expiry before every leg; `recon`, owned `flatten` and
+owned `cancel` still run. Expiry also applies before flatten and cancel effects.
+
+KEEP, never sell, flatten, or close: **SXR8** (1401 shares) and **TSLA**
+(1 share). Brakes: EUR 25 per name, EUR 50 per New York day, EUR 1000
+notional, at most 2 new names per desk per New York day, at most 3 concurrent
+names per desk and 6 across the fleet, stop at least 0.5%, USD COMMON or ADR
+only, a fresh IB USD/EUR rate plus a 2% buffer, and no adding to a name that
+already has a position or working order. The paper-only initialization-day
+brake is optional (`nixcfg.paperDeskExecutor.blockOnInitDay`, default false).
+`GET /v1/health` reports daily usage and last-reconciled concurrent usage by desk.
+
+Place accepts `orderRef: "desk|yymmdd|thesis-id"` (CLI `--order-ref`); omitting
+it generates a desk tag from the intent ID and host New York day. Every bracket
+leg carries that tag. New desk orders share executor client 705; recon uses 700. Tagged positions/orders enforce desk ownership; legacy orders without a desk-formatted tag
+are attributed only through the configured historical desk client IDs.
+`cancel` accepts exactly one top-level `orderRef` or `orderId` (CLI
+`--order-ref` or `--order-id`) and requires explicit evidence that each target
+is the desk's working, unfilled order. Flatten may cancel its protective legs
+through their placing client IDs before closing its reconciled position.
+
+Flatten derives ownership for every client, including 705, from pusher
+family-history executions plus today's fresh, completed, paper-account reqExecutions snapshot
+in the same session. Cached executor fills provide orderRef attribution and
+intent linkage, never quantities by themselves. History must cover every New
+York day since the desk's first order for the symbol through yesterday, with
+its target ending within two minutes of the host clock. First-order dates
+survive placement pruning; older ledgers conservatively require coverage since
+initialization when their earliest placements may already be gone. Today's
+gaps require the fresh execution snapshot.
+Older gaps, a target starting too late, unknown or unreadable history,
+stale/missing snapshots and snapshot errors refuse flatten before any effect.
+Closing quantity is capped at the desk's evidenced net and the live position
+for the same conId, with matching signs; conflicting aggregate desk ownership
+is refused. Cancelling filled or partially filled orders remains refused.
+Cancelling the executor's own working, unfilled orders uses live client 705
+orders, desk tags and explicit zero-filled status; it does not read pusher
+history or request executions. KEEP exclusions apply on every path.
+New paper entries always reconcile a fresh broker snapshot.
+When complete ownership history is unavailable, the executor counts all account
+positions/unknown working names toward each desk's concurrency cap and refuses
+piling; it does not accept partial pusher history as ownership evidence.
+Contract symbol and conId are checked against resolution before effects.
+Missing/partial broker acknowledgements or errors after submission persist
+`uncertain`. Recon queries both recon and placing clients and resolves current
+New York day uncertain place, cancel and flatten requests to `filled`, `absent` or `partial`; older
+absence remains uncertain. A partial outcome still blocks the same thesis.
+`GET /v1/intents/{id}` includes the resolution. Flatten succeeds only with
+explicit fill evidence for each closing order.
+
+Recon reports KEEP-flagged positions, desk tags, open order legs, today's
+executions, gateway status, FX observation time and FIFO PnL by desk in native
+currency. Missing commissions, execution prices or fresh marks produce explicit
+unavailable PnL values. The container uses the pinned pusher runtime, runs as
+UID/GID 1000, and has read-only code and pusher-state mounts, writable executor
+state, no capabilities and no Docker socket. Root manages its compose lifecycle.
+Terminal idempotency records are retained for 14 days; unresolved records and
+ownership executions are retained. Ledger admission is bounded at 5000 intents,
+50000 executions and 16 MiB. Audit rotates at 1 MiB with one bounded predecessor.
+
+Stop the executor without stopping the Gateway:
+
+```bash
+cd /home/mba/Code/nixcfg/hosts/hsb0/docker
+sudo docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml stop paper-desk-executor
+```
+
 ## Still gated / follow-ups
 
 - Interactive / device 2FA on first login (approve on IBKR mobile if prompted)

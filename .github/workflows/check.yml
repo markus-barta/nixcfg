@@ -362,6 +362,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "bash tests/T77-ib-gateway-session-supervisor.sh"
 
+      - name: Verify hsb0 paper desk executor (OPS-266)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
+
       - name: Verify fleet-safe doctrine-private boundary
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"
