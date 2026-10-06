@@ -8,9 +8,18 @@ sha="$2"
 shift 2
 export DEBIAN_FRONTEND=noninteractive
 
+# OPS-264: job clones must never contend with automatic APT upgrades. The base
+# stays sealed until OPS rebuilds it; stop boot-time APT work before using dpkg.
+systemctl disable --now unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer
+systemctl stop apt-daily.service apt-daily-upgrade.service
+apt-get -o DPkg::Lock::Timeout=300 purge -y -q unattended-upgrades
+# Mask after purging so package removal cannot undo the persistent masks.
+systemctl mask unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer \
+  apt-daily.service apt-daily-upgrade.service
+
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-  build-essential ca-certificates curl git jq unzip zip xz-utils python3 \
+  build-essential ca-certificates curl git jq unzip zip xz-utils python3 fish zsh \
   libicu-dev libkrb5-3 zlib1g libssl3 acl cryptsetup-bin
 
 # Runner user: Docker for service containers, passwordless sudo because
