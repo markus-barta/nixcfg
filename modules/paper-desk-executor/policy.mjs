@@ -88,7 +88,7 @@ export function newYorkDay(epoch = Date.now()) {
 
 export function parseIntent(raw, now = Date.now()) {
   const value = object(raw, "intent");
-  exactKeys(value, ["schema", "intentId", "desk", "action", "createdAt", "expiresAt", "order", "orderRef", "orderId"], "intent");
+  exactKeys(value, ["schema", "intentId", "desk", "action", "createdAt", "expiresAt", "order", "orderRef", "orderId", "symbol"], "intent");
   if (value.schema !== SCHEMA) fail(`schema must be ${SCHEMA}`, "invalid_schema");
   const intentId = validateKey(value.intentId, "intentId");
   const desk = text(value.desk, "desk").toLowerCase();
@@ -103,6 +103,12 @@ export function parseIntent(raw, now = Date.now()) {
   if (expiresAt - createdAt > 15 * 60_000) fail("intent validity exceeds 15 minutes");
   if (now - createdAt > 15 * 60_000) fail("intent is stale");
   if (action !== "place" && value.order !== undefined) fail("order is allowed only for place", "invalid_order");
+  let symbol;
+  if (value.symbol !== undefined) {
+    if (!["flatten", "cancel"].includes(action)) fail("symbol is allowed only for flatten or cancel");
+    symbol = validateKey(value.symbol, "symbol");
+    if (KEEP.includes(symbol)) fail(`${symbol} is KEEP and can never be traded`, "keep_protected");
+  }
   let orderRef;
   if (value.orderRef !== undefined) {
     orderRef = validateKey(value.orderRef, "orderRef");
@@ -141,6 +147,7 @@ export function parseIntent(raw, now = Date.now()) {
     ...(order ? { order } : {}),
     ...(orderRef ? { orderRef } : {}),
     ...(value.orderId ? { orderId: value.orderId } : {}),
+    ...(symbol ? { symbol } : {}),
   };
 }
 
