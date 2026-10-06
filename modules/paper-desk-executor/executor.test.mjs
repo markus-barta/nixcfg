@@ -20,8 +20,14 @@ function intent(action = "place", overrides = {}) {
   return parseIntent({ schema: "barta.paper-desk-intent.v2", intentId: "j-executor-test", desk: "j", action, createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 300000).toISOString(), ...(action === "place" ? { orderRef: ref(), order: { symbol: "AAPL", side: "BUY", quantity: 2, limitPrice: 100, stopPrice: 99, currency: "USD" } } : {}), ...overrides });
 }
 function ledger() { return { initializedAt: new Date().toISOString(), intents: {}, placements: [], executions: [] }; }
+function intradayCoverage() {
+  const now = Date.now();
+  let midnight = Math.floor(now / 3600000) * 3600000;
+  while (newYorkDay(midnight - 3600000) === newYorkDay(now)) midnight -= 3600000;
+  return { status: "known", gaps: [{ fromInclusive: new Date(midnight).toISOString(), toExclusive: new Date(now).toISOString(), reason: "no authoritative completeness receipt" }], target: { fromInclusive: new Date(midnight - 86400000).toISOString(), toExclusive: new Date(now).toISOString() } };
+}
 function harness(options = {}) {
-  const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], live: new Set(), ...options };
+  const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], live: new Set(), ...options };
   class FakeIB extends EventEmitter {
     constructor({ clientId }) { super(); this.clientId = clientId; }
     connect() {
@@ -33,9 +39,15 @@ function harness(options = {}) {
     reqManagedAccts() { this.emit(events.managedAccounts, ACCOUNT); }
     reqPositions() { for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
     reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0); } this.emit(events.openOrderEnd); }
-    reqExecutions(id) { for (const row of broker.executions) this.emit(events.execDetails, id, row.contract, row.execution); for (const fee of broker.commissions) this.emit(events.commissionReport, fee); this.emit(events.execDetailsEnd, id); }
+    reqExecutions(id, filter) {
+      broker.executionRequests.push({ id, filter });
+      if (broker.executionError) this.emit(events.error, new Error("execution snapshot failed"), 201, id);
+      for (const row of broker.executions) this.emit(events.execDetails, id, row.contract, row.execution);
+      for (const fee of broker.commissions) this.emit(events.commissionReport, fee);
+      this.emit(events.execDetailsEnd, broker.wrongExecutionRequest ? id + 1 : id);
+    }
     reqIds() { this.emit(events.nextValidId, 100 + broker.placed.length); }
-    reqContractDetails(id, request) { this.emit(events.contractDetails, id, { contract: broker.resolve ? broker.resolve(request) : contract(request.symbol, request.symbol === "AAPL" ? 1 : 2), stockType: "COMMON" }); this.emit(events.contractDetailsEnd, id); }
+    reqContractDetails(id, request) { this.emit(events.contractDetails, id, { contract: broker.resolve ? broker.resolve(request) : contract(request.symbol, request.symbol === "AAPL" ? 1 : 2), stockType: "COMMON" }); this.emit(events.contractDetailsEnd, id); broker.onContractDetails?.(this); }
     reqAccountUpdatesMulti(id) { this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "1", "EUR"); this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "0.9", "USD"); this.emit(events.accountUpdateMultiEnd, id); broker.onFx?.(); }
     cancelAccountUpdatesMulti() {}
     reqMktData(id) { this.emit(events.tickPrice, id, 4, 101); this.emit(events.tickSnapshotEnd, id); }
@@ -53,10 +65,14 @@ function harness(options = {}) {
       broker.afterCancel?.();
     }
   }
-  const connect = (id) => openSession(id, 1000, { IBApi: FakeIB, EventName: events, wait: async () => {} });
+  const connect = async (id, sessionOptions) => {
+    const session = await openSession(id, broker.wrongExecutionRequest ? 5 : 1000, { ...sessionOptions, IBApi: FakeIB, EventName: events, wait: async () => {} });
+    if (!sessionOptions?.ordersOnly) broker.onSnapshot?.(session);
+    return session;
+  };
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: options.history || [], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(Date.now() - 86400000).toISOString(), toExclusive: new Date().toISOString() } } };
   if (options.coverage) history.coverage = options.coverage;
-  const readHistory = (file) => readPusherExecutions(file, Date.now(), () => { if (options.missingHistory) throw new Error("ENOENT"); return JSON.stringify(history); });
+  const readHistory = (file, now = Date.now(), _readFile, historyOptions) => readPusherExecutions(file, now, () => { if (options.missingHistory) throw new Error("ENOENT"); return JSON.stringify(history); }, historyOptions);
   const config = { clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
@@ -70,13 +86,136 @@ test("executeIntent places accepted tagged bracket on initialization day using d
   assert.equal(state.placements[0].status, "submitted"); assert.equal(h.broker.live.size, 0);
 });
 
-test("missing, incomplete, gapped and stale history refuse flatten/cancel before any mutation", async () => {
+test("missing, incomplete, invalid-gapped and stale history refuse legacy flatten/cancel before any mutation", async () => {
   for (const options of [ { missingHistory: true }, { coverage: { status: "partial", gaps: [] } }, { coverage: { status: "complete", gaps: [{}] } }, { coverage: { status: "complete", gaps: [], target: { fromInclusive: "2026-01-01T00:00:00Z", toExclusive: "2026-01-02T00:00:00Z" } } } ]) {
     for (const action of ["flatten", "cancel"]) {
-      const h = harness({ ...options, orders: [order()] });
+      const h = harness({ ...options, orders: [order({ clientId: 702 })] });
       await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /ownership|coverage/);
       assert.equal(h.broker.cancelled.length, 0); assert.equal(h.broker.placed.length, 0);
     }
+  }
+});
+
+test("trailing-today history gap is covered by account-scoped executions and closes the corrected legacy quantity", async () => {
+  const opening = fill({ execId: "legacy-buy.1", clientId: 702, shares: 5 });
+  const corrected = fill({ ...opening.execution, execId: "legacy-buy.2", shares: 4 });
+  const sold = fill({ execId: "legacy-sell.1", clientId: 702, side: "SLD", shares: 1 });
+  const h = harness({ coverage: intradayCoverage(), history: [opening], executions: [corrected, sold], positions: [{ ...contract(), position: 3 }], orders: [order({ clientId: 702, action: "SELL", orderType: "STP" })] });
+  const result = await h.run(intent("flatten"));
+  assert.equal(result.status, "ok");
+  assert.deepEqual(h.broker.cancelled, [30]);
+  assert.equal(h.broker.placed[0].order.totalQuantity, 3);
+  assert.equal(h.broker.placed[0].order.action, "SELL");
+  assert.ok(h.broker.executionRequests.every((row) => row.filter.acctCode === ACCOUNT));
+  assert.deepEqual(h.broker.connections, [700, 702, 700, 705]);
+  assert.equal(h.broker.live.size, 0);
+});
+
+test("a gap crossing New York midnight refuses legacy flatten/cancel with no broker mutation", async () => {
+  const coverage = intradayCoverage();
+  coverage.gaps[0].fromInclusive = new Date(Date.parse(coverage.gaps[0].fromInclusive) - 1).toISOString();
+  for (const action of ["flatten", "cancel"]) {
+    const h = harness({ coverage, history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], orders: [order({ clientId: 702 })] });
+    await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /outside today's New York/);
+    assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+  }
+});
+
+test("missing, stale, wrong-account, uncovered and errored execution snapshots cannot bridge today's gap", async () => {
+  for (const options of [
+    { onSnapshot: (session) => { session.state.executionSnapshot = null; } },
+    { onSnapshot: (session) => { session.state.executionSnapshot = { ...session.state.executionSnapshot, requestedAt: new Date(Date.now() - 180000).toISOString(), completedAt: new Date(Date.now() - 180000).toISOString() }; } },
+    { onSnapshot: (session) => { session.state.executionSnapshot.account = "not-paper"; } },
+    { onSnapshot: (session) => { session.state.executionSnapshot.requestedAt = new Date(Date.now() - 60000).toISOString(); } },
+    { executionError: true },
+    { wrongExecutionRequest: true },
+  ]) {
+    const h = harness({ ...options, coverage: intradayCoverage(), history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], orders: [order({ clientId: 702 })] });
+    await assert.rejects(h.run(intent("flatten")), /snapshot|reconciliation/);
+    assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("executor-own flatten merges its durable ledger and current fills without the pusher file", async () => {
+  const state = ledger();
+  state.executions = [fill({ execId: "executor-opening.1", shares: 3, time: "20261005 15:00:00" })];
+  const sold = fill({ execId: "executor-sell.1", side: "SLD", shares: 1 });
+  const h = harness({ missingHistory: true, executions: [sold], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })] });
+  const result = await h.run(intent("flatten"), state);
+  assert.equal(result.status, "ok"); assert.equal(result.ownershipComplete, false);
+  assert.deepEqual(h.broker.cancelled, [30]);
+  assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+  assert.ok(state.executions.some((row) => row.execution.execId === "executor-opening.1"));
+  assert.ok(state.executions.some((row) => row.execution.execId === "executor-sell.1"));
+});
+
+test("pusher executor rows do not replace the executor's own ledger and fills", async () => {
+  const h = harness({ history: [fill({ shares: 100 })], positions: [{ ...contract(), position: 2 }] });
+  const state = ledger(); state.executions = [fill()];
+  await h.run(intent("flatten"), state);
+  assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+  for (const orderRef of ["", ref("joe")]) {
+    const denied = harness({ missingHistory: true, executions: [fill({ orderRef })], positions: [{ ...contract(), position: 2 }] });
+    await assert.rejects(denied.run(intent("flatten")), /ownership/);
+    assert.deepEqual(denied.broker.placed, []);
+  }
+});
+
+test("executor-own flatten does not use pusher gaps or snapshot coverage to prove its quantity", async () => {
+  const coverage = intradayCoverage();
+  coverage.gaps[0].fromInclusive = new Date(Date.parse(coverage.gaps[0].fromInclusive) - 1).toISOString();
+  for (const options of [
+    { coverage },
+    { coverage: intradayCoverage(), onSnapshot: (session) => { session.state.executionSnapshot.requestedAt = new Date(Date.now() - 60000).toISOString(); } },
+  ]) {
+    const state = ledger(); state.executions = [fill()];
+    const h = harness({ ...options, positions: [{ ...contract(), position: 2 }] });
+    const result = await h.run(intent("flatten"), state);
+    assert.equal(result.status, "ok"); assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+  }
+});
+
+test("unknown legacy shares refuse a mixed flatten before cancelling an executor protective order", async () => {
+  const state = ledger(); state.executions = [fill({ shares: 1 }), fill({ execId: "legacy-opening.1", clientId: 702, shares: 1 })];
+  const h = harness({ missingHistory: true, positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })] });
+  await assert.rejects(h.run(intent("flatten"), state), /ownership/);
+  assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+});
+
+test("own working unfilled cancel ignores partial/missing history and does not request executions", async () => {
+  for (const options of [{ missingHistory: true }, { coverage: { status: "partial", gaps: [{}] } }]) {
+    const h = harness({ ...options, executionError: true, orders: [order()], positions: [{ ...contract(), position: 100 }] });
+    const result = await executeIntent(intent("cancel", { orderId: 30 }), ledger(), {}, { ...h.runtime, readHistory: () => assert.fail("own cancellation must not read pusher history") });
+    assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.executionRequests, []);
+  }
+});
+
+test("own cancellation rechecks zero-filled status after contract lookup", async () => {
+  const h = harness({ missingHistory: true, orders: [order()], onContractDetails: (api) => {
+    if (api.clientId === 705) api.emit(events.orderStatus, 30, "Submitted", 1, 1, 100);
+  } });
+  await assert.rejects(h.run(intent("cancel", { orderId: 30 })), /unfilled/);
+  assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
+});
+
+test("legacy unfilled cancel accepts a trailing-today gap only with fresh execution coverage", async () => {
+  const h = harness({ coverage: intradayCoverage(), orders: [order({ clientId: 702 })] });
+  const result = await h.run(intent("cancel", { orderId: 30 }));
+  assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]);
+  assert.deepEqual(h.broker.placed, []);
+});
+
+test("KEEP stays excluded from gap-bridged legacy and pusher-independent executor flatten/cancel", async () => {
+  for (const symbol of ["TSLA", "SXR8"]) for (const own of [false, true]) {
+    const kept = fill({ clientId: own ? 705 : 702 }); kept.contract = contract(symbol, 3);
+    const state = ledger(); if (own) state.executions = [kept];
+    const h = harness({ missingHistory: own, coverage: intradayCoverage(), history: own ? [] : [kept], executions: [kept], positions: [{ ...kept.contract, position: 2 }], orders: [order({ symbol, conId: 3, clientId: own ? 705 : 702 })] });
+    if (own) await assert.rejects(h.run(intent("flatten"), state), /ownership/);
+    else assert.deepEqual((await h.run(intent("flatten"), state)).flattened, []);
+    await assert.rejects(h.run(intent("cancel", { orderId: 30 }), state), /KEEP/);
+    assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
   }
 });
 
@@ -120,7 +259,7 @@ test("HALT and expiry races refuse before the first leg and mark a sent first le
 });
 
 test("flatten uses corrected ownership, cancels then reconnects recon, and broker errors become uncertain", async () => {
-  const first = fill({ execId: "buy.1", shares: 10 }); const corrected = fill({ execId: "buy.2", shares: 2 });
+  const first = fill({ execId: "buy.1", clientId: 702, shares: 10 }); const corrected = fill({ execId: "buy.2", clientId: 702, shares: 2 });
   const h = harness({ history: [first, corrected], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })] });
   const result = await h.run(intent("flatten"));
   assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]); assert.equal(h.broker.placed[0].order.totalQuantity, 2);
@@ -130,7 +269,7 @@ test("flatten uses corrected ownership, cancels then reconnects recon, and broke
 });
 
 test("failed ownership reconciliation never cancels a protective order", async () => {
-  const h = harness({ history: [fill()], positions: [{ ...contract(), position: 1 }], orders: [order()] });
+  const h = harness({ history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 1 }], orders: [order()] });
   await assert.rejects(h.run(intent("flatten")), /does not reconcile|exceeds broker/);
   assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
 });
@@ -139,7 +278,7 @@ test("cancel is desk-owned, working, unfilled and allowed during HALT", async ()
   const h = harness({ orders: [order()] });
   const result = await h.run(intent("cancel", { orderRef: ref() }), ledger(), { getHalt: () => ({ active: true }) });
   assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]); assert.deepEqual(h.broker.placed, []);
-  for (const options of [{ orders: [order({ orderRef: ref("joe") })] }, { orders: [order({ status: "Filled" })] }, { orders: [order()], executions: [fill({ orderId: 30 })], positions: [{ ...contract(), position: 2 }] }]) {
+  for (const options of [{ orders: [order({ orderRef: ref("joe") })] }, { orders: [order({ status: "Filled" })] }, { orders: [order({ filled: 1 })], executions: [fill({ orderId: 30 })], positions: [{ ...contract(), position: 2 }] }]) {
     const denied = harness(options);
     await assert.rejects(denied.run(intent("cancel", { orderId: 30 })), /working|unfilled/);
     assert.deepEqual(denied.broker.cancelled, []);
@@ -180,10 +319,11 @@ test("executeIntent enforces per-desk daily and concurrent brakes", async () => 
 
 // Explicitly exercise the exported flatten entry point with the same fake IB
 // transport; no stub replaces executeIntent, flattenOwned or order submission.
-test("flattenOwned independently rejects incomplete history", async () => {
+test("flattenOwned independently refuses unknown ownership when history is missing", async () => {
   const h = harness({ missingHistory: true });
   await assert.rejects(flattenOwned({ desk: "j", clientId: 705, reconClientId: 700, ownershipClientIds: [702], stateExecutions: [], ownershipLedgerFile: h.config.ownershipLedger, intent: intent("flatten"), connect: h.connect, readHistory: h.readHistory }), /ownership/);
-  assert.equal(h.broker.connections.length, 0);
+  assert.deepEqual(h.broker.connections, [700]);
+  assert.equal(h.broker.live.size, 0);
 });
 
 
@@ -196,19 +336,19 @@ test("cancel resolves the contract and refuses missing unfilled evidence", async
 });
 
 test("aggregate ownership cannot flatten another desk's shares", async () => {
-  const other = fill({ execId: "other.1", orderRef: ref("joe"), shares: 2 });
-  const h = harness({ history: [fill(), other], positions: [{ ...contract(), position: 3 }], orders: [order()] });
+  const other = fill({ execId: "other.1", clientId: 701, orderRef: ref("joe"), shares: 2 });
+  const h = harness({ history: [fill({ clientId: 702 }), other], positions: [{ ...contract(), position: 3 }], orders: [order()] });
   await assert.rejects(h.run(intent("flatten")), /aggregate desk ownership/);
   assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
 });
 
 test("flatten partial/missing fills and expiry after cancellation stay uncertain", async () => {
   for (const options of [{ noAck: true }, { partial: true }, { badQuantity: true }]) {
-    const h = harness({ history: [fill()], positions: [{ ...contract(), position: 2 }], ...options });
+    const h = harness({ history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], ...options });
     await assert.rejects(h.run(intent("flatten")), { code: "uncertain" });
   }
   let expired = false;
-  const h = harness({ history: [fill()], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })], afterCancel: () => { expired = true; } });
+  const h = harness({ history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })], afterCancel: () => { expired = true; } });
   await assert.rejects(h.run(intent("flatten"), ledger(), { now: () => Date.now() + (expired ? 600000 : 0) }), { code: "uncertain" });
   assert.deepEqual(h.broker.cancelled, [30]); assert.deepEqual(h.broker.placed, []);
 });
