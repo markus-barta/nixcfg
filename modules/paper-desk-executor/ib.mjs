@@ -16,6 +16,8 @@ const HOST = process.env.IB_DESK_GATEWAY_HOST || "100.64.0.6";
 const PORT = Number(process.env.IB_DESK_GATEWAY_PORT || PAPER_PORT);
 const TARGET_ACCOUNT = process.env.IB_DESK_ACCOUNT || ACCOUNT;
 const INFORMATIONAL_CODES = new Set([202, 2104, 2106, 2107, 2108, 2119, 2158]);
+// Matches the pusher writer cap (hosts/hsb0/docker/joe-board-pusher/family-history.mjs MAX_STATE_BYTES) and fits the 256m container.
+const MAX_PUSHER_HISTORY_BYTES = 32 * 1024 * 1024;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -291,7 +293,7 @@ export function readPusherExecutions(filePath, now = Date.now(), readFile = read
   let parsed;
   let body;
   try {
-    if (readFile === readFileSync && statSync(ledgerPath).size > 16 * 1024 * 1024) throw new Error("ownership history exceeds size limit");
+    if (readFile === readFileSync && statSync(ledgerPath).size > MAX_PUSHER_HISTORY_BYTES) throw new Error("ownership history exceeds size limit");
     body = readFile(ledgerPath, "utf8");
   } catch (error) { throw new Error(`durable ownership ledger unavailable: ${message(error)}`); }
   try { parsed = JSON.parse(body); } catch { throw new Error("durable ownership ledger JSON is invalid"); }
