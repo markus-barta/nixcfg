@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # OPS-266 — headscale 0.29 ACL stages on csb0.
 #
-# Stage 1 (policy.hujson, referenced by policy.path) is allow-all: one accept
+# Stage 1 (policy.hujson, retained for rollback) is allow-all: one accept
 # * -> *:*, the same reach as an empty path on this fleet.
-# Stage 2 (policy-stage2.hujson, not referenced) keeps markus@ and gerhard@
+# Stage 2 (policy-stage2.hujson, active via policy.path) keeps markus@ and gerhard@
 # on *:* and lets amy@ and tag:paper-desk open only tcp 100.64.0.6:8470.
 #
 # Run under bash 5. macOS /bin/bash is 3.2, and set -e does not abort on a
@@ -424,10 +424,8 @@ with open(config_path) as fh:
     mode, path = policy_block(fh.read())
 if mode != "file":
     fail(f"policy.mode must be file, got {mode!r}")
-if path != "/etc/headscale/policy.hujson":
-    fail(f"policy.path must be the stage-1 container path, got {path!r}")
-if "policy-stage2" in path:
-    fail("policy.path must not reference stage 2")
+if path != "/etc/headscale/policy-stage2.hujson":
+    fail(f"policy.path must be the active stage-2 container path, got {path!r}")
 
 stage1 = load_policy(stage1_path)
 stage2 = load_policy(stage2_path)
@@ -435,7 +433,7 @@ assert_stage1(stage1)
 assert_stage2(stage2)
 count = negative_cases(stage2)
 print(f"T92: {count} negative cases rejected")
-print("T92: stage 1 allow-all; stage 2 amy@ and tag:paper-desk tcp 100.64.0.6:8470 only; markus@ and gerhard@ *:*")
+print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk tcp 100.64.0.6:8470 only; markus@ and gerhard@ *:*")
 PY
 
 printf 'T92 ok\n'

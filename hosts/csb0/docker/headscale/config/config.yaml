@@ -120,13 +120,13 @@ dns:
 unix_socket: /var/run/headscale/headscale.sock
 unix_socket_permission: "0770"
 
-# ACL policy (file-based). OPS-266 stage 1: policy.hujson is allow-all (* -> *:*),
-# the same reach as an empty path on this fleet. policy-stage2.hujson is on this
-# mount and unused until policy.path is switched to it.
-# Rollback: path: "" (no policy) or this stage-1 path.
+# ACL policy (file-based). OPS-266 stage 2 is active: policy-stage2.hujson keeps
+# markus@ and gerhard@ on *:*; amy@ and tag:paper-desk get only tcp paper-desk:8470.
+# policy.hujson remains untouched as the stage-1 allow-all (* -> *:*) rollback.
+# Rollback: set path to "/etc/headscale/policy.hujson", then docker restart headscale.
 policy:
   mode: file
-  path: "/etc/headscale/policy.hujson"
+  path: "/etc/headscale/policy-stage2.hujson"
 
 # Disable Tailscale's logtail telemetry
 logtail:
