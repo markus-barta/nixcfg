@@ -162,7 +162,7 @@ def ruleset_problems(ruleset, expected):
 def availability_record(cfg, free_slots, now=None):
     now = now or dt.datetime.now(dt.timezone.utc)
     return {
-        "schema": 1,
+        "schema": 2,
         "repository": cfg["repo"],
         "os": "linux",
         "arch": "arm64",
@@ -170,6 +170,7 @@ def availability_record(cfg, free_slots, now=None):
         "busy": free_slots <= 0,
         "observed_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "idle_runners": max(free_slots, 0),
+        "events": sorted(cfg["events"]),
     }
 
 
