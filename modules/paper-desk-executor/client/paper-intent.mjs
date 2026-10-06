@@ -27,7 +27,7 @@ function usage() {
 
 function fail(message) { const error = new Error(message); error.exitCode = 2; throw error; }
 function args(argv) {
-  const parsed = Object.create(null);
+  const parsed = new Map();
   for (let index = 0; index < argv.length; index += 2) {
     const token = argv[index];
     if (!token.startsWith("--") || token.length < 3) fail(`unexpected argument ${token}`);
@@ -35,13 +35,13 @@ function args(argv) {
     if (!FLAGS.has(key)) fail(`unsupported option --${key}`);
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) fail(`missing value for --${key}`);
-    if (Object.hasOwn(parsed, key)) fail(`duplicate option --${key}`);
-    parsed[key] = value;
+    if (parsed.has(key)) fail(`duplicate option --${key}`);
+    parsed.set(key, value);
   }
   return parsed;
 }
 function required(parsed, key) {
-  const value = parsed[key];
+  const value = parsed.get(key);
   if (typeof value !== "string" || !value.trim()) fail(`--${key} is required`);
   return value.trim();
 }
@@ -56,10 +56,10 @@ function intentEnvelope(parsed, action) {
   if (action === "place") {
     const quantity = Number(required(parsed, "quantity"));
     if (!Number.isSafeInteger(quantity) || quantity <= 0) fail("--quantity must be a positive integer");
-    intent.order = { symbol: validateKey(required(parsed, "symbol").toUpperCase(), "symbol"), side: required(parsed, "side").toUpperCase(), quantity, limitPrice: positiveNumber(parsed, "limit"), stopPrice: positiveNumber(parsed, "stop"), currency: (parsed.currency || "USD").toUpperCase() };
+    intent.order = { symbol: validateKey(required(parsed, "symbol").toUpperCase(), "symbol"), side: required(parsed, "side").toUpperCase(), quantity, limitPrice: positiveNumber(parsed, "limit"), stopPrice: positiveNumber(parsed, "stop"), currency: (parsed.get("currency") || "USD").toUpperCase() };
   }
-  if (parsed["order-ref"]) intent.orderRef = validateKey(parsed["order-ref"], "orderRef");
-  if (parsed["order-id"]) intent.orderId = positiveNumber(parsed, "order-id");
+  if (parsed.get("order-ref")) intent.orderRef = validateKey(parsed.get("order-ref"), "orderRef");
+  if (parsed.get("order-id")) intent.orderId = positiveNumber(parsed, "order-id");
   return intent;
 }
 
@@ -71,7 +71,7 @@ export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, wri
     const root = executorOrigin();
     let route; let method = "GET"; let body; let intentId;
     if (command === "health") route = "/v1/health";
-    else if (command === "halt") { route = "/v1/halt"; method = "POST"; body = parsed.reason ? { reason: parsed.reason } : {}; }
+    else if (command === "halt") { route = "/v1/halt"; method = "POST"; body = parsed.get("reason") ? { reason: parsed.get("reason") } : {}; }
     else if (command === "status") { route = "/v1/intents"; intentId = validateKey(required(parsed, "intent-id"), "intentId"); }
     else if (["recon", "flatten", "place", "cancel"].includes(command)) { route = "/v1/intents"; method = "POST"; body = intentEnvelope(parsed, command); }
     else fail(usage());

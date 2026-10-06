@@ -330,7 +330,7 @@ function freshExecutionSnapshot(session, coverage, now = Date.now()) {
 
 function ownershipEvidence(session, history, options) {
   freshExecutionSnapshot(session, history.coverage);
-  const { desk, clientId, ownershipClientIds, stateExecutions = [], statePlacements = [], firstOrders = {}, ownershipHistoryFrom } = options;
+  const { desk, clientId, ownershipClientIds, stateExecutions = [], statePlacements = [], firstOrders = new Map(), ownershipHistoryFrom } = options;
   const today = newYorkDay();
   // A cached execution supplies attribution only. Each quantity must come from
   // complete pusher history or today's freshly completed execution request.
@@ -366,7 +366,7 @@ function ownershipEvidence(session, history, options) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "") || !Number.isFinite(Date.parse(`${day}T12:00:00Z`)) || new Date(`${day}T12:00:00Z`).toISOString().slice(0, 10) !== day || day > today) throw new Error(`first-order ownership date is invalid for ${symbol}`);
     if (day < today && (newYorkDay(start) > day || newYorkDay(start) === day && newYorkDay(start - 1) === day)) throw new Error(`ownership history does not cover every day since first order for ${desk}/${symbol} (${day})`);
   };
-  for (const [symbol, day] of Object.entries(firstOrders)) requireDay(day, symbol);
+  for (const [symbol, day] of firstOrders) requireDay(day, symbol);
   if (ownershipHistoryFrom !== undefined) {
     const initialized = Date.parse(ownershipHistoryFrom);
     if (!Number.isFinite(initialized)) throw new Error("first-order ownership history origin is invalid");
