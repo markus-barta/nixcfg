@@ -119,6 +119,67 @@ test("corrections use numeric revisions and conflicting duplicates refuse", () =
   assert.equal(ownedPositions([one, ten], [702])[0].quantity, 2);
 });
 
+const pusherFill = () => ({
+  contract: { conId: 15124833, symbol: "NFLX", secType: "STK", currency: "USD", multiplier: 1 },
+  execution: { execId: "00025b45.6ac62f7e.01.01", time: "2026-10-06T15:41:49.000Z", clientId: 55, side: "SELL", shares: 14, price: 68.14 },
+});
+const liveFill = () => ({
+  contract: { conId: 15124833, symbol: "NFLX", secType: "STK", currency: "USD", exchange: "SMART" },
+  execution: { ...pusherFill().execution, time: "20261006  11:41:49 US/Eastern", side: "SLD", shares: "14", price: "68.1400001", clientId: "55", orderRef: "j|261006|test", permId: 100, orderId: 20, acctNumber: "DUR970597", exchange: "ISLAND", cumQty: 14, avgPrice: 68.14, liquidation: 0, commission: 1 },
+});
+
+test("pusher and live duplicates merge economic identity and retain live ownership fields", () => {
+  const history = pusherFill(), live = liveFill();
+  const [merged] = mergeExecutions([history], [live]);
+  assert.deepEqual(merged, { contract: { ...history.contract, ...live.contract }, execution: live.execution });
+  assert.equal(ownedPositions([merged], [55])[0].quantity, -14);
+  assert.equal(history.execution.orderRef, undefined, "input history is not mutated");
+  assert.equal(mergeExecutions([live], [history])[0].execution.orderRef, live.execution.orderRef);
+  assert.equal(mergeExecutions([history], [live], [live]).length, 1);
+});
+
+test("duplicate times normalize ISO offsets, fractional seconds and IB UTC formats", () => {
+  for (const time of ["2026-10-06T11:41:49-04:00", "2026-10-06T15:41:49.999Z", "20261006-15:41:49", "20261006 15:41:49 UTC", "20261006 11:41:49"]) {
+    const live = liveFill(); live.execution.time = time;
+    assert.equal(mergeExecutions([pusherFill()], [live]).length, 1, time);
+  }
+});
+
+test("duplicate contract identity falls back to symbol, security type and currency", () => {
+  for (const missing of ["history", "live"]) {
+    const history = pusherFill(), live = liveFill();
+    delete (missing === "history" ? history : live).contract.conId;
+    delete history.execution.clientId;
+    assert.equal(mergeExecutions([history], [live])[0].contract.conId, 15124833);
+  }
+});
+
+test("economic conflicts fail closed and log field names without execution values", (t) => {
+  const log = t.mock.method(console, "error", () => {});
+  for (const [section, field, value] of [
+    ["contract", "conId", 999], ["execution", "side", "BOT"], ["execution", "shares", 15],
+    ["execution", "price", 68.140002], ["execution", "clientId", 56],
+    ["execution", "time", "2026-10-06T15:41:50Z"], ["execution", "time", "invalid"],
+  ]) {
+    const live = liveFill(); live[section][field] = value;
+    assert.throws(() => mergeExecutions([pusherFill()], [live]), /conflicting duplicate execution revision/);
+    assert.deepEqual(log.mock.calls.at(-1).arguments, [`conflicting duplicate execution revision fields: ${field}`]);
+  }
+  for (const field of ["symbol", "secType", "currency"]) {
+    const live = liveFill(); delete live.contract.conId; live.contract[field] = "OTHER";
+    assert.throws(() => mergeExecutions([pusherFill()], [live]), /conflicting duplicate/);
+    assert.deepEqual(log.mock.calls.at(-1).arguments, [`conflicting duplicate execution revision fields: ${field}`]);
+  }
+});
+
+test("higher economic correction revision wins over richer old duplicates", () => {
+  const correction = pusherFill();
+  correction.execution.execId = "00025b45.6ac62f7e.01.02";
+  correction.execution.shares = 12;
+  assert.deepEqual(mergeExecutions([pusherFill(), liveFill(), correction]), [correction]);
+  assert.deepEqual(mergeExecutions([correction, liveFill(), pusherFill()]), [correction]);
+});
+
 test("per-desk admission leaves fleet risk and concurrent caps intact", () => {
   const intent = parseIntent(valid());
   const opts = { stockType: "COMMON", usdToEur: 0.9 };
