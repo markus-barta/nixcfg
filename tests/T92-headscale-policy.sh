@@ -4,7 +4,7 @@
 # Stage 1 (policy.hujson, referenced by policy.path) is allow-all: one accept
 # * -> *:*, the same reach as an empty path on this fleet.
 # Stage 2 (policy-stage2.hujson, not referenced) keeps markus@ and gerhard@
-# on *:* and lets amy@ open only tcp 100.64.0.6:8470.
+# on *:* and lets amy@ and tag:paper-desk open only tcp 100.64.0.6:8470.
 #
 # Run under bash 5. macOS /bin/bash is 3.2, and set -e does not abort on a
 # failing bare [[ ]] there (see T33). This script uses no bare [[ ]].
@@ -43,6 +43,10 @@ grep -Fq './headscale/config:/etc/headscale:ro' "$compose" ||
   fail "compose must mount ./headscale/config onto /etc/headscale (the policy mount)"
 
 PYTHONDONTWRITEBYTECODE=1 python3 - "$config" "$stage1" "$stage2" <<'PY'
+import contextlib
+import copy
+import io
+import ipaddress
 import json
 import re
 import sys
@@ -157,7 +161,7 @@ def src_hits(src, groups, user):
     for item in src:
         if not isinstance(item, str):
             fail("src entries must be strings")
-        if item in ("*", "autogroup:member"):
+        if item == "*":
             return True
         if item == user:
             return True
@@ -203,10 +207,43 @@ def grants_of(doc):
 PAPER = "100.64.0.6"
 PAPER_PORT = "8470"
 AMY = "amy@"
+PAPER_TAG = "tag:paper-desk"
 FULL_USERS = ("markus@", "gerhard@")
+TAILNETS = tuple(ipaddress.ip_network(cidr) for cidr in (
+    "100.64.0.0/10", "fd7a:115c:a1e0::/48",
+))
 
-def amy_destinations(doc):
-    """Every destination a rule grants amy@, as (host, ports, proto)."""
+def assert_stage2_sources(doc):
+    """Reject sources we cannot prove exclude either restricted identity."""
+    groups = groups_of(doc)
+    hosts = hosts_of(doc)
+    users = (*FULL_USERS, AMY)
+    for name, members in groups.items():
+        if not name.startswith("group:") or not members or any(m not in users for m in members):
+            fail(f"unsupported stage-2 group {name!r}")
+    for rule in [*acls_of(doc), *grants_of(doc)]:
+        if not isinstance(rule, dict):
+            fail("stage-2 rule must be an object")
+        src = rule.get("src")
+        if not isinstance(src, list) or not src:
+            fail("stage-2 src must be a nonempty list")
+        # Inspect every selector before matching; no early match may hide a
+        # wildcard, unknown tag/autogroup, or a CIDR granting tagged nodes.
+        for item in src:
+            if not isinstance(item, str):
+                fail("src entries must be strings")
+            if item in users or item == PAPER_TAG or item in groups:
+                continue
+            try:
+                network = ipaddress.ip_network(hosts.get(item, item), strict=False)
+            except ValueError:
+                fail(f"unsupported stage-2 source {item!r}")
+            if any(network.version == tailnet.version and network.overlaps(tailnet)
+                   for tailnet in TAILNETS):
+                fail(f"stage-2 IP/CIDR source {item!r} overlaps the tailnet")
+
+def restricted_destinations(doc, identity):
+    """Every destination granted to a user or tag, as (host, ports, proto)."""
     groups = groups_of(doc)
     hosts = hosts_of(doc)
     found = []
@@ -215,7 +252,7 @@ def amy_destinations(doc):
             fail("acl rule must be an object")
         if rule.get("action") != "accept":
             fail(f"acl action must be accept, got {rule.get('action')!r}")
-        if not src_hits(rule.get("src"), groups, AMY):
+        if not src_hits(rule.get("src"), groups, identity):
             continue
         proto = proto_of(rule)
         for spec in rule.get("dst") or []:
@@ -224,7 +261,7 @@ def amy_destinations(doc):
     for rule in grants_of(doc):
         if not isinstance(rule, dict):
             fail("grant must be an object")
-        if not src_hits(rule.get("src"), groups, AMY):
+        if not src_hits(rule.get("src"), groups, identity):
             continue
         ip = rule.get("ip")
         if ip is None:
@@ -252,7 +289,7 @@ def amy_destinations(doc):
             if not isinstance(token, str):
                 fail("grant dst entries must be strings")
             # Grants put ports in ip, not in dst. A dst that already has :ports
-            # is still a destination and must not widen amy.
+            # is still a destination and must not widen either identity.
             if ":" in token and not token.startswith("autogroup:") and token not in hosts:
                 host, dst_ports = split_dst(token)
                 found.append((resolve_host(host, hosts), dst_ports, proto))
@@ -308,20 +345,80 @@ def user_keeps_star(doc, user):
     return False
 
 def assert_stage2(doc):
+    if doc.get("tagOwners") != {PAPER_TAG: [AMY]}:
+        fail("stage 2 must assign tag:paper-desk only to amy@")
+    assert_stage2_sources(doc)
     for user in FULL_USERS:
         if not user_keeps_star(doc, user):
             fail(f"stage 2 must keep {user} on *:*")
-    found = amy_destinations(doc)
-    if not found:
-        fail("stage 2 has no accept rule for amy@")
-    for host, ports, proto in found:
-        if not is_paper_tcp(host, ports, proto):
-            fail(
-                "stage 2 lets amy@ reach "
-                f"{host}:{ports} proto={proto!r}; only tcp {PAPER}:{PAPER_PORT} is allowed"
-            )
-    if not any(is_paper_tcp(h, p, proto) for h, p, proto in found):
-        fail(f"stage 2 does not grant amy@ tcp {PAPER}:{PAPER_PORT}")
+    for identity in (AMY, PAPER_TAG):
+        found = restricted_destinations(doc, identity)
+        if not found:
+            fail(f"stage 2 has no accept rule for {identity}")
+        for host, ports, proto in found:
+            if not is_paper_tcp(host, ports, proto):
+                fail(
+                    f"stage 2 lets {identity} reach "
+                    f"{host}:{ports} proto={proto!r}; only tcp {PAPER}:{PAPER_PORT} is allowed"
+                )
+
+def assert_rejected(doc, label):
+    # Mutate copies only: regressions must exercise the same gate as the files.
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            assert_stage2(doc)
+        except SystemExit as exc:
+            if exc.code == 1:
+                return
+            raise
+    fail(f"negative case passed unexpectedly: {label}")
+
+def negative_cases(stage2):
+    count = 0
+    for src in ("*", "100.64.0.0/10", "100.64.0.9/32", "100.64.0.9",
+                "0.0.0.0/0", "fd7a:115c:a1e0::/48", "::/0", "amy-box",
+                "autogroup:member", "autogroup:tagged", "tag:unknown",
+                "group:unknown", "unknown@", "invalid-selector"):
+        for kind in ("acls", "grants"):
+            doc = copy.deepcopy(stage2)
+            doc["hosts"]["amy-box"] = "100.64.0.9/32"
+            rule = {"src": [*FULL_USERS, src], "dst": ["*:*" if kind == "acls" else "*"]}
+            if kind == "acls":
+                rule["action"] = "accept"
+            else:
+                rule["ip"] = ["*"]
+            doc.setdefault(kind, []).append(rule)
+            assert_rejected(doc, f"{kind} {src} -> *:*")
+            count += 1
+    for identity in (AMY, PAPER_TAG):
+        for change in ({"dst": ["paper-desk:4002"]}, {"dst": ["paper-desk:22"]},
+                       {"dst": ["100.64.0.7:8470"]}, {"dst": ["*:*"]},
+                       {"proto": "udp"}, {"proto": None}):
+            doc = copy.deepcopy(stage2)
+            doc["acls"].append({"action": "accept", "src": [identity],
+                                "dst": ["paper-desk:8470"], "proto": "tcp", **change})
+            assert_rejected(doc, f"extra access for {identity}: {change}")
+            count += 1
+        doc = copy.deepcopy(stage2)
+        for rule in doc["acls"]:
+            rule["src"] = [src for src in rule["src"] if src != identity]
+        assert_rejected(doc, f"missing access for {identity}")
+        count += 1
+        doc = copy.deepcopy(stage2)
+        doc["grants"] = [{"src": [identity], "dst": ["*"], "ip": ["*"]}]
+        assert_rejected(doc, f"grant widens {identity}")
+        count += 1
+    doc = copy.deepcopy(stage2)
+    doc["groups"] = {"group:family": [AMY, *FULL_USERS]}
+    doc["acls"].append({"action": "accept", "src": ["group:family"], "dst": ["*:*"]})
+    assert_rejected(doc, "group widens amy@")
+    count += 1
+    for owners in (None, {PAPER_TAG: ["markus@"]}, {PAPER_TAG: [AMY, "markus@"]}):
+        doc = copy.deepcopy(stage2)
+        doc["tagOwners"] = owners
+        assert_rejected(doc, "missing or widened tag ownership")
+        count += 1
+    return count
 
 with open(config_path) as fh:
     mode, path = policy_block(fh.read())
@@ -336,7 +433,9 @@ stage1 = load_policy(stage1_path)
 stage2 = load_policy(stage2_path)
 assert_stage1(stage1)
 assert_stage2(stage2)
-print("T92: stage 1 allow-all; stage 2 amy@ tcp 100.64.0.6:8470 only; markus@ and gerhard@ *:*")
+count = negative_cases(stage2)
+print(f"T92: {count} negative cases rejected")
+print("T92: stage 1 allow-all; stage 2 amy@ and tag:paper-desk tcp 100.64.0.6:8470 only; markus@ and gerhard@ *:*")
 PY
 
 printf 'T92 ok\n'
