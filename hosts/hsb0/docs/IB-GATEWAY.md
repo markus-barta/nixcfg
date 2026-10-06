@@ -182,6 +182,49 @@ Restore `profiles = [ "ib-gateway" ];`, comment out the password volume/env,
 switch, confirm container gone. Settings under `/var/lib/ib-gateway/tws_settings`
 are kept.
 
+## Paper desk executor
+
+Host-local executor for paper intents. Trading desks on the tailnet submit
+JSON; hsb0 checks the Stage-0 brakes and is the process that talks to the
+paper Gateway for those intents. There is no API key and no GitHub queue.
+The desk CLI is `modules/paper-desk-executor/client/paper-intent.mjs`
+(`paper-intent recon|place|flatten|status|health|halt --url http://100.64.0.6:8470`).
+
+| Item    | Value                                                                       |
+| ------- | --------------------------------------------------------------------------- |
+| Bind    | `100.64.0.6:8470`, firewall open on `tailscale0` only                       |
+| Peers   | `100.64.0.9` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403 |
+| Gateway | paper port `4002`. Live port `4001` is a hard startup error                 |
+| Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, owned `flatten`) |
+| State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)       |
+| Account | paper `DUR970597`                                                           |
+
+The same `intentId` and the same body return the stored result. A different
+body is rejected. If the process dies after the claim is stored, the next
+submit returns `uncertain` and is not replayed.
+
+`POST /v1/halt` sets halt. Clearing halt is host-local:
+
+```bash
+sudo rm /var/lib/paper-desk-executor/HALT
+```
+
+Halt blocks new `place` orders. `recon` and owned `flatten` still run.
+
+KEEP, never sell, flatten, or close: **SXR8** (1401 shares) and **TSLA**
+(1 share). Brakes: EUR 25 per name, EUR 50 per New York day, EUR 1000
+notional, at most 2 new names per day, at most 3 concurrent names, stop at
+least 0.5%, USD COMMON or ADR only, a fresh IB USD/EUR rate plus a 2%
+buffer, no adding to a name that already has a position or working order,
+and no new orders on the ledger's first New York day. Owned flatten cancels
+through the placing client id.
+
+Stop the executor without stopping the Gateway:
+
+```bash
+sudo systemctl stop paper-desk-executor
+```
+
 ## Still gated / follow-ups
 
 - Interactive / device 2FA on first login (approve on IBKR mobile if prompted)
