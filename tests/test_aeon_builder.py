@@ -258,14 +258,24 @@ class PagingTests(unittest.TestCase):
 
 
 class RenderTests(unittest.TestCase):
-    def test_availability_record_matches_schema_1(self):
+    def test_availability_record_matches_schema_2(self):
         import datetime as dt
         now = dt.datetime(2026, 9, 30, 10, 0, tzinfo=dt.timezone.utc)
         rec = ab.availability_record(CFG, 3, now)
-        self.assertEqual(rec, {"schema": 1, "repository": REPO, "os": "linux", "arch": "arm64", "online": True,
-                               "busy": False, "observed_at": "2026-09-30T10:00:00Z", "idle_runners": 3})
+        self.assertEqual(rec, {"schema": 2, "repository": REPO, "os": "linux", "arch": "arm64", "online": True,
+                               "busy": False, "observed_at": "2026-09-30T10:00:00Z", "idle_runners": 3,
+                               "events": ["merge_group", "pull_request", "push", "workflow_dispatch"]})
         self.assertTrue(ab.availability_record(CFG, 0, now)["busy"])
         self.assertEqual(ab.availability_record(CFG, -1, now)["idle_runners"], 0)
+
+    def test_availability_record_advertises_only_configured_events(self):
+        for events, expected in ((["push"], ["push"]),
+                                 (["workflow_dispatch", "push"], ["push", "workflow_dispatch"]),
+                                 ([], [])):
+            with self.subTest(events=events):
+                cfg = {**CFG, "events": events.copy()}
+                self.assertEqual(ab.availability_record(cfg, 3)["events"], expected)
+                self.assertEqual(cfg["events"], events)
 
     def test_base_has_no_mounts_and_no_port_forwards(self):
         expr = ab.base_expression(CFG)
