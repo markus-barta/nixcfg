@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import { mkdtempSync } from "node:fs";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -77,6 +79,29 @@ function harness(options = {}) {
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
+
+test("pusher history accepts 16–64 MiB files and refuses files above 64 MiB before reading", (t) => {
+  const now = Date.now();
+  const ledgerPath = "/pusher-state/family-history.json";
+  const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: [fill()], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(now - 40 * 86400000).toISOString(), toExclusive: new Date(now).toISOString() } } };
+  let size = 20 * 1024 * 1024;
+  t.mock.method(fs, "statSync", (file) => { assert.equal(file, ledgerPath); return { size }; });
+  const read = t.mock.method(fs, "readFileSync", (file, encoding) => { assert.equal(file, ledgerPath); assert.equal(encoding, "utf8"); return JSON.stringify(history); });
+  syncBuiltinESMExports();
+  try {
+    for (size of [20 * 1024 * 1024, 64 * 1024 * 1024]) {
+      const rows = readPusherExecutions(ledgerPath, now);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].execution.execId, history.executions[0].execution.execId);
+    }
+    size = 64 * 1024 * 1024 + 1;
+    assert.throws(() => readPusherExecutions(ledgerPath, now), /durable ownership ledger unavailable: ownership history exceeds size limit/);
+    assert.equal(read.mock.callCount(), 2, "oversized history must be refused before reading");
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
 
 test("executeIntent places accepted tagged bracket on initialization day using distinct sequential sessions", async () => {
   const h = harness(); const state = ledger();
