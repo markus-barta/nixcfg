@@ -320,14 +320,83 @@ function freshExecutionSnapshot(session, coverage, now = Date.now()) {
   const requested = Date.parse(receipt?.requestedAt);
   const completed = Date.parse(receipt?.completedAt);
   if (receipt?.account !== ACCOUNT || !Number.isSafeInteger(receipt?.requestId) || !Number.isFinite(requested) || !Number.isFinite(completed) || requested > completed || completed > now || now - completed > 120000 || newYorkDay(requested) !== newYorkDay(now) || newYorkDay(completed) !== newYorkDay(now)) throw new Error("fresh same-session paper-account execution snapshot is missing or stale");
+  if (coverage) {
+    const end = Date.parse(coverage.target?.toExclusive);
+    if (!Number.isFinite(end) || end > now || now - end > 120000 || newYorkDay(end) !== newYorkDay(now)) throw new Error("ownership history target is stale or invalid on the host clock");
+    if (coverage.gaps.some((gap) => newYorkDay(Date.parse(gap.fromInclusive)) !== newYorkDay(now) || newYorkDay(Date.parse(gap.toExclusive) - 1) !== newYorkDay(now))) throw new Error("ownership history gap is outside today's New York execution-report window");
+  }
   if (coverage?.gaps.some((gap) => Date.parse(gap.toExclusive) > requested)) throw new Error("ownership history gap is not covered by the same-session execution snapshot");
+}
+
+function ownershipEvidence(session, history, options) {
+  freshExecutionSnapshot(session, history.coverage);
+  const { desk, clientId, ownershipClientIds, stateExecutions = [], statePlacements = [], firstOrders = {}, ownershipHistoryFrom } = options;
+  const today = newYorkDay();
+  // A cached execution supplies attribution only. Each quantity must come from
+  // complete pusher history or today's freshly completed execution request.
+  if (session.state.executions.some((row) => !executionDay(row.execution.time))) throw new Error("same-session execution snapshot has an invalid execution date");
+  const rows = mergeExecutions(history, session.state.executions.filter((row) => executionDay(row.execution.time) === today));
+  const taggedDesk = (execution) => DESKS.find((name) => belongsToDesk(execution, name, [], clientId));
+  const refsByOrder = new Map();
+  const key = (execution, identity) => `${Number(execution.orderId)}:${identity}`;
+  const addRef = (orderKey, orderRef) => {
+    const refs = refsByOrder.get(orderKey) || new Set();
+    refs.add(orderRef); refsByOrder.set(orderKey, refs);
+  };
+  for (const known of [...stateExecutions, ...rows]) {
+    if (known.execution.acctNumber === ACCOUNT && Number(known.execution.clientId) === clientId && taggedDesk(known.execution)) addRef(key(known.execution, `conId:${Number(known.contract.conId)}`), known.execution.orderRef);
+  }
+  for (const placement of statePlacements) {
+    if (taggedDesk({ clientId, orderRef: placement.orderRef })) for (const orderId of placement.orderIds || []) addRef(`${orderId}:symbol:${placement.symbol}`, placement.orderRef);
+  }
+  const attributed = rows.map((row) => {
+    const execution = row.execution;
+    if (Number(execution.clientId) !== clientId || execution.acctNumber !== ACCOUNT || KEEP.includes(String(row.contract.symbol).toUpperCase())) return row;
+    const refs = new Set([...(refsByOrder.get(key(execution, `conId:${Number(row.contract.conId)}`)) || []), ...(refsByOrder.get(key(execution, `symbol:${row.contract.symbol}`)) || [])]);
+    if (refs.size > 1 || execution.orderRef && !taggedDesk(execution)) throw new Error("executor execution ownership attribution is unknown or conflicting");
+    const orderRef = execution.orderRef || [...refs][0];
+    if (!taggedDesk({ clientId, orderRef })) throw new Error("executor execution ownership attribution is missing");
+    return orderRef === execution.orderRef ? row : { ...row, execution: { ...execution, orderRef } };
+  });
+  const start = Date.parse(history.coverage?.target?.fromInclusive);
+  const end = Date.parse(history.coverage?.target?.toExclusive);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || Date.now() - end > 120000) throw new Error("ownership history target is stale or invalid on the host clock");
+  const requireDay = (day, symbol) => {
+    if (KEEP.includes(symbol)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "") || !Number.isFinite(Date.parse(`${day}T12:00:00Z`)) || new Date(`${day}T12:00:00Z`).toISOString().slice(0, 10) !== day || day > today) throw new Error(`first-order ownership date is invalid for ${symbol}`);
+    if (day < today && (newYorkDay(start) > day || newYorkDay(start) === day && newYorkDay(start - 1) === day)) throw new Error(`ownership history does not cover every day since first order for ${desk}/${symbol} (${day})`);
+  };
+  for (const [symbol, day] of Object.entries(firstOrders)) requireDay(day, symbol);
+  if (ownershipHistoryFrom !== undefined) {
+    const initialized = Date.parse(ownershipHistoryFrom);
+    if (!Number.isFinite(initialized)) throw new Error("first-order ownership history origin is invalid");
+    requireDay(newYorkDay(initialized), "legacy executor ledger");
+  }
+  const requireRefDay = (orderRef, symbol) => {
+    const date = String(orderRef).split("|")[1];
+    if (/^\d{6}$/.test(date || "")) requireDay(`20${date.slice(0, 2)}-${date.slice(2, 4)}-${date.slice(4, 6)}`, symbol);
+  };
+  for (const row of [...stateExecutions, ...attributed]) {
+    if (row.execution.acctNumber === ACCOUNT && belongsToDesk(row.execution, desk, ownershipClientIds, clientId)) {
+      const symbol = String(row.contract.symbol).toUpperCase();
+      requireDay(executionDay(row.execution.time), symbol);
+      requireRefDay(row.execution.orderRef, symbol);
+    }
+  }
+  for (const order of session.state.openOrders) {
+    if (!belongsToDesk(order, desk, ownershipClientIds, clientId)) continue;
+    requireRefDay(order.orderRef, order.symbol);
+  }
+  // Preserve the broker rows verbatim for correction/conflict checks. Attribution
+  // is a separate view used only for the ownership calculation.
+  return { executions: rows, attributed };
 }
 
 export function deskPositions(executions, ownership, executorClientId) {
   return DESKS.flatMap((desk) => ownedPositions(executions, ownership[desk] || [], ACCOUNT, desk, executorClientId));
 }
 
-export function reconcileDeskPositions(executions, snapshot, ownership, executorClientId) {
+export function reconcileDeskPositions(executions, snapshot, ownership, executorClientId, { capSingleDesk = false } = {}) {
   const attributed = deskPositions(executions, ownership, executorClientId);
   const totals = new Map();
   for (const row of attributed) {
@@ -336,7 +405,7 @@ export function reconcileDeskPositions(executions, snapshot, ownership, executor
     totals.set(row.conId, (totals.get(row.conId) || 0) + Math.abs(row.quantity));
   }
   for (const [conId, quantity] of totals) {
-    if (quantity > Math.abs(snapshot.positions.find((row) => row.conId === conId).position) + 1e-9) throw new Error("aggregate desk ownership exceeds broker position; no cancellation or order allowed");
+    if (quantity > Math.abs(snapshot.positions.find((row) => row.conId === conId).position) + 1e-9 && !(capSingleDesk && attributed.filter((row) => row.conId === conId).length === 1)) throw new Error("aggregate desk ownership exceeds broker position; no cancellation or order allowed");
   }
 }
 
@@ -344,7 +413,8 @@ function reconcileOwned(executions, snapshot, desk, ownershipClientIds, executor
   const owned = ownedPositions(executions, ownershipClientIds, ACCOUNT, desk, executorClientId);
   for (const row of owned) {
     const actual = snapshot.positions.find((position) => position.conId === row.conId);
-    if (!actual || actual.symbol !== row.symbol || Math.sign(actual.position) !== Math.sign(row.quantity) || Math.abs(actual.position) < Math.abs(row.quantity)) throw new Error("owned quantity does not reconcile with broker position; no cancellation or order allowed");
+    if (!actual || actual.symbol !== row.symbol || !Number.isFinite(actual.position) || Math.sign(actual.position) !== Math.sign(row.quantity)) throw new Error("owned quantity does not reconcile with broker position; no cancellation or order allowed");
+    row.quantity = Math.sign(row.quantity) * Math.min(Math.abs(row.quantity), Math.abs(actual.position));
   }
   return owned;
 }
@@ -363,7 +433,7 @@ async function cancelOwnedOrders(orders, options) {
       const session = await connect(clientId, { ordersOnly: intent.action === "cancel" && clientId === executorClientId });
       try {
         cleanSnapshot(session);
-        if (history && clientId !== executorClientId) freshExecutionSnapshot(session, history.coverage);
+        if (history && (intent.action !== "cancel" || clientId !== executorClientId)) freshExecutionSnapshot(session, history.coverage);
         for (const order of candidates.filter((row) => row.clientId === clientId)) {
           const current = session.state.openOrders.find((row) => row.orderId === order.orderId && row.clientId === clientId);
           if (!current || !working(current) || !belongsToDesk(current, desk, ownershipClientIds, executorClientId) || current.orderRef !== order.orderRef) throw new Error("cancel ownership/order changed during reconciliation");
@@ -372,7 +442,7 @@ async function cancelOwnedOrders(orders, options) {
           const status = [...session.state.statuses].reverse().find((row) => row.orderId === order.orderId);
           const fill = session.state.executions.some((row) => Number(row.execution.orderId) === order.orderId && Number(row.execution.clientId) === clientId);
           if ((intent.action === "cancel") && ((clientId !== executorClientId && fill) || !status || !working(status) || !Number.isFinite(status.filled) || status.filled !== 0 || status.remaining !== current.quantity)) throw new Error("cancel requires explicit evidence of a working unfilled order");
-          if (history && clientId !== executorClientId) freshExecutionSnapshot(session, history.coverage);
+          if (history && (intent.action !== "cancel" || clientId !== executorClientId)) freshExecutionSnapshot(session, history.coverage);
           before(session, current, order, intent, guard);
           sent = true;
           session.api.cancelOrder(order.orderId);
@@ -402,6 +472,7 @@ async function cancelDeskOrders(options) {
   const { desk, clientId, reconClientId, ownershipClientIds, ownership, stateExecutions, ownershipLedgerFile, intent, guard, connect, readHistory, onPlan } = options;
   let selected;
   let executions = mergeExecutions(stateExecutions || []);
+  let ownershipExecutions;
   const recon = await connect(reconClientId, { ordersOnly: true });
   try {
     cleanSnapshot(recon);
@@ -416,14 +487,15 @@ async function cancelDeskOrders(options) {
     history = readHistory(ownershipLedgerFile, Date.now(), undefined, { allowIntradayGaps: true });
     const evidence = await connect(reconClientId);
     try {
-      freshExecutionSnapshot(evidence, history.coverage);
-      executions = mergeExecutions(history.filter((row) => Number(row.execution.clientId) !== clientId), executions, evidence.state.executions);
-      reconcileDeskPositions(executions, evidence.state, ownership, clientId);
+      const ownedEvidence = ownershipEvidence(evidence, history, options);
+      executions = ownedEvidence.executions;
+      ownershipExecutions = ownedEvidence.attributed;
+      reconcileDeskPositions(ownershipExecutions, evidence.state, ownership, clientId);
     } finally { evidence.close(); }
   }
   onPlan({ clientId, orderRef: intent.orderRef || null, closing: [], cancellationTargets: selected.map((row) => ({ orderId: row.orderId, clientId: row.clientId, orderRef: row.orderRef, quantity: row.quantity })) });
   const cancelled = await cancelOwnedOrders(selected, { desk, ownershipClientIds, executorClientId: clientId, intent, guard, connect, history });
-  return { desk, cancelled, flattened: [], executions };
+  return { desk, cancelled, flattened: [], executions, ownershipExecutions };
 }
 
 export async function flattenOwned(options) {
@@ -435,35 +507,21 @@ export async function flattenOwned(options) {
   try { history = readHistory(ownershipLedgerFile, Date.now(), undefined, { allowIntradayGaps: true }); }
   catch (error) { historyError = error; }
   let executions;
+  let ownershipExecutions;
   let orders;
   let owned;
-  let usesLegacyHistory = false;
-  const reconcile = (session, initial = false) => {
+  const reconcile = (session) => {
     cleanSnapshot(session);
-    executions = mergeExecutions(executions || stateExecutions || [], session.state.executions);
-    // Cached legacy fills cannot establish completeness when the pusher fails.
-    // Retain them durably, but never use them to size a closing order.
-    const ownExecutions = executions.filter((row) => Number(row.execution.clientId) === clientId);
-    const legacyHistory = history.filter((row) => Number(row.execution.clientId) !== clientId);
-    const legacyPositions = ownedPositions(mergeExecutions(executions, legacyHistory), ownershipClientIds, ACCOUNT, desk);
-    const legacyOrders = session.state.openOrders.some((row) => working(row) && !KEEP.includes(row.symbol) && row.clientId !== clientId && belongsToDesk(row, desk, ownershipClientIds, clientId));
-    const ownPositions = ownedPositions(ownExecutions, [], ACCOUNT, desk, clientId);
-    const ownOrders = session.state.openOrders.some((row) => working(row) && !KEEP.includes(row.symbol) && row.clientId === clientId && belongsToDesk(row, desk, [], clientId));
-    if (legacyPositions.length || legacyOrders || initial && !ownPositions.length && !ownOrders) usesLegacyHistory = true;
-    if (usesLegacyHistory) {
-      if (historyError) throw historyError;
-      freshExecutionSnapshot(session, history.coverage);
-      executions = mergeExecutions(executions, legacyHistory);
-    } else {
-      freshExecutionSnapshot(session);
-    }
-    const evidence = usesLegacyHistory ? executions : ownExecutions;
-    reconcileDeskPositions(evidence, session.state, usesLegacyHistory ? ownership : {}, clientId);
-    return reconcileOwned(evidence, session.state, desk, usesLegacyHistory ? ownershipClientIds : [], clientId);
+    if (historyError) throw historyError;
+    const evidence = ownershipEvidence(session, history, options);
+    executions = evidence.executions;
+    ownershipExecutions = evidence.attributed;
+    reconcileDeskPositions(ownershipExecutions, session.state, ownership, clientId, { capSingleDesk: true });
+    return reconcileOwned(ownershipExecutions, session.state, desk, ownershipClientIds, clientId);
   };
   const recon = await connect(reconClientId);
   try {
-    owned = reconcile(recon, true);
+    owned = reconcile(recon);
     orders = recon.state.openOrders;
     await preflightOrders(recon, orders.filter((row) => belongsToDesk(row, desk, ownershipClientIds, clientId) && working(row) && !KEEP.includes(row.symbol)));
     for (const position of owned) {
@@ -495,7 +553,7 @@ export async function flattenOwned(options) {
         for (const position of owned) {
           const resolved = await resolveStock(session, position.symbol);
           const expected = { symbol: position.symbol, conId: position.conId };
-          freshExecutionSnapshot(session, usesLegacyHistory ? history.coverage : undefined);
+          freshExecutionSnapshot(session, history.coverage);
           before(session, resolved.contract, expected, intent, guard);
           if (!Number.isSafeInteger(Math.abs(position.quantity))) throw new Error("owned stock quantity is not an integer");
           const orderId = nextId++;
@@ -505,10 +563,12 @@ export async function flattenOwned(options) {
         }
         await session.wait(4_000);
         statuses.push(...acceptance(session, placed.map((row) => row.orderId), { filledOnly: true, quantities: Object.fromEntries(placed.map((row) => [row.orderId, row.quantity])) }));
-        executions = mergeExecutions(executions, session.state.executions);
+        const evidence = ownershipEvidence(session, history, options);
+        executions = evidence.executions;
+        ownershipExecutions = evidence.attributed;
       } finally { session.close(); }
     }
-    return { desk, gateway: true, account: ACCOUNT, keepExcluded: KEEP, cancelled, flattened: placed, statuses, errors: [], executions, ownershipComplete: usesLegacyHistory };
+    return { desk, gateway: true, account: ACCOUNT, keepExcluded: KEEP, cancelled, flattened: placed, statuses, errors: [], executions, ownershipExecutions, ownershipComplete: true };
   } catch (error) { if (sideEffects) throw uncertain(error); throw error; }
 }
 

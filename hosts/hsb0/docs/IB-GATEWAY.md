@@ -231,14 +231,20 @@ are attributed only through the configured historical desk client IDs.
 is the desk's working, unfilled order. Flatten may cancel its protective legs
 through their placing client IDs before closing its reconciled position.
 
-Executor-owned positions use the durable executor ledger and fresh IB executions
-for client 705 with the desk's orderRef; they do not require pusher history.
-Legacy positions require pusher family history whose target ends within two
-minutes of the host clock. History may have gaps only within today's New York
-execution-report window, covered by a fresh, completed, paper-account
-reqExecutions snapshot in the same session. Those fills are merged before sizing
-the closing order. Older gaps, unknown coverage, stale/missing snapshots and
-snapshot errors refuse legacy cancellation and flatten before any effect.
+Flatten derives ownership for every client, including 705, from pusher
+family-history executions plus today's fresh, completed, paper-account reqExecutions snapshot
+in the same session. Cached executor fills provide orderRef attribution and
+intent linkage, never quantities by themselves. History must cover every New
+York day since the desk's first order for the symbol through yesterday, with
+its target ending within two minutes of the host clock. First-order dates
+survive placement pruning; older ledgers conservatively require coverage since
+initialization when their earliest placements may already be gone. Today's
+gaps require the fresh execution snapshot.
+Older gaps, a target starting too late, unknown or unreadable history,
+stale/missing snapshots and snapshot errors refuse flatten before any effect.
+Closing quantity is capped at the desk's evidenced net and the live position
+for the same conId, with matching signs; conflicting aggregate desk ownership
+is refused. Cancelling filled or partially filled orders remains refused.
 Cancelling the executor's own working, unfilled orders uses live client 705
 orders, desk tags and explicit zero-filled status; it does not read pusher
 history or request executions. KEEP exclusions apply on every path.

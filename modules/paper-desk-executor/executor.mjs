@@ -1,5 +1,6 @@
 import { ACCOUNT, newYorkDay, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
 import { assertBrokerRuntime, deskPositions, flattenOwned, freshMarks, freshUsdToEur, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
+import { rememberFirstOrders } from "./state.mjs";
 
 export function publicError(error) { return String(error?.message || error).slice(0, 500); }
 
@@ -81,15 +82,16 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const result = (body) => ({ status: "ok", intentId: intent.intentId, desk: intent.desk, action: intent.action, observedAt: new Date().toISOString(), ...body });
 
   if (["flatten", "cancel"].includes(intent.action)) {
-    const outcome = await flattenOwned({ desk: intent.desk, clientId, reconClientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
+    rememberFirstOrders(state);
+    const outcome = await flattenOwned({ desk: intent.desk, clientId, reconClientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, firstOrders: state.firstOrders[intent.desk] || {}, ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
       const record = state.intents?.[intent.intentId];
       if (record) { record.brokerPlan = { ...record.brokerPlan, ...plan }; saveState(state); }
     } });
     state.executions = outcome.executions;
     if (outcome.ownershipComplete !== undefined) state.ownershipComplete = outcome.ownershipComplete;
-    state.deskPositions = deskPositions(state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId);
+    state.deskPositions = deskPositions(outcome.ownershipExecutions || state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId);
     saveState(state);
-    const { executions: _private, ...body } = outcome;
+    const { executions: _private, ownershipExecutions: _attribution, ...body } = outcome;
     return result(body);
   }
 
@@ -150,6 +152,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const budget = evaluatePlacement(intent, snapshot, state, { halt: guard.getHalt().active, stockType: resolved.stockType, usdToEur, blockOnInitDay: config.blockOnInitDay });
   const placement = { intentId: intent.intentId, orderRef: intent.orderRef, desk: intent.desk, clientId, symbol: intent.order.symbol, side: intent.order.side, quantity: intent.order.quantity, day: budget.day, riskEur: budget.riskEur, notionalEur: budget.notionalEur, status: "reserved", reservedAt: new Date().toISOString() };
   state.placements.push(placement);
+  rememberFirstOrders(state);
   saveState(state);
   let placingSession;
   try {
