@@ -50,6 +50,16 @@ test("KEEP, stale, live-like, and weak-stop intents fail closed", () => {
   assert.throws(() => parseIntent(valid({ schema: "barta.paper-desk-intent.v1" })), /schema must be/);
 });
 
+test("optional symbol is bounded to flatten/cancel and cannot select KEEP", () => {
+  for (const action of ["flatten", "cancel"]) {
+    const request = valid({ action, order: undefined, ...(action === "cancel" ? { orderId: 30 } : {}) });
+    assert.equal(parseIntent({ ...request, symbol: "KO" }).symbol, "KO");
+    assert.equal(parseIntent(request).symbol, undefined);
+    for (const symbol of ["TSLA", "SXR8", "ko", "", "bad/symbol"]) assert.throws(() => parseIntent({ ...request, symbol }), /KEEP|invalid/);
+  }
+  for (const action of ["place", "recon"]) assert.throws(() => parseIntent(valid({ action, order: action === "place" ? valid().order : undefined, symbol: "KO" })), /symbol is allowed only/);
+});
+
 test("host-side Stage-0 brakes reject HALT, ETF, risk, notional, daily and concurrent overflow", () => {
   const intent = parseIntent(valid());
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, { initializedAt: new Date().toISOString(), placements: [] }, { stockType: "COMMON", usdToEur: 0.9, blockOnInitDay: true }), /initialization day/);

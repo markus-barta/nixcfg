@@ -239,6 +239,14 @@ are attributed only through the configured historical desk client IDs.
 `--order-ref` or `--order-id`) and requires explicit evidence that each target
 is the desk's working, unfilled order. Flatten may cancel its protective legs
 through their placing client IDs before closing its reconciled position.
+Flatten and cancel accept an optional top-level `symbol` (CLI `--symbol KO`).
+Flatten resolves that symbol to a broker conId and reconciles every desk's
+ownership of that contract, cancelling and closing only that contract. Legacy
+cancel applies the same reconciliation scope to its selected order. Unrelated
+ownership/broker position mismatches do not block these symbol-scoped actions;
+target-contract mismatches still refuse them and name the symbol without
+quantities. Omitting the symbol retains strict all-symbol reconciliation for
+flatten-all and legacy cancel. KEEP symbols remain forbidden selectors.
 
 Flatten derives ownership for every client, including 705, from pusher
 family-history executions plus today's fresh, completed, paper-account reqExecutions snapshot

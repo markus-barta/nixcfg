@@ -20,6 +20,7 @@ function usage() {
     "  origin: http://100.64.0.6:8470 (PAPER_DESK_EXECUTOR_ORIGIN may select http://100.64.x.y:port)",
     "  --desk NAME --intent-id ID",
     "  --symbol SYM --side BUY|SELL --quantity N --limit N --stop N",
+    "  --symbol SYM (optional for flatten/cancel; omitted flatten covers all owned symbols)",
     "  --order-ref desk|yymmdd|thesis-id (place/cancel) --order-id N (cancel)",
     "  --reason TEXT",
   ].join("\n");
@@ -59,6 +60,7 @@ function intentEnvelope(parsed, action) {
     intent.order = { symbol: validateKey(required(parsed, "symbol").toUpperCase(), "symbol"), side: required(parsed, "side").toUpperCase(), quantity, limitPrice: positiveNumber(parsed, "limit"), stopPrice: positiveNumber(parsed, "stop"), currency: (parsed.get("currency") || "USD").toUpperCase() };
   }
   if (parsed.get("order-ref")) intent.orderRef = validateKey(parsed.get("order-ref"), "orderRef");
+  if (["flatten", "cancel"].includes(action) && parsed.has("symbol")) intent.symbol = validateKey(required(parsed, "symbol").toUpperCase(), "symbol");
   if (parsed.get("order-id")) intent.orderId = positiveNumber(parsed, "order-id");
   return intent;
 }
