@@ -14,7 +14,7 @@ function configFromHost() {
 }
 
 function resolveUncertain(state, broker, clientId, replayedClients) {
-  for (const [intentId, record] of Object.entries(state.intents || {})) {
+  for (const [intentId, record] of state.intents || new Map()) {
     if (!["uncertain", "claimed"].includes(record.status) || !["place", "flatten", "cancel"].includes(record.action)) continue;
     const placement = state.placements.find((row) => row.intentId === intentId);
     const ref = record.orderRef || placement?.orderRef;
@@ -83,8 +83,8 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
 
   if (["flatten", "cancel"].includes(intent.action)) {
     rememberFirstOrders(state);
-    const outcome = await flattenOwned({ desk: intent.desk, clientId, reconClientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, firstOrders: state.firstOrders[intent.desk] || {}, ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
-      const record = state.intents?.[intent.intentId];
+    const outcome = await flattenOwned({ desk: intent.desk, clientId, reconClientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
+      const record = state.intents?.get(intent.intentId);
       if (record) { record.brokerPlan = { ...record.brokerPlan, ...plan }; saveState(state); }
     } });
     state.executions = outcome.executions;
@@ -129,7 +129,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       if (evidence.state.errors.length || !evidence.state.gateway) throw new Error("placing-client reconciliation has errors");
       state.executions = mergeExecutions(state.executions, evidence.state.executions);
       const replayedClients = new Set([clientId]);
-      const targets = Object.values(state.intents || {}).filter((row) => ["claimed", "uncertain"].includes(row.status)).flatMap((row) => row.brokerPlan?.cancellationTargets || []);
+      const targets = [...(state.intents?.values() || [])].filter((row) => ["claimed", "uncertain"].includes(row.status)).flatMap((row) => row.brokerPlan?.cancellationTargets || []);
       for (const targetClient of new Set(targets.map((row) => row.clientId).filter((id) => id !== clientId && id !== reconClientId))) {
         let legacy;
         try {
@@ -146,7 +146,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId);
     state.activeOrders = [...new Map([...snapshot.openOrders, ...evidence.state.openOrders].map((row) => [`${row.clientId}:${row.orderId}`, row])).values()];
     saveState(state);
-    return result({ ...snapshot, deskPositions: state.deskPositions, ownershipHistory: historyError ? { status: "unavailable", reason: historyError } : { status: "complete" }, resolutions: Object.fromEntries(Object.entries(state.intents || {}).filter(([, row]) => row.resolution).map(([id, row]) => [id, row.resolution])) });
+    return result({ ...snapshot, deskPositions: state.deskPositions, ownershipHistory: historyError ? { status: "unavailable", reason: historyError } : { status: "complete" }, resolutions: Object.fromEntries([...(state.intents || new Map())].filter(([, row]) => row.resolution).map(([id, row]) => [id, row.resolution])) });
   }
 
   const budget = evaluatePlacement(intent, snapshot, state, { halt: guard.getHalt().active, stockType: resolved.stockType, usdToEur, blockOnInitDay: config.blockOnInitDay });

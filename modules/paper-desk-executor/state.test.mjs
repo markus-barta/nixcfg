@@ -18,45 +18,68 @@ test("retention preserves recent idempotency and unresolved evidence while pruni
     "crash-id": { status: "claimed", claimedAt: old },
   }, placements: [{ status: "uncertain", reservedAt: old }, { status: "submitted", reservedAt: old }], executions: [{ execution: "retained ownership" }] };
   pruneState(state, now);
-  assert.deepEqual(Object.keys(state.intents), ["recent-id", "uncertain", "crash-id"]);
+  assert.deepEqual([...state.intents.keys()], ["recent-id", "uncertain", "crash-id"]);
   assert.equal(state.placements.length, 1); assert.equal(state.executions.length, 1);
 });
 
 test("bounded admission refuses overload without discarding existing claims", () => {
   const state = { intents: Object.fromEntries(Array.from({ length: 5000 }, (_, index) => [`test-${String(index).padStart(4, "0")}`, { status: "uncertain" }])), placements: [], executions: [] };
   assert.throws(() => admitIntent(state), /capacity/);
-  assert.equal(Object.keys(state.intents).length, 5000);
+  assert.equal(state.intents.size, 5000);
 });
 
-test("loaded dictionaries retain null prototypes and reject reserved or malformed keys", () => {
+test("byte capacity counts Map evidence and refuses oversized saves without replacing the ledger", () => {
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops266-capacity-")));
+  const state = ledger.load();
+  const original = readFileSync(ledger.statePath, "utf8");
+  const evidence = { status: "uncertain", payload: "x".repeat(16 * 1024 * 1024) };
+  state.intents.set("large-evidence", evidence);
+  assert.throws(() => admitIntent(state), /capacity/);
+  assert.throws(() => ledger.save(state), /size limit/);
+  assert.equal(state.intents.get("large-evidence"), evidence);
+  assert.equal(readFileSync(ledger.statePath, "utf8"), original);
+});
+
+test("ledger dictionaries round-trip as Maps and reject reserved or malformed keys", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ops266-keys-"));
   const ledger = openLedger(root);
   const state = ledger.load();
-  state.intents["valid-id"] = { status: "uncertain" };
-  state.firstOrders.j = { AAPL: "2026-10-01" };
+  state.intents.set("valid-id", { status: "uncertain" });
+  state.firstOrders.set("j", new Map([["AAPL", "2026-10-01"]]));
   ledger.save(state);
   const loaded = ledger.load();
-  for (const map of [loaded.intents, loaded.firstOrders, loaded.firstOrders.j]) assert.equal(Object.getPrototypeOf(map), null);
-  assert.equal(loaded.firstOrders.j.AAPL, "2026-10-01");
+  for (const map of [loaded.intents, loaded.firstOrders, loaded.firstOrders.get("j")]) assert.ok(map instanceof Map);
+  assert.deepEqual(loaded.intents.get("valid-id"), { status: "uncertain" });
+  assert.equal(loaded.firstOrders.get("j").get("AAPL"), "2026-10-01");
+  const disk = readFileSync(ledger.statePath, "utf8");
+  assert.deepEqual(JSON.parse(disk).intents, { "valid-id": { status: "uncertain" } });
+  assert.deepEqual(JSON.parse(disk).firstOrders, { j: { AAPL: "2026-10-01" } });
   for (const key of ["__proto__", "constructor", "prototype", "short", "bad/path"]) {
-    const poisoned = JSON.parse(JSON.stringify(state));
+    const poisoned = JSON.parse(disk);
     Object.defineProperty(poisoned.intents, key, { value: { status: "uncertain" }, enumerable: true });
     writeFileSync(ledger.statePath, JSON.stringify(poisoned));
     assert.throws(() => ledger.load(), /intentId is invalid/);
     assert.throws(() => ledger.save(poisoned), /intentId is invalid/);
   }
   for (const key of ["__proto__", "constructor", "prototype", "other-desk"]) {
-    const poisoned = JSON.parse(JSON.stringify(state));
+    const poisoned = JSON.parse(disk);
     Object.defineProperty(poisoned.firstOrders, key, { value: {}, enumerable: true });
     writeFileSync(ledger.statePath, JSON.stringify(poisoned));
     assert.throws(() => ledger.load(), /desk is invalid/);
+    assert.throws(() => ledger.save(poisoned), /desk is invalid/);
   }
   for (const key of ["__proto__", "constructor", "prototype", "bad/symbol"]) {
-    const poisoned = JSON.parse(JSON.stringify(state));
+    const poisoned = JSON.parse(disk);
     Object.defineProperty(poisoned.firstOrders.j, key, { value: "2026-10-01", enumerable: true });
     writeFileSync(ledger.statePath, JSON.stringify(poisoned));
     assert.throws(() => ledger.load(), /symbol is invalid/);
+    assert.throws(() => ledger.save(poisoned), /symbol is invalid/);
   }
+  state.intents.set("__proto__", { status: "uncertain" });
+  assert.throws(() => ledger.save(state), /intentId is invalid/);
+  state.intents.delete("__proto__");
+  state.firstOrders.get("j").set("constructor", "2026-10-01");
+  assert.throws(() => ledger.save(state), /symbol is invalid/);
 });
 
 test("ledger and audit reads refuse symlinks; atomic writes ignore predictable temporary links", () => {
@@ -111,10 +134,10 @@ test("first-order coverage dates survive pruning old filled placements", () => {
   ], executions: [] };
   pruneState(state, now);
   assert.equal(state.placements.length, 1);
-  assert.equal(state.firstOrders.j.AAPL, newYorkDay(Date.parse(first)));
+  assert.equal(state.firstOrders.get("j").get("AAPL"), newYorkDay(Date.parse(first)));
   pruneState(state, now + RETENTION_MS + 1);
   assert.deepEqual(state.placements, []);
-  assert.equal(state.firstOrders.j.AAPL, newYorkDay(Date.parse(first)));
+  assert.equal(state.firstOrders.get("j").get("AAPL"), newYorkDay(Date.parse(first)));
 });
 
 test("audit rotation remains bounded and HALT and ledger persist independently", () => {
@@ -122,11 +145,11 @@ test("audit rotation remains bounded and HALT and ledger persist independently",
   const ledger = openLedger(root);
   const state = ledger.load();
   ledger.setHalt("operator stop");
-  state.intents["durable-id"] = { status: "uncertain", claimedAt: new Date().toISOString() };
+  state.intents.set("durable-id", { status: "uncertain", claimedAt: new Date().toISOString() });
   ledger.save(state);
   for (let index = 0; index < 40; index++) ledger.audit({ event: "large", payload: "x".repeat(64000) });
   assert.ok(statSync(ledger.auditPath).size <= 1024 * 1024);
   assert.ok(statSync(`${ledger.auditPath}.1`).size <= 1024 * 1024);
-  assert.equal(openLedger(root).load().intents["durable-id"].status, "uncertain");
+  assert.equal(openLedger(root).load().intents.get("durable-id").status, "uncertain");
   assert.match(openLedger(root).haltBody(), /operator stop/);
 });

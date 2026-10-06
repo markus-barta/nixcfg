@@ -238,7 +238,7 @@ export function evaluatePlacement(intent, snapshot, state, { halt = false, stock
   if (deskSymbols.size >= LIMITS.concurrent) fail(`desk concurrent-name limit ${LIMITS.concurrent} reached`);
   if (symbols.size >= LIMITS.fleetConcurrent) fail(`fleet concurrent-name limit ${LIMITS.fleetConcurrent} reached`);
   if ((state.placements || []).some((row) => thesisKey(row.orderRef) === thesisKey(intent.orderRef) && ["reserved", "uncertain", "partial"].includes(row.status))) fail("thesis has an unresolved intent; reconcile before retry");
-  if (Object.entries(state.intents || {}).some(([id, row]) => id !== intent.intentId && thesisKey(row.orderRef) === thesisKey(intent.orderRef) && ["claimed", "uncertain"].includes(row.status))) fail("thesis has an unresolved intent; reconcile before retry");
+  if ([...(state.intents || new Map())].some(([id, row]) => id !== intent.intentId && thesisKey(row.orderRef) === thesisKey(intent.orderRef) && ["claimed", "uncertain"].includes(row.status))) fail("thesis has an unresolved intent; reconcile before retry");
   return { ...budget, day, concurrentBefore: symbols.size, usdToEur, fxSafetyBuffer: LIMITS.fxSafetyBuffer };
 }
 

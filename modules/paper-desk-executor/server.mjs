@@ -104,7 +104,7 @@ function storedResult(record) {
 
 function claimRecord(state, intent) {
   const hash = digest(intent);
-  const prior = state.intents[intent.intentId];
+  const prior = state.intents.get(intent.intentId);
   if (prior) {
     if (prior.hash !== hash) {
       const error = new Error("intentId was already used with different content");
@@ -126,7 +126,7 @@ function claimRecord(state, intent) {
     return { replay: { ...storedResult(prior), idempotentReplay: true } };
   }
   admitIntent(state);
-  state.intents[intent.intentId] = {
+  state.intents.set(intent.intentId, {
     hash,
     action: intent.action,
     desk: intent.desk,
@@ -134,18 +134,18 @@ function claimRecord(state, intent) {
     orderId: intent.orderId || null,
     status: "claimed",
     claimedAt: new Date().toISOString(),
-  };
+  });
   return { hash, replay: null };
 }
 
 function finish(state, intent, status, result) {
   const { idempotentReplay: _ignored, ...stored } = result;
-  state.intents[intent.intentId] = {
-    ...state.intents[intent.intentId],
+  state.intents.set(intent.intentId, {
+    ...state.intents.get(intent.intentId),
     status,
     finishedAt: new Date().toISOString(),
     result: stored,
-  };
+  });
 }
 
 export function createServer(options) {
@@ -249,7 +249,7 @@ export function createServer(options) {
         }
         const body = await exclusive(() => {
           const state = ledger.load();
-          const record = state.intents[intentId];
+          const record = state.intents.get(intentId);
           if (!record) return { missing: true, intentId };
           if (!record.result || record.status === "claimed") {
             return {

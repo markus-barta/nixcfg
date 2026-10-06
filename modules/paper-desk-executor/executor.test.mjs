@@ -19,7 +19,7 @@ const order = (overrides = {}) => ({ ...contract(), orderId: 30, clientId: 705, 
 function intent(action = "place", overrides = {}) {
   return parseIntent({ schema: "barta.paper-desk-intent.v2", intentId: "j-executor-test", desk: "j", action, createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 300000).toISOString(), ...(action === "place" ? { orderRef: ref(), order: { symbol: "AAPL", side: "BUY", quantity: 2, limitPrice: 100, stopPrice: 99, currency: "USD" } } : {}), ...overrides });
 }
-function ledger() { return { initializedAt: new Date().toISOString(), intents: {}, placements: [], executions: [] }; }
+function ledger() { return { initializedAt: new Date().toISOString(), intents: new Map(), placements: [], executions: [] }; }
 function intradayCoverage() {
   const now = Date.now();
   let midnight = Math.floor(now / 3600000) * 3600000;
@@ -208,7 +208,7 @@ test("a complete target starting after the desk's first-order day refuses flatte
     const first = new Date(Date.now() - 3 * 86400000).toISOString();
     const state = ledger();
     if (origin === "placement") state.placements = [{ desk: "j", symbol: "AAPL", reservedAt: first, orderRef: ref() }];
-    if (origin === "retained-date") state.firstOrders = { j: { AAPL: newYorkDay(Date.parse(first)) } };
+    if (origin === "retained-date") state.firstOrders = new Map([["j", new Map([["AAPL", newYorkDay(Date.parse(first))]])]]);
     if (origin === "cached-fill") state.executions = [fill({ time: first })];
     if (origin === "pruned-legacy-ledger") {
       state.initializedAt = first;
@@ -349,13 +349,13 @@ test("expiry is rechecked before cancellation", async () => {
 test("recon resolves uncertain thesis to absent, partial or filled by tag and placing client", async () => {
   for (const resolution of ["absent", "partial", "filled"]) {
     const state = ledger(); const id = "old-uncertain";
-    state.intents[id] = { status: "uncertain", action: "place", claimedAt: new Date().toISOString(), orderRef: ref(), result: { status: "uncertain", intentId: id } };
+    state.intents.set(id, { status: "uncertain", action: "place", claimedAt: new Date().toISOString(), orderRef: ref(), result: { status: "uncertain", intentId: id } });
     state.placements.push({ intentId: id, orderRef: ref(), desk: "j", symbol: "AAPL", status: "uncertain", side: "BUY", quantity: 2, day: newYorkDay(), reservedAt: new Date().toISOString() });
     const executions = resolution === "absent" ? [] : [fill({ shares: resolution === "filled" ? 2 : 1 })];
     const h = harness({ executions, positions: executions.length ? [{ ...contract(), position: executions[0].execution.shares }] : [] });
     const result = await h.run(intent("recon"), state);
-    assert.equal(result.status, "ok"); assert.equal(state.intents[id].resolution.status, resolution);
-    assert.equal(state.intents[id].status, resolution === "partial" ? "uncertain" : "done");
+    assert.equal(result.status, "ok"); assert.equal(state.intents.get(id).resolution.status, resolution);
+    assert.equal(state.intents.get(id).status, resolution === "partial" ? "uncertain" : "done");
   }
 });
 
@@ -430,7 +430,7 @@ test("HTTP stores the real executor's uncertain result and GET exposes recon res
   const value = intent();
   assert.equal((await request("POST", "/v1/intents", value)).result.status, "uncertain");
   const stored = app.ledger.load();
-  assert.equal(stored.intents[value.intentId].status, "uncertain"); assert.equal(stored.placements[0].status, "uncertain");
+  assert.equal(stored.intents.get(value.intentId).status, "uncertain"); assert.equal(stored.placements[0].status, "uncertain");
   h.broker.noAck = false;
   assert.equal((await request("POST", "/v1/intents", intent("recon", { intentId: "j-real-http-recon" }))).status, 200);
   const lookup = await request("GET", `/v1/intents/${value.intentId}`);
@@ -466,11 +466,11 @@ test("recon resolves uncertain cancellation and flatten plans to filled, partial
     const refs = ref("j", "uncertain-plan");
     const quantity = resolution === "filled" ? 2 : resolution === "partial" ? 1 : 0;
     const executions = quantity ? [fill({ execId: "outcome.1", orderRef: refs, side: action === "flatten" ? "SLD" : "BOT", shares: quantity, orderId: 30 })] : [];
-    state.intents["uncertain-plan"] = { status: "uncertain", action, claimedAt: new Date().toISOString(), orderRef: refs, result: { status: "uncertain" }, brokerPlan: { clientId: 705, orderRef: refs, closing: action === "flatten" ? [{ conId: 1, quantity: 2, side: "SELL" }] : [], cancellationTargets: action === "cancel" ? [{ clientId: 705, orderId: 30, quantity: 2 }] : [] } };
+    state.intents.set("uncertain-plan", { status: "uncertain", action, claimedAt: new Date().toISOString(), orderRef: refs, result: { status: "uncertain" }, brokerPlan: { clientId: 705, orderRef: refs, closing: action === "flatten" ? [{ conId: 1, quantity: 2, side: "SELL" }] : [], cancellationTargets: action === "cancel" ? [{ clientId: 705, orderId: 30, quantity: 2 }] : [] } });
     const positions = quantity ? [{ ...contract(), position: action === "flatten" ? 2 - quantity : quantity }].filter((row) => row.position) : [];
     const h = harness({ executions, history: action === "flatten" ? [fill({ execId: "opening.1" })] : [], positions });
     await h.run(intent("recon"), state);
-    assert.equal(state.intents["uncertain-plan"].resolution.status, resolution);
-    assert.equal(state.intents["uncertain-plan"].status, resolution === "partial" ? "uncertain" : "done");
+    assert.equal(state.intents.get("uncertain-plan").resolution.status, resolution);
+    assert.equal(state.intents.get("uncertain-plan").status, resolution === "partial" ? "uncertain" : "done");
   }
 });

@@ -303,13 +303,13 @@ test("a claim without a stored result returns uncertain and is never replayed", 
   const intent = parseIntent(raw);
   const ledger = openLedger(stateDir);
   const state = ledger.load();
-  state.intents[intent.intentId] = {
+  state.intents.set(intent.intentId, {
     hash: digest(intent),
     action: intent.action,
     desk: intent.desk,
     status: "claimed",
     claimedAt: new Date().toISOString(),
-  };
+  });
   ledger.save(state);
 
   let calls = 0;
