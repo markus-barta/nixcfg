@@ -5,6 +5,7 @@ import {
   activeHalt,
   evaluatePlacement,
   newYorkDay,
+  mergeExecutions,
   ownedPositions,
   parseIntent,
   placementBudget,
@@ -51,7 +52,7 @@ test("KEEP, stale, live-like, and weak-stop intents fail closed", () => {
 
 test("host-side Stage-0 brakes reject HALT, ETF, risk, notional, daily and concurrent overflow", () => {
   const intent = parseIntent(valid());
-  assert.throws(() => evaluatePlacement(intent, emptySnapshot, { initializedAt: new Date().toISOString(), placements: [] }, { stockType: "COMMON", usdToEur: 0.9 }), /initialization day/);
+  assert.throws(() => evaluatePlacement(intent, emptySnapshot, { initializedAt: new Date().toISOString(), placements: [] }, { stockType: "COMMON", usdToEur: 0.9, blockOnInitDay: true }), /initialization day/);
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, emptyState(), { halt: true, stockType: "COMMON", usdToEur: 0.9 }), /HALT/);
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, emptyState(), { stockType: "ETF", usdToEur: 0.9 }), /non-ETF/);
   const highRisk = parseIntent(valid({ order: { ...valid().order, quantity: 30 } }));
@@ -60,8 +61,8 @@ test("host-side Stage-0 brakes reject HALT, ETF, risk, notional, daily and concu
   assert.throws(() => evaluatePlacement(highNotional, emptySnapshot, emptyState(), { stockType: "COMMON", usdToEur: 0.9 }), /notional/);
   const day = newYorkDay();
   const placements = [
-    { day, riskEur: 20, status: "submitted" },
-    { day, riskEur: 20, status: "submitted" },
+    { day, desk: "j", riskEur: 20, status: "submitted" },
+    { day, desk: "j", riskEur: 20, status: "submitted" },
   ];
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, { ...emptyState(), placements }, { stockType: "COMMON", usdToEur: 0.9 }), /daily new-order/);
   const nearDailyCap = [{ day, riskEur: 49, status: "submitted" }];
@@ -74,6 +75,7 @@ test("host-side Stage-0 brakes reject HALT, ETF, risk, notional, daily and concu
       { symbol: "SXR8", position: 1401 },
     ],
     openOrders: [],
+    deskPositions: ["MSFT", "NVDA", "META"].map((symbol) => ({ desk: "j", symbol, quantity: 1 })),
   };
   assert.throws(() => evaluatePlacement(intent, crowded, emptyState(), { stockType: "COMMON", usdToEur: 0.9 }), /concurrent-name/);
   const piled = { positions: [{ symbol: "AAPL", position: 1 }], openOrders: [] };
@@ -104,4 +106,35 @@ test("non-empty local HALT is active and there is no remote halt", () => {
   assert.deepEqual(activeHalt(""), { active: false, source: null });
   assert.deepEqual(activeHalt("   "), { active: false, source: null });
   assert.deepEqual(activeHalt(undefined), { active: false, source: null });
+});
+
+test("corrections use numeric revisions and conflicting duplicates refuse", () => {
+  const row = (execId, shares) => ({ contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId, shares, acctNumber: "DUR970597", clientId: 702, side: "BOT" } });
+  const one = row("fill.1", 10);
+  const ten = row("fill.10", 2);
+  assert.deepEqual(mergeExecutions([one, ten, row("fill.2", 5)]), [ten]);
+  assert.deepEqual(mergeExecutions([ten, one]), [ten]);
+  assert.deepEqual(mergeExecutions([ten, ten]), [ten]);
+  assert.throws(() => mergeExecutions([ten, row("fill.10", 3)]), /conflicting duplicate/);
+  assert.equal(ownedPositions([one, ten], [702])[0].quantity, 2);
+});
+
+test("per-desk admission leaves fleet risk and concurrent caps intact", () => {
+  const intent = parseIntent(valid());
+  const opts = { stockType: "COMMON", usdToEur: 0.9 };
+  const other = [{ day: newYorkDay(), desk: "joe", riskEur: 1, status: "submitted" }, { day: newYorkDay(), desk: "joe", riskEur: 1, status: "submitted" }];
+  assert.equal(evaluatePlacement(intent, emptySnapshot, { initializedAt: new Date().toISOString(), placements: other }, opts).riskEur, 1.84);
+  const fleet = { positions: ["MSFT", "NVDA", "META", "AMD", "INTC", "ORCL"].map((symbol) => ({ symbol, position: 1 })), openOrders: [] };
+  assert.throws(() => evaluatePlacement(intent, fleet, emptyState(), opts), /fleet concurrent/);
+  const unresolved = { ...emptyState(), placements: [{ orderRef: intent.orderRef, status: "uncertain", symbol: "AMD" }] };
+  assert.throws(() => evaluatePlacement(intent, emptySnapshot, unresolved, opts), /unresolved/);
+});
+
+test("uncertain placement blocks its symbol and thesis across New York days", () => {
+  const intent = parseIntent(valid({ orderRef: "j|261006|thesis-1" }));
+  const state = { ...emptyState(), placements: [{ desk: "j", symbol: "AAPL", orderRef: "j|261005|different-thesis", status: "uncertain" }] };
+  assert.throws(() => evaluatePlacement(intent, emptySnapshot, state, { stockType: "COMMON", usdToEur: 0.9 }), /piling/);
+  state.placements[0].symbol = "AMD";
+  state.placements[0].orderRef = "j|261005|thesis-1";
+  assert.throws(() => evaluatePlacement(intent, emptySnapshot, state, { stockType: "COMMON", usdToEur: 0.9 }), /unresolved/);
 });

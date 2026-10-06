@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   activeHalt,
+  assertSideEffect,
   brakeUsage,
   digest,
   parseIntent,
@@ -20,7 +21,7 @@ import {
   assertPeerAllowlist,
   peerAllowed,
 } from "./security.mjs";
-import { openLedger } from "./state.mjs";
+import { admitIntent, openLedger } from "./state.mjs";
 
 const BODY_LIMIT = 65_536;
 
@@ -112,10 +113,13 @@ function claimRecord(state, intent) {
     }
     return { replay: { ...storedResult(prior), idempotentReplay: true } };
   }
+  admitIntent(state);
   state.intents[intent.intentId] = {
     hash,
     action: intent.action,
     desk: intent.desk,
+    orderRef: intent.orderRef || null,
+    orderId: intent.orderId || null,
     status: "claimed",
     claimedAt: new Date().toISOString(),
   };
@@ -178,7 +182,7 @@ export function createServer(options) {
               gatewayPort,
               account: "DUR970597",
               halt: activeHalt(ledger.haltBody()),
-              brakes: brakeUsage(state),
+              brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
             };
           }),
         ]);
@@ -208,10 +212,8 @@ export function createServer(options) {
           }
           if (parsed.reason) reason = parsed.reason;
         }
-        const halt = await exclusive(() => {
-          ledger.setHalt(reason);
-          return activeHalt(ledger.haltBody());
-        });
+        ledger.setHalt(reason);
+        const halt = activeHalt(ledger.haltBody());
         send(response, 200, { status: "halted", ...halt });
         return;
       }
@@ -284,7 +286,8 @@ export function createServer(options) {
           }
           const runner = execute || (await import("./executor.mjs")).executeIntent;
           try {
-            const result = await runner(intent, state, { halt, saveState: ledger.save });
+            assertSideEffect(intent, { getHalt: () => activeHalt(ledger.haltBody()) });
+            const result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save });
             const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
             finish(state, intent, status, result);
             ledger.save(state);
@@ -334,6 +337,7 @@ export function createServer(options) {
     listenPort: listen.port,
     ledger,
     server,
+    handle,
     listen() {
       return new Promise((resolve, reject) => {
         const onError = (error) => {
@@ -370,7 +374,8 @@ async function main() {
     stateDir: process.env.PAPER_DESK_STATE_DIR || "/state",
   });
   // Fail closed before accept if the IB runtime cannot be loaded.
-  await import("./executor.mjs");
+  const runtime = await import("./executor.mjs");
+  runtime.assertRuntime();
   const address = await started.listen();
   console.error(`paper-desk-executor listening ${address.address}:${address.port}`);
   const shutdown = () => {

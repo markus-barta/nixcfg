@@ -115,6 +115,7 @@ in
     # restart trigger) for intentional rebuilds; bump the concrete tag when
     # promoting a new paper image. pull_policy=never skips registry + rebuild.
     spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
+      services.paper-desk-executor = config.nixcfg.paperDeskExecutor.serviceSpec;
       services.joe-board-pusher = {
         build = "${joeBoardPusherSource}";
         image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";

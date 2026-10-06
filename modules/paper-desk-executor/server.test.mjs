@@ -1,17 +1,34 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { runClient } from "./client/paper-intent.mjs";
 
 import { digest, parseIntent } from "./policy.mjs";
 import { createServer } from "./server.mjs";
 import { openLedger } from "./state.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const clientPath = path.join(here, "client", "paper-intent.mjs");
+// Exercise the real HTTP handler without requiring a listening socket. The
+// separate security tests check production bind constraints; live transport
+// verification belongs on the host, outside the restricted builder sandbox.
+const handlers = new Map();
+let nextPort = 9000;
+async function fetch(url, options = {}) {
+  const target = new URL(url);
+  const handler = handlers.get(target.origin);
+  if (!handler) throw new Error("test origin unavailable");
+  const request = Readable.from(options.body ? [Buffer.from(options.body)] : []);
+  request.method = options.method || "GET";
+  request.url = `${target.pathname}${target.search}`;
+  request.headers = options.headers || {};
+  request.socket = { remoteAddress: "127.0.0.1" };
+  let body; let status; let headers;
+  const response = { headersSent: false, writeHead(code, values) { status = code; headers = values; this.headersSent = true; }, end(value) { body = value; } };
+  await handler(request, response);
+  return new Response(body, { status, headers });
+}
 
 function tempDir() {
   return mkdtempSync(path.join(tmpdir(), "paper-desk-"));
@@ -72,14 +89,15 @@ async function start(t, overrides = {}) {
     stateDir,
     execute,
   });
-  const address = await created.listen();
+  const address = { port: nextPort++ };
+  handlers.set(`http://127.0.0.1:${address.port}`, created.handle);
   const ctx = {
     calls: () => calls,
     stateDir,
     url: `http://127.0.0.1:${address.port}`,
   };
   t.after(async () => {
-    await created.close();
+    handlers.delete(ctx.url);
     removeTemp(stateDir);
   });
   return ctx;
@@ -94,23 +112,15 @@ async function post(url, body) {
   return { status: response.status, body: await response.json() };
 }
 
-function runCli(args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [clientPath, ...args], { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
+async function runCli(args) {
+  let stdout = "";
+  const code = await runClient(args, { fetch, write: (line) => { stdout += `${line}\n`; } });
+  return { code, stdout, stderr: "" };
 }
 
 test("peer allowlist rejects every source that is not listed", async (t) => {
   const denied = await start(t, { allowlist: ["100.64.0.9"] });
-  const response = await fetch(`${denied.url}/v1/health`);
+  const response = await fetch(`${denied.url}/v1/health`, { headers: { "X-Forwarded-For": "100.64.0.9" } });
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { status: "rejected", reason: "source is not allowed" });
 
@@ -122,7 +132,7 @@ test("peer allowlist rejects every source that is not listed", async (t) => {
   assert.equal(body.halt.active, false);
   assert.equal(body.brakes.newToday, 0);
   assert.equal(body.brakes.dailyRiskEurLimit, 50);
-  assert.equal(body.brakes.placementBlockedOnInitDay, true);
+  assert.equal(body.brakes.placementBlockedOnInitDay, false);
   assert.deepEqual(body.brakes.keep, ["SXR8", "TSLA"]);
 });
 
@@ -357,4 +367,32 @@ test("the desk client prints JSON for health, place, and status", async (t) => {
   const forbidden = await runCli(["health", "--url", denied.url]);
   assert.equal(forbidden.code, 1);
   assert.equal(JSON.parse(forbidden.stdout).reason, "source is not allowed");
+});
+
+test("HALT persists while an execution remains pending", async (t) => {
+  let release;
+  let entered;
+  const ready = new Promise((resolve) => { entered = resolve; });
+  const pending = new Promise((resolve) => { release = resolve; });
+  const ctx = await start(t, { execute: async (intent, _state, { getHalt }) => {
+    entered();
+    await pending;
+    assert.equal(getHalt().active, true);
+    return { ...okResult(intent), status: "rejected", reason: "HALT" };
+  } });
+  const placing = post(ctx.url, valid());
+  await ready;
+  try {
+    const response = await fetch(`${ctx.url}/v1/halt`, { method: "POST", body: "{}", signal: AbortSignal.timeout(1000) });
+    assert.equal(response.status, 200);
+    assert.equal(openLedger(ctx.stateDir).haltBody().length > 0, true);
+  } finally { release(); }
+  assert.equal((await placing).status, 422);
+});
+
+test("client treats a 200 rejection as failure with JSON reason", async () => {
+  let output;
+  const code = await runClient(["health"], { fetch: async () => new Response(JSON.stringify({ status: "rejected", reason: "broker refused" }), { status: 200 }), write: (line) => { output = line; } });
+  assert.equal(code, 1);
+  assert.equal(JSON.parse(output).reason, "broker refused");
 });

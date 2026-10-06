@@ -3,6 +3,7 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
+  statSync,
   openSync,
   readFileSync,
   renameSync,
@@ -12,6 +13,23 @@ import path from "node:path";
 
 import { ACCOUNT } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
+
+export const RETENTION_MS = 14 * 24 * 60 * 60_000;
+const MAX_INTENTS = 5000;
+const MAX_STATE_BYTES = 16 * 1024 * 1024;
+const MAX_AUDIT_BYTES = 1024 * 1024;
+
+export function pruneState(state, now = Date.now()) {
+  for (const [id, row] of Object.entries(state.intents)) {
+    if (!["claimed", "uncertain"].includes(row.status) && now - Date.parse(row.finishedAt || row.claimedAt) > RETENTION_MS) delete state.intents[id];
+  }
+  state.placements = state.placements.filter((row) => ["reserved", "uncertain", "partial"].includes(row.status) || now - Date.parse(row.reservedAt || `${row.day}T00:00:00Z`) <= RETENTION_MS);
+}
+
+export function admitIntent(state) {
+  pruneState(state);
+  if (Object.keys(state.intents).length >= MAX_INTENTS || state.executions.length >= 50000 || Buffer.byteLength(JSON.stringify(state)) > MAX_STATE_BYTES - 262144) throw new Error("ledger capacity reached; new intents refused while evidence is retained");
+}
 
 const STATE_SCHEMA = "barta.paper-desk-executor-state.v1";
 
@@ -47,7 +65,9 @@ export function openLedger(root) {
   }
 
   function audit(event) {
-    const row = `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`;
+    let row = `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`;
+    if (Buffer.byteLength(row) > 65536) row = `${JSON.stringify({ at: new Date().toISOString(), event: event.event, intentId: event.intentId, status: event.status, resultOmitted: "large result retained in ledger" })}\n`;
+    if (existsSync(auditPath) && statSync(auditPath).size + Buffer.byteLength(row) > MAX_AUDIT_BYTES) renameSync(auditPath, `${auditPath}.1`);
     const handle = openSync(auditPath, "a", 0o600);
     try {
       appendFileSync(handle, row);
@@ -58,7 +78,10 @@ export function openLedger(root) {
   }
 
   function save(state) {
-    writeAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    pruneState(state);
+    const body = `${JSON.stringify(state)}\n`;
+    if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("ledger size limit reached; evidence retained");
+    writeAtomic(statePath, body);
   }
 
   function load() {
@@ -68,6 +91,7 @@ export function openLedger(root) {
       audit({ event: "ledger_initialized", initializedAt: state.initializedAt });
       return state;
     }
+    if (statSync(statePath).size > MAX_STATE_BYTES) throw new Error("executor ledger exceeds size limit");
     const value = JSON.parse(readFileSync(statePath, "utf8"));
     if (value?.schema !== STATE_SCHEMA || value?.account !== ACCOUNT
         || !Number.isFinite(Date.parse(value.initializedAt)) || !value.intents

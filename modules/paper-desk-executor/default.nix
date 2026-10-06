@@ -10,7 +10,6 @@
 let
   cfg = config.nixcfg.paperDeskExecutor;
   stack = config.nixcfg.composeStack;
-  docker = "${config.virtualisation.docker.package}/bin/docker";
   ledgerName = baseNameOf cfg.ownershipLedgerFile;
   ledgerDir = dirOf cfg.ownershipLedgerFile;
   tailnetPeer =
@@ -27,37 +26,25 @@ let
     cp ${./server.mjs} "$out/server.mjs"
     cp ${./client/paper-intent.mjs} "$out/client/paper-intent.mjs"
   '';
-  runArgs = [
-    "run"
-    "--name=paper-desk-executor"
-    "--rm"
-    "--network=host"
-    "--read-only"
-    "--cap-drop=ALL"
-    "--security-opt=no-new-privileges:true"
-    "--pids-limit=64"
-    "--memory=256m"
-    "--user=0:0"
-    "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"
-    "--mount=type=bind,src=${source},dst=/executor,readonly"
-    "--mount=type=bind,src=/var/lib/paper-desk-executor,dst=/state"
-    "--mount=type=bind,src=${ledgerDir},dst=/pusher-state,readonly"
-    "--env=IB_DESK_ACCOUNT=DUR970597"
-    "--env=IB_DESK_GATEWAY_HOST=100.64.0.6"
-    "--env=IB_DESK_GATEWAY_PORT=${toString cfg.gatewayPort}"
-    "--env=IB_DESK_OWNERSHIP_LEDGER=/pusher-state/${ledgerName}"
-    "--env=IB_DESK_RECON_CLIENT_ID=${toString cfg.clientIds.recon}"
-    "--env=IB_DESK_CLIENT_IDS=${builtins.toJSON cfg.clientIds}"
-    "--env=IB_DESK_OWNERSHIP_CLIENT_IDS=${builtins.toJSON cfg.ownershipClientIds}"
-    "--env=IB_DESK_KEEP=${builtins.toJSON cfg.keepSymbols}"
-    "--env=PAPER_DESK_BIND=${cfg.listenAddress}"
-    "--env=PAPER_DESK_PORT=${toString cfg.listenPort}"
-    "--env=PAPER_DESK_ALLOW=${builtins.toJSON cfg.peerAllowlist}"
-    "--env=PAPER_DESK_STATE_DIR=/state"
-    "--entrypoint=node"
-    cfg.image
-    "/executor/server.mjs"
+  environment = [
+    "IB_DESK_ACCOUNT=DUR970597"
+    "IB_DESK_GATEWAY_HOST=100.64.0.6"
+    "IB_DESK_GATEWAY_PORT=${toString cfg.gatewayPort}"
+    "IB_DESK_OWNERSHIP_LEDGER=/pusher-state/${ledgerName}"
+    "IB_DESK_CLIENT_IDS=${builtins.toJSON cfg.clientIds}"
+    "IB_DESK_OWNERSHIP_CLIENT_IDS=${builtins.toJSON cfg.ownershipClientIds}"
+    "PAPER_DESK_BIND=${cfg.listenAddress}"
+    "PAPER_DESK_PORT=${toString cfg.listenPort}"
+    "PAPER_DESK_ALLOW=${builtins.toJSON cfg.peerAllowlist}"
+    "PAPER_DESK_STATE_DIR=/state"
+    "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
   ];
+  peerRules =
+    action:
+    lib.concatMapStringsSep "\n" (
+      peer:
+      "iptables ${action} nixos-fw -i tailscale0 -s ${peer} -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j nixos-fw-accept"
+    ) cfg.peerAllowlist;
 in
 {
   options.nixcfg.paperDeskExecutor = {
@@ -110,16 +97,26 @@ in
       ];
     };
 
+    serviceSpec = lib.mkOption {
+      type = lib.types.attrs;
+      readOnly = true;
+      internal = true;
+      description = "Executor service merged into the host compose specification.";
+    };
+
+    blockOnInitDay = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Optional paper-only ledger initialization-day brake.";
+    };
+
     clientIds = lib.mkOption {
       type = lib.types.attrsOf lib.types.int;
       default = {
         recon = 700;
-        joe = 701;
-        j = 702;
-        j5 = 703;
-        joel = 704;
+        executor = 705;
       };
-      description = "Dedicated non-overlapping paper API client IDs.";
+      description = "Distinct recon and shared placing client IDs; desk ownership is enforced by orderRef.";
     };
 
     ownershipClientIds = lib.mkOption {
@@ -211,6 +208,25 @@ in
         message = "paperDeskExecutor KEEP must remain exactly SXR8 and TSLA";
       }
       {
+        assertion =
+          cfg.clientIds.recon > 0
+          && cfg.clientIds.executor > 0
+          && cfg.clientIds.recon != cfg.clientIds.executor
+          && !(lib.elem cfg.clientIds.executor (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          && !(lib.elem cfg.clientIds.recon (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          &&
+            lib.length (lib.unique (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+            == lib.length (lib.concatLists (lib.attrValues cfg.ownershipClientIds));
+        message = "paperDeskExecutor shared client must be distinct from recon and legacy ownership IDs";
+      }
+      {
+        assertion =
+          !(lib.elem cfg.listenPort (
+            config.networking.firewall.interfaces.tailscale0.allowedTCPPorts or [ ]
+          ));
+        message = "paperDeskExecutor requires source-specific firewall rules on tailscale0";
+      }
+      {
         assertion = ledgerDir == "/var/lib/joe-board-pusher" && ledgerName != "";
         message = "paperDeskExecutor ownership ledger must stay inside /var/lib/joe-board-pusher";
       }
@@ -222,81 +238,77 @@ in
       }
     ];
 
+    # Clear the former service account's supplementary membership on upgrades;
+    # merely removing its declaration can leave it behind with mutableUsers.
     users.groups.paper-desk-executor = { };
     users.users.paper-desk-executor = {
       isSystemUser = true;
       group = "paper-desk-executor";
-      extraGroups = [ "docker" ];
+      extraGroups = lib.mkForce [ ];
     };
 
-    # tailscale0 only. The process also binds 100.64.0.6, so LAN and WAN have no listener.
-    networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ cfg.listenPort ];
+    # Root manages compose; the app has no docker socket or docker-group user.
+    nixcfg.composeStack = {
+      autoUpdate.excludeFromPull = [ "paper-desk-executor" ];
+      extraRestartTriggers = [ source ];
+    };
+    nixcfg.paperDeskExecutor.serviceSpec = {
+      image = cfg.image;
+      pull_policy = "never";
+      container_name = "paper-desk-executor";
+      restart = "unless-stopped";
+      # Required for tailnet-only bind and the tailnet-bound paper Gateway.
+      network_mode = "host";
+      user = "1000:1000";
+      read_only = true;
+      cap_drop = [ "ALL" ];
+      security_opt = [ "no-new-privileges:true" ];
+      pids_limit = 64;
+      mem_limit = "256m";
+      tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ];
+      volumes = [
+        "${source}:/executor:ro"
+        "/var/lib/paper-desk-executor:/state:rw"
+        "${ledgerDir}:/pusher-state:ro"
+      ];
+      inherit environment;
+      entrypoint = [ "node" ];
+      command = [ "/executor/server.mjs" ];
+      labels = [
+        "traefik.enable=false"
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+    };
+
+    networking.firewall = {
+      # Tailscale's ts-input can accept peers before nixos-fw is reached.
+      # Restrict this one port in raw PREROUTING as well as the Nix filter.
+      extraCommands = ''
+        iptables -t raw -N paper-desk-peers 2>/dev/null || true
+        iptables -t raw -F paper-desk-peers
+        ${lib.concatMapStringsSep "\n" (
+          peer: "iptables -t raw -A paper-desk-peers -s ${peer} -j RETURN"
+        ) cfg.peerAllowlist}
+        iptables -t raw -A paper-desk-peers -j DROP
+        iptables -t raw -C PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers 2>/dev/null || \
+          iptables -t raw -I PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers
+        ${peerRules "-I"}
+      '';
+      extraStopCommands = ''
+        iptables -t raw -D PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers 2>/dev/null || true
+        iptables -t raw -F paper-desk-peers 2>/dev/null || true
+        iptables -t raw -X paper-desk-peers 2>/dev/null || true
+      '';
+    };
 
     systemd.tmpfiles.rules = [
-      "d /var/lib/paper-desk-executor 0700 root root - -"
-      "f /var/lib/paper-desk-executor/HALT 0600 root root - -"
+      "d /var/lib/paper-desk-executor 0700 1000 1000 - -"
+      "f /var/lib/paper-desk-executor/HALT 0600 1000 1000 - -"
+      # Repair ownership when upgrading the former root-owned ledger.
+      "Z /var/lib/paper-desk-executor - 1000 1000 - -"
+      "z /var/lib/paper-desk-executor/HALT 0600 1000 1000 - -"
+      "z /var/lib/paper-desk-executor/ledger.json 0600 1000 1000 - -"
+      "z /var/lib/paper-desk-executor/audit.jsonl 0600 1000 1000 - -"
     ];
-
-    systemd.services.paper-desk-executor = {
-      description = "Paper desk executor for tailnet intents on the hsb0 paper Gateway";
-      wantedBy = [ "multi-user.target" ];
-      after = [
-        "docker.service"
-        "compose-${stack.stackName}.service"
-        "network-online.target"
-        "tailscaled.service"
-      ];
-      wants = [
-        "docker.service"
-        "network-online.target"
-      ];
-      path = [
-        config.virtualisation.docker.package
-      ];
-      serviceConfig = {
-        Type = "simple";
-        User = "paper-desk-executor";
-        Group = "paper-desk-executor";
-        SupplementaryGroups = [ "docker" ];
-        ExecStartPre = lib.escapeShellArgs [
-          "${pkgs.bash}/bin/bash"
-          "-c"
-          "${docker} rm -f paper-desk-executor >/dev/null 2>&1 || true"
-        ];
-        ExecStart = lib.escapeShellArgs ([ docker ] ++ runArgs);
-        ExecStop = lib.escapeShellArgs [
-          "${pkgs.bash}/bin/bash"
-          "-c"
-          "${docker} stop -t 20 paper-desk-executor >/dev/null 2>&1 || true"
-        ];
-        Restart = "on-failure";
-        RestartSec = "10s";
-        TimeoutStartSec = "90";
-        TimeoutStopSec = "40";
-        RuntimeDirectory = "paper-desk-executor";
-        RuntimeDirectoryMode = "0700";
-        UMask = "0077";
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        RestrictSUIDSGID = true;
-        LockPersonality = true;
-        RestrictAddressFamilies = [
-          "AF_UNIX"
-          "AF_INET"
-          "AF_INET6"
-        ];
-        SystemCallArchitectures = "native";
-        Environment = [
-          "HOME=/run/paper-desk-executor"
-          "DOCKER_CONFIG=/run/paper-desk-executor"
-        ];
-      };
-    };
   };
 }
