@@ -253,10 +253,11 @@ family-history executions plus today's fresh, completed, paper-account reqExecut
 in the same session. Cached executor fills provide orderRef attribution and
 intent linkage, never quantities by themselves. History must cover every New
 York day since the desk's first order for the symbol through yesterday, with
-its target ending within two minutes of the host clock. First-order dates
+its target ending on the current New York day, no later than the host clock. First-order dates
 survive placement pruning; older ledgers conservatively require coverage since
 initialization when their earliest placements may already be gone. Today's
-gaps require the fresh execution snapshot.
+gaps and the trailing span from the history target end to now require the same-session
+execution snapshot, completed within two minutes of the host clock.
 Older gaps, a target starting too late, unknown or unreadable history,
 stale/missing snapshots and snapshot errors refuse flatten before any effect.
 Closing quantity is capped at the desk's evidenced net and the live position

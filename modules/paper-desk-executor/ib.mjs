@@ -302,7 +302,7 @@ export function readPusherExecutions(filePath, now = Date.now(), readFile = read
   if (!Array.isArray(coverage?.gaps) || !(coverage.status === "complete" || allowIntradayGaps && coverage.status === "known" && coverage.gaps.length)) throw new Error("ownership history coverage is incomplete or unknown; no cancellation or order allowed");
   const end = Date.parse(coverage.target?.toExclusive);
   const start = Date.parse(coverage.target?.fromInclusive);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end || end > now || now - end > 120000 || start > now || newYorkDay(end) !== newYorkDay(now)) throw new Error("ownership history target is stale or invalid on the host clock");
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end || end > now || start > now || newYorkDay(end) !== newYorkDay(now)) throw new Error("ownership history target is stale or invalid on the host clock");
   for (const gap of coverage.gaps) {
     const from = Date.parse(gap?.fromInclusive);
     const to = Date.parse(gap?.toExclusive);
@@ -324,7 +324,9 @@ function freshExecutionSnapshot(session, coverage, now = Date.now()) {
   if (receipt?.account !== ACCOUNT || !Number.isSafeInteger(receipt?.requestId) || !Number.isFinite(requested) || !Number.isFinite(completed) || requested > completed || completed > now || now - completed > 120000 || newYorkDay(requested) !== newYorkDay(now) || newYorkDay(completed) !== newYorkDay(now)) throw new Error("fresh same-session paper-account execution snapshot is missing or stale");
   if (coverage) {
     const end = Date.parse(coverage.target?.toExclusive);
-    if (!Number.isFinite(end) || end > now || now - end > 120000 || newYorkDay(end) !== newYorkDay(now)) throw new Error("ownership history target is stale or invalid on the host clock");
+    // Pusher history may lag within today; the fresh same-session execution
+    // request covers both today's declared gaps and the trailing [end, now).
+    if (!Number.isFinite(end) || end > now || newYorkDay(end) !== newYorkDay(now)) throw new Error("ownership history target is stale or invalid on the host clock");
     if (coverage.gaps.some((gap) => newYorkDay(Date.parse(gap.fromInclusive)) !== newYorkDay(now) || newYorkDay(Date.parse(gap.toExclusive) - 1) !== newYorkDay(now))) throw new Error("ownership history gap is outside today's New York execution-report window");
   }
   if (coverage?.gaps.some((gap) => Date.parse(gap.toExclusive) > requested)) throw new Error("ownership history gap is not covered by the same-session execution snapshot");
@@ -362,7 +364,7 @@ function ownershipEvidence(session, history, options) {
   });
   const start = Date.parse(history.coverage?.target?.fromInclusive);
   const end = Date.parse(history.coverage?.target?.toExclusive);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || Date.now() - end > 120000) throw new Error("ownership history target is stale or invalid on the host clock");
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end > Date.now() || newYorkDay(end) !== today) throw new Error("ownership history target is stale or invalid on the host clock");
   const requireDay = (day, symbol) => {
     if (KEEP.includes(symbol)) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "") || !Number.isFinite(Date.parse(`${day}T12:00:00Z`)) || new Date(`${day}T12:00:00Z`).toISOString().slice(0, 10) !== day || day > today) throw new Error(`first-order ownership date is invalid for ${symbol}`);
