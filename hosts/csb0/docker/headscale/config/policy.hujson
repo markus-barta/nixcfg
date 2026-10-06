@@ -1,0 +1,15 @@
+// OPS-266 stage 1. Behaviour of today's policy.path "" (no policy, allow all)
+// for this fleet. Headscale 0.29 `*` is the tailnet ranges only
+// (100.64.0.0/10 and fd7a:115c:a1e0::/48). No host in nixcfg advertises a
+// subnet route or an exit node (useRoutingFeatures = "client"), so *:* is
+// the reach every node has now. Do not point policy.path at policy-stage2.hujson
+// until stage 1 has been checked on the live tailnet.
+{
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["*"],
+      "dst": ["*:*"],
+    },
+  ],
+}
