@@ -248,15 +248,80 @@ function correctionIdentity(execId) {
   return { prefix: match[1], revision: BigInt(match[2]) };
 }
 
+function executionSecond(value, cache) {
+  if (value === undefined || value === null) return null;
+  const source = value instanceof Date && Number.isFinite(value.getTime()) ? value.toISOString() : String(value).trim();
+  if (cache.has(source)) return cache.get(source);
+  let epoch = NaN;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(source)) epoch = Date.parse(source);
+  else {
+    const match = source.match(/^(\d{4})(\d{2})(\d{2})([ -]+)(\d{2}):(\d{2}):(\d{2})(?:\s+(.+))?$/);
+    if (match) {
+      const expected = [match[1], match[2], match[3], match[5], match[6], match[7]].map(Number);
+      // IB's hyphen format is UTC; unzoned legacy gateway times are New York local.
+      const zone = match[8] || (match[4] === "-" ? "UTC" : "America/New_York");
+      try {
+        const format = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+        const naive = Date.UTC(expected[0], expected[1] - 1, expected[2], expected[3], expected[4], expected[5]);
+        const candidates = [];
+        for (let offset = -14 * 60; offset <= 14 * 60; offset += 15) {
+          const candidate = naive - offset * 60_000;
+          const parts = Object.fromEntries(format.formatToParts(new Date(candidate)).filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+          if ([parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second].every((part, i) => part === expected[i])) candidates.push(candidate);
+        }
+        if (candidates.length === 1) epoch = candidates[0];
+      } catch { /* Unsupported or ambiguous timestamps cannot prove an economic match. */ }
+    }
+  }
+  const second = Number.isFinite(epoch) ? Math.floor(epoch / 1000) : NaN;
+  cache.set(source, second);
+  return second;
+}
+
+function executionConflicts(left, right, timeCache) {
+  const fields = [];
+  const normalizedText = (value) => String(value || "").trim().toUpperCase();
+  const numeric = (value) => {
+    if (value === undefined || value === null) return null;
+    const number = typeof value === "number" || (typeof value === "string" && value.trim()) ? Number(value) : NaN;
+    return Number.isFinite(number) ? number : NaN;
+  };
+  const differs = (field, a, b) => { if (a !== b || Number.isNaN(a) || Number.isNaN(b)) fields.push(field); };
+  const a = left.contract, b = right.contract;
+  if (Number(a.conId) > 0 && Number(b.conId) > 0) differs("conId", Number(a.conId), Number(b.conId));
+  else for (const field of ["symbol", "secType", "currency"]) {
+    const first = normalizedText(a[field]), second = normalizedText(b[field]);
+    if (!first || !second || first !== second) fields.push(field);
+  }
+  const side = (value) => ({ BOT: "BUY", BUY: "BUY", SLD: "SELL", SELL: "SELL" })[normalizedText(value)] || NaN;
+  differs("side", side(left.execution.side), side(right.execution.side));
+  differs("shares", numeric(left.execution.shares), numeric(right.execution.shares));
+  const priceA = numeric(left.execution.price), priceB = numeric(right.execution.price);
+  if (!(priceA === null && priceB === null) && !(priceA !== null && priceB !== null && Number.isFinite(priceA) && Number.isFinite(priceB) && Math.abs(priceA - priceB) < 1e-6)) fields.push("price");
+  if (left.execution.clientId != null && right.execution.clientId != null) differs("clientId", numeric(left.execution.clientId), numeric(right.execution.clientId));
+  differs("time", executionSecond(left.execution.time, timeCache), executionSecond(right.execution.time, timeCache));
+  return fields;
+}
+
 export function mergeExecutions(...collections) {
   const latest = new Map();
+  const timeCache = new Map();
   for (const row of collections.flat()) {
     if (!row?.contract || !row?.execution) fail("execution ledger row is malformed");
     const id = text(row.execution.execId, "execution execId");
     const identity = correctionIdentity(id);
     const prior = latest.get(identity.prefix);
     if (!prior || identity.revision > prior.identity.revision) latest.set(identity.prefix, { identity, row });
-    else if (identity.revision === prior.identity.revision && digest({ contract: row.contract, execution: row.execution }) !== digest({ contract: prior.row.contract, execution: prior.row.execution })) fail("conflicting duplicate execution revision");
+    else if (identity.revision === prior.identity.revision) {
+      const fields = executionConflicts(prior.row, row, timeCache);
+      if (fields.length) {
+        console.error(`conflicting duplicate execution revision fields: ${fields.join(", ")}`);
+        fail("conflicting duplicate execution revision");
+      }
+      // Callers supply retained history first and fresh broker snapshots last.
+      const present = (value) => Object.fromEntries(Object.entries(value).filter(([, item]) => item != null));
+      prior.row = { ...prior.row, ...row, contract: { ...prior.row.contract, ...present(row.contract) }, execution: { ...prior.row.execution, ...present(row.execution) } };
+    }
   }
   return [...latest.values()].map(({ row }) => row);
 }

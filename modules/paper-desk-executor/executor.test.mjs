@@ -86,6 +86,28 @@ test("executeIntent places accepted tagged bracket on initialization day using d
   assert.equal(state.placements[0].status, "submitted"); assert.equal(h.broker.live.size, 0);
 });
 
+test("place reconciles overlapping pusher and live fills without losing live ownership metadata", async () => {
+  const time = new Date().toISOString();
+  const history = {
+    contract: { conId: 15124833, symbol: "NFLX", secType: "STK", currency: "USD", multiplier: 1 },
+    execution: { execId: "nflx.01", time, clientId: 702, side: "SELL", shares: 14, price: 68.14 },
+  };
+  const live = {
+    contract: { ...history.contract, exchange: "SMART" },
+    execution: { ...history.execution, time: `${time.slice(0, 10).replaceAll("-", "")}-${time.slice(11, 19)}`, side: "SLD", shares: "14", acctNumber: ACCOUNT, orderId: 20, permId: 100, orderRef: ref() },
+  };
+  const h = harness({ history: [history], executions: [live], positions: [{ ...live.contract, position: -14 }] });
+  const state = ledger();
+  const result = await h.run(intent(), state);
+  assert.equal(result.status, "ok");
+  assert.equal(h.broker.placed.length, 2);
+  assert.equal(state.executions.length, 1);
+  assert.equal(state.executions[0].execution.orderRef, live.execution.orderRef);
+  assert.equal(state.executions[0].execution.acctNumber, ACCOUNT);
+  assert.equal(state.deskPositions.find((row) => row.symbol === "NFLX").quantity, -14);
+  assert.equal(h.broker.live.size, 0);
+});
+
 test("missing, incomplete, invalid-gapped and stale history refuse legacy flatten/cancel before any mutation", async () => {
   for (const options of [ { missingHistory: true }, { coverage: { status: "partial", gaps: [] } }, { coverage: { status: "complete", gaps: [{}] } }, { coverage: { status: "complete", gaps: [], target: { fromInclusive: "2026-01-01T00:00:00Z", toExclusive: "2026-01-02T00:00:00Z" } } } ]) {
     for (const action of ["flatten", "cancel"]) {
