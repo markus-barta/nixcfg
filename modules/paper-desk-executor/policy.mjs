@@ -4,7 +4,7 @@ export const SCHEMA = "barta.paper-desk-intent.v2";
 export const ACCOUNT = "DUR970597";
 export const PAPER_PORT = 4002;
 export const KEEP = Object.freeze(["SXR8", "TSLA"]);
-export const DESKS = Object.freeze(["j", "j5", "joe", "joel"]);
+export const DESKS = Object.freeze(["j", "j2", "j3", "j4", "j5", "joe", "joel"]);
 export const LIMITS = Object.freeze({
   perNameRiskEur: 25,
   dailyRiskEur: 50,
@@ -23,8 +23,16 @@ function fail(message, publicCode = "invalid_intent") {
 }
 
 const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+// Only desk identity is case-insensitive; preserve the date and thesis bytes.
+export function normalizeOrderRef(value) {
+  const [desk, ...segments] = String(value || "").split("|");
+  return [desk.toLowerCase(), ...segments].join("|");
+}
+
 export function validateKey(value, kind) {
   if (typeof value !== "string" || RESERVED_KEYS.has(value.toLowerCase())) fail(`${kind} is invalid`);
+  if (kind === "orderRef") value = normalizeOrderRef(value);
   const valid = kind === "intentId" ? /^[A-Za-z0-9][A-Za-z0-9._:-]{7,63}$/.test(value)
     : kind === "desk" ? DESKS.includes(value)
     : kind === "symbol" ? /^[A-Z][A-Z0-9.]{0,9}$/.test(value)
@@ -375,8 +383,10 @@ export function activeHalt(localBody) {
 }
 
 export function belongsToDesk(row, desk, legacyClientIds, executorClientId) {
+  desk = typeof desk === "string" ? desk.toLowerCase() : null;
+  if (!DESKS.includes(desk)) return false;
   const clientId = Number(row.clientId);
-  const ref = String(row.orderRef || "");
+  const ref = normalizeOrderRef(row.orderRef);
   if (/^[a-z0-9]+\|\d{6}\|[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(ref)) return ref.split("|")[0] === desk && (clientId === executorClientId || legacyClientIds.includes(clientId));
   if (ref.includes("|")) return false;
   return clientId !== executorClientId && legacyClientIds.includes(clientId);
@@ -389,4 +399,4 @@ export function assertSideEffect(intent, { getHalt = () => ({ active: false }), 
   return halt;
 }
 
-export function thesisKey(ref) { const [desk, _date, thesis] = String(ref || "").split("|"); return thesis ? `${desk}|${thesis}` : ref; }
+export function thesisKey(ref) { const [desk, _date, thesis] = normalizeOrderRef(ref).split("|"); return thesis ? `${desk}|${thesis}` : ref; }
