@@ -63,6 +63,7 @@ in
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
+    ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
@@ -76,6 +77,9 @@ in
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
   ];
+
+  # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
+  nixcfg.paperDeskExecutor.enable = true;
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
