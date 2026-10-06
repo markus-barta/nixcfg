@@ -231,10 +231,18 @@ are attributed only through the configured historical desk client IDs.
 is the desk's working, unfilled order. Flatten may cancel its protective legs
 through their placing client IDs before closing its reconciled position.
 
-Flatten and cancel require complete, gap-free pusher family history, whose
-target ends within two minutes of the host clock. A fresh IB snapshot bridges
-current fills; stale, missing or unreadable history refuses every cancellation
-and closing order. New paper entries always reconcile a fresh broker snapshot.
+Executor-owned positions use the durable executor ledger and fresh IB executions
+for client 705 with the desk's orderRef; they do not require pusher history.
+Legacy positions require pusher family history whose target ends within two
+minutes of the host clock. History may have gaps only within today's New York
+execution-report window, covered by a fresh, completed, paper-account
+reqExecutions snapshot in the same session. Those fills are merged before sizing
+the closing order. Older gaps, unknown coverage, stale/missing snapshots and
+snapshot errors refuse legacy cancellation and flatten before any effect.
+Cancelling the executor's own working, unfilled orders uses live client 705
+orders, desk tags and explicit zero-filled status; it does not read pusher
+history or request executions. KEEP exclusions apply on every path.
+New paper entries always reconcile a fresh broker snapshot.
 When complete ownership history is unavailable, the executor counts all account
 positions/unknown working names toward each desk's concurrency cap and refuses
 piling; it does not accept partial pusher history as ownership evidence.

@@ -68,7 +68,7 @@ function validateConfig(config) {
 
 export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const config = runtime.config || configFromHost();
-  const connect = runtime.connect || openSession;
+  const connect = runtime.connect || ((id, options) => openSession(id, 20_000, options));
   const readHistory = runtime.readHistory || readPusherExecutions;
   validateConfig(config);
   const clientId = Number(config.clientIds.executor);
@@ -86,7 +86,8 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       if (record) { record.brokerPlan = { ...record.brokerPlan, ...plan }; saveState(state); }
     } });
     state.executions = outcome.executions;
-    state.deskPositions = deskPositions(state.executions, config.ownership, clientId);
+    if (outcome.ownershipComplete !== undefined) state.ownershipComplete = outcome.ownershipComplete;
+    state.deskPositions = deskPositions(state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId);
     saveState(state);
     const { executions: _private, ...body } = outcome;
     return result(body);
