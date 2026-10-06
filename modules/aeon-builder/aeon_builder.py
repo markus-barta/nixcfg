@@ -76,12 +76,13 @@ def verify_run(run, cfg, sha_on_branch):
     path = normalize_workflow_path(run.get("path"))
     if path not in cfg["workflows"]:
         return False, f"workflow {path or 'missing'} not allowed"
-    if run.get("head_branch") != cfg["branch"]:
+    branch_required = event not in ("pull_request", "merge_group")
+    if branch_required and run.get("head_branch") != cfg["branch"]:
         return False, f"branch {run.get('head_branch') or 'missing'}"
     sha = run.get("head_sha") or ""
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         return False, "head sha missing"
-    if not sha_on_branch(sha):
+    if branch_required and not sha_on_branch(sha):
         return False, "head sha not reachable from branch"
     return True, "ok"
 
@@ -101,7 +102,7 @@ def could_take(job, runner_labels):
 
 
 def job_classes(job, cfg):
-    """The class labels (mbp2606-push, mbp2606-dispatch) a job asks for."""
+    """The configured event class labels a job asks for."""
     names = {name.lower() for name in cfg["classLabels"].values()}
     return {str(item).lower() for item in job.get("labels") or []} & names
 
@@ -118,8 +119,8 @@ def class_ok(job, run, cfg):
 
 
 def mint_labels(cfg, run):
-    """Base labels plus exactly one class label: a push runner can never take a
-    dispatch job and vice versa (GitHub matches runs-on as a subset)."""
+    """Base labels plus exactly one event class (GitHub matches runs-on as a
+    subset), so a class-labelled job only fits a runner of the same class."""
     return list(cfg["runnerLabels"]) + [expected_class(run, cfg)]
 
 
@@ -956,7 +957,7 @@ class Controller:
                 subprocess.run(["/bin/cp", "-c", str(good), str(self.disk_file(cache))], check=True)
                 return cache, False
             return cache, True
-        # Dispatch: read the last known-good cache, write only a disposable clone.
+        # Non-push jobs read the last known-good cache, write only a disposable clone.
         scratch = f"aeon-scratch-{slot}"
         self.drop_scratch(slot)
         self.lima.run("disk", "create", scratch, "--size", f"{self.cfg['cacheDiskGiB']}GiB", "--format", "raw")
@@ -1053,8 +1054,8 @@ class Controller:
         disk = self.state.load()["slots"].get(str(slot), {}).get("disk") or ""
         event = self.gh.run(ran["run_id"]).get("event")
         if disk.startswith("aeon-cache-") and event not in self.cfg["cacheWriteEvents"]:
-            # The runner was minted for a push but took a verified dispatch (same
-            # labels). The trusted disk is attached, so never unlock it for this job.
+            # The runner was minted for a push but took a verified non-push job.
+            # The trusted disk is attached, so never unlock it for this job.
             log(f"slot {slot}: {name} took {event} job {ran.get('id')} but holds the trusted cache disk; stopping the VM unlocked")
             return "class-mismatch"
         self.set_slot(slot, phase="running", ranJob=ran.get("id"), ranRun=ran.get("run_id"), ranAttempt=ran.get("run_attempt"), ranEvent=event)
