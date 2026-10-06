@@ -14,7 +14,7 @@
 #
 # Verify any change with (tests/compose_stack_gate.py no longer applies to csb0 — OPS-127):
 #   nix eval --no-update-lock-file .#nixosConfigurations.csb0.config.system.build.toplevel.drvPath
-#   scripts/format-check.sh · tests/T43-headscale-derp-fallback.sh
+#   scripts/format-check.sh · tests/T43-headscale-derp-fallback.sh · tests/T92-headscale-policy.sh
 # Incident-history comments carried over from the retired yml (OPS-127).
 # Compose project name: csb0 — named volumes depend on it.
 #
@@ -391,6 +391,8 @@
         "/var/run/headscale"
       ];
       volumes = [
+        # OPS-266: this directory mount is the policy mount. policy.hujson (stage 1)
+        # is what policy.path names. policy-stage2.hujson is carried and unused.
         "./headscale/config:/etc/headscale:ro"
         "headscale-data:/var/lib/headscale"
       ];

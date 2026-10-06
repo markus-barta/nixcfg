@@ -1,0 +1,28 @@
+// OPS-266 stage 2. Not referenced by config.yaml.
+// markus@ and gerhard@ keep *:* (today's tailnet reach). No subnet route or
+// exit node is configured in this repo; 0.29 `*` does not cover those, so a
+// later one needs an explicit dst CIDR or autogroup:internet:* on this rule.
+// amy@ owns tag:paper-desk; a node joining with that tag is not amy@.
+// Both identities may open only the paper-desk executor. Not :4002, not ssh,
+// not any other host. Return traffic is stateful; no reverse rule is needed.
+{
+  "tagOwners": {
+    "tag:paper-desk": ["amy@"],
+  },
+  "hosts": {
+    "paper-desk": "100.64.0.6/32",
+  },
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["markus@", "gerhard@"],
+      "dst": ["*:*"],
+    },
+    {
+      "action": "accept",
+      "src": ["amy@", "tag:paper-desk"],
+      "proto": "tcp",
+      "dst": ["paper-desk:8470"],
+    },
+  ],
+}
