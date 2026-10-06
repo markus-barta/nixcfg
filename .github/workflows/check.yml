@@ -451,6 +451,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh
 
+      - name: Verify headscale ACL stage files (OPS-266)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T92-headscale-policy.sh
+
       - name: Verify HAUSV PostgreSQL Phase-0 contract
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T40-hausv-postgres.sh

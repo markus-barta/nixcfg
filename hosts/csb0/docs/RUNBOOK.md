@@ -476,6 +476,51 @@ docker exec headscale headscale nodes list         # all nodes still there
 # rollback: docker stop headscale; restore the tgz into the volume; re-pin the old tag; switch
 ```
 
+### ACL policy (OPS-266)
+
+Stage 1 is `policy.path: "/etc/headscale/policy.hujson"`. That file is one accept rule, `* -> *:*`. On headscale 0.29 `*` is the tailnet ranges only (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). OPS verified Headscale 0.29.3 and an empty `headscale nodes list-routes` on csb0 on 2026-10-06: no advertised or approved routes on any node. The NixOS hosts' `useRoutingFeatures = "client"` setting alone does not establish fleet-wide absence of routes. Recheck live routes before either stage; with an empty route list, stage 1 preserves node-to-node allow-all reach. `policy-stage2.hujson` is on the same `./headscale/config:/etc/headscale` mount and is not referenced.
+
+The config directory is a bind mount of the git checkout. A pull updates the files on disk. Headscale reads `policy.path` at process start; SIGHUP reloads only the file at that same path. Switching the path requires `docker restart headscale`. `just switch` does not recreate the container for config-only changes when the compose spec is unchanged. Make path changes in the repository through the reviewed change flow, then pull on csb0; preserve `policy.hujson` as the stage-1 rollback file.
+
+Amy-box joins with a pre-auth key tagged `tag:paper-desk`, owned by `amy@` in `tagOwners`. A tagged node uses the tag identity rather than `amy@`; stage 2 therefore permits both identities only to tcp `paper-desk:8470` (`100.64.0.6`). Check user-owned and tagged nodes separately.
+
+```bash
+# Stage 1 — deploy, then prove every node still reaches what it did
+cd ~/Code/nixcfg && git pull
+docker exec headscale headscale configtest
+docker exec headscale headscale policy check --file /etc/headscale/policy.hujson
+docker exec headscale headscale nodes list-routes
+# Must be empty for the stated node-to-node allow-all equivalence.
+docker restart headscale
+docker exec headscale headscale nodes list
+# markus, gerhard, amy: same nodes and ports as before this change
+
+# Stage 2 — only after stage 1 is verified. Recheck live routes:
+docker exec headscale headscale nodes list-routes
+# Must stay empty. If any route is advertised or approved, STOP activation:
+# add its explicit route CIDR(s) to the markus@/gerhard@ destination rule
+# through review before stage 2. Exit-node reach needs autogroup:internet:*.
+# Switch policy.path in the repository, review, then pull on csb0:
+#   path: "/etc/headscale/policy-stage2.hujson"
+# Never overwrite policy.hujson; retain it for rollback.
+cd ~/Code/nixcfg && git pull
+docker exec headscale headscale configtest
+docker exec headscale headscale policy check --file /etc/headscale/policy-stage2.hujson
+docker restart headscale
+# A path change needs this restart; SIGHUP and config-only just switch are insufficient.
+# markus@ and gerhard@ still reach *:* (tailnet); routes need explicit CIDRs.
+# amy@ AND tag:paper-desk reach only tcp 100.64.0.6:8470 (paper desk).
+# Check both: not :4002, not ssh, not any other host.
+# return traffic is stateful; hsb0 needs no rule towards amy
+
+# Rollback — restore policy.path in the repository, review, then pull:
+#   path: "/etc/headscale/policy.hujson"
+# or path: "" (no policy, allow all). Stage 1's contents are preserved.
+cd ~/Code/nixcfg && git pull
+docker exec headscale headscale configtest
+docker restart headscale
+```
+
 ### Connect a New Device
 
 > **Note:** The `--authkey` does NOT need a `--user` flag on the client side.
