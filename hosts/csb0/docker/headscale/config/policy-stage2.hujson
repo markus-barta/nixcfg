@@ -3,7 +3,8 @@
 // exit node is configured in this repo; 0.29 `*` does not cover those, so a
 // later one needs an explicit dst CIDR or autogroup:internet:* on this rule.
 // amy@ owns tag:paper-desk; a node joining with that tag is not amy@.
-// Both identities may open only the paper-desk executor. Not :4002, not ssh,
+// OPS-272: both identities may open only the paper-desk executor and mailbox.
+// Not :4002, not ssh,
 // not any other host. Return traffic is stateful; no reverse rule is needed.
 {
   "tagOwners": {
@@ -22,7 +23,7 @@
       "action": "accept",
       "src": ["amy@", "tag:paper-desk"],
       "proto": "tcp",
-      "dst": ["paper-desk:8470"],
+      "dst": ["paper-desk:8470", "paper-desk:8471"],
     },
   ],
 }

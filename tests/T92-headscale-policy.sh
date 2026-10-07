@@ -4,7 +4,7 @@
 # Stage 1 (policy.hujson, retained for rollback) is allow-all: one accept
 # * -> *:*, the same reach as an empty path on this fleet.
 # Stage 2 (policy-stage2.hujson, active via policy.path) keeps markus@ and gerhard@
-# on *:* and lets amy@ and tag:paper-desk open only tcp 100.64.0.6:8470.
+# on *:* and lets amy@ and tag:paper-desk open exactly tcp 100.64.0.6:{8470,8471}.
 #
 # Run under bash 5. macOS /bin/bash is 3.2, and set -e does not abort on a
 # failing bare [[ ]] there (see T33). This script uses no bare [[ ]].
@@ -205,7 +205,7 @@ def grants_of(doc):
     return grants
 
 PAPER = "100.64.0.6"
-PAPER_PORT = "8470"
+PAPER_PORTS = {"8470", "8471"}
 AMY = "amy@"
 PAPER_TAG = "tag:paper-desk"
 FULL_USERS = ("markus@", "gerhard@")
@@ -268,7 +268,7 @@ def restricted_destinations(doc, identity):
             ports, proto = "*", None
         elif isinstance(ip, list):
             # A grant ip list is one capability. Join so anything other than
-            # a single tcp:8470 fails the exact-port check below.
+            # exactly tcp:{8470,8471} fails the exact-port check below.
             parts = []
             protos = set()
             for item in ip:
@@ -298,7 +298,9 @@ def restricted_destinations(doc, identity):
     return found
 
 def is_paper_tcp(host, ports, proto):
-    return host == PAPER and ports == PAPER_PORT and proto == "tcp"
+    return host == PAPER and proto == "tcp" and all(
+        port in PAPER_PORTS for port in ports.split(",")
+    )
 
 def assert_stage1(doc):
     groups = groups_of(doc)
@@ -359,8 +361,11 @@ def assert_stage2(doc):
             if not is_paper_tcp(host, ports, proto):
                 fail(
                     f"stage 2 lets {identity} reach "
-                    f"{host}:{ports} proto={proto!r}; only tcp {PAPER}:{PAPER_PORT} is allowed"
+                    f"{host}:{ports} proto={proto!r}; only tcp {PAPER}:{{8470,8471}} is allowed"
                 )
+        allowed = {port for _, ports, _ in found for port in ports.split(",")}
+        if allowed != PAPER_PORTS:
+            fail(f"stage 2 must grant {identity} exactly tcp ports 8470 and 8471")
 
 def assert_rejected(doc, label):
     # Mutate copies only: regressions must exercise the same gate as the files.
@@ -408,6 +413,18 @@ def negative_cases(stage2):
         doc["grants"] = [{"src": [identity], "dst": ["*"], "ip": ["*"]}]
         assert_rejected(doc, f"grant widens {identity}")
         count += 1
+        for port in PAPER_PORTS:
+            doc = copy.deepcopy(stage2)
+            for rule in doc["acls"]:
+                if identity in rule["src"]:
+                    rule["dst"] = [dst for dst in rule["dst"] if dst != f"paper-desk:{port}"]
+            assert_rejected(doc, f"missing port {port} for {identity}")
+            count += 1
+        for dst in ("paper-desk:8472", "paper-desk:8470-8471", "paper-desk:8470,8471,22", "100.64.0.7:8471"):
+            doc = copy.deepcopy(stage2)
+            doc["acls"].append({"action": "accept", "src": [identity], "dst": [dst], "proto": "tcp"})
+            assert_rejected(doc, f"extra mailbox access for {identity}: {dst}")
+            count += 1
     doc = copy.deepcopy(stage2)
     doc["groups"] = {"group:family": [AMY, *FULL_USERS]}
     doc["acls"].append({"action": "accept", "src": ["group:family"], "dst": ["*:*"]})
@@ -433,7 +450,7 @@ assert_stage1(stage1)
 assert_stage2(stage2)
 count = negative_cases(stage2)
 print(f"T92: {count} negative cases rejected")
-print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk tcp 100.64.0.6:8470 only; markus@ and gerhard@ *:*")
+print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk exactly tcp 100.64.0.6:{8470,8471}; markus@ and gerhard@ *:*")
 PY
 
 printf 'T92 ok\n'

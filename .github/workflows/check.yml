@@ -366,6 +366,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify hsb0 agent mailbox (OPS-272)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p nodejs --run "bash tests/T94-agent-mailbox.sh"
+
       - name: Verify fleet-safe doctrine-private boundary
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"

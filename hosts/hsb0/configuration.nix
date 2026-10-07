@@ -64,6 +64,7 @@ in
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
+    ../../modules/agent-mailbox # OPS-272 — Amy/OPS tailnet text mailbox
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
@@ -80,6 +81,9 @@ in
 
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
+
+  # OPS-272 — caller identity comes from the tailnet source address.
+  nixcfg.agentMailbox.enable = true;
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
@@ -116,6 +120,7 @@ in
     # promoting a new paper image. pull_policy=never skips registry + rebuild.
     spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
       services.paper-desk-executor = config.nixcfg.paperDeskExecutor.serviceSpec;
+      services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec;
       services.joe-board-pusher = {
         build = "${joeBoardPusherSource}";
         image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
