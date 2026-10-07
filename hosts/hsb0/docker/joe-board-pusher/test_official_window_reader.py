@@ -289,6 +289,12 @@ class OfficialWindowReaderTests(unittest.TestCase):
         self.assertEqual(result["requests"]["9300"]["errors"], [])
         self.assertEqual(result["errors"][0]["code"], "orphan-commission-callbacks")
 
+    def test_version_notice_2172_is_informational(self):
+        # OPS-266 2026-10-07: IB sends 2172 (client version will be desupported)
+        # on every connect; treating it as a run error blocked every history run.
+        self.assertIn(2172, READER.INFORMATIONAL_CODES)
+        self.assertNotIn(2172, READER.FATAL_SESSION_CODES)
+
     def test_dormant_farm_codes_are_informational_without_resetting_quiet(self):
         observations = []
 
