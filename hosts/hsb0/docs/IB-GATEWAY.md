@@ -202,7 +202,7 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 | Item    | Value                                                                                    |
 | ------- | ---------------------------------------------------------------------------------------- |
 | Bind    | `100.64.0.6:8470`, firewall permits only the listed source IPs on `tailscale0`           |
-| Peers   | `100.64.0.9` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403              |
+| Peers   | `100.64.0.10` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403             |
 | Gateway | paper port `4002`. Live port `4001` is a hard startup error                              |
 | Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, owned `flatten` and `cancel`) |
 | State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                    |
