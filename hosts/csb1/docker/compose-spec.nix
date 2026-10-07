@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261005070923.0.0@sha256:cdcec0a9f7a74cfbd26cdff4e9999262c47f3d15c66bfa84f97d969d03406a4c"; # release 123 Coral Cargo: AEON-684 (work node AEON-649-655, 17-feature train, agentd fix 667/685; migrations 1215-1240; rollback = restore the pre-switch dump, then pin 261003095616.0.0@sha256:f5cf64bf...)
+      image = "ghcr.io/inspr-at/aeon:261007063042.0.0@sha256:3dc5a7bea840000296848dd9f817525a0fd5d308926e7d3b809efdfbad7cc80b"; # release 125 Exotic Ejecta: AEON-860 = release 124 Direct Dome (AEON-744) + AEON-858 hotfix (agentd starts as a login service)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
