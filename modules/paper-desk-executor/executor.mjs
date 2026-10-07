@@ -112,9 +112,9 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     } });
     state.executions = keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions);
     if (outcome.ownershipComplete !== undefined) state.ownershipComplete = outcome.ownershipComplete;
-    state.deskPositions = deskPositions(outcome.ownershipExecutions || state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId);
+    state.deskPositions = deskPositions(outcome.ownershipExecutions || state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId, state.ownershipComplete === false ? undefined : outcome.ownershipSnapshot);
     saveState(state);
-    const { executions: _private, ownershipExecutions: _attribution, ...body } = outcome;
+    const { executions: _private, ownershipExecutions: _attribution, ownershipSnapshot: _snapshot, ...body } = outcome;
     return result(body);
   }
 
@@ -132,7 +132,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     try { if (!historyError) freshExecutionSnapshot(recon, history.coverage); }
     catch (error) { historyError = publicError(error); }
     state.executions = mergeExecutions(history, state.executions, recon.state.executions);
-    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId);
+    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, recon.state);
     state.commissions = [...new Map([...(state.commissions || []), ...(history.commissions || []), ...(recon.state.commissions || [])].map((row) => [row.execId, row])).values()];
     recon.state.commissions = state.commissions;
     if (intent.action === "recon") await freshMarks(recon);
@@ -150,6 +150,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   if (intent.action === "recon") {
     // Query shared placing-client execution replay before declaring absence.
     const evidence = await connect(clientId);
+    let ownershipSnapshot = evidence.state;
     try {
       if (evidence.state.errors.length || !evidence.state.gateway) throw new Error("placing-client reconciliation has errors");
       state.executions = mergeExecutions(state.executions, evidence.state.executions);
@@ -161,6 +162,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
           legacy = await connect(targetClient);
           if (!legacy.state.errors.length && legacy.state.gateway) {
             state.executions = mergeExecutions(state.executions, legacy.state.executions);
+            ownershipSnapshot = legacy.state;
             replayedClients.add(targetClient);
           }
         } catch { /* Keep unresolved when the relevant client's replay is unavailable. */ }
@@ -168,7 +170,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       }
       resolveUncertain(state, evidence.state, clientId, replayedClients);
     } finally { evidence.close(); }
-    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId);
+    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, ownershipSnapshot);
     state.activeOrders = [...new Map([...snapshot.openOrders, ...evidence.state.openOrders].map((row) => [`${row.clientId}:${row.orderId}`, row])).values()];
     saveState(state);
     return result({ ...snapshot, deskPositions: state.deskPositions, ownershipHistory: historyError ? { status: "unavailable", reason: historyError } : { status: "complete" }, resolutions: Object.fromEntries([...(state.intents || new Map())].filter(([, row]) => row.resolution).map(([id, row]) => [id, row.resolution])) });
@@ -193,7 +195,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     placement.status = "submitted";
     placement.orderIds = [placed.parentOrderId, placed.stopOrderId];
     state.executions = mergeExecutions(state.executions, placingSession.state.executions);
-    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId);
+    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, placingSession.state);
     state.activeOrders = [...snapshot.openOrders, ...placed.statuses.map((row) => ({ ...row, desk: intent.desk, symbol: intent.order.symbol, orderRef: intent.orderRef, clientId }))];
     state.concurrentObservedAt = new Date().toISOString();
     saveState(state);
