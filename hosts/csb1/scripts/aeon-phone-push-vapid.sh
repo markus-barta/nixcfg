@@ -4,13 +4,13 @@
 # (0700 root). The key never leaves csb1: no output, no git, no agenix.
 # Format read by AEON (internal/config/phone_push.go): one JSON object with
 # public_key (base64url, uncompressed P-256 point), private_key (base64url,
-# 32-byte scalar) and subject (mailto: or https:).
+# 32-byte scalar) and subject (https: URL of this instance).
 set -euo pipefail
 
 out=$1
 dir=$(dirname "$out")
 tmp=$(mktemp -d "$dir/.vapid.XXXXXX")
-trap 'rm -f "$tmp/k.der" "$tmp/p.der" "$out.tmp"; rmdir "$tmp"' EXIT
+trap 'rm -f "$tmp/k.der" "$out.tmp"; rmdir "$tmp"' EXIT
 umask 0277
 
 openssl ecparam -name prime256v1 -genkey -noout -outform DER -out "$tmp/k.der"
@@ -24,10 +24,10 @@ if [ "$(head -c 7 "$tmp/k.der" | od -An -tx1 | tr -d ' \n')" != 30770201010420 ]
   echo "aeon-phone-push-vapid: unexpected key layout" >&2
   exit 1
 fi
-# The embedded public point must equal the one openssl derives from the scalar.
-openssl ec -inform DER -in "$tmp/k.der" -pubout -outform DER -out "$tmp/p.der" 2>/dev/null
-if [ "$(tail -c 65 "$tmp/p.der" | od -An -tx1 | tr -d ' \n')" != "$(tail -c 65 "$tmp/k.der" | od -An -tx1 | tr -d ' \n')" ]; then
-  echo "aeon-phone-push-vapid: public key mismatch" >&2
+# The scalar and the embedded public point must form a valid key pair
+# (pkey -check recomputes the point; ec -pubout would only copy it).
+if ! openssl pkey -inform DER -in "$tmp/k.der" -check -noout >/dev/null 2>&1; then
+  echo "aeon-phone-push-vapid: key pair check failed" >&2
   exit 1
 fi
 
@@ -39,6 +39,6 @@ if [ ${#priv} -ne 43 ] || [ ${#pub} -ne 87 ]; then
   exit 1
 fi
 
-printf '{"public_key":"%s","private_key":"%s","subject":"mailto:markus@barta.com"}\n' "$pub" "$priv" >"$out.tmp"
+printf '{"public_key":"%s","private_key":"%s","subject":"https://aeon.barta.cm"}\n' "$pub" "$priv" >"$out.tmp"
 chmod 0444 "$out.tmp"
 mv "$out.tmp" "$out"
