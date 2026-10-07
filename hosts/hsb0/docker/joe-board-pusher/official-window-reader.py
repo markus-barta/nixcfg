@@ -33,8 +33,11 @@ POST_END_QUIET_SECONDS = 5.0
 FINAL_DRAIN_TIMEOUT_SECONDS = 20.0
 FATAL_SESSION_CODES = frozenset({1100, 1101, 1102, 1300, 2110})
 # IB system-message codes: 2107/2108 mean dormant data farms that remain
-# available on demand, not a failed execution-query connection.
-INFORMATIONAL_CODES = frozenset({2104, 2106, 2107, 2108, 2158})
+# available on demand, not a failed execution-query connection. 2172 is IB's
+# client-version notice ("The version of the application you are running,
+# 1045.1, needs to be upgraded, as it will be desupported on 20261215"), sent
+# on every connect since 2026-10-06; it says nothing about the execution data.
+INFORMATIONAL_CODES = frozenset({2104, 2106, 2107, 2108, 2158, 2172})
 SAFE_INTEGER = 9_007_199_254_740_991
 HOST_RE = re.compile(r"^[^\s\x00-\x20]{1,253}$")
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$")
