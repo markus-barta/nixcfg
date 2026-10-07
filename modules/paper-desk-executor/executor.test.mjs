@@ -112,6 +112,98 @@ test("executeIntent places accepted tagged bracket on initialization day using d
   assert.equal(state.placements[0].status, "submitted"); assert.equal(h.broker.live.size, 0);
 });
 
+test("pusher history stays strict by default for today's ownership gap", () => {
+  const h = harness({ coverage: intradayCoverage() });
+  assert.throws(() => h.readHistory(h.config.ownershipLedger), /coverage is incomplete|gaps require a fresh same-session/);
+  assert.equal(h.readHistory(h.config.ownershipLedger, Date.now(), undefined, { allowIntradayGaps: true }).coverage.status, "known");
+});
+
+test("place accepts today's ownership gap with the recon session's fresh execution snapshot", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.target.toExclusive = coverage.gaps[0].toExclusive = new Date(now - 30000).toISOString();
+  const executions = ["MSFT", "NVDA", "META"].map((symbol, index) => ({ contract: contract(symbol, index + 2), execution: fill({ execId: `other-${index}.1`, clientId: [701, 703, 704][index], orderRef: ref(["joe", "j5", "joel"][index]) }).execution }));
+  for (const desk of ["j", "j5"]) {
+    const state = ledger();
+    const h = harness({ coverage, executions, positions: executions.map((row) => ({ ...row.contract, position: 2 })) });
+    const result = await h.run(intent("place", { desk, orderRef: ref(desk) }), state);
+    assert.deepEqual(result.ownershipHistory, { status: "complete" });
+    assert.equal(state.ownershipComplete, true); assert.equal(state.deskPositions.length, 3);
+    assert.equal(h.broker.placed.length, 2); assert.equal(state.placements[0].status, "submitted");
+    assert.deepEqual(h.broker.connections, [700, 705]);
+    assert.deepEqual(h.broker.executionRequests[0], { id: 880700, filter: { acctCode: ACCOUNT } });
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("place and recon refuse missing, stale, wrong-account and uncovered recon execution snapshots", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.target.toExclusive = coverage.gaps[0].toExclusive = new Date(now - 30000).toISOString();
+  for (const fault of ["missing", "incomplete", "stale", "wrong-account", "uncovered"]) for (const action of ["place", "recon"]) {
+    const state = ledger();
+    const h = harness({ coverage, executions: [fill({ clientId: 702 })], onSnapshot: (session) => {
+      if (session.state.executionSnapshot.requestId !== 880700) return;
+      if (fault === "missing") session.state.executionSnapshot = null;
+      if (fault === "incomplete") session.state.executionSnapshot.completedAt = null;
+      if (fault === "stale") session.state.executionSnapshot = { ...session.state.executionSnapshot, requestedAt: new Date(now - 120001).toISOString(), completedAt: new Date(now - 120001).toISOString() };
+      if (fault === "wrong-account") session.state.executionSnapshot.account = "not-paper";
+      if (fault === "uncovered") session.state.executionSnapshot.requestedAt = new Date(now - 30001).toISOString();
+    } });
+    const reason = fault === "uncovered" ? /gap is not covered by the same-session execution snapshot/ : /fresh same-session paper-account execution snapshot is missing or stale/;
+    if (action === "place") {
+      await assert.rejects(h.run(intent(), state), reason);
+      assert.deepEqual(h.broker.connections, [700]); assert.deepEqual(state.placements, []);
+    } else {
+      const result = await h.run(intent("recon"), state);
+      assert.equal(result.ownershipHistory.status, "unavailable"); assert.match(result.ownershipHistory.reason, reason);
+      assert.equal(result.ownershipComplete, false); assert.deepEqual(result.deskPositions, []);
+      assert.deepEqual(h.broker.connections, [700, 705]);
+    }
+    assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("recon accepts today's ownership gap only after the same session's execution request completed", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.target.toExclusive = coverage.gaps[0].toExclusive = new Date(now - 30000).toISOString();
+  const bought = fill({ clientId: 702 }); const state = ledger();
+  const h = harness({ coverage, executions: [bought], positions: [{ ...contract(), position: 2 }], onSnapshot: (session) => {
+    assert.ok(session.state.executionSnapshot.completedAt);
+    assert.ok(Date.parse(session.state.executionSnapshot.requestedAt) > Date.parse(coverage.gaps[0].toExclusive));
+  } });
+  const result = await h.run(intent("recon"), state);
+  assert.deepEqual(result.ownershipHistory, { status: "complete" }); assert.equal(result.ownershipComplete, true);
+  assert.equal(state.ownershipComplete, true); assert.equal(result.deskPositions[0].quantity, 2);
+  assert.equal(state.executions[0].execution.execId, bought.execution.execId);
+  assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
+});
+
+test("previous-day ownership gaps remain unavailable for place and recon despite fresh execution snapshots", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.gaps[0] = { fromInclusive: new Date(now - 86400000 - 60000).toISOString(), toExclusive: new Date(now - 86400000).toISOString() };
+  for (const action of ["place", "recon"]) {
+    const state = ledger();
+    const h = harness({ coverage, positions: ["MSFT", "NVDA", "META"].map((symbol, index) => ({ ...contract(symbol, index + 2), position: 1 })) });
+    if (action === "place") await assert.rejects(h.run(intent(), state), /desk concurrent/);
+    else {
+      const result = await h.run(intent("recon"), state);
+      assert.equal(result.ownershipHistory.status, "unavailable"); assert.match(result.ownershipHistory.reason, /outside today's New York/);
+      assert.equal(result.ownershipComplete, false); assert.deepEqual(result.deskPositions, []);
+    }
+    assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
+  }
+});
+
 test("uppercase intents stamp lowercase desk segments on new orders", async () => {
   const h = harness();
   const result = await h.run(intent("place", { desk: "J", orderRef: "J|261006|S1-AVGO" }));
