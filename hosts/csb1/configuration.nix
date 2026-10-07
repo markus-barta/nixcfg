@@ -402,8 +402,8 @@ in
   # A failed/missing renderer is a hard dependency, not an advisory Wants.
   # This merges with composeStack's docker.service requirement.
   # AEON-12: host-generated secrets for PAIMOS AEON (database passwords, session
-  # key, messaging key, AEON-319 doctrine guard key). Generated once on csb1 and
-  # never leave it (not in git, not in agenix);
+  # key, messaging key, AEON-319 doctrine guard key, OPS-271 / AEON-455 phone push
+  # VAPID key pair). Generated once on csb1 and never leave it (not in git, not in agenix);
   # 0444 files inside a 0700 root directory, so only the containers that bind-mount
   # them (non-root users) can read them.
   systemd.services.aeon-secrets = {
@@ -423,7 +423,10 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
     };
-    path = [ pkgs.coreutils ];
+    path = [
+      pkgs.coreutils
+      pkgs.openssl
+    ];
     script = ''
       d=/var/lib/aeon-secrets
       install -d -m 0700 -o root -g root "$d"
@@ -442,6 +445,12 @@ in
           mv "$d/$f.tmp" "$d/$f"
         fi
       done
+      # OPS-271: phone push VAPID key pair (JSON, self-checked; format in the script).
+      v="$d/phone-push-vapid.json"
+      if [ -d "$v" ]; then rmdir "$v"; fi
+      if [ ! -s "$v" ]; then
+        ${pkgs.bash}/bin/bash ${./scripts/aeon-phone-push-vapid.sh} "$v"
+      fi
     '';
   };
 

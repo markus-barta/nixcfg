@@ -189,6 +189,7 @@ in
         "AEON_SESSION_KEY_FILE=/run/secrets/aeon-session-key"
         "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
         "AEON_DOCTRINE_GUARD_KEY_FILE=/run/secrets/aeon-doctrine-guard-key"
+        "AEON_PHONE_PUSH_VAPID_FILE=/run/secrets/aeon-phone-push-vapid.json" # OPS-271: AEON-455 phone push
         "AEON_OIDC_ISSUER=https://auth.inspr.at"
         "AEON_OIDC_CLIENT_ID=392036080846700555@inspr.at"
         "AEON_BOOTSTRAP_ADMIN_EMAIL=markus@barta.com"
@@ -200,6 +201,7 @@ in
         "/var/lib/aeon-secrets/messaging-key:/run/secrets/aeon-messaging-key:ro"
         # Long form with create_host_path false: a missing key fails the start instead of binding a directory.
         (privateBind "/var/lib/aeon-secrets/doctrine-guard-key" "/run/secrets/aeon-doctrine-guard-key")
+        (privateBind "/var/lib/aeon-secrets/phone-push-vapid.json" "/run/secrets/aeon-phone-push-vapid.json")
       ];
       depends_on = [ "aeon-db" ];
       # Chromium renders quote PDFs in-process (AEON-91): measured cgroup peak 278 MiB
