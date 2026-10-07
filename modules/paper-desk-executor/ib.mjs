@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 
-import { ACCOUNT, KEEP, PAPER_PORT, DESKS, newYorkDay, belongsToDesk, normalizeOrderRef, assertSideEffect, mergeExecutions, ownedPositions } from "./policy.mjs";
+import { ACCOUNT, KEEP, PAPER_PORT, DESKS, newYorkDay, belongsToDesk, normalizeOrderRef, assertSideEffect, mergeExecutions, ownedPositions, ownershipSinceFlat } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
 
 // The runner deliberately reuses only the pinned pusher image's Node runtime and
@@ -404,13 +404,14 @@ function ownershipEvidence(session, history, options) {
   return { executions: rows, attributed };
 }
 
-export function deskPositions(executions, ownership, executorClientId) {
-  return DESKS.flatMap((desk) => ownedPositions(executions, ownership[desk] || [], ACCOUNT, desk, executorClientId));
+export function deskPositions(executions, ownership, executorClientId, snapshot) {
+  const rows = ownershipSinceFlat(executions, snapshot);
+  return DESKS.flatMap((desk) => ownedPositions(rows, ownership[desk] || [], ACCOUNT, desk, executorClientId));
 }
 
 export function reconcileDeskPositions(executions, snapshot, ownership, executorClientId, { capSingleDesk = false, conId } = {}) {
   // Scope by resolved contract, retaining every desk's ownership of that conId.
-  const attributed = deskPositions(conId === undefined ? executions : executions.filter((row) => Number(row.contract.conId) === conId), ownership, executorClientId);
+  const attributed = deskPositions(conId === undefined ? executions : executions.filter((row) => Number(row.contract.conId) === conId), ownership, executorClientId, snapshot);
   const totals = new Map();
   for (const row of attributed) {
     const actual = snapshot.positions.find((position) => position.conId === row.conId);
@@ -423,7 +424,7 @@ export function reconcileDeskPositions(executions, snapshot, ownership, executor
 }
 
 function reconcileOwned(executions, snapshot, desk, ownershipClientIds, executorClientId, conId) {
-  const owned = ownedPositions(conId === undefined ? executions : executions.filter((row) => Number(row.contract.conId) === conId), ownershipClientIds, ACCOUNT, desk, executorClientId);
+  const owned = ownedPositions(conId === undefined ? executions : executions.filter((row) => Number(row.contract.conId) === conId), ownershipClientIds, ACCOUNT, desk, executorClientId, snapshot);
   for (const row of owned) {
     const actual = snapshot.positions.find((position) => position.conId === row.conId);
     if (!actual || actual.symbol !== row.symbol || !Number.isFinite(actual.position) || Math.sign(actual.position) !== Math.sign(row.quantity)) throw new Error(`owned quantity does not reconcile with broker position for ${row.symbol}; no cancellation or order allowed`);
@@ -486,6 +487,7 @@ async function cancelDeskOrders(options) {
   let selected;
   let executions = mergeExecutions(stateExecutions || []);
   let ownershipExecutions;
+  let ownershipSnapshot;
   const recon = await connect(reconClientId, { ordersOnly: true });
   try {
     cleanSnapshot(recon);
@@ -503,12 +505,13 @@ async function cancelDeskOrders(options) {
       const ownedEvidence = ownershipEvidence(evidence, history, options);
       executions = ownedEvidence.executions;
       ownershipExecutions = ownedEvidence.attributed;
+      ownershipSnapshot = { account: evidence.state.account, positions: evidence.state.positions };
       reconcileDeskPositions(ownershipExecutions, evidence.state, ownership, clientId, { conId: intent.symbol ? selected[0].conId : undefined });
     } finally { evidence.close(); }
   }
   onPlan({ clientId, orderRef: intent.orderRef || null, closing: [], cancellationTargets: selected.map((row) => ({ orderId: row.orderId, clientId: row.clientId, orderRef: row.orderRef, quantity: row.quantity })) });
   const cancelled = await cancelOwnedOrders(selected, { desk, ownershipClientIds, executorClientId: clientId, intent, guard, connect, history });
-  return { desk, cancelled, flattened: [], executions, ownershipExecutions };
+  return { desk, cancelled, flattened: [], executions, ownershipExecutions, ownershipSnapshot };
 }
 
 export async function flattenOwned(options) {
@@ -521,6 +524,7 @@ export async function flattenOwned(options) {
   catch (error) { historyError = error; }
   let executions;
   let ownershipExecutions;
+  let ownershipSnapshot;
   let orders;
   let owned;
   let targetConId;
@@ -531,6 +535,7 @@ export async function flattenOwned(options) {
     const evidence = ownershipEvidence(session, history, options);
     executions = evidence.executions;
     ownershipExecutions = evidence.attributed;
+    ownershipSnapshot = { account: session.state.account, positions: session.state.positions };
     reconcileDeskPositions(ownershipExecutions, session.state, ownership, clientId, { capSingleDesk: true, conId: targetConId });
     return reconcileOwned(ownershipExecutions, session.state, desk, ownershipClientIds, clientId, targetConId);
   };
@@ -582,14 +587,15 @@ export async function flattenOwned(options) {
         const evidence = ownershipEvidence(session, history, options);
         executions = evidence.executions;
         ownershipExecutions = evidence.attributed;
+        ownershipSnapshot = { account: session.state.account, positions: session.state.positions };
       } finally { session.close(); }
     }
-    return { desk, gateway: true, account: ACCOUNT, keepExcluded: KEEP, cancelled, flattened: placed, statuses, errors: [], executions, ownershipExecutions, ownershipComplete: true };
+    return { desk, gateway: true, account: ACCOUNT, keepExcluded: KEEP, cancelled, flattened: placed, statuses, errors: [], executions, ownershipExecutions, ownershipSnapshot, ownershipComplete: true };
   } catch (error) { if (sideEffects) throw uncertain(error); throw error; }
 }
 
 export function publicSnapshot(state, { executions = state.executions, ownership = {}, executorClientId, ownershipComplete = true } = {}) {
-  const positions = ownershipComplete ? deskPositions(executions, ownership, executorClientId) : [];
+  const positions = ownershipComplete ? deskPositions(executions, ownership, executorClientId, state) : [];
   const deskOf = (row) => DESKS.find((desk) => belongsToDesk(row, desk, ownership[desk] || [], executorClientId)) || null;
   return {
     gateway: state.gateway,

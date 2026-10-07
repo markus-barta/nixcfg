@@ -9,8 +9,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { createServer } from "./server.mjs";
 import { executeIntent } from "./executor.mjs";
-import { flattenOwned, openSession, readPusherExecutions } from "./ib.mjs";
-import { parseIntent, newYorkDay } from "./policy.mjs";
+import { deskPositions, flattenOwned, openSession, readPusherExecutions, reconcileDeskPositions } from "./ib.mjs";
+import { brakeUsage, parseIntent, newYorkDay } from "./policy.mjs";
 import { runClient } from "./client/paper-intent.mjs";
 
 const ACCOUNT = "DUR970597";
@@ -110,6 +110,109 @@ test("executeIntent places accepted tagged bracket on initialization day using d
   assert.equal(result.status, "ok"); assert.deepEqual(h.broker.connections, [700, 705]);
   assert.equal(h.broker.placed.length, 2); assert.ok(h.broker.placed.every((row) => row.order.orderRef === ref()));
   assert.equal(state.placements[0].status, "submitted"); assert.equal(h.broker.live.size, 0);
+});
+
+const liveOwnership = { j: [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83, 702], j5: [703], joe: [22, 89, 90, 91, 119, 130, 131, 148, 151, 152, 701], joel: [704] };
+const flatContracts = [contract("AMD", 2), contract("AVGO", 3), contract("NVDA", 4)];
+const keptPositions = () => [{ ...contract("SXR8", 5), currency: "EUR", position: 1401 }, { ...contract("TSLA", 6), position: 1 }, { ...contract("MU", 7), position: 0 }, { ...contract("AMZN", 8), position: 0 }];
+function accountFlatHistory() {
+  const rows = flatContracts.flatMap((c, index) => [
+    { contract: c, execution: fill({ execId: `${c.symbol}-buy.1`, clientId: [27, 76, 79][index], shares: [1, 2, 4][index], time: "2026-09-22T15:00:00Z", orderRef: undefined, orderId: undefined }).execution },
+    { contract: c, execution: fill({ execId: `${c.symbol}-sell.1`, clientId: [119, 130, 131][index], shares: [1, 2, 4][index], side: "SLD", time: "2026-09-23T15:00:00Z", orderRef: undefined, orderId: undefined }).execution },
+  ]);
+  return [...rows, ...[229, 28].map((clientId, index) => ({ contract: flatContracts[2], execution: fill({ execId: `NVDA-unmapped-${index}.1`, clientId, shares: 1, side: index ? "SLD" : "BOT", time: `2026-10-06T16:0${index}:00Z`, orderRef: undefined, orderId: undefined }).execution }))];
+}
+const newNvdaFill = () => ({ contract: flatContracts[2], execution: fill({ execId: "NVDA-new.1", shares: 2, time: "2026-10-07T19:00:00Z", orderRef: "j|261007|new" }).execution });
+function flatHarness(options = {}) {
+  const h = harness({ history: accountFlatHistory(), positions: keptPositions(), resolve: (request) => flatContracts.find((row) => row.symbol === request.symbol) || contract(request.symbol), ...options });
+  h.config.ownership = liveOwnership;
+  return h;
+}
+
+test("live cross-desk and unmapped closes clear ownership, concurrency, place, recon and flatten", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  const history = accountFlatHistory(), snapshot = { account: ACCOUNT, positions: keptPositions() };
+  assert.deepEqual(deskPositions(history, liveOwnership, 705).map((row) => [row.desk, row.symbol, row.quantity]), [["j", "AMD", 1], ["j", "AVGO", 2], ["j", "NVDA", 3], ["joe", "AMD", -1], ["joe", "AVGO", -2], ["joe", "NVDA", -4]]);
+  assert.deepEqual(deskPositions(history, liveOwnership, 705, snapshot), []);
+  assert.doesNotThrow(() => reconcileDeskPositions(history, snapshot, liveOwnership, 705));
+  for (const desk of ["j", "joe"]) for (const action of ["place", "recon", "flatten"]) {
+    const h = flatHarness(), state = ledger();
+    const result = await h.run(intent(action, { desk, ...(action === "place" ? { orderRef: ref(desk) } : {}) }), state);
+    assert.equal(result.status, "ok"); assert.deepEqual(state.deskPositions, []);
+    assert.equal(result.ownershipSnapshot, undefined);
+    if (action === "place") { assert.equal(h.broker.placed.length, 2); assert.equal(result.budget.concurrentBefore, 0); }
+    else {
+      assert.deepEqual(h.broker.placed, []);
+      for (const name of ["j", "joe"]) assert.equal(brakeUsage(state).perDesk[name].concurrent, 0);
+      if (action === "recon") { assert.deepEqual(result.deskPositions, []); assert.ok(result.positions.filter((row) => ["SXR8", "TSLA"].includes(row.symbol)).every((row) => row.keep)); }
+      else assert.deepEqual(result.flattened, []);
+    }
+    assert.deepEqual(h.broker.cancelled, []); assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("new tagged ownership after flat is exactly two shares for place, recon and flatten", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  for (const action of ["place", "recon", "flatten"]) {
+    const state = ledger();
+    const h = flatHarness({ executions: [newNvdaFill()], positions: [...keptPositions(), { ...flatContracts[2], position: 2 }] });
+    const result = await h.run(intent(action), state);
+    assert.deepEqual(state.deskPositions.map((row) => [row.desk, row.symbol, row.quantity]), [["j", "NVDA", 2]]);
+    if (action === "flatten") { assert.equal(result.flattened[0].quantity, 2); assert.equal(h.broker.placed[0].order.totalQuantity, 2); }
+    if (action === "recon") { assert.equal(result.deskPositions[0].quantity, 2); assert.equal(brakeUsage(state).perDesk.j.concurrent, 1); assert.equal(brakeUsage(state).perDesk.joe.concurrent, 0); }
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("a mismatched contract retains its old ownership and names the symbol before effects", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  for (const action of ["place", "flatten", "cancel"]) {
+    const h = flatHarness({ positions: [...keptPositions(), { ...flatContracts[2], position: 1 }], orders: action === "cancel" ? [order({ ...flatContracts[2], clientId: 28, orderRef: "legacy" })] : [] });
+    const snapshot = { account: ACCOUNT, positions: h.broker.positions };
+    assert.deepEqual(deskPositions(accountFlatHistory(), liveOwnership, 705, snapshot).map((row) => [row.desk, row.symbol, row.quantity]), [["j", "NVDA", 3], ["joe", "NVDA", -4]]);
+    await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /desk ownership does not reconcile with broker position for NVDA/);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  }
+});
+
+test("legacy cancel shares the flat reset and clears saved phantom ownership", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  const h = flatHarness({ orders: [order({ ...flatContracts[1], clientId: 76, orderRef: "legacy" })] }), state = ledger();
+  const result = await h.run(intent("cancel", { orderId: 30 }), state);
+  assert.deepEqual(h.broker.cancelled, [30]); assert.deepEqual(h.broker.placed, []);
+  assert.deepEqual(state.deskPositions, []); assert.equal(result.ownershipSnapshot, undefined);
+});
+
+test("recon gates the reset against the session supplying its latest execution replay", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  const h = flatHarness({ executions: [newNvdaFill()], positions: [...keptPositions(), { ...flatContracts[2], position: 2 }], onSnapshot: (session) => {
+    if (session.state.executionSnapshot.requestId === 880700) { session.state.executions = []; session.state.positions = keptPositions(); }
+  } });
+  const result = await h.run(intent("recon"));
+  assert.deepEqual(result.deskPositions.map((row) => [row.desk, row.symbol, row.quantity]), [["j", "NVDA", 2]]);
+});
+
+test("saved ownership after bracket submission uses the placing session's new fills and positions", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  let placing;
+  const h = flatHarness({ onSnapshot: (session) => { if (session.state.executionSnapshot.requestId === 880705) placing = session.state; }, afterPlace: (count) => {
+    if (count === 2) { placing.executions.push(newNvdaFill()); placing.positions.push({ ...flatContracts[2], position: 2 }); }
+  } });
+  const state = ledger();
+  await h.run(intent("place", { order: { ...intent().order, symbol: "NVDA" } }), state);
+  assert.deepEqual(state.deskPositions.map((row) => [row.desk, row.symbol, row.quantity]), [["j", "NVDA", 2]]);
+});
+
+test("flatten returns same-session ownership evidence after its closing fill makes the account flat", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
+  let placing;
+  const h = flatHarness({ executions: [newNvdaFill()], positions: [...keptPositions(), { ...flatContracts[2], position: 2 }], onSnapshot: (session) => { if (session.state.executionSnapshot.requestId === 880705) placing = session.state; }, afterPlace: () => {
+    placing.executions.push({ contract: flatContracts[2], execution: fill({ execId: "NVDA-close.1", orderId: h.broker.placed[0].id, shares: 2, side: "SLD", time: new Date().toISOString() }).execution });
+    placing.positions.find((row) => row.conId === 4).position = 0;
+  } });
+  const state = ledger(), result = await h.run(intent("flatten"), state);
+  assert.equal(result.flattened[0].quantity, 2); assert.deepEqual(state.deskPositions, []);
+  assert.equal(result.ownershipSnapshot, undefined); assert.equal(h.broker.live.size, 0);
 });
 
 test("pusher history stays strict by default for today's ownership gap", () => {
