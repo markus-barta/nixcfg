@@ -353,10 +353,18 @@ function ownershipEvidence(session, history, options) {
   for (const placement of statePlacements) {
     if (taggedDesk({ clientId, orderRef: placement.orderRef })) for (const orderId of placement.orderIds || []) addRef(`${orderId}:symbol:${placement.symbol}`, placement.orderRef);
   }
+  // Pusher history rows carry no orderId/orderRef (OPS-266, 2026-10-07): an
+  // earlier-day executor fill is attributed only through the executor's own
+  // recorded execution with the same execId (correction revisions share it).
+  const execKey = (execution) => { const match = String(execution.execId || "").match(/^(.*\.)\d+$/); return match ? `exec:${match[1]}` : null; };
+  for (const known of stateExecutions) {
+    const keyed = execKey(known.execution);
+    if (keyed && known.execution.acctNumber === ACCOUNT && Number(known.execution.clientId) === clientId && taggedDesk(known.execution)) addRef(keyed, known.execution.orderRef);
+  }
   const attributed = rows.map((row) => {
     const execution = row.execution;
     if (Number(execution.clientId) !== clientId || execution.acctNumber !== ACCOUNT || KEEP.includes(String(row.contract.symbol).toUpperCase())) return row;
-    const refs = new Set([...(refsByOrder.get(key(execution, `conId:${Number(row.contract.conId)}`)) || []), ...(refsByOrder.get(key(execution, `symbol:${row.contract.symbol}`)) || [])]);
+    const refs = new Set([...(refsByOrder.get(key(execution, `conId:${Number(row.contract.conId)}`)) || []), ...(refsByOrder.get(key(execution, `symbol:${row.contract.symbol}`)) || []), ...(refsByOrder.get(execKey(execution)) || [])]);
     if (refs.size > 1 || execution.orderRef && !taggedDesk(execution)) throw new Error("executor execution ownership attribution is unknown or conflicting");
     const orderRef = execution.orderRef || [...refs][0];
     if (!taggedDesk({ clientId, orderRef })) throw new Error("executor execution ownership attribution is missing");
