@@ -67,6 +67,29 @@ function validateConfig(config) {
   if (legacy.some((id) => !Number.isSafeInteger(id) || id <= 0 || id === executor || id === recon) || new Set(legacy).size !== legacy.length) throw new Error("legacy desk ownership client IDs must be valid and disjoint");
 }
 
+// Pusher history rows carry no orderId/orderRef/permId (OPS-266). Persisting
+// them as they come would erase the executor's own attribution of earlier
+// fills, so missing identifiers are filled from the attributed or previously
+// cached row with the same execId (correction revisions share the prefix).
+function keepAttribution(rows, ...sources) {
+  const prefix = (execution) => String(execution?.execId || "").replace(/\d+$/, "");
+  const known = new Map();
+  for (const row of sources.flat()) {
+    const execution = row?.execution;
+    if (!execution?.orderRef) continue;
+    const prior = known.get(prefix(execution)) || {};
+    known.set(prefix(execution), { orderRef: execution.orderRef, orderId: Number(execution.orderId) || prior.orderId, permId: Number(execution.permId) || prior.permId });
+  }
+  return rows.map((row) => {
+    const found = known.get(prefix(row.execution));
+    if (!found || row.execution.orderRef) return row;
+    const execution = { ...row.execution, orderRef: found.orderRef };
+    if (!Number(execution.orderId) && found.orderId) execution.orderId = found.orderId;
+    if (!Number(execution.permId) && found.permId) execution.permId = found.permId;
+    return { ...row, execution };
+  });
+}
+
 export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const config = runtime.config || configFromHost();
   const connect = runtime.connect || ((id, options) => openSession(id, 20_000, options));
@@ -87,7 +110,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       const record = state.intents?.get(intent.intentId);
       if (record) { record.brokerPlan = { ...record.brokerPlan, ...plan }; saveState(state); }
     } });
-    state.executions = outcome.executions;
+    state.executions = keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions);
     if (outcome.ownershipComplete !== undefined) state.ownershipComplete = outcome.ownershipComplete;
     state.deskPositions = deskPositions(outcome.ownershipExecutions || state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId);
     saveState(state);

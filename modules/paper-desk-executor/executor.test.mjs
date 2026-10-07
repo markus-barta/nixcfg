@@ -188,6 +188,10 @@ test("flatten attributes earlier-day executor fills from identifier-free history
   assert.equal(result.status, "ok");
   assert.equal(h.broker.placed.length, 1);
   assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+  // The saved state keeps the attribution, so the next flatten still passes.
+  assert.ok(state.executions.some((row) => row.execution.execId === "ko.buy.01" && row.execution.orderRef === "j|261006|ko-test" && row.execution.orderId === 40));
+  h.broker.positions = [{ ...contract(), position: 2 }];
+  assert.equal((await h.run(intent("flatten", { intentId: "j-executor-test-2" }), state)).status, "ok");
 
   // Without the executor's own record the same history still fails closed.
   const bare = harness({ history: [strip(koBuy), strip(koSell), bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
