@@ -9,6 +9,7 @@ import {
   newYorkDay,
   mergeExecutions,
   ownedPositions,
+  ownershipSinceFlat,
   parseIntent,
   placementBudget,
   thesisKey,
@@ -152,6 +153,69 @@ test("owned flatten derives quantities from client IDs and always excludes KEEP"
     { contract: { conId: 3, symbol: "NVDA", secType: "STK", currency: "USD" }, execution: { execId: "d.1", acctNumber: "DUR970597", clientId: 999, side: "BOT", shares: 10 } },
   ];
   assert.deepEqual(ownedPositions(executions, [702]), [{ conId: 1, symbol: "AAPL", currency: "USD", secType: "STK", quantity: 2 }]);
+});
+
+const ownershipFill = (execId, clientId, side, shares, time, extra = {}) => ({ contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId, acctNumber: "DUR970597", clientId, side, shares, time, ...extra } });
+const ownershipSnapshot = (position = 0) => ({ account: "DUR970597", positions: position ? [{ conId: 1, symbol: "AAPL", position }] : [] });
+const crossDeskClose = () => [ownershipFill("opening.1", 702, "BUY", 1, "2026-10-05T15:00:00Z"), ownershipFill("closing.1", 701, "SELL", 1, "2026-10-06T15:00:00Z")];
+const ownedBy = (rows, desk, snapshot) => ownedPositions(rows, desk === "j" ? [702] : [701], "DUR970597", desk, 705, snapshot);
+
+test("account-flat ownership clears cross-desk closes and counts only the new tagged executor fill", () => {
+  const rows = crossDeskClose();
+  for (const desk of ["j", "joe"]) assert.deepEqual(ownedBy(rows, desk, ownershipSnapshot()), []);
+  rows.push(ownershipFill("new.1", 705, "BOT", 2, "2026-10-07T15:00:00Z", { orderRef: "J|261007|new" }));
+  assert.equal(ownedBy(rows, "j", ownershipSnapshot(2))[0].quantity, 2);
+  assert.deepEqual(ownedBy(rows, "joe", ownershipSnapshot(2)), []);
+});
+
+test("account-net mismatch, incomplete ownership and absent snapshot retain full-history ownership", () => {
+  const rows = crossDeskClose();
+  for (const snapshot of [undefined, ownershipSnapshot(1), { ...ownershipSnapshot(), ownershipComplete: false }, { ...ownershipSnapshot(), account: "other" }]) {
+    assert.equal(ownedBy(rows, "j", snapshot)[0].quantity, 1);
+    assert.equal(ownedBy(rows, "joe", snapshot)[0].quantity, -1);
+  }
+});
+
+test("flat is evaluated only at timestamp-group boundaries, independent of fill ordering", () => {
+  const bought = ownershipFill("initial.1", 702, "BUY", 1, "2026-10-05T15:00:00Z");
+  const sold = ownershipFill("same-sale.1", 701, "SELL", 1, "20261006-15:00:00");
+  const newBuy = ownershipFill("same-buy.1", 702, "BUY", 2, "2026-10-06T11:00:00.999-04:00");
+  for (const rows of [[bought, sold, newBuy], [newBuy, sold, bought]]) {
+    assert.equal(ownedBy(rows, "j", ownershipSnapshot(2))[0].quantity, 3);
+    assert.equal(ownedBy(rows, "joe", ownershipSnapshot(2))[0].quantity, -1);
+  }
+  assert.deepEqual(ownedBy([bought, { ...sold, execution: { ...sold.execution, time: bought.execution.time } }], "j", ownershipSnapshot()), []);
+});
+
+test("ownership stays unchanged when the account never goes flat after the initial buy", () => {
+  const rows = [ownershipFill("initial.1", 702, "BUY", 2, "2026-10-05T15:00:00Z"), ownershipFill("more.1", 702, "BUY", 1, "2026-10-06T15:00:00Z")];
+  assert.equal(ownedBy(rows, "j", ownershipSnapshot(3))[0].quantity, 3);
+});
+
+test("foreign accounts and KEEP executions do not change flat ownership boundaries", () => {
+  const rows = crossDeskClose();
+  rows.push(ownershipFill("foreign.1", 702, "BUY", 9, "2026-10-07T15:00:00Z", { acctNumber: "other" }));
+  assert.deepEqual(ownedBy(rows, "j", ownershipSnapshot()), []);
+  for (const symbol of ["TSLA", "SXR8"]) {
+    const kept = crossDeskClose().map((row) => ({ ...row, contract: { ...row.contract, symbol } }));
+    assert.deepEqual(ownershipSinceFlat(kept, ownershipSnapshot()), kept);
+    assert.deepEqual(ownedBy(kept, "j", ownershipSnapshot()), []);
+  }
+});
+
+test("malformed unmapped fills cannot prove a reset or hide owned history", () => {
+  for (const extra of [{ time: undefined }, { time: "invalid" }, { shares: 0 }, { shares: NaN }, { side: "invalid" }]) {
+    const rows = crossDeskClose();
+    rows.push(ownershipFill("unknown.1", 229, "BUY", 1, "2026-10-07T15:00:00Z", extra));
+    assert.equal(ownedBy(rows, "j", ownershipSnapshot())[0].quantity, 1);
+  }
+});
+
+test("a reset can increase current desk ownership by removing a historical offset", () => {
+  const rows = [...crossDeskClose(), ownershipFill("new.1", 701, "BUY", 2, "2026-10-07T15:00:00Z")];
+  assert.equal(ownedBy(rows, "joe")[0].quantity, 1);
+  assert.equal(ownedBy(rows, "joe", ownershipSnapshot(2))[0].quantity, 2);
+  assert.deepEqual(ownedBy(rows, "j", ownershipSnapshot(2)), []);
 });
 
 test("non-empty local HALT is active and there is no remote halt", () => {

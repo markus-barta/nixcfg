@@ -264,6 +264,12 @@ gaps and the trailing span from the history target end to now require the same-s
 execution snapshot, completed within two minutes of the host clock.
 Older gaps, a target starting too late, unknown or unreadable history,
 stale/missing snapshots and snapshot errors refuse flatten before any effect.
+For each non-KEEP conId, desk ownership starts after the account's last flat
+point in complete history, counting every client's fills, including unmapped
+clients. Fills in the same second form one group; only a group ending at zero
+can reset ownership. The reset applies only when the full history's account net
+matches that session's broker position (an omitted position row means zero).
+Mismatches retain full-history ownership and the existing reconciliation gates.
 Closing quantity is capped at the desk's evidenced net and the live position
 for the same conId, with matching signs; conflicting aggregate desk ownership
 is refused. Cancelling filled or partially filled orders remains refused.
@@ -276,6 +282,9 @@ span to now count as complete only with the recon session's fresh, completed,
 paper-account execution snapshot (the pusher's ~30 s live polls leave such a
 gap between its ~15 min official receipts). A loaded ledger whose snapshot
 check fails refuses the placement and reports recon history unavailable.
+Their desk positions and concurrency counts use the same account-flat reset;
+FIFO PnL continues to use the full history. An account flat at history end
+therefore leaves no desk ownership of that contract when the broker agrees.
 When complete ownership history is unavailable, the executor counts all account
 positions/unknown working names toward each desk's concurrency cap and refuses
 piling; it does not accept partial pusher history as ownership evidence.

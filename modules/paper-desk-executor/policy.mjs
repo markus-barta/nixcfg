@@ -341,10 +341,42 @@ export function mergeExecutions(...collections) {
   return [...latest.values()].map(({ row }) => row);
 }
 
-export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT, desk = null, executorClientId = null) {
+// Only a matching same-session account position proves a flat boundary. Keep
+// full history on malformed evidence or a mismatch so reconciliation stays closed.
+export function ownershipSinceFlat(executions, snapshot, account = ACCOUNT) {
+  if (snapshot?.account !== account || !Array.isArray(snapshot.positions) || snapshot.ownershipComplete === false) return executions;
+  const rows = mergeExecutions(executions);
+  const contracts = new Map(), timeCache = new Map(), resets = new Map();
+  for (const row of rows) {
+    const { contract, execution } = row;
+    const symbol = String(contract.symbol || "").toUpperCase(), conId = Number(contract.conId);
+    if (execution.acctNumber !== account || KEEP.includes(symbol) || !Number.isSafeInteger(conId) || conId <= 0) continue;
+    const group = contracts.get(conId) || { symbol, currency: String(contract.currency || "").toUpperCase(), valid: true, fills: [] };
+    const second = executionSecond(execution.time, timeCache), shares = Number(execution.shares), side = String(execution.side || "").toUpperCase();
+    const signed = ["BOT", "BUY"].includes(side) ? shares : ["SLD", "SELL"].includes(side) ? -shares : NaN;
+    if (!Number.isFinite(second) || !Number.isFinite(shares) || shares <= 0 || !Number.isFinite(signed) || !/^[A-Z][A-Z0-9.]{0,9}$/.test(symbol) || String(contract.secType || "").toUpperCase() !== "STK" || group.symbol !== symbol || group.currency !== String(contract.currency || "").toUpperCase()) group.valid = false;
+    group.fills.push({ second, signed }); contracts.set(conId, group);
+  }
+  for (const [conId, group] of contracts) {
+    if (!group.valid) continue;
+    const actual = snapshot.positions.filter((row) => Number(row.conId) === conId);
+    if (actual.length > 1 || actual.some((row) => row.symbol !== group.symbol || !Number.isFinite(row.position) || row.account && row.account !== account)) continue;
+    group.fills.sort((a, b) => a.second - b.second);
+    let net = 0, flat = -Infinity;
+    for (let i = 0; i < group.fills.length; i++) {
+      net += group.fills[i].signed;
+      // IB time has second precision; an intermediate fill cannot prove flat.
+      if (group.fills[i + 1]?.second !== group.fills[i].second && Math.abs(net) <= 1e-9) flat = group.fills[i].second;
+    }
+    if (Math.abs(net - (actual[0]?.position || 0)) <= 1e-9 && flat !== -Infinity) resets.set(conId, flat);
+  }
+  return rows.filter((row) => row.execution.acctNumber !== account || KEEP.includes(String(row.contract.symbol || "").toUpperCase()) || !resets.has(Number(row.contract.conId)) || executionSecond(row.execution.time, timeCache) > resets.get(Number(row.contract.conId)));
+}
+
+export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT, desk = null, executorClientId = null, snapshot) {
   const clients = new Set(ownershipClientIds);
   const positions = new Map();
-  for (const row of mergeExecutions(executions)) {
+  for (const row of mergeExecutions(ownershipSinceFlat(executions, snapshot, account))) {
     const contract = row.contract;
     const execution = row.execution;
     if (execution.acctNumber !== account) continue;
