@@ -71,7 +71,7 @@ in
     peerAllowlist = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [
-        "100.64.0.9" # grok-amy-box
+        "100.64.0.10" # grok-amy-box (node 21 after the 2026-10-07 rebuild; was .9)
         "100.64.0.14" # mbp2607, OPS tests
       ];
       description = "Tailnet source addresses allowed to call the executor. Any other source receives 403.";
