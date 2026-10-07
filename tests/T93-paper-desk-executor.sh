@@ -22,7 +22,9 @@ grep -Fq 'peerRules "-I"' "$nix_module"
 grep -Fq -- '-i tailscale0 -s ${peer}' "$nix_module"
 grep -Fq '100.64.0.6' "$nix_module"
 grep -Fq '8470' "$nix_module"
-grep -Fq '100.64.0.9' "$nix_module"
+grep -Fq '"100.64.0.10"' "$nix_module"
+# OPS-266 2026-10-07: the pre-rebuild Amy-box address is no longer admitted.
+if grep -Fq '"100.64.0.9"' "$nix_module"; then exit 1; fi
 grep -Fq '100.64.0.14' "$nix_module"
 grep -Fq 'user = "1000:1000"' "$nix_module"
 grep -Fq 'read_only = true' "$nix_module"
