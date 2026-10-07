@@ -11,34 +11,45 @@ export const POST_LIMIT = 120;
 export const HOUR_MS = 60 * 60 * 1000;
 export const RETENTION_MS = 30 * 24 * HOUR_MS;
 
+export function confinedPath(directory, name, isMessageId = false) {
+  if (isMessageId && (typeof name !== "string" || !ID_PATTERN.test(name))) throw failure(404, "message not found");
+  const resolved = path.resolve(directory, isMessageId ? `${name}.json` : name);
+  // Include the separator so sibling directories with a shared prefix fail.
+  // The filesystem root already ends in a separator.
+  const prefix = directory.endsWith(path.sep) ? directory : directory + path.sep;
+  if (!resolved.startsWith(prefix)) throw new Error("mailbox path is invalid");
+  return resolved;
+}
+
 function privateDirectory(directory) {
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  if (!lstatSync(directory).isDirectory()) throw new Error("mailbox directory is not a real directory");
-  chmodSync(directory, 0o700);
+  const parent = path.dirname(directory);
+  mkdirSync(confinedPath(parent, directory), { recursive: true, mode: 0o700 });
+  if (!lstatSync(confinedPath(parent, directory)).isDirectory()) throw new Error("mailbox directory is not a real directory");
+  chmodSync(confinedPath(parent, directory), 0o700);
 }
 
 function syncDirectory(directory) {
-  const fd = openSync(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  const fd = openSync(confinedPath(path.dirname(directory), directory), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
-function writeAtomic(file, value) {
-  const temporary = `${file}.${randomBytes(16).toString("hex")}.new`;
-  const fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+function writeAtomic(directory, name, value, isMessageId = false) {
+  const temporary = `${confinedPath(directory, name, isMessageId)}.${randomBytes(16).toString("hex")}.new`;
+  const fd = openSync(confinedPath(directory, temporary), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try {
     try {
       writeFileSync(fd, `${JSON.stringify(value)}\n`);
       fsyncSync(fd);
     } finally { closeSync(fd); }
-    renameSync(temporary, file);
-    syncDirectory(path.dirname(file));
+    renameSync(confinedPath(directory, temporary), confinedPath(directory, name, isMessageId));
+    syncDirectory(directory);
   } finally {
-    try { unlinkSync(temporary); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    try { unlinkSync(confinedPath(directory, temporary)); } catch (error) { if (error.code !== "ENOENT") throw error; }
   }
 }
 
-function readJSON(file, maxBytes) {
-  const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+function readJSON(directory, name, maxBytes, isMessageId = false) {
+  const fd = openSync(confinedPath(directory, name, isMessageId), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.size > maxBytes) throw new Error("mailbox state file is invalid");
@@ -51,14 +62,24 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   if (identities.length < 2 || identities.some((identity) => !validIdentity(identity))) throw new Error("mailbox identities are invalid");
   const root = path.resolve(stateDir);
   privateDirectory(root);
+  const parents = new Map();
+  const directories = new Map();
   for (const kind of ["inbox", "archive"]) {
-    privateDirectory(path.join(root, kind));
-    for (const identity of identities) privateDirectory(path.join(root, kind, identity));
+    const parent = confinedPath(root, kind);
+    parents.set(kind, parent);
+    privateDirectory(parent);
+    const byIdentity = new Map();
+    for (const identity of identities) {
+      const dir = confinedPath(parent, identity);
+      byIdentity.set(identity, dir);
+      privateDirectory(dir);
+    }
+    directories.set(kind, byIdentity);
   }
-  const rateFile = path.join(root, "rate-limits.json");
+  const rateFile = "rate-limits.json";
   let rates = new Map(identities.map((identity) => [identity, []]));
   try {
-    const stored = readJSON(rateFile, 128 * 1024);
+    const stored = readJSON(root, rateFile, 128 * 1024);
     if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new Error("mailbox rate state is invalid");
     for (const identity of identities) {
       const times = Object.hasOwn(stored, identity) ? stored[identity] : [];
@@ -68,26 +89,22 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   } catch (error) { if (error.code !== "ENOENT") throw error; }
 
   function directory(kind, identity) {
-    if (!["inbox", "archive"].includes(kind) || !identities.includes(identity)) throw new Error("mailbox path is invalid");
-    const result = path.join(root, kind, identity);
+    const result = directories.get(kind)?.get(identity);
+    if (!result) throw new Error("mailbox path is invalid");
     // Refuse symlinks even if a state directory was replaced after startup.
-    for (const dir of [root, path.join(root, kind), result]) {
-      if (!lstatSync(dir).isDirectory()) throw new Error("mailbox directory is not a real directory");
+    for (const dir of [root, parents.get(kind), result]) {
+      if (!lstatSync(confinedPath(path.dirname(dir), dir)).isDirectory()) throw new Error("mailbox directory is not a real directory");
     }
     return result;
   }
 
-  function messagePath(kind, identity, id) {
-    if (typeof id !== "string" || !ID_PATTERN.test(id)) throw failure(404, "message not found");
-    return path.join(directory(kind, identity), `${id}.json`);
-  }
-
   function files(kind, identity) {
-    return readdirSync(directory(kind, identity)).filter((name) => name.endsWith(".json") && ID_PATTERN.test(name.slice(0, -5)));
+    const dir = directory(kind, identity);
+    return readdirSync(confinedPath(path.dirname(dir), dir)).filter((name) => name.endsWith(".json") && ID_PATTERN.test(name.slice(0, -5)));
   }
 
   function readMessage(identity, id) {
-    const row = readJSON(messagePath("inbox", identity, id), 128 * 1024);
+    const row = readJSON(directory("inbox", identity), id, 128 * 1024, true);
     if (!row || row.id !== id || row.to !== identity || !identities.includes(row.from) || !Number.isFinite(Date.parse(row.createdAt))) throw new Error("stored mailbox message is invalid");
     const parsed = parseMessage({ to: row.to, body: row.body, ...(row.ticket === null ? {} : { ticket: row.ticket }) }, row.from, identities);
     return { id, from: row.from, ...parsed, createdAt: row.createdAt };
@@ -103,7 +120,7 @@ export function openMailbox(stateDir, identities, now = Date.now) {
     // An I/O failure consumes the attempt in memory too. In particular, a
     // failed directory fsync after rename must not reopen admission slots.
     rates = next;
-    writeAtomic(rateFile, Object.fromEntries(next));
+    writeAtomic(root, rateFile, Object.fromEntries(next));
   }
 
   function unread(identity) { return files("inbox", identity).length; }
@@ -118,7 +135,7 @@ export function openMailbox(stateDir, identities, now = Date.now) {
     const id = `${String(epoch).padStart(13, "0")}-${randomBytes(16).toString("hex")}`;
     const createdAt = new Date(epoch).toISOString();
     const row = { id, from: sender, to: parsed.to, ticket: parsed.ticket, createdAt, body: parsed.body };
-    writeAtomic(messagePath("inbox", row.to, id), row);
+    writeAtomic(directory("inbox", row.to), id, row, true);
     return { id, createdAt };
   }
 
@@ -128,21 +145,24 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   }
 
   function ack(recipient, id) {
-    const file = messagePath("inbox", recipient, id);
+    // Validate the ID before the identity lookup, preserving invalid-ID errors.
+    confinedPath(root, id, true);
+    const inbox = directory("inbox", recipient);
     try { readMessage(recipient, id); }
     catch (error) {
       if (error.code !== "ENOENT") throw error;
       if (identities.some((identity) => identity !== recipient && files("inbox", identity).includes(`${id}.json`))) throw failure(403, "only the recipient may acknowledge");
       throw failure(404, "message not found");
     }
-    const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const fd = openSync(confinedPath(inbox, id, true), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       // Retention begins at acknowledgment; an old unread message is retained
       // for a full thirty days after it is moved to the archive.
       futimesSync(fd, now() / 1000, now() / 1000);
       fsyncSync(fd);
     } finally { closeSync(fd); }
-    renameSync(file, messagePath("archive", recipient, id));
+    const archive = directory("archive", recipient);
+    renameSync(confinedPath(inbox, id, true), confinedPath(archive, id, true));
     syncDirectory(directory("inbox", recipient));
     syncDirectory(directory("archive", recipient));
   }
@@ -153,10 +173,10 @@ export function openMailbox(stateDir, identities, now = Date.now) {
       const dir = directory("archive", identity);
       let changed = false;
       for (const name of files("archive", identity)) {
-        const file = path.join(dir, name);
-        const stat = lstatSync(file);
+        const id = name.slice(0, -5);
+        const stat = lstatSync(confinedPath(dir, id, true));
         if (!stat.isFile()) throw new Error("mailbox archive entry is not a regular file");
-        if (stat.mtimeMs < cutoff) { unlinkSync(file); changed = true; }
+        if (stat.mtimeMs < cutoff) { unlinkSync(confinedPath(dir, id, true)); changed = true; }
       }
       if (changed) syncDirectory(dir);
     }

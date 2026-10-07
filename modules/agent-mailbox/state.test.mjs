@@ -4,11 +4,56 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { HOUR_MS, openMailbox, POST_LIMIT, RETENTION_MS, UNREAD_LIMIT } from "./state.mjs";
+import { confinedPath, HOUR_MS, openMailbox, POST_LIMIT, RETENTION_MS, UNREAD_LIMIT } from "./state.mjs";
 
 const identities = ["amy", "ops"];
 const newRoot = () => fs.mkdtempSync(path.join(tmpdir(), "ops272-state-"));
 const message = { to: "ops", ticket: "OPS-272", body: "message text" };
+
+test("the path helper rejects invalid IDs, encoded traversal, and other identities' directories", () => {
+  const directory = path.join(newRoot(), "inbox", "ops");
+  const id = `${Date.now()}-${"a".repeat(32)}`;
+  assert.equal(confinedPath(directory, id, true), path.join(directory, `${id}.json`));
+  for (const candidate of [
+    "../x", "/x", path.join(directory, id), `../amy/${id}`,
+    `%2e%2e%2famy%2f${id}`, `%252e%252e%252famy%252f${id}`,
+    `..\\amy\\${id}`, `${id}%2f..`, `${id}.json`, "x\0.json",
+    "", null, undefined, 123, {}, [],
+  ]) assert.throws(() => confinedPath(directory, candidate, true), { statusCode: 404 });
+
+  // The containment check also protects non-message paths such as temporary
+  // files and rate state, including normalized traversal and prefix siblings.
+  for (const candidate of [
+    "../x", `../amy/${id}.json`, `../ops-other/${id}.json`,
+    path.join(directory, "..", "amy", `${id}.json`),
+    path.join(directory, "..", "ops-other", `${id}.json`),
+    path.join(directory, "nested", "..", "..", "amy", `${id}.json`),
+    directory, "/rate-limits.json",
+  ]) assert.throws(() => confinedPath(directory, candidate), /mailbox path is invalid/);
+  assert.equal(confinedPath(directory, `${id}.json.${"b".repeat(32)}.new`), path.join(directory, `${id}.json.${"b".repeat(32)}.new`));
+  const root = path.dirname(path.dirname(directory));
+  assert.equal(confinedPath(root, "rate-limits.json"), path.join(root, "rate-limits.json"));
+});
+
+test("invalid IDs and identities fail before filesystem access through the configured directory maps", (t) => {
+  const root = newRoot();
+  const mailbox = openMailbox(root, identities);
+  const id = `${Date.now()}-${"a".repeat(32)}`;
+  for (const operation of ["openSync", "readFileSync", "readdirSync", "lstatSync", "mkdirSync", "chmodSync", "renameSync", "unlinkSync"]) {
+    t.mock.method(fs, operation, () => { throw new Error("invalid path reached the filesystem"); });
+  }
+  syncBuiltinESMExports();
+  try {
+    for (const candidate of ["../x", "/x", path.join(root, "inbox", "amy", id), "%2e%2e%2famy", "%252e%252e%252famy", `../amy/${id}`]) {
+      assert.throws(() => mailbox.ack("ops", candidate), { statusCode: 404 });
+    }
+    for (const identity of ["unknown", "../amy", "%2e%2e%2famy", path.join(root, "inbox", "amy"), "constructor", "__proto__"]) {
+      assert.throws(() => mailbox.messages(identity), /mailbox path is invalid/);
+      assert.throws(() => mailbox.unread(identity), /mailbox path is invalid/);
+      assert.throws(() => mailbox.ack(identity, id), /mailbox path is invalid/);
+    }
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+});
 
 test("messages and rate state publish via fsynced temporary files and rename with private modes", (t) => {
   const root = newRoot();
