@@ -172,6 +172,33 @@ test("case variants of cached and fresh ownership references do not conflict", a
   assert.equal(h.broker.placed[0].order.totalQuantity, 2);
 });
 
+test("flatten attributes earlier-day executor fills from identifier-free history through the executor's own execId", async () => {
+  // OPS-266 2026-10-07: pusher history rows carry no orderId/orderRef; yesterday's
+  // executor KO buy and sell made every flatten fail with "attribution is missing".
+  const yesterday = `${newYorkDay(Date.now() - 86400000).replaceAll("-", "")} 15:00:00`;
+  const strip = (row) => ({ ...row, execution: { ...row.execution, orderRef: "", orderId: 0 } });
+  const koBuy = fill({ execId: "ko.buy.01", time: yesterday, orderRef: "j|261006|ko-test", orderId: 40, shares: 1 });
+  koBuy.contract = contract("KO", 3);
+  const koSell = fill({ execId: "ko.sell.01", time: yesterday, orderRef: "j|261006|ko-flat", orderId: 41, side: "SLD", shares: 1 });
+  koSell.contract = contract("KO", 3);
+  const bought = fill();
+  const state = ledger(); state.executions = [koBuy, koSell];
+  const h = harness({ history: [strip(koBuy), strip(koSell), bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
+  const result = await h.run(intent("flatten"), state);
+  assert.equal(result.status, "ok");
+  assert.equal(h.broker.placed.length, 1);
+  assert.equal(h.broker.placed[0].order.totalQuantity, 2);
+  // The saved state keeps the attribution, so the next flatten still passes.
+  assert.ok(state.executions.some((row) => row.execution.execId === "ko.buy.01" && row.execution.orderRef === "j|261006|ko-test" && row.execution.orderId === 40));
+  h.broker.positions = [{ ...contract(), position: 2 }];
+  assert.equal((await h.run(intent("flatten", { intentId: "j-executor-test-2" }), state)).status, "ok");
+
+  // Without the executor's own record the same history still fails closed.
+  const bare = harness({ history: [strip(koBuy), strip(koSell), bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
+  await assert.rejects(bare.run(intent("flatten"), ledger()), /ownership attribution is missing/);
+  assert.deepEqual(bare.broker.placed, []);
+});
+
 test("flatten refuses unknown shared-client desk tags before any side effect", async () => {
   const unknown = fill({ orderRef: "UNKNOWN|261006|S1-AVGO" });
   const h = harness({ history: [unknown], positions: [{ ...contract(), position: 2 }], orders: [order({ orderRef: unknown.execution.orderRef })] });
