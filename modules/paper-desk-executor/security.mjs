@@ -4,7 +4,7 @@ export const PAPER_PORT = 4002;
 export const LIVE_PORT = 4001;
 export const LISTEN_HOST = "100.64.0.6";
 export const LISTEN_PORT = 8470;
-export const DEFAULT_PEERS = Object.freeze(["100.64.0.9", "100.64.0.14"]);
+export const DEFAULT_PEERS = Object.freeze(["100.64.0.10", "100.64.0.14"]);
 
 export function confinedPath(root, candidate, label = "path") {
   if (typeof candidate !== "string" || candidate.length === 0 || candidate.includes("\0")) {

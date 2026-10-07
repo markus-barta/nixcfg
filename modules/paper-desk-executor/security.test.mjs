@@ -30,7 +30,7 @@ test("paper port 4002 is required and live port 4001 is a hard error", () => {
 });
 
 test("peer allowlist accepts only tailnet sources and the default desks", () => {
-  assert.deepEqual(assertPeerAllowlist(DEFAULT_PEERS), ["100.64.0.9", "100.64.0.14"]);
+  assert.deepEqual(assertPeerAllowlist(DEFAULT_PEERS), ["100.64.0.10", "100.64.0.14"]);
   assert.equal(normalizePeer("::ffff:100.64.0.9"), "100.64.0.9");
   assert.equal(peerAllowed("::ffff:100.64.0.14", DEFAULT_PEERS), true);
   assert.equal(peerAllowed("100.64.0.8", DEFAULT_PEERS), false);
