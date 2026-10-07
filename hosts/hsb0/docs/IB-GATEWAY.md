@@ -271,6 +271,11 @@ Cancelling the executor's own working, unfilled orders uses live client 705
 orders, desk tags and explicit zero-filled status; it does not read pusher
 history or request executions. KEEP exclusions apply on every path.
 New paper entries always reconcile a fresh broker snapshot.
+Place and recon apply flatten's history rule: today's gaps and the trailing
+span to now count as complete only with the recon session's fresh, completed,
+paper-account execution snapshot (the pusher's ~30 s live polls leave such a
+gap between its ~15 min official receipts). A loaded ledger whose snapshot
+check fails refuses the placement and reports recon history unavailable.
 When complete ownership history is unavailable, the executor counts all account
 positions/unknown working names toward each desk's concurrency cap and refuses
 piling; it does not accept partial pusher history as ownership evidence.
