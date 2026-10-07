@@ -316,7 +316,7 @@ export function readPusherExecutions(filePath, now = Date.now(), readFile = read
   return rows;
 }
 
-function freshExecutionSnapshot(session, coverage, now = Date.now()) {
+export function freshExecutionSnapshot(session, coverage, now = Date.now()) {
   cleanSnapshot(session);
   const receipt = session.state.executionSnapshot;
   const requested = Date.parse(receipt?.requestedAt);

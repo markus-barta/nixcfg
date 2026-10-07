@@ -1,5 +1,5 @@
 import { ACCOUNT, newYorkDay, normalizeOrderRef, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
-import { assertBrokerRuntime, deskPositions, flattenOwned, freshMarks, freshUsdToEur, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
+import { assertBrokerRuntime, deskPositions, flattenOwned, freshExecutionSnapshot, freshMarks, freshUsdToEur, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
 import { rememberFirstOrders } from "./state.mjs";
 
 export function publicError(error) { return String(error?.message || error).slice(0, 500); }
@@ -121,7 +121,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   if (intent.action === "place") assertSideEffect(intent, guard);
   let history = [];
   let historyError = null;
-  try { history = readHistory(config.ownershipLedger); }
+  try { history = readHistory(config.ownershipLedger, Date.now(), undefined, { allowIntradayGaps: true }); }
   catch (error) { historyError = publicError(error); }
   const recon = await connect(reconClientId);
   let resolved;
@@ -129,6 +129,8 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   let snapshot;
   try {
     if (!recon.state.gateway || recon.state.account !== ACCOUNT || recon.state.errors.length) throw new Error("broker reconciliation has errors");
+    try { if (!historyError) freshExecutionSnapshot(recon, history.coverage); }
+    catch (error) { historyError = publicError(error); }
     state.executions = mergeExecutions(history, state.executions, recon.state.executions);
     state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId);
     state.commissions = [...new Map([...(state.commissions || []), ...(history.commissions || []), ...(recon.state.commissions || [])].map((row) => [row.execId, row])).values()];
@@ -172,6 +174,9 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     return result({ ...snapshot, deskPositions: state.deskPositions, ownershipHistory: historyError ? { status: "unavailable", reason: historyError } : { status: "complete" }, resolutions: Object.fromEntries([...(state.intents || new Map())].filter(([, row]) => row.resolution).map(([id, row]) => [id, row.resolution])) });
   }
 
+  // A loaded ledger needs its validated execution receipt before placing;
+  // unreadable history retains the existing conservative concurrency fallback.
+  if (history.coverage && historyError) throw new Error(historyError);
   const budget = evaluatePlacement(intent, snapshot, state, { halt: guard.getHalt().active, stockType: resolved.stockType, usdToEur, blockOnInitDay: config.blockOnInitDay });
   const placement = { intentId: intent.intentId, orderRef: intent.orderRef, desk: intent.desk, clientId, symbol: intent.order.symbol, side: intent.order.side, quantity: intent.order.quantity, day: budget.day, riskEur: budget.riskEur, notionalEur: budget.notionalEur, status: "reserved", reservedAt: new Date().toISOString() };
   state.placements.push(placement);
