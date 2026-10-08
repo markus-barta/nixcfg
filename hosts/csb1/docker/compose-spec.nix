@@ -190,6 +190,13 @@ in
         "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
         "AEON_DOCTRINE_GUARD_KEY_FILE=/run/secrets/aeon-doctrine-guard-key"
         "AEON_PHONE_PUSH_VAPID_FILE=/run/secrets/aeon-phone-push-vapid.json" # OPS-271: AEON-455 phone push
+        # OPS-269: AEON review GitHub App (paimos-delivery-inspr-at), release 126 webhook route
+        "AEON_REVIEW_APP_ID=5223951"
+        "AEON_REVIEW_INSTALLATION_ID=168865053"
+        "AEON_REVIEW_APP_TENANT_ID=5d32191b-252c-4ef4-a406-788316a5ccb7"
+        "AEON_REVIEW_APP_REPOSITORY=inspr-at/paimos"
+        "AEON_REVIEW_APP_KEY_FILE=/run/secrets/aeon-review-app-key.pem"
+        "AEON_REVIEW_WEBHOOK_SECRET_FILE=/run/secrets/aeon-review-webhook-secret"
         "AEON_OIDC_ISSUER=https://auth.inspr.at"
         "AEON_OIDC_CLIENT_ID=392036080846700555@inspr.at"
         "AEON_BOOTSTRAP_ADMIN_EMAIL=markus@barta.com"
@@ -202,6 +209,8 @@ in
         # Long form with create_host_path false: a missing key fails the start instead of binding a directory.
         (privateBind "/var/lib/aeon-secrets/doctrine-guard-key" "/run/secrets/aeon-doctrine-guard-key")
         (privateBind "/var/lib/aeon-secrets/phone-push-vapid.json" "/run/secrets/aeon-phone-push-vapid.json")
+        (privateBind "/var/lib/aeon-secrets/review-app-key.pem" "/run/secrets/aeon-review-app-key.pem")
+        (privateBind "/var/lib/aeon-secrets/review-webhook-secret" "/run/secrets/aeon-review-webhook-secret")
       ];
       depends_on = [ "aeon-db" ];
       # Chromium renders quote PDFs in-process (AEON-91): measured cgroup peak 278 MiB
@@ -213,6 +222,14 @@ in
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # composeStack owns this service's image
+        # OPS-269: remount rotated credentials without restarting AEON on unrelated switches.
+        (
+          "ops269.review-credentials="
+          + builtins.hashString "sha256" (
+            builtins.hashFile "sha256" ../../../secrets/csb1-aeon-review-app-key.age
+            + builtins.hashFile "sha256" ../../../secrets/csb1-aeon-review-webhook-secret.age
+          )
+        )
         "traefik.enable=true"
         "traefik.docker.network=csb1_traefik"
         "traefik.http.routers.aeon.rule=Host(`aeon.barta.cm`)"
