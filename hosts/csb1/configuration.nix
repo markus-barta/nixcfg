@@ -317,7 +317,6 @@ in
       "hostdash-auth"
       "hostdash"
       "traefik"
-      "aeon" # OPS-269: remount the physical credential copies after rotation.
     ];
     # 🔴 removeOrphans stays FALSE on csb1, permanently-until-audited: project
     # csb1 contains Janus-managed containers driven from a second compose file
@@ -462,8 +461,12 @@ in
       # OPS-269: physical owner-only files for USER 65532; refresh on every start.
       # Install into temporary files, then atomically replace each bind source.
       install -m 0400 -o 65532 -g 65532 "${config.age.secrets.csb1-aeon-review-app-key.path}" "$d/review-app-key.pem.tmp"
-      mv -fT "$d/review-app-key.pem.tmp" "$d/review-app-key.pem"
       install -m 0400 -o 65532 -g 65532 "${config.age.secrets.csb1-aeon-review-webhook-secret.path}" "$d/review-webhook-secret.tmp"
+      if [ "$(LC_ALL=C tr -d '[:space:]' < "$d/review-webhook-secret.tmp" | wc -c)" -lt 32 ]; then
+        echo "aeon-secrets: review webhook secret requires at least 32 non-whitespace bytes" >&2
+        exit 1
+      fi
+      mv -fT "$d/review-app-key.pem.tmp" "$d/review-app-key.pem"
       mv -fT "$d/review-webhook-secret.tmp" "$d/review-webhook-secret"
     '';
   };
