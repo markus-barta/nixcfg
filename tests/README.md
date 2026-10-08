@@ -139,6 +139,7 @@ Examples:
 - `T90-nix-gc-home-manager.sh` — macOS standalone Home Manager: weekly dead-paths-only Nix GC (Sunday 04:00) plus a 30 min low-space guard exist on exactly one account per Mac, the one owning the console session (markus@mbp2607, ci@mbp2606), none elsewhere; eval-only, no GC runs (NIX-603)
 - `T92-headscale-policy.sh` — csb0 headscale 0.29 ACL: stage 1 is allow-all and referenced; stage 2 keeps markus@ and gerhard@ on `*:*` and limits amy@ to tcp 100.64.0.6:8470 (OPS-266)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
+- `T95-aeon-review-app.sh` — OPS-269: evaluated AEON review App environment, private mounts, agenix metadata and synthetic atomic credential rotation; Bash 5 and coreutils, no NixOS build or real secret reads
 
 ## Janus Flow private-file lifecycle (NIX-574)
 

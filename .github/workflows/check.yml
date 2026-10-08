@@ -254,6 +254,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T47-agenix-recipient-integrity.sh
 
+      - name: Verify AEON review App credential wiring and rotation (OPS-269)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 coreutils --run "bash tests/T95-aeon-review-app.sh"
+
       - name: Verify secrets audit comment parsing (NIX-291)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T62-secrets-audit-comments.sh
