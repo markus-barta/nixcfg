@@ -222,6 +222,14 @@ in
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # composeStack owns this service's image
+        # OPS-269: remount rotated credentials without restarting AEON on unrelated switches.
+        (
+          "ops269.review-credentials="
+          + builtins.hashString "sha256" (
+            builtins.hashFile "sha256" ../../../secrets/csb1-aeon-review-app-key.age
+            + builtins.hashFile "sha256" ../../../secrets/csb1-aeon-review-webhook-secret.age
+          )
+        )
         "traefik.enable=true"
         "traefik.docker.network=csb1_traefik"
         "traefik.http.routers.aeon.rule=Host(`aeon.barta.cm`)"

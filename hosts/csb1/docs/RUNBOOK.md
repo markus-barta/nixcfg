@@ -687,8 +687,11 @@ as physical files `/var/lib/aeon-secrets/review-app-key.pem` and
 inside its root-owned `0700` directory. AEON mounts these read-only at
 `/run/secrets/aeon-review-app-key.pem` and `/run/secrets/aeon-review-webhook-secret`.
 Rotate by re-encrypting the affected `.age` file through the reviewed Git flow and
-switching NixOS: ciphertext changes restart the installer and Compose recreates
-AEON to remount the new files. Activate this wiring together with the separately
+switching NixOS: ciphertext changes restart the installer and change AEON's
+`ops269.review-credentials` label, so Compose recreates AEON after installation
+to remount the new files. Unrelated reconciles retain the container. The installer
+rejects webhook secrets with fewer than 32 non-whitespace bytes and preserves the
+previous credential files. Activate this wiring together with the separately
 reviewed release-126 image pin.
 
 ### Upgrade PAIMOS (pm.barta.cm) — retired
