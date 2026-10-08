@@ -103,17 +103,17 @@ export function parseIntent(raw, now = Date.now()) {
   if (!DESKS.includes(desk)) fail("desk is not authorized");
   validateKey(desk, "desk");
   const action = text(value.action, "action").toLowerCase();
-  if (!["recon", "place", "flatten", "cancel"].includes(action)) fail("action is not supported");
+  if (!["recon", "place", "flatten", "cancel", "modify-stop"].includes(action)) fail("action is not supported");
   const createdAt = instant(value.createdAt, "createdAt");
   const expiresAt = instant(value.expiresAt, "expiresAt");
   if (createdAt > now + 60_000) fail("createdAt is in the future");
   if (expiresAt <= now) fail("intent is expired");
   if (expiresAt - createdAt > 15 * 60_000) fail("intent validity exceeds 15 minutes");
   if (now - createdAt > 15 * 60_000) fail("intent is stale");
-  if (action !== "place" && value.order !== undefined) fail("order is allowed only for place", "invalid_order");
+  if (!["place", "modify-stop"].includes(action) && value.order !== undefined) fail("order is allowed only for place", "invalid_order");
   let symbol;
   if (value.symbol !== undefined) {
-    if (!["flatten", "cancel"].includes(action)) fail("symbol is allowed only for flatten or cancel");
+    if (!["flatten", "cancel", "modify-stop"].includes(action)) fail("symbol is allowed only for flatten or cancel");
     symbol = validateKey(value.symbol, "symbol");
     if (KEEP.includes(symbol)) fail(`${symbol} is KEEP and can never be traded`, "keep_protected");
   }
@@ -123,10 +123,20 @@ export function parseIntent(raw, now = Date.now()) {
     if (orderRef.split("|")[0] !== desk) fail("orderRef belongs to another desk");
   }
   if (["place", "flatten"].includes(action) && !orderRef) orderRef = `${desk}|${newYorkDay(createdAt).replaceAll("-", "").slice(2)}|${intentId}`;
-  if (value.orderId !== undefined && (action !== "cancel" || !Number.isSafeInteger(value.orderId) || value.orderId <= 0)) fail("orderId is allowed only for cancel and must be positive");
+  if (value.orderId !== undefined) {
+    if (action === "modify-stop") { if (!Number.isSafeInteger(value.orderId) || value.orderId <= 0) fail("modify-stop orderId must be a positive integer"); }
+    else if (action !== "cancel" || !Number.isSafeInteger(value.orderId) || value.orderId <= 0) fail("orderId is allowed only for cancel and must be positive");
+  }
   if (action === "cancel" && Boolean(orderRef) === Boolean(value.orderId)) fail("cancel requires exactly one of orderRef or orderId");
-  if (!["place", "cancel", "flatten"].includes(action) && orderRef) fail("orderRef is allowed only for place, flatten or cancel");
+  if (action === "modify-stop" && Boolean(orderRef) === Boolean(value.orderId)) fail("modify-stop requires exactly one of orderRef or orderId");
+  if (!["place", "cancel", "flatten", "modify-stop"].includes(action) && orderRef) fail("orderRef is allowed only for place, flatten or cancel");
   let order = null;
+  if (action === "modify-stop") {
+    if (!symbol) fail("modify-stop requires symbol");
+    order = object(value.order, "order");
+    exactKeys(order, ["stopPrice"], "order");
+    order = { stopPrice: positive(order.stopPrice, "stopPrice") };
+  }
   if (action === "place") {
     order = object(value.order, "order");
     exactKeys(order, ["symbol", "side", "quantity", "limitPrice", "stopPrice", "currency"], "order");
