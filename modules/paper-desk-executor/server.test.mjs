@@ -481,3 +481,26 @@ test("internal errors are recorded in audit and journal while clients receive st
   assert.equal(health.status, 500);
   assert.deepEqual(await health.json(), { status: "rejected", code: "executor_error", reason: "executor operation failed" });
 });
+
+test("CLI modify-stop produces the exact shape for either selector and rejects malformed options before fetch", async () => {
+  const base = ["modify-stop", "--desk", "J", "--intent-id", "j-trail-cli", "--symbol", "aapl", "--stop", "100"];
+  const seen = [];
+  const options = { fetch: async (_url, request) => {
+    const intent = parseIntent(JSON.parse(request.body)); seen.push(intent);
+    return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+  }, write: () => {} };
+  for (const selector of [["--order-id", "21"], ["--order-ref", "J|261006|Trail"]]) assert.equal(await runClient([...base, ...selector], options), 0);
+  assert.deepEqual(seen[0].order, { stopPrice: 100 }); assert.equal(seen[0].symbol, "AAPL"); assert.equal(seen[0].orderId, 21);
+  assert.equal(seen[1].orderRef, "j|261006|Trail"); assert.equal(seen[1].orderId, undefined);
+  const before = seen.length;
+  for (const argv of [
+    base, [...base, "--order-id", "21", "--order-ref", "j|261006|trail"],
+    ...["1.5", "0", "-1", "NaN", "Infinity"].map((id) => [...base, "--order-id", id]),
+    ...["0", "-1", "NaN", "Infinity"].map((price) => [...base.slice(0, -1), price, "--order-id", "21"]),
+    [...base, "--order-id", "21", "--quantity", "3"], [...base, "--order-id", "21", "--side", "SELL"],
+    [...base, "--order-id", "21", "--currency", "USD"], [...base, "--order-id", "21", "--limit", "99"],
+    [...base, "--order-ref", "joe|261006|trail"],
+    ["modify-stop", "--desk", "j", "--intent-id", "j-trail-cli", "--stop", "100", "--order-id", "21"],
+  ]) assert.notEqual(await runClient(argv, options), 0);
+  assert.equal(seen.length, before);
+});

@@ -188,7 +188,7 @@ Host-local executor for paper intents. Trading desks on the tailnet submit
 JSON; hsb0 checks the Stage-0 brakes and is the process that talks to the
 paper Gateway for those intents. There is no API key and no GitHub queue.
 The desk CLI is `modules/paper-desk-executor/client/paper-intent.mjs`
-(`paper-intent recon|place|flatten|cancel|status|health|halt`). Its fixed default
+(`paper-intent recon|place|modify-stop|flatten|cancel|status|health|halt`). Its fixed default
 origin is `http://100.64.0.6:8470`; only `PAPER_DESK_EXECUTOR_ORIGIN` may override
 it, using an exact `http://100.64.x.y:port` origin (IPv4 octets 0–255, port
 1–65535). The CLI rejects unknown flags, including `--url`, and redirects.
@@ -199,14 +199,14 @@ Dictionary keys reject `__proto__`, `constructor`, and `prototype` (including
 order reference thesis IDs). Server exceptions return a stable `code` and
 `reason`; full diagnostics stay in the journal and local audit log.
 
-| Item    | Value                                                                                    |
-| ------- | ---------------------------------------------------------------------------------------- |
-| Bind    | `100.64.0.6:8470`, firewall permits only the listed source IPs on `tailscale0`           |
-| Peers   | `100.64.0.10` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403             |
-| Gateway | paper port `4002`. Live port `4001` is a hard startup error                              |
-| Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, owned `flatten` and `cancel`) |
-| State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                    |
-| Account | paper `DUR970597`                                                                        |
+| Item    | Value                                                                                                   |
+| ------- | ------------------------------------------------------------------------------------------------------- |
+| Bind    | `100.64.0.6:8470`, firewall permits only the listed source IPs on `tailscale0`                          |
+| Peers   | `100.64.0.10` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403                            |
+| Gateway | paper port `4002`. Live port `4001` is a hard startup error                                             |
+| Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, `modify-stop`, owned `flatten` and `cancel`) |
+| State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                                   |
+| Account | paper `DUR970597`                                                                                       |
 
 The same `intentId` and the same body return the stored result. A different
 body is rejected. If the process dies after the claim is stored, the next
@@ -221,6 +221,33 @@ sudo trash /var/lib/paper-desk-executor/HALT
 Halt persists immediately, including during broker waits. New `place` orders
 recheck halt and intent expiry before every leg; `recon`, owned `flatten` and
 owned `cancel` still run. Expiry also applies before flatten and cancel effects.
+
+`modify-stop` tightens one resting protective STP from a recorded executor
+bracket. Submit `paper-intent modify-stop --desk j --intent-id j-trail-001
+--symbol AAPL --order-id 123 --stop 100`; exactly one `--order-id` or
+`--order-ref desk|yymmdd|thesis-id` is required, along with `--symbol` and
+`--stop`. The intent's `order` contains only `{ "stopPrice": 100 }`.
+Only the executor placing client (705), the requesting desk's own tag, a
+working unfilled bracket child and a matching non-KEEP contract are eligible.
+Complete history plus a fresh same-session execution snapshot must prove the
+desk's position and reconcile all desks on that conId; the stop must protect
+its sign and cannot exceed its owned quantity. SELL stops must move strictly
+up, BUY stops strictly down. A newly requested last/close snapshot must keep
+the new stop at least 0.5% below the mark for SELL or above it for BUY;
+missing quotes, equal/looser stops and marketable stops are refused.
+HALT permits this risk reduction; expiry is still checked before sending.
+The executor uses `placeOrder` with the same order ID, original contract and
+order fields, changing only `auxPrice` and setting `transmit: true`; it never
+cancels the stop. The ledger reserves a `stopHistory` entry before sending,
+then records `submitted` or `uncertain`. Success requires fresh `openOrder`
+price evidence and an unfilled `orderStatus` acknowledgement. Missing,
+partial or mismatched acknowledgement stays `uncertain` and blocks another
+modification of the same order. Recon reports the broker's updated `auxPrice`
+and resolves a modification only when the exact intended price and unchanged
+order identity are observed; absence or a different price remains uncertain.
+Repeating the same intent returns the stored result; each further tightening
+requires a new intent ID. Modification refusals return `modify_stop_refused`
+with the preflight reason; internal history/transport diagnostics stay local.
 
 KEEP, never sell, flatten, or close: **SXR8** (1401 shares) and **TSLA**
 (1 share). Brakes: EUR 25 per name, EUR 50 per New York day, EUR 1000

@@ -36,11 +36,12 @@ const PUBLIC_ERRORS = new Map([
   ["body_too_large", "body is too large"],
   ["uncertain", "broker outcome is uncertain; reconcile before another attempt"],
   ["executor_error", "executor operation failed"],
+  ["modify_stop_refused", "modify-stop preflight refused"],
 ]);
 function publicFailure(error) {
   const code = error?.code === "uncertain" ? "uncertain"
     : PUBLIC_ERRORS.has(error?.publicCode) ? error.publicCode : "executor_error";
-  return { code, reason: PUBLIC_ERRORS.get(code) };
+  return { code, reason: code === "modify_stop_refused" ? error.publicReason || PUBLIC_ERRORS.get(code) : PUBLIC_ERRORS.get(code) };
 }
 
 function send(response, status, body) {
@@ -280,6 +281,7 @@ export function createServer(options) {
         try {
           intent = parseIntent(parsed);
         } catch (error) {
+          if (typeof parsed?.action === "string" && parsed.action.toLowerCase() === "modify-stop" && PUBLIC_ERRORS.has(error.publicCode)) { error.publicReason = error.message; error.publicCode = "modify_stop_refused"; }
           logError(error);
           send(response, 400, { status: "rejected", ...publicFailure(error) });
           return;

@@ -73,7 +73,7 @@ export function pruneState(state, now = Date.now()) {
   for (const [id, row] of state.intents) {
     if (!["claimed", "uncertain"].includes(row.status) && now - Date.parse(row.finishedAt || row.claimedAt) > RETENTION_MS) state.intents.delete(id);
   }
-  state.placements = state.placements.filter((row) => ["reserved", "uncertain", "partial"].includes(row.status) || now - Date.parse(row.reservedAt || `${row.day}T00:00:00Z`) <= RETENTION_MS);
+  state.placements = state.placements.filter((row) => ["reserved", "uncertain", "partial"].includes(row.status) || row.stopHistory?.some((change) => ["reserved", "uncertain"].includes(change.status)) || now - Date.parse(row.reservedAt || `${row.day}T00:00:00Z`) <= RETENTION_MS);
 }
 
 export function admitIntent(state) {
