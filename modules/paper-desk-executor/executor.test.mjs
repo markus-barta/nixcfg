@@ -16,7 +16,9 @@ import { runClient } from "./client/paper-intent.mjs";
 const ACCOUNT = "DUR970597";
 const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickSnapshotEnd"].map((key) => [key, key]));
 const contract = (symbol = "AAPL", conId = 1) => ({ symbol, conId, secType: "STK", currency: "USD", exchange: "SMART" });
-const ref = (desk = "j", thesis = "test") => `${desk}|261006|${thesis}`;
+// Keep order dates on the same New York clock as fills and history coverage,
+// including tests that freeze Date themselves.
+const ref = (desk = "j", thesis = "test", now = Date.now()) => `${desk}|${newYorkDay(now).slice(2).replaceAll("-", "")}|${thesis}`;
 const fill = (overrides = {}) => ({ contract: contract(), execution: { execId: "fill.1", acctNumber: ACCOUNT, clientId: 705, orderRef: ref(), side: "BOT", shares: 2, price: 100, time: `${newYorkDay().replaceAll("-", "")} 15:00:00`, orderId: 20, ...overrides } });
 const order = (overrides = {}) => ({ ...contract(), orderId: 30, clientId: 705, action: "BUY", orderType: "LMT", quantity: 2, orderRef: ref(), parentId: 0, status: "Submitted", ...overrides });
 function intent(action = "place", overrides = {}) {
@@ -346,22 +348,22 @@ test("cancel matches only the desk segment case-insensitively", async () => {
 
 test("flatten owns uppercase tags and leaves another desk's orders and shares alone", async () => {
   for (const clientId of [702, 705]) {
-    const bought = fill({ clientId, orderRef: "J|261006|S1-AVGO" });
-    const other = fill({ execId: "joe.1", orderId: 21, orderRef: "JOE|261006|S1-AVGO", shares: 3 });
+    const bought = fill({ clientId, orderRef: ref("J", "S1-AVGO") });
+    const other = fill({ execId: "joe.1", orderId: 21, orderRef: ref("JOE", "S1-AVGO"), shares: 3 });
     const h = harness({ history: [bought, other], positions: [{ ...contract(), position: 5 }], orders: [order({ clientId, orderRef: bought.execution.orderRef, action: "SELL", orderType: "STP" }), order({ orderId: 31, orderRef: other.execution.orderRef, action: "SELL", orderType: "STP", quantity: 3 })] });
-    const result = await h.run(intent("flatten", { desk: "J", orderRef: "J|261006|close-AVGO" }));
+    const result = await h.run(intent("flatten", { desk: "J", orderRef: ref("J", "close-AVGO") }));
     assert.equal(result.status, "ok");
     assert.deepEqual(h.broker.cancelled, [30]);
     assert.equal(h.broker.placed.length, 1);
     assert.equal(h.broker.placed[0].order.totalQuantity, 2);
-    assert.equal(h.broker.placed[0].order.orderRef, "j|261006|close-AVGO");
+    assert.equal(h.broker.placed[0].order.orderRef, ref("j", "close-AVGO"));
     assert.deepEqual(h.broker.orders.map((row) => row.orderId), [31]);
   }
 });
 
 test("case variants of cached and fresh ownership references do not conflict", async () => {
-  const bought = fill({ orderRef: "j|261006|S1-AVGO" });
-  const state = ledger(); state.executions = [{ ...bought, execution: { ...bought.execution, orderRef: "J|261006|S1-AVGO" } }];
+  const bought = fill({ orderRef: ref("j", "S1-AVGO") });
+  const state = ledger(); state.executions = [{ ...bought, execution: { ...bought.execution, orderRef: ref("J", "S1-AVGO") } }];
   const h = harness({ history: [bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
   assert.equal((await h.run(intent("flatten"), state)).status, "ok");
   assert.equal(h.broker.placed[0].order.totalQuantity, 2);
@@ -370,11 +372,12 @@ test("case variants of cached and fresh ownership references do not conflict", a
 test("flatten attributes earlier-day executor fills from identifier-free history through the executor's own execId", async () => {
   // OPS-266 2026-10-07: pusher history rows carry no orderId/orderRef; yesterday's
   // executor KO buy and sell made every flatten fail with "attribution is missing".
-  const yesterday = `${newYorkDay(Date.now() - 86400000).replaceAll("-", "")} 15:00:00`;
+  const previousDay = Date.now() - 86400000;
+  const yesterday = `${newYorkDay(previousDay).replaceAll("-", "")} 15:00:00`;
   const strip = (row) => ({ ...row, execution: { ...row.execution, orderRef: "", orderId: 0 } });
-  const koBuy = fill({ execId: "ko.buy.01", time: yesterday, orderRef: "j|261006|ko-test", orderId: 40, shares: 1 });
+  const koBuy = fill({ execId: "ko.buy.01", time: yesterday, orderRef: ref("j", "ko-test", previousDay), orderId: 40, shares: 1 });
   koBuy.contract = contract("KO", 3);
-  const koSell = fill({ execId: "ko.sell.01", time: yesterday, orderRef: "j|261006|ko-flat", orderId: 41, side: "SLD", shares: 1 });
+  const koSell = fill({ execId: "ko.sell.01", time: yesterday, orderRef: ref("j", "ko-flat", previousDay), orderId: 41, side: "SLD", shares: 1 });
   koSell.contract = contract("KO", 3);
   const bought = fill();
   const state = ledger(); state.executions = [koBuy, koSell];
@@ -384,7 +387,7 @@ test("flatten attributes earlier-day executor fills from identifier-free history
   assert.equal(h.broker.placed.length, 1);
   assert.equal(h.broker.placed[0].order.totalQuantity, 2);
   // The saved state keeps the attribution, so the next flatten still passes.
-  assert.ok(state.executions.some((row) => row.execution.execId === "ko.buy.01" && row.execution.orderRef === "j|261006|ko-test" && row.execution.orderId === 40));
+  assert.ok(state.executions.some((row) => row.execution.execId === "ko.buy.01" && row.execution.orderRef === ref("j", "ko-test", previousDay) && row.execution.orderId === 40));
   h.broker.positions = [{ ...contract(), position: 2 }];
   assert.equal((await h.run(intent("flatten", { intentId: "j-executor-test-2" }), state)).status, "ok");
 
@@ -534,8 +537,11 @@ test("missing, stale, wrong-account, uncovered and errored execution snapshots c
 });
 
 test("cached BUY 3 and a missed prior-day stop cannot flatten another owner's account position", async () => {
-  const opening = fill({ execId: "executor-opening.1", shares: 3, time: "20261005 15:00:00" });
-  const stop = fill({ execId: "executor-stop.1", shares: 3, side: "SLD", orderId: 21, time: "20261005 16:00:00" });
+  const previousDay = Date.now() - 86400000;
+  const date = newYorkDay(previousDay).replaceAll("-", "");
+  const orderRef = ref("j", "test", previousDay);
+  const opening = fill({ execId: "executor-opening.1", shares: 3, orderRef, time: `${date} 15:00:00` });
+  const stop = fill({ execId: "executor-stop.1", shares: 3, side: "SLD", orderId: 21, orderRef, time: `${date} 16:00:00` });
   for (const missingHistory of [false, true]) {
     const state = ledger(); state.executions = [opening];
     const h = harness({ missingHistory, history: [opening, stop], positions: [{ ...contract(), position: 3 }] });
