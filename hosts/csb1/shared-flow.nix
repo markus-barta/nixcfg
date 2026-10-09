@@ -31,6 +31,7 @@ let
       host = "10.253.253.1";
       traefik = "10.253.253.2";
       janus = "10.253.253.3";
+      janusPlaceholder = "10.253.253.6"; # OPS-280: retain .3 for Janus rollback.
       # Classic Paimos occupied the next host address in this /28; left unused
       # so Janus and Pharos stay on their reviewed pins.
       pharos = "10.253.253.5";
@@ -179,7 +180,7 @@ in
     upstreams = {
       aithema.url = "http://${network.addresses.host}:${toString ports.aithema}";
       pharos.url = "http://${network.addresses.pharos}:${toString ports.pharos}";
-      janus.url = "http://${network.addresses.janus}:${toString ports.janus}";
+      janus.url = "http://${network.addresses.janusPlaceholder}:${toString ports.janus}";
     };
     external.existingTraefikVersion = "3.7.13";
   };
