@@ -96,11 +96,13 @@
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     #
-    # NIX-607 / INSPR-548: published v261008075622.0.0; the inspr CLI's checkout
-    # paths now come from inspr.cli.fleet in modules/shared/markus-defaults.nix.
+    # INSPR-299: v261009132555.0.0 is the first release of the clean public successor
+    # (fresh history); earlier commits live only in the archived repository.
+    # The inspr CLI's checkout paths come from inspr.cli.fleet (NIX-607).
     # INSPR-483: keep this input synchronized with the doctrine gitlink.
-    # Rollback: previous pair 84e3b040afa2ae6010b3b3a1f43daeebb5a149bb.
-    inspr-modules.url = "github:inspr-at/inspr-modules/9eedb7f8f25a16def596f5ee8798d88262cb482e"; # v261008075622.0.0
+    # Rollback: previous pair 9eedb7f8 (v261008075622.0.0) resolves only while
+    # the archive is reachable under this name (INSPR-299 runbook).
+    inspr-modules.url = "github:inspr-at/inspr-modules/4b3c7ef3bba1c45055a7a31a21121d6dbef1216f"; # v261009132555.0.0
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
