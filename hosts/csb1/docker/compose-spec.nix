@@ -934,6 +934,11 @@ in
       user = "1000:1000";
       read_only = true;
       cap_drop = [ "ALL" ];
+      # The image's caddy binary carries the file capability
+      # cap_net_bind_service. Without it in the bounding set, no-new-privileges
+      # makes exec fail with "operation not permitted" (OPS-280). It listens on
+      # 8080 and never binds a privileged port.
+      cap_add = [ "NET_BIND_SERVICE" ];
       security_opt = [ "no-new-privileges:true" ];
       tmpfs = [
         "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"
