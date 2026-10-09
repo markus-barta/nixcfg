@@ -109,6 +109,10 @@ in
     paimosInstance = "ppm";
     pharosUrl = "https://pharos.barta.cm";
     pharosHost = "csb1";
+    # INSPR-548: the public CLI no longer assumes a workspace layout.
+    nixcfgDir = "${config.home.homeDirectory}/Code/nixcfg";
+    insprDir = "${config.home.homeDirectory}/Code/inspr";
+    nixcfgRepoUrl = "https://github.com/markus-barta/nixcfg.git";
   };
 
   # Tell inspr.secrets.agents where Markus's nixcfg keeps its encrypted
