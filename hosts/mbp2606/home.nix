@@ -68,6 +68,9 @@ in
   # See modules/shared/git-identity.nix for the full architecture.
   # Default = Markus Barta <markus@barta.com>. Former-work overrides are retired.
   inspr.git-identity.enable = true;
+  # Public fleet endpoints and checkout paths; renders ~/.config/inspr/fleet.conf
+  # (NIX-607: the inspr CLI has no built-in workspace defaults since INSPR-548).
+  inspr.cli.enable = true;
 
   # ============================================================================
   # INSPR-170 — atelier Strategy B: per-host user SSH keys for fleet-wide
