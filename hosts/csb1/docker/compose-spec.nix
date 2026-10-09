@@ -785,7 +785,8 @@ in
       # To bump: cut a go-envelope-v* release, verify, then update the digest.
       image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507.0.0@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639";
       container_name = "janus";
-      restart = "unless-stopped";
+      profiles = [ "janus-retired" ];
+      restart = "no";
       # The image's named janus account is uid 100/gid 101. Pin the numeric
       # identity because uid 100 is the reviewed read-only custody bridge.
       user = "100:101";
@@ -923,6 +924,62 @@ in
       else
         { }
     );
+    # ============================================
+    # OPS-280: keep Janus v1's data/runtime for rollback; serve its public
+    # routes and quiet host-agent polling from this repository-owned page.
+    janus-placeholder = {
+      image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648";
+      container_name = "janus-placeholder";
+      restart = "unless-stopped";
+      user = "1000:1000";
+      read_only = true;
+      cap_drop = [ "ALL" ];
+      # The image's caddy binary carries the file capability
+      # cap_net_bind_service. Without it in the bounding set, no-new-privileges
+      # makes exec fail with "operation not permitted" (OPS-280). It listens on
+      # 8080 and never binds a privileged port.
+      cap_add = [ "NET_BIND_SERVICE" ];
+      security_opt = [ "no-new-privileges:true" ];
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"
+        "/data:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"
+        "/config:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"
+      ];
+      command = [
+        "caddy"
+        "run"
+        "--config"
+        "/srv/janus-placeholder/Caddyfile"
+        "--adapter"
+        "caddyfile"
+      ];
+      networks =
+        if sharedFlow.active then
+          { ${sharedFlow.network.composeKey}.ipv4_address = sharedFlow.network.addresses.janusPlaceholder; }
+        else
+          [ "traefik" ];
+      volumes = [
+        (privateBind "./janus-placeholder" "/srv/janus-placeholder")
+      ];
+      labels = [
+        "traefik.enable=false"
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+      healthcheck = {
+        test = [
+          "CMD"
+          "wget"
+          "-q"
+          "-O"
+          "/dev/null"
+          "http://127.0.0.1:8080/internal/"
+        ];
+        interval = "30s";
+        timeout = "3s";
+        start_period = "10s";
+        retries = 3;
+      };
+    };
     # ============================================
     # Janus Rust engine — staged approved-use runtime
     # ============================================
