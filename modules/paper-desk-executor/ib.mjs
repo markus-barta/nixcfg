@@ -510,10 +510,14 @@ function stopPreflight(session, history, options, { markRequired = false } = {})
   if (stop.quantity > Math.abs(owned.quantity)) stopRefusal("modify-stop stop quantity exceeds the desk's owned quantity");
   const mark = session.state.marks[stop.conId];
   if (markRequired) {
+    const now = Date.now();
     const observed = Date.parse(mark?.observedAt);
-    // Fresh means newly received: delayed IB prices can lag about 15 minutes.
-    // The existing 0.5% distance is measured from that last/close, unchanged.
-    if (!mark || ![4, 9, 68, 75].includes(mark.field) || mark.currency !== stop.currency || !Number.isFinite(mark.price) || mark.price <= 0 || !Number.isFinite(observed) || observed > Date.now() || Date.now() - observed > 120000) stopRefusal("modify-stop requires a fresh last/close mark for the stop contract");
+    if (!mark || ![4, 9, 68, 75].includes(mark.field) || mark.currency !== stop.currency || !Number.isFinite(mark.price) || mark.price <= 0 || !Number.isFinite(observed) || observed > now || now - observed > 120000) stopRefusal("modify-stop requires a fresh last/close mark for the stop contract");
+    mark.dataAgeSeconds = markDataAgeSeconds(mark, now);
+    if ([68, 75].includes(mark.field)) {
+      const maxAge = options.maxDelayedMarkAgeSeconds ?? LIMITS.maxDelayedMarkAgeSeconds;
+      if (!Number.isFinite(maxAge) || maxAge <= 0 || mark.dataAgeSeconds === null || mark.dataAgeSeconds > maxAge) stopRefusal("modify-stop mark too old or age unknown");
+    }
     if (stop.action === "SELL" ? price > mark.price * (1 - LIMITS.minStopFraction) : price < mark.price * (1 + LIMITS.minStopFraction)) stopRefusal("modify-stop new stop must remain at least 0.5% beyond the fresh mark");
   }
   const details = session.orderDetails.get(`${clientId}:${stop.orderId}`);
@@ -788,6 +792,7 @@ export function publicSnapshot(state, { executions = state.executions, ownership
     positions: state.positions.map((row) => ({ ...row, keep: KEEP.includes(row.symbol), desks: positions.filter((position) => position.conId === row.conId) })),
     deskPositions: positions,
     ownershipComplete,
+    marks: Object.entries(state.marks || {}).map(([conId, mark]) => ({ conId: Number(conId), ...mark, dataAgeSeconds: markDataAgeSeconds(mark) })),
     openOrders: state.openOrders.map((row) => ({ ...row, desk: deskOf(row), keep: KEEP.includes(row.symbol), legs: state.openOrders.filter((leg) => leg.parentId === (row.parentId || row.orderId)).map((leg) => ({ ...leg })) })),
     executions: mergeExecutions(state.executions).filter((row) => executionDay(row.execution.time) === newYorkDay()).map((row) => ({ ...row, desk: deskOf(row.execution), orderRef: row.execution.orderRef || null })),
     pnlPerDesk: ownershipComplete ? pnlPerDesk(executions, state.commissions || [], state.marks || {}, ownership, executorClientId) : Object.fromEntries(DESKS.map((desk) => [desk, { realized: null, unrealized: null, status: "unavailable", reason: "complete ownership history unavailable" }])),
@@ -802,20 +807,34 @@ function executionDay(time) {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
 
+function markDataAgeSeconds(mark, now = Date.now()) {
+  // Receipt time is not data time. Only tick 88 dates a delayed last;
+  // delayed close and bid/ask have no usable intraday timestamp here.
+  const timestamp = mark.field === 68 ? Date.parse(mark.dataAt) : NaN;
+  return Number.isFinite(timestamp) && timestamp <= now ? (now - timestamp) / 1000 : null;
+}
+
 export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {}) {
   const events = session.events;
   const requests = new Map();
   const prices = new Map();
+  const timestamps = new Map();
   const ended = new Set();
   const onPrice = (id, field, price) => {
     const row = requests.get(Number(id));
     if (!row || !(lastOrCloseOnly ? [4, 9, 68, 75] : [1, 2, 4, 9, 66, 67, 68, 75]).includes(Number(field)) || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
     const quote = prices.get(Number(id)) || {};
-    quote[Number(field)] = Number(price);
+    quote[Number(field)] = { price: Number(price), receivedAt: new Date().toISOString() };
     prices.set(Number(id), quote);
+  };
+  const onString = (id, field, value) => {
+    if (!requests.has(Number(id)) || Number(field) !== 88) return;
+    const seconds = Number(value);
+    timestamps.set(Number(id), Number.isSafeInteger(seconds) && seconds > 0 && seconds * 1000 <= Date.now() ? new Date(seconds * 1000).toISOString() : null);
   };
   const onEnd = (id) => { if (requests.has(Number(id))) ended.add(Number(id)); };
   session.api.on(events.tickPrice, onPrice);
+  session.api.on(events.tickString, onString);
   session.api.on(events.tickSnapshotEnd, onEnd);
   try {
     session.state.markRequests ||= new Map();
@@ -836,11 +855,15 @@ export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {
       const field = [68, 4, 75, 9].find((field) => quote?.[field]);
       const bidField = quote?.[66] && quote?.[67] ? 66 : 1;
       const askField = bidField === 66 ? 67 : 2;
-      const midpoint = quote?.[bidField] && quote?.[askField] && quote[askField] >= quote[bidField];
-      const price = lastOrCloseOnly ? ended.has(id) ? quote?.[field] : undefined : midpoint ? (quote[bidField] + quote[askField]) / 2 : quote?.[field];
+      const midpoint = quote?.[bidField] && quote?.[askField] && quote[askField].price >= quote[bidField].price;
+      const useMidpoint = !lastOrCloseOnly && midpoint;
+      const price = lastOrCloseOnly ? ended.has(id) ? quote?.[field]?.price : undefined : midpoint ? (quote[bidField].price + quote[askField].price) / 2 : quote?.[field]?.price;
       if (Number.isFinite(price) && price > 0) {
         const delayed = lastOrCloseOnly || !midpoint ? [68, 75].includes(field) : bidField === 66;
-        session.state.marks[row.conId] = { price, currency: row.currency, observedAt: new Date().toISOString(), delayed, ...(lastOrCloseOnly ? { field } : {}) };
+        const receivedAt = useMidpoint ? [quote[bidField].receivedAt, quote[askField].receivedAt].sort().at(-1) : quote[field].receivedAt;
+        const mark = { symbol: row.symbol, price, currency: row.currency, observedAt: receivedAt, receivedAt, delayed, source: delayed ? "delayed" : "live", field: useMidpoint ? "midpoint" : field, ...(useMidpoint ? { fields: [bidField, askField] } : {}), dataAt: !useMidpoint && field === 68 ? timestamps.get(id) || null : null };
+        mark.dataAgeSeconds = markDataAgeSeconds(mark);
+        session.state.marks[row.conId] = mark;
         if (delayed && ended.has(id)) {
           session.state.markRequests.get(id).delayedReceived = true;
           for (const error of session.state.errors) if (error.scope === "mark" && error.reqId === id && [354, 10089, 10167].includes(error.code)) error.informational = true;
@@ -853,6 +876,7 @@ export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {
       session.api.cancelMktData(id);
     }
     session.api.off(events.tickPrice, onPrice);
+    session.api.off(events.tickString, onString);
     session.api.off(events.tickSnapshotEnd, onEnd);
   }
 }

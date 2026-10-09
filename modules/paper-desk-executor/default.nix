@@ -38,6 +38,7 @@ let
     "PAPER_DESK_ALLOW=${builtins.toJSON cfg.peerAllowlist}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
+    "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
   ];
   peerRules =
     action:
@@ -108,6 +109,12 @@ in
       type = lib.types.bool;
       default = false;
       description = "Optional paper-only ledger initialization-day brake.";
+    };
+
+    maxDelayedMarkAgeSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 1200;
+      description = "Maximum delayed last data age for modify-stop, in seconds. Unknown ages are refused; recon only reports ages.";
     };
 
     clientIds = lib.mkOption {
