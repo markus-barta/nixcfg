@@ -317,3 +317,20 @@ test("uncertain placement blocks its symbol and thesis across New York days", ()
   state.placements[0].orderRef = "J|261005|thesis-1";
   assert.throws(() => evaluatePlacement(intent, emptySnapshot, state, { stockType: "COMMON", usdToEur: 0.9 }), /unresolved/);
 });
+
+test("modify-stop validates a required symbol, one selector and only a positive finite stopPrice", () => {
+  const raw = valid({ action: "modify-stop", symbol: "AAPL", orderId: 21, order: { stopPrice: 100 } });
+  assert.deepEqual(parseIntent(raw).order, { stopPrice: 100 });
+  const byRef = { ...raw, desk: "J", orderId: undefined, orderRef: "J|261006|Trail-1" };
+  assert.equal(parseIntent(byRef).orderRef, "j|261006|Trail-1");
+  for (const body of [
+    { ...raw, symbol: undefined }, { ...raw, symbol: "aapl" }, { ...raw, symbol: "TSLA" }, { ...raw, symbol: "SXR8" },
+    { ...raw, orderId: undefined }, { ...raw, orderRef: "j|261006|trail" },
+    ...[0, -1, 1.5, "21", NaN, Infinity].map((orderId) => ({ ...raw, orderId })),
+    { ...raw, order: undefined }, { ...raw, order: {} }, { ...raw, order: [] },
+    ...[0, -1, NaN, Infinity, "100"].map((stopPrice) => ({ ...raw, order: { stopPrice } })),
+    ...["symbol", "side", "quantity", "limitPrice", "currency", "transmit", "parentId"].map((field) => ({ ...raw, order: { stopPrice: 100, [field]: "unsupported" } })),
+    { ...byRef, orderRef: "joe|261006|trail" }, { ...raw, note: "unsupported" },
+    { ...raw, expiresAt: new Date(Date.now() - 1000).toISOString() },
+  ]) assert.throws(() => parseIntent(body));
+});
