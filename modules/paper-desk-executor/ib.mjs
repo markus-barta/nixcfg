@@ -51,6 +51,8 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
     executions: [],
     statuses: [],
     errors: [],
+    cancellations: [],
+    markRequests: new Map(),
     nextId: null,
     commissions: [],
     marks: {},
@@ -64,8 +66,16 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   const executionRequestId = 880000 + (clientId % 10000);
 
   api.on(EventName.error, (error, code, reqId) => {
+    if (Number(code) === 202) {
+      state.cancellations.push({ orderId: Number(reqId), clientId });
+      return;
+    }
+    // Order rejection and connectivity errors remain strict even if IDs overlap.
+    const markRequest = [201, 1100, 2110].includes(Number(code)) ? undefined : state.markRequests.get(Number(reqId));
+    // Cancelling a finished/failed quote request can produce a harmless EId error.
+    if (markRequest?.cancelling && Number(code) === 300) return;
     if (INFORMATIONAL_CODES.has(Number(code))) return;
-    state.errors.push({ code: Number(code) || null, reqId: Number(reqId) || null, message: message(error) });
+    state.errors.push({ code: Number(code) || null, reqId: Number(reqId) || null, message: message(error), ...(markRequest ? { scope: "mark", symbol: markRequest.symbol, conId: markRequest.conId, informational: Number(code) === 354 && markRequest.delayedReceived === true } : {}) });
   });
   api.on(EventName.connected, () => {
     state.gateway = true;
@@ -252,8 +262,12 @@ export function assertContract(contract, expected) {
   if (String(contract.secType).toUpperCase() !== "STK" || !["USD", "EUR"].includes(String(contract.currency).toUpperCase())) throw new Error("contract is not a supported stock");
 }
 
-function cleanSnapshot(session) {
-  if (!session.state.gateway || session.state.account !== ACCOUNT || session.state.errors.length) throw new Error("broker reconciliation is incomplete or has errors");
+function blockingErrors(session, symbol) {
+  return session.state.errors.filter((row) => !row.informational && (row.scope !== "mark" || row.symbol === symbol));
+}
+
+function cleanSnapshot(session, symbol) {
+  if (!session.state.gateway || session.state.account !== ACCOUNT || blockingErrors(session, symbol).length) throw new Error("broker reconciliation is incomplete or has errors");
 }
 
 function uncertain(error) {
@@ -262,8 +276,8 @@ function uncertain(error) {
   return result;
 }
 
-function acceptance(session, orderIds, { filledOnly = false, quantities = {}, clientId } = {}) {
-  if (session.state.errors.length || !session.state.gateway) throw new Error("broker errors or disconnection after order submission");
+function acceptance(session, orderIds, { filledOnly = false, quantities = {}, clientId, symbol } = {}) {
+  if (blockingErrors(session, symbol).length || !session.state.gateway) throw new Error("broker errors or disconnection after order submission");
   const latest = new Map(session.state.statuses.filter((row) => clientId === undefined || row.clientId === undefined || row.clientId === clientId).map((row) => [row.orderId, row]));
   for (const id of orderIds) {
     const row = latest.get(id);
@@ -274,7 +288,7 @@ function acceptance(session, orderIds, { filledOnly = false, quantities = {}, cl
 }
 
 function before(session, contract, expected, intent, guard) {
-  cleanSnapshot(session);
+  cleanSnapshot(session, expected.symbol);
   assertContract(contract, expected);
   assertSideEffect(intent, guard);
 }
@@ -294,7 +308,7 @@ export async function placeProtectiveBracket(session, intent, resolved, guard = 
     before(session, resolved.contract, expected, intent, guard);
     session.api.placeOrder(stopId, resolved.contract, { ...common, action: intent.order.side === "BUY" ? "SELL" : "BUY", orderType: "STP", auxPrice: intent.order.stopPrice, parentId, transmit: true });
     await session.wait(3_000);
-    const statuses = acceptance(session, [parentId, stopId], { quantities: { [parentId]: intent.order.quantity, [stopId]: intent.order.quantity } });
+    const statuses = acceptance(session, [parentId, stopId], { quantities: { [parentId]: intent.order.quantity, [stopId]: intent.order.quantity }, symbol: expected.symbol });
     return { parentOrderId: parentId, stopOrderId: stopId, clientId: intent.clientId, orderRef: intent.orderRef, statuses, errors: [] };
   } catch (error) { if (sent) throw uncertain(error); throw error; }
 }
@@ -456,7 +470,7 @@ function stopRefusal(reason, cause) {
 // A desk tag alone cannot prove this is an executor protective bracket.
 function stopPreflight(session, history, options, { markRequired = false } = {}) {
   const { intent, clientId, desk, ownershipClientIds, ownership, statePlacements = [], intentRecords = new Map(), guard } = options;
-  try { cleanSnapshot(session); }
+  try { cleanSnapshot(session, intent.symbol); }
   catch (error) { stopRefusal("modify-stop broker reconciliation is incomplete or has errors", error); }
   try { assertSideEffect(intent, guard); }
   catch (error) { stopRefusal(error.message === "intent is expired before broker side effect" ? error.message : "modify-stop side-effect guard is unavailable", error); }
@@ -497,7 +511,9 @@ function stopPreflight(session, history, options, { markRequired = false } = {})
   const mark = session.state.marks[stop.conId];
   if (markRequired) {
     const observed = Date.parse(mark?.observedAt);
-    if (!mark || ![4, 9].includes(mark.field) || mark.currency !== stop.currency || !Number.isFinite(mark.price) || mark.price <= 0 || !Number.isFinite(observed) || observed > Date.now() || Date.now() - observed > 120000) stopRefusal("modify-stop requires a fresh last/close mark for the stop contract");
+    // Fresh means newly received: delayed IB prices can lag about 15 minutes.
+    // The existing 0.5% distance is measured from that last/close, unchanged.
+    if (!mark || ![4, 9, 68, 75].includes(mark.field) || mark.currency !== stop.currency || !Number.isFinite(mark.price) || mark.price <= 0 || !Number.isFinite(observed) || observed > Date.now() || Date.now() - observed > 120000) stopRefusal("modify-stop requires a fresh last/close mark for the stop contract");
     if (stop.action === "SELL" ? price > mark.price * (1 - LIMITS.minStopFraction) : price < mark.price * (1 + LIMITS.minStopFraction)) stopRefusal("modify-stop new stop must remain at least 0.5% beyond the fresh mark");
   }
   const details = session.orderDetails.get(`${clientId}:${stop.orderId}`);
@@ -546,12 +562,38 @@ export async function modifyStopOwned(options) {
     await session.wait(3_000);
     const ack = acknowledgements.at(-1);
     if (!ack || Number(ack.contract.conId) !== stop.conId || String(ack.contract.symbol).toUpperCase() !== stop.symbol || ack.contract.secType !== stop.secType || ack.contract.currency !== stop.currency || ack.order.orderType !== "STP" || Number(ack.order.auxPrice) !== modification.to || ack.order.action !== stop.action || Number(ack.order.totalQuantity) !== stop.quantity || Number(ack.order.parentId) !== stop.parentId || ack.order.orderRef !== stop.orderRef || ack.order.account !== stop.account || ack.order.tif !== stop.tif || !["submitted", "presubmitted"].includes(ack.status.toLowerCase()) || !session.state.statuses.slice(statusOffset).some((row) => row.orderId === stop.orderId && (row.clientId === undefined || row.clientId === clientId))) throw new Error("missing or changed-price broker modification acknowledgement");
-    const statuses = acceptance(session, [stop.orderId], { quantities: { [stop.orderId]: stop.quantity }, clientId });
+    const statuses = acceptance(session, [stop.orderId], { quantities: { [stop.orderId]: stop.quantity }, clientId, symbol: stop.symbol });
     if (statuses[0].filled !== 0) throw new Error("partial or filled broker modification acknowledgement");
     const evidence = ownershipEvidence(session, history, checkedOptions);
     return { modification: { ...modification, statuses }, executions: evidence.executions, ownershipExecutions: evidence.attributed, ownershipSnapshot: session.state, openOrders: publicSnapshot(session.state, { executions: evidence.attributed, ownership: options.ownership, executorClientId: clientId }).openOrders };
   } catch (error) { if (sent) throw uncertain(error); throw error; }
   finally { if (onOrder) session.api.off(session.events.openOrder, onOrder); session.close(); }
+}
+
+// Absence is evidence only after both broker streams complete in this session.
+// Do not reuse the cached openOrders array: IB does not remove old rows itself.
+async function cancellationSnapshot(session, clientId, confirmed) {
+  const orders = [], executions = [];
+  const requestId = 883000 + (clientId % 10000);
+  let ordersEnd = false, executionsEnd = false;
+  const onOrder = (id, _contract, order) => { orders.push({ orderId: Number(id), clientId: Number(order.clientId) }); };
+  const onOrdersEnd = () => { ordersEnd = true; };
+  const onExecution = (id, _contract, execution) => {
+    if (Number(id) === requestId && execution.acctNumber === ACCOUNT) executions.push(execution);
+  };
+  const onExecutionsEnd = (id) => { if (Number(id) === requestId) executionsEnd = true; };
+  const listeners = [[session.events.openOrder, onOrder], [session.events.openOrderEnd, onOrdersEnd], [session.events.execDetails, onExecution], [session.events.execDetailsEnd, onExecutionsEnd]];
+  for (const [event, listener] of listeners) session.api.on(event, listener);
+  try {
+    session.api.reqAllOpenOrders();
+    session.api.reqExecutions(requestId, { acctCode: ACCOUNT });
+    const start = Date.now();
+    while ((!ordersEnd || !executionsEnd) && !confirmed() && Date.now() - start < 3000) await session.wait(100);
+    cleanSnapshot(session);
+    return { orders, executions, complete: ordersEnd && executionsEnd };
+  } finally {
+    for (const [event, listener] of listeners) session.api.off(event, listener);
+  }
 }
 
 async function cancelOwnedOrders(orders, options) {
@@ -566,15 +608,17 @@ async function cancelOwnedOrders(orders, options) {
       const session = await connect(clientId, { ordersOnly: intent.action === "cancel" && clientId === executorClientId });
       try {
         cleanSnapshot(session);
+        const statusOffset = session.state.statuses.length;
+        const cancellationOffset = session.state.cancellations.length;
         if (history && (intent.action !== "cancel" || clientId !== executorClientId)) freshExecutionSnapshot(session, history.coverage);
         for (const order of candidates.filter((row) => row.clientId === clientId)) {
           const current = session.state.openOrders.find((row) => row.orderId === order.orderId && row.clientId === clientId);
           if (!current || !working(current) || !belongsToDesk(current, desk, ownershipClientIds, executorClientId) || normalizeOrderRef(current.orderRef) !== normalizeOrderRef(order.orderRef)) throw new Error("cancel ownership/order changed during reconciliation");
           const resolved = await resolveStock(session, current.symbol);
           assertContract(resolved.contract, order);
-          const status = [...session.state.statuses].reverse().find((row) => row.orderId === order.orderId);
+          const status = [...session.state.statuses].reverse().find((row) => row.orderId === order.orderId && (row.clientId === undefined || row.clientId === clientId));
           const fill = session.state.executions.some((row) => Number(row.execution.orderId) === order.orderId && Number(row.execution.clientId) === clientId);
-          if ((intent.action === "cancel") && ((clientId !== executorClientId && fill) || !status || !working(status) || !Number.isFinite(status.filled) || status.filled !== 0 || status.remaining !== current.quantity)) throw new Error("cancel requires explicit evidence of a working unfilled order");
+          if ((intent.action === "cancel") && ((clientId !== executorClientId && fill) || !status || !["presubmitted", "submitted", "pendingsubmit"].includes(status.status.toLowerCase()) || !Number.isFinite(status.filled) || status.filled !== 0 || status.remaining !== current.quantity)) throw new Error("cancel requires explicit evidence of a working unfilled order");
           if (history && (intent.action !== "cancel" || clientId !== executorClientId)) freshExecutionSnapshot(session, history.coverage);
           before(session, current, order, intent, guard);
           sent = true;
@@ -582,10 +626,22 @@ async function cancelOwnedOrders(orders, options) {
           cancelled.push({ orderId: order.orderId, symbol: order.symbol, clientId, orderRef: order.orderRef });
         }
         await session.wait(2_000);
-        if (session.state.errors.length || !session.state.gateway) throw new Error("broker errors during cancellation");
+        if (blockingErrors(session).length || !session.state.gateway) throw new Error("broker errors during cancellation");
+        let snapshot;
         for (const order of cancelled.filter((row) => row.clientId === clientId)) {
-          const status = [...session.state.statuses].reverse().find((row) => row.orderId === order.orderId);
-          if (!status || !["cancelled", "apicancelled"].includes(status.status.toLowerCase()) || (intent.action === "cancel" && (!Number.isFinite(status.filled) || status.filled !== 0))) throw new Error("cancellation acknowledgement missing or partial");
+          const confirmed = () => {
+            const statuses = session.state.statuses.slice(statusOffset).filter((row) => row.orderId === order.orderId && (row.clientId === undefined || row.clientId === clientId));
+            const filled = statuses.some((row) => row.filled > 0 || row.status.toLowerCase() === "filled") || session.state.executions.some((row) => Number(row.execution.orderId) === order.orderId && Number(row.execution.clientId) === clientId);
+            if (intent.action === "cancel" && filled) throw new Error("cancellation acknowledgement has a fill");
+            const status = statuses.at(-1);
+            return Boolean(status && ["cancelled", "apicancelled"].includes(status.status.toLowerCase()) && (intent.action !== "cancel" || Number.isFinite(status.filled) && status.filled === 0)) || session.state.cancellations.slice(cancellationOffset).some((row) => row.orderId === order.orderId && row.clientId === clientId);
+          };
+          if (confirmed()) continue;
+          snapshot ||= await cancellationSnapshot(session, clientId, confirmed);
+          if (snapshot.executions.some((row) => Number(row.orderId) === order.orderId && Number(row.clientId) === clientId)) throw new Error("cancellation acknowledgement has a fill");
+          if (confirmed()) continue;
+          if (!snapshot.complete) throw new Error("cancellation reconciliation callbacks incomplete");
+          if (snapshot.orders.some((row) => row.orderId === order.orderId && row.clientId === clientId)) throw new Error("cancellation acknowledgement missing or partial");
         }
       } finally { session.close(); }
     }
@@ -718,7 +774,7 @@ export function publicSnapshot(state, { executions = state.executions, ownership
   const deskOf = (row) => DESKS.find((desk) => belongsToDesk(row, desk, ownership[desk] || [], executorClientId)) || null;
   return {
     gateway: state.gateway,
-    gatewayStatus: state.gateway && state.account === ACCOUNT ? state.errors.some((row) => [1100, 2110].includes(row.code)) ? "upstream_unavailable" : state.errors.length ? "degraded" : "api_ready" : "unavailable",
+    gatewayStatus: state.gateway && state.account === ACCOUNT ? state.errors.some((row) => [1100, 2110].includes(row.code)) ? "upstream_unavailable" : state.errors.some((row) => !row.informational) ? "degraded" : "api_ready" : "unavailable",
     account: state.account, paperPort: PAPER_PORT, fxObservedAt: state.fxObservedAt,
     positions: state.positions.map((row) => ({ ...row, keep: KEEP.includes(row.symbol), desks: positions.filter((position) => position.conId === row.conId) })),
     deskPositions: positions,
@@ -744,7 +800,7 @@ export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {
   const ended = new Set();
   const onPrice = (id, field, price) => {
     const row = requests.get(Number(id));
-    if (!row || !(lastOrCloseOnly ? [4, 9] : [1, 2, 4]).includes(Number(field)) || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
+    if (!row || !(lastOrCloseOnly ? [4, 9, 68, 75] : [1, 2, 4, 9, 66, 67, 68, 75]).includes(Number(field)) || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
     const quote = prices.get(Number(id)) || {};
     quote[Number(field)] = Number(price);
     prices.set(Number(id), quote);
@@ -753,10 +809,13 @@ export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {
   session.api.on(events.tickPrice, onPrice);
   session.api.on(events.tickSnapshotEnd, onEnd);
   try {
+    session.state.markRequests ||= new Map();
+    session.api.reqMarketDataType(3);
     for (const row of session.state.positions.filter((row) => row.position !== 0 && !KEEP.includes(row.symbol) && (conId === undefined || row.conId === conId))) {
-      const id = 882000 + requests.size;
+      const id = 882000 + session.state.markRequests.size;
       requests.set(id, row);
-      if (lastOrCloseOnly) delete session.state.marks[row.conId];
+      session.state.markRequests.set(id, { symbol: row.symbol, conId: row.conId });
+      delete session.state.marks[row.conId];
       // Snapshot quotes are in the contract's native currency. Account-level
       // PnL/value callbacks cannot safely be treated as native prices.
       session.api.reqMktData(id, { conId: row.conId, symbol: row.symbol, secType: row.secType, exchange: "SMART", currency: row.currency }, "", true, false);
@@ -765,12 +824,25 @@ export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {
     while (ended.size < requests.size && Date.now() - start < 3000) await session.wait(100);
     for (const [id, row] of requests) {
       const quote = prices.get(id);
-      const field = quote?.[4] ? 4 : 9;
-      const price = lastOrCloseOnly ? ended.has(id) ? quote?.[field] : undefined : quote?.[1] && quote?.[2] && quote[2] >= quote[1] ? (quote[1] + quote[2]) / 2 : quote?.[4];
-      if (Number.isFinite(price) && price > 0) session.state.marks[row.conId] = { price, currency: row.currency, observedAt: new Date().toISOString(), ...(lastOrCloseOnly ? { field } : {}) };
+      const field = [68, 4, 75, 9].find((field) => quote?.[field]);
+      const bidField = quote?.[66] && quote?.[67] ? 66 : 1;
+      const askField = bidField === 66 ? 67 : 2;
+      const midpoint = quote?.[bidField] && quote?.[askField] && quote[askField] >= quote[bidField];
+      const price = lastOrCloseOnly ? ended.has(id) ? quote?.[field] : undefined : midpoint ? (quote[bidField] + quote[askField]) / 2 : quote?.[field];
+      if (Number.isFinite(price) && price > 0) {
+        const delayed = lastOrCloseOnly || !midpoint ? [68, 75].includes(field) : bidField === 66;
+        session.state.marks[row.conId] = { price, currency: row.currency, observedAt: new Date().toISOString(), delayed, ...(lastOrCloseOnly ? { field } : {}) };
+        if (delayed && ended.has(id)) {
+          session.state.markRequests.get(id).delayedReceived = true;
+          for (const error of session.state.errors) if (error.scope === "mark" && error.reqId === id && error.code === 354) error.informational = true;
+        }
+      }
     }
   } finally {
-    for (const id of requests.keys()) session.api.cancelMktData(id);
+    for (const id of requests.keys()) {
+      session.state.markRequests.get(id).cancelling = true;
+      session.api.cancelMktData(id);
+    }
     session.api.off(events.tickPrice, onPrice);
     session.api.off(events.tickSnapshotEnd, onEnd);
   }
