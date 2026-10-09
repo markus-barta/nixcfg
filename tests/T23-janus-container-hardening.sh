@@ -13,11 +13,11 @@ grep -Fq 'alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f
 
 # The expression intentionally matches literal shell variable references.
 # shellcheck disable=SC2016
-if grep -ERq --include='*.sh' -- '--entrypoint (sh|cat|id|sha256sum) ("\$IMAGE"|"\$image"|\$IMAGE|\$image)' "$janus_root"; then
+if grep -ERq -- '--entrypoint (sh|cat|id|sha256sum) ("\$IMAGE"|"\$image"|\$IMAGE|\$image)' "$janus_root"; then
   printf 'Janus operational scripts still expect shell tooling in the scratch runtime image\n' >&2
   exit 1
 fi
-if grep -Rq --include='*.toml' 'binary = "/bin/sh"' "$janus_root"; then
+if grep -Rq 'binary = "/bin/sh"' "$janus_root"; then
   printf 'Janus managed-command policy still depends on a runtime shell\n' >&2
   exit 1
 fi
