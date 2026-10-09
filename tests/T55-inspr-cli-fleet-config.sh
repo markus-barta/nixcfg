@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # NIX-375 — the operator Home Manager profile must consume the public
 # inspr-modules CLI module and render exactly the six non-secret fleet-routing
-# values that belong to this private studio, plus (NIX-607) the three checkout
-# paths and clone URL the CLI no longer assumes.
+# values that belong to this private studio, plus (NIX-607) the two checkout
+# paths and the clone URL the CLI no longer assumes.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
