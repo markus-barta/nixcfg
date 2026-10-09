@@ -82,7 +82,7 @@ function harness(options = {}) {
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: options.history || [], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(Date.now() - 40 * 86400000).toISOString(), toExclusive: new Date().toISOString() } } };
   if (options.coverage) history.coverage = options.coverage;
   const readHistory = (file, now = Date.now(), _readFile, historyOptions) => readPusherExecutions(file, now, () => { if (options.missingHistory) throw new Error("ENOENT"); return JSON.stringify(history); }, historyOptions);
-  const config = { clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
+  const config = { clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
@@ -118,7 +118,7 @@ test("executeIntent places accepted tagged bracket on initialization day using d
   assert.equal(state.placements[0].status, "submitted"); assert.equal(h.broker.live.size, 0);
 });
 
-const liveOwnership = { j: [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83, 702], j5: [703], joe: [22, 89, 90, 91, 119, 130, 131, 148, 151, 152, 701], joel: [704] };
+const liveOwnership = { j: [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83, 702], j2: [706], j5: [703], joe: [22, 89, 90, 91, 119, 130, 131, 148, 151, 152, 701], joel: [704] };
 const flatContracts = [contract("AMD", 2), contract("AVGO", 3), contract("NVDA", 4)];
 const keptPositions = () => [{ ...contract("SXR8", 5), currency: "EUR", position: 1401 }, { ...contract("TSLA", 6), position: 1 }, { ...contract("MU", 7), position: 0 }, { ...contract("AMZN", 8), position: 0 }];
 function accountFlatHistory() {
@@ -233,7 +233,7 @@ test("place accepts today's ownership gap with the recon session's fresh executi
   const coverage = intradayCoverage();
   coverage.target.toExclusive = coverage.gaps[0].toExclusive = new Date(now - 30000).toISOString();
   const executions = ["MSFT", "NVDA", "META"].map((symbol, index) => ({ contract: contract(symbol, index + 2), execution: fill({ execId: `other-${index}.1`, clientId: [701, 703, 704][index], orderRef: ref(["joe", "j5", "joel"][index]) }).execution }));
-  for (const desk of ["j", "j5"]) {
+  for (const desk of ["j", "j2", "j5"]) {
     const state = ledger();
     const h = harness({ coverage, executions, positions: executions.map((row) => ({ ...row.contract, position: 2 })) });
     const result = await h.run(intent("place", { desk, orderRef: ref(desk) }), state);
@@ -332,6 +332,18 @@ test("recon attributes J|261006|S1-AVGO orders and positions to j", async () => 
     assert.equal(result.openOrders[0].desk, "j");
     assert.equal(result.executions[0].desk, "j");
   }
+});
+
+test("recon attributes untagged client 706 fills to j2", async () => {
+  const bought = fill({ clientId: 706, orderRef: undefined });
+  const h = harness({ history: [bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
+  const result = await h.run(intent("recon", { desk: "j2" }));
+  assert.equal(result.status, "ok");
+  assert.equal(result.desk, "j2");
+  assert.equal(result.deskPositions.length, 1);
+  assert.equal(result.deskPositions[0].desk, "j2");
+  assert.equal(result.deskPositions[0].quantity, 2);
+  assert.equal(result.executions[0].desk, "j2");
 });
 
 test("cancel matches only the desk segment case-insensitively", async () => {

@@ -266,6 +266,8 @@ the date and thesis segments remain unchanged. Known desks are `j`, `j2`, `j3`,
 New orders stamp lowercase desk tags. Every bracket
 leg carries that tag. New desk orders share executor client 705; recon uses 700. Tagged positions/orders enforce desk ownership; legacy orders without a desk-formatted tag
 are attributed only through the configured historical desk client IDs.
+Dedicated ownership client IDs: `j` → 702, `j2` → 706, `j5` → 703,
+`joe` → 701, and `joel` → 704.
 `cancel` accepts exactly one top-level `orderRef` or `orderId` (CLI
 `--order-ref` or `--order-id`) and requires explicit evidence that each target
 is the desk's working, unfilled order. Flatten may cancel its protective legs
