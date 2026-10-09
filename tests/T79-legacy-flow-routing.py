@@ -193,6 +193,14 @@ def expect(
 
 def main() -> int:
     dynamic = evaluate()
+    upstream = subprocess.run(
+        ["nix", "--offline", "eval", "--impure", "--json", "--expr",
+         f'(import {REPO / "hosts/csb1/shared-flow.nix"}).routingEdgeActivation.upstreams.janus'],
+        text=True, capture_output=True, check=False,
+    )
+    require(upstream.returncode == 0, f"Janus upstream evaluation failed: {upstream.stderr}")
+    require(json.loads(upstream.stdout) == {"url": "http://10.253.253.6:8080"},
+            "legacy Janus routes must reuse the placeholder upstream")
     http = dynamic.get("http")
     require(isinstance(http, dict), "fragment has no http object")
     routers = http.get("routers")
@@ -282,6 +290,16 @@ def main() -> int:
     ]
     for case in behavior_cases:
         expect(case[0], routers, middlewares, *case[1:])
+
+    # The agent's root URL is prefixed by Traefik before Caddy sees it.
+    idle_poll = expect(
+        "JANUS-RETIRED-HOST-AGENT-POLL", routers, middlewares,
+        Request("GET", "vault.barta.cm", "/internal/managed-environment-host-packages/csb1",
+                client_ip="10.0.0.20"),
+        "proxy", "/janus/internal/managed-environment-host-packages/csb1",
+    )
+    require(idle_poll.service == "inspr-routing-edge-upstream-janus@file",
+            "host-agent poll bypasses the placeholder upstream")
 
     # Proxy routes may select only admission and AddPrefix middleware. Thus
     # Host, Origin, body, cookies, Authorization, query, and response semantics
