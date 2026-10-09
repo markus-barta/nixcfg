@@ -9,7 +9,7 @@ cd "$repo"
 
 checker_rel="scripts/doctrine-check.sh"
 expected_url="https://github.com/inspr-at/inspr-modules.git"
-expected_checker_blob="ef37a597e3100fb1704be5708a2c32cedd4ac7d5"
+expected_checker_blob="c0998b4ec3984cfc19711f5a7a7c48b4f178e423"
 
 fail() {
   printf 'T42 doctrine checker provenance FAILED: %s\n' "$1" >&2
