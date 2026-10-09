@@ -14,7 +14,7 @@ import { brakeUsage, parseIntent, newYorkDay } from "./policy.mjs";
 import { runClient } from "./client/paper-intent.mjs";
 
 const ACCOUNT = "DUR970597";
-const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickSnapshotEnd"].map((key) => [key, key]));
+const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickString", "tickSnapshotEnd"].map((key) => [key, key]));
 const contract = (symbol = "AAPL", conId = 1) => ({ symbol, conId, secType: "STK", currency: "USD", exchange: "SMART" });
 // Keep order dates on the same New York clock as fills and history coverage,
 // including tests that freeze Date themselves.
@@ -65,6 +65,7 @@ function harness(options = {}) {
       if (broker.mark10089) this.emit(events.error, new Error("Requested market data is not subscribed"), 10089, id);
       if (broker.mark10167) this.emit(events.error, new Error("Requested market data is not subscribed. Displaying delayed market data."), 10167, id);
       if (!broker.noMark && !broker.noMarkSymbols?.includes(c.symbol)) for (const [field, price] of broker.quotes || [[4, broker.mark ?? 101]]) this.emit(events.tickPrice, id, field, price);
+      if (broker.delayedLastTimestamp !== undefined) this.emit(events.tickString, id, 88, String(broker.delayedLastTimestamp));
       if (!broker.noMarkEnd) this.emit(events.tickSnapshotEnd, id);
       broker.onMark?.(this);
     }
@@ -1085,21 +1086,100 @@ test("modify-stop orderRef selects the child and preserves the original uppercas
   assert.equal(result.status, "ok"); assert.equal(h.broker.placed[0].id, 21); assert.equal(h.broker.placed[0].order.orderRef, ref("J"));
 });
 
-test("modify-stop uses delayed last/close despite subscription warnings and quote-cleanup 300", async (t) => {
-  for (const warning of ["mark354", "mark10089", "mark10167"]) for (const short of [false, true]) for (const field of [68, 75]) await t.test(`${warning}: ${short ? "short" : "long"} tick ${field}`, async () => {
-    const h = modifyFixture({ short, quotes: [[field, 110]], [warning]: true, markCancel300: true });
+test("modify-stop uses recent delayed last despite subscription warnings and quote-cleanup 300", async (t) => {
+  for (const warning of ["mark354", "mark10089", "mark10167"]) for (const short of [false, true]) await t.test(`${warning}: ${short ? "short" : "long"} tick 68`, async () => {
+    const field = 68;
+    const h = modifyFixture({ short, quotes: [[field, 110]], delayedLastTimestamp: Math.floor(Date.now() / 1000) - 900, [warning]: true, markCancel300: true });
     h.value.order.stopPrice = 110 * (short ? 1.005 : 0.995);
     const result = await h.run(h.value, h.state);
     assert.equal(result.status, "ok"); assert.equal(result.modification.mark.field, field);
     assert.equal(result.modification.mark.delayed, true);
+    assert.equal(result.modification.mark.source, "delayed");
+    assert.equal(result.modification.mark.symbol, "AAPL");
+    assert.ok(result.modification.mark.dataAgeSeconds >= 900 && result.modification.mark.dataAgeSeconds < 902);
+    assert.equal(result.modification.mark.receivedAt, result.modification.mark.observedAt);
     assert.equal(h.broker.placed.length, 1); assert.deepEqual(h.broker.marketDataTypes, [3]);
     assert.ok(result.modification.mark.observedAt);
   });
 });
 
+test("modify-stop refuses old or unknown delayed data ages before any broker side effect", async (t) => {
+  const timestamp = Math.floor(Date.now() / 1000);
+  for (const [name, options] of [
+    ["last older than 20 minutes", { quotes: [[68, 110]], delayedLastTimestamp: timestamp - 1201 }],
+    ["last without tick 88", { quotes: [[68, 110]] }],
+    ["close only", { quotes: [[75, 110]] }],
+    ["close cannot borrow last timestamp", { quotes: [[75, 110]], delayedLastTimestamp: timestamp - 900 }],
+    ["invalid timestamp", { quotes: [[68, 110]], delayedLastTimestamp: "invalid" }],
+    ["future timestamp", { quotes: [[68, 110]], delayedLastTimestamp: timestamp + 60 }],
+    ["zero timestamp", { quotes: [[68, 110]], delayedLastTimestamp: 0 }],
+    ["wrong request timestamp", { quotes: [[68, 110]], onMarkRequest: (api, id) => api.emit(events.tickString, id + 1, 88, String(timestamp - 900)) }],
+    ["live timestamp is not delayed timestamp", { quotes: [[68, 110]], onMarkRequest: (api, id) => api.emit(events.tickString, id, 45, String(timestamp - 900)) }],
+  ]) await t.test(name, async () => {
+    const h = modifyFixture(options);
+    await assert.rejects(h.run(h.value, h.state), (error) => error.publicCode === "modify_stop_refused" && /mark too old or age unknown/.test(error.publicReason));
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+    assert.equal(h.broker.live.size, 0);
+  });
+});
+
+test("modify-stop supports tick 88 before the price and a configurable delayed-age limit", async (t) => {
+  for (const maxAge of [899, 902]) await t.test(`limit ${maxAge}s`, async () => {
+    const timestamp = Math.floor(Date.now() / 1000) - 900;
+    const h = modifyFixture({ quotes: [[68, 110]], onMarkRequest: (api, id) => api.emit(events.tickString, id, 88, String(timestamp)) });
+    h.config.maxDelayedMarkAgeSeconds = maxAge;
+    if (maxAge < 900) {
+      await assert.rejects(h.run(h.value, h.state), /mark too old or age unknown/);
+      assert.deepEqual(h.broker.placed, []);
+    } else assert.equal((await h.run(h.value, h.state)).status, "ok");
+  });
+});
+
+test("modify-stop rechecks delayed data age immediately before submission", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Math.floor(Date.now() / 1000) * 1000 });
+  const h = modifyFixture({ quotes: [[68, 110]], delayedLastTimestamp: Math.floor(Date.now() / 1000) - 1199 });
+  await assert.rejects(h.run(h.value, h.state, { saveState: () => t.mock.timers.tick(2000) }), /mark too old or age unknown/);
+  assert.deepEqual(h.broker.placed, []);
+});
+
+test("live modify-stop behaviour and source reporting stay unchanged without tick 88", async (t) => {
+  for (const field of [4, 9]) await t.test(`live tick ${field}`, async () => {
+    const h = modifyFixture({ quotes: [[field, 110]] });
+    const result = await h.run(h.value, h.state);
+    assert.equal(result.status, "ok"); assert.equal(h.broker.placed.length, 1);
+    assert.equal(result.modification.mark.source, "live");
+    assert.equal(result.modification.mark.field, field);
+    assert.equal(result.modification.mark.dataAgeSeconds, null);
+    assert.ok(result.modification.mark.receivedAt);
+  });
+});
+
+test("recon reports mark sources and known or unknown ages without enforcing an age limit", async (t) => {
+  for (const [name, quotes, age, source, field] of [
+    ["recent delayed last", [[68, 110]], 900, "delayed", 68],
+    ["old delayed last", [[68, 110]], 3600, "delayed", 68],
+    ["unknown delayed last", [[68, 110]], null, "delayed", 68],
+    ["delayed close", [[75, 110]], null, "delayed", 75],
+    ["delayed midpoint", [[66, 109], [67, 111]], null, "delayed", "midpoint"],
+    ["live last", [[4, 110]], null, "live", 4],
+    ["live midpoint", [[1, 109], [2, 111]], null, "live", "midpoint"],
+  ]) await t.test(name, async () => {
+    const h = harness({ positions: [{ ...contract(), position: 2 }, ...keptPositions()], quotes, ...(age === null ? {} : { delayedLastTimestamp: Math.floor(Date.now() / 1000) - age }), ...(source === "delayed" ? { mark10167: true } : {}) });
+    const result = await h.run(intent("recon"));
+    assert.equal(result.status, "ok"); assert.equal(result.marks.length, 1);
+    const mark = result.marks[0];
+    assert.equal(mark.symbol, "AAPL"); assert.equal(mark.conId, 1); assert.equal(mark.price, 110);
+    assert.equal(mark.source, source); assert.equal(mark.field, field);
+    assert.ok(Number.isFinite(Date.parse(mark.receivedAt)));
+    if (age === null) assert.equal(mark.dataAgeSeconds, null);
+    else assert.ok(mark.dataAgeSeconds >= age && mark.dataAgeSeconds < age + 2);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
 test("delayed modify-stop retains the 0.5% distance and blocks target mark errors without delayed evidence", async (t) => {
   for (const [name, options, price, reason] of [
-    ["distance unchanged", { quotes: [[68, 110]] }, 109.5, /at least 0.5%/],
+    ["distance unchanged", { quotes: [[68, 110]], delayedLastTimestamp: Math.floor(Date.now() / 1000) - 900 }, 109.5, /at least 0.5%/],
     ["no delayed quote", { noMark: true, mark354: true }, 100, /reconciliation|fresh last\/close/],
     ["354 plus live tick only", { quotes: [[4, 110]], mark354: true }, 100, /reconciliation/],
     ["10167 without delayed quote", { noMark: true, mark10167: true }, 100, /reconciliation|fresh last\/close/],
@@ -1118,7 +1198,7 @@ test("a failed non-desk KO mark does not block AAPL modify-stop; order reconcili
   for (const orderError of [false, true]) await t.test(orderError ? "order errors block" : "unrelated mark errors do not block", async () => {
     const h = modifyFixture({
       positions: [{ ...contract(), position: 2 }, { ...contract("KO", 2), position: 10 }],
-      quotes: [[68, 110]], noMarkSymbols: ["KO"], markCancel300: true,
+      quotes: [[68, 110]], delayedLastTimestamp: Math.floor(Date.now() / 1000) - 900, noMarkSymbols: ["KO"], markCancel300: true,
       onMarkRequest: (api, id, c) => { if (c.symbol === "KO") api.emit(events.error, new Error("KO live data unsubscribed"), 354, id); },
       onSnapshot: async (session) => {
         await freshMarks(session, { conId: 2 });
