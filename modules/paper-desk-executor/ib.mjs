@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 
-import { ACCOUNT, KEEP, PAPER_PORT, DESKS, newYorkDay, belongsToDesk, normalizeOrderRef, assertSideEffect, mergeExecutions, ownedPositions, ownershipSinceFlat } from "./policy.mjs";
+import { ACCOUNT, KEEP, LIMITS, PAPER_PORT, DESKS, newYorkDay, belongsToDesk, normalizeOrderRef, assertSideEffect, mergeExecutions, ownedPositions, ownershipSinceFlat } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
 
 // The runner deliberately reuses only the pinned pusher image's Node runtime and
@@ -42,6 +42,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   if (activeClients.has(clientId)) throw new Error("client ID already has a live session");
   activeClients.add(clientId);
   const api = new IBApi({ host: HOST, port: PORT, clientId });
+  const orderDetails = new Map();
   const state = {
     gateway: false,
     account: null,
@@ -89,7 +90,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   });
   api.on(EventName.position, (account, contract, position, averageCost) => {
     if (account !== ACCOUNT) return;
-    state.positions.push({
+    const row = {
       account,
       conId: Number(contract.conId) || 0,
       symbol: String(contract.symbol || "").toUpperCase(),
@@ -99,11 +100,13 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
       primaryExch: String(contract.primaryExch || ""),
       position: Number(position),
       averageCost: Number(averageCost),
-    });
+    };
+    const index = state.positions.findIndex((prior) => prior.conId === row.conId);
+    if (index < 0) state.positions.push(row); else state.positions[index] = row;
   });
   api.on(EventName.positionEnd, () => { positionsEnd = true; });
   api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
-    state.openOrders.push({
+    const row = {
       orderId: Number(orderId),
       conId: Number(contract.conId) || 0,
       symbol: String(contract.symbol || "").toUpperCase(),
@@ -115,8 +118,14 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
       quantity: Number(order.totalQuantity),
       parentId: Number(order.parentId) || 0,
       orderRef: String(order.orderRef || ""),
+      auxPrice: Number(order.auxPrice),
+      account: String(order.account || ""),
+      tif: String(order.tif || ""),
       status: String(orderState?.status || ""),
-    });
+    };
+    orderDetails.set(`${row.clientId}:${row.orderId}`, { contract: { ...contract }, order: { ...order } });
+    const index = state.openOrders.findIndex((prior) => prior.orderId === row.orderId && prior.clientId === row.clientId);
+    if (index < 0) state.openOrders.push(row); else state.openOrders[index] = row;
   });
   api.on(EventName.openOrderEnd, () => { ordersEnd = true; });
   api.on(EventName.execDetails, (requestId, contract, execution) => {
@@ -133,13 +142,14 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   });
   api.on(EventName.commissionReport, (report) => { state.commissions.push({ ...report }); });
   api.on(EventName.disconnected, () => { state.gateway = false; });
-  api.on(EventName.orderStatus, (orderId, status, filled, remaining, averageFillPrice) => {
+  api.on(EventName.orderStatus, (orderId, status, filled, remaining, averageFillPrice, _permId, _parentId, _lastFillPrice, statusClientId) => {
     state.statuses.push({
       orderId: Number(orderId),
       status: String(status || ""),
       filled: Number(filled),
       remaining: Number(remaining),
       averageFillPrice: Number(averageFillPrice),
+      ...(Number.isSafeInteger(Number(statusClientId)) && Number(statusClientId) > 0 ? { clientId: Number(statusClientId) } : {}),
     });
   });
 
@@ -150,6 +160,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
       return {
         api,
         state,
+        orderDetails,
         events: EventName,
         wait,
         close() {
@@ -251,9 +262,9 @@ function uncertain(error) {
   return result;
 }
 
-function acceptance(session, orderIds, { filledOnly = false, quantities = {} } = {}) {
+function acceptance(session, orderIds, { filledOnly = false, quantities = {}, clientId } = {}) {
   if (session.state.errors.length || !session.state.gateway) throw new Error("broker errors or disconnection after order submission");
-  const latest = new Map(session.state.statuses.map((row) => [row.orderId, row]));
+  const latest = new Map(session.state.statuses.filter((row) => clientId === undefined || row.clientId === undefined || row.clientId === clientId).map((row) => [row.orderId, row]));
   for (const id of orderIds) {
     const row = latest.get(id);
     const accepted = filledOnly ? ["filled"] : ["presubmitted", "submitted", "filled"];
@@ -434,6 +445,114 @@ function reconcileOwned(executions, snapshot, desk, ownershipClientIds, executor
 }
 
 function working(order) { return !["cancelled", "filled", "inactive", "apicancelled"].includes(String(order.status).toLowerCase()); }
+
+function stopRefusal(reason, cause) {
+  const error = new Error(reason, cause ? { cause } : undefined);
+  error.publicCode = "modify_stop_refused";
+  error.publicReason = reason;
+  throw error;
+}
+
+// A desk tag alone cannot prove this is an executor protective bracket.
+function stopPreflight(session, history, options, { markRequired = false } = {}) {
+  const { intent, clientId, desk, ownershipClientIds, ownership, statePlacements = [], intentRecords = new Map(), guard } = options;
+  try { cleanSnapshot(session); }
+  catch (error) { stopRefusal("modify-stop broker reconciliation is incomplete or has errors", error); }
+  try { assertSideEffect(intent, guard); }
+  catch (error) { stopRefusal(error.message === "intent is expired before broker side effect" ? error.message : "modify-stop side-effect guard is unavailable", error); }
+  const targets = session.state.openOrders.filter((row) => intent.orderId ? row.orderId === intent.orderId : normalizeOrderRef(row.orderRef) === intent.orderRef);
+  if (!targets.length) stopRefusal("modify-stop target order is missing");
+  const stops = intent.orderId ? targets : targets.filter((row) => row.orderType === "STP");
+  if (stops.length !== 1) stopRefusal("modify-stop requires exactly one protective STP target");
+  const stop = stops[0];
+  if (stop.clientId !== clientId) stopRefusal("modify-stop order was not placed by the executor client");
+  if (!belongsToDesk(stop, desk, [], clientId)) stopRefusal("modify-stop orderRef does not belong to the requesting desk");
+  try { assertContract(stop, { symbol: intent.symbol, conId: stop.conId }); }
+  catch (error) { stopRefusal(error.message, error); }
+  if (stop.orderType !== "STP") stopRefusal("modify-stop target is not an STP");
+  if (!["submitted", "presubmitted"].includes(stop.status.toLowerCase())) stopRefusal("modify-stop target is not a working stop");
+  const status = [...session.state.statuses].reverse().find((row) => row.orderId === stop.orderId && (row.clientId === undefined || row.clientId === clientId));
+  if (!status || !["submitted", "presubmitted"].includes(status.status.toLowerCase()) || status.filled !== 0 || status.remaining !== stop.quantity) stopRefusal("modify-stop requires explicit evidence of a working unfilled stop");
+  if (!Number.isSafeInteger(stop.orderId) || stop.orderId <= 0 || !Number.isSafeInteger(stop.parentId) || stop.parentId <= 0 || stop.parentId === stop.orderId) stopRefusal("modify-stop target is not a bracket child");
+  if (!["SELL", "BUY"].includes(stop.action) || !Number.isSafeInteger(stop.quantity) || stop.quantity <= 0 || !Number.isFinite(stop.auxPrice) || stop.auxPrice <= 0 || stop.account !== ACCOUNT || stop.currency !== "USD" || !stop.tif) stopRefusal("modify-stop stop fields are invalid or not the paper account");
+  const placement = statePlacements.find((row) => row.clientId === clientId && row.desk === desk && row.symbol === stop.symbol && normalizeOrderRef(row.orderRef) === normalizeOrderRef(stop.orderRef) && row.orderIds?.[0] === stop.parentId && row.orderIds?.[1] === stop.orderId && row.quantity === stop.quantity && row.side === (stop.action === "SELL" ? "BUY" : "SELL") && !["rejected", "absent"].includes(row.status));
+  if (!placement) stopRefusal("modify-stop target is not a recorded executor protective bracket");
+  if ([...intentRecords].some(([id, row]) => id !== intent.intentId && row.action === "modify-stop" && ["claimed", "uncertain"].includes(row.status) && (row.orderId === stop.orderId || normalizeOrderRef(row.orderRef) === normalizeOrderRef(stop.orderRef) || row.brokerPlan?.modification?.orderId === stop.orderId)) || (placement.stopHistory || []).some((row) => row.intentId !== intent.intentId && ["reserved", "uncertain"].includes(row.status))) stopRefusal("modify-stop order has an unresolved modification; reconcile before retry");
+  const price = intent.order.stopPrice;
+  if (!Number.isFinite(price) || price <= 0) stopRefusal("stopPrice must be positive");
+  if (stop.action === "SELL" ? price <= stop.auxPrice : price >= stop.auxPrice) stopRefusal("modify-stop must strictly tighten the current stop");
+  let evidence; let owned;
+  try {
+    evidence = ownershipEvidence(session, history, options);
+    owned = ownedPositions(evidence.attributed, ownershipClientIds, ACCOUNT, desk, clientId, session.state).find((row) => row.conId === stop.conId);
+  } catch (error) { stopRefusal("modify-stop ownership evidence is incomplete or does not reconcile", error); }
+  if (!owned) stopRefusal("modify-stop desk has no owned position in the stop contract");
+  if (owned.symbol !== stop.symbol || owned.currency !== stop.currency) stopRefusal("modify-stop owned contract identity does not match the stop");
+  if (Math.sign(owned.quantity) !== (stop.action === "SELL" ? 1 : -1)) stopRefusal("modify-stop stop side does not protect the desk's owned position");
+  try {
+    reconcileDeskPositions(evidence.attributed, session.state, ownership, clientId, { conId: stop.conId });
+    owned = reconcileOwned(evidence.attributed, session.state, desk, ownershipClientIds, clientId, stop.conId)[0];
+  } catch (error) { stopRefusal("modify-stop ownership evidence is incomplete or does not reconcile", error); }
+  if (stop.quantity > Math.abs(owned.quantity)) stopRefusal("modify-stop stop quantity exceeds the desk's owned quantity");
+  const mark = session.state.marks[stop.conId];
+  if (markRequired) {
+    const observed = Date.parse(mark?.observedAt);
+    if (!mark || ![4, 9].includes(mark.field) || mark.currency !== stop.currency || !Number.isFinite(mark.price) || mark.price <= 0 || !Number.isFinite(observed) || observed > Date.now() || Date.now() - observed > 120000) stopRefusal("modify-stop requires a fresh last/close mark for the stop contract");
+    if (stop.action === "SELL" ? price > mark.price * (1 - LIMITS.minStopFraction) : price < mark.price * (1 + LIMITS.minStopFraction)) stopRefusal("modify-stop new stop must remain at least 0.5% beyond the fresh mark");
+  }
+  const details = session.orderDetails.get(`${clientId}:${stop.orderId}`);
+  if (!details) stopRefusal("modify-stop original broker order fields are missing");
+  return { stop, placement, details, evidence, mark };
+}
+
+export async function modifyStopOwned(options) {
+  paperGuard();
+  const { intent, clientId, ownershipLedgerFile, guard = {}, connect = (id) => openSession(id), readHistory = readPusherExecutions, onPlan = () => {} } = options;
+  let history;
+  try { history = readHistory(ownershipLedgerFile, Date.now(), undefined, { allowIntradayGaps: true }); }
+  catch (error) { stopRefusal("modify-stop ownership history is unavailable or incomplete", error); }
+  let session;
+  try { session = await connect(clientId); }
+  catch (error) { stopRefusal("modify-stop executor broker session is unavailable", error); }
+  const checkedOptions = { ...options, guard };
+  let sent = false;
+  let onOrder;
+  try {
+    let checked = stopPreflight(session, history, checkedOptions);
+    let resolved;
+    try { resolved = await resolveStock(session, intent.symbol); }
+    catch (error) { stopRefusal("modify-stop stock contract lookup failed", error); }
+    try { assertContract(resolved.contract, checked.stop); }
+    catch (error) { stopRefusal("modify-stop resolved contract does not match the stop", error); }
+    try { await freshMarks(session, { conId: checked.stop.conId, lastOrCloseOnly: true }); }
+    catch (error) { stopRefusal("modify-stop fresh last/close snapshot failed", error); }
+    checked = stopPreflight(session, history, checkedOptions, { markRequired: true });
+    const { stop, details, mark } = checked;
+    const modification = { orderId: stop.orderId, clientId, conId: stop.conId, symbol: stop.symbol, parentId: stop.parentId, action: stop.action, quantity: stop.quantity, orderRef: stop.orderRef, account: stop.account, tif: stop.tif, from: stop.auxPrice, to: intent.order.stopPrice, mark };
+    onPlan(modification);
+    // No await between final ownership/price/expiry checks and placeOrder.
+    const final = stopPreflight(session, history, checkedOptions, { markRequired: true });
+    if (final.stop !== stop || final.details !== details) stopRefusal("modify-stop order changed during preflight");
+    const acknowledgements = [];
+    onOrder = (id, contract, order, state) => {
+      if (Number(id) === stop.orderId && Number(order.clientId) === clientId) acknowledgements.push({ contract, order, status: String(state?.status || "") });
+    };
+    session.api.on(session.events.openOrder, onOrder);
+    const statusOffset = session.state.statuses.length;
+    before(session, details.contract, stop, intent, guard);
+    sent = true;
+    session.sideEffects = true;
+    session.api.placeOrder(stop.orderId, details.contract, { ...details.order, orderType: "STP", auxPrice: modification.to, transmit: true });
+    await session.wait(3_000);
+    const ack = acknowledgements.at(-1);
+    if (!ack || Number(ack.contract.conId) !== stop.conId || String(ack.contract.symbol).toUpperCase() !== stop.symbol || ack.contract.secType !== stop.secType || ack.contract.currency !== stop.currency || ack.order.orderType !== "STP" || Number(ack.order.auxPrice) !== modification.to || ack.order.action !== stop.action || Number(ack.order.totalQuantity) !== stop.quantity || Number(ack.order.parentId) !== stop.parentId || ack.order.orderRef !== stop.orderRef || ack.order.account !== stop.account || ack.order.tif !== stop.tif || !["submitted", "presubmitted"].includes(ack.status.toLowerCase()) || !session.state.statuses.slice(statusOffset).some((row) => row.orderId === stop.orderId && (row.clientId === undefined || row.clientId === clientId))) throw new Error("missing or changed-price broker modification acknowledgement");
+    const statuses = acceptance(session, [stop.orderId], { quantities: { [stop.orderId]: stop.quantity }, clientId });
+    if (statuses[0].filled !== 0) throw new Error("partial or filled broker modification acknowledgement");
+    const evidence = ownershipEvidence(session, history, checkedOptions);
+    return { modification: { ...modification, statuses }, executions: evidence.executions, ownershipExecutions: evidence.attributed, ownershipSnapshot: session.state, openOrders: publicSnapshot(session.state, { executions: evidence.attributed, ownership: options.ownership, executorClientId: clientId }).openOrders };
+  } catch (error) { if (sent) throw uncertain(error); throw error; }
+  finally { if (onOrder) session.api.off(session.events.openOrder, onOrder); session.close(); }
+}
 
 async function cancelOwnedOrders(orders, options) {
   const { desk, ownershipClientIds, executorClientId, intent, guard, connect, history } = options;
@@ -618,14 +737,14 @@ function executionDay(time) {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
 
-export async function freshMarks(session) {
+export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {}) {
   const events = session.events;
   const requests = new Map();
   const prices = new Map();
   const ended = new Set();
   const onPrice = (id, field, price) => {
     const row = requests.get(Number(id));
-    if (!row || ![1, 2, 4].includes(Number(field)) || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
+    if (!row || !(lastOrCloseOnly ? [4, 9] : [1, 2, 4]).includes(Number(field)) || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
     const quote = prices.get(Number(id)) || {};
     quote[Number(field)] = Number(price);
     prices.set(Number(id), quote);
@@ -634,9 +753,10 @@ export async function freshMarks(session) {
   session.api.on(events.tickPrice, onPrice);
   session.api.on(events.tickSnapshotEnd, onEnd);
   try {
-    for (const row of session.state.positions.filter((row) => row.position !== 0 && !KEEP.includes(row.symbol))) {
+    for (const row of session.state.positions.filter((row) => row.position !== 0 && !KEEP.includes(row.symbol) && (conId === undefined || row.conId === conId))) {
       const id = 882000 + requests.size;
       requests.set(id, row);
+      if (lastOrCloseOnly) delete session.state.marks[row.conId];
       // Snapshot quotes are in the contract's native currency. Account-level
       // PnL/value callbacks cannot safely be treated as native prices.
       session.api.reqMktData(id, { conId: row.conId, symbol: row.symbol, secType: row.secType, exchange: "SMART", currency: row.currency }, "", true, false);
@@ -645,8 +765,9 @@ export async function freshMarks(session) {
     while (ended.size < requests.size && Date.now() - start < 3000) await session.wait(100);
     for (const [id, row] of requests) {
       const quote = prices.get(id);
-      const price = quote?.[1] && quote?.[2] && quote[2] >= quote[1] ? (quote[1] + quote[2]) / 2 : quote?.[4];
-      if (Number.isFinite(price) && price > 0) session.state.marks[row.conId] = { price, currency: row.currency, observedAt: new Date().toISOString() };
+      const field = quote?.[4] ? 4 : 9;
+      const price = lastOrCloseOnly ? ended.has(id) ? quote?.[field] : undefined : quote?.[1] && quote?.[2] && quote[2] >= quote[1] ? (quote[1] + quote[2]) / 2 : quote?.[4];
+      if (Number.isFinite(price) && price > 0) session.state.marks[row.conId] = { price, currency: row.currency, observedAt: new Date().toISOString(), ...(lastOrCloseOnly ? { field } : {}) };
     }
   } finally {
     for (const id of requests.keys()) session.api.cancelMktData(id);

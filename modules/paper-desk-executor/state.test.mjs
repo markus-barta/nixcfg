@@ -153,3 +153,12 @@ test("audit rotation remains bounded and HALT and ledger persist independently",
   assert.equal(openLedger(root).load().intents.get("durable-id").status, "uncertain");
   assert.match(openLedger(root).haltBody(), /operator stop/);
 });
+
+test("unresolved stop modifications retain their bracket beyond normal placement retention and round-trip", () => {
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops266-stop-history-")));
+  const state = ledger.load();
+  const old = new Date(Date.now() - RETENTION_MS - 1000).toISOString();
+  state.placements = ["reserved", "uncertain", "submitted"].map((status) => ({ desk: "j", symbol: "AAPL", reservedAt: old, status: "submitted", stopHistory: [{ at: old, from: 95, to: 100, intentId: `j-stop-${status}`, status }] }));
+  ledger.save(state);
+  assert.deepEqual(ledger.load().placements.map((row) => row.stopHistory[0].status), ["reserved", "uncertain"]);
+});

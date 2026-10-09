@@ -43,7 +43,7 @@ function harness(options = {}) {
     disconnect() { broker.live.delete(this.clientId); this.emit(events.disconnected); }
     reqManagedAccts() { this.emit(events.managedAccounts, ACCOUNT); }
     reqPositions() { for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
-    reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0); } this.emit(events.openOrderEnd); }
+    reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0, 0, row.parentId, 0, row.clientId); } this.emit(events.openOrderEnd); }
     reqExecutions(id, filter) {
       broker.executionRequests.push({ id, filter });
       if (broker.executionError) this.emit(events.error, new Error("execution snapshot failed"), 201, id);
@@ -55,12 +55,16 @@ function harness(options = {}) {
     reqContractDetails(id, request) { this.emit(events.contractDetails, id, { contract: broker.resolve ? broker.resolve(request) : contract(request.symbol, request.symbol === "AAPL" ? 1 : 2), stockType: "COMMON" }); this.emit(events.contractDetailsEnd, id); broker.onContractDetails?.(this); }
     reqAccountUpdatesMulti(id) { this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "1", "EUR"); this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "0.9", "USD"); this.emit(events.accountUpdateMultiEnd, id); broker.onFx?.(); }
     cancelAccountUpdatesMulti() {}
-    reqMktData(id) { this.emit(events.tickPrice, id, 4, 101); this.emit(events.tickSnapshotEnd, id); }
+    reqMktData(id) { if (!broker.noMark) for (const [field, price] of broker.quotes || [[4, broker.mark ?? 101]]) this.emit(events.tickPrice, id, field, price); if (!broker.noMarkEnd) this.emit(events.tickSnapshotEnd, id); broker.onMark?.(this); }
     cancelMktData() {}
     placeOrder(id, c, value) {
       broker.placed.push({ id, contract: { ...c }, order: { ...value }, clientId: this.clientId });
       if (broker.errorOnPlace) this.emit(events.error, new Error("paper rejection"), 201, id);
-      if (!broker.noAck && !(broker.missingStopAck && value.orderType === "STP")) this.emit(events.orderStatus, id, broker.partial ? "Submitted" : value.orderType === "MKT" ? "Filled" : "Submitted", broker.badQuantity ? 0 : broker.partial ? 1 : value.orderType === "MKT" ? value.totalQuantity : 0, broker.badQuantity ? 0 : broker.partial ? 1 : value.orderType === "MKT" ? 0 : value.totalQuantity, 100);
+      if (!broker.noAck && !broker.noStatusAck && !(broker.missingStopAck && value.orderType === "STP")) this.emit(events.orderStatus, id, broker.partial ? "Submitted" : value.orderType === "MKT" ? "Filled" : "Submitted", broker.badQuantity ? 0 : broker.partial ? 1 : value.orderType === "MKT" ? value.totalQuantity : 0, broker.badQuantity ? 0 : broker.partial ? 1 : value.orderType === "MKT" ? 0 : value.totalQuantity, 100, 0, value.parentId, 0, this.clientId);
+      if (broker.ackModification && broker.orders.some((row) => row.orderId === id && row.clientId === this.clientId)) {
+        broker.orders = broker.orders.map((row) => row.orderId === id && row.clientId === this.clientId ? { ...row, ...value, quantity: value.totalQuantity } : row);
+        if (!broker.noAck && !broker.noPriceAck) this.emit(events.openOrder, id, c, { ...value, clientId: this.clientId, ...broker.modificationAck }, { status: "Submitted" });
+      }
       broker.afterPlace?.(broker.placed.length);
     }
     cancelOrder(id) {
@@ -935,5 +939,278 @@ test("recon resolves uncertain cancellation and flatten plans to filled, partial
     await h.run(intent("recon"), state);
     assert.equal(state.intents.get("uncertain-plan").resolution.status, resolution);
     assert.equal(state.intents.get("uncertain-plan").status, resolution === "partial" ? "uncertain" : "done");
+  }
+});
+
+function modifyFixture(options = {}) {
+  const short = options.short === true;
+  const protective = order({ orderId: 21, parentId: 20, action: short ? "BUY" : "SELL", orderType: "STP", auxPrice: short ? 120 : 95, account: ACCOUNT, tif: "DAY", outsideRth: false, triggerMethod: 2, ...options.stop });
+  const execution = fill({ side: short ? "SLD" : "BOT", ...options.fill });
+  const state = ledger();
+  state.placements.push({ intentId: "original-bracket", desk: "j", symbol: "AAPL", clientId: 705, orderRef: ref(), side: short ? "SELL" : "BUY", quantity: 2, orderIds: [20, 21], day: newYorkDay(), reservedAt: new Date().toISOString(), status: "submitted", riskEur: 1, notionalEur: 200 });
+  const value = intent("modify-stop", { symbol: "AAPL", orderId: 21, order: { stopPrice: short ? 115 : 100 } });
+  state.intents.set(value.intentId, { action: value.action, status: "claimed", orderId: 21, claimedAt: new Date().toISOString() });
+  const h = harness({ orders: [protective], executions: [execution], positions: [{ ...contract(), position: short ? -2 : 2 }], mark: 110, ackModification: true, ...options });
+  return { ...h, state, value };
+}
+
+test("modify-stop tightens long and short brackets with one same-ID update and durable history", async (t) => {
+  for (const short of [false, true]) await t.test(short ? "BUY stop moves down" : "SELL stop moves up", async () => {
+    const h = modifyFixture({ short }); const saved = []; const originalContract = { ...h.broker.orders[0] };
+    const result = await h.run(h.value, h.state, { saveState: (state) => saved.push(structuredClone(state)) });
+    assert.equal(result.status, "ok"); assert.deepEqual(h.broker.connections, [705]);
+    assert.equal(h.broker.placed.length, 1); assert.deepEqual(h.broker.cancelled, []);
+    const placed = h.broker.placed[0];
+    assert.equal(placed.id, 21); assert.equal(placed.clientId, 705); assert.deepEqual(placed.contract, originalContract);
+    assert.equal(placed.order.auxPrice, short ? 115 : 100);
+    for (const [field, expected] of Object.entries({ totalQuantity: 2, parentId: 20, orderRef: ref(), action: short ? "BUY" : "SELL", account: ACCOUNT, tif: "DAY", orderType: "STP", outsideRth: false, triggerMethod: 2, transmit: true })) assert.equal(placed.order[field], expected);
+    assert.equal(saved[0].placements[0].stopHistory[0].status, "reserved");
+    assert.equal(saved[0].intents.get(h.value.intentId).brokerPlan.modification.to, h.value.order.stopPrice);
+    const change = h.state.placements[0].stopHistory[0];
+    assert.equal(change.from, short ? 120 : 95); assert.equal(change.to, short ? 115 : 100); assert.equal(change.intentId, h.value.intentId); assert.ok(change.at);
+    assert.equal(change.status, "submitted"); assert.equal(h.state.intents.get(h.value.intentId).modification.status, "submitted");
+    assert.equal(h.state.placements[0].currentStopPrice, h.value.order.stopPrice);
+    assert.equal(h.state.activeOrders[0].auxPrice, h.value.order.stopPrice);
+    assert.equal(h.state.placements.length, 1); assert.equal(brakeUsage(h.state).newToday, 1); assert.equal(h.broker.live.size, 0);
+  });
+});
+
+test("modify-stop orderRef selects the child and preserves the original uppercase broker tag", async () => {
+  const h = modifyFixture({ stop: { orderRef: ref("J") } });
+  h.broker.orders.push(order({ orderId: 20, orderRef: ref("J") }));
+  const result = await h.run(intent("modify-stop", { symbol: "AAPL", orderRef: ref("J"), order: { stopPrice: 100 } }), h.state);
+  assert.equal(result.status, "ok"); assert.equal(h.broker.placed[0].id, 21); assert.equal(h.broker.placed[0].order.orderRef, ref("J"));
+});
+
+test("modify-stop refuses unsafe requests before any placeOrder or cancellation", async (t) => {
+  const cases = [
+    ["equal long stop", {}, (h) => { h.value.order.stopPrice = 95; }, /strictly tighten/],
+    ["looser long stop", {}, (h) => { h.value.order.stopPrice = 94; }, /strictly tighten/],
+    ["equal short stop", { short: true }, (h) => { h.value.order.stopPrice = 120; }, /strictly tighten/],
+    ["looser short stop", { short: true }, (h) => { h.value.order.stopPrice = 121; }, /strictly tighten/],
+    ["long inside mark distance", {}, (h) => { h.value.order.stopPrice = 109.5; }, /at least 0.5%/],
+    ["long crosses mark", {}, (h) => { h.value.order.stopPrice = 111; }, /at least 0.5%/],
+    ["short inside mark distance", { short: true }, (h) => { h.value.order.stopPrice = 110.5; }, /at least 0.5%/],
+    ["short crosses mark", { short: true }, (h) => { h.value.order.stopPrice = 109; }, /at least 0.5%/],
+    ["no fresh quote", { noMark: true }, () => {}, /fresh last\/close mark/],
+    ["bid/ask cannot replace last/close", { quotes: [[1, 109], [2, 111]] }, () => {}, /fresh last\/close mark/],
+    ["legacy client 27", { stop: { clientId: 27 } }, () => {}, /executor client/],
+    ["unmapped client 229", { stop: { clientId: 229 } }, () => {}, /executor client/],
+    ["another desk tag", { stop: { orderRef: ref("joe") } }, () => {}, /requesting desk/],
+    ["missing desk tag", { stop: { orderRef: "legacy" } }, () => {}, /requesting desk/],
+    ["filled stop", { stop: { status: "Filled" } }, () => {}, /working stop/],
+    ["cancelled stop", { stop: { status: "Cancelled" } }, () => {}, /working stop/],
+    ["inactive stop", { stop: { status: "Inactive" } }, () => {}, /working stop/],
+    ["pending cancellation", { stop: { status: "PendingCancel" } }, () => {}, /working stop/],
+    ["non-STP", { stop: { orderType: "LMT" } }, () => {}, /not an STP/],
+    ["standalone stop", { stop: { parentId: 0 } }, () => {}, /not a bracket child/],
+    ["unrecorded parent", { stop: { parentId: 999 } }, () => {}, /recorded executor protective bracket/],
+    ["wrong bracket side", {}, (h) => { h.state.placements[0].side = "SELL"; }, /recorded executor protective bracket/],
+    ["wrong bracket ID", {}, (h) => { h.state.placements[0].orderIds = [20, 22]; }, /recorded executor protective bracket/],
+    ["KEEP TSLA", { stop: { symbol: "TSLA" } }, () => {}, /KEEP/],
+    ["KEEP SXR8", { stop: { symbol: "SXR8" } }, () => {}, /KEEP/],
+    ["symbol mismatch", { stop: { symbol: "KO" } }, () => {}, /symbol\/conId mismatch/],
+    ["resolved conId mismatch", { resolve: () => contract("AAPL", 999) }, () => {}, /resolved contract does not match/],
+    ["wrong account", { stop: { account: "other" } }, () => {}, /paper account/],
+    ["missing tif", { stop: { tif: "" } }, () => {}, /stop fields/],
+    ["missing stop price", { stop: { auxPrice: undefined } }, () => {}, /stop fields/],
+    ["noninteger stop quantity", { stop: { quantity: 1.5 } }, () => {}, /stop fields/],
+    ["missing zero-fill status", { noOrderEvidence: true }, () => {}, /explicit evidence/],
+    ["partially filled stop", { stop: { filled: 1 } }, () => {}, /explicit evidence/],
+    ["missing history", { missingHistory: true }, () => {}, /ownership history/],
+    ["unknown coverage", { coverage: { status: "unknown", gaps: [] } }, () => {}, /ownership history/],
+    ["no owned position", { executions: [] }, () => {}, /no owned position/],
+    ["opposite owned sign", { fill: { side: "SLD" }, positions: [{ ...contract(), position: -2 }] }, () => {}, /stop side/],
+    ["quantity exceeds owned shares", { fill: { shares: 1 }, positions: [{ ...contract(), position: 1 }] }, () => {}, /exceeds the desk/],
+    ["missing broker position", { positions: [] }, () => {}, /does not reconcile/],
+    ["opposite broker sign", { positions: [{ ...contract(), position: -2 }] }, () => {}, /does not reconcile/],
+    ["missing order", { orders: [] }, () => {}, /target order is missing/],
+    ["already expired", {}, (h) => { h.value.expiresAt = new Date(Date.now() - 1).toISOString(); }, /expired/],
+  ];
+  for (const [name, options, prepare, reason] of cases) await t.test(name, async () => {
+    const h = modifyFixture(options); prepare(h);
+    await assert.rejects(h.run(h.value, h.state), reason);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []); assert.equal(h.broker.live.size, 0);
+  });
+});
+
+test("modify-stop accepts the exact mark-distance boundary and fresh close ticks", async (t) => {
+  for (const short of [false, true]) for (const field of [4, 9]) await t.test(`${short ? "BUY" : "SELL"}, tick ${field}`, async () => {
+    const h = modifyFixture({ short, quotes: [[field, 110]] });
+    h.value.order.stopPrice = 110 * (short ? 1.005 : 0.995);
+    assert.equal((await h.run(h.value, h.state)).status, "ok");
+  });
+});
+
+test("modify-stop uses complete intraday ownership and refuses stale, cached-only or conflicting evidence", async (t) => {
+  const coverage = intradayCoverage(); coverage.target.fromInclusive = new Date(Date.now() - 40 * 86400000).toISOString();
+  const covered = modifyFixture({ coverage });
+  assert.equal((await covered.run(covered.value, covered.state)).status, "ok");
+  for (const kind of ["missing-receipt", "stale-receipt", "execution-error", "invalid-execution-date", "cached-only", "attribution-missing", "aggregate-exceeds-position", "older-gap"]) await t.test(kind, async () => {
+    const options = kind === "execution-error" ? { executionError: true } : kind === "older-gap" ? { coverage: { status: "known", gaps: [{ fromInclusive: new Date(Date.now() - 86400000).toISOString(), toExclusive: new Date(Date.now() - 86390000).toISOString() }], target: { fromInclusive: new Date(Date.now() - 172800000).toISOString(), toExclusive: new Date().toISOString() } } } : {};
+    const h = modifyFixture({ ...options, onSnapshot: (session) => {
+      if (kind === "missing-receipt") session.state.executionSnapshot = null;
+      if (kind === "stale-receipt") session.state.executionSnapshot.completedAt = new Date(Date.now() - 180000).toISOString();
+      if (kind === "invalid-execution-date") session.state.executions[0].execution.time = "invalid";
+      if (kind === "cached-only") session.state.executions = [];
+      if (kind === "attribution-missing") { session.state.executions[0].execution.orderRef = ""; session.state.executions[0].execution.orderId = 999; }
+      if (kind === "aggregate-exceeds-position") session.state.executions.push(fill({ execId: "other-desk.1", clientId: 701, orderRef: ref("joe"), shares: 1 }));
+    } });
+    if (kind === "cached-only") h.state.executions = [fill()];
+    await assert.rejects(h.run(h.value, h.state), /ownership|no owned position|broker reconciliation/);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("modify-stop rechecks price, working status, position, ownership and expiry after fetching the mark", async (t) => {
+  for (const race of ["tightened-elsewhere", "filled", "position-gone", "new-close", "expired"]) await t.test(race, async () => {
+    let expired = false;
+    const h = modifyFixture({ onMark: (api) => {
+      const stop = h.broker.orders[0];
+      if (race === "tightened-elsewhere") api.emit(events.openOrder, 21, contract(), { ...stop, totalQuantity: 2, auxPrice: 101 }, { status: "Submitted" });
+      if (race === "filled") api.emit(events.orderStatus, 21, "Filled", 2, 0, 100);
+      if (race === "position-gone") api.emit(events.position, ACCOUNT, contract(), 0, 100);
+      if (race === "new-close") api.emit(events.execDetails, -1, contract(), fill({ execId: "closing.1", side: "SLD", shares: 1 }).execution);
+      if (race === "expired") expired = true;
+    } });
+    await assert.rejects(h.run(h.value, h.state, { now: () => Date.now() + (expired ? 600000 : 0) }), /tighten|unfilled|reconcile|quantity|expired/);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("modify-stop accepts HALT while place is refused", async () => {
+  const h = modifyFixture(); const context = { getHalt: () => ({ active: true }) };
+  assert.equal((await h.run(h.value, h.state, context)).status, "ok");
+  const placing = harness();
+  await assert.rejects(placing.run(intent(), ledger(), context), /HALT/);
+  assert.deepEqual(placing.broker.placed, []);
+});
+
+test("modify-stop missing, partial, mismatched-price or errored acknowledgements persist uncertain", async (t) => {
+  for (const [name, options] of [
+    ["no acknowledgement", { noAck: true }], ["status without price", { noPriceAck: true }], ["price without new status", { noStatusAck: true }],
+    ["partial", { partial: true }], ["bad quantity", { badQuantity: true }], ["broker error", { errorOnPlace: true }],
+    ["old price", { modificationAck: { auxPrice: 95 } }], ["wrong parent", { modificationAck: { parentId: 999 } }],
+    ["wrong desk", { modificationAck: { orderRef: ref("joe") } }], ["wrong quantity", { modificationAck: { totalQuantity: 3 } }],
+    ["wrong placing client", { modificationAck: { clientId: 27 } }], ["wrong account", { modificationAck: { account: "other" } }],
+    ["changed tif", { modificationAck: { tif: "GTC" } }], ["changed type", { modificationAck: { orderType: "LMT" } }],
+  ]) await t.test(name, async () => {
+    const h = modifyFixture(options);
+    await assert.rejects(h.run(h.value, h.state), { code: "uncertain" });
+    assert.equal(h.broker.placed.length, 1); assert.equal(h.state.placements[0].stopHistory[0].status, "uncertain");
+    assert.equal(h.state.intents.get(h.value.intentId).modification.status, "uncertain"); assert.equal(h.broker.live.size, 0);
+    assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("modify-stop recon reports the updated auxPrice and resolves only the exact same live order", async (t) => {
+  for (const observed of [100, 95, 101, "absent", "other-client", "other-parent", "other-desk", "partial"]) await t.test(String(observed), async () => {
+    const h = modifyFixture({ noPriceAck: true });
+    await assert.rejects(h.run(h.value, h.state), { code: "uncertain" });
+    h.state.intents.get(h.value.intentId).status = "uncertain";
+    if (typeof observed === "number") h.broker.orders[0].auxPrice = observed;
+    if (observed === "absent") h.broker.orders = [];
+    if (observed === "other-client") h.broker.orders[0].clientId = 27;
+    if (observed === "other-parent") h.broker.orders[0].parentId = 999;
+    if (observed === "other-desk") h.broker.orders[0].orderRef = ref("joe");
+    if (observed === "partial") h.broker.orders[0].filled = 1;
+    const result = await h.run(intent("recon", { intentId: "j-modify-recon" }), h.state);
+    if (observed === 100) {
+      assert.equal(result.openOrders[0].auxPrice, 100); assert.equal(h.state.intents.get(h.value.intentId).resolution.status, "modified");
+      assert.equal(h.state.placements[0].stopHistory[0].status, "submitted");
+    } else assert.equal(h.state.intents.get(h.value.intentId).status, "uncertain");
+  });
+});
+
+test("modify-stop blocks another intent while the same stop has an unresolved modification", async () => {
+  const h = modifyFixture({ noPriceAck: true });
+  await assert.rejects(h.run(h.value, h.state), { code: "uncertain" });
+  h.state.intents.get(h.value.intentId).status = "uncertain";
+  await assert.rejects(h.run({ ...h.value, intentId: "j-second-modify", order: { stopPrice: 101 } }, h.state), /unresolved modification/);
+  assert.equal(h.broker.placed.length, 1);
+});
+
+test("HTTP modify-stop stores the result, replays once, conflicts on changed content and permits a new ID", async (t) => {
+  const h = modifyFixture();
+  const app = createServer({ testMode: true, listenHost: "127.0.0.1", listenPort: 0, gatewayPort: 4002, gatewayHost: "100.64.0.6", allowlist: ["127.0.0.1"], stateDir: mkdtempSync(path.join(tmpdir(), "ops266-modify-http-")), execute: (value, state, context) => executeIntent(value, state, context, h.runtime) });
+  const stored = app.ledger.load(); stored.placements = h.state.placements; app.ledger.save(stored);
+  async function request(method, url, body) {
+    const req = Readable.from(body ? [Buffer.from(JSON.stringify(body))] : []);
+    req.method = method; req.url = url; req.socket = { remoteAddress: "127.0.0.1" };
+    let status; let result;
+    await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
+    return { status, result };
+  }
+  t.mock.method(console, "error", () => {});
+  app.ledger.setHalt("operator stop");
+  const first = await request("POST", "/v1/intents", h.value);
+  const replay = await request("POST", "/v1/intents", h.value);
+  assert.equal(first.status, 200); assert.equal(replay.result.idempotentReplay, true); assert.equal(h.broker.placed.length, 1);
+  assert.equal((await request("POST", "/v1/intents", { ...h.value, order: { stopPrice: 101 } })).status, 409);
+  const again = await request("POST", "/v1/intents", { ...h.value, intentId: "j-next-modify", order: { stopPrice: 101 } });
+  assert.equal(again.status, 200); assert.equal(h.broker.placed.length, 2);
+  const state = app.ledger.load();
+  assert.equal(state.intents.get(h.value.intentId).status, "done"); assert.equal(state.intents.get(h.value.intentId).modification.to, 100);
+  assert.deepEqual(state.placements[0].stopHistory.map((row) => [row.from, row.to, row.status]), [[95, 100, "submitted"], [100, 101, "submitted"]]);
+  assert.equal((await request("GET", `/v1/intents/${h.value.intentId}`)).result.modification.to, 100);
+  const denied = await request("POST", "/v1/intents", { ...h.value, intentId: "j-loose-modify", order: { stopPrice: 99 } });
+  assert.equal(denied.status, 422); assert.equal(denied.result.code, "modify_stop_refused"); assert.match(denied.result.reason, /strictly tighten/);
+  assert.equal(h.broker.placed.length, 2);
+  h.broker.noPriceAck = true;
+  const uncertain = { ...h.value, intentId: "j-uncertain-modify", order: { stopPrice: 102 } };
+  assert.equal((await request("POST", "/v1/intents", uncertain)).result.status, "uncertain");
+  assert.equal(app.ledger.load().intents.get(uncertain.intentId).status, "uncertain");
+  assert.equal((await request("POST", "/v1/intents", uncertain)).result.idempotentReplay, true);
+  assert.equal(h.broker.placed.length, 3);
+  assert.equal((await request("POST", "/v1/intents", intent("recon", { intentId: "j-http-stop-recon" }))).status, 200);
+  const reconciled = await request("GET", `/v1/intents/${uncertain.intentId}`);
+  assert.equal(reconciled.result.status, "ok"); assert.equal(reconciled.result.resolution.status, "modified");
+  assert.equal(app.ledger.load().placements[0].stopHistory[2].status, "submitted");
+});
+
+test("modify-stop refuses stale cached marks, invalid ticks and incomplete market snapshots", async (t) => {
+  for (const [name, options] of [
+    ["cached-only mark", { noMark: true, onSnapshot: (session) => { session.state.marks[1] = { price: 110, field: 4, currency: "USD", observedAt: new Date().toISOString() }; } }],
+    ["zero mark", { quotes: [[4, 0]] }], ["non-finite mark", { quotes: [[4, Infinity]] }],
+    ["snapshot not completed", { noMarkEnd: true }],
+  ]) await t.test(name, async () => {
+    const h = modifyFixture(options);
+    await assert.rejects(h.run(h.value, h.state), /fresh last\/close mark/);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("modify-stop attributes complete earlier-day history from cached fills without using their quantities", async () => {
+  const known = fill({ time: new Date(Date.now() - 86400000).toISOString() });
+  const history = { ...known, execution: { ...known.execution, orderRef: undefined, orderId: undefined, shares: 1 } };
+  const h = modifyFixture({ history: [history], executions: [], stop: { quantity: 1 }, positions: [{ ...contract(), position: 1 }] });
+  h.state.executions = [known]; h.state.placements[0].quantity = 1;
+  assert.equal((await h.run(h.value, h.state)).status, "ok");
+  assert.equal(h.broker.placed[0].order.totalQuantity, 1); assert.equal(h.state.deskPositions[0].quantity, 1);
+});
+
+test("modify-stop fails closed on reservation failure and retains uncertainty on post-send persistence failure", async () => {
+  const before = modifyFixture(); let saves = 0;
+  await assert.rejects(before.run(before.value, before.state, { saveState: () => { if (++saves === 1) throw new Error("reservation save failed"); } }), /reservation save failed/);
+  assert.deepEqual(before.broker.placed, []); assert.equal(before.state.placements[0].stopHistory[0].status, "rejected");
+  const after = modifyFixture(); saves = 0;
+  await assert.rejects(after.run(after.value, after.state, { saveState: () => { if (++saves === 2) throw new Error("ack save failed"); } }), { code: "uncertain" });
+  assert.equal(after.broker.placed.length, 1); assert.equal(after.state.placements[0].stopHistory[0].status, "uncertain");
+});
+
+test("HTTP modify-stop validation explains missing selector, extra order fields and expiry", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const h = modifyFixture();
+  const app = createServer({ testMode: true, listenHost: "127.0.0.1", listenPort: 0, gatewayPort: 4002, gatewayHost: "100.64.0.6", allowlist: ["127.0.0.1"], stateDir: mkdtempSync(path.join(tmpdir(), "ops266-stop-validation-")), execute: () => assert.fail("invalid intent reached executor") });
+  for (const [body, reason] of [
+    [{ ...h.value, orderId: undefined }, /exactly one/],
+    [{ ...h.value, order: { stopPrice: 100, quantity: 3 } }, /unsupported field/],
+    [{ ...h.value, expiresAt: new Date(Date.now() - 1000).toISOString() }, /expired/],
+  ]) {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+    req.method = "POST"; req.url = "/v1/intents"; req.socket = { remoteAddress: "127.0.0.1" };
+    let result; let status;
+    await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
+    assert.equal(status, 400); assert.equal(result.code, "modify_stop_refused"); assert.match(result.reason, reason);
   }
 });
