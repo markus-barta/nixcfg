@@ -96,10 +96,11 @@
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     #
-    # NIX-574 / INSPR-466: published v260922101217.0.0, Aithema 0.10.1.
+    # NIX-607 / INSPR-548: published v261008075622.0.0; the inspr CLI's checkout
+    # paths now come from inspr.cli.fleet in modules/shared/markus-defaults.nix.
     # INSPR-483: keep this input synchronized with the doctrine gitlink.
-    # Rollback: previous pair 21b814057825c06b7f1e93f9deacdb4c549e11c6.
-    inspr-modules.url = "github:inspr-at/inspr-modules/84e3b040afa2ae6010b3b3a1f43daeebb5a149bb";
+    # Rollback: previous pair 84e3b040afa2ae6010b3b3a1f43daeebb5a149bb.
+    inspr-modules.url = "github:inspr-at/inspr-modules/9eedb7f8f25a16def596f5ee8798d88262cb482e"; # v261008075622.0.0
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
