@@ -235,6 +235,13 @@ its sign and cannot exceed its owned quantity. SELL stops must move strictly
 up, BUY stops strictly down. A newly requested last/close snapshot must keep
 the new stop at least 0.5% below the mark for SELL or above it for BUY;
 missing quotes, equal/looser stops and marketable stops are refused.
+Marks request IB delayed data (`reqMarketDataType(3)`) and accept delayed
+last/close ticks. These prices can lag up to about 15 minutes; freshness means
+the executor just received the snapshot, not that the price is real-time.
+The 0.5% distance rule remains unchanged. IB 354 subscription warnings are
+informational only when that request completes with a usable delayed mark.
+A mark error or missing quote for a non-target symbol cannot block another
+desk's action; position and order reconciliation remain strict.
 HALT permits this risk reduction; expiry is still checked before sending.
 The executor uses `placeOrder` with the same order ID, original contract and
 order fields, changing only `auxPrice` and setting `transmit: true`; it never
@@ -248,6 +255,13 @@ order identity are observed; absence or a different price remains uncertain.
 Repeating the same intent returns the stored result; each further tightening
 requires a new intent ID. Modification refusals return `modify_stop_refused`
 with the preflight reason; internal history/transport diagnostics stay local.
+
+Owned unfilled orders in `PreSubmitted`, `Submitted` or `PendingSubmit` are
+eligible for cancellation. Success requires IB `Cancelled`/`ApiCancelled`
+status or error 202 (`Order Canceled`), or completed same-session open-order
+and execution snapshots proving the order is absent with no fill. Missing
+or incomplete evidence, a remaining working order, or a fill leaves the
+cancel outcome uncertain and requires reconciliation before retry.
 
 KEEP, never sell, flatten, or close: **SXR8** (1401 shares) and **TSLA**
 (1 share). Brakes: EUR 25 per name, EUR 50 per New York day, EUR 1000

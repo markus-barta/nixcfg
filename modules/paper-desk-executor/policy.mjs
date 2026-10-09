@@ -13,6 +13,7 @@ export const LIMITS = Object.freeze({
   concurrent: 3,
   fleetConcurrent: 6,
   minStopFraction: 0.005,
+  maxDelayedMarkAgeSeconds: 1200,
   fxSafetyBuffer: 1.02,
 });
 

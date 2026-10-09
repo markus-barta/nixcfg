@@ -1,4 +1,4 @@
-import { ACCOUNT, newYorkDay, normalizeOrderRef, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
+import { ACCOUNT, LIMITS, newYorkDay, normalizeOrderRef, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
 import { assertBrokerRuntime, deskPositions, flattenOwned, freshExecutionSnapshot, freshMarks, freshUsdToEur, modifyStopOwned, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
 import { rememberFirstOrders } from "./state.mjs";
 
@@ -10,6 +10,7 @@ function configFromHost() {
     ownership: JSON.parse(process.env.IB_DESK_OWNERSHIP_CLIENT_IDS || "{}"),
     ownershipLedger: process.env.IB_DESK_OWNERSHIP_LEDGER || "",
     blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true",
+    maxDelayedMarkAgeSeconds: Number(process.env.IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS || LIMITS.maxDelayedMarkAgeSeconds),
   };
 }
 
@@ -80,6 +81,7 @@ export function assertRuntime() {
 }
 
 function validateConfig(config) {
+  if (config.maxDelayedMarkAgeSeconds !== undefined && (!Number.isFinite(config.maxDelayedMarkAgeSeconds) || config.maxDelayedMarkAgeSeconds <= 0)) throw new Error("maximum delayed mark age must be positive seconds");
   const { executor, recon } = config.clientIds;
   if (!Number.isSafeInteger(executor) || executor <= 0 || !Number.isSafeInteger(recon) || recon <= 0 || executor === recon) throw new Error("executor and recon require distinct valid client IDs");
   const legacy = Object.values(config.ownership).flat();
@@ -128,7 +130,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     let change;
     let placement;
     try {
-      const outcome = await modifyStopOwned({ desk: intent.desk, clientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, intentRecords: state.intents, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
+      const outcome = await modifyStopOwned({ desk: intent.desk, clientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, intentRecords: state.intents, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, maxDelayedMarkAgeSeconds: config.maxDelayedMarkAgeSeconds, intent, guard, connect, readHistory, onPlan: (plan) => {
         placement = state.placements.find((row) => row.orderIds?.[0] === plan.parentId && row.orderIds?.[1] === plan.orderId && row.clientId === clientId && row.desk === intent.desk && row.symbol === plan.symbol && row.quantity === plan.quantity && row.side === (plan.action === "SELL" ? "BUY" : "SELL") && !["rejected", "absent"].includes(row.status) && normalizeOrderRef(row.orderRef) === normalizeOrderRef(plan.orderRef));
         change = { at: new Date().toISOString(), from: plan.from, to: plan.to, intentId: intent.intentId, orderId: plan.orderId, status: "reserved" };
         (placement.stopHistory ||= []).push(change);
