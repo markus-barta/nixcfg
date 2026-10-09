@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261008161926.0.0@sha256:f1fceda000a31546d9997d902f11188628e134de13d800e2e3e77f5a2b06d887"; # release 126 Fuzzy Facet (AEON-988); 127 rolled back: migration 1296 backfill violates events RLS (AEON-1026)
+      image = "ghcr.io/inspr-at/aeon:261009095632.0.0@sha256:d916ebb57249fda5f192e74b37ebd770c0eb67c26aafeb1c0045a635e8aa940c"; # release 128 Hidden Helium (AEON-1032) = 127 + AEON-1031 RLS-safe migration 1296
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
