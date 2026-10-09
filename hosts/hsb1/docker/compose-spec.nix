@@ -82,7 +82,7 @@
         "PIXDCON_CONFIG_PATH=/data/config.json"
       ];
       env_file = [
-        "/run/agenix/hsb1-pixdcon-env" # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS / SONNEN_BATTERY_HOST / SONNEN_BATTERY_API_TOKEN
+        "/run/agenix/hsb1-pixdcon-env" # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS / SONNEN_BATTERY_HOST / SONNEN_BATTERY_API_TOKEN / SYNCBOX_BEARER_TOKEN
       ];
       volumes = [
         "/home/mba/docker/mounts/pixdcon/config.json:/data/config.json" # rw — web UI saves settings
@@ -93,6 +93,9 @@
       labels = [
         "com.centurylinklabs.watchtower.enable=true"
         "com.centurylinklabs.watchtower.scope=weekly"
+        # PIXD-52: env_file content changes do not change the compose definition;
+        # this hash recreates pixdcon exactly when the encrypted env rotates.
+        ("pixdcon.env-rev=" + builtins.hashFile "sha256" ../../../secrets/hsb1-pixdcon-env.age)
       ];
     };
     # Reconciled from deployed host state on 2026-05-25 (was running on hsb1
