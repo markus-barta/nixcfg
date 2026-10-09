@@ -13,11 +13,11 @@ grep -Fq 'alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f
 
 # The expression intentionally matches literal shell variable references.
 # shellcheck disable=SC2016
-if grep -ERq -- '--entrypoint (sh|cat|id|sha256sum) ("\$IMAGE"|"\$image"|\$IMAGE|\$image)' "$janus_root"; then
+if grep -ERq --include='*.sh' -- '--entrypoint (sh|cat|id|sha256sum) ("\$IMAGE"|"\$image"|\$IMAGE|\$image)' "$janus_root"; then
   printf 'Janus operational scripts still expect shell tooling in the scratch runtime image\n' >&2
   exit 1
 fi
-if grep -Rq 'binary = "/bin/sh"' "$janus_root"; then
+if grep -Rq --include='*.toml' 'binary = "/bin/sh"' "$janus_root"; then
   printf 'Janus managed-command policy still depends on a runtime shell\n' >&2
   exit 1
 fi
@@ -50,16 +50,21 @@ def block(name: str) -> str:
         raise SystemExit(f"missing service: {name}")
     return match.group("body")
 
-for name in ("janus", "janus-engine-staged"):
+for name in ("janus", "janus-placeholder", "janus-engine-staged"):
     service = block(name)
     for expected in (
         "read_only = true;",
         '"ALL"',
         '"no-new-privileges:true"',
-        'restart = "no";' if name in ("janus-managed-canary",) else 'restart = "unless-stopped";',
+        'restart = "no";' if name == "janus" else 'restart = "unless-stopped";',
     ):
         if expected not in service:
             raise SystemExit(f"{name} missing {expected}")
+
+if 'profiles = [ "janus-retired" ];' not in block("janus"):
+    raise SystemExit("Janus v1 must stay outside default compose reconciliation")
+if 'user = "1000:1000";' not in block("janus-placeholder"):
+    raise SystemExit("Janus placeholder must run non-root")
 
 engine = block("janus-engine-staged")
 for expected in (

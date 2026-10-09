@@ -89,6 +89,7 @@ jq -e '
   and .network.addresses == {
     host:"10.253.253.1",
     janus:"10.253.253.3",
+    janusPlaceholder:"10.253.253.6",
     pharos:"10.253.253.5",
     traefik:"10.253.253.2"
   }
@@ -114,7 +115,7 @@ jq -e '
     },
     upstreams:{
       aithema:{url:"http://10.253.253.1:8787"},
-      janus:{url:"http://10.253.253.3:8080"},
+      janus:{url:"http://10.253.253.6:8080"},
       pharos:{url:"http://10.253.253.5:8080"}
     }
   }
@@ -179,6 +180,7 @@ jq -e '
 
 yq eval -e '
   .http.routers."inspr-legacy-pharos-proxy"
+  and .http.services."inspr-routing-edge-upstream-janus".loadBalancer.servers[0].url == "http://10.253.253.6:8080"
   and .http.routers."inspr-legacy-janus-proxy"
   and .http.routers."inspr-legacy-pharos-private-internal-root"
   and .http.routers."inspr-legacy-janus-private-internal-root"
@@ -262,6 +264,42 @@ for required in (
 ):
     if required not in triggers:
         raise SystemExit(f"active compose restart triggers are missing: {required}")
+PY
+
+nix --offline eval --impure --json --expr "
+  let services = (import $compose).services; in {
+    inherit (services) janus janus-placeholder;
+  }
+" | jq -e '
+  .janus.profiles == ["janus-retired"] and .janus.restart == "no"
+  and .["janus-placeholder"].networks == {"shared-flow":{ipv4_address:"10.253.253.6"}}
+  and .["janus-placeholder"].read_only == true
+  and .["janus-placeholder"].cap_drop == ["ALL"]
+  and .["janus-placeholder"].security_opt == ["no-new-privileges:true"]
+  and .["janus-placeholder"].volumes == [{
+    type:"bind", source:"./janus-placeholder", target:"/srv/janus-placeholder",
+    read_only:true, bind:{create_host_path:false}
+  }]
+' >/dev/null
+
+python3 - "$repo_root/hosts/csb1/docker/janus-placeholder" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+if hashlib.sha256((root / "index.html").read_bytes()).hexdigest() != "32e8c0ea9e5ad90d60638e2a47929b40431e116aa0ef4e57c67db34fa661bf0c":
+    raise SystemExit("Janus placeholder HTML differs from the approved exact copy")
+caddy = (root / "Caddyfile").read_text()
+for required in (
+    ":8080 {", "admin off", "auto_https off", "persist_config off",
+    "@internal path /internal /internal/* /janus/internal /janus/internal/*",
+    'respond "" 204', "@pageBody not method HEAD", "method @pageBody GET",
+    "Retry-After 86400", "Cache-Control no-store",
+    "X-Robots-Tag noindex", "rewrite * /index.html", "status 503",
+):
+    if required not in caddy:
+        raise SystemExit(f"Janus placeholder Caddy contract missing: {required}")
 PY
 
 grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.janus;' "$compose"
