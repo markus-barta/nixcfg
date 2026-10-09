@@ -34,7 +34,7 @@ function intradayCoverage() {
 function harness(options = {}) {
   const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], marketDataTypes: [], markRequests: [], live: new Set(), ...options };
   class FakeIB extends EventEmitter {
-    constructor({ clientId }) { super(); this.clientId = clientId; }
+    constructor({ clientId }) { super(); this.clientId = clientId; this.autoCancelled = new Set(); }
     connect() {
       assert.equal(broker.live.has(this.clientId), false, "duplicate client session");
       broker.live.add(this.clientId); broker.connections.push(this.clientId);
@@ -62,6 +62,8 @@ function harness(options = {}) {
       broker.markRequests.push({ id, contract: c });
       broker.onMarkRequest?.(this, id, c);
       if (broker.mark354) this.emit(events.error, new Error("Requested market data is not subscribed; delayed data is available"), 354, id);
+      if (broker.mark10089) this.emit(events.error, new Error("Requested market data is not subscribed"), 10089, id);
+      if (broker.mark10167) this.emit(events.error, new Error("Requested market data is not subscribed. Displaying delayed market data."), 10167, id);
       if (!broker.noMark && !broker.noMarkSymbols?.includes(c.symbol)) for (const [field, price] of broker.quotes || [[4, broker.mark ?? 101]]) this.emit(events.tickPrice, id, field, price);
       if (!broker.noMarkEnd) this.emit(events.tickSnapshotEnd, id);
       broker.onMark?.(this);
@@ -78,10 +80,15 @@ function harness(options = {}) {
       broker.afterPlace?.(broker.placed.length);
     }
     cancelOrder(id) {
+      if (broker.autoCancelChildren) {
+        for (const row of broker.orders.filter((row) => row.parentId === id && row.clientId === this.clientId)) this.autoCancelled.add(row.orderId);
+        broker.orders = broker.orders.filter((row) => !this.autoCancelled.has(row.orderId));
+      }
       broker.cancelled.push(id); if (!broker.keepCancelledOrder) broker.orders = broker.orders.filter((row) => row.orderId !== id);
       if (broker.errorOnCancel) this.emit(events.error, new Error("cancel rejection"), 201, id);
+      if (broker.cancelErrorCode || this.autoCancelled.has(id)) this.emit(events.error, new Error("order is not cancellable or not found"), broker.cancelErrorCode || 161, broker.cancelErrorOrderId ?? id);
       if (broker.cancel202) this.emit(events.error, new Error("Order Canceled"), 202, broker.cancel202OrderId ?? id);
-      if (!broker.noCancelAck) this.emit(events.orderStatus, id, broker.cancelStatus || "Cancelled", broker.cancelFilled || 0, 0, 0, 0, 0, 0, this.clientId);
+      if (!broker.noCancelAck && (!this.autoCancelled.has(id) || broker.autoCancelChildAck)) this.emit(events.orderStatus, id, broker.cancelStatus || "Cancelled", broker.cancelFilled || 0, 0, 0, 0, 0, 0, this.clientId);
       broker.afterCancel?.();
     }
   }
@@ -787,6 +794,32 @@ test("cancel without explicit acknowledgement proves absence using completed ope
   assert.equal(h.broker.executionRequests[0].filter.acctCode, ACCOUNT);
 });
 
+test("cancel by orderRef confirms a child auto-cancelled with its parent despite IB 161 or 10147", async (t) => {
+  for (const code of [161, 10147]) for (const ack of ["absence", "status", "202"]) await t.test(`${code}: ${ack}`, async () => {
+    const h = harness({ orders: [order(), order({ orderId: 31, parentId: 30, action: "SELL", orderType: "STP" })], autoCancelChildren: true, autoCancelChildAck: ack === "status", cancel202: ack === "202" });
+    // Only the second request fails: IB already removed the child with its parent.
+    if (code === 10147) h.broker.afterCancel = () => { h.broker.cancelErrorCode = 10147; };
+    assert.equal((await h.run(intent("cancel", { orderRef: ref() }))).status, "ok");
+    assert.deepEqual(h.broker.cancelled, [30, 31]); assert.deepEqual(h.broker.orders, []);
+    assert.equal(h.broker.executionRequests.length, ack === "absence" ? 1 : 0);
+    assert.equal(h.broker.live.size, 0);
+  });
+});
+
+test("cancel keeps unconfirmed and unrelated IB 161 or 10147 uncertain", async (t) => {
+  for (const code of [161, 10147]) for (const [name, options] of [
+    ["still working", { noCancelAck: true, keepCancelledOrder: true }],
+    ["unrelated request ID", { cancelErrorOrderId: 99 }],
+    ["fill", { cancelFilled: 1 }],
+    ["incomplete snapshot", { noCancelAck: true, noCancelExecutionsEnd: true }],
+  ]) await t.test(`${code}: ${name}`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const h = harness({ orders: [order()], cancelErrorCode: code, wait: async (ms) => { t.mock.timers.tick(ms); }, ...options });
+    await assert.rejects(h.run(intent("cancel", { orderId: 30 })), { code: "uncertain" });
+    assert.deepEqual(h.broker.cancelled, [30]); assert.equal(h.broker.live.size, 0);
+  });
+});
+
 test("a cancellation confirmation arriving during the fallback replay resolves the outcome", async (t) => {
   for (const ack of ["202", "Cancelled"]) await t.test(ack, async () => {
     const h = harness({ orders: [order()], noCancelAck: true, noCancelExecutionsEnd: true, onExecutionRequest: (api) => {
@@ -1052,9 +1085,9 @@ test("modify-stop orderRef selects the child and preserves the original uppercas
   assert.equal(result.status, "ok"); assert.equal(h.broker.placed[0].id, 21); assert.equal(h.broker.placed[0].order.orderRef, ref("J"));
 });
 
-test("modify-stop uses delayed last/close despite live-subscription 354 and quote-cleanup 300", async (t) => {
-  for (const short of [false, true]) for (const field of [68, 75]) await t.test(`${short ? "short" : "long"} tick ${field}`, async () => {
-    const h = modifyFixture({ short, quotes: [[field, 110]], mark354: true, markCancel300: true });
+test("modify-stop uses delayed last/close despite subscription warnings and quote-cleanup 300", async (t) => {
+  for (const warning of ["mark354", "mark10089", "mark10167"]) for (const short of [false, true]) for (const field of [68, 75]) await t.test(`${warning}: ${short ? "short" : "long"} tick ${field}`, async () => {
+    const h = modifyFixture({ short, quotes: [[field, 110]], [warning]: true, markCancel300: true });
     h.value.order.stopPrice = 110 * (short ? 1.005 : 0.995);
     const result = await h.run(h.value, h.state);
     assert.equal(result.status, "ok"); assert.equal(result.modification.mark.field, field);
@@ -1069,6 +1102,10 @@ test("delayed modify-stop retains the 0.5% distance and blocks target mark error
     ["distance unchanged", { quotes: [[68, 110]] }, 109.5, /at least 0.5%/],
     ["no delayed quote", { noMark: true, mark354: true }, 100, /reconciliation|fresh last\/close/],
     ["354 plus live tick only", { quotes: [[4, 110]], mark354: true }, 100, /reconciliation/],
+    ["10167 without delayed quote", { noMark: true, mark10167: true }, 100, /reconciliation|fresh last\/close/],
+    ["10167 plus live tick only", { quotes: [[4, 110]], mark10167: true }, 100, /reconciliation/],
+    ["10089 without delayed quote", { noMark: true, mark10089: true }, 100, /reconciliation|fresh last\/close/],
+    ["10168 stays blocking even with delayed quote", { quotes: [[68, 110]], onMarkRequest: (api, id) => api.emit(events.error, new Error("delayed data not enabled"), 10168, id) }, 100, /reconciliation/],
     ["another target quote error", { quotes: [[68, 110]], onMarkRequest: (api, id) => api.emit(events.error, new Error("quote failed"), 200, id) }, 100, /reconciliation/],
   ]) await t.test(name, async () => {
     const h = modifyFixture(options); h.value.order.stopPrice = price;
