@@ -677,6 +677,23 @@ Break glass does not enable reveal. Its only supported outcome is restoring the
 last healthy declared generation or leaving the canary stopped. Record the
 reason and exact reviewed revision in PPM before resuming normal operations.
 
+### AEON review GitHub App secrets (OPS-269)
+
+The App key and webhook secret are encrypted in `secrets/csb1-aeon-review-app-key.age`
+and `secrets/csb1-aeon-review-webhook-secret.age` for Markus and csb1. Agenix decrypts
+root-only copies; on every start, `aeon-secrets.service` atomically reinstalls them
+as physical files `/var/lib/aeon-secrets/review-app-key.pem` and
+`/var/lib/aeon-secrets/review-webhook-secret`, owned by `65532:65532` with mode `0400`,
+inside its root-owned `0700` directory. AEON mounts these read-only at
+`/run/secrets/aeon-review-app-key.pem` and `/run/secrets/aeon-review-webhook-secret`.
+Rotate by re-encrypting the affected `.age` file through the reviewed Git flow and
+switching NixOS: ciphertext changes restart the installer and change AEON's
+`ops269.review-credentials` label, so Compose recreates AEON after installation
+to remount the new files. Unrelated reconciles retain the container. The installer
+rejects webhook secrets with fewer than 32 non-whitespace bytes and preserves the
+previous credential files. Activate this wiring together with the separately
+reviewed release-126 image pin.
+
 ### Upgrade PAIMOS (pm.barta.cm) — retired
 
 **NIX-584 / AEON-261:** classic Paimos is no longer in the csb1 compose spec.
