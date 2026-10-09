@@ -184,8 +184,8 @@ in
         "AEON_ADDR=:8080"
         "AEON_FILES_DIR=/data/files"
         "AEON_PUBLIC_URL=https://aeon.barta.cm"
-        # AEON-988: release 126 workers exhausted the default pgx pool (4 conns on 4 CPUs); explicit pool.
-        "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable&pool_max_conns=20"
+        # AEON-988: release 126 workers exhausted the default pgx pool (4 conns on 4 CPUs); explicit pool (30 until AEON-995).
+        "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable&pool_max_conns=30"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
         "AEON_SESSION_KEY_FILE=/run/secrets/aeon-session-key"
         "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
