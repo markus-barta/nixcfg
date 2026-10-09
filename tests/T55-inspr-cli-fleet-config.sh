@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # NIX-375 — the operator Home Manager profile must consume the public
 # inspr-modules CLI module and render exactly the six non-secret fleet-routing
-# values that belong to this private studio.
+# values that belong to this private studio, plus (NIX-607) the three checkout
+# paths and clone URL the CLI no longer assumes.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -24,7 +25,10 @@ fleet_conf=$(
 )
 
 # OPS-231 step 3 (AEON-43): the mbp2607 ppm routing moved to Aeon.
-expected_assignments='INSPR_HEADSCALE_URL=https://hs.barta.cm
+expected_assignments='INSPR_DIR=/Users/markus/Code/inspr
+INSPR_HEADSCALE_URL=https://hs.barta.cm
+INSPR_NIXCFG_DIR=/Users/markus/Code/nixcfg
+INSPR_NIXCFG_REPO_URL=https://github.com/markus-barta/nixcfg.git
 INSPR_PAIMOS_INSTANCE=ppm
 INSPR_PAIMOS_URL=https://aeon.barta.cm
 INSPR_PHAROS_HOST=csb1
@@ -33,10 +37,10 @@ INSPR_TAILNET_NAME=hs.barta.cm'
 actual_assignments=$(printf '%s\n' "$fleet_conf" | sed -n '/^INSPR_[A-Z_]*=/p' | LC_ALL=C sort)
 
 [ "$actual_assignments" = "$expected_assignments" ] ||
-  fail 'rendered fleet.conf does not contain exactly the six approved public routing values'
+  fail 'rendered fleet.conf does not contain exactly the nine approved non-secret values'
 
 if printf '%s\n' "$actual_assignments" | grep -Eq '(TOKEN|PASSWORD|SECRET|CREDENTIAL|API_KEY|PRIVATE_KEY)'; then
   fail 'rendered fleet.conf contains a credential-shaped variable name'
 fi
 
-printf 'T55 passed: mbp2607 renders exactly six non-secret inspr fleet values\n'
+printf 'T55 passed: mbp2607 renders exactly nine non-secret inspr fleet values\n'
