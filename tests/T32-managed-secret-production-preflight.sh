@@ -442,6 +442,7 @@ jq -e \
     );
   .services["janus-managed-transactiond"] as $transaction
   | .services.janus as $janus
+  | .services["janus-placeholder"] as $placeholder
   | .services.pharosd as $pharos
   | .services["janus-managed-canary"] as $canary
   | $transaction.profiles == ["janus-managed-service"]
@@ -477,6 +478,14 @@ jq -e \
   and ($transaction | closed_bind("/etc/janus/managed/release-channels-v1.json"; true))
   and ($transaction | closed_bind("/etc/janus/managed/release-admission.json"; true))
   and $janus.user == "100:101"
+  and $janus.profiles == ["janus-retired"]
+  and $janus.restart == "no"
+  and $placeholder.image == "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
+  and ($placeholder | has("profiles") | not)
+  and $placeholder.restart == "unless-stopped"
+  and $placeholder.read_only == true
+  and $placeholder.networks["shared-flow"].ipv4_address == "10.253.253.6"
+  and ($placeholder | closed_bind("/srv/janus-placeholder"; true))
   and ($janus.group_add | index("991") != null)
   and any($janus.volumes[];
     .source == "/run/agenix/csb1-janus-managed-internal-token"

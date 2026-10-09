@@ -22,6 +22,17 @@ pharos_images=$(sed -n \
 printf '%s\n' "$pharos_images" | grep -Eq \
   '^ghcr\.io/inspr-at/pharos/pharosd:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'
 grep -Fq 'PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm' "$compose"
+# OPS-280: retirement still uses the staged engine while the v1 UI is off.
+nix --offline eval --impure --json --expr "
+  let services = (import $compose).services; in {
+    inherit (services) janus janus-placeholder janus-engine-staged;
+  }
+" | jq -e '
+  .janus.profiles == ["janus-retired"] and .janus.restart == "no"
+  and .["janus-placeholder"].networks["shared-flow"].ipv4_address == "10.253.253.6"
+  and .["janus-engine-staged"].profiles == ["janus-engine-staged"]
+  and .["janus-engine-staged"].restart == "unless-stopped"
+' >/dev/null
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 # shellcheck disable=SC2016
 grep -Fq -- '--config "$auth_config"' "$executor_source"

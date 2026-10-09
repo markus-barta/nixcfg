@@ -199,6 +199,13 @@ off, on, live, rotated, shared_off, real_on = map(json.loads, sys.argv[1:7])
 failures = []
 var = "JANUS_FLOW_CONFIG_FILE"
 
+for label, service in zip(
+    ("off", "on", "live", "rotated", "shared_off", "real_on"),
+    (off, on, live, rotated, shared_off, real_on),
+):
+    if service.get("profiles") != ["janus-retired"] or service.get("restart") != "no":
+        failures.append(f"{label} Janus v1 must remain retired regardless of Flow activation")
+
 def flow_vars(service):
     return [value for value in service["environment"] if value.startswith(var + "=")]
 
