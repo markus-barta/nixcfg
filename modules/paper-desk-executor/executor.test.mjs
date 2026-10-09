@@ -9,7 +9,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { createServer } from "./server.mjs";
 import { executeIntent } from "./executor.mjs";
-import { deskPositions, flattenOwned, openSession, readPusherExecutions, reconcileDeskPositions } from "./ib.mjs";
+import { deskPositions, flattenOwned, freshMarks, openSession, readPusherExecutions, reconcileDeskPositions } from "./ib.mjs";
 import { brakeUsage, parseIntent, newYorkDay } from "./policy.mjs";
 import { runClient } from "./client/paper-intent.mjs";
 
@@ -32,7 +32,7 @@ function intradayCoverage() {
   return { status: "known", gaps: [{ fromInclusive: new Date(midnight).toISOString(), toExclusive: new Date(now).toISOString(), reason: "no authoritative completeness receipt" }], target: { fromInclusive: new Date(midnight - 86400000).toISOString(), toExclusive: new Date(now).toISOString() } };
 }
 function harness(options = {}) {
-  const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], live: new Set(), ...options };
+  const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], marketDataTypes: [], markRequests: [], live: new Set(), ...options };
   class FakeIB extends EventEmitter {
     constructor({ clientId }) { super(); this.clientId = clientId; }
     connect() {
@@ -43,20 +43,30 @@ function harness(options = {}) {
     disconnect() { broker.live.delete(this.clientId); this.emit(events.disconnected); }
     reqManagedAccts() { this.emit(events.managedAccounts, ACCOUNT); }
     reqPositions() { for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
-    reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0, 0, row.parentId, 0, row.clientId); } this.emit(events.openOrderEnd); }
+    reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0, 0, row.parentId, 0, row.clientId); } if (!broker.noCancelOrdersEnd || !broker.cancelled.length) this.emit(events.openOrderEnd); }
     reqExecutions(id, filter) {
       broker.executionRequests.push({ id, filter });
       if (broker.executionError) this.emit(events.error, new Error("execution snapshot failed"), 201, id);
       for (const row of broker.executions) this.emit(events.execDetails, id, row.contract, row.execution);
       for (const fee of broker.commissions) this.emit(events.commissionReport, fee);
-      this.emit(events.execDetailsEnd, broker.wrongExecutionRequest ? id + 1 : id);
+      if (!broker.noCancelExecutionsEnd || !broker.cancelled.length) this.emit(events.execDetailsEnd, broker.wrongExecutionRequest ? id + 1 : id);
+      broker.onExecutionRequest?.(this, id);
     }
     reqIds() { this.emit(events.nextValidId, 100 + broker.placed.length); }
     reqContractDetails(id, request) { this.emit(events.contractDetails, id, { contract: broker.resolve ? broker.resolve(request) : contract(request.symbol, request.symbol === "AAPL" ? 1 : 2), stockType: "COMMON" }); this.emit(events.contractDetailsEnd, id); broker.onContractDetails?.(this); }
     reqAccountUpdatesMulti(id) { this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "1", "EUR"); this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "0.9", "USD"); this.emit(events.accountUpdateMultiEnd, id); broker.onFx?.(); }
     cancelAccountUpdatesMulti() {}
-    reqMktData(id) { if (!broker.noMark) for (const [field, price] of broker.quotes || [[4, broker.mark ?? 101]]) this.emit(events.tickPrice, id, field, price); if (!broker.noMarkEnd) this.emit(events.tickSnapshotEnd, id); broker.onMark?.(this); }
-    cancelMktData() {}
+    reqMarketDataType(type) { broker.marketDataTypes.push(type); this.marketDataType = type; }
+    reqMktData(id, c) {
+      assert.equal(this.marketDataType, 3, "delayed data must be selected before requesting quotes");
+      broker.markRequests.push({ id, contract: c });
+      broker.onMarkRequest?.(this, id, c);
+      if (broker.mark354) this.emit(events.error, new Error("Requested market data is not subscribed; delayed data is available"), 354, id);
+      if (!broker.noMark && !broker.noMarkSymbols?.includes(c.symbol)) for (const [field, price] of broker.quotes || [[4, broker.mark ?? 101]]) this.emit(events.tickPrice, id, field, price);
+      if (!broker.noMarkEnd) this.emit(events.tickSnapshotEnd, id);
+      broker.onMark?.(this);
+    }
+    cancelMktData(id) { if (broker.markCancel300) this.emit(events.error, new Error("Can't find EId with tickerId"), 300, id); }
     placeOrder(id, c, value) {
       broker.placed.push({ id, contract: { ...c }, order: { ...value }, clientId: this.clientId });
       if (broker.errorOnPlace) this.emit(events.error, new Error("paper rejection"), 201, id);
@@ -68,15 +78,16 @@ function harness(options = {}) {
       broker.afterPlace?.(broker.placed.length);
     }
     cancelOrder(id) {
-      broker.cancelled.push(id); broker.orders = broker.orders.filter((row) => row.orderId !== id);
+      broker.cancelled.push(id); if (!broker.keepCancelledOrder) broker.orders = broker.orders.filter((row) => row.orderId !== id);
       if (broker.errorOnCancel) this.emit(events.error, new Error("cancel rejection"), 201, id);
-      this.emit(events.orderStatus, id, "Cancelled", 0, 0, 0);
+      if (broker.cancel202) this.emit(events.error, new Error("Order Canceled"), 202, broker.cancel202OrderId ?? id);
+      if (!broker.noCancelAck) this.emit(events.orderStatus, id, broker.cancelStatus || "Cancelled", broker.cancelFilled || 0, 0, 0, 0, 0, 0, this.clientId);
       broker.afterCancel?.();
     }
   }
   const connect = async (id, sessionOptions) => {
-    const session = await openSession(id, broker.wrongExecutionRequest ? 5 : 1000, { ...sessionOptions, IBApi: FakeIB, EventName: events, wait: async () => {} });
-    if (!sessionOptions?.ordersOnly) broker.onSnapshot?.(session);
+    const session = await openSession(id, broker.wrongExecutionRequest ? 5 : 1000, { ...sessionOptions, IBApi: FakeIB, EventName: events, wait: broker.wait || (async () => {}) });
+    if (!sessionOptions?.ordersOnly) await broker.onSnapshot?.(session);
     return session;
   };
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: options.history || [], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(Date.now() - 40 * 86400000).toISOString(), toExclusive: new Date().toISOString() } } };
@@ -758,6 +769,53 @@ test("cancel is desk-owned, working, unfilled and allowed during HALT", async ()
   await assert.rejects(error.run(intent("cancel", { orderId: 30 })), { code: "uncertain" });
 });
 
+test("cancel acknowledges working PreSubmitted, Submitted and PendingSubmit via status or IB 202", async (t) => {
+  for (const status of ["PreSubmitted", "Submitted", "PendingSubmit"]) for (const ack of ["Cancelled", "ApiCancelled", "202"]) await t.test(`${status}: ${ack}`, async () => {
+    const h = harness({ orders: [order({ status })], missingHistory: true, ...(ack === "202" ? { cancel202: true, noCancelAck: true } : { cancelStatus: ack }) });
+    const result = await h.run(intent("cancel", { orderRef: ref() }));
+    assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]);
+    assert.deepEqual(h.broker.executionRequests, []);
+    assert.equal(h.broker.live.size, 0);
+  });
+});
+
+test("cancel without explicit acknowledgement proves absence using completed open orders and executions", async () => {
+  const h = harness({ orders: [order()], noCancelAck: true, missingHistory: true });
+  assert.equal((await h.run(intent("cancel", { orderId: 30 }))).status, "ok");
+  assert.deepEqual(h.broker.cancelled, [30]);
+  assert.equal(h.broker.executionRequests.length, 1);
+  assert.equal(h.broker.executionRequests[0].filter.acctCode, ACCOUNT);
+});
+
+test("a cancellation confirmation arriving during the fallback replay resolves the outcome", async (t) => {
+  for (const ack of ["202", "Cancelled"]) await t.test(ack, async () => {
+    const h = harness({ orders: [order()], noCancelAck: true, noCancelExecutionsEnd: true, onExecutionRequest: (api) => {
+      if (ack === "202") api.emit(events.error, new Error("Order Canceled"), 202, 30);
+      else api.emit(events.orderStatus, 30, "Cancelled", 0, 0, 0, 0, 0, 0, 705);
+    } });
+    assert.equal((await h.run(intent("cancel", { orderId: 30 }))).status, "ok");
+    assert.deepEqual(h.broker.cancelled, [30]); assert.equal(h.broker.live.size, 0);
+  });
+});
+
+test("cancel cannot use another order's 202 or absence with a fill, working order or incomplete replay", async (t) => {
+  for (const [name, options] of [
+    ["still working", { keepCancelledOrder: true }],
+    ["wrong 202", { cancel202: true, cancel202OrderId: 99, keepCancelledOrder: true }],
+    ["execution proves fill", { afterCancel: (broker) => { broker.executions.push(fill({ orderId: 30 })); } }],
+    ["202 with filled status", { cancel202: true, cancelFilled: 1, noCancelAck: false }],
+    ["open orders incomplete", { noCancelOrdersEnd: true }],
+    ["executions incomplete", { noCancelExecutionsEnd: true }],
+    ["execution error", { executionError: true }],
+  ]) await t.test(name, async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const h = harness({ orders: [order()], noCancelAck: true, wait: async (ms) => { t.mock.timers.tick(ms); }, ...options });
+    if (options.afterCancel) h.broker.afterCancel = () => options.afterCancel(h.broker);
+    await assert.rejects(h.run(intent("cancel", { orderId: 30 })), { code: "uncertain" });
+    assert.deepEqual(h.broker.cancelled, [30]); assert.equal(h.broker.live.size, 0);
+  });
+});
+
 test("expiry is rechecked before cancellation", async () => {
   const h = harness({ orders: [order()] });
   await assert.rejects(h.run(intent("cancel", { orderId: 30 }), ledger(), { now: () => Date.now() + 600000 }), /expired/);
@@ -992,6 +1050,64 @@ test("modify-stop orderRef selects the child and preserves the original uppercas
   h.broker.orders.push(order({ orderId: 20, orderRef: ref("J") }));
   const result = await h.run(intent("modify-stop", { symbol: "AAPL", orderRef: ref("J"), order: { stopPrice: 100 } }), h.state);
   assert.equal(result.status, "ok"); assert.equal(h.broker.placed[0].id, 21); assert.equal(h.broker.placed[0].order.orderRef, ref("J"));
+});
+
+test("modify-stop uses delayed last/close despite live-subscription 354 and quote-cleanup 300", async (t) => {
+  for (const short of [false, true]) for (const field of [68, 75]) await t.test(`${short ? "short" : "long"} tick ${field}`, async () => {
+    const h = modifyFixture({ short, quotes: [[field, 110]], mark354: true, markCancel300: true });
+    h.value.order.stopPrice = 110 * (short ? 1.005 : 0.995);
+    const result = await h.run(h.value, h.state);
+    assert.equal(result.status, "ok"); assert.equal(result.modification.mark.field, field);
+    assert.equal(result.modification.mark.delayed, true);
+    assert.equal(h.broker.placed.length, 1); assert.deepEqual(h.broker.marketDataTypes, [3]);
+    assert.ok(result.modification.mark.observedAt);
+  });
+});
+
+test("delayed modify-stop retains the 0.5% distance and blocks target mark errors without delayed evidence", async (t) => {
+  for (const [name, options, price, reason] of [
+    ["distance unchanged", { quotes: [[68, 110]] }, 109.5, /at least 0.5%/],
+    ["no delayed quote", { noMark: true, mark354: true }, 100, /reconciliation|fresh last\/close/],
+    ["354 plus live tick only", { quotes: [[4, 110]], mark354: true }, 100, /reconciliation/],
+    ["another target quote error", { quotes: [[68, 110]], onMarkRequest: (api, id) => api.emit(events.error, new Error("quote failed"), 200, id) }, 100, /reconciliation/],
+  ]) await t.test(name, async () => {
+    const h = modifyFixture(options); h.value.order.stopPrice = price;
+    await assert.rejects(h.run(h.value, h.state), reason);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("a failed non-desk KO mark does not block AAPL modify-stop; order reconciliation stays strict", async (t) => {
+  for (const orderError of [false, true]) await t.test(orderError ? "order errors block" : "unrelated mark errors do not block", async () => {
+    const h = modifyFixture({
+      positions: [{ ...contract(), position: 2 }, { ...contract("KO", 2), position: 10 }],
+      quotes: [[68, 110]], noMarkSymbols: ["KO"], markCancel300: true,
+      onMarkRequest: (api, id, c) => { if (c.symbol === "KO") api.emit(events.error, new Error("KO live data unsubscribed"), 354, id); },
+      onSnapshot: async (session) => {
+        await freshMarks(session, { conId: 2 });
+        assert.equal(session.state.errors[0].scope, "mark"); assert.equal(session.state.errors[0].symbol, "KO");
+        if (orderError) session.api.emit(events.error, new Error("order reconciliation failed"), 201, 882000);
+      },
+    });
+    if (orderError) { await assert.rejects(h.run(h.value, h.state), /reconciliation/); assert.deepEqual(h.broker.placed, []); }
+    else {
+      assert.equal((await h.run(h.value, h.state)).status, "ok");
+      assert.deepEqual(h.broker.markRequests.map((row) => row.id), [882000, 882001]);
+    }
+  });
+});
+
+test("fresh marks accept delayed bid/ask and close and never request KEEP symbols", async () => {
+  for (const quotes of [[[66, 109], [67, 111]], [[75, 110]]]) {
+    const h = harness({ positions: [{ ...contract(), position: 2 }, ...keptPositions()], quotes, mark354: true });
+    const session = await h.connect(700);
+    try {
+      await freshMarks(session);
+      assert.equal(session.state.marks[1].price, 110); assert.equal(session.state.marks[1].delayed, true);
+      assert.equal(session.state.errors[0].informational, true);
+      assert.deepEqual(h.broker.markRequests.map((row) => row.contract.symbol), ["AAPL"]);
+    } finally { session.close(); }
+  }
 });
 
 test("modify-stop refuses unsafe requests before any placeOrder or cancellation", async (t) => {
