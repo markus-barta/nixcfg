@@ -75,7 +75,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
     // Cancelling a finished/failed quote request can produce a harmless EId error.
     if (markRequest?.cancelling && Number(code) === 300) return;
     if (INFORMATIONAL_CODES.has(Number(code))) return;
-    state.errors.push({ code: Number(code) || null, reqId: Number(reqId) || null, message: message(error), ...(markRequest ? { scope: "mark", symbol: markRequest.symbol, conId: markRequest.conId, informational: Number(code) === 354 && markRequest.delayedReceived === true } : {}) });
+    state.errors.push({ code: Number(code) || null, reqId: Number(reqId) || null, message: message(error), ...(markRequest ? { scope: "mark", symbol: markRequest.symbol, conId: markRequest.conId, informational: [354, 10089, 10167].includes(Number(code)) && markRequest.delayedReceived === true } : {}) });
   });
   api.on(EventName.connected, () => {
     state.gateway = true;
@@ -572,7 +572,7 @@ export async function modifyStopOwned(options) {
 
 // Absence is evidence only after both broker streams complete in this session.
 // Do not reuse the cached openOrders array: IB does not remove old rows itself.
-async function cancellationSnapshot(session, clientId, confirmed) {
+async function cancellationSnapshot(session, clientId, confirmed, checkSnapshot = () => cleanSnapshot(session)) {
   const orders = [], executions = [];
   const requestId = 883000 + (clientId % 10000);
   let ordersEnd = false, executionsEnd = false;
@@ -589,7 +589,7 @@ async function cancellationSnapshot(session, clientId, confirmed) {
     session.api.reqExecutions(requestId, { acctCode: ACCOUNT });
     const start = Date.now();
     while ((!ordersEnd || !executionsEnd) && !confirmed() && Date.now() - start < 3000) await session.wait(100);
-    cleanSnapshot(session);
+    checkSnapshot();
     return { orders, executions, complete: ordersEnd && executionsEnd };
   } finally {
     for (const [event, listener] of listeners) session.api.off(event, listener);
@@ -626,9 +626,17 @@ async function cancelOwnedOrders(orders, options) {
           cancelled.push({ orderId: order.orderId, symbol: order.symbol, clientId, orderRef: order.orderRef });
         }
         await session.wait(2_000);
-        if (blockingErrors(session).length || !session.state.gateway) throw new Error("broker errors during cancellation");
+        const requested = cancelled.filter((row) => row.clientId === clientId);
+        // A parent can auto-cancel its child before our child request reaches IB.
+        // Defer these target-only errors until every cancellation below is proven;
+        // never mark them informational for other broker operations.
+        const checkCancellationSnapshot = () => {
+          const errors = blockingErrors(session).filter((error) => !([161, 10147].includes(error.code) && requested.some((order) => order.orderId === error.reqId)));
+          if (errors.length || !session.state.gateway || session.state.account !== ACCOUNT) throw new Error("broker errors during cancellation");
+        };
+        checkCancellationSnapshot();
         let snapshot;
-        for (const order of cancelled.filter((row) => row.clientId === clientId)) {
+        for (const order of requested) {
           const confirmed = () => {
             const statuses = session.state.statuses.slice(statusOffset).filter((row) => row.orderId === order.orderId && (row.clientId === undefined || row.clientId === clientId));
             const filled = statuses.some((row) => row.filled > 0 || row.status.toLowerCase() === "filled") || session.state.executions.some((row) => Number(row.execution.orderId) === order.orderId && Number(row.execution.clientId) === clientId);
@@ -637,12 +645,13 @@ async function cancelOwnedOrders(orders, options) {
             return Boolean(status && ["cancelled", "apicancelled"].includes(status.status.toLowerCase()) && (intent.action !== "cancel" || Number.isFinite(status.filled) && status.filled === 0)) || session.state.cancellations.slice(cancellationOffset).some((row) => row.orderId === order.orderId && row.clientId === clientId);
           };
           if (confirmed()) continue;
-          snapshot ||= await cancellationSnapshot(session, clientId, confirmed);
+          snapshot ||= await cancellationSnapshot(session, clientId, confirmed, checkCancellationSnapshot);
           if (snapshot.executions.some((row) => Number(row.orderId) === order.orderId && Number(row.clientId) === clientId)) throw new Error("cancellation acknowledgement has a fill");
           if (confirmed()) continue;
           if (!snapshot.complete) throw new Error("cancellation reconciliation callbacks incomplete");
           if (snapshot.orders.some((row) => row.orderId === order.orderId && row.clientId === clientId)) throw new Error("cancellation acknowledgement missing or partial");
         }
+        checkCancellationSnapshot();
       } finally { session.close(); }
     }
     return cancelled;
@@ -834,7 +843,7 @@ export async function freshMarks(session, { conId, lastOrCloseOnly = false } = {
         session.state.marks[row.conId] = { price, currency: row.currency, observedAt: new Date().toISOString(), delayed, ...(lastOrCloseOnly ? { field } : {}) };
         if (delayed && ended.has(id)) {
           session.state.markRequests.get(id).delayedReceived = true;
-          for (const error of session.state.errors) if (error.scope === "mark" && error.reqId === id && error.code === 354) error.informational = true;
+          for (const error of session.state.errors) if (error.scope === "mark" && error.reqId === id && [354, 10089, 10167].includes(error.code)) error.informational = true;
         }
       }
     }
