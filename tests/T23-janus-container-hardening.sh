@@ -61,6 +61,12 @@ for name in ("janus", "janus-placeholder", "janus-engine-staged"):
         if expected not in service:
             raise SystemExit(f"{name} missing {expected}")
 
+for name in ("janus", "janus-engine-staged"):
+    if "cap_add" in block(name):
+        raise SystemExit(f"{name} must not add capabilities")
+if 'cap_add = [ "NET_BIND_SERVICE" ];' not in block("janus-placeholder") or block("janus-placeholder").count("cap_add") != 1:
+    raise SystemExit("janus-placeholder may add exactly NET_BIND_SERVICE (caddy's file capability)")
+
 if 'profiles = [ "janus-retired" ];' not in block("janus"):
     raise SystemExit("Janus v1 must stay outside default compose reconciliation")
 if 'user = "1000:1000";' not in block("janus-placeholder"):
@@ -89,4 +95,4 @@ for name in (
         raise SystemExit(f"staged smoke volume {name} must be externally owned")
 PY
 
-printf 'ok: Janus containers are non-root, read-only, capability-free, no-new-privileges; Rust is networkless, shell-free, and uses externally owned smoke volumes\n'
+printf 'ok: Janus containers are non-root, read-only, capability-free (placeholder: only NET_BIND_SERVICE), no-new-privileges; Rust is networkless, shell-free, and uses externally owned smoke volumes\n'
