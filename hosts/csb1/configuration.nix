@@ -351,6 +351,8 @@ in
     extraRestartTriggers = [
       hostdashCsb1
       config.age.secrets.csb1-inspr-auth-env.file
+      config.age.secrets.csb1-aeon-review-app-key.file
+      config.age.secrets.csb1-aeon-review-webhook-secret.file
       ./scripts/render-inspr-edge-config.sh
       ./shared-flow.nix
       ./legacy-flow-routing.nix
@@ -407,8 +409,13 @@ in
   # 0444 files inside a 0700 root directory, so only the containers that bind-mount
   # them (non-root users) can read them.
   systemd.services.aeon-secrets = {
-    description = "Generate PAIMOS AEON host secrets once";
+    description = "Generate PAIMOS AEON host secrets and install review App credentials";
     wantedBy = [ "multi-user.target" ];
+    after = [ "agenix.service" ];
+    restartTriggers = [
+      config.age.secrets.csb1-aeon-review-app-key.file
+      config.age.secrets.csb1-aeon-review-webhook-secret.file
+    ];
     # Declared from this side so compose-csb1's own requires list (pinned by T58) stays unchanged.
     # The weekly updater also runs `up -d`, so it must not start the stack before these exist.
     requiredBy = [
@@ -451,6 +458,16 @@ in
       if [ ! -s "$v" ]; then
         ${pkgs.bash}/bin/bash ${./scripts/aeon-phone-push-vapid.sh} "$v"
       fi
+      # OPS-269: physical owner-only files for USER 65532; refresh on every start.
+      # Install into temporary files, then atomically replace each bind source.
+      install -m 0400 -o 65532 -g 65532 "${config.age.secrets.csb1-aeon-review-app-key.path}" "$d/review-app-key.pem.tmp"
+      install -m 0400 -o 65532 -g 65532 "${config.age.secrets.csb1-aeon-review-webhook-secret.path}" "$d/review-webhook-secret.tmp"
+      if [ "$(LC_ALL=C tr -d '[:space:]' < "$d/review-webhook-secret.tmp" | wc -c)" -lt 32 ]; then
+        echo "aeon-secrets: review webhook secret requires at least 32 non-whitespace bytes" >&2
+        exit 1
+      fi
+      mv -fT "$d/review-app-key.pem.tmp" "$d/review-app-key.pem"
+      mv -fT "$d/review-webhook-secret.tmp" "$d/review-webhook-secret"
     '';
   };
 
@@ -1561,6 +1578,22 @@ in
   age.secrets.csb1-ppm-env = {
     file = ../../secrets/csb1-ppm-env.age;
     path = "/run/agenix/csb1-ppm-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
+  # OPS-269: aeon-secrets copies these out of the rotating agenix symlink tree.
+  age.secrets.csb1-aeon-review-app-key = {
+    file = ../../secrets/csb1-aeon-review-app-key.age;
+    path = "/run/agenix/csb1-aeon-review-app-key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  age.secrets.csb1-aeon-review-webhook-secret = {
+    file = ../../secrets/csb1-aeon-review-webhook-secret.age;
+    path = "/run/agenix/csb1-aeon-review-webhook-secret";
     owner = "root";
     group = "root";
     mode = "0400";
