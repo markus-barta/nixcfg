@@ -1,5 +1,5 @@
 import { ACCOUNT, newYorkDay, normalizeOrderRef, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
-import { assertBrokerRuntime, deskPositions, flattenOwned, freshExecutionSnapshot, freshMarks, freshUsdToEur, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
+import { assertBrokerRuntime, deskPositions, flattenOwned, freshExecutionSnapshot, freshMarks, freshUsdToEur, modifyStopOwned, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
 import { rememberFirstOrders } from "./state.mjs";
 
 export function publicError(error) { return String(error?.message || error).slice(0, 500); }
@@ -15,7 +15,26 @@ function configFromHost() {
 
 function resolveUncertain(state, broker, clientId, replayedClients) {
   for (const [intentId, record] of state.intents || new Map()) {
-    if (!["uncertain", "claimed"].includes(record.status) || !["place", "flatten", "cancel"].includes(record.action)) continue;
+    if (!["uncertain", "claimed"].includes(record.status) || !["place", "flatten", "cancel", "modify-stop"].includes(record.action)) continue;
+    if (record.action === "modify-stop") {
+      const plan = record.brokerPlan?.modification;
+      if (!plan || !broker.gateway || broker.account !== ACCOUNT || broker.errors.length) continue;
+      const stop = broker.openOrders.find((row) => row.orderId === plan.orderId && row.clientId === clientId);
+      if (!stop || stop.conId !== plan.conId || stop.symbol !== plan.symbol || stop.orderType !== "STP" || stop.parentId !== plan.parentId || stop.action !== plan.action || stop.quantity !== plan.quantity || stop.account !== plan.account || stop.tif !== plan.tif || stop.orderRef !== plan.orderRef || stop.auxPrice !== plan.to || !["submitted", "presubmitted"].includes(stop.status.toLowerCase())) continue;
+      const status = [...broker.statuses].reverse().find((row) => row.orderId === plan.orderId && (row.clientId === undefined || row.clientId === clientId));
+      if (!status || !["submitted", "presubmitted"].includes(status.status.toLowerCase()) || status.filled !== 0 || status.remaining !== plan.quantity) continue;
+      const observedAt = new Date().toISOString();
+      record.status = "done";
+      record.finishedAt = observedAt;
+      record.resolution = { status: "modified", action: record.action, observedAt, orderId: plan.orderId, orderRef: plan.orderRef, clientId };
+      if (record.modification) { record.modification.status = "submitted"; record.modification.acknowledgedAt = observedAt; }
+      const placement = state.placements.find((row) => row.orderIds?.[1] === plan.orderId && row.clientId === clientId && normalizeOrderRef(row.orderRef) === normalizeOrderRef(plan.orderRef));
+      const change = placement?.stopHistory?.find((row) => row.intentId === intentId);
+      if (change) { change.status = "submitted"; change.acknowledgedAt = observedAt; }
+      if (placement) placement.currentStopPrice = plan.to;
+      record.result = { status: "ok", intentId, desk: record.desk, action: record.action, observedAt, modification: plan, resolution: record.resolution };
+      continue;
+    }
     const placement = state.placements.find((row) => row.intentId === intentId);
     const ref = record.orderRef || placement?.orderRef;
     const plan = record.brokerPlan;
@@ -103,6 +122,37 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const ownershipClientIds = config.ownership[intent.desk];
   if (!Array.isArray(ownershipClientIds) || !ownershipClientIds.length) throw new Error("desk has no ownership client IDs");
   const result = (body) => ({ status: "ok", intentId: intent.intentId, desk: intent.desk, action: intent.action, observedAt: new Date().toISOString(), ...body });
+
+  if (intent.action === "modify-stop") {
+    rememberFirstOrders(state);
+    let change;
+    let placement;
+    try {
+      const outcome = await modifyStopOwned({ desk: intent.desk, clientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, intentRecords: state.intents, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
+        placement = state.placements.find((row) => row.orderIds?.[0] === plan.parentId && row.orderIds?.[1] === plan.orderId && row.clientId === clientId && row.desk === intent.desk && row.symbol === plan.symbol && row.quantity === plan.quantity && row.side === (plan.action === "SELL" ? "BUY" : "SELL") && !["rejected", "absent"].includes(row.status) && normalizeOrderRef(row.orderRef) === normalizeOrderRef(plan.orderRef));
+        change = { at: new Date().toISOString(), from: plan.from, to: plan.to, intentId: intent.intentId, orderId: plan.orderId, status: "reserved" };
+        (placement.stopHistory ||= []).push(change);
+        const record = state.intents?.get(intent.intentId);
+        if (record) { record.brokerPlan = { modification: plan }; record.modification = change; }
+        saveState(state);
+      } });
+      change.status = "submitted";
+      change.acknowledgedAt = new Date().toISOString();
+      placement.currentStopPrice = outcome.modification.to;
+      state.executions = keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions);
+      state.ownershipComplete = true;
+      state.deskPositions = deskPositions(outcome.ownershipExecutions, config.ownership, clientId, outcome.ownershipSnapshot);
+      state.activeOrders = outcome.openOrders;
+      state.concurrentObservedAt = new Date().toISOString();
+      saveState(state);
+      return result({ paperPort: 4002, account: ACCOUNT, modification: outcome.modification });
+    } catch (error) {
+      // A durable acknowledgement followed by a ledger failure still needs recon.
+      if (change?.status === "submitted") error.code = "uncertain";
+      if (change) { change.status = error.code === "uncertain" ? "uncertain" : "rejected"; change.error = publicError(error); saveState(state); }
+      throw error;
+    }
+  }
 
   if (["flatten", "cancel"].includes(intent.action)) {
     rememberFirstOrders(state);

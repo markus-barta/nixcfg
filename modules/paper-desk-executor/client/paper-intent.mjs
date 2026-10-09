@@ -2,7 +2,7 @@
 // Dependency-free desk client for the hsb0 paper desk executor.
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { validateKey } from "../policy.mjs";
+import { parseIntent, validateKey } from "../policy.mjs";
 const SCHEMA = "barta.paper-desk-intent.v2";
 const DEFAULT_URL = "http://100.64.0.6:8470";
 const FLAGS = new Set(["desk", "intent-id", "symbol", "side", "quantity", "limit", "stop", "currency", "order-ref", "order-id", "reason"]);
@@ -16,12 +16,13 @@ function executorOrigin() {
 
 function usage() {
   return [
-    "usage: paper-intent <recon|place|flatten|cancel|status|health|halt> [options]",
+    "usage: paper-intent <recon|place|modify-stop|flatten|cancel|status|health|halt> [options]",
     "  origin: http://100.64.0.6:8470 (PAPER_DESK_EXECUTOR_ORIGIN may select http://100.64.x.y:port)",
     "  --desk NAME --intent-id ID",
     "  --symbol SYM --side BUY|SELL --quantity N --limit N --stop N",
     "  --symbol SYM (optional for flatten/cancel; omitted flatten covers all owned symbols)",
     "  --order-ref desk|yymmdd|thesis-id (place/cancel) --order-id N (cancel)",
+    "  modify-stop --symbol SYM (--order-id N | --order-ref REF) --stop N",
     "  --reason TEXT",
   ].join("\n");
 }
@@ -62,6 +63,12 @@ function intentEnvelope(parsed, action) {
   if (parsed.get("order-ref")) intent.orderRef = validateKey(parsed.get("order-ref"), "orderRef");
   if (["flatten", "cancel"].includes(action) && parsed.has("symbol")) intent.symbol = validateKey(required(parsed, "symbol").toUpperCase(), "symbol");
   if (parsed.get("order-id")) intent.orderId = positiveNumber(parsed, "order-id");
+  if (action === "modify-stop") {
+    for (const key of parsed.keys()) if (!["desk", "intent-id", "symbol", "order-id", "order-ref", "stop"].includes(key)) fail(`unsupported option --${key} for modify-stop`);
+    intent.symbol = validateKey(required(parsed, "symbol").toUpperCase(), "symbol");
+    intent.order = { stopPrice: positiveNumber(parsed, "stop") };
+    return parseIntent(intent);
+  }
   return intent;
 }
 
@@ -75,7 +82,7 @@ export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, wri
     if (command === "health") route = "/v1/health";
     else if (command === "halt") { route = "/v1/halt"; method = "POST"; body = parsed.get("reason") ? { reason: parsed.get("reason") } : {}; }
     else if (command === "status") { route = "/v1/intents"; intentId = validateKey(required(parsed, "intent-id"), "intentId"); }
-    else if (["recon", "flatten", "place", "cancel"].includes(command)) { route = "/v1/intents"; method = "POST"; body = intentEnvelope(parsed, command); }
+    else if (["recon", "flatten", "place", "cancel", "modify-stop"].includes(command)) { route = "/v1/intents"; method = "POST"; body = intentEnvelope(parsed, command); }
     else fail(usage());
     const target = new URL(route, root);
     if (intentId) target.searchParams.set("intentId", intentId);
