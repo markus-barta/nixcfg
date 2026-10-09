@@ -240,6 +240,35 @@ All OPS-136 commands run as root under the campaign flock
 `/root/ops136-backups/`. Disaster recovery from image archives:
 `ops136/dr-image-id.override.yml` (read its STEP 0 first).
 
+### Janus v1 retirement (OPS-280)
+
+The `janus` service is retained under the `janus-retired` Compose profile with
+`restart = "no"`. Normal boot, switch and weekly reconciliation skip it.
+Its image, volumes, environment and secret mounts remain available for rollback.
+
+`janus-placeholder` serves the repository's `docker/janus-placeholder/` files
+read-only at `10.253.253.6:8080` on `csb1_shared-flow`. The shared routing-edge
+Janus upstream points there, covering the existing `vault.barta.cm` routes
+and `flow.inspr.at/janus`; browser redirects and router priorities remain intact.
+Every public page returns 503 with `Retry-After: 86400`, `Cache-Control: no-store`
+and `X-Robots-Tag: noindex`. `/internal` and `/internal/*`, including their
+`/janus`-prefixed forms after legacy routing, return empty 204 responses so
+the managed host agent stays idle and quiet. Enrollment, token rotation and
+the Hetzner token link show the placeholder while Janus is being rebuilt.
+
+Before switching, check Uptime Kuma on hsb0/csb0 for `vault.barta.cm` monitors
+and pause any. After the reviewed change is merged, switch csb1 and then
+`docker stop janus`; retain the container. Verify the page through both public
+origins, 204 from an authorized private host-agent request, quiet host-agent
+journal, healthy Pharos/transactiond and Janus still stopped after a second
+`compose-csb1` reconcile. Transactiond may restart briefly during the switch.
+Public internal routes retain their existing access denial.
+
+The staged engine, managed pipeline, Pharos environment, data volumes, eight
+csb1 Janus secrets, `janusFlowHost` and `janus.inspr.at` remain unchanged.
+Rollback: revert the OPS-280 change, switch csb1, then `docker start janus`.
+No data restore is needed. The HostDash stopped-container card is a follow-up.
+
 ### Janus Staged Engine Smoke
 
 The `janus-engine-staged` compose profile stays disabled and non-Traefik. Its
@@ -899,7 +928,8 @@ The Janus Flow adapter is declarative and initially inert. The single switch
 and bindings live in `hosts/csb1/janus-flow-host.nix`; `active = false` and an
 empty binding list mean the rendered Compose service has no
 `JANUS_FLOW_CONFIG_FILE`, Flow mounts, credential, or config revision label.
-Janus therefore keeps its existing routes and startup behavior.
+The Flow adapter settings remain available for rollback; OPS-280 keeps the
+Janus v1 container stopped behind the placeholder described above.
 
 Janus parses and validates a configured Flow document during startup before it
 checks `enabled`. Merely mounting an `enabled=false` document with no binding
@@ -1005,7 +1035,8 @@ Traefik uses `secrets/traefik-variables.age` (shared with csb0) for ACME DNS-01 
 
 `hosts/csb1/shared-flow.nix` is the single active deployment selector for
 `https://flow.inspr.at`. It serves Aithema at `/aithema`, Paimos at `/paimos`,
-Pharos at `/pharos`, and Janus at `/janus`. `/` opens Aithema. Each app verifies
+Pharos at `/pharos`, and the Janus placeholder at `/janus` (OPS-280).
+`/` opens Aithema. Each running app verifies
 its own Zitadel client/session; shared routing grants no execution authority.
 
 Aithema initially uses the approved direct OpenRouter provider. Deploy its
@@ -1090,9 +1121,11 @@ or provider success may be inferred from source validation alone.
 
 Verify all four public prefixes, actual login/callback behavior, a real
 Aithema provider response, and existing Paimos/Pharos/Janus machine endpoints.
-Check Aithema/network/config services and the three existing app containers.
-The active Janus container readiness probe uses `/janus/readyz` and requires
-`ready:true`; the disabled selector retains the image's root-path probe.
+Check Aithema/network/config services, Pharos and the Janus placeholder.
+The retained Janus v1 readiness probe uses `/janus/readyz` and requires
+`ready:true` when restored for rollback; the disabled selector retains the
+image's root-path probe. During OPS-280 retirement, the placeholder returns
+503 on readiness paths; its container healthcheck uses the empty 204 endpoint.
 T74 checks the actual activated consumer and disabled-library behavior;
 T48/T71/T76 retain inactive shared-origin adapter fixtures; T80/T81 cover
 routing and the protected direct-provider/CLI boundary.

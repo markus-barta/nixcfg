@@ -50,16 +50,37 @@ def block(name: str) -> str:
         raise SystemExit(f"missing service: {name}")
     return match.group("body")
 
-for name in ("janus", "janus-engine-staged"):
+for name in ("janus", "janus-placeholder", "janus-engine-staged"):
     service = block(name)
     for expected in (
         "read_only = true;",
         '"ALL"',
         '"no-new-privileges:true"',
-        'restart = "no";' if name in ("janus-managed-canary",) else 'restart = "unless-stopped";',
+        'restart = "no";' if name == "janus" else 'restart = "unless-stopped";',
     ):
         if expected not in service:
             raise SystemExit(f"{name} missing {expected}")
+
+def own_block(name: str) -> str:
+    # block() can run past a service whose closing line differs; stop at the
+    # next top-level service instead, so capability checks stay per-service.
+    start = re.search(rf"^    {re.escape(name)} = \{{\n", compose, re.MULTILINE)
+    if not start:
+        raise SystemExit(f"missing service: {name}")
+    rest = compose[start.end():]
+    following = re.search(r"^    [A-Za-z0-9_-]+ = ", rest, re.MULTILINE)
+    return rest[: following.start()] if following else rest
+
+for name in ("janus", "janus-engine-staged"):
+    if "cap_add" in own_block(name):
+        raise SystemExit(f"{name} must not add capabilities")
+if 'cap_add = [ "NET_BIND_SERVICE" ];' not in own_block("janus-placeholder") or own_block("janus-placeholder").count("cap_add") != 1:
+    raise SystemExit("janus-placeholder may add exactly NET_BIND_SERVICE (caddy's file capability)")
+
+if 'profiles = [ "janus-retired" ];' not in block("janus"):
+    raise SystemExit("Janus v1 must stay outside default compose reconciliation")
+if 'user = "1000:1000";' not in block("janus-placeholder"):
+    raise SystemExit("Janus placeholder must run non-root")
 
 engine = block("janus-engine-staged")
 for expected in (
@@ -84,4 +105,4 @@ for name in (
         raise SystemExit(f"staged smoke volume {name} must be externally owned")
 PY
 
-printf 'ok: Janus containers are non-root, read-only, capability-free, no-new-privileges; Rust is networkless, shell-free, and uses externally owned smoke volumes\n'
+printf 'ok: Janus containers are non-root, read-only, capability-free (placeholder: only NET_BIND_SERVICE), no-new-privileges; Rust is networkless, shell-free, and uses externally owned smoke volumes\n'
