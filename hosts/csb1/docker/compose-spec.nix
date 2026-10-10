@@ -255,12 +255,24 @@ in
         "POSTGRES_USER=postgres"
         "POSTGRES_PASSWORD_FILE=/run/secrets/aeon-db-superuser-password"
       ];
+      # OPS-295/AEON-1106: pg_stat_statements names the statements behind the
+      # idle-time load (needs shared_preload_libraries, i.e. a restart; the
+      # extension itself is created once in the aeon DB). jit=off: an OLTP
+      # workload gains nothing from JIT, which costs per-backend memory.
       command = [
         "postgres"
         "-c"
         "shared_buffers=128MB"
         "-c"
         "max_connections=50"
+        "-c"
+        "shared_preload_libraries=pg_stat_statements"
+        "-c"
+        "pg_stat_statements.max=5000"
+        "-c"
+        "pg_stat_statements.track=top"
+        "-c"
+        "jit=off"
       ];
       volumes = [
         "aeon_db_data:/var/lib/postgresql"
