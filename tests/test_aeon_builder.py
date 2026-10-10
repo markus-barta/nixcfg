@@ -1,6 +1,7 @@
 """NIX-600: mode-B admission, the job-started hook, pf rules and the controller loop."""
 
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -30,6 +31,8 @@ CFG = {
     "branch": "main",
     "cacheWriteEvents": ["push"],
     "slots": 4,
+    "loadHigh": 12.0,
+    "loadLow": 8.0,
     "slotCpus": 4,
     "slotMemoryGiB": 6,
     "slotDiskGiB": 60,
@@ -142,6 +145,8 @@ class HostConfigTests(unittest.TestCase):
           runnerLabels = options.runnerLabels.default;
           repo = options.repo.default;
           branch = options.branch.default;
+          loadHigh = options.loadHigh.default;
+          loadLow = options.loadLow.default;
         }''' % json.dumps(str(ROOT))
         proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
                               capture_output=True, text=True)
@@ -149,6 +154,65 @@ class HostConfigTests(unittest.TestCase):
         cfg = json.loads(proc.stdout)
         self.assertTrue(cfg.pop("enable"))
         self.assertEqual(cfg, {key: CFG[key] for key in cfg})
+
+    def test_load_options_assertion_and_json_settings(self):
+        # Use the module's real defaults and JSON generation, with only the
+        # Home Manager/Nixpkgs wrappers stubbed; this remains an offline eval.
+        expr = '''let
+          root = builtins.toPath %s;
+          lib = {
+            mkOption = x: x;
+            mkEnableOption = _: { default = false; };
+            mkPackageOption = _: _: _: { default = { outPath = "/lima"; version = "test"; }; };
+            mkIf = condition: value: if condition then value else {};
+            types.number = "number";
+            types.addCheck = type: check: { inherit type check; };
+            mapAttrs = builtins.mapAttrs;
+            importJSON = path: builtins.fromJSON (builtins.readFile path);
+          };
+          evaluate = overrides: let
+            module = import (root + "/modules/aeon-builder") {
+              inherit lib;
+              pkgs = { python3 = "/python"; writeText = _: text: text; writeShellApplication = x: x; };
+              config = {
+                home.homeDirectory = "/test";
+                services.aeonBuilder = builtins.mapAttrs (_: option: option.default)
+                  module.options.services.aeonBuilder // { enable = true; } // overrides;
+              };
+            };
+          in module;
+          module = evaluate {};
+          low = module.options.services.aeonBuilder.loadLow;
+        in {
+          assertions = map (overrides: (builtins.head (evaluate overrides).config.assertions).assertion)
+            [ {} { loadHigh = 14; loadLow = 10; } { loadHigh = 8.0; } { loadHigh = 7; } ];
+          highType = module.options.services.aeonBuilder.loadHigh.type;
+          lowType = low.type.type;
+          nonnegative = map low.type.check [ (-1.0) (-1) 0.0 0 8.0 8 ];
+          command = (builtins.head module.config.home.packages).text;
+        }''' % json.dumps(str(ROOT))
+        proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = json.loads(proc.stdout)
+        self.assertEqual(result["assertions"], [True, True, False, False])
+        self.assertEqual(result["highType"], "number")
+        self.assertEqual(result["lowType"], "number")
+        self.assertEqual(result["nonnegative"], [False, False, True, True, True, True])
+        settings = json.loads(result["command"].split("--config ", 1)[1].split(' "$@"', 1)[0])
+        self.assertEqual(settings["loadHigh"], CFG["loadHigh"])
+        self.assertEqual(settings["loadLow"], CFG["loadLow"])
+
+
+class LoadGateTests(unittest.TestCase):
+    def test_hysteresis_and_equal_thresholds(self):
+        gated = False
+        for load1, expected in ((8.0, False), (10.0, False), (12.0, False),
+                                (12.1, True), (12.0, True), (10.0, True),
+                                (8.0, True), (7.9, False)):
+            with self.subTest(load1=load1, previous=gated):
+                gated = ab.load_gate(gated, load1, 12.0, 8.0)
+                self.assertEqual(gated, expected)
 
 
 class RulesetTests(unittest.TestCase):
@@ -593,8 +657,9 @@ class ControllerTests(unittest.TestCase):
         ab.log = lambda message: None
         self.addCleanup(setattr, ab, "log", self._log)
 
-    def controller(self, gh):
-        ctl = ab.Controller(CFG, gh=gh, lima=object(), state=self.state)
+    def controller(self, gh, getloadavg=None):
+        ctl = ab.Controller(CFG, gh=gh, lima=object(), state=self.state,
+                            getloadavg=getloadavg or (lambda: (0.0, 0.0, 0.0)))
         self.served = []
         gate = threading.Event()
 
@@ -604,6 +669,216 @@ class ControllerTests(unittest.TestCase):
         ctl.serve = serve
         self.addCleanup(gate.set)
         return ctl
+
+    def test_load_gate_leaves_jobs_queued_and_claims_after_release(self):
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        getloadavg = Mock(side_effect=[(13.0, 0, 0), (10.0, 0, 0), (8.0, 0, 0), (7.0, 0, 0)])
+        ctl = self.controller(gh, getloadavg)
+        with patch.object(ctl, "claim_slot", wraps=ctl.claim_slot) as claim:
+            for _ in range(3):
+                self.assertEqual(ctl.tick(), "on")
+                self.assertTrue(ctl.load_gated)
+                self.assertEqual(self.state.load()["slots"], {})
+                self.assertEqual(ctl.pending, 1)
+                self.assertEqual(gh.cancelled, [])
+                self.assertEqual(job["status"], "queued")
+            self.assertEqual(claim.call_count, 3)
+            claim.assert_called_with(job, r)
+            self.assertEqual(ctl.workers, {})
+            claim.reset_mock()
+            ctl.tick()
+            claim.assert_called_once_with(job, r)
+        self.assertFalse(ctl.load_gated)
+        self.assertEqual(self.state.load()["slots"]["0"]["jobId"], 90)
+        self.assertEqual(getloadavg.call_count, 4)
+
+    def test_gated_empty_pool_finishes_draining(self):
+        ctl = self.controller(FakeGitHub([], {}), lambda: (13.0, 0, 0))
+        self.state.update(lambda d: d.update(mode="draining"))
+        ctl.pending = 3
+        self.assertEqual(ctl.tick(), "off")
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(self.state.load()["mode"], "off")
+        self.assertEqual(ctl.pending, 0)
+
+    def test_paused_and_stopping_modes_still_reap_while_gated(self):
+        for mode in ("paused", "stopping"):
+            with self.subTest(mode=mode):
+                gh = FakeGitHub([], {})
+                gh.active_runs = Mock(side_effect=AssertionError("must not poll jobs"))
+                ctl = self.controller(gh, lambda: (13.0, 0, 0))
+                finished = Mock()
+                finished.is_alive.return_value = False
+                ctl.workers[1] = finished
+                self.state.update(lambda d: d.update(mode=mode))
+                with patch.object(ctl, "maybe_prove") as prove:
+                    self.assertEqual(ctl.tick(), mode)
+                prove.assert_not_called()
+                self.assertTrue(ctl.load_gated)
+                self.assertEqual(self.state.load()["mode"], mode)
+                self.assertEqual(ctl.workers, {})
+                self.assertFalse(ctl.publish_once())
+                self.assertEqual(gh.published, [])
+
+    def test_gated_tick_sweeps_prunes_and_skips_proof(self):
+        ctl = self.controller(FakeGitHub([], {}), lambda: (13.0, 0, 0))
+        ctl.pending = 3
+        self.state.update(lambda d: d.update(verifiedRuns=list(range(501)), cancelledRuns=list(range(501))))
+        with patch.object(ctl, "maybe_prove") as prove, patch.object(ctl, "sweep_stale_runners") as sweep:
+            self.assertEqual(ctl.tick(), "on")
+        self.assertTrue(ctl.load_gated)
+        prove.assert_not_called()
+        sweep.assert_called_once_with()
+        self.assertEqual(ctl.pending, 0)
+        for key in ("verifiedRuns", "cancelledRuns"):
+            self.assertEqual(self.state.load()[key], list(range(201, 501)))
+
+    def test_ruleset_drift_pauses_and_cancels_while_gated(self):
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = lambda: dict(LIVE_RULESET, enforcement="evaluate")
+        ctl = self.controller(gh, lambda: (13.0, 0, 0))
+        self.assertEqual(ctl.tick(), "paused")
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(self.state.load()["slots"], {})
+        self.assertEqual(ctl.workers, {})
+        self.assertEqual(gh.cancelled, [9])
+        self.assertEqual(gh.published, [None])
+
+    def test_load_at_or_above_low_claims_one_slot_per_tick(self):
+        for load1 in (8.0, 10.0, 12.0):
+            with self.subTest(load1=load1):
+                self.state.update(lambda d: d.update(slots={}))
+                r = run(id=9)
+                jobs = [{"id": 90 + i, "status": "queued", "labels": ab.mint_labels(CFG, r)} for i in range(4)]
+                ctl = self.controller(FakeGitHub([r], {9: jobs}), lambda: (load1, 0, 0))
+                for count in range(1, 5):
+                    self.assertEqual(ctl.tick(), "on")
+                    self.assertFalse(ctl.load_gated)
+                    self.assertEqual(len(self.state.load()["slots"]), count)
+                    self.assertEqual(ctl.pending, 4 - count)
+
+    def test_load_below_low_can_claim_all_free_slots(self):
+        r = run(id=9)
+        jobs = [{"id": 90 + i, "status": "queued", "labels": ab.mint_labels(CFG, r)} for i in range(4)]
+        ctl = self.controller(FakeGitHub([r], {9: jobs}), lambda: (7.9, 0, 0))
+        ctl.tick()
+        self.assertFalse(ctl.load_gated)
+        self.assertEqual(len(self.state.load()["slots"]), 4)
+        self.assertEqual(ctl.pending, 0)
+
+    def test_unverified_and_wrong_class_runs_are_cancelled_while_gated(self):
+        fork = run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"})
+        wrong_class = run(id=8)
+        jobs = {
+            7: [{"id": 70, "status": "queued", "labels": ab.mint_labels(CFG, fork)}],
+            8: [{"id": 80, "status": "queued", "labels": ["mbp2606", "mbp2606-pr"]}],
+        }
+        gh = FakeGitHub([fork, wrong_class], jobs)
+        ctl = self.controller(gh, lambda: (13.0, 0, 0))
+        self.assertEqual(ctl.tick(), "on")
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(gh.cancelled, [7, 8])
+        self.assertEqual(self.state.load()["slots"], {})
+        self.assertEqual(ctl.workers, {})
+        ctl.tick()
+        self.assertEqual(gh.cancelled, [7, 8], "cancel once")
+
+    def test_controller_converts_integer_thresholds_to_floats(self):
+        ctl = ab.Controller({**CFG, "loadHigh": 14, "loadLow": 10}, gh=FakeGitHub([], {}),
+                            lima=object(), state=self.state, getloadavg=lambda: (13.0, 0, 0))
+        self.assertIsInstance(ctl.cfg["loadHigh"], float)
+        self.assertIsInstance(ctl.cfg["loadLow"], float)
+        self.assertEqual(ctl.cfg["loadHigh"], 14.0)
+        self.assertEqual(ctl.cfg["loadLow"], 10.0)
+        ctl.tick()
+        self.assertFalse(ctl.load_gated)
+
+    def test_publish_load_gate_advertises_busy_then_normal_free_slots(self):
+        gh = FakeGitHub([], {})
+        getloadavg = Mock(side_effect=[(5.0, 0, 0), (13.0, 0, 0), (10.0, 0, 0), (7.0, 0, 0)])
+        ctl = self.controller(gh, getloadavg)
+        slot = {"jobId": 1, "phase": "running", "vm": "aeon-job-0"}
+        self.state.update(lambda d: d["slots"].update({"0": slot}))
+        ctl.pending = 1
+        for idle, busy in ((2, False), (0, True), (0, True), (2, False)):
+            self.assertTrue(ctl.publish_once())
+            self.assertEqual(gh.published[-1]["idle_runners"], idle)
+            self.assertEqual(gh.published[-1]["busy"], busy)
+            self.assertEqual(self.state.load()["slots"], {"0": slot})
+            self.assertEqual(self.state.load()["mode"], "on")
+        self.assertEqual(gh.cancelled, [])
+        self.assertEqual(getloadavg.call_count, 4)
+
+    def test_tick_gate_preserves_running_slots_and_workers(self):
+        gh = FakeGitHub([], {})
+        ctl = self.controller(gh, lambda: (13.0, 0, 0))
+        worker = Mock()
+        worker.is_alive.return_value = True
+        ctl.workers[1] = worker
+        slot = {"jobId": 1, "phase": "running", "vm": "aeon-job-0"}
+        self.state.update(lambda d: d["slots"].update({"0": slot}))
+        ctl.lima = Mock()
+        self.assertEqual(ctl.tick(), "on")
+        self.assertEqual(ctl.workers, {1: worker})
+        self.assertEqual(self.state.load()["slots"], {"0": slot})
+        self.assertEqual(ctl.lima.mock_calls, [])
+        worker.join.assert_not_called()
+
+    def test_gate_transitions_are_shared_between_tick_and_publisher(self):
+        gh = FakeGitHub([], {})
+        getloadavg = Mock(side_effect=[(13.0, 0, 0), (13.0, 0, 0), (10.0, 0, 0), (7.0, 0, 0), (7.0, 0, 0)])
+        ctl = self.controller(gh, getloadavg)
+        with patch.object(ab, "log") as log:
+            ctl.tick()
+            ctl.publish_once()
+            ctl.tick()
+            ctl.publish_once()
+            ctl.tick()
+        self.assertEqual(log.call_args_list, [
+            unittest.mock.call("load gate ON: 1-min load 13.0 > high 12.0; not taking new jobs"),
+            unittest.mock.call("load gate OFF: 1-min load 7.0 < low 8.0"),
+        ])
+        self.assertFalse(self.state.load()["loadGated"])
+        self.assertEqual(self.state.load()["load1"], 7.0)
+        self.assertEqual(getloadavg.call_count, 5)
+
+    def test_publisher_engaging_gate_during_tick_blocks_slot_claim(self):
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        ctl = self.controller(gh, Mock(side_effect=[(5.0, 0, 0), (13.0, 0, 0)]))
+        # Engage from the independent publisher after tick's initial sample,
+        # during the last API check before a slot would be claimed.
+        gh.ruleset = Mock(side_effect=[ctl.cfg["ruleset"]["expected"], ctl.cfg["ruleset"]["expected"]])
+        original_check = ctl.check_ruleset
+        def check_ruleset():
+            ctl.check_ruleset = original_check
+            self.assertTrue(ctl.publish_once())
+            return original_check()
+        ctl.check_ruleset = check_ruleset
+        ctl.tick()
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(self.state.load()["slots"], {})
+        self.assertEqual(gh.cancelled, [])
+        self.assertTrue(gh.published[-1]["busy"])
+
+    def test_status_shows_controller_gate_and_sampled_load(self):
+        ctl = self.controller(FakeGitHub([], {}), lambda: (13.0, 0, 0))
+        ctl.tick()
+        with patch.object(ab, "State", return_value=self.state), \
+                patch.object(ab, "controller_pid", return_value=123), \
+                patch.object(ab, "Lima") as lima, \
+                patch.object(ab, "lab_vms", return_value=[]), \
+                patch.object(ab.subprocess, "run", return_value=Mock(stdout="")), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            lima.return_value.instances.return_value = {}
+            ab.cmd_status(CFG, None)
+        self.assertIn("load gate:   ON  1-min load 13.0", output.getvalue())
+        self.assertIn("high 12.0, low 8.0", output.getvalue())
 
     def test_unverified_run_is_cancelled_and_never_served(self):
         fork = run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"})
