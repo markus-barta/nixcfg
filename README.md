@@ -230,9 +230,10 @@ whereas `just update-ai-clis` fails).
 
 If the Codex app-server daemon, its package or the models cache is older than
 the new CLI, the command repairs it with `codex app-server daemon update`, which
-moves the daemon into its dedicated, self-updating package. Running `codex exec`
-workers do not block this. A daemon-attached session such as an open Codex TUI
-defers the repair without failing the successful npm update. After closing those
+moves the daemon into its dedicated, self-updating package. Running `codex exec …`
+workers do not block this. A client connected to the daemon (an open Codex TUI,
+an SSH `app-server proxy`) or enabled remote control defers the repair without
+failing the successful npm update. After closing those
 sessions, run `just codex-doctor --fix`, then `just codex-doctor --check` to
 verify. The check is read-only and returns nonzero if drift remains; installation
 and repair failures still fail the update command.

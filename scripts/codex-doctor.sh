@@ -42,9 +42,14 @@
 # or provider, so a missing model alone must never trigger a repair.
 # Reports never refresh the cache; only a repair does.
 #
-# Repair (only with no daemon-attached Codex session — `daemon update` restarts
+# Repair (only with no daemon-attached Codex client — `daemon update` restarts
 # the daemon, which ends their in-flight turns; `codex exec` runs its own
-# app-server in-process and is never touched):
+# app-server in-process and is never touched). Attached = a process connected
+# to the daemon's control socket (lsof: TUIs, `app-server proxy` for SSH
+# clients, whatever the prompt says), or a codex process that looks like a
+# client (anything but the daemon and `exec`), or remote control / a TCP
+# listener on the daemon (remote clients cannot be ruled out). The window
+# between the last check and the restart stays, as before.
 #   1. `codex app-server daemon update --yes` — upstream installs the current
 #      release into the dedicated package and restarts the daemon
 #   2. `codex debug models` refreshes the models cache; then report again
@@ -132,21 +137,42 @@ version_of() { # version_of BINARY → "0.153.4" or empty
   "$1" --version 2>/dev/null | awk '{print $NF}' || true
 }
 
-# older_than_cli VERSION → exit 0 when VERSION is older than $CLI_VER. Numeric
-# dotted parts; a pre-release suffix sorts before its release. An empty or
-# unparseable version counts as older, so it can never hide drift.
-older_than_cli() {
-  [[ "$1" =~ ^[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.]+)?$ ]] || return 0
+# version_cmp A B → prints -1, 0 or 1 (semver precedence: numeric dotted core,
+# then pre-release identifiers; a release sorts after its pre-releases). Prints
+# "invalid" when either side does not parse.
+version_cmp() {
   node -e '
-    const parse = (v) => { const i = v.indexOf("-");
-      return [(i < 0 ? v : v.slice(0, i)).split(".").map(Number), i >= 0]; };
-    const [[a, aPre], [b, bPre]] = process.argv.slice(1).map(parse);
-    for (let i = 0; i < Math.max(a.length, b.length); i++) {
-      const x = a[i] || 0, y = b[i] || 0;
-      if (x !== y) process.exit(x < y ? 0 : 1);
+    const re = /^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+    const parse = (v) => { const m = re.exec(v); return m &&
+      { core: m[1].split(".").map(Number), pre: m[2] ? m[2].split(".") : null }; };
+    const [a, b] = process.argv.slice(1).map(parse);
+    const out = (n) => { process.stdout.write(String(n)); process.exit(0); };
+    if (!a || !b) { process.stdout.write("invalid"); process.exit(0); }
+    for (let i = 0; i < Math.max(a.core.length, b.core.length); i++) {
+      const x = a.core[i] || 0, y = b.core[i] || 0;
+      if (x !== y) out(x < y ? -1 : 1);
     }
-    process.exit(aPre && !bPre ? 0 : 1);
-  ' "$1" "$CLI_VER"
+    if (!a.pre || !b.pre) out(a.pre ? -1 : b.pre ? 1 : 0);
+    const num = (s) => /^\d+$/.test(s);
+    for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+      const x = a.pre[i], y = b.pre[i];
+      if (x === undefined) out(-1);
+      if (y === undefined) out(1);
+      if (x === y) continue;
+      if (num(x) && num(y)) out(Number(x) < Number(y) ? -1 : 1);
+      if (num(x) !== num(y)) out(num(x) ? -1 : 1);
+      out(x < y ? -1 : 1);
+    }
+    out(0);
+  ' "$1" "$2"
+}
+
+# older_than_cli VERSION → exit 0 when VERSION is older than $CLI_VER. An empty
+# or unparseable version counts as older, so it can never hide drift.
+older_than_cli() {
+  local order
+  order="$(version_cmp "$1" "$CLI_VER")"
+  [ "$order" = -1 ] || [ "$order" = invalid ]
 }
 
 standalone_bin() {
@@ -161,14 +187,15 @@ daemon_json() { # → JSON from `daemon version`, written to $TMP/daemon.json
   codex app-server daemon version >"$TMP/daemon.json" 2>/dev/null || echo '{}' >"$TMP/daemon.json"
 }
 
-# Daemon-attached Codex clients: the TUI (with or without a prompt), resume,
-# fork, agents, queue, remote-control, … — every codex command except the
-# daemon itself and `codex exec`. exec runs its own in-process app-server and
-# never attaches (NIX-609: no daemon-socket descriptor on live exec workers;
-# a daemon update left them running). `exec --remote` does attach. Unknown
-# subcommands count as attached: a new client type blocks the repair rather
-# than losing a turn.
-live_sessions() {
+# Client-looking codex processes: the TUI (with or without a prompt), resume,
+# fork, agents, queue, … — every codex command except the daemon itself and
+# `codex exec`. exec runs its own in-process app-server and never attaches
+# (NIX-609: no daemon-socket descriptor on live exec workers; a daemon update
+# left them running). `exec --remote` does attach. Unknown subcommands count:
+# a new client type blocks the repair rather than losing a turn. `ps` flattens
+# arguments, so a TUI whose prompt starts with "exec" passes here; the socket
+# check in daemon_clients is what catches it.
+client_processes() {
   # Match the executable and subcommand, not words in a user's prompt.
   # pipefail preserves a ps failure without storing its output on disk.
   if ! ps -eo pid=,command= | awk '
@@ -194,6 +221,58 @@ live_sessions() {
   fi
 }
 
+# Processes connected to the running daemon's control socket. On macOS the
+# daemon's accepted connections carry the socket path as their name and each
+# client's socket names its peer ("->0x…"), so the match is exact. Remote
+# control or a TCP listener means remote clients cannot be ruled out.
+daemon_clients() {
+  local sock real pid
+  daemon_json
+  [ "$(json_get "$TMP/daemon.json" status)" = running ] || return 0
+  sock="$(json_get "$TMP/daemon.json" socketPath)"
+  if [ -z "$sock" ] || ! real="$(node -e 'process.stdout.write(require("fs").realpathSync(process.argv[1]))' "$sock" 2>/dev/null)"; then
+    echo "codex-doctor: cannot resolve the daemon control socket; refusing repair" >&2
+    return 2
+  fi
+  if ! command -v lsof >/dev/null 2>&1 || ! lsof -nP -U -F pdn >"$TMP/sockets" 2>/dev/null ||
+    ! grep -qxF "n$real" "$TMP/sockets"; then
+    echo "codex-doctor: cannot inspect daemon connections; refusing repair" >&2
+    return 2
+  fi
+  : >"$TMP/daemon-pids"
+  awk -v path="$real" -v daemon_pids="$TMP/daemon-pids" '
+    /^p/ { pid = substr($0, 2) }
+    /^d/ { dev = substr($0, 2) }
+    /^n/ {
+      name = substr($0, 2)
+      if (name == path) { server[dev] = 1; daemon[pid] = 1 }
+      else if (name ~ /^->/) { n++; peer_pid[n] = pid; peer_dev[n] = substr(name, 3) }
+    }
+    END {
+      for (i = 1; i <= n; i++)
+        if ((peer_dev[i] in server) && !(peer_pid[i] in daemon) && !seen[peer_pid[i]]++)
+          print peer_pid[i], "attached to the daemon"
+      for (p in daemon) print p > daemon_pids
+    }
+  ' "$TMP/sockets"
+  if [ "$(json_get "$CODEX_HOME_DIR/app-server-daemon/settings.json" remoteControlEnabled)" = true ]; then
+    echo "remote control enabled (remote clients cannot be ruled out)"
+  fi
+  while IFS= read -r pid; do
+    if [ -n "$(lsof -nP -a -p "$pid" -iTCP -sTCP:LISTEN -t 2>/dev/null || true)" ]; then
+      echo "$pid daemon listens on TCP (remote clients cannot be ruled out)"
+    fi
+  done <"$TMP/daemon-pids"
+}
+
+# Everything that blocks a repair, one line each; exit 2 when unknown.
+live_sessions() {
+  local procs clients
+  procs="$(client_processes)" || return 2
+  clients="$(daemon_clients)" || return 2
+  printf '%s\n%s\n' "$procs" "$clients" | awk 'NF && !seen[$0]++'
+}
+
 # ── Report ───────────────────────────────────────────────────────────────────
 report() {
   DRIFT=0
@@ -201,6 +280,10 @@ report() {
   CLI_VER="$(version_of "$CLI_BIN")"
   [ -n "$CLI_VER" ] || {
     echo "codex-doctor: cannot read 'codex --version'" >&2
+    exit 2
+  }
+  [ "$(version_cmp "$CLI_VER" "$CLI_VER")" = 0 ] || {
+    echo "codex-doctor: cannot parse the CLI version '$CLI_VER'" >&2
     exit 2
   }
   printf '\n\033[1mCodex doctor\033[0m  CLI %s  (%s)\n' "$CLI_VER" "$CLI_BIN"
@@ -347,7 +430,7 @@ if [ -n "$LIVE" ]; then
   if [ "$MODE" = after-update ]; then
     defer_repair "Codex sessions are attached to the daemon"
   fi
-  printf '\033[31mRefusing the repair: daemon-attached Codex sessions are running.\033[0m\n'
+  printf '\033[31mRefusing the repair: daemon-attached Codex clients are running.\033[0m\n'
   echo "Updating the daemon would end their in-flight turns. Finish or quit them, then rerun."
   echo "$LIVE" | sed 's/^/  /' | cut -c1-140
   exit 1

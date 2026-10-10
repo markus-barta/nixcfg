@@ -35,6 +35,13 @@ class CodexDoctorTests(unittest.TestCase):
                         PATH=f"{self.bin}:{os.environ['PATH']}",
                         TEST_CALLS=str(self.log), TEST_DAEMON_VERSION="0.153.4",
                         TEST_LIVE="1", TMPDIR=str(self.root))
+        # The daemon's control socket: a link to the real path lsof reports.
+        control = self.home / "app-server-control"
+        control.mkdir()
+        target = self.root / "daemon.sock"
+        target.write_text("")
+        (control / "app-server-control.sock").symlink_to(target)
+        self.env["TEST_SOCK_REAL"] = os.path.realpath(target)
         self.cache = self.home / "models_cache.json"
         self.cache.write_text(json.dumps({"client_version": "0.153.4",
                                           "models": [{"slug": "test-model"}]}))
@@ -51,16 +58,23 @@ if [ "$layout" = legacy ]; then
 else
   pkg="$CODEX_HOME/packages/app-server-daemon/current/bin/codex"
 fi
+cli="${TEST_CLI_VERSION:-0.154.0}"
+sock="$CODEX_HOME/app-server-control/app-server-control.sock"
 case "$*" in
-  --version) echo 'codex-cli 0.154.0' ;;
+  --version) echo "codex-cli $cli" ;;
   'app-server daemon version')
-    printf '{"status":"running","managedCodexPath":"%s","managedCodexVersion":"%s","appServerVersion":"%s"}\\n' \\
-      "$pkg" "$ver" "$ver" ;;
+    if [ "${TEST_NO_MANAGED:-0}" = 1 ]; then
+      printf '{"status":"%s","socketPath":"%s","appServerVersion":"%s"}\\n' \\
+        "${TEST_DAEMON_STATUS:-running}" "$sock" "$ver"
+    else
+      printf '{"status":"%s","managedCodexPath":"%s","managedCodexVersion":"%s","socketPath":"%s","appServerVersion":"%s"}\\n' \\
+        "${TEST_DAEMON_STATUS:-running}" "$pkg" "$ver" "$sock" "$ver"
+    fi ;;
   'app-server daemon update --yes')
     if [ "${TEST_UPDATE_EXIT:-0}" != 0 ]; then echo 'update failed' >&2; exit "$TEST_UPDATE_EXIT"; fi
     printf '%s dedicated\\n' "${TEST_UPDATE_TO:-0.154.0}" > "$state" ;;
   'debug models')
-    printf '{"client_version":"0.154.0","models":[{"slug":"test-model"}]}\\n' > "$CODEX_HOME/models_cache.json"
+    printf '{"client_version":"%s","models":[{"slug":"test-model"}]}\\n' "$cli" > "$CODEX_HOME/models_cache.json"
     echo '{}' ;;
   *) echo 'unexpected mutation' >&2; exit 90 ;;
 esac
@@ -76,6 +90,10 @@ elif [ "$TEST_LIVE" = exec ]; then
   echo '46 /vendor/bin/codex exec --ignore-user-config -m test-model work'
 elif [ "$TEST_LIVE" = exec-remote ]; then
   echo '42 /npm/bin/codex exec --remote unix:///tmp/sock work'
+elif [ "$TEST_LIVE" = exec-prompt-tui ]; then
+  echo '42 /npm/bin/codex exec draw a diagram'
+elif [ "$TEST_LIVE" = proxy ]; then
+  echo '47 /npm/bin/codex app-server proxy'
 elif [ "$TEST_LIVE" = prompt ]; then
   echo '42 /npm/bin/codex repair app-server and codex-doctor'
 elif [ "$TEST_LIVE" = late ]; then
@@ -85,6 +103,22 @@ elif [ "$TEST_LIVE" = late ]; then
     touch "$TMPDIR/ps-seen"
   fi
 fi
+''')
+        # lsof -F pdn: pid 43 is the daemon (listener + one accepted socket named
+        # by the socket path); a client names the accepted socket as its peer.
+        self.stub("lsof", '''
+case "$*" in
+  *-iTCP*) [ "${TEST_LSOF_TCP:-0}" = 1 ] && echo 43; exit 0 ;;
+esac
+mode="${TEST_LSOF:-ok}"
+[ "$mode" = fail ] && exit 1
+printf 'p44\\nf7\\nd0xpair1\\nn->0xpair2\\n'
+[ "$mode" = nolistener ] && exit 0
+printf 'p43\\nf31\\nd0xlisten\\nn%s\\nf48\\nd0xaccepted\\nn%s\\n' "$TEST_SOCK_REAL" "$TEST_SOCK_REAL"
+case "$mode" in
+  client42) printf 'p42\\nf38\\nd0xclient\\nn->0xaccepted\\n' ;;
+  client47) printf 'p47\\nf5\\nd0xproxy\\nn->0xaccepted\\n' ;;
+esac
 ''')
         self.stub("which", 'printf "%s\\n" "$TEST_BIN/codex"')
         self.env["TEST_BIN"] = str(self.bin)
@@ -306,6 +340,92 @@ exit 99
         self.assertEqual(result.returncode, 1)
         self.assertIn("a Codex session attached before the repair", result.stderr)
         self.assert_read_only(before)
+
+    def test_tui_whose_prompt_starts_with_exec_is_caught_by_its_socket(self):
+        # `codex "exec draw a diagram"` is a TUI; ps flattens it into `codex exec …`.
+        self.env.update(TEST_LIVE="exec-prompt-tui", TEST_LSOF="client42")
+        before = self.cache.read_bytes()
+        result = self.run_command("bash", str(DOCTOR), "--fix")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("42 attached to the daemon", result.stdout)
+        self.assertNotIn("draw a diagram", result.stdout)
+        result = self.run_command("bash", str(DOCTOR), "--after-update")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("repair deferred", result.stdout)
+        self.assert_read_only(before)
+
+    def test_ssh_proxy_client_blocks_repair(self):
+        self.env.update(TEST_LIVE="proxy", TEST_LSOF="client47")
+        before = self.cache.read_bytes()
+        result = self.run_command("bash", str(DOCTOR), "--fix")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("47 attached to the daemon", result.stdout)
+        self.assert_read_only(before)
+
+    def test_remote_clients_that_cannot_be_ruled_out_block_repair(self):
+        settings = self.home / "app-server-daemon"
+        settings.mkdir()
+        for remote_control, tcp, expected in ((True, "0", "remote control enabled"),
+                                              (False, "1", "43 daemon listens on TCP")):
+            with self.subTest(expected=expected):
+                (settings / "settings.json").write_text(
+                    json.dumps({"remoteControlEnabled": remote_control}))
+                self.env.update(TEST_LIVE="0", TEST_LSOF_TCP=tcp)
+                before = self.cache.read_bytes()
+                result = self.run_command("bash", str(DOCTOR), "--fix")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(expected, result.stdout)
+                result = self.run_command("bash", str(DOCTOR), "--after-update")
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("repair deferred", result.stdout)
+                self.assert_read_only(before)
+
+    def test_socket_inspection_failure_is_not_a_deferral(self):
+        self.env["TEST_LIVE"] = "0"
+        for mode in ("fail", "nolistener"):
+            with self.subTest(lsof=mode):
+                self.env["TEST_LSOF"] = mode
+                before = self.cache.read_bytes()
+                result = self.run_command("bash", str(DOCTOR), "--after-update")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("cannot inspect daemon connections", result.stderr)
+                self.assert_read_only(before)
+
+    def test_stopped_daemon_needs_no_socket_check_and_uses_the_package_fallback(self):
+        # Older CLIs and a stopped daemon report no managedCodexPath.
+        self.env.update(TEST_DAEMON_STATUS="stopped", TEST_NO_MANAGED="1", TEST_LIVE="0",
+                        TEST_LSOF="fail", TEST_DAEMON_VERSION="0.154.0")
+        dedicated = self.home / "packages/app-server-daemon/current/bin"
+        dedicated.mkdir(parents=True)
+        (dedicated / "codex").write_text("#!/bin/sh\necho 'codex-cli 0.154.0'\n")
+        (dedicated / "codex").chmod(0o755)
+        result = self.run_command("bash", str(DOCTOR), "--check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("daemon package 0.154.0 matches CLI", result.stdout)
+        self.assertIn("app-server daemon not running", result.stdout)
+        self.assertIn("models cache written by client 0.153.4, older", result.stdout)
+        self.assert_repaired(self.run_command("bash", str(DOCTOR), "--fix"))
+
+    def test_prerelease_versions_follow_semver_order(self):
+        self.env["TEST_CLI_VERSION"] = "0.163.0-alpha.2"
+        for component, drift in (("0.163.0-alpha.1", True), ("0.163.0-alpha", True),
+                                 ("0.163.0-alpha.10", False), ("0.163.0-beta", False),
+                                 ("0.163.0", False)):
+            with self.subTest(component=component):
+                (self.home / ".stub-daemon").unlink(missing_ok=True)
+                self.env["TEST_DAEMON_VERSION"] = component
+                self.cache.write_text(json.dumps({"client_version": component,
+                                                  "models": [{"slug": "test-model"}]}))
+                result = self.run_command("bash", str(DOCTOR), "--check")
+                self.assertEqual(result.returncode, 1 if drift else 0, result.stdout)
+                if drift:
+                    self.assertIn("older than CLI 0.163.0-alpha.2", result.stdout)
+
+    def test_unparseable_cli_version_is_an_error(self):
+        self.env["TEST_CLI_VERSION"] = "dev-build"
+        result = self.run_command("bash", str(DOCTOR), "--check")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("cannot parse the CLI version", result.stderr)
 
     def test_recipe_scopes_script_approvals_and_accepts_deferral(self):
         result = self.run_command("just", "update-ai-clis")
