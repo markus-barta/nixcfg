@@ -184,6 +184,10 @@ in
         "AEON_ADDR=:8080"
         "AEON_FILES_DIR=/data/files"
         "AEON_PUBLIC_URL=https://aeon.barta.cm"
+        # AEON-1105 (release 129): live agent chat is default-off; Markus enabled it
+        # for ppm only (agm1 stays off). Only "true"/"false" are accepted; anything
+        # else stops the server at startup. Releases before 129 ignore the variable.
+        "AEON_CHAT_ENABLED=true"
         # AEON-988: release 126 workers exhausted the default pgx pool (4 conns on 4 CPUs); explicit pool (30 until AEON-995).
         "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable&pool_max_conns=30"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
@@ -251,12 +255,24 @@ in
         "POSTGRES_USER=postgres"
         "POSTGRES_PASSWORD_FILE=/run/secrets/aeon-db-superuser-password"
       ];
+      # OPS-295/AEON-1106: pg_stat_statements names the statements behind the
+      # idle-time load (needs shared_preload_libraries, i.e. a restart; the
+      # extension itself is created once in the aeon DB). jit=off: an OLTP
+      # workload gains nothing from JIT, which costs per-backend memory.
       command = [
         "postgres"
         "-c"
         "shared_buffers=128MB"
         "-c"
         "max_connections=50"
+        "-c"
+        "shared_preload_libraries=pg_stat_statements"
+        "-c"
+        "pg_stat_statements.max=5000"
+        "-c"
+        "pg_stat_statements.track=top"
+        "-c"
+        "jit=off"
       ];
       volumes = [
         "aeon_db_data:/var/lib/postgresql"
