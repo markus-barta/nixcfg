@@ -599,7 +599,7 @@ def prove_network_block(cfg, lima, vm="aeon-probe"):
 
 class Controller:
     def __init__(self, cfg, gh=None, lima=None, state=None, getloadavg=os.getloadavg):
-        self.cfg = cfg
+        self.cfg = {**cfg, "loadHigh": float(cfg["loadHigh"]), "loadLow": float(cfg["loadLow"])}
         self.gh = gh or GitHub(cfg)
         self.lima = lima or Lima(cfg)
         self.state = state or State()
@@ -641,7 +641,7 @@ class Controller:
                     log(f"load gate OFF: 1-min load {load1} < low {low}")
             self.load_gated = gated
             data.update(loadGated=gated, load1=load1)
-        self.state.update(sample)
+        return self.state.update(sample)
 
     def pause(self, reason):
         """A failed protection check: refuse availability, stop minting and
@@ -671,10 +671,10 @@ class Controller:
         return not problems
 
     def tick(self):
-        self.sample_load()
+        load1 = self.sample_load()["load1"]
         self.reap_finished_workers()
         mode = self.mode()
-        if mode not in ("on", "draining") or self.load_gated:
+        if mode not in ("on", "draining"):
             return mode
         candidates = []
         for run in self.gh.active_runs():
@@ -682,6 +682,7 @@ class Controller:
                 if job.get("status") == "queued" and wants_label(job, self.cfg["label"]):
                     candidates.append((run, job))
         pending = 0
+        claimed = 0
         for run, job in candidates:
             data = self.state.load()
             if not self.minting_allowed():
@@ -711,15 +712,20 @@ class Controller:
                     log(f"cancel {run['id']} failed: {err}")
                 self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
                 continue
+            if load1 >= self.cfg["loadLow"] and claimed >= 1:
+                pending += 1
+                continue
             slot = self.claim_slot(job, run)
             if slot is None:
                 pending += 1
                 continue
+            claimed += 1
             thread = threading.Thread(target=self.serve, args=(slot, run, job), daemon=True)
             self.workers[job["id"]] = thread
             thread.start()
         self.pending = pending
-        self.maybe_prove()
+        if not self.load_gated:
+            self.maybe_prove()
         if time.time() - self.last_sweep > 60:
             self.last_sweep = time.time()
             self.sweep_stale_runners()

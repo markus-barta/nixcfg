@@ -165,7 +165,7 @@ class HostConfigTests(unittest.TestCase):
             mkEnableOption = _: { default = false; };
             mkPackageOption = _: _: _: { default = { outPath = "/lima"; version = "test"; }; };
             mkIf = condition: value: if condition then value else {};
-            types.float = "float";
+            types.number = "number";
             types.addCheck = type: check: { inherit type check; };
             mapAttrs = builtins.mapAttrs;
             importJSON = path: builtins.fromJSON (builtins.readFile path);
@@ -185,20 +185,20 @@ class HostConfigTests(unittest.TestCase):
           low = module.options.services.aeonBuilder.loadLow;
         in {
           assertions = map (overrides: (builtins.head (evaluate overrides).config.assertions).assertion)
-            [ {} { loadHigh = 8.0; } { loadHigh = 7.0; } ];
+            [ {} { loadHigh = 14; loadLow = 10; } { loadHigh = 8.0; } { loadHigh = 7; } ];
           highType = module.options.services.aeonBuilder.loadHigh.type;
           lowType = low.type.type;
-          nonnegative = map low.type.check [ (-1.0) 0.0 8.0 ];
+          nonnegative = map low.type.check [ (-1.0) (-1) 0.0 0 8.0 8 ];
           command = (builtins.head module.config.home.packages).text;
         }''' % json.dumps(str(ROOT))
         proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         result = json.loads(proc.stdout)
-        self.assertEqual(result["assertions"], [True, False, False])
-        self.assertEqual(result["highType"], "float")
-        self.assertEqual(result["lowType"], "float")
-        self.assertEqual(result["nonnegative"], [False, True, True])
+        self.assertEqual(result["assertions"], [True, True, False, False])
+        self.assertEqual(result["highType"], "number")
+        self.assertEqual(result["lowType"], "number")
+        self.assertEqual(result["nonnegative"], [False, False, True, True, True, True])
         settings = json.loads(result["command"].split("--config ", 1)[1].split(' "$@"', 1)[0])
         self.assertEqual(settings["loadHigh"], CFG["loadHigh"])
         self.assertEqual(settings["loadLow"], CFG["loadLow"])
@@ -681,14 +681,121 @@ class ControllerTests(unittest.TestCase):
                 self.assertEqual(ctl.tick(), "on")
                 self.assertTrue(ctl.load_gated)
                 self.assertEqual(self.state.load()["slots"], {})
+                self.assertEqual(ctl.pending, 1)
                 self.assertEqual(gh.cancelled, [])
                 self.assertEqual(job["status"], "queued")
-            claim.assert_not_called()
+            self.assertEqual(claim.call_count, 3)
+            claim.assert_called_with(job, r)
+            self.assertEqual(ctl.workers, {})
+            claim.reset_mock()
             ctl.tick()
             claim.assert_called_once_with(job, r)
         self.assertFalse(ctl.load_gated)
         self.assertEqual(self.state.load()["slots"]["0"]["jobId"], 90)
         self.assertEqual(getloadavg.call_count, 4)
+
+    def test_gated_empty_pool_finishes_draining(self):
+        ctl = self.controller(FakeGitHub([], {}), lambda: (13.0, 0, 0))
+        self.state.update(lambda d: d.update(mode="draining"))
+        ctl.pending = 3
+        self.assertEqual(ctl.tick(), "off")
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(self.state.load()["mode"], "off")
+        self.assertEqual(ctl.pending, 0)
+
+    def test_paused_and_stopping_modes_still_reap_while_gated(self):
+        for mode in ("paused", "stopping"):
+            with self.subTest(mode=mode):
+                gh = FakeGitHub([], {})
+                gh.active_runs = Mock(side_effect=AssertionError("must not poll jobs"))
+                ctl = self.controller(gh, lambda: (13.0, 0, 0))
+                finished = Mock()
+                finished.is_alive.return_value = False
+                ctl.workers[1] = finished
+                self.state.update(lambda d: d.update(mode=mode))
+                with patch.object(ctl, "maybe_prove") as prove:
+                    self.assertEqual(ctl.tick(), mode)
+                prove.assert_not_called()
+                self.assertTrue(ctl.load_gated)
+                self.assertEqual(self.state.load()["mode"], mode)
+                self.assertEqual(ctl.workers, {})
+                self.assertFalse(ctl.publish_once())
+                self.assertEqual(gh.published, [])
+
+    def test_gated_tick_sweeps_prunes_and_skips_proof(self):
+        ctl = self.controller(FakeGitHub([], {}), lambda: (13.0, 0, 0))
+        ctl.pending = 3
+        self.state.update(lambda d: d.update(verifiedRuns=list(range(501)), cancelledRuns=list(range(501))))
+        with patch.object(ctl, "maybe_prove") as prove, patch.object(ctl, "sweep_stale_runners") as sweep:
+            self.assertEqual(ctl.tick(), "on")
+        self.assertTrue(ctl.load_gated)
+        prove.assert_not_called()
+        sweep.assert_called_once_with()
+        self.assertEqual(ctl.pending, 0)
+        for key in ("verifiedRuns", "cancelledRuns"):
+            self.assertEqual(self.state.load()[key], list(range(201, 501)))
+
+    def test_ruleset_drift_pauses_and_cancels_while_gated(self):
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = lambda: dict(LIVE_RULESET, enforcement="evaluate")
+        ctl = self.controller(gh, lambda: (13.0, 0, 0))
+        self.assertEqual(ctl.tick(), "paused")
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(self.state.load()["slots"], {})
+        self.assertEqual(ctl.workers, {})
+        self.assertEqual(gh.cancelled, [9])
+        self.assertEqual(gh.published, [None])
+
+    def test_load_at_or_above_low_claims_one_slot_per_tick(self):
+        for load1 in (8.0, 10.0, 12.0):
+            with self.subTest(load1=load1):
+                self.state.update(lambda d: d.update(slots={}))
+                r = run(id=9)
+                jobs = [{"id": 90 + i, "status": "queued", "labels": ab.mint_labels(CFG, r)} for i in range(4)]
+                ctl = self.controller(FakeGitHub([r], {9: jobs}), lambda: (load1, 0, 0))
+                for count in range(1, 5):
+                    self.assertEqual(ctl.tick(), "on")
+                    self.assertFalse(ctl.load_gated)
+                    self.assertEqual(len(self.state.load()["slots"]), count)
+                    self.assertEqual(ctl.pending, 4 - count)
+
+    def test_load_below_low_can_claim_all_free_slots(self):
+        r = run(id=9)
+        jobs = [{"id": 90 + i, "status": "queued", "labels": ab.mint_labels(CFG, r)} for i in range(4)]
+        ctl = self.controller(FakeGitHub([r], {9: jobs}), lambda: (7.9, 0, 0))
+        ctl.tick()
+        self.assertFalse(ctl.load_gated)
+        self.assertEqual(len(self.state.load()["slots"]), 4)
+        self.assertEqual(ctl.pending, 0)
+
+    def test_unverified_and_wrong_class_runs_are_cancelled_while_gated(self):
+        fork = run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"})
+        wrong_class = run(id=8)
+        jobs = {
+            7: [{"id": 70, "status": "queued", "labels": ab.mint_labels(CFG, fork)}],
+            8: [{"id": 80, "status": "queued", "labels": ["mbp2606", "mbp2606-pr"]}],
+        }
+        gh = FakeGitHub([fork, wrong_class], jobs)
+        ctl = self.controller(gh, lambda: (13.0, 0, 0))
+        self.assertEqual(ctl.tick(), "on")
+        self.assertTrue(ctl.load_gated)
+        self.assertEqual(gh.cancelled, [7, 8])
+        self.assertEqual(self.state.load()["slots"], {})
+        self.assertEqual(ctl.workers, {})
+        ctl.tick()
+        self.assertEqual(gh.cancelled, [7, 8], "cancel once")
+
+    def test_controller_converts_integer_thresholds_to_floats(self):
+        ctl = ab.Controller({**CFG, "loadHigh": 14, "loadLow": 10}, gh=FakeGitHub([], {}),
+                            lima=object(), state=self.state, getloadavg=lambda: (13.0, 0, 0))
+        self.assertIsInstance(ctl.cfg["loadHigh"], float)
+        self.assertIsInstance(ctl.cfg["loadLow"], float)
+        self.assertEqual(ctl.cfg["loadHigh"], 14.0)
+        self.assertEqual(ctl.cfg["loadLow"], 10.0)
+        ctl.tick()
+        self.assertFalse(ctl.load_gated)
 
     def test_publish_load_gate_advertises_busy_then_normal_free_slots(self):
         gh = FakeGitHub([], {})

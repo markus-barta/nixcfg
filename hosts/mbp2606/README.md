@@ -83,8 +83,10 @@ disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
 host RAM for remote-test.
 
 The host load gate stops taking new jobs above a 1-minute load of 12.0 and
-resumes only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). While
-gated, jobs stay queued, running jobs and VMs continue, and availability
+resumes only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). With the
+gate off and sampled load at or above `loadLow`, the controller claims at most
+one new slot per tick; below `loadLow`, it may claim all free slots. While
+gated, admitted jobs stay queued, running jobs and VMs continue, and availability
 advertises zero idle runners (`busy=true`) so CI routes new work to hosted
 runners. `aeon-builder status` shows the gate and last sampled 1-minute load;
 each transition is logged once.

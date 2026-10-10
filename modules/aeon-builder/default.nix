@@ -193,12 +193,12 @@ in
       description = "The availability record expires after 30 s and must refresh at least every 10 s.";
     };
     loadHigh = lib.mkOption {
-      type = lib.types.float;
+      type = lib.types.number;
       default = 12.0;
       description = "Stop taking new jobs when the host's 1-minute load exceeds this threshold; must exceed loadLow.";
     };
     loadLow = lib.mkOption {
-      type = lib.types.addCheck lib.types.float (value: value >= 0);
+      type = lib.types.addCheck lib.types.number (value: value >= 0);
       default = 8.0;
       description = "Resume taking jobs only when the host's 1-minute load falls below this threshold.";
     };
