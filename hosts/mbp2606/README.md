@@ -82,6 +82,13 @@ respectively. Only pushes write the persistent cache; other events use a
 disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
 host RAM for remote-test.
 
+The host load gate stops taking new jobs above a 1-minute load of 12.0 and
+resumes only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). While
+gated, jobs stay queued, running jobs and VMs continue, and availability
+advertises zero idle runners (`busy=true`) so CI routes new work to hosted
+runners. `aeon-builder status` shows the gate and last sampled 1-minute load;
+each transition is logged once.
+
 The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
 main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
 including tightenings and merge-queue tuning. CI falls back to hosted runners

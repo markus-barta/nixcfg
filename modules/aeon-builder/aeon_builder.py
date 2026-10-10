@@ -159,6 +159,15 @@ def ruleset_problems(ruleset, expected):
     return problems
 
 
+def load_gate(gated, load1, high, low):
+    """Hysteresis: equal thresholds retain the previous gate state."""
+    if load1 > high:
+        return True
+    if load1 < low:
+        return False
+    return gated
+
+
 def availability_record(cfg, free_slots, now=None):
     now = now or dt.datetime.now(dt.timezone.utc)
     return {
@@ -589,11 +598,13 @@ def prove_network_block(cfg, lima, vm="aeon-probe"):
 
 
 class Controller:
-    def __init__(self, cfg, gh=None, lima=None, state=None):
+    def __init__(self, cfg, gh=None, lima=None, state=None, getloadavg=os.getloadavg):
         self.cfg = cfg
         self.gh = gh or GitHub(cfg)
         self.lima = lima or Lima(cfg)
         self.state = state or State()
+        self.getloadavg = getloadavg
+        self.load_gated = False
         self.lock = threading.Lock()
         self.workers = {}
         self.pending = 0
@@ -616,6 +627,21 @@ class Controller:
 
     def minting_allowed(self):
         return self.mode() in ("on", "draining")
+
+    def sample_load(self):
+        """Serialize tick/publisher samples, transitions and CLI status."""
+        def sample(data):
+            load1 = self.getloadavg()[0]
+            high, low = self.cfg["loadHigh"], self.cfg["loadLow"]
+            gated = load_gate(self.load_gated, load1, high, low)
+            if gated != self.load_gated:
+                if gated:
+                    log(f"load gate ON: 1-min load {load1} > high {high}; not taking new jobs")
+                else:
+                    log(f"load gate OFF: 1-min load {load1} < low {low}")
+            self.load_gated = gated
+            data.update(loadGated=gated, load1=load1)
+        self.state.update(sample)
 
     def pause(self, reason):
         """A failed protection check: refuse availability, stop minting and
@@ -645,9 +671,10 @@ class Controller:
         return not problems
 
     def tick(self):
+        self.sample_load()
         self.reap_finished_workers()
         mode = self.mode()
-        if mode not in ("on", "draining"):
+        if mode not in ("on", "draining") or self.load_gated:
             return mode
         candidates = []
         for run in self.gh.active_runs():
@@ -740,13 +767,15 @@ class Controller:
         """The mode check and the remote write happen under the state lock, the
         same lock pause() and `off` hold while clearing: a publish can never
         land after a clear."""
+        self.sample_load()
         if self.mode() != "on" or not self.check_ruleset():
             return False
         published = []
 
         def publish(data):
             if data.get("mode") == "on":
-                self.gh.publish(availability_record(self.cfg, self.free_slots(data, self.pending)))
+                free = 0 if self.load_gated else self.free_slots(data, self.pending)
+                self.gh.publish(availability_record(self.cfg, free))
                 published.append(True)
         self.state.update(lambda d: None, then=publish)
         return bool(published)
@@ -816,7 +845,7 @@ class Controller:
         claimed = []
 
         def claim(data):
-            if data.get("mode") not in ("on", "draining"):
+            if data.get("mode") not in ("on", "draining") or self.load_gated:
                 return
             for slot in range(self.cfg["slots"]):
                 if str(slot) not in data["slots"]:
@@ -1334,6 +1363,8 @@ def cmd_status(cfg, args):
         base = "ready" if marker.exists() and marker.read_text().strip() == cfg["baseId"] else "outdated (rebuilt on next on)"
     print(f"mode:        {data.get('mode')}{'  ⚠ ' + data['alert'] if data.get('alert') else ''}")
     print(f"controller:  {'pid ' + str(pid) if pid else 'not running'}")
+    gate = 'ON' if data.get('loadGated') else 'OFF'
+    print(f"load gate:   {gate}  1-min load {data.get('load1', 'unknown')} (last sampled; high {cfg['loadHigh']}, low {cfg['loadLow']})")
     print(f"base VM:     {base}")
     print(f"net block:   last proven {data.get('networkProof', 'never')[:19]}")
     print(f"slots:       {len(data['slots'])}/{cfg['slots']} busy ({cfg['slotCpus']} CPU / {cfg['slotMemoryGiB']} GiB each)")
