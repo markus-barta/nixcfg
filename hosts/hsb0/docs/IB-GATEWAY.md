@@ -408,6 +408,36 @@ Compose uses the executor's pinned local Node image, UID/GID 1000, read-only
 code, dropped capabilities, and source-specific raw/filter firewall rules on
 `tailscale0`. There is no LAN/WAN listener.
 
+### Push delivery (OPS-290)
+
+`GET /v1/events` streams full JSON `message` events (SSE `id`, `event`, `data`),
+replaying all unread messages before live delivery. Heartbeat comments arrive
+every 15 seconds. `Last-Event-ID` and `?since=<id>` are accepted; all unread
+are replayed even before the cursor to avoid loss from random ID ordering or
+clock changes. Clients suppress duplicates with per-ID receipts. Ack remains
+explicit. Four SSE/long-poll connections per identity are allowed; overflow
+gets 429, slow consumers disconnect, and streams rotate after one hour.
+`GET /v1/messages?wait=60` is the long-poll fallback: unread immediately/new
+mail on arrival, or an empty array at timeout (integer wait 0–60 seconds).
+
+The repository's `mbx watch ops` consumes SSE, reconnects with cursor/backoff,
+and continues local inbox polling when hsb0 is unavailable (stderr reports
+the fallback). Other local recipients and existing send/read/list/wait commands
+retain their behavior. OPS installs the repository copy only after review.
+Amy installs `amy-watch.sh` with its `message.awk` helper and the example
+systemd **user** unit herself; OPS has no SSH access to her box. With no hook,
+it writes private JSON inbox files. `AMY_MAILBOX_HOOK` receives id/from as
+arguments and the body solely on stdin; failed hooks retain the cursor.
+See [module README](../../../modules/agent-mailbox/README.md) for exact
+installation, `--once` test, uninstall commands and hook/replay guarantees.
+
+A later move to csb1 changes the Headscale `amy@`/`tag:paper-desk` destination
+IP/port, hsb0-specific bind assertions, peer/firewall/service wiring and client
+URLs. It gains independence from hsb0's connectivity, but requires a separate
+quiesced backup/transfer of `/var/lib/agent-mailbox` with ownership, modes,
+inbox/archive/rate state and IDs intact. Keep a rollback and one writer. No
+host move or ACL widening is part of OPS-290.
+
 ## Still gated / follow-ups
 
 - Interactive / device 2FA on first login (approve on IBKR mobile if prompted)

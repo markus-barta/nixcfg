@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertListen, assertPeers, DEFAULT_PEERS, isTailnetIPv4, normalizePeer, parseMessage } from "./security.mjs";
+import { assertListen, assertPeers, DEFAULT_PEERS, isTailnetIPv4, normalizePeer, parseMessage, parseStoredMessage } from "./security.mjs";
+
+test("stored body validation preserves legacy controls but rejects malformed bodies", () => {
+  const parse = (body) => parseStoredMessage({ to: "ops", body }, "amy", ["amy", "ops"]);
+  assert.equal(parse("old\r\n\x1b\u0085\u202e").body, "old\r\n\x1b\u0085\u202e");
+  for (const body of [null, 1, "", "x\0y", "x".repeat(16385), "\ud800", "\udfff"]) assert.throws(() => parse(body), { statusCode: 400 });
+  assert.equal(parse("👩‍💻").body, "👩‍💻");
+});
 
 test("caller addresses normalize IPv4-mapped IPv6 without admitting other addresses", () => {
   const peers = assertPeers(DEFAULT_PEERS);

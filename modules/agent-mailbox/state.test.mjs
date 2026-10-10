@@ -10,6 +10,27 @@ const identities = ["amy", "ops"];
 const newRoot = () => fs.mkdtempSync(path.join(tmpdir(), "ops272-state-"));
 const message = { to: "ops", ticket: "OPS-272", body: "message text" };
 
+test("notifications follow durable publication and a failed subscriber cannot fail a send", () => {
+  const root = newRoot();
+  const mailbox = openMailbox(root, identities);
+  let attempts = 0;
+  mailbox.subscribe("ops", (row) => {
+    attempts++;
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, "inbox", "ops", `${row.id}.json`))).body, message.body);
+    throw new Error("consumer failed");
+  });
+  const observed = [];
+  const unsubscribe = mailbox.subscribe("ops", (row) => observed.push(row.id));
+  const first = mailbox.send("amy", message);
+  const second = mailbox.send("amy", message);
+  assert.deepEqual(observed, [first.id, second.id]);
+  assert.equal(attempts, 1);
+  unsubscribe();
+  mailbox.send("amy", message);
+  assert.equal(observed.length, 2);
+  assert.equal(mailbox.unread("ops"), 3);
+});
+
 test("the path helper rejects invalid IDs, encoded traversal, and other identities' directories", () => {
   const directory = path.join(newRoot(), "inbox", "ops");
   const id = `${Date.now()}-${"a".repeat(32)}`;
