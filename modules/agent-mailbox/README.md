@@ -86,8 +86,14 @@ their sanitised display, and kept/archived files stay byte-exact. It observes
 the local `to-ops` inbox concurrently; when push is unavailable it reports the
 fallback on stderr and continues local polling. Reconnect backoff is 1–30
 seconds; heartbeat/data resets it. `MBX_HSB0` overrides the endpoint and
-`MBX_ROOT` the existing local mailbox root. `watch-ops/` holds 0600 receipts
-and an atomic cursor in a 0700 directory. Receipts older than 30 days are
+`MBX_ROOT` the existing local mailbox root. The OPS watcher resolves that root
+and requires it to be inside the user's home, including after symlink resolution;
+an outside root exits with status 2. Local inbox filenames must contain only
+ASCII letters, digits, dots, underscores and hyphens, end in `.txt`, and contain
+no `..`. `watch-ops/` holds 0600 receipts and an atomic cursor in a 0700 directory.
+Receipts are created exclusively before announcing a message, so concurrent
+watchers do not announce the same remote ID twice. An invalid saved cursor is
+renamed to `cursor.invalid` and replay starts without a cursor. Receipts older than 30 days are
 pruned at startup and hourly; unread messages can be announced again after
 receipt expiry. Pulled hsb0 files share those receipts, so `mbx list ops`
 does not cause the watch to announce a pushed message again.

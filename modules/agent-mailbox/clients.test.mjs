@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,14 +11,14 @@ const id = (digit) => `1791619200000-${digit.repeat(32)}`;
 const row = (digit = "a", body = "Hello Amy") => ({ id: id(digit), from: "ops", to: "amy", ticket: "OPS-290", createdAt: "2026-10-10T08:00:00.000Z", body });
 const frame = (message) => `id: ${message.id}\nevent: message\ndata: ${JSON.stringify(message)}\n\n`;
 function fixture() {
-  const root = mkdtempSync(path.join(tmpdir(), "ops290-client-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ops290-client-")));
   const bin = path.join(root, "bin");
   mkdirSync(bin);
   const stream = path.join(root, "stream");
   const argumentsPath = path.join(root, "curl-args");
   writeFileSync(path.join(bin, "curl"), '#!/bin/sh\nprintf "%s\\n" "$@" >> "$MAILBOX_CURL_ARGS"\ncat "$MAILBOX_FIXTURE"\nexit "${MAILBOX_CURL_EXIT:-0}"\n', { mode: 0o700 });
   return { root, bin, stream, argumentsPath,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MAILBOX_FIXTURE: stream, MAILBOX_CURL_ARGS: argumentsPath, AMY_MAILBOX_DIR: path.join(root, "amy"), MBX_ROOT: path.join(root, "mbx") },
+    env: { ...process.env, HOME: root, PATH: `${bin}:${process.env.PATH}`, MAILBOX_FIXTURE: stream, MAILBOX_CURL_ARGS: argumentsPath, AMY_MAILBOX_DIR: path.join(root, "amy"), MBX_ROOT: path.join(root, "mbx") },
   };
 }
 function amy(ctx, overrides = {}) {
@@ -39,9 +39,13 @@ async function watchOps(t, ctx, { args = [], onOutput = () => {}, stopOnError = 
   return { output, errors };
 }
 
-function replayLoader(ctx) {
+function replayLoader(ctx, { raceReceipts = false } = {}) {
   const loader = path.join(ctx.root, "replay-loader.mjs");
+  const barrier = path.join(ctx.root, "receipt-barrier");
+  if (raceReceipts) mkdirSync(barrier);
   writeFileSync(loader, `import cp from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
@@ -53,10 +57,114 @@ cp.spawn = () => {
   child.stdout.once("end", () => child.emit("close", 7));
   return child;
 };
+${raceReceipts ? `// Hold both watchers at receipt creation so this exercises a real race.
+const write = fs.writeFileSync;
+let arrived = false;
+fs.writeFileSync = (filename, ...args) => {
+  if (!arrived && /^[0-9]{13}-[a-f0-9]{32}$/.test(path.basename(filename))) {
+    arrived = true;
+    write(path.join(${JSON.stringify(barrier)}, String(process.pid)), "ready");
+    const deadline = Date.now() + 3000;
+    while (fs.readdirSync(${JSON.stringify(barrier)}).length < 2) {
+      if (Date.now() > deadline) throw new Error("receipt race barrier timed out");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+  return write(filename, ...args);
+};` : ""}
 syncBuiltinESMExports();
 `);
   return loader;
 }
+
+test("OPS refuses roots outside home, including a shared path prefix", () => {
+  const ctx = fixture();
+  for (const root of [path.join(tmpdir(), "ops290-outside-home"), `${ctx.root}-outside/mailbox`]) {
+    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), root, "http://fixture.invalid"],
+      { env: ctx.env, encoding: "utf8", timeout: 5000 });
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /bad watch root/);
+    assert.equal(existsSync(path.join(root, "watch-ops")), false);
+    assert.equal(existsSync(ctx.argumentsPath), false);
+  }
+});
+
+test("OPS refuses symlink roots and missing descendants that resolve outside home", () => {
+  const ctx = fixture();
+  const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "ops290-outside-")));
+  const link = path.join(ctx.root, "link");
+  symlinkSync(outside, link);
+  for (const root of [link, path.join(link, "missing", "mailbox")]) {
+    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), root, "http://fixture.invalid"],
+      { env: ctx.env, encoding: "utf8", timeout: 5000 });
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /bad watch root/);
+  }
+  assert.deepEqual(readdirSync(outside), []);
+});
+
+test("OPS rejects traversal-shaped event ids without receipts or cursor advancement", async (t) => {
+  for (const bad of ["../../escape", `${id("a")}/../escape`, `${id("a")}\n`]) {
+    const ctx = fixture();
+    writeFileSync(ctx.stream, frame({ ...row(), id: bad, from: "amy", to: "ops" }));
+    const result = await watchOps(t, ctx, { args: ["--import", replayLoader(ctx)] });
+    assert.match(result.errors, /event delivery failed/);
+    assert.equal(result.output.includes("MBX NEW for ops:"), false);
+    assert.deepEqual(readdirSync(path.join(ctx.env.MBX_ROOT, "watch-ops")), []);
+  }
+});
+
+test("OPS ignores traversal-shaped and unsafe local filenames while accepting ordinary names", async (t) => {
+  const ctx = fixture();
+  const inbox = path.join(ctx.env.MBX_ROOT, "to-ops");
+  mkdirSync(inbox, { recursive: true });
+  const contents = "From: codex\nTicket: OPS-290\n\nlocal filename test\n";
+  const rejected = ["..escape.txt", "nested..name.txt", "unsafe name.txt", "unsafe.txt\n"];
+  for (const name of [...rejected, "safe_name-01.txt"]) writeFileSync(path.join(inbox, name), contents);
+  writeFileSync(ctx.stream, "");
+  const result = await watchOps(t, ctx, { args: ["--import", replayLoader(ctx)] });
+  const announcements = result.output.split("\n").filter((line) => line.startsWith("MBX NEW for ops:"));
+  assert.equal(announcements.length, 1, result.output);
+  assert.match(announcements[0], /safe_name-01\.txt/);
+  for (const name of rejected) assert.equal(readFileSync(path.join(inbox, name), "utf8"), contents);
+});
+
+for (const source of ["push", "local"]) {
+  test(`OPS concurrent ${source} receipt creation announces a shared message once`, async (t) => {
+    const ctx = fixture();
+    const message = { ...row(), from: "amy", to: "ops" };
+    const inbox = path.join(ctx.env.MBX_ROOT, "to-ops");
+    mkdirSync(inbox, { recursive: true });
+    if (source === "local") writeFileSync(path.join(inbox, "pulled.txt"), `From: amy\nTicket: OPS-290\nVia: hsb0 mailbox ${message.id}\n\n${message.body}\n`);
+    writeFileSync(ctx.stream, source === "push" ? frame(message) : "");
+    const args = ["--import", replayLoader(ctx, { raceReceipts: true })];
+    const results = await Promise.all([watchOps(t, ctx, { args }), watchOps(t, ctx, { args })]);
+    const announcements = results.flatMap(({ output }) => output.split("\n")).filter((line) => line.startsWith("MBX NEW for ops:"));
+    assert.equal(announcements.length, 1, JSON.stringify(results));
+    for (const { errors } of results) assert.doesNotMatch(errors, /event delivery failed|local inbox scan failed/);
+    assert.equal(readdirSync(path.join(ctx.root, "receipt-barrier")).length, 2);
+    const receipt = path.join(ctx.env.MBX_ROOT, "watch-ops", id("a"));
+    assert.equal(readFileSync(receipt, "utf8"), "seen\n");
+    assert.equal(statSync(receipt).mode & 0o777, 0o600);
+  });
+}
+
+test("OPS sets aside an invalid saved cursor and starts replay without it", async (t) => {
+  const ctx = fixture();
+  const state = path.join(ctx.env.MBX_ROOT, "watch-ops");
+  mkdirSync(state, { recursive: true });
+  const invalid = "../../escape\n";
+  writeFileSync(path.join(state, "cursor"), invalid, { mode: 0o600 });
+  writeFileSync(ctx.stream, frame({ ...row(), from: "amy", to: "ops" }));
+  const result = await watchOps(t, ctx, { stopOnError: false, onOutput(output, child) {
+    if (output.includes(`MBX NEW for ops: ${id("a")}`)) child.kill("SIGTERM");
+  } });
+  assert.match(result.errors, /invalid saved cursor/);
+  assert.ok(result.output.includes(`MBX NEW for ops: ${id("a")}`), result.errors);
+  assert.equal(readFileSync(path.join(state, "cursor.invalid"), "utf8"), invalid);
+  assert.equal(readFileSync(path.join(state, "cursor"), "utf8"), `${id("a")}\n`);
+  assert.doesNotMatch(readFileSync(ctx.argumentsPath, "utf8"), /Last-Event-ID/);
+});
 
 test("Amy decoder preserves a work-directory containing literal backslashes", () => {
   const ctx = fixture();

@@ -1,30 +1,71 @@
 // OPS-290: observe push and local files without acknowledging either inbox.
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 const ID_PATTERN = /^[0-9]{13}-[a-f0-9]{32}$/;
 
-const [root, endpoint, interval = "3"] = process.argv.slice(2);
-if (!root || !/^https?:\/\//.test(endpoint) || !Number.isFinite(Number(interval)) || Number(interval) <= 0) {
+const [rootArg, endpoint, interval = "3"] = process.argv.slice(2);
+if (!rootArg || !/^https?:\/\//.test(endpoint) || !Number.isFinite(Number(interval)) || Number(interval) <= 0) {
   console.error("mbx: bad watch endpoint or interval"); process.exit(2);
 }
+// Resolve existing ancestors too: a not-yet-created root must not escape home
+// through a symlink in its parent path.
+function canonicalPath(resolved) {
+  try { return realpathSync(resolved); }
+  catch (error) {
+    if (error.code !== "ENOENT" || path.dirname(resolved) === resolved) throw error;
+    return path.join(canonicalPath(path.dirname(resolved)), path.basename(resolved));
+  }
+}
+let root;
+try {
+  const home = canonicalPath(path.resolve(homedir()));
+  root = canonicalPath(path.resolve(rootArg));
+  if (!root.startsWith(home + path.sep)) throw new Error("root outside home");
+} catch {
+  console.error("mbx: bad watch root (must be inside home)"); process.exit(2);
+}
 const state = path.join(root, "watch-ops");
+const inbox = path.join(root, "to-ops");
 mkdirSync(state, { recursive: true, mode: 0o700 });
 chmodSync(state, 0o700);
 const cursorPath = path.join(state, "cursor");
-let cursor = existsSync(cursorPath) ? readFileSync(cursorPath, "utf8").trim() : "";
-if (cursor && !ID_PATTERN.test(cursor)) { console.error("mbx: invalid saved cursor"); process.exit(2); }
+let cursor = "";
+try { cursor = readFileSync(cursorPath, "utf8").trim(); }
+catch (error) { if (error.code !== "ENOENT") throw error; }
+if (cursor) {
+  try { cursor = safeName(cursor); }
+  catch {
+    renameSync(cursorPath, path.join(state, "cursor.invalid"));
+    console.error("mbx: invalid saved cursor");
+    cursor = "";
+  }
+}
 const seenLocal = new Set();
 let stopped = false;
 let child;
 let retryTimer;
 let backoff = 1;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+function safeName(id) {
+  if (typeof id !== "string" || id.length !== 46 || !ID_PATTERN.test(id) || path.basename(id) !== id) throw new Error("invalid message id");
+  return id;
+}
+function receiptPath(id) {
+  const receipt = path.join(state, safeName(id));
+  if (path.dirname(receipt) !== state) throw new Error("invalid receipt path");
+  return receipt;
+}
+function claimReceipt(id) {
+  try { writeFileSync(receiptPath(id), "seen\n", { flag: "wx", mode: 0o600 }); return true; }
+  catch (error) { if (error.code === "EEXIST") return false; throw error; }
+}
 function pruneReceipts() {
   const cutoff = Date.now() - RETENTION_MS;
   for (const name of readdirSync(state)) {
-    if (!ID_PATTERN.test(name)) continue;
-    const receipt = path.join(state, name);
+    try { safeName(name); } catch { continue; }
+    const receipt = receiptPath(name);
     const stat = lstatSync(receipt);
     if (stat.isFile() && stat.mtimeMs < cutoff) unlinkSync(receipt);
   }
@@ -38,18 +79,19 @@ function preview(body) {
     .replace(/[\t\n\u2028\u2029]/g, " ")).slice(0, 140).join("");
 }
 function scanLocal() {
-  const inbox = path.join(root, "to-ops");
   try {
-    for (const filename of readdirSync(inbox).filter((file) => file.endsWith(".txt")).sort()) {
+    for (const filename of readdirSync(inbox).sort()) {
+      if (!/^[A-Za-z0-9._-]+\.txt$/.test(filename) || !filename.endsWith(".txt") || filename.includes("..") || path.basename(filename) !== filename) continue;
+      const localPath = path.join(inbox, filename);
+      if (path.dirname(localPath) !== inbox) continue;
       if (seenLocal.has(filename)) continue;
       let contents;
-      try { contents = readFileSync(path.join(inbox, filename), "utf8"); } catch { continue; }
+      try { contents = readFileSync(localPath, "utf8"); } catch { continue; }
       const header = (key) => contents.match(new RegExp(`^${key}: (.*)$`, "m"))?.[1]?.replace(/\r/g, "") ?? "";
       const remoteId = /^hsb0 mailbox ([0-9]{13}-[a-f0-9]{32})$/.exec(header("Via"))?.[1];
-      if (remoteId && existsSync(path.join(state, remoteId))) { seenLocal.add(filename); continue; }
+      if (remoteId && !claimReceipt(remoteId)) { seenLocal.add(filename); continue; }
       const body = contents.split(/\r?\n\r?\n/).slice(1).join("\n\n");
       console.log(`MBX NEW for ops: ${preview(filename)} | from=${preview(header("From"))} ticket=${preview(header("Ticket"))} | ${preview(body)}`);
-      if (remoteId) writeFileSync(path.join(state, remoteId), "seen\n", { mode: 0o600 });
       seenLocal.add(filename);
     }
   } catch { console.error("mbx: local inbox scan failed"); }
@@ -64,11 +106,11 @@ function consume(frame) {
   const id = lines.find((line) => line.startsWith("id: "))?.slice(4);
   const data = lines.filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
   const message = JSON.parse(data);
-  if (!ID_PATTERN.test(id ?? "") || message.id !== id || message.to !== "ops" || message.from !== "amy" || typeof message.body !== "string") throw new Error("invalid event");
-  const receipt = path.join(state, id);
-  if (existsSync(receipt)) return;
-  console.log(`MBX NEW for ops: ${id} | from=${message.from} ticket=${preview(message.ticket ?? "none")} | ${preview(message.body)}`);
-  writeFileSync(receipt, "seen\n", { mode: 0o600 });
+  safeName(id);
+  if (message.id !== id || message.to !== "ops" || message.from !== "amy" || typeof message.body !== "string") throw new Error("invalid event");
+  const announcement = `MBX NEW for ops: ${id} | from=${message.from} ticket=${preview(message.ticket ?? "none")} | ${preview(message.body)}`;
+  if (!claimReceipt(id)) return;
+  console.log(announcement);
   writeFileSync(`${cursorPath}.new`, `${id}\n`, { mode: 0o600 });
   renameSync(`${cursorPath}.new`, cursorPath);
   cursor = id;
