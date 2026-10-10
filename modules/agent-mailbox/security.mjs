@@ -47,6 +47,9 @@ export function parseMessage(value, caller, identities) {
   if (Object.keys(value).some((key) => !["to", "ticket", "body"].includes(key))) throw failure(400, "unknown message field");
   if (!identities.includes(value.to) || value.to === caller) throw failure(400, "recipient is invalid");
   if (Object.hasOwn(value, "ticket") && (typeof value.ticket !== "string" || !/^[A-Z][A-Z0-9]{1,15}-[0-9]{1,6}$/.test(value.ticket))) throw failure(400, "ticket is invalid");
-  if (typeof value.body !== "string" || value.body.length === 0 || value.body.length > MESSAGE_LIMIT || value.body.includes("\0")) throw failure(400, "message body is invalid");
+  if (typeof value.body !== "string" || value.body.length === 0 || value.body.length > MESSAGE_LIMIT) throw failure(400, "message body is invalid");
+  if (/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u.test(value.body)) throw failure(400, "body contains control characters");
+  // JSON escapes can introduce lone surrogates even in a valid UTF-8 request.
+  if (/[\ud800-\udfff]/u.test(value.body)) throw failure(400, "body must be valid UTF-8");
   return { to: value.to, ticket: value.ticket ?? null, body: value.body };
 }
