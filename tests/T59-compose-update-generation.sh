@@ -53,7 +53,24 @@ bash "$helper" "$active" "$expected_a" "$lock" 5 "$fake_compose" \
 mapfile -t calls <"$log"
 [[ ${#calls[@]} -eq 2 ]]
 [[ "${calls[0]}" == "-p|project name|-f|${expected_a}|--project-directory|${project_dir}|pull|--quiet|service-a|service-b" ]]
-[[ "${calls[1]}" == "-p|project name|-f|${expected_a}|--project-directory|${project_dir}|up|-d" ]]
+[[ "${calls[1]}" == "-p|project name|-f|${expected_a}|--project-directory|${project_dir}|up|-d|--pull|never" ]]
+
+# No eligible pull targets still converges the whole stack without pulling.
+: >"$log"
+bash "$helper" "$active" "$expected_a" "$lock" 5 "$fake_compose" \
+  project "" none
+mapfile -t calls <"$log"
+[[ ${#calls[@]} -eq 1 ]]
+[[ "${calls[0]}" == "-p|project|-f|${expected_a}|up|-d|--pull|never" ]]
+
+# Hosts without exclusions retain untargeted pull and their existing up policy.
+: >"$log"
+bash "$helper" "$active" "$expected_a" "$lock" 5 "$fake_compose" \
+  project "" all
+mapfile -t calls <"$log"
+[[ ${#calls[@]} -eq 2 ]]
+[[ "${calls[0]}" == "-p|project|-f|${expected_a}|pull|--quiet" ]]
+[[ "${calls[1]}" == "-p|project|-f|${expected_a}|up|-d" ]]
 
 # Reproduce NIX-495: activation advances /etc while the old generation pulls.
 # The second guard must refuse the stale `up`, leaving the new reconcile as the
