@@ -43,6 +43,9 @@ for (const [label, points] of [
   ["C1", Array.from({ length: 32 }, (_, i) => 128 + i)],
   ["bidi overrides/embeddings", Array.from({ length: 5 }, (_, i) => 0x202a + i)],
   ["bidi isolates", Array.from({ length: 4 }, (_, i) => 0x2066 + i)],
+  ["bidi marks and invisible characters", [0x061c, 0x200b, 0x200e, 0x200f, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff]],
+  ["Unicode tags E0000–E003F", Array.from({ length: 64 }, (_, i) => 0xe0000 + i)],
+  ["Unicode tags E0040–E007F", Array.from({ length: 64 }, (_, i) => 0xe0040 + i)],
 ]) {
   test(`send rejects every ${label} character without storing`, async (t) => {
     const { app, request } = start(t);
@@ -71,7 +74,7 @@ test("send rejects malformed UTF-8 inside JSON and escaped lone surrogates", asy
 
 test("multiline German/English with tabs, umlauts and emoji survives split UTF-8 chunks exactly", async (t) => {
   const { request } = start(t);
-  const body = "Grüße aus Österreich: äöü ÄÖÜ ß\nHello Amy!\t😀 🚀\n\n";
+  const body = "Grüße aus Österreich: äöü ÄÖÜ ß\nHello Amy!\t😀 🚀 👩‍💻\n\n";
   const raw = Buffer.from(JSON.stringify({ ...valid, body }));
   const sent = await request("POST", "/v1/messages", undefined, { chunks: Array.from(raw, (byte) => Buffer.from([byte])) });
   assert.equal(sent.status, 201);
@@ -114,6 +117,53 @@ test("SSE replays all unread then emits live, isolates identity and never acknow
   assert.deepEqual(amyStream.events().map((row) => row.body), ["private"]);
 });
 
+test("legacy stored CR/ESC/C1/bidi/invisible rows can be read, streamed and acknowledged", async (t) => {
+  const { app, request, stateDir } = start(t);
+  const sent = app.mailbox.send("amy", valid);
+  const body = "line1\r\nline2\x1b[31m\u0085\u061c\u202e\u200b\u{e0061}";
+  const stored = { ...sent, ...valid, from: "amy", body };
+  writeFileSync(path.join(stateDir, "inbox", "ops", `${sent.id}.json`), JSON.stringify(stored));
+  assert.deepEqual((await request("GET", "/v1/messages", undefined, ops)).result.messages, [stored]);
+  assert.deepEqual((await connect(app)).events(), [stored]);
+  assert.equal((await request("POST", `/v1/messages/${sent.id}/ack`, undefined, ops)).status, 200);
+  assert.equal(app.mailbox.unread("ops"), 0);
+  assert.deepEqual(readdirSync(path.join(stateDir, "archive", "ops")), [`${sent.id}.json`]);
+});
+
+test("fifth SSE connection evicts and destroys the oldest before reading replay", async (t) => {
+  const { app } = start(t);
+  const streams = [];
+  for (let i = 0; i < STREAM_LIMIT; i++) streams.push(await connect(app));
+  const read = app.mailbox.messages;
+  t.mock.method(app.mailbox, "messages", (...args) => {
+    assert.equal(streams[0].ended, true);
+    assert.equal(streams[0].destroyed, true);
+    return read(...args);
+  });
+  const fifth = await connect(app);
+  assert.equal(fifth.status, 200);
+  assert.ok(streams.slice(1).every((stream) => !stream.ended));
+  app.mailbox.send("amy", valid);
+  assert.equal(streams[0].events().length, 0);
+  assert.equal(fifth.events().length, 1);
+});
+
+test("rejected long-poll at capacity does not read the inbox", async (t) => {
+  const { app } = start(t);
+  for (let i = 0; i < STREAM_LIMIT; i++) await connect(app, "/v1/messages?wait=60");
+  t.mock.method(app.mailbox, "messages", () => { throw new Error("rejected request read inbox"); });
+  assert.equal((await connect(app, "/v1/messages?wait=60")).status, 429);
+});
+
+test("shutdown completes a pending long-poll with an empty JSON message list", async (t) => {
+  const { app } = start(t);
+  const poll = await connect(app, "/v1/messages?wait=60");
+  await app.close();
+  assert.equal(poll.status, 200);
+  assert.equal(poll.ended, true);
+  assert.deepEqual(JSON.parse(poll.chunks.join("")), { messages: [] });
+});
+
 test("reconnect cursors cannot lose same-time, older-clock or unacked messages", async (t) => {
   let clock = Date.now();
   const { app } = start(t, { now: () => clock });
@@ -139,12 +189,14 @@ test("heartbeat, stream lifetime, backpressure and per-identity limits release s
   const { app } = start(t);
   const streams = [];
   for (let i = 0; i < STREAM_LIMIT; i++) streams.push(await connect(app));
-  assert.equal((await connect(app)).status, 429);
+  assert.equal((await connect(app)).status, 200);
+  assert.equal(streams[0].ended, true);
+  assert.equal(streams[0].destroyed, true);
   const amyStream = await connect(app, "/v1/events", "100.64.0.10");
   assert.equal(amyStream.status, 200);
   t.mock.timers.tick(HEARTBEAT_MS);
-  assert.equal(streams[0].chunks.join(""), ": heartbeat\n\n");
-  streams[0].emit("close");
+  assert.equal(streams[1].chunks.join(""), ": heartbeat\n\n");
+  streams[1].emit("close");
   const blocked = await connect(app, "/v1/events", ops.peer, {}, { writable: false });
   t.mock.timers.tick(HEARTBEAT_MS);
   assert.equal(blocked.destroyed, undefined);

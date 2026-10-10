@@ -8,7 +8,10 @@ Environment=AMY_MAILBOX_URL=http://100.64.0.6:8471
 Environment=AMY_MAILBOX_DIR=%h/.local/share/amy-mailbox
 # Optional trusted executable, receiving id/from arguments and body on stdin:
 # Environment=AMY_MAILBOX_HOOK=/absolute/path/to/local-hook
+# Optional timeout in seconds (60 by default; 0 disables, requires timeout):
+# Environment=AMY_MAILBOX_HOOK_TIMEOUT=60
 UMask=0077
+SuccessExitStatus=130 143
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

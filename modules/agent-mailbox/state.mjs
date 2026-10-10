@@ -4,7 +4,7 @@ import {
 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import { failure, ID_PATTERN, parseMessage, validIdentity } from "./security.mjs";
+import { failure, ID_PATTERN, parseMessage, parseStoredMessage, validIdentity } from "./security.mjs";
 
 export const UNREAD_LIMIT = 500;
 export const POST_LIMIT = 120;
@@ -107,7 +107,7 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   function readMessage(identity, id) {
     const row = readJSON(directory("inbox", identity), id, 128 * 1024, true);
     if (!row || row.id !== id || row.to !== identity || !identities.includes(row.from) || !Number.isFinite(Date.parse(row.createdAt))) throw new Error("stored mailbox message is invalid");
-    const parsed = parseMessage({ to: row.to, body: row.body, ...(row.ticket === null ? {} : { ticket: row.ticket }) }, row.from, identities);
+    const parsed = parseStoredMessage({ to: row.to, body: row.body, ...(row.ticket === null ? {} : { ticket: row.ticket }) }, row.from, identities);
     return { id, from: row.from, ...parsed, createdAt: row.createdAt };
   }
 

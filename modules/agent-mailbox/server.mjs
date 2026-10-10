@@ -71,9 +71,15 @@ export function createServer(options = {}) {
   // Count SSE and long polls together: neither can exhaust the peer's slots.
   const connections = new Map(identities.map((identity) => [identity, new Set()]));
 
-  function reserve(identity, response) {
+  function admitConnection(identity, evict = false) {
     const active = connections.get(identity);
-    if (active.size >= STREAM_LIMIT) throw failure(429, "recipient connection limit reached");
+    if (active.size < STREAM_LIMIT) return;
+    if (!evict) throw failure(429, "recipient connection limit reached");
+    active.values().next().value.evict();
+  }
+
+  function reserve(identity, response, end = () => response.end()) {
+    const active = connections.get(identity);
     const timers = [];
     const cleanups = [];
     let unsubscribe = () => {};
@@ -87,8 +93,9 @@ export function createServer(options = {}) {
       active.delete(finish);
       response.off("close", finish);
       response.off("error", finish);
-      response.end();
+      end();
     };
+    finish.evict = () => { finish(); response.destroy?.(); };
     active.add(finish);
     response.once("close", finish);
     response.once("error", finish);
@@ -101,10 +108,13 @@ export function createServer(options = {}) {
   }
 
   function streamEvents(identity, response) {
+    // Evict stale slots before paying the inbox replay cost.
+    admitConnection(identity, true);
     // Read/validate before headers. Registration and replay are synchronous,
     // so a committed send cannot fall between the snapshot and subscription.
     const replay = mailbox.messages(identity, UNREAD_LIMIT);
     const connection = reserve(identity, response);
+    response.socket?.setKeepAlive?.(true, 30000);
     response.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-store",
@@ -161,10 +171,12 @@ export function createServer(options = {}) {
   }
 
   function longPoll(identity, response, seconds) {
-    const connection = reserve(identity, response);
+    let result = { messages: [] };
+    let status = 200;
+    const connection = reserve(identity, response, () => send(response, status, result));
     const deliver = () => {
-      try { send(response, 200, { messages: mailbox.messages(identity) }); }
-      catch { send(response, 500, { error: "mailbox operation failed" }); }
+      try { result = { messages: mailbox.messages(identity) }; }
+      catch { status = 500; result = { error: "mailbox operation failed" }; }
       finally { connection.finish(); }
     };
     connection.subscribe(deliver);
@@ -206,6 +218,7 @@ export function createServer(options = {}) {
         else {
           const wait = query.get("wait");
           if (wait !== null && (!/^(?:[0-9]|[1-5][0-9]|60)$/.test(wait))) throw failure(400, "wait must be an integer from 0 to 60");
+          if (Number(wait)) admitConnection(identity);
           const messages = mailbox.messages(identity);
           if (messages.length || !Number(wait)) reply(200, { messages });
           else { longPoll(identity, response, Number(wait)); status = 200; }

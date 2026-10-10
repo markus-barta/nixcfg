@@ -16,6 +16,21 @@ case ${1-} in
 esac
 endpoint=${AMY_MAILBOX_URL:-http://100.64.0.6:8471}
 directory=${AMY_MAILBOX_DIR:-"$HOME/.local/share/amy-mailbox"}
+hook_timeout=${AMY_MAILBOX_HOOK_TIMEOUT:-60}
+case $hook_timeout in
+'' | *[!0-9]*)
+  echo 'amy-watch: invalid hook timeout' >&2
+  exit 2
+  ;;
+esac
+valid_id() {
+  printf '%s\n' "$1" | awk 'NR == 1 && length($0) == 46 && substr($0, 1, 13) !~ /[^0-9]/ && substr($0, 14, 1) == "-" && substr($0, 15) !~ /[^a-f0-9]/ { ok = 1 } END { exit !(ok && NR == 1) }'
+}
+prune_receipts() {
+  find "$directory/processed" -maxdepth 1 -type f -mtime +29 -print | while IFS= read -r receipt; do
+    if valid_id "${receipt##*/}"; then unlink "$receipt"; fi
+  done
+}
 helper=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/message.awk
 mkdir -p "$directory/inbox" "$directory/processed"
 chmod 700 "$directory" "$directory/inbox" "$directory/processed"
@@ -39,14 +54,15 @@ mkfifo "$work/events"
 cursor=''
 if [ -f "$directory/cursor" ]; then
   cursor=$(cat "$directory/cursor")
-  if ! printf '%s\n' "$cursor" | awk 'NR == 1 && length($0) == 46 && substr($0, 1, 13) !~ /[^0-9]/ && substr($0, 14, 1) == "-" && substr($0, 15) !~ /[^a-f0-9]/ { ok = 1 } END { exit !(ok && NR == 1) }'; then
+  if ! valid_id "$cursor"; then
     echo 'amy-watch: invalid saved cursor' >&2
     exit 2
   fi
 fi
 backoff=1
 while :; do
-  duration=3600
+  prune_receipts
+  duration=3660
   [ "$once" -eq 0 ] || duration=30
   set -- --silent --show-error --fail --no-buffer --connect-timeout 5 --max-time "$duration"
   [ -z "$cursor" ] || set -- "$@" -H "Last-Event-ID: $cursor"
@@ -73,7 +89,7 @@ while :; do
     '')
       if [ "$event" = message ]; then
         printf '%s\n' "$data" >"$work/event.json"
-        if ! awk -v out="$work" -f "$helper" "$work/event.json"; then
+        if ! AMY_MAILBOX_WORK="$work" awk -f "$helper" "$work/event.json"; then
           echo 'amy-watch: invalid message event; retaining cursor' >&2
           failed=1
           break
@@ -89,7 +105,9 @@ while :; do
           if [ -n "${AMY_MAILBOX_HOOK:-}" ]; then
             # The hook is trusted local configuration. Expansion
             # of $1/$2 happens inside quotes; no body is evaluated.
-            if ! sh -c "$AMY_MAILBOX_HOOK \"\$1\" \"\$2\"" amy-mailbox-hook "$id" "$from" <"$work/body"; then
+            set -- sh -c "$AMY_MAILBOX_HOOK \"\$1\" \"\$2\"" amy-mailbox-hook "$id" "$from"
+            if [ "$hook_timeout" -gt 0 ]; then set -- timeout -k 5 "$hook_timeout" "$@"; fi
+            if ! "$@" <"$work/body"; then
               echo "amy-watch: hook failed for $id; retaining cursor" >&2
               failed=1
               break
