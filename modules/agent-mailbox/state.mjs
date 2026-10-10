@@ -4,7 +4,7 @@ import {
 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import { failure, ID_PATTERN, parseMessage, validIdentity } from "./security.mjs";
+import { failure, ID_PATTERN, parseMessage, parseStoredMessage, validIdentity } from "./security.mjs";
 
 export const UNREAD_LIMIT = 500;
 export const POST_LIMIT = 120;
@@ -61,6 +61,7 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   if (typeof stateDir !== "string" || !path.isAbsolute(stateDir) || stateDir.includes("\0")) throw new Error("stateDir must be an absolute path");
   if (identities.length < 2 || identities.some((identity) => !validIdentity(identity))) throw new Error("mailbox identities are invalid");
   const root = path.resolve(stateDir);
+  const listeners = new Map(identities.map((identity) => [identity, new Set()]));
   privateDirectory(root);
   const parents = new Map();
   const directories = new Map();
@@ -106,7 +107,7 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   function readMessage(identity, id) {
     const row = readJSON(directory("inbox", identity), id, 128 * 1024, true);
     if (!row || row.id !== id || row.to !== identity || !identities.includes(row.from) || !Number.isFinite(Date.parse(row.createdAt))) throw new Error("stored mailbox message is invalid");
-    const parsed = parseMessage({ to: row.to, body: row.body, ...(row.ticket === null ? {} : { ticket: row.ticket }) }, row.from, identities);
+    const parsed = parseStoredMessage({ to: row.to, body: row.body, ...(row.ticket === null ? {} : { ticket: row.ticket }) }, row.from, identities);
     return { id, from: row.from, ...parsed, createdAt: row.createdAt };
   }
 
@@ -136,12 +137,24 @@ export function openMailbox(stateDir, identities, now = Date.now) {
     const createdAt = new Date(epoch).toISOString();
     const row = { id, from: sender, to: parsed.to, ticket: parsed.ticket, createdAt, body: parsed.body };
     writeAtomic(directory("inbox", row.to), id, row, true);
+    // A broken consumer must never turn a committed send into an API failure.
+    // Its message remains unread and will replay on the next connection.
+    for (const listener of listeners.get(row.to)) {
+      try { listener(row); } catch { listeners.get(row.to).delete(listener); }
+    }
     return { id, createdAt };
   }
 
-  function messages(identity) {
+  function messages(identity, limit = 50) {
     return files("inbox", identity).map((name) => readMessage(identity, name.slice(0, -5)))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(0, 50);
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(0, limit);
+  }
+
+  function subscribe(identity, listener) {
+    const subscribers = listeners.get(identity);
+    if (!subscribers) throw new Error("mailbox identity is invalid");
+    subscribers.add(listener);
+    return () => subscribers.delete(listener);
   }
 
   function ack(recipient, id) {
@@ -183,5 +196,5 @@ export function openMailbox(stateDir, identities, now = Date.now) {
   }
 
   prune();
-  return { root, send, messages, unread, ack, admitPost, prune };
+  return { root, send, messages, unread, ack, admitPost, prune, subscribe };
 }
