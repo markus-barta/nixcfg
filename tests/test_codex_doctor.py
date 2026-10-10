@@ -63,6 +63,10 @@ sock="$CODEX_HOME/app-server-control/app-server-control.sock"
 case "$*" in
   --version) echo "codex-cli $cli" ;;
   'app-server daemon version')
+    case "${TEST_DAEMON_JSON:-ok}" in
+      fail) exit 1 ;;
+      malformed) echo 'not json'; exit 0 ;;
+    esac
     if [ "${TEST_NO_MANAGED:-0}" = 1 ]; then
       printf '{"status":"%s","socketPath":"%s","appServerVersion":"%s"}\\n' \\
         "${TEST_DAEMON_STATUS:-running}" "$sock" "$ver"
@@ -81,13 +85,19 @@ esac
 ''')
         self.stub("ps", '''
 if [ "${TEST_PS_FAIL:-0}" = 1 ]; then exit 1; fi
-echo '43 /daemon/bin/codex app-server --listen unix://'
+[ "${TEST_DAEMON_STATUS:-running}" = stopped ] || echo '43 /daemon/bin/codex app-server --listen unix://'
 echo '44 /daemon/bin/codex app-server daemon pid-update-loop'
 if [ "$TEST_LIVE" = 1 ]; then
   echo '42 node /npm/bin/codex --dangerously-bypass-approvals-and-sandbox'
 elif [ "$TEST_LIVE" = exec ]; then
   echo '45 node /npm/bin/codex exec --ignore-user-config -m test-model work'
   echo '46 /vendor/bin/codex exec --ignore-user-config -m test-model work'
+elif [ "$TEST_LIVE" = exec-options ]; then
+  echo '45 node /npm/bin/codex -m test-model exec work'
+  echo '46 /vendor/bin/codex -c sandbox_mode=read-only e work'
+  echo '47 /npm/bin/codex --enable some_feature exec work'
+elif [ "$TEST_LIVE" = tui-options ]; then
+  echo '48 /npm/bin/codex -m test-model'
 elif [ "$TEST_LIVE" = exec-remote ]; then
   echo '42 /npm/bin/codex exec --remote unix:///tmp/sock work'
 elif [ "$TEST_LIVE" = exec-prompt-tui ]; then
@@ -426,6 +436,38 @@ exit 99
         result = self.run_command("bash", str(DOCTOR), "--check")
         self.assertEqual(result.returncode, 2)
         self.assertIn("cannot parse the CLI version", result.stderr)
+
+    def test_exec_workers_with_global_options_do_not_block_repair(self):
+        self.env["TEST_LIVE"] = "exec-options"
+        self.assert_repaired(self.run_command("bash", str(DOCTOR), "--after-update"))
+
+    def test_tui_with_global_options_still_blocks(self):
+        self.env["TEST_LIVE"] = "tui-options"
+        before = self.cache.read_bytes()
+        result = self.run_command("bash", str(DOCTOR), "--fix")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("48 codex session", result.stdout)
+        self.assert_read_only(before)
+
+    def test_unknown_daemon_status_with_a_running_app_server_refuses(self):
+        # A failed or malformed `daemon version` must not skip the socket check
+        # while an SSH proxy client (invisible to the process check) is attached.
+        self.env.update(TEST_LIVE="proxy", TEST_LSOF="client47")
+        for answer in ("fail", "malformed"):
+            with self.subTest(answer=answer):
+                self.env["TEST_DAEMON_JSON"] = answer
+                before = self.cache.read_bytes()
+                result = self.run_command("bash", str(DOCTOR), "--after-update")
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("while an app-server runs; refusing repair", result.stderr)
+                self.assert_read_only(before)
+
+    def test_build_metadata_is_ignored(self):
+        self.env.update(TEST_CLI_VERSION="0.154.0+build.7", TEST_DAEMON_VERSION="0.154.0")
+        self.cache.write_text(self.cache.read_text().replace("0.153.4", "0.154.0"))
+        result = self.run_command("bash", str(DOCTOR), "--check")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("No drift.", result.stdout)
 
     def test_recipe_scopes_script_approvals_and_accepts_deferral(self):
         result = self.run_command("just", "update-ai-clis")
