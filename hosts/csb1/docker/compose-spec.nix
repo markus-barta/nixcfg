@@ -264,7 +264,9 @@ in
         "/var/lib/aeon-secrets/db-password:/run/secrets/aeon-db-password:ro"
         "${./aeon/initdb}:/docker-entrypoint-initdb.d:ro"
       ];
-      mem_limit = "768m";
+      # OPS-295: 768m was hit 12x (cgroup OOM kills of Postgres backends ->
+      # crash recovery -> 500 bursts) under the agent load since 2026-10-09.
+      mem_limit = "1536m";
       networks = [
         "aeon"
       ];
