@@ -85,16 +85,21 @@ preview tabs/newlines become spaces. `read`/`wait` preserve tabs/newlines in
 their sanitised display, and kept/archived files stay byte-exact. It observes
 the local `to-ops` inbox concurrently; when push is unavailable it reports the
 fallback on stderr and continues local polling. Reconnect backoff is 1–30
-seconds; heartbeat/data resets it. `MBX_HSB0` overrides the endpoint and
-`MBX_ROOT` the existing local mailbox root. The OPS watcher resolves that root
-and requires it to be inside the user's home, including after symlink resolution;
-an outside root exits with status 2. Local inbox filenames must contain only
-ASCII letters, digits, dots, underscores and hyphens, end in `.txt`, and contain
-no `..`. `watch-ops/` holds 0600 receipts and an atomic cursor in a 0700 directory.
+seconds; heartbeat/data resets it. `MBX_HSB0` overrides the endpoint.
+Push watch always uses `$HOME/.local/share/agent-mailbox`; it accepts no mailbox
+root argument or `MBX_ROOT` override. With a non-default `MBX_ROOT`, `mbx watch ops`
+reports the fallback on stderr and uses the existing local poll at that root.
+Other `mbx` commands and local watches continue to honour `MBX_ROOT`.
+The push watcher requires its fixed path to stay inside the user's home after
+symlink resolution; an escaping path exits with status 2. Local inbox filenames
+must contain only ASCII letters, digits, dots, underscores and hyphens, end in
+`.txt`, and contain no `..`. `watch-ops/` holds 0600 receipts and an atomic cursor
+in a 0700 directory.
 Receipts are created exclusively before announcing a message, so concurrent
 watchers do not announce the same remote ID twice. An invalid saved cursor is
-renamed to `cursor.invalid` and replay starts without a cursor. Receipts older than 30 days are
-pruned at startup and hourly; unread messages can be announced again after
+renamed to `cursor.invalid` and replay starts without a cursor; if that rename
+fails, the watcher exits with status 2 and an `mbx:` error. Receipts older than
+30 days are pruned at startup and hourly; unread messages can be announced again after
 receipt expiry. Pulled hsb0 files share those receipts, so `mbx list ops`
 does not cause the watch to announce a pushed message again.
 Watching archives nothing. Existing OPS read/list/wait still pull and explicitly
