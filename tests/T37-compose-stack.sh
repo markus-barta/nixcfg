@@ -14,6 +14,13 @@
 #                                      module assertion, which is why both exist
 set -euo pipefail
 
+# Match T59: macOS bash 3.2 can falsely pass failed bare [[ ]] checks.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old -- run under bash 5: nix shell nixpkgs#yq-go nixpkgs#bash -c bash %s\n' \
+    "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
+
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="${repo}/modules/shared/compose-stack/default.nix"
 gate="${repo}/tests/compose_stack_gate.py"
@@ -122,8 +129,8 @@ if grep -Fq 'hausv-org = {' "${repo}/hosts/csb1/docker/compose-spec.nix"; then
   exit 1
 fi
 
-# The rendered updater itself must prove it: hausv-org absent, pull retained,
-# and the whole-stack `up -d` retained.
+# The rendered updater must retain all eligible image services while omitting
+# MinIO and inactive profiles. T59 verifies whole-stack no-pull convergence.
 # Skipped on a dirty tree: the NIX-348 deployment-evidence guard requires
 # self.rev, so csb1 only evaluates from a committed state (same skip-not-fail
 # stance as the yq gate below).
@@ -143,6 +150,48 @@ if [ -z "$(git -C "${repo}" status --porcelain 2>/dev/null)" ]; then
       echo "FAIL: csb1 weekly updater is not bound to its active compose generation (NIX-496)"
       exit 1
     }
+  csb1_contract="$(nix eval --json "${repo}#nixosConfigurations.csb1" --apply '
+    host: let
+      cfg = host.config;
+      invalid = host.extendModules {
+        modules = [{ nixcfg.composeStack.autoUpdate.excludeFromPull = [ "ops297-unknown-service" ]; }];
+      };
+    in {
+      script = cfg.systemd.services."compose-csb1-update".script;
+      services = builtins.mapAttrs (_: service: {
+        hasImage = service ? image;
+        profiles = service.profiles or [];
+      }) cfg.nixcfg.composeStack.renderedSpec.services;
+      exclusions = cfg.nixcfg.composeStack.autoUpdate.excludeFromPull;
+      composeProfiles = cfg.systemd.services."compose-csb1-update".environment.COMPOSE_PROFILES or "";
+      rejected = builtins.filter (a:
+        !a.assertion && builtins.match "composeStack: autoUpdate.excludeFromPull.*" a.message != null
+      ) invalid.config.assertions;
+    }
+  ')"
+  python3 -c '
+import json, shlex, sys
+
+contract = json.load(sys.stdin)
+words = shlex.split(contract["script"].replace("\\\n", ""))
+command = words[next(i for i, word in enumerate(words)
+                     if word.endswith("/bin/compose-update-transaction")):]
+assert command[8] == "targets", "csb1 must use targeted pulls"
+targets = command[9:]
+services = contract["services"]
+assert contract["composeProfiles"] == "", "enabled Compose profiles need pull-set coverage"
+assert "minio" in services and "minio" in contract["exclusions"]
+inactive = {"janus", "janus-engine-staged", "janus-managed-canary", "janus-managed-transactiond"}
+assert all(services[name]["profiles"] for name in inactive), "Janus profile gates disappeared"
+assert not ({"minio", "hausv-org"} | inactive).intersection(targets), "inactive/excluded service pulled"
+expected = sorted(name for name, service in services.items()
+                  if service["hasImage"] and not service["profiles"]
+                  and name not in contract["exclusions"])
+assert expected and sorted(targets) == expected, "eligible image pull set changed"
+assert len(contract["rejected"]) == 1, "unknown exclusion did not fail its assertion"
+assert "ops297-unknown-service" in contract["rejected"][0]["message"]
+print("OPS-297 evaluated csb1 pull selection and unknown-exclusion assertion OK")
+' <<<"${csb1_contract}"
   # NIX-384: once the pull token exists, both root-run units must log in to
   # ghcr.io before compose touches the private inspr-auth image.
   if [ -f "${repo}/secrets/csb1-inspr-site-ghcr-pull.age" ]; then

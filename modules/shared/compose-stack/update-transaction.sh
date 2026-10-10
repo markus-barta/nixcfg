@@ -78,4 +78,11 @@ if ! generation_is_current; then
   exit 0
 fi
 
-"$compose_bin" "${compose_args[@]}" up -d
+# With exclusions, convergence must not undo the explicit pull selection.
+# A missing excluded image fails loudly; hosts without exclusions keep their
+# existing whole-stack pull and up behaviour.
+up_args=(up -d)
+if [[ "$pull_mode" != all ]]; then
+  up_args+=(--pull never)
+fi
+"$compose_bin" "${compose_args[@]}" "${up_args[@]}"

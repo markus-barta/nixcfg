@@ -301,8 +301,8 @@ in
           stack-wide pull dies on the registry's denial BEFORE `up -d`, so one
           unpullable image starves every other service of its scheduled update
           (csb1's hausv-org, observed live 2026-08-08). Excluded services keep
-          their compose definition and are still converged by `up -d`; only
-          the registry pull is skipped.
+          their compose definition and are still converged by `up -d --pull
+          never`; a missing local image fails instead of being pulled implicitly.
         '';
       };
     };
@@ -460,11 +460,17 @@ in
                   # NIX-352: with exclusions, pull an explicit service list instead of
                   # the whole stack — a stack-wide pull aborts on the first denied
                   # image and starves everything else of its update. Only image-
-                  # bearing services are listed (compose skips build-only services
-                  # in a stack-wide pull too, so the set is identical); excluded
-                  # services are still converged by `up -d` below.
+                  # bearing services without profiles are listed: neither the
+                  # module nor host updater wiring enables Compose profiles, so
+                  # untargeted pull skips profile-gated services. Explicitly
+                  # targeting them would activate them for the pull. Excluded
+                  # services are still converged by `up -d --pull never` below.
                   pullTargets = lib.filter (svc: !(lib.elem svc cfg.autoUpdate.excludeFromPull)) (
-                    lib.attrNames (lib.filterAttrs (_: service: service ? image) (cfg.spec.services or { }))
+                    lib.attrNames (
+                      lib.filterAttrs (_: service: service ? image && (service.profiles or [ ]) == [ ]) (
+                        cfg.spec.services or { }
+                      )
+                    )
                   );
                   pullMode =
                     if cfg.autoUpdate.excludeFromPull == [ ] then
