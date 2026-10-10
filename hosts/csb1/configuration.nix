@@ -332,6 +332,12 @@ in
     # and dropping them would force-recreate every container for zero
     # behavioural change. Remove opportunistically per-service.
     autoUpdate.enable = true;
+    # OPS-297: MinIO withdrew its community images from Docker Hub and quay.io,
+    # so `pull minio` is denied and aborted the whole weekly update (failing
+    # since at least 2026-09-26, nothing updated). minio keeps running on the
+    # local image and is still converged by `up -d`; a docker-save backup of
+    # that exact image is in /home/mba/image-backups/ on csb1.
+    autoUpdate.excludeFromPull = [ "minio" ];
     # NIX-384: inspr-auth comes from the PRIVATE inspr-site GHCR package, so the
     # root-run reconcile and update units log in to ghcr.io first (see the
     # module option). Guarded on the ciphertext like the secret above; until
