@@ -53,6 +53,8 @@ function string(    value, c, escaped, n, low) {
 { json = json $0 "\n" }
 END {
     if (bad) exit 1
+    out = ENVIRON["AMY_MAILBOX_WORK"]
+    if (out == "") fail()
     pos = 1; space()
     if (substr(json, pos++, 1) != "{") fail()
     while (1) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,158 @@ function fixture() {
 }
 function amy(ctx, overrides = {}) {
   return spawnSync("sh", [path.join(clients, "amy-watch.sh"), "--once"], { env: { ...ctx.env, ...overrides }, encoding: "utf8", timeout: 5000 });
+}
+
+async function watchOps(t, ctx, { args = [], onOutput = () => {}, stopOnError = true } = {}) {
+  mkdirSync(path.join(ctx.env.MBX_ROOT, "to-ops"), { recursive: true });
+  const child = spawn(process.execPath, [...args, path.join(clients, "mbx-watch.mjs"), ctx.env.MBX_ROOT, "http://fixture.invalid", "0.05"],
+    { env: ctx.env, stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => child.kill("SIGTERM"));
+  let output = ""; let errors = "";
+  const timer = setTimeout(() => child.kill("SIGTERM"), 5000);
+  child.stdout.on("data", (data) => { output += data; onOutput(output, child); });
+  child.stderr.on("data", (data) => { errors += data; if (stopOnError) child.kill("SIGTERM"); });
+  await new Promise((resolve) => child.once("close", resolve));
+  clearTimeout(timer);
+  return { output, errors };
+}
+
+function replayLoader(ctx) {
+  const loader = path.join(ctx.root, "replay-loader.mjs");
+  writeFileSync(loader, `import cp from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { EventEmitter } from "node:events";
+import { Readable } from "node:stream";
+import { readFileSync } from "node:fs";
+cp.spawn = () => {
+  const child = new EventEmitter();
+  child.stdout = Readable.from([readFileSync(process.env.MAILBOX_FIXTURE)]);
+  child.kill = () => {};
+  child.stdout.once("end", () => child.emit("close", 7));
+  return child;
+};
+syncBuiltinESMExports();
+`);
+  return loader;
+}
+
+test("Amy decoder preserves a work-directory containing literal backslashes", () => {
+  const ctx = fixture();
+  ctx.env.AMY_MAILBOX_DIR = path.join(ctx.root, "literal\\npath");
+  writeFileSync(ctx.stream, frame(row()));
+  const result = amy(ctx);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(ctx.env.AMY_MAILBOX_DIR, "inbox", `${id("a")}.json`))), row());
+});
+
+test("Amy hook timeout retains receipts and cursor for retry; zero disables wrapper", () => {
+  const ctx = fixture();
+  const hook = path.join(ctx.bin, "slow-hook");
+  writeFileSync(hook, '#!/bin/sh\nprintf started > "$HOOK_STARTED"\nexec sleep 10\n', { mode: 0o700 });
+  writeFileSync(ctx.stream, frame(row()));
+  const started = path.join(ctx.root, "hook-started");
+  const result = amy(ctx, { AMY_MAILBOX_HOOK: hook, AMY_MAILBOX_HOOK_TIMEOUT: "1", HOOK_STARTED: started });
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /hook failed/);
+  assert.equal(existsSync(started), true, result.stderr);
+  assert.equal(existsSync(path.join(ctx.env.AMY_MAILBOX_DIR, "cursor")), false);
+  assert.deepEqual(readdirSync(path.join(ctx.env.AMY_MAILBOX_DIR, "processed")), []);
+  writeFileSync(hook, "#!/bin/sh\ncat >/dev/null\n", { mode: 0o700 });
+  assert.equal(amy(ctx, { AMY_MAILBOX_HOOK: hook, AMY_MAILBOX_HOOK_TIMEOUT: "0" }).status, 0);
+  assert.equal(amy(ctx, { AMY_MAILBOX_HOOK_TIMEOUT: "bad" }).status, 2);
+});
+
+test("Amy prunes only old receipt IDs and keeps recent receipts and inbox data", () => {
+  const ctx = fixture();
+  const state = ctx.env.AMY_MAILBOX_DIR;
+  mkdirSync(path.join(state, "processed"), { recursive: true });
+  mkdirSync(path.join(state, "inbox"));
+  const old = new Date(Date.now() - 31 * 86400000);
+  for (const file of [path.join(state, "processed", id("b")), path.join(state, "processed", "unrelated"), path.join(state, "inbox", `${id("b")}.json`)]) {
+    writeFileSync(file, "keep inbox/unrelated only"); utimesSync(file, old, old);
+  }
+  writeFileSync(path.join(state, "processed", id("c")), "recent");
+  writeFileSync(ctx.stream, frame(row()));
+  assert.equal(amy(ctx).status, 0);
+  assert.equal(existsSync(path.join(state, "processed", id("b"))), false);
+  assert.equal(existsSync(path.join(state, "processed", id("c"))), true);
+  assert.equal(existsSync(path.join(state, "processed", "unrelated")), true);
+  assert.equal(existsSync(path.join(state, "inbox", `${id("b")}.json`)), true);
+});
+
+test("Amy systemd service accepts clean signal exits", () => {
+  assert.match(readFileSync(path.join(clients, "amy-mailbox.service"), "utf8"), /^SuccessExitStatus=130 143$/m);
+});
+
+test("mbx list strips CRLF header carriage returns while keeping the file exact", () => {
+  const ctx = fixture();
+  const inbox = path.join(ctx.env.MBX_ROOT, "to-codex");
+  mkdirSync(inbox, { recursive: true });
+  const bytes = Buffer.from("From: ops\r\nTicket: OPS-290\r\n\r\nhello\r\n");
+  const file = path.join(inbox, "crlf.txt");
+  writeFileSync(file, bytes);
+  const result = spawnSync("bash", [path.join(clients, "mbx"), "list", "codex"], { env: ctx.env, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /from=ops ticket=OPS-290 \|/);
+  assert.deepEqual(readFileSync(file), bytes);
+});
+
+test("OPS prunes only receipts older than 30 days", async (t) => {
+  const ctx = fixture();
+  const state = path.join(ctx.env.MBX_ROOT, "watch-ops");
+  mkdirSync(state, { recursive: true });
+  const old = new Date(Date.now() - 31 * 86400000);
+  for (const name of [id("b"), "unrelated"]) { const file = path.join(state, name); writeFileSync(file, "old"); utimesSync(file, old, old); }
+  writeFileSync(path.join(state, id("c")), "recent");
+  writeFileSync(ctx.stream, frame({ ...row(), from: "amy", to: "ops" }));
+  ctx.env.MAILBOX_CURL_EXIT = "7";
+  const result = await watchOps(t, ctx);
+  assert.ok(result.output.includes(`MBX NEW for ops: ${id("a")}`));
+  assert.equal(existsSync(path.join(state, id("b"))), false);
+  assert.equal(existsSync(path.join(state, id("c"))), true);
+  assert.equal(existsSync(path.join(state, "unrelated")), true);
+});
+
+test("mbx list pulled files do not repeat messages already announced by OPS push", async (t) => {
+  const ctx = fixture();
+  const message = { ...row(), from: "amy", to: "ops", body: "already pushed" };
+  writeFileSync(ctx.stream, frame(message));
+  let listed = false;
+  const result = await watchOps(t, ctx, { stopOnError: false, onOutput(output, child) {
+    if (!listed && output.includes("already pushed")) {
+      listed = true;
+      writeFileSync(ctx.stream, JSON.stringify({ messages: [message] }));
+      const list = spawnSync("bash", [path.join(clients, "mbx"), "list", "ops"], { env: ctx.env, encoding: "utf8" });
+      assert.equal(list.status, 0, list.stderr);
+      assert.ok(list.stdout.includes("already pushed"));
+      setTimeout(() => child.kill("SIGTERM"), 250);
+    }
+  } });
+  assert.equal(listed, true);
+  assert.equal(result.output.split("\n").filter((line) => line.includes("already pushed")).length, 1);
+  assert.equal(readdirSync(path.join(ctx.env.MBX_ROOT, "to-ops")).length, 1);
+});
+
+test("OPS extracts a large replay chunk before applying the incomplete-frame bound", async (t) => {
+  const ctx = fixture();
+  const messages = Array.from({ length: 16 }, (_, i) => ({ ...row(i.toString(16), "x".repeat(12000)), from: "amy", to: "ops" }));
+  writeFileSync(ctx.stream, messages.map(frame).join(""));
+  const result = await watchOps(t, ctx, { args: ["--import", replayLoader(ctx)] });
+  assert.equal(result.output.split("\n").filter((line) => line.startsWith("MBX NEW for ops:")).length, 16, result.errors);
+  assert.equal(readdirSync(path.join(ctx.env.MBX_ROOT, "watch-ops")).filter((name) => /^[0-9]{13}-[a-f0-9]{32}$/.test(name)).length, 16);
+});
+
+for (const complete of [false, true]) {
+  test(`OPS still rejects an oversized ${complete ? "complete" : "incomplete"} frame without advancing cursor`, async (t) => {
+    const ctx = fixture();
+    const message = { ...row("a", "x".repeat(140000)), from: "amy", to: "ops" };
+    const event = frame(message);
+    writeFileSync(ctx.stream, complete ? event : event.slice(0, -2));
+    const result = await watchOps(t, ctx, { args: ["--import", replayLoader(ctx)] });
+    assert.equal(result.output.includes("MBX NEW for ops:"), false);
+    assert.match(result.errors, /falling back to local poll/);
+    assert.equal(existsSync(path.join(ctx.env.MBX_ROOT, "watch-ops", "cursor")), false);
+  });
 }
 
 test("Amy writes private inbox, survives restart, and deduplicates unread replay without ack", () => {
@@ -102,7 +254,7 @@ test("POSIX awk decoder handles unicode escapes, surrogate pairs and rejects amb
   const messagePath = path.join(ctx.root, "message.json");
   const run = (json) => {
     writeFileSync(messagePath, json);
-    return spawnSync("awk", ["-v", `out=${ctx.root}`, "-f", path.join(clients, "message.awk"), messagePath], { env: { ...process.env, LC_ALL: "C" }, encoding: "utf8" });
+    return spawnSync("awk", ["-f", path.join(clients, "message.awk"), messagePath], { env: { ...process.env, LC_ALL: "C", AMY_MAILBOX_WORK: ctx.root }, encoding: "utf8" });
   };
   const json = JSON.stringify(row("a", "replace"));
   assert.equal(run(json.replace('"replace"', '"\\u00e9\\ud83d\\ude00\\ud800\\u0001"')).status, 0);
@@ -127,7 +279,8 @@ test("mbx read/list/wait sanitise terminal data without changing kept or archive
   mkdirSync(inbox, { recursive: true });
   const controls = Array.from({ length: 32 }, (_, i) => i).filter((i) => ![9, 10].includes(i))
     .concat(127, Array.from({ length: 32 }, (_, i) => 128 + i),
-      Array.from({ length: 5 }, (_, i) => 0x202a + i), Array.from({ length: 4 }, (_, i) => 0x2066 + i));
+      Array.from({ length: 5 }, (_, i) => 0x202a + i), Array.from({ length: 4 }, (_, i) => 0x2066 + i),
+      [0x061c, 0x200b, 0x200e, 0x200f, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff, 0xe0000, 0xe007f]);
   const body = `${String.fromCodePoint(...controls)}\nGrüße\tHello 😀\n\n`;
   const bytes = Buffer.concat([Buffer.from(`From: ops\nTicket: OPS-290\n\n${body}`), Buffer.from([0xff])]);
   const file = path.join(inbox, "unsafe.txt");
@@ -184,11 +337,12 @@ test("Amy continuous watcher reconnects with its saved cursor and skips replayed
   assert.equal(errors, "");
   assert.ok(readFileSync(ctx.argumentsPath, "utf8").includes(`Last-Event-ID: ${id("a")}`));
   assert.deepEqual(readdirSync(path.join(ctx.env.AMY_MAILBOX_DIR, "processed")), [id("a")]);
+  assert.match(readFileSync(ctx.argumentsPath, "utf8"), /--max-time\n3660\n/);
 });
 
 test("OPS push prints once, keeps local watch and reports unreachable fallback", async (t) => {
   const ctx = fixture();
-  const message = { ...row("a", `new\n\x1b\r\x7f\u0085\u202e\u2066${"é".repeat(150)}`), from: "amy", to: "ops" };
+  const message = { ...row("a", `new\n\x1b\r\x7f\u0085\u202e\u2066\u061c\u200b\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff\u{e0000}\u{e007f} 👩‍💻${"é".repeat(150)}`), from: "amy", to: "ops" };
   writeFileSync(ctx.stream, frame(message) + frame(message));
   const inbox = path.join(ctx.env.MBX_ROOT, "to-ops");
   mkdirSync(inbox, { recursive: true });
@@ -206,10 +360,11 @@ test("OPS push prints once, keeps local watch and reports unreachable fallback",
   await exit;
   clearTimeout(timer);
   assert.ok(errors.includes("falling back to local poll"), errors);
+  assert.ok(output.includes("mbx watch armed on to-ops (every 0.05s)"));
   const lines = output.trim().split("\n");
-  assert.equal(lines.filter((line) => line.startsWith(id("a"))).length, 1);
+  assert.equal(lines.filter((line) => line.startsWith(`MBX NEW for ops: ${id("a")}`)).length, 1);
   assert.ok(lines.some((line) => line.includes("from=codex ticket=OPS-290 | local hello")));
-  const pushed = lines.find((line) => line.startsWith(id("a")));
+  const pushed = lines.find((line) => line.startsWith(`MBX NEW for ops: ${id("a")}`));
   assert.equal(Array.from(pushed.split(" | ")[2]).length, 140);
   assert.equal(pushed.includes("\x1b"), false);
   assert.ok(pushed.includes("new ������"));
@@ -229,4 +384,5 @@ test("OPS push prints once, keeps local watch and reports unreachable fallback",
   assert.equal(replayOutput.includes(id("a")), false);
   assert.ok(replayOutput.includes(`${id("b")} | from=amy ticket=OPS-290 | after restart`));
   assert.ok(readFileSync(ctx.argumentsPath, "utf8").includes(`Last-Event-ID: ${id("a")}`));
+  assert.match(readFileSync(ctx.argumentsPath, "utf8"), /--max-time\n3660\n/);
 });
