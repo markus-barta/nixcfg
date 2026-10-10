@@ -48,8 +48,10 @@
 # to the daemon's control socket (lsof: TUIs, `app-server proxy` for SSH
 # clients, whatever the prompt says), or a codex process that looks like a
 # client (anything but the daemon and `exec`), or remote control / a TCP
-# listener on the daemon (remote clients cannot be ruled out). The window
-# between the last check and the restart stays, as before.
+# listener on the daemon (remote clients cannot be ruled out; remote control
+# is a persistent setting and blocks until it is disabled). A daemon status
+# that cannot be established refuses the repair. The window between the last
+# check and the restart stays, as before.
 #   1. `codex app-server daemon update --yes` — upstream installs the current
 #      release into the dedicated package and restarts the daemon
 #   2. `codex debug models` refreshes the models cache; then report again
@@ -138,11 +140,12 @@ version_of() { # version_of BINARY → "0.153.4" or empty
 }
 
 # version_cmp A B → prints -1, 0 or 1 (semver precedence: numeric dotted core,
-# then pre-release identifiers; a release sorts after its pre-releases). Prints
-# "invalid" when either side does not parse.
+# then pre-release identifiers; a release sorts after its pre-releases; build
+# metadata is ignored). Prints "invalid" when either side does not parse.
 version_cmp() {
   node -e '
-    const re = /^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+    const id = "[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*";
+    const re = new RegExp("^(\\d+(?:\\.\\d+)*)(?:-(" + id + "))?(?:\\+" + id + ")?$");
     const parse = (v) => { const m = re.exec(v); return m &&
       { core: m[1].split(".").map(Number), pre: m[2] ? m[2].split(".") : null }; };
     const [a, b] = process.argv.slice(1).map(parse);
@@ -187,31 +190,47 @@ daemon_json() { # → JSON from `daemon version`, written to $TMP/daemon.json
   codex app-server daemon version >"$TMP/daemon.json" 2>/dev/null || echo '{}' >"$TMP/daemon.json"
 }
 
-# Client-looking codex processes: the TUI (with or without a prompt), resume,
-# fork, agents, queue, … — every codex command except the daemon itself and
-# `codex exec`. exec runs its own in-process app-server and never attaches
-# (NIX-609: no daemon-socket descriptor on live exec workers; a daemon update
-# left them running). `exec --remote` does attach. Unknown subcommands count:
-# a new client type blocks the repair rather than losing a turn. `ps` flattens
-# arguments, so a TUI whose prompt starts with "exec" passes here; the socket
-# check in daemon_clients is what catches it.
-client_processes() {
-  # Match the executable and subcommand, not words in a user's prompt.
+# codex_processes clients|servers — classify `ps` lines by executable and
+# subcommand, skipping the CLI's global options (and their values) first.
+#   clients: client-looking codex processes — the TUI (with or without a
+#     prompt), resume, fork, agents, queue, … — every codex command except
+#     `app-server …`, `debug`, `--help`/`--version` and `exec`/`e`. exec runs
+#     its own in-process app-server and never attaches (NIX-609: no
+#     daemon-socket descriptor on live exec workers; a daemon update left them
+#     running); a `--remote` anywhere makes it count. Unknown subcommands count:
+#     a new client type blocks the repair rather than losing a turn. `ps`
+#     flattens arguments, so a TUI whose prompt starts with "exec" passes here;
+#     the socket check in daemon_clients is what catches it.
+#   servers: PIDs of app-server server processes (the daemon, or an embedded
+#     one), i.e. `app-server` not followed by daemon/proxy/generate-*/help.
+codex_processes() {
   # pipefail preserves a ps failure without storing its output on disk.
-  if ! ps -eo pid=,command= | awk '
+  if ! ps -eo pid=,command= | awk -v mode="$1" '
     function basename(path) { sub(/^.*\//, "", path); return path }
+    function takes_value(o) {
+      return o ~ /^(-c|--config|--enable|--disable|--remote|--remote-auth-token-env|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-C|--cd|--add-dir|-a|--ask-for-approval)$/
+    }
     {
       executable = 2
       if (basename($executable) == "node") executable++
       if (basename($executable) != "codex") next
-      subcommand = $(executable + 1)
-      if (subcommand == "app-server" || subcommand == "debug" ||
-          subcommand == "--version" || subcommand == "--help") next
+      info = 0
+      for (i = executable + 1; i <= NF && $i ~ /^-/; i++) {
+        if ($i ~ /^(-h|--help|-V|--version)$/) info = 1
+        if ($i !~ /=/ && takes_value($i)) i++
+      }
+      subcommand = i <= NF ? $i : ""
+      if (mode == "servers") {
+        if (subcommand == "app-server" && $(i + 1) !~ /^(daemon|proxy|generate-ts|generate-json-schema|help)$/)
+          print $1
+        next
+      }
+      if (info || subcommand == "app-server" || subcommand == "debug") next
       if (subcommand == "exec" || subcommand == "e") {
-        attached = 0
-        for (i = executable + 2; i <= NF; i++)
-          if ($i == "--remote" || $i ~ /^--remote=/) attached = 1
-        if (!attached) next
+        remote = 0
+        for (j = executable + 1; j <= NF; j++)
+          if ($j == "--remote" || $j ~ /^--remote=/) remote = 1
+        if (!remote) next
       }
       print $1, "codex session"
     }
@@ -224,11 +243,19 @@ client_processes() {
 # Processes connected to the running daemon's control socket. On macOS the
 # daemon's accepted connections carry the socket path as their name and each
 # client's socket names its peer ("->0x…"), so the match is exact. Remote
-# control or a TCP listener means remote clients cannot be ruled out.
+# control or a TCP listener means remote clients cannot be ruled out. The
+# socket check is skipped only when no app-server process runs at all; an
+# unknown or failed `daemon version` with one running cannot be judged.
 daemon_clients() {
-  local sock real pid
+  local sock real pid status servers
   daemon_json
-  [ "$(json_get "$TMP/daemon.json" status)" = running ] || return 0
+  status="$(json_get "$TMP/daemon.json" status)"
+  if [ "$status" != running ]; then
+    servers="$(codex_processes servers)" || return 2
+    [ -n "$servers" ] || return 0
+    echo "codex-doctor: daemon status '${status:-unknown}' while an app-server runs; refusing repair" >&2
+    return 2
+  fi
   sock="$(json_get "$TMP/daemon.json" socketPath)"
   if [ -z "$sock" ] || ! real="$(node -e 'process.stdout.write(require("fs").realpathSync(process.argv[1]))' "$sock" 2>/dev/null)"; then
     echo "codex-doctor: cannot resolve the daemon control socket; refusing repair" >&2
@@ -268,7 +295,7 @@ daemon_clients() {
 # Everything that blocks a repair, one line each; exit 2 when unknown.
 live_sessions() {
   local procs clients
-  procs="$(client_processes)" || return 2
+  procs="$(codex_processes clients)" || return 2
   clients="$(daemon_clients)" || return 2
   printf '%s\n%s\n' "$procs" "$clients" | awk 'NF && !seen[$0]++'
 }

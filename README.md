@@ -233,7 +233,8 @@ the new CLI, the command repairs it with `codex app-server daemon update`, which
 moves the daemon into its dedicated, self-updating package. Running `codex exec …`
 workers do not block this. A client connected to the daemon (an open Codex TUI,
 an SSH `app-server proxy`) or enabled remote control defers the repair without
-failing the successful npm update. After closing those
+failing the successful npm update. Remote control is a persistent daemon setting:
+disable it before the repair. After closing those
 sessions, run `just codex-doctor --fix`, then `just codex-doctor --check` to
 verify. The check is read-only and returns nonzero if drift remains; installation
 and repair failures still fail the update command.
