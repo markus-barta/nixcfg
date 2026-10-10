@@ -39,30 +39,51 @@ class CodexDoctorTests(unittest.TestCase):
         self.cache.write_text(json.dumps({"client_version": "0.153.4",
                                           "models": [{"slug": "test-model"}]}))
         (self.home / "config.toml").write_text('model = "test-model"\n')
+        # NIX-609: the stub daemon keeps its version and package layout in a
+        # state file, so a repair (`daemon update`) changes what it reports next.
         self.stub("codex", '''
 printf 'codex %s\\n' "$*" >> "$TEST_CALLS"
+state="$CODEX_HOME/.stub-daemon"
+[ -f "$state" ] || printf '%s %s\\n' "$TEST_DAEMON_VERSION" "${TEST_LAYOUT:-dedicated}" > "$state"
+read -r ver layout < "$state"
+if [ "$layout" = legacy ]; then
+  pkg="$CODEX_HOME/packages/standalone/current/bin/codex"
+else
+  pkg="$CODEX_HOME/packages/app-server-daemon/current/bin/codex"
+fi
 case "$*" in
   --version) echo 'codex-cli 0.154.0' ;;
   'app-server daemon version')
-    printf '{"status":"running","appServerVersion":"%s"}\\n' "$TEST_DAEMON_VERSION" ;;
-  'app-server daemon start') exit 1 ;;
+    printf '{"status":"running","managedCodexPath":"%s","managedCodexVersion":"%s","appServerVersion":"%s"}\\n' \\
+      "$pkg" "$ver" "$ver" ;;
+  'app-server daemon update --yes')
+    if [ "${TEST_UPDATE_EXIT:-0}" != 0 ]; then echo 'update failed' >&2; exit "$TEST_UPDATE_EXIT"; fi
+    printf '%s dedicated\\n' "${TEST_UPDATE_TO:-0.154.0}" > "$state" ;;
+  'debug models')
+    printf '{"client_version":"0.154.0","models":[{"slug":"test-model"}]}\\n' > "$CODEX_HOME/models_cache.json"
+    echo '{}' ;;
   *) echo 'unexpected mutation' >&2; exit 90 ;;
 esac
 ''')
         self.stub("ps", '''
 if [ "${TEST_PS_FAIL:-0}" = 1 ]; then exit 1; fi
+echo '43 /daemon/bin/codex app-server --listen unix://'
+echo '44 /daemon/bin/codex app-server daemon pid-update-loop'
 if [ "$TEST_LIVE" = 1 ]; then
   echo '42 node /npm/bin/codex --dangerously-bypass-approvals-and-sandbox'
 elif [ "$TEST_LIVE" = exec ]; then
-  echo '42 /npm/bin/codex exec repair app-server and codex-doctor'
+  echo '45 node /npm/bin/codex exec --ignore-user-config -m test-model work'
+  echo '46 /vendor/bin/codex exec --ignore-user-config -m test-model work'
+elif [ "$TEST_LIVE" = exec-remote ]; then
+  echo '42 /npm/bin/codex exec --remote unix:///tmp/sock work'
+elif [ "$TEST_LIVE" = prompt ]; then
+  echo '42 /npm/bin/codex repair app-server and codex-doctor'
 elif [ "$TEST_LIVE" = late ]; then
   if [ -f "$TMPDIR/ps-seen" ]; then
-    echo '42 /npm/bin/codex exec work'
+    echo '42 /npm/bin/codex resume --last'
   else
     touch "$TMPDIR/ps-seen"
   fi
-else
-  echo '43 /standalone/codex app-server daemon run'
 fi
 ''')
         self.stub("which", 'printf "%s\\n" "$TEST_BIN/codex"')
@@ -132,6 +153,7 @@ exit 99
         self.assertEqual(before, self.cache.read_bytes())
         calls = self.log.read_text()
         self.assertNotIn("debug models", calls)
+        self.assertNotIn("daemon update", calls)
         self.assertNotIn("daemon stop", calls)
         self.assertNotIn("daemon start", calls)
         self.assertFalse(list(self.root.glob("codex-doctor.*/processes")))
@@ -152,22 +174,42 @@ exit 99
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assert_read_only(before)
 
-    def test_exec_prompt_cannot_hide_a_live_session(self):
+    def assert_repaired(self, result):
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Fixed.", result.stdout)
+        calls = self.log.read_text()
+        self.assertIn("codex app-server daemon update --yes", calls)
+        self.assertIn("codex debug models", calls)
+        for forbidden in ("daemon stop", "daemon start", "curl "):
+            self.assertNotIn(forbidden, calls)
+        self.assertEqual(json.loads(self.cache.read_text())["client_version"], "0.154.0")
+
+    def test_exec_workers_do_not_block_repair(self):
+        # NIX-609: exec runs its own app-server; LEAD workers run it around the
+        # clock, and counting them deferred every repair for twelve days.
         self.env["TEST_LIVE"] = "exec"
+        for mode in ("--fix", "--after-update"):
+            with self.subTest(mode=mode):
+                (self.home / ".stub-daemon").unlink(missing_ok=True)
+                self.log.unlink(missing_ok=True)
+                self.assert_repaired(self.run_command("bash", str(DOCTOR), mode))
+
+    def test_exec_with_remote_counts_as_attached(self):
+        self.env["TEST_LIVE"] = "exec-remote"
+        before = self.cache.read_bytes()
         result = self.run_command("bash", str(DOCTOR), "--fix")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Refusing the cleanup", result.stdout)
-        self.assertNotIn("daemon stop", self.log.read_text())
+        self.assertIn("Refusing the repair", result.stdout)
+        self.assert_read_only(before)
 
-    def test_noninteractive_update_defers_but_default_stays_strict(self):
+    def test_noninteractive_update_repairs_but_default_stays_strict(self):
         self.env["TEST_LIVE"] = "0"
         before = self.cache.read_bytes()
-        result = self.run_command("bash", str(DOCTOR), "--after-update")
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("stdin is not a terminal", result.stdout)
         result = self.run_command("bash", str(DOCTOR))
         self.assertEqual(result.returncode, 1)
+        self.assertIn("stdin is not a terminal", result.stdout)
         self.assert_read_only(before)
+        self.assert_repaired(self.run_command("bash", str(DOCTOR), "--after-update"))
 
     def test_no_drift_is_success(self):
         self.env["TEST_DAEMON_VERSION"] = "0.154.0"
@@ -178,6 +220,51 @@ exit 99
         self.assertIn("No drift.", result.stdout)
         self.assert_read_only(before)
 
+    def test_newer_daemon_and_cache_are_not_drift(self):
+        # The dedicated package updates itself and may run ahead of the CLI.
+        for newer in ("0.155.0", "0.154.1", "0.160.0-alpha.1"):
+            with self.subTest(newer=newer):
+                (self.home / ".stub-daemon").unlink(missing_ok=True)
+                self.env["TEST_DAEMON_VERSION"] = newer
+                self.cache.write_text(json.dumps({"client_version": newer,
+                                                  "models": [{"slug": "test-model"}]}))
+                result = self.run_command("bash", str(DOCTOR), "--check")
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertIn("newer than CLI", result.stdout)
+
+    def test_older_or_unreadable_versions_are_drift(self):
+        for older in ("0.153.4", "0.154.0-alpha.17.2", "0.99.9", "garbage", ""):
+            with self.subTest(older=older):
+                (self.home / ".stub-daemon").unlink(missing_ok=True)
+                self.env["TEST_DAEMON_VERSION"] = "0.154.0"
+                self.cache.write_text(json.dumps({"client_version": older, "models": []}))
+                result = self.run_command("bash", str(DOCTOR), "--check")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("older than CLI 0.154.0", result.stdout)
+
+    def test_legacy_standalone_package_is_drift_and_repair_moves_it(self):
+        self.env.update(TEST_LAYOUT="legacy", TEST_DAEMON_VERSION="0.154.0", TEST_LIVE="0")
+        self.cache.write_text(self.cache.read_text().replace("0.153.4", "0.154.0"))
+        before = self.cache.read_bytes()
+        result = self.run_command("bash", str(DOCTOR), "--check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("legacy standalone package 0.154.0", result.stdout)
+        self.assert_read_only(before)
+        self.assert_repaired(self.run_command("bash", str(DOCTOR), "--fix"))
+
+    def test_legacy_leftover_after_the_move_is_info_only(self):
+        self.env["TEST_DAEMON_VERSION"] = "0.154.0"
+        self.cache.write_text(self.cache.read_text().replace("0.153.4", "0.154.0"))
+        legacy = self.home / "packages/standalone/current/bin"
+        legacy.mkdir(parents=True)
+        (legacy / "codex").write_text("#!/bin/sh\necho 'codex-cli 0.150.1'\n")
+        (legacy / "codex").chmod(0o755)
+        result = self.run_command("bash", str(DOCTOR), "--check")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("legacy standalone package 0.150.1 left behind by the move; unused",
+                      result.stdout)
+        self.assertIn("No drift.", result.stdout)
+
     def test_missing_model_in_current_cache_does_not_trigger_repair(self):
         self.env["TEST_DAEMON_VERSION"] = "0.154.0"
         self.cache.write_text(json.dumps({"client_version": "0.154.0", "models": []}))
@@ -186,7 +273,7 @@ exit 99
             with self.subTest(mode=mode):
                 result = self.run_command("bash", str(DOCTOR), mode)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("no cleanup for this alone", result.stdout)
+                self.assertIn("no repair for this alone", result.stdout)
                 self.assert_read_only(before)
 
     def test_process_inspection_failure_is_not_a_deferral(self):
@@ -196,33 +283,28 @@ exit 99
         self.assertIn("cannot inspect live sessions", result.stderr)
 
     def test_repair_failure_stays_nonzero(self):
-        self.env["TEST_LIVE"] = "0"
-        result = self.run_command("bash", str(DOCTOR), "--fix")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("daemon start failed", result.stdout)
-        self.assertIn("Cleanup failed", result.stdout)
-
-    def test_cache_removal_failure_stops_repair(self):
-        self.env["TEST_LIVE"] = "0"
-        self.env["TEST_TRASH_EXIT"] = "1"
-        result = self.run_command("bash", str(DOCTOR), "--fix")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("could not trash models cache", result.stdout)
-        self.assertNotIn("daemon start", self.log.read_text())
+        self.env.update(TEST_LIVE="0", TEST_UPDATE_EXIT="3")
+        for mode in ("--fix", "--after-update"):
+            with self.subTest(mode=mode):
+                result = self.run_command("bash", str(DOCTOR), mode)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("daemon update failed", result.stdout)
+                self.assertIn("Repair failed", result.stdout)
+                self.assertNotIn("debug models", self.log.read_text())
 
     def test_refusal_does_not_print_session_prompt(self):
-        self.env["TEST_LIVE"] = "exec"
+        self.env["TEST_LIVE"] = "prompt"
         result = self.run_command("bash", str(DOCTOR), "--fix")
         self.assertEqual(result.returncode, 1)
         self.assertIn("42 codex session", result.stdout)
         self.assertNotIn("repair app-server and codex-doctor", result.stdout)
 
-    def test_session_started_before_cleanup_blocks_repair(self):
+    def test_session_attached_before_repair_blocks_it(self):
         self.env["TEST_LIVE"] = "late"
         before = self.cache.read_bytes()
         result = self.run_command("bash", str(DOCTOR), "--fix")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("a Codex session started before cleanup", result.stderr)
+        self.assertIn("a Codex session attached before the repair", result.stderr)
         self.assert_read_only(before)
 
     def test_recipe_scopes_script_approvals_and_accepts_deferral(self):
