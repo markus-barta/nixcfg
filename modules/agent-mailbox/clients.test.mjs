@@ -18,7 +18,7 @@ function fixture() {
   const argumentsPath = path.join(root, "curl-args");
   writeFileSync(path.join(bin, "curl"), '#!/bin/sh\nprintf "%s\\n" "$@" >> "$MAILBOX_CURL_ARGS"\ncat "$MAILBOX_FIXTURE"\nexit "${MAILBOX_CURL_EXIT:-0}"\n', { mode: 0o700 });
   return { root, bin, stream, argumentsPath,
-    env: { ...process.env, HOME: root, PATH: `${bin}:${process.env.PATH}`, MAILBOX_FIXTURE: stream, MAILBOX_CURL_ARGS: argumentsPath, AMY_MAILBOX_DIR: path.join(root, "amy"), MBX_ROOT: path.join(root, "mbx") },
+    env: { ...process.env, HOME: root, PATH: `${bin}:${process.env.PATH}`, MAILBOX_FIXTURE: stream, MAILBOX_CURL_ARGS: argumentsPath, AMY_MAILBOX_DIR: path.join(root, "amy"), MBX_ROOT: path.join(root, ".local", "share", "agent-mailbox") },
   };
 }
 function amy(ctx, overrides = {}) {
@@ -26,8 +26,8 @@ function amy(ctx, overrides = {}) {
 }
 
 async function watchOps(t, ctx, { args = [], onOutput = () => {}, stopOnError = true } = {}) {
-  mkdirSync(path.join(ctx.env.MBX_ROOT, "to-ops"), { recursive: true });
-  const child = spawn(process.execPath, [...args, path.join(clients, "mbx-watch.mjs"), ctx.env.MBX_ROOT, "http://fixture.invalid", "0.05"],
+  mkdirSync(path.join(ctx.env.HOME, ".local", "share", "agent-mailbox", "to-ops"), { recursive: true });
+  const child = spawn(process.execPath, [...args, path.join(clients, "mbx-watch.mjs"), "http://fixture.invalid", "0.05"],
     { env: ctx.env, stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => child.kill("SIGTERM"));
   let output = ""; let errors = "";
@@ -77,10 +77,14 @@ syncBuiltinESMExports();
   return loader;
 }
 
-test("OPS refuses roots outside home, including a shared path prefix", () => {
-  const ctx = fixture();
-  for (const root of [path.join(tmpdir(), "ops290-outside-home"), `${ctx.root}-outside/mailbox`]) {
-    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), root, "http://fixture.invalid"],
+test("OPS refuses default paths escaping home, including a shared path prefix", () => {
+  for (const sharedPrefix of [false, true]) {
+    const ctx = fixture();
+    const outside = sharedPrefix ? `${ctx.root}-outside` : realpathSync(mkdtempSync(path.join(tmpdir(), "ops290-outside-home-")));
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, path.join(ctx.root, ".local"));
+    const root = path.join(outside, "share", "agent-mailbox");
+    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), "http://fixture.invalid"],
       { env: ctx.env, encoding: "utf8", timeout: 5000 });
     assert.equal(result.status, 2, result.stderr);
     assert.match(result.stderr, /bad watch root/);
@@ -90,12 +94,13 @@ test("OPS refuses roots outside home, including a shared path prefix", () => {
 });
 
 test("OPS refuses symlink roots and missing descendants that resolve outside home", () => {
-  const ctx = fixture();
   const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "ops290-outside-")));
-  const link = path.join(ctx.root, "link");
-  symlinkSync(outside, link);
-  for (const root of [link, path.join(link, "missing", "mailbox")]) {
-    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), root, "http://fixture.invalid"],
+  for (const missingDescendants of [false, true]) {
+    const ctx = fixture();
+    const link = missingDescendants ? path.join(ctx.root, ".local") : ctx.env.MBX_ROOT;
+    mkdirSync(path.dirname(link), { recursive: true });
+    symlinkSync(outside, link);
+    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), "http://fixture.invalid"],
       { env: ctx.env, encoding: "utf8", timeout: 5000 });
     assert.equal(result.status, 2, result.stderr);
     assert.match(result.stderr, /bad watch root/);
@@ -103,10 +108,39 @@ test("OPS refuses symlink roots and missing descendants that resolve outside hom
   assert.deepEqual(readdirSync(outside), []);
 });
 
+test("OPS ignores MBX_ROOT and uses the fixed mailbox under HOME", async (t) => {
+  const ctx = fixture();
+  const root = ctx.env.MBX_ROOT;
+  ctx.env.MBX_ROOT = `${ctx.root}-outside/mailbox`;
+  writeFileSync(ctx.stream, frame({ ...row(), from: "amy", to: "ops" }));
+  const result = await watchOps(t, ctx, { args: ["--import", replayLoader(ctx)] });
+  assert.ok(result.output.includes(`MBX NEW for ops: ${id("a")}`), result.errors);
+  assert.equal(readFileSync(path.join(root, "watch-ops", "cursor"), "utf8"), `${id("a")}\n`);
+  assert.equal(existsSync(ctx.env.MBX_ROOT), false);
+});
+
+test("OPS still validates endpoint and interval before creating watch state", () => {
+  const ctx = fixture();
+  for (const args of [[], [ctx.env.MBX_ROOT, "http://fixture.invalid"], ["file:///tmp/events"],
+    ["http://fixture.invalid", "0"], ["http://fixture.invalid", "-1"], ["http://fixture.invalid", "bad"], ["http://fixture.invalid", "Infinity"]]) {
+    const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), ...args],
+      { env: ctx.env, encoding: "utf8", timeout: 5000 });
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /bad watch endpoint or interval/);
+    assert.equal(existsSync(path.join(ctx.env.MBX_ROOT, "watch-ops")), false);
+    assert.equal(existsSync(ctx.argumentsPath), false);
+  }
+});
+
 test("OPS rejects traversal-shaped event ids without receipts or cursor advancement", async (t) => {
   for (const bad of ["../../escape", `${id("a")}/../escape`, `${id("a")}\n`]) {
     const ctx = fixture();
-    writeFileSync(ctx.stream, frame({ ...row(), id: bad, from: "amy", to: "ops" }));
+    const message = { ...row(), id: bad, from: "amy", to: "ops" };
+    // A literal newline in the SSE id field would terminate the frame before
+    // its data. Keep that field valid to exercise the JSON id's trailing newline.
+    writeFileSync(ctx.stream, bad.endsWith("\n")
+      ? `id: ${id("a")}\nevent: message\ndata: ${JSON.stringify(message)}\n\n`
+      : frame(message));
     const result = await watchOps(t, ctx, { args: ["--import", replayLoader(ctx)] });
     assert.match(result.errors, /event delivery failed/);
     assert.equal(result.output.includes("MBX NEW for ops:"), false);
@@ -164,6 +198,23 @@ test("OPS sets aside an invalid saved cursor and starts replay without it", asyn
   assert.equal(readFileSync(path.join(state, "cursor.invalid"), "utf8"), invalid);
   assert.equal(readFileSync(path.join(state, "cursor"), "utf8"), `${id("a")}\n`);
   assert.doesNotMatch(readFileSync(ctx.argumentsPath, "utf8"), /Last-Event-ID/);
+});
+
+test("OPS exits cleanly with status 2 when an invalid cursor cannot be renamed", () => {
+  const ctx = fixture();
+  const state = path.join(ctx.env.MBX_ROOT, "watch-ops");
+  mkdirSync(path.join(state, "cursor.invalid"), { recursive: true });
+  writeFileSync(path.join(state, "cursor.invalid", "keep"), "existing data");
+  const invalid = "../../escape\n";
+  writeFileSync(path.join(state, "cursor"), invalid, { mode: 0o600 });
+  const result = spawnSync(process.execPath, [path.join(clients, "mbx-watch.mjs"), "http://fixture.invalid"],
+    { env: ctx.env, encoding: "utf8", timeout: 5000 });
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(result.stderr, "mbx: cannot set aside invalid saved cursor\n");
+  assert.equal(result.stdout, "");
+  assert.equal(readFileSync(path.join(state, "cursor"), "utf8"), invalid);
+  assert.equal(readFileSync(path.join(state, "cursor.invalid", "keep"), "utf8"), "existing data");
+  assert.equal(existsSync(ctx.argumentsPath), false);
 });
 
 test("Amy decoder preserves a work-directory containing literal backslashes", () => {
@@ -372,6 +423,7 @@ test("POSIX awk decoder handles unicode escapes, surrogate pairs and rejects amb
 
 test("existing local mbx send/list/read/keep behavior remains available", () => {
   const ctx = fixture();
+  ctx.env.MBX_ROOT = path.join(ctx.root, "custom-mailbox");
   const run = (...args) => spawnSync("bash", [path.join(clients, "mbx"), ...args], { env: ctx.env, encoding: "utf8" });
   assert.equal(run("send", "codex", "-f", "ops", "-t", "OPS-290", "-m", "local data").status, 0);
   assert.match(run("list", "codex").stdout, /from=ops ticket=OPS-290 \| local data/);
@@ -408,25 +460,33 @@ test("mbx read/list/wait sanitise terminal data without changing kept or archive
   assert.deepEqual(readFileSync(path.join(ctx.env.MBX_ROOT, "done", "codex", "unsafe.txt")), bytes);
 });
 
-test("mbx local watch visibly replaces terminal and bidi controls", async (t) => {
-  const ctx = fixture();
-  const inbox = path.join(ctx.env.MBX_ROOT, "to-codex");
-  mkdirSync(inbox, { recursive: true });
-  const bytes = Buffer.from("From: ops\nTicket: OPS-290\n\nHi\x1b[31m\r\x7f\u0085\u202e\u2066 Grüße 😀\n");
-  const file = path.join(inbox, "unsafe.txt");
-  writeFileSync(file, bytes);
-  const child = spawn("bash", [path.join(clients, "mbx"), "watch", "codex", "0.05"], { env: ctx.env, stdio: ["ignore", "pipe", "pipe"] });
-  t.after(() => child.kill("SIGTERM"));
-  let output = "";
-  const exit = new Promise((resolve) => child.once("close", resolve));
-  const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
-  child.stdout.on("data", (data) => { output += data; if (output.includes("MBX NEW")) child.kill("SIGTERM"); });
-  await exit;
-  clearTimeout(timeout);
-  assert.ok(output.includes("Hi�[31m����� Grüße 😀"), output);
-  assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
-  assert.deepEqual(readFileSync(file), bytes);
-});
+for (const recipient of ["codex", "ops"]) {
+  test(`mbx local ${recipient} watch visibly replaces terminal and bidi controls`, async (t) => {
+    const ctx = fixture();
+    ctx.env.MBX_ROOT = path.join(ctx.root, "custom-mailbox");
+    const inbox = path.join(ctx.env.MBX_ROOT, `to-${recipient}`);
+    mkdirSync(inbox, { recursive: true });
+    const bytes = Buffer.from("From: ops\nTicket: OPS-290\n\nHi\x1b[31m\r\x7f\u0085\u202e\u2066 Grüße 😀\n");
+    const file = path.join(inbox, "unsafe.txt");
+    writeFileSync(file, bytes);
+    const child = spawn("bash", [path.join(clients, "mbx"), "watch", recipient, "0.05"], { env: ctx.env, stdio: ["ignore", "pipe", "pipe"] });
+    t.after(() => child.kill("SIGTERM"));
+    let output = ""; let errors = "";
+    const exit = new Promise((resolve) => child.once("close", resolve));
+    const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
+    child.stdout.on("data", (data) => { output += data; if (output.includes("MBX NEW")) child.kill("SIGTERM"); });
+    child.stderr.on("data", (data) => { errors += data; });
+    await exit;
+    clearTimeout(timeout);
+    assert.ok(output.includes("Hi�[31m����� Grüße 😀"), output);
+    assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
+    assert.deepEqual(readFileSync(file), bytes);
+    assert.equal(existsSync(ctx.argumentsPath), false);
+    assert.equal(existsSync(path.join(ctx.root, ".local", "share", "agent-mailbox")), false);
+    if (recipient === "ops") assert.match(errors, /mbx: non-default MBX_ROOT; falling back to local poll/);
+    else assert.equal(errors, "");
+  });
+}
 
 test("Amy continuous watcher reconnects with its saved cursor and skips replayed hook delivery", async (t) => {
   const ctx = fixture();
@@ -455,7 +515,9 @@ test("OPS push prints once, keeps local watch and reports unreachable fallback",
   const inbox = path.join(ctx.env.MBX_ROOT, "to-ops");
   mkdirSync(inbox, { recursive: true });
   writeFileSync(path.join(inbox, "local.txt"), "From: codex\nTicket: OPS-290\n\nlocal hello\u202e\u2069\n");
-  const processChild = spawn("bash", [path.join(clients, "mbx"), "watch", "ops", "0.05"], { env: { ...ctx.env, MAILBOX_CURL_EXIT: "7" }, stdio: ["ignore", "pipe", "pipe"] });
+  const defaultEnv = { ...ctx.env, MAILBOX_CURL_EXIT: "7" };
+  delete defaultEnv.MBX_ROOT;
+  const processChild = spawn("bash", [path.join(clients, "mbx"), "watch", "ops", "0.05"], { env: defaultEnv, stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => processChild.kill("SIGTERM"));
   let output = ""; let errors = "";
   const exit = new Promise((resolve) => processChild.once("close", resolve));

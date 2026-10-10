@@ -5,8 +5,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 const ID_PATTERN = /^[0-9]{13}-[a-f0-9]{32}$/;
 
-const [rootArg, endpoint, interval = "3"] = process.argv.slice(2);
-if (!rootArg || !/^https?:\/\//.test(endpoint) || !Number.isFinite(Number(interval)) || Number(interval) <= 0) {
+const [endpoint, interval = "3"] = process.argv.slice(2);
+if (!/^https?:\/\//.test(endpoint) || !Number.isFinite(Number(interval)) || Number(interval) <= 0) {
   console.error("mbx: bad watch endpoint or interval"); process.exit(2);
 }
 // Resolve existing ancestors too: a not-yet-created root must not escape home
@@ -21,7 +21,7 @@ function canonicalPath(resolved) {
 let root;
 try {
   const home = canonicalPath(path.resolve(homedir()));
-  root = canonicalPath(path.resolve(rootArg));
+  root = canonicalPath(path.join(homedir(), ".local", "share", "agent-mailbox"));
   if (!root.startsWith(home + path.sep)) throw new Error("root outside home");
 } catch {
   console.error("mbx: bad watch root (must be inside home)"); process.exit(2);
@@ -37,7 +37,10 @@ catch (error) { if (error.code !== "ENOENT") throw error; }
 if (cursor) {
   try { cursor = safeName(cursor); }
   catch {
-    renameSync(cursorPath, path.join(state, "cursor.invalid"));
+    try { renameSync(cursorPath, path.join(state, "cursor.invalid")); }
+    catch {
+      console.error("mbx: cannot set aside invalid saved cursor"); process.exit(2);
+    }
     console.error("mbx: invalid saved cursor");
     cursor = "";
   }

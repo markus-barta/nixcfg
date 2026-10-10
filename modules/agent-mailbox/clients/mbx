@@ -175,8 +175,11 @@ watch)
   interval="${2:-3}"
   ensure_dirs "$name"
   if [ "$name" = ops ]; then
-    client_dir="$(cd "$(dirname "$0")" && pwd)"
-    exec node "$client_dir/mbx-watch.mjs" "$ROOT" "$HSB0_MAILBOX" "$interval"
+    if [ "$ROOT" = "$HOME/.local/share/agent-mailbox" ]; then
+      client_dir="$(cd "$(dirname "$0")" && pwd)"
+      exec node "$client_dir/mbx-watch.mjs" "$HSB0_MAILBOX" "$interval"
+    fi
+    echo "mbx: non-default MBX_ROOT; falling back to local poll (push uses the default home mailbox)" >&2
   fi
   seen="|" # bash 3.2 compatible (macOS /bin/bash): no associative arrays
   echo "mbx watch armed on to-$name (every ${interval}s)"
