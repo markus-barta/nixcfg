@@ -184,6 +184,10 @@ in
         "AEON_ADDR=:8080"
         "AEON_FILES_DIR=/data/files"
         "AEON_PUBLIC_URL=https://aeon.barta.cm"
+        # AEON-1105 (release 129): live agent chat is default-off; Markus enabled it
+        # for ppm only (agm1 stays off). Only "true"/"false" are accepted; anything
+        # else stops the server at startup. Releases before 129 ignore the variable.
+        "AEON_CHAT_ENABLED=true"
         # AEON-988: release 126 workers exhausted the default pgx pool (4 conns on 4 CPUs); explicit pool (30 until AEON-995).
         "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable&pool_max_conns=30"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
