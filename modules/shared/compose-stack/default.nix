@@ -302,7 +302,9 @@ in
           unpullable image starves every other service of its scheduled update
           (csb1's hausv-org, observed live 2026-08-08). Excluded services keep
           their compose definition and are still converged by `up -d --pull
-          never`; a missing local image fails instead of being pulled implicitly.
+          never`: an image-only service whose local image is missing fails
+          instead of being pulled implicitly (a service with `build` can still
+          rebuild its image).
         '';
       };
     };
