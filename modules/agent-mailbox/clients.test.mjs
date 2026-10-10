@@ -1,0 +1,232 @@
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+
+const clients = fileURLToPath(new URL("./clients/", import.meta.url));
+const id = (digit) => `1791619200000-${digit.repeat(32)}`;
+const row = (digit = "a", body = "Hello Amy") => ({ id: id(digit), from: "ops", to: "amy", ticket: "OPS-290", createdAt: "2026-10-10T08:00:00.000Z", body });
+const frame = (message) => `id: ${message.id}\nevent: message\ndata: ${JSON.stringify(message)}\n\n`;
+function fixture() {
+  const root = mkdtempSync(path.join(tmpdir(), "ops290-client-"));
+  const bin = path.join(root, "bin");
+  mkdirSync(bin);
+  const stream = path.join(root, "stream");
+  const argumentsPath = path.join(root, "curl-args");
+  writeFileSync(path.join(bin, "curl"), '#!/bin/sh\nprintf "%s\\n" "$@" >> "$MAILBOX_CURL_ARGS"\ncat "$MAILBOX_FIXTURE"\nexit "${MAILBOX_CURL_EXIT:-0}"\n', { mode: 0o700 });
+  return { root, bin, stream, argumentsPath,
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MAILBOX_FIXTURE: stream, MAILBOX_CURL_ARGS: argumentsPath, AMY_MAILBOX_DIR: path.join(root, "amy"), MBX_ROOT: path.join(root, "mbx") },
+  };
+}
+function amy(ctx, overrides = {}) {
+  return spawnSync("sh", [path.join(clients, "amy-watch.sh"), "--once"], { env: { ...ctx.env, ...overrides }, encoding: "utf8", timeout: 5000 });
+}
+
+test("Amy writes private inbox, survives restart, and deduplicates unread replay without ack", () => {
+  const ctx = fixture();
+  writeFileSync(ctx.stream, frame(row()));
+  let result = amy(ctx);
+  assert.equal(result.status, 0, result.stderr);
+  const state = ctx.env.AMY_MAILBOX_DIR;
+  const saved = path.join(state, "inbox", `${id("a")}.json`);
+  assert.deepEqual(readFileSync(saved), Buffer.from(`${JSON.stringify(row())}\n`));
+  assert.deepEqual(JSON.parse(readFileSync(saved)), row());
+  assert.equal(statSync(state).mode & 0o777, 0o700);
+  for (const file of [saved, path.join(state, "cursor"), path.join(state, "processed", id("a"))]) assert.equal(statSync(file).mode & 0o777, 0o600);
+  writeFileSync(ctx.stream, frame(row()) + frame(row("b", "new after restart")));
+  result = amy(ctx);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readdirSync(path.join(state, "inbox")).sort(), [`${id("a")}.json`, `${id("b")}.json`]);
+  assert.equal(readFileSync(path.join(state, "cursor"), "utf8"), `${id("b")}\n`);
+  const args = readFileSync(ctx.argumentsPath, "utf8");
+  assert.ok(args.includes(`Last-Event-ID: ${id("a")}`));
+  assert.equal(args.includes("/ack"), false);
+  assert.equal(args.includes("/v1/messages"), false);
+  writeFileSync(ctx.stream, frame(row("b")));
+  assert.equal(amy(ctx).status, 1);
+  assert.equal(readdirSync(state).some((file) => file.startsWith(".watch.")), false);
+});
+
+test("Amy inbox preserves UTF-8 JSON bytes and decoded multiline body exactly", () => {
+  const ctx = fixture();
+  const body = "Grüße aus Österreich\nHello Amy!\t😀\n\n";
+  // Include whitespace and escaped Unicode to catch parse/reserialise changes.
+  const json = JSON.stringify(row("a", body)).replace('{"id"', '{ "id"').replace("Grüße", "Gr\\u00fcße");
+  writeFileSync(ctx.stream, `id: ${id("a")}\nevent: message\ndata: ${json}\n\n`);
+  const result = amy(ctx);
+  assert.equal(result.status, 0, result.stderr);
+  const saved = readFileSync(path.join(ctx.env.AMY_MAILBOX_DIR, "inbox", `${id("a")}.json`));
+  assert.deepEqual(saved, Buffer.from(`${json}\n`));
+  assert.equal(JSON.parse(saved).body, body);
+});
+
+test("Amy hook receives exact decoded bytes and arguments; message text never executes", () => {
+  const ctx = fixture();
+  const body = `quotes " slash \\ newline\n\tCR\r\b\f control \u0001 DEL\u007f café 漢字 😀\n$(touch ${path.join(ctx.root, "executed")})\n\n`;
+  const hook = path.join(ctx.bin, "hook");
+  writeFileSync(hook, '#!/bin/sh\nprintf "%s\\n" "$1" "$2" > "$HOOK_ARGS"\ncat > "$HOOK_BODY"\n', { mode: 0o700 });
+  const hookArgs = path.join(ctx.root, "hook-args");
+  const hookBody = path.join(ctx.root, "hook-body");
+  writeFileSync(ctx.stream, frame(row("a", body)));
+  const result = amy(ctx, { AMY_MAILBOX_HOOK: hook, HOOK_ARGS: hookArgs, HOOK_BODY: hookBody });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(hookBody, "utf8"), body);
+  assert.equal(readFileSync(hookArgs, "utf8"), `${id("a")}\nops\n`);
+  assert.equal(existsSync(path.join(ctx.root, "executed")), false);
+  assert.deepEqual(readdirSync(path.join(ctx.env.AMY_MAILBOX_DIR, "inbox")), []);
+});
+
+test("failed Amy hook and invalid/mismatched events retain cursor and retry", () => {
+  const ctx = fixture();
+  writeFileSync(ctx.stream, frame(row()));
+  const failedHook = path.join(ctx.bin, "fail-hook");
+  writeFileSync(failedHook, "#!/bin/sh\nexit 7\n", { mode: 0o700 });
+  assert.equal(amy(ctx, { AMY_MAILBOX_HOOK: failedHook }).status, 1);
+  assert.equal(existsSync(path.join(ctx.env.AMY_MAILBOX_DIR, "cursor")), false);
+  assert.deepEqual(readdirSync(path.join(ctx.env.AMY_MAILBOX_DIR, "processed")), []);
+  assert.equal(amy(ctx).status, 0);
+  for (const message of [{ ...row("b"), to: "ops" }, { ...row("b"), from: "amy" }, { ...row("b"), id: "../../escape" }]) {
+    writeFileSync(ctx.stream, frame(message));
+    assert.equal(amy(ctx).status, 1);
+    assert.equal(readFileSync(path.join(ctx.env.AMY_MAILBOX_DIR, "cursor"), "utf8"), `${id("a")}\n`);
+  }
+  writeFileSync(ctx.stream, frame(row("b")).replace(`id: ${id("b")}`, `id: ${id("c")}`));
+  assert.equal(amy(ctx).status, 1);
+});
+
+test("POSIX awk decoder handles unicode escapes, surrogate pairs and rejects ambiguous JSON", () => {
+  const ctx = fixture();
+  const messagePath = path.join(ctx.root, "message.json");
+  const run = (json) => {
+    writeFileSync(messagePath, json);
+    return spawnSync("awk", ["-v", `out=${ctx.root}`, "-f", path.join(clients, "message.awk"), messagePath], { env: { ...process.env, LC_ALL: "C" }, encoding: "utf8" });
+  };
+  const json = JSON.stringify(row("a", "replace"));
+  assert.equal(run(json.replace('"replace"', '"\\u00e9\\ud83d\\ude00\\ud800\\u0001"')).status, 0);
+  assert.equal(readFileSync(path.join(ctx.root, "body"), "utf8"), "é😀�\u0001");
+  for (const bad of [json + "trailing", json.replace(/}$/, ',"body":"duplicate"}'), json.replace('"replace"', '"\\u0000"'), json.replace('"replace"', '"\\q"'), json.replace('"replace"', "42")]) assert.equal(run(bad).status, 1);
+});
+
+test("existing local mbx send/list/read/keep behavior remains available", () => {
+  const ctx = fixture();
+  const run = (...args) => spawnSync("bash", [path.join(clients, "mbx"), ...args], { env: ctx.env, encoding: "utf8" });
+  assert.equal(run("send", "codex", "-f", "ops", "-t", "OPS-290", "-m", "local data").status, 0);
+  assert.match(run("list", "codex").stdout, /from=ops ticket=OPS-290 \| local data/);
+  assert.match(run("read", "codex", "--keep").stdout, /read 1 message\(s\) for codex \(kept\)/);
+  assert.match(run("read", "codex").stdout, /archived to done/);
+  assert.match(run("list", "codex").stdout, /unread for codex: 0/);
+  assert.equal(readdirSync(path.join(ctx.env.MBX_ROOT, "done", "codex")).length, 1);
+});
+
+test("mbx read/list/wait sanitise terminal data without changing kept or archived bytes", () => {
+  const ctx = fixture();
+  const inbox = path.join(ctx.env.MBX_ROOT, "to-codex");
+  mkdirSync(inbox, { recursive: true });
+  const controls = Array.from({ length: 32 }, (_, i) => i).filter((i) => ![9, 10].includes(i))
+    .concat(127, Array.from({ length: 32 }, (_, i) => 128 + i),
+      Array.from({ length: 5 }, (_, i) => 0x202a + i), Array.from({ length: 4 }, (_, i) => 0x2066 + i));
+  const body = `${String.fromCodePoint(...controls)}\nGrüße\tHello 😀\n\n`;
+  const bytes = Buffer.concat([Buffer.from(`From: ops\nTicket: OPS-290\n\n${body}`), Buffer.from([0xff])]);
+  const file = path.join(inbox, "unsafe.txt");
+  writeFileSync(file, bytes);
+  const run = (...args) => spawnSync("bash", [path.join(clients, "mbx"), ...args], { env: ctx.env, encoding: "utf8", timeout: 5000 });
+  const read = run("read", "codex", "--keep");
+  assert.equal(read.status, 0, read.stderr);
+  assert.ok(read.stdout.includes(`${"�".repeat(controls.length)}\nGrüße\tHello 😀\n\n�`));
+  assert.deepEqual(readFileSync(file), bytes);
+  const list = run("list", "codex");
+  assert.equal(list.status, 0, list.stderr);
+  assert.ok(list.stdout.includes(`${"�".repeat(controls.length)} Grüße Hello 😀`), JSON.stringify(list.stdout));
+  assert.deepEqual(readFileSync(file), bytes);
+  const waited = run("wait", "codex", "0");
+  assert.equal(waited.status, 0, waited.stderr);
+  for (const result of [read, list, waited]) assert.doesNotMatch(result.stdout, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
+  assert.deepEqual(readFileSync(path.join(ctx.env.MBX_ROOT, "done", "codex", "unsafe.txt")), bytes);
+});
+
+test("mbx local watch visibly replaces terminal and bidi controls", async (t) => {
+  const ctx = fixture();
+  const inbox = path.join(ctx.env.MBX_ROOT, "to-codex");
+  mkdirSync(inbox, { recursive: true });
+  const bytes = Buffer.from("From: ops\nTicket: OPS-290\n\nHi\x1b[31m\r\x7f\u0085\u202e\u2066 Grüße 😀\n");
+  const file = path.join(inbox, "unsafe.txt");
+  writeFileSync(file, bytes);
+  const child = spawn("bash", [path.join(clients, "mbx"), "watch", "codex", "0.05"], { env: ctx.env, stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => child.kill("SIGTERM"));
+  let output = "";
+  const exit = new Promise((resolve) => child.once("close", resolve));
+  const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
+  child.stdout.on("data", (data) => { output += data; if (output.includes("MBX NEW")) child.kill("SIGTERM"); });
+  await exit;
+  clearTimeout(timeout);
+  assert.ok(output.includes("Hi�[31m����� Grüße 😀"), output);
+  assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
+  assert.deepEqual(readFileSync(file), bytes);
+});
+
+test("Amy continuous watcher reconnects with its saved cursor and skips replayed hook delivery", async (t) => {
+  const ctx = fixture();
+  writeFileSync(ctx.stream, frame(row()));
+  const child = spawn("sh", [path.join(clients, "amy-watch.sh")], { env: ctx.env, stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => child.kill("SIGTERM"));
+  let errors = "";
+  child.stderr.on("data", (data) => { errors += data; });
+  const exit = new Promise((resolve) => child.once("close", resolve));
+  const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
+  const check = setInterval(() => {
+    if (existsSync(ctx.argumentsPath) && readFileSync(ctx.argumentsPath, "utf8").includes(`Last-Event-ID: ${id("a")}`)) child.kill("SIGTERM");
+  }, 25);
+  await exit;
+  clearTimeout(timeout); clearInterval(check);
+  assert.equal(errors, "");
+  assert.ok(readFileSync(ctx.argumentsPath, "utf8").includes(`Last-Event-ID: ${id("a")}`));
+  assert.deepEqual(readdirSync(path.join(ctx.env.AMY_MAILBOX_DIR, "processed")), [id("a")]);
+});
+
+test("OPS push prints once, keeps local watch and reports unreachable fallback", async (t) => {
+  const ctx = fixture();
+  const message = { ...row("a", `new\n\x1b\r\x7f\u0085\u202e\u2066${"é".repeat(150)}`), from: "amy", to: "ops" };
+  writeFileSync(ctx.stream, frame(message) + frame(message));
+  const inbox = path.join(ctx.env.MBX_ROOT, "to-ops");
+  mkdirSync(inbox, { recursive: true });
+  writeFileSync(path.join(inbox, "local.txt"), "From: codex\nTicket: OPS-290\n\nlocal hello\u202e\u2069\n");
+  const processChild = spawn("bash", [path.join(clients, "mbx"), "watch", "ops", "0.05"], { env: { ...ctx.env, MAILBOX_CURL_EXIT: "7" }, stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => processChild.kill("SIGTERM"));
+  let output = ""; let errors = "";
+  const exit = new Promise((resolve) => processChild.once("close", resolve));
+  const timer = setTimeout(() => processChild.kill("SIGTERM"), 5000);
+  processChild.stdout.on("data", (data) => { output += data; });
+  processChild.stderr.on("data", (data) => {
+    errors += data;
+    if (errors.includes("falling back to local poll")) processChild.kill("SIGTERM");
+  });
+  await exit;
+  clearTimeout(timer);
+  assert.ok(errors.includes("falling back to local poll"), errors);
+  const lines = output.trim().split("\n");
+  assert.equal(lines.filter((line) => line.startsWith(id("a"))).length, 1);
+  assert.ok(lines.some((line) => line.includes("from=codex ticket=OPS-290 | local hello")));
+  const pushed = lines.find((line) => line.startsWith(id("a")));
+  assert.equal(Array.from(pushed.split(" | ")[2]).length, 140);
+  assert.equal(pushed.includes("\x1b"), false);
+  assert.ok(pushed.includes("new ������"));
+  assert.ok(output.includes("local hello��"));
+  assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
+  assert.equal(readFileSync(path.join(ctx.env.MBX_ROOT, "watch-ops", "cursor"), "utf8"), `${id("a")}\n`);
+  assert.equal(existsSync(path.join(inbox, "local.txt")), true);
+  writeFileSync(ctx.stream, frame(message) + frame({ ...message, id: id("b"), body: "after restart" }));
+  const restarted = spawn("bash", [path.join(clients, "mbx"), "watch", "ops", "0.05"], { env: { ...ctx.env, MAILBOX_CURL_EXIT: "7" }, stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => restarted.kill("SIGTERM"));
+  let replayOutput = "";
+  restarted.stdout.on("data", (data) => { replayOutput += data; });
+  restarted.stderr.on("data", (data) => { if (String(data).includes("falling back")) restarted.kill("SIGTERM"); });
+  const restartTimeout = setTimeout(() => restarted.kill("SIGTERM"), 5000);
+  await new Promise((resolve) => restarted.once("close", resolve));
+  clearTimeout(restartTimeout);
+  assert.equal(replayOutput.includes(id("a")), false);
+  assert.ok(replayOutput.includes(`${id("b")} | from=amy ticket=OPS-290 | after restart`));
+  assert.ok(readFileSync(ctx.argumentsPath, "utf8").includes(`Last-Event-ID: ${id("a")}`));
+});

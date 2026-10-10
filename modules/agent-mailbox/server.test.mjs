@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
-import { createServer } from "./server.mjs";
+import { createServer, HEARTBEAT_MS, STREAM_LIFETIME_MS, STREAM_LIMIT } from "./server.mjs";
 import { BODY_LIMIT, POLICY } from "./security.mjs";
 import { HOUR_MS, RETENTION_MS } from "./state.mjs";
 
@@ -34,6 +35,174 @@ function start(t, options = {}) {
 }
 const valid = { to: "ops", ticket: "OPS-272", body: "hello from Amy" };
 const ops = { peer: "100.64.0.14" };
+
+for (const [label, points] of [
+  ["C0 except tab/newline", Array.from({ length: 32 }, (_, i) => i).filter((i) => ![9, 10, 13].includes(i))],
+  ["carriage return", [13]],
+  ["DEL", [127]],
+  ["C1", Array.from({ length: 32 }, (_, i) => 128 + i)],
+  ["bidi overrides/embeddings", Array.from({ length: 5 }, (_, i) => 0x202a + i)],
+  ["bidi isolates", Array.from({ length: 4 }, (_, i) => 0x2066 + i)],
+]) {
+  test(`send rejects every ${label} character without storing`, async (t) => {
+    const { app, request } = start(t);
+    for (const point of points) {
+      const response = await request("POST", "/v1/messages", { ...valid, body: `before${String.fromCodePoint(point)}after` });
+      assert.deepEqual(response, { status: 400, result: { error: "body contains control characters" } }, `U+${point.toString(16)}`);
+    }
+    assert.equal(app.mailbox.unread("ops"), 0);
+  });
+}
+
+test("send rejects malformed UTF-8 inside JSON and escaped lone surrogates", async (t) => {
+  const { app, request } = start(t);
+  const prefix = Buffer.from('{"to":"ops","body":"');
+  const suffix = Buffer.from('"}');
+  for (const bytes of [[0xff], [0x80], [0xc0, 0xaf], [0xc2], [0xe2, 0x82], [0xe2, 0x28, 0xa1], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80]]) {
+    assert.deepEqual(await request("POST", "/v1/messages", undefined, { chunks: [prefix, Buffer.from(bytes), suffix] }),
+      { status: 400, result: { error: "body must be valid UTF-8" } });
+  }
+  for (const body of ["\ud800", "\udfff", "\ud800x", "x\udfff"]) {
+    assert.deepEqual(await request("POST", "/v1/messages", { ...valid, body }),
+      { status: 400, result: { error: "body must be valid UTF-8" } });
+  }
+  assert.equal(app.mailbox.unread("ops"), 0);
+});
+
+test("multiline German/English with tabs, umlauts and emoji survives split UTF-8 chunks exactly", async (t) => {
+  const { request } = start(t);
+  const body = "Grüße aus Österreich: äöü ÄÖÜ ß\nHello Amy!\t😀 🚀\n\n";
+  const raw = Buffer.from(JSON.stringify({ ...valid, body }));
+  const sent = await request("POST", "/v1/messages", undefined, { chunks: Array.from(raw, (byte) => Buffer.from([byte])) });
+  assert.equal(sent.status, 201);
+  assert.equal((await request("GET", "/v1/messages", undefined, ops)).result.messages[0].body, body);
+});
+
+async function connect(app, url = "/v1/events", peer = ops.peer, headers = {}, options = {}) {
+  const request = Readable.from([]);
+  Object.assign(request, { method: "GET", url, headers, socket: { remoteAddress: peer } });
+  const response = new EventEmitter();
+  Object.assign(response, {
+    chunks: [], ended: false,
+    writeHead(status, values) { this.status = status; this.headers = values; },
+    write(chunk) { this.chunks.push(chunk); return options.writable !== false; },
+    end(chunk) { if (chunk) this.chunks.push(chunk); this.ended = true; },
+    destroy() { this.destroyed = true; this.emit("close"); },
+  });
+  response.events = () => response.chunks.join("").split("\n\n").filter((frame) => frame.startsWith("id:")).map((frame) => JSON.parse(frame.split("\ndata: ")[1]));
+  await app.handle(request, response);
+  return response;
+}
+
+test("SSE replays all unread then emits live, isolates identity and never acknowledges", async (t) => {
+  const { app, request } = start(t);
+  const ids = Array.from({ length: 55 }, () => app.mailbox.send("amy", valid).id);
+  const stream = await connect(app);
+  assert.equal(stream.status, 200);
+  assert.equal(stream.headers["Content-Type"], "text/event-stream; charset=utf-8");
+  assert.equal(stream.headers["X-Mailbox-Policy"], POLICY);
+  assert.equal(stream.headers["Cache-Control"], "no-store");
+  assert.deepEqual(new Set(stream.events().map((row) => row.id)), new Set(ids));
+  const live = await request("POST", "/v1/messages", { ...valid, body: "live\nbody ☃" });
+  assert.equal(stream.events().at(-1).id, live.result.id);
+  assert.equal(stream.events().at(-1).body, "live\nbody ☃");
+  app.mailbox.send("ops", { to: "amy", body: "private", ticket: null });
+  assert.equal(stream.events().length, 56);
+  assert.equal(app.mailbox.unread("ops"), 56);
+  assert.equal((await connect(app, "/v1/events", "100.64.0.9", { "x-forwarded-for": ops.peer })).status, 403);
+  const amyStream = await connect(app, "/v1/events", "100.64.0.10");
+  assert.deepEqual(amyStream.events().map((row) => row.body), ["private"]);
+});
+
+test("reconnect cursors cannot lose same-time, older-clock or unacked messages", async (t) => {
+  let clock = Date.now();
+  const { app } = start(t, { now: () => clock });
+  const first = app.mailbox.send("amy", valid);
+  const stream = await connect(app);
+  stream.emit("close");
+  const sameTime = app.mailbox.send("amy", valid);
+  clock -= 1000;
+  const older = app.mailbox.send("amy", valid);
+  for (const [url, headers] of [["/v1/events", { "last-event-id": first.id }], [`/v1/events?since=${first.id}`, {}]]) {
+    const reconnect = await connect(app, url, ops.peer, headers);
+    assert.deepEqual(new Set(reconnect.events().map((row) => row.id)), new Set([first.id, sameTime.id, older.id]));
+    reconnect.emit("close");
+  }
+  app.mailbox.ack("ops", first.id);
+  const reconnect = await connect(app, "/v1/events", ops.peer, { "last-event-id": first.id });
+  assert.deepEqual(new Set(reconnect.events().map((row) => row.id)), new Set([sameTime.id, older.id]));
+  assert.equal((await connect(app, "/v1/events?since=invalid")).status, 400);
+});
+
+test("heartbeat, stream lifetime, backpressure and per-identity limits release slots", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const { app } = start(t);
+  const streams = [];
+  for (let i = 0; i < STREAM_LIMIT; i++) streams.push(await connect(app));
+  assert.equal((await connect(app)).status, 429);
+  const amyStream = await connect(app, "/v1/events", "100.64.0.10");
+  assert.equal(amyStream.status, 200);
+  t.mock.timers.tick(HEARTBEAT_MS);
+  assert.equal(streams[0].chunks.join(""), ": heartbeat\n\n");
+  streams[0].emit("close");
+  const blocked = await connect(app, "/v1/events", ops.peer, {}, { writable: false });
+  t.mock.timers.tick(HEARTBEAT_MS);
+  assert.equal(blocked.destroyed, undefined);
+  t.mock.timers.tick(HEARTBEAT_MS);
+  assert.equal(blocked.destroyed, true);
+  assert.equal((await connect(app)).status, 200);
+  t.mock.timers.tick(STREAM_LIFETIME_MS);
+  assert.ok(streams.every((stream) => stream.ended));
+  assert.equal(amyStream.ended, true);
+  assert.equal((await connect(app)).status, 200);
+  await app.close();
+  t.mock.timers.tick(HEARTBEAT_MS);
+});
+
+test("SSE pauses on backpressure and resumes replay then live without dropping accepted chunks", async (t) => {
+  const { app } = start(t);
+  const first = app.mailbox.send("amy", valid);
+  const second = app.mailbox.send("amy", valid);
+  const options = { writable: false };
+  const stream = await connect(app, "/v1/events", ops.peer, {}, options);
+  assert.equal(stream.events().length, 1);
+  const live = app.mailbox.send("amy", valid);
+  assert.equal(stream.events().length, 1);
+  options.writable = true;
+  stream.emit("drain");
+  assert.deepEqual(new Set(stream.events().map((row) => row.id)), new Set([first.id, second.id, live.id]));
+  assert.equal(stream.events().at(-1).id, live.id);
+  assert.equal(stream.destroyed, undefined);
+});
+
+test("long-poll wakes only for its identity and returns empty at timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { app } = start(t);
+  const poll = await connect(app, "/v1/messages?wait=60");
+  assert.equal(poll.ended, false);
+  app.mailbox.send("ops", { to: "amy", ticket: null, body: "other identity" });
+  assert.equal(poll.ended, false);
+  t.mock.timers.tick(1000);
+  const sent = app.mailbox.send("amy", valid);
+  assert.equal(poll.ended, true);
+  assert.equal(JSON.parse(poll.chunks.join("")).messages[0].id, sent.id);
+  const immediate = await connect(app, "/v1/messages?wait=60");
+  assert.equal(immediate.ended, true);
+  assert.equal(JSON.parse(immediate.chunks.join("")).messages[0].id, sent.id);
+  app.mailbox.ack("ops", sent.id);
+  const timeout = await connect(app, "/v1/messages?wait=2");
+  t.mock.timers.tick(1999);
+  assert.equal(timeout.ended, false);
+  t.mock.timers.tick(1);
+  assert.deepEqual(JSON.parse(timeout.chunks.join("")), { messages: [] });
+  for (const wait of ["61", "-1", "1.5", "NaN", ""]) assert.equal((await connect(app, `/v1/messages?wait=${wait}`)).status, 400);
+  assert.equal((await connect(app, "/v1/messages?wait=0")).ended, true);
+  const polls = [];
+  for (let i = 0; i < STREAM_LIMIT; i++) polls.push(await connect(app, "/v1/messages?wait=60"));
+  assert.equal((await connect(app, "/v1/messages?wait=60")).status, 429);
+  polls[0].emit("close");
+  assert.equal((await connect(app, "/v1/events")).status, 200);
+});
 
 test("bidirectional send/read/health/ack preserve source identity and recipient isolation", async (t) => {
   const ctx = start(t);

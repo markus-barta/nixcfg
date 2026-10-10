@@ -6,7 +6,11 @@ import {
   assertListen, assertPeers, BODY_LIMIT, DEFAULT_PEERS, failure, ID_PATTERN,
   LISTEN_HOST, LISTEN_PORT, normalizePeer, parseMessage, POLICY,
 } from "./security.mjs";
-import { HOUR_MS, openMailbox } from "./state.mjs";
+import { HOUR_MS, openMailbox, UNREAD_LIMIT } from "./state.mjs";
+
+export const STREAM_LIMIT = 4;
+export const HEARTBEAT_MS = 15000;
+export const STREAM_LIFETIME_MS = HOUR_MS;
 
 function send(response, status, body) {
   const payload = JSON.stringify(body);
@@ -64,6 +68,108 @@ export function createServer(options = {}) {
   const identities = [...new Set(peers.values())];
   const mailbox = openMailbox(options.stateDir ?? "/var/lib/agent-mailbox", identities, options.now ?? Date.now);
   const log = options.log ?? ((line) => console.log(line));
+  // Count SSE and long polls together: neither can exhaust the peer's slots.
+  const connections = new Map(identities.map((identity) => [identity, new Set()]));
+
+  function reserve(identity, response) {
+    const active = connections.get(identity);
+    if (active.size >= STREAM_LIMIT) throw failure(429, "recipient connection limit reached");
+    const timers = [];
+    const cleanups = [];
+    let unsubscribe = () => {};
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      for (const timer of timers) clearTimeout(timer);
+      for (const cleanup of cleanups) cleanup();
+      active.delete(finish);
+      response.off("close", finish);
+      response.off("error", finish);
+      response.end();
+    };
+    active.add(finish);
+    response.once("close", finish);
+    response.once("error", finish);
+    return {
+      finish,
+      subscribe(listener) { unsubscribe = mailbox.subscribe(identity, listener); },
+      timer(timer) { timers.push(timer); timer.unref(); },
+      cleanup(callback) { cleanups.push(callback); },
+    };
+  }
+
+  function streamEvents(identity, response) {
+    // Read/validate before headers. Registration and replay are synchronous,
+    // so a committed send cannot fall between the snapshot and subscription.
+    const replay = mailbox.messages(identity, UNREAD_LIMIT);
+    const connection = reserve(identity, response);
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+      "X-Mailbox-Policy": POLICY,
+    });
+    response.flushHeaders?.();
+    let queue = replay;
+    let blocked = false;
+    let closed = false;
+    let drainTimer;
+    const onDrain = () => { clearTimeout(drainTimer); blocked = false; pump(); };
+    connection.cleanup(() => {
+      closed = true;
+      queue = [];
+      clearTimeout(drainTimer);
+      response.off("drain", onDrain);
+      // Shutdown/lifetime rotation must not wait forever for queued socket
+      // bytes. The recipient can replay these still-unread messages.
+      if (blocked) response.destroy?.();
+    });
+    const write = (payload) => {
+      try {
+        // false means the chunk was accepted into Node's bounded socket
+        // buffer. Pause until drain; destroying immediately could discard it.
+        if (!response.write(payload)) {
+          blocked = true;
+          response.once("drain", onDrain);
+          drainTimer = setTimeout(() => { response.destroy?.(); connection.finish(); }, HEARTBEAT_MS);
+          drainTimer.unref();
+          return false;
+        }
+        return true;
+      } catch { connection.finish(); return false; }
+    };
+    function pump() {
+      while (!closed && !blocked && queue.length) {
+        const message = queue.shift();
+        if (!write(`id: ${message.id}\nevent: message\ndata: ${JSON.stringify(message)}\n\n`)) return;
+      }
+    }
+    connection.subscribe((message) => {
+      // A recipient may acknowledge while live traffic arrives; cap even
+      // that case instead of letting a stalled subscriber accumulate forever.
+      if (queue.length >= UNREAD_LIMIT) { response.destroy?.(); connection.finish(); return; }
+      queue.push(message);
+      pump();
+    });
+    connection.timer(setInterval(() => { if (!blocked && !closed) write(": heartbeat\n\n"); }, HEARTBEAT_MS));
+    // Empty streams and healthy streams both periodically release their slot.
+    connection.timer(setTimeout(connection.finish, STREAM_LIFETIME_MS));
+    pump();
+  }
+
+  function longPoll(identity, response, seconds) {
+    const connection = reserve(identity, response);
+    const deliver = () => {
+      try { send(response, 200, { messages: mailbox.messages(identity) }); }
+      catch { send(response, 500, { error: "mailbox operation failed" }); }
+      finally { connection.finish(); }
+    };
+    connection.subscribe(deliver);
+    connection.timer(setTimeout(deliver, seconds * 1000));
+  }
 
   async function handle(request, response) {
     const identity = peers.get(normalizePeer(request.socket?.remoteAddress)) ?? null;
@@ -78,15 +184,32 @@ export function createServer(options = {}) {
       // caller-controlled traversal into a valid message ID or storage path.
       const route = request.url?.split("?", 1)[0] ?? "";
       const ackMatch = /^\/v1\/messages\/([0-9]{13}-[a-f0-9]{32})\/ack$/.exec(route);
-      if (["/v1/health", "/v1/messages"].includes(route) || ackMatch) logPath = route;
+      if (["/v1/health", "/v1/messages", "/v1/events"].includes(route) || ackMatch) logPath = route;
       if (!identity) { reply(403, { error: "source is not allowed" }); return; }
       if (method === "POST") mailbox.admitPost(identity);
       if (request.headers?.expect) throw failure(417, "Expect is not supported");
       if (Number(request.headers?.["content-length"]) > BODY_LIMIT) throw failure(413, "request body is too large");
-      if (method === "GET" && ["/v1/health", "/v1/messages"].includes(route)) {
+      if (method === "GET" && ["/v1/health", "/v1/messages", "/v1/events"].includes(route)) {
         if (await readBody(request)) throw failure(400, "GET body must be empty");
+        const query = new URLSearchParams(request.url?.split("?").slice(1).join("?") ?? "");
+        if (route === "/v1/events") {
+          const cursor = query.get("since") ?? request.headers?.["last-event-id"];
+          if (cursor !== undefined && cursor !== null && !ID_PATTERN.test(cursor)) throw failure(400, "event cursor is invalid");
+          // Always replay ALL unread, including IDs at/before the cursor. IDs
+          // are random within each millisecond and clocks can move backwards.
+          // The explicit ack is the only authority for removing unread data.
+          streamEvents(identity, response);
+          status = 200;
+          return;
+        }
         if (route === "/v1/health") reply(200, { ok: true, identity, unread: mailbox.unread(identity) });
-        else reply(200, { messages: mailbox.messages(identity) });
+        else {
+          const wait = query.get("wait");
+          if (wait !== null && (!/^(?:[0-9]|[1-5][0-9]|60)$/.test(wait))) throw failure(400, "wait must be an integer from 0 to 60");
+          const messages = mailbox.messages(identity);
+          if (messages.length || !Number(wait)) reply(200, { messages });
+          else { longPoll(identity, response, Number(wait)); status = 200; }
+        }
         return;
       }
       if (method === "POST" && (route === "/v1/messages" || ackMatch)) {
@@ -153,6 +276,7 @@ export function createServer(options = {}) {
     },
     close() {
       clearInterval(pruneTimer);
+      for (const active of connections.values()) for (const finish of active) finish();
       server.closeIdleConnections();
       return new Promise((resolve, reject) => server.close((error) => error && error.code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve()));
     },
