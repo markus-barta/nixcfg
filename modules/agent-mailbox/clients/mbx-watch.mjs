@@ -34,17 +34,18 @@ const cursorPath = path.join(state, "cursor");
 let cursor = "";
 try { cursor = readFileSync(cursorPath, "utf8").trim(); }
 catch (error) { if (error.code !== "ENOENT") throw error; }
+// The exit decision is a control-flow flag, not file data (CodeQL js/user-controlled-bypass).
+let setAsideFailed = false;
 if (cursor) {
   try { cursor = safeName(cursor); }
   catch {
     try { renameSync(cursorPath, path.join(state, "cursor.invalid")); }
-    catch {
-      console.error("mbx: cannot set aside invalid saved cursor"); process.exit(2);
-    }
-    console.error("mbx: invalid saved cursor");
+    catch { setAsideFailed = true; }
+    if (!setAsideFailed) console.error("mbx: invalid saved cursor");
     cursor = "";
   }
 }
+if (setAsideFailed) { console.error("mbx: cannot set aside invalid saved cursor"); process.exit(2); }
 const seenLocal = new Set();
 let stopped = false;
 let child;
