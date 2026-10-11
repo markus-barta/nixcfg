@@ -17,6 +17,7 @@ import base64
 import contextlib
 import datetime as dt
 import fcntl
+import grp
 import http.client
 import ipaddress
 import json
@@ -494,13 +495,15 @@ def now_utc():
     return dt.datetime.now(dt.timezone.utc)
 
 
-def atomic_write(path, text, mode=0o600):
+def atomic_write(path, text, mode=0o600, group=None):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as handle:
             handle.write(text)
         os.chmod(tmp, mode)
+        if group is not None:
+            os.chown(tmp, -1, grp.getgrnam(group).gr_gid)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -513,12 +516,13 @@ _busy_file_errors = {}
 def write_busy_file(cfg, data):
     path = Path(cfg.get("busyFile", "/Users/Shared/ci-pool-busy"))
     try:
-        atomic_write(path, f"{len(data['slots'])}/{cfg['slots']} {int(time.time())}\n", mode=0o644)
+        atomic_write(path, f"{len(data['slots'])}/{cfg['slots']} {int(time.time())}\n",
+                     mode=0o640, group=cfg.get("busyFileGroup", "staff"))
         _busy_file_errors.pop(path, None)
-    except OSError as err:
+    except (OSError, KeyError) as err:
         message = f"busy file write failed: {err}"
         # Failed renames name a fresh random temp file on every attempt.
-        error = (err.errno, err.strerror or str(err))
+        error = (err.errno, err.strerror or str(err)) if isinstance(err, OSError) else str(err)
         if _busy_file_errors.get(path) == error:
             return
         _busy_file_errors[path] = error
@@ -1478,7 +1482,7 @@ def cmd_pf_install(cfg, args):
         raise BuilderError("run with sudo: sudo aeon-builder pf-install")
     anchor = Path("/etc/pf.anchors/at.inspr.aeon-builder")
     anchor.write_text(pf_rules(cfg, args.user))
-    anchor.chmod(0o644)
+    anchor.chmod(0o600)
     plist = Path("/Library/LaunchDaemons/at.inspr.aeon-builder-pf.plist")
     load = f"/sbin/pfctl -E; /sbin/pfctl -a com.apple/aeon-builder -f {anchor}"
     plist.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -1489,7 +1493,7 @@ def cmd_pf_install(cfg, args):
   <key>RunAtLoad</key><true/>
 </dict></plist>
 """)
-    plist.chmod(0o644)
+    plist.chmod(0o600)
     subprocess.run(["/bin/launchctl", "bootout", "system", str(plist)], capture_output=True)
     subprocess.run(["/bin/launchctl", "bootstrap", "system", str(plist)], check=True)
     time.sleep(1)

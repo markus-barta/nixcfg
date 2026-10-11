@@ -65,6 +65,7 @@ let
       memFreeLow
       memFreeHigh
       busyFile
+      busyFileGroup
       sshPortBase
       labGuardUsers
       probeTargets
@@ -225,7 +226,12 @@ in
     busyFile = lib.mkOption {
       type = lib.types.str;
       default = "/Users/Shared/ci-pool-busy";
-      description = "Atomically updated busy-slot count and Unix timestamp in every pool mode.";
+      description = "Atomically updated busy-slot count and Unix timestamp in every pool mode, with mode 0640 and group busyFileGroup.";
+    };
+    busyFileGroup = lib.mkOption {
+      type = lib.types.str;
+      default = "staff";
+      description = "Group allowed to read the busy file; assigned before atomic publication. Group lookup or ownership failures skip the write.";
     };
     busyFileRefresh = lib.mkOption {
       type = lib.types.bool;
