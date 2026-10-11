@@ -18,3 +18,4 @@
 {"msg":"request","method":"GET","path":"GET /api/tasks","status":200}
 {"msg":"request","method":"GET","path":"GET /api/tasks","status":200}
 {"msg":"request","method":"GET","path":"GET /api/nodes","status":200}
+{"msg":"request","method":"GET","path":"GET /api/tasks","status":200}

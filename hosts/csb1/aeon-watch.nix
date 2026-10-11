@@ -6,6 +6,7 @@
   ...
 }:
 let
+  watchIntervalSeconds = 30;
   fleetLib = import ../../modules/shared/fleet-alerts/lib.nix { inherit pkgs lib; };
   poller = fleetLib.mkPoller {
     name = "aeon-watch";
@@ -13,14 +14,15 @@ let
     substitutions = {
       DOCKER_BIN = "${pkgs.docker}/bin/docker";
       PROBE_TENANT = config.aeonWatch.probeTenant;
+      WATCH_INTERVAL_SECONDS = toString watchIntervalSeconds;
     };
   };
 in
 {
   options.aeonWatch.probeTenant = lib.mkOption {
     type = lib.types.strMatching "[0-9a-f]{32}";
-    default = "5d32191b252c4ef4a406788316a5ccb7";
-    description = "Non-secret tenant UUID without dashes for fake aeon auth-path probes.";
+    default = "0000a0e7000040008000000000000307";
+    description = "Nonexistent probe tenant UUID without dashes; use an empty tenant, never a production tenant.";
   };
 
   config = {
@@ -43,7 +45,8 @@ in
         DynamicUser = true;
         # Existing host-side Docker access pattern. The Traefik socket proxy is
         # on an internal container network with no host listener. Docker group
-        # access still grants daemon control; the poller only runs ps and logs.
+        # access still grants daemon control; the poller reads ps, logs and only
+        # the StartedAt field via container inspect -f (never the environment).
         SupplementaryGroups = [ "docker" ];
         # Copy the existing target for this user, without granting root group
         # access or inheriting the entire notification environment.
@@ -74,8 +77,8 @@ in
       description = "Recurring aeon API witness (OPS-307)";
       wantedBy = [ "timers.target" ];
       timerConfig = {
-        OnBootSec = "30s";
-        OnUnitActiveSec = "30s";
+        OnBootSec = "120s";
+        OnUnitActiveSec = "${toString watchIntervalSeconds}s";
         AccuracySec = "1s";
         Unit = "aeon-watch.service";
       };

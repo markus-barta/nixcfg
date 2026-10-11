@@ -1499,21 +1499,66 @@ OPS-185) with a comment and a pinned test; the baseline on 2026-08-21 was empty.
 
 ### Aeon API Watch (aeon-watch, OPS-307)
 
-`aeon-watch.timer` checks every 30 seconds. It pages after two consecutive bad
-checks and clears after two clean checks: at least 5 API 5xx in the last 60
-seconds, at least 20 total API requests and at least a 10% error rate (excluding
-`POST /api/github/webhook`), a stopped container or unreadable logs, or any of
-three public `/api/health` probes failing HTTP 200 with `db = "ok"` or three
-`/api/me` probes with fresh fake tenant-prefixed keys failing the expected 401.
+`aeon-watch.timer` checks every 30 seconds, starting 120 seconds after boot.
+Each run reads exactly `docker logs --since 30s aeon`, using the same interval
+constant as the timer. Matching windows avoids counting one short burst in two
+checks. It pages after two consecutive bad checks and clears after two clean
+checks: at least 3 API 5xx in a 30-second window, at least 10 total API requests
+and at least a 10% error rate. These thresholds apply to each window separately.
+Exclude `POST /api/github/webhook`, `GET /api/health` (all statuses), and
+`GET /api/me` with status 401 from both counts so probes cannot supply the floor
+or dilute the rate. A stopped container or unreadable logs also counts as a
+problem, as does any of three public `/api/health` probes failing HTTP 200 with
+`db = "ok"` or three `/api/me` probes failing the expected 401.
+
+While the running container is less than 120 seconds old, skip both traffic
+checks and public probes without problems. Age comes from the single field
+`docker container inspect -f '{{.State.StartedAt}}' aeon`; never inspect its
+environment. This grace covers container restarts/deploys as well as reboots;
+it does not suppress a stopped-container outage. Longer maintenance still
+requires stopping the timer.
+
+The watcher's requests guarantee regular request lines. If the container is
+running but no request line parses for 10 consecutive minutes, report
+`aeon-watch: no parsable request lines for 10 min (log format changed?)`, subject
+to the same two-run confirmation. Persist the last-seen timestamp in
+`/var/lib/aeon-watch/request-log.json`, separate from the engine's `state.json`.
+Probe and webhook lines still count for parser liveness. A new container resets
+the observation period; stopped time does not count toward blindness. Decode
+Docker output as UTF-8 with replacement so isolated invalid bytes do not blind
+the entire window.
+
+Fake keys use the fixed, deliberately nonexistent tenant
+`0000a0e7-0000-4000-8000-000000000307` (32 hex digits without dashes in the key),
+plus fresh random prefix and secret suffixes. `aeonWatch.probeTenant` remains
+overridable, but must identify an empty/nonexistent tenant, never the real
+production tenant. The shape passes tenant-prefix parsing and enters the DB
+authentication transaction. **Before deployment, OPS must verify the tenant is
+absent and a live fake-key `/api/me` request returns 401; that live evidence is
+not supplied by these local tests.** HTTP 200 instead reports
+`fake key ACCEPTED — auth bypass?`.
 The probes use fresh connections through Cloudflare and Traefik with
 `User-Agent: aeon-watch/1 (OPS-307)`; health alone missed the poisoned
 keep-alive/authentication outage. A 403 body containing `error code: 10`
 reports `blocked by Cloudflare (403 10xx)` and remains a problem because the
 probe cannot observe the API. Delivery reuses
 `csb1-watchtower-env` via systemd credentials. The dynamic user has the existing
-Docker group access for `ps` and `logs`; this grants daemon control, and the
-Traefik socket proxy has no host listener. Alerts/state contain route patterns
-and counts, never raw logs, response bodies or fake headers. To silence during
+Docker group access for `ps`, `logs`, and the single `StartedAt` field; this
+grants daemon control, and the Traefik socket proxy has no host listener. OPS
+should check the live log driver before deployment: with `journald`, consider a
+follow-up using the narrower journal group; with `json-file`, verify rotation
+and time the 30-second log read well under its 5-second timeout. Docker access
+remains unchanged here. Alerts/state contain route patterns and counts, never
+raw logs, response bodies or fake headers. Unexpected Python exceptions print
+only their type and exit 2, failing the service visibly (`SuccessExitStatus`
+accepts only 0/1). Alerts begin `🔴 aeon-watch (csb1):`, recovery messages begin
+`🟢 aeon-watch (csb1) recovered:`, and both include the first action below:
+
+```bash
+ssh csb1 'docker logs --since 5m aeon | grep "\"status\":5"' # runbook OPS-307
+```
+
+To silence during
 maintenance: `sudo systemctl stop aeon-watch.timer` (an in-flight check can finish);
 resume with `sudo systemctl start aeon-watch.timer`. Declarative removal is via
 the `./aeon-watch.nix` import in this host's configuration.
