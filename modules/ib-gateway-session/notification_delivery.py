@@ -60,7 +60,7 @@ def unavailable(channel: str) -> Sender:
     return send
 
 
-def email_sender(config: dict, docker_bin: str) -> Sender:
+def email_sender(config: dict, docker_bin: str, *, subject: str | None = None) -> Sender:
     sender, recipient = config.get("from"), config.get("to")
     if not all(isinstance(value, str) and ADDRESS.fullmatch(value) for value in (sender, recipient)):
         raise ValueError("email destination invalid")
@@ -74,8 +74,8 @@ def email_sender(config: dict, docker_bin: str) -> Sender:
         message = EmailMessage(policy=SMTP)
         message["From"] = sender
         message["To"] = recipient
-        subject = "Paper Gateway recovery" if "Paper Gateway recovered" in text else "Paper Gateway needs attention"
-        message["Subject"] = ("[TEST] " if text.startswith("CONTROLLED TEST") else "") + subject
+        mail_subject = subject or ("Paper Gateway recovery" if "Paper Gateway recovered" in text else "Paper Gateway needs attention")
+        message["Subject"] = ("[TEST] " if text.startswith("CONTROLLED TEST") else "") + mail_subject
         message["Message-ID"] = f"<hostd59-{identifier}@{sender.rsplit('@', 1)[1]}>"
         message["X-INSPR-Event-ID"] = identifier
         message.set_content(text)

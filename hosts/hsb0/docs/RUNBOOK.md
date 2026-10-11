@@ -351,6 +351,23 @@ nixos-rebuild switch --flake .#hsb8 --target-host hsb8 --use-remote-sudo
 
 ## Maintenance
 
+### LG beamer Developer Mode (OPS-309)
+
+`lg-devmode-renew` renews the webOS Developer Mode session daily with up to one
+hour of jitter and catches up after downtime; the beamer can be off. It retries
+three times after 1, 5 and 15 minutes, logs HTTP/LG status and validated remaining
+time, and keeps the last success and failed calendar-day streak in
+`/var/lib/lg-devmode-renew/state.json`. Run manually with
+`sudo systemctl start lg-devmode-renew`; inspect `journalctl -u lg-devmode-renew`.
+Two consecutive failed days send one notice per streak through the existing
+encrypted Gateway email destination and managed mail relay, followed by one
+recovery notice; failed delivery retries on later runs. hsb0 has no declared
+shoutrrr notification env, so Telegram is unavailable until an existing target is
+configured. Replace the token using `just edit-secret secrets/hsb0-lg-devmode-token.age`
+(agenix), preserving one line `LG_DEVMODE_TOKEN=<64 hex characters>`; apply it in
+the normal approved hsb0 deployment. Developer Mode reinstallation changes the
+token. Never send it by message, print it, or put it in a command argument.
+
 ### Clean Up Disk Space
 
 ```bash
