@@ -2,6 +2,10 @@
 # OPS-308: evaluate the Aeon transport binding and its mounted file-provider config.
 # Pure evaluation only; no NixOS build, Docker, or host access.
 set -euo pipefail
+if [ "${BASH_VERSINFO[0]}" -lt 5 ]; then
+  printf '%s: bash 5 is required\n' "${0##*/}" >&2
+  exit 2
+fi
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
