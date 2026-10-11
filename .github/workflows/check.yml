@@ -374,6 +374,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify LG Developer Mode renewal (OPS-309)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 --run "bash tests/T98-lg-devmode-renew.sh"
+
       - name: Verify hsb0 agent mailbox (OPS-272)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T94-agent-mailbox.sh"
@@ -530,6 +534,13 @@ jobs:
         # mutable in flake.lock, so newer Nix versions fail if eval tries to
         # refresh the lock file.
         run: nix eval --no-update-lock-file .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel.drvPath
+
+      - name: Verify LG renewal in the full hsb0 configuration (OPS-309)
+        if: matrix.host == 'hsb0'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0.config \
+            --apply 'config: import ./tests/lg-devmode-renew-eval.nix { inherit config; }' \
+            | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-309 full hsb0 evaluation: OK")'
 
   # ============================================================================
   # NIX-373 — a single stable required check for the whole eval matrix
