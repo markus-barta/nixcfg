@@ -14,6 +14,7 @@
 
 let
   cfg = config.services.aeonBuilder;
+  stateDir = "${config.home.homeDirectory}/.local/state/aeon-builder";
 
   templates = "${cfg.limaPackage}/share/lima/templates";
 
@@ -224,7 +225,12 @@ in
     busyFile = lib.mkOption {
       type = lib.types.str;
       default = "/Users/Shared/ci-pool-busy";
-      description = "Atomically updated busy-slot count and Unix timestamp, with an off marker when off or paused.";
+      description = "Atomically updated busy-slot count and Unix timestamp in every pool mode.";
+    };
+    busyFileRefresh = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Refresh the busy file every 60 seconds through launchd, including while the controller is off or paused.";
     };
     sshPortBase = lib.mkOption {
       type = lib.types.port;
@@ -315,5 +321,25 @@ in
       aeonBuilder
       cfg.limaPackage
     ];
+    home.activation.aeonBuilderBusyState = lib.mkIf cfg.busyFileRefresh (
+      lib.hm.dag.entryBefore [ "setupLaunchAgents" ] ''
+        run ${pkgs.coreutils}/bin/mkdir -p -m 700 ${lib.escapeShellArg stateDir}
+      ''
+    );
+    launchd.agents = lib.mkIf cfg.busyFileRefresh {
+      aeon-builder-busy = {
+        enable = true;
+        config = {
+          ProgramArguments = [
+            "${aeonBuilder}/bin/aeon-builder"
+            "busy-file"
+          ];
+          StartInterval = 60;
+          RunAtLoad = true;
+          StandardOutPath = "${stateDir}/busy-file.out";
+          StandardErrorPath = "${stateDir}/busy-file.err";
+        };
+      };
+    };
   };
 }

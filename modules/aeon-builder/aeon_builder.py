@@ -507,13 +507,15 @@ def atomic_write(path, text, mode=0o600):
 
 
 def write_busy_file(cfg, data):
-    off = data.get("mode") in ("off", "paused")
-    busy = 0 if off else len(data["slots"])
     try:
         atomic_write(Path(cfg.get("busyFile", "/Users/Shared/ci-pool-busy")),
-                     f"{busy}/{cfg['slots']} {int(time.time())}{' off' if off else ''}\n", mode=0o644)
+                     f"{len(data['slots'])}/{cfg['slots']} {int(time.time())}\n", mode=0o644)
     except OSError as err:
-        log(f"busy file write failed: {err}")
+        message = f"busy file write failed: {err}"
+        try:
+            log(message)
+        except OSError:
+            print(message, file=sys.stderr)
 
 
 class State:
@@ -906,7 +908,7 @@ class Controller:
                 return
             now = time.time()
             last = data.get("lastClaimAt")
-            if last is not None and now - last < self.cfg["claimSpacingSeconds"]:
+            if last is not None and 0 <= now - last < self.cfg["claimSpacingSeconds"]:
                 return
             for slot in range(self.cfg["slots"]):
                 if str(slot) not in data["slots"]:
@@ -1482,10 +1484,16 @@ def cmd_controller(cfg, args):
     Controller(cfg).run_forever()
 
 
+def cmd_busy_file(cfg, args):
+    # Atomic state saves allow a read-only snapshot without the writer lock.
+    write_busy_file(cfg, State().load())
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="aeon-builder", description="mbp2606 runner pool for inspr-at/paimos (NIX-600)")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True,
+                               metavar="{on,off,status,rebuild-base,pf-rules,pf-install}")
     on = sub.add_parser("on", help="build the base if needed and start serving verified jobs")
     on.add_argument("--resume", action="store_true", help="clear a pause after investigating its alert")
     on.add_argument("--force", action="store_true", help="start even while a lab VM runs")
@@ -1499,6 +1507,7 @@ def main(argv=None):
     pfi = sub.add_parser("pf-install", help="install the pf anchor and its boot loader (sudo)")
     pfi.add_argument("--user", default="ci")
     sub.add_parser("controller", help=argparse.SUPPRESS)
+    sub.add_parser("busy-file")
     args = parser.parse_args(argv)
     cfg = load_config(args.config)
     try:
@@ -1506,7 +1515,8 @@ def main(argv=None):
             prepare_base(cfg, Lima(cfg), force=True)
         else:
             code = {"on": cmd_on, "off": cmd_off, "status": cmd_status, "pf-rules": cmd_pf_rules,
-                    "pf-install": cmd_pf_install, "controller": cmd_controller}[args.command](cfg, args)
+                    "pf-install": cmd_pf_install, "controller": cmd_controller,
+                    "busy-file": cmd_busy_file}[args.command](cfg, args)
             return code or 0
     except BuilderError as err:
         print(f"aeon-builder: {err}", file=sys.stderr)

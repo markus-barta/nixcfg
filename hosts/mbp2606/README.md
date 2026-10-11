@@ -88,15 +88,19 @@ macOS reports less than 35% free memory, releasing at 45% or more (`memFreeLow`
 / `memFreeHigh`). Both gates must clear before claims resume. An unreadable
 `memory_pressure` disables the memory gate and logs once. The controller claims
 at most one slot per tick, at least 180 seconds apart (`claimSpacingSeconds`);
-the last claim time survives restarts. While gated, admitted jobs stay queued,
-running jobs and VMs continue, network proofs are skipped, and availability
+the last claim time survives restarts. A backwards wall-clock jump allows the
+next claim immediately and starts a new spacing interval. While gated, admitted
+jobs stay queued, running jobs and VMs continue, network proofs are skipped, and availability
 advertises zero idle runners (`busy=true`) so CI routes new work to hosted
 runners. `aeon-builder status` shows both gates, their last samples, the combined
 reason, and seconds since the last claim; each gate transition is logged once.
 On every publish and mode change, the controller atomically writes
-`N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode
-0644), or `0/4 <unix-epoch> off` when off or paused. Write failures are logged
-and do not stop the controller.
+`N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode 0644) in every mode, counting slots still occupied while off or paused. The
+`aeon-builder-busy` launchd agent runs the hidden `aeon-builder busy-file` command
+every 60 seconds and at load, keeping the timestamp fresh without a controller.
+Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the
+controller logs in `~/.local/state/aeon-builder`. Write failures are logged and
+do not stop the controller or fail the refresh command.
 
 The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
 main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
