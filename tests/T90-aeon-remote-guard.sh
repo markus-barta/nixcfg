@@ -98,6 +98,34 @@ check 0 5 'stale block and threshold ignored'
 check 3 13 'stale policy uses default maximum' 'exceeds maxload 12'
 policy "block=1 maxload=1 level=RED epoch=$((now + 3600))"
 check 0 5 'future policy ignored'
+# Freeze the clock for exact skew boundaries and inject clock failures without
+# changing the production guard. Only these checks put the date stub on PATH.
+mkdir "$scratch/clock-bin"
+cat >"$scratch/clock-bin/date" <<'SH'
+#!/usr/bin/env bash
+case "$AEON_REMOTE_GUARD_TEST_CLOCK" in
+fail) exit 1 ;;
+invalid) printf 'unavailable\n' ;;
+*) printf '%s\n' "$AEON_REMOTE_GUARD_TEST_CLOCK" ;;
+esac
+SH
+chmod +x "$scratch/clock-bin/date"
+policy "block=1 maxload=20 level=RED epoch=$((now + 60))"
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 3 0 '60-second future skew accepted' 'fresh policy block=1'
+policy "block=0 maxload=20 level=GREEN epoch=$((now + 60))"
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 0 15 '60-second future threshold accepted'
+policy "block=1 maxload=1 level=RED epoch=$((now + 61))"
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 0 5 '61-second future block and threshold ignored'
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 3 13 '61-second future policy uses default maximum' 'exceeds maxload 12'
+policy "block=0 maxload=50 level=GREEN epoch=$now"
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK=fail \
+  check 3 0 'failed policy clock' 'cannot read policy clock'
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK=invalid \
+  check 3 0 'invalid policy clock' 'cannot read policy clock'
 policy "block=0 maxload=20.5 level=YELLOW epoch=$now"
 check 0 15 'fresh policy raises maximum'
 check 0 20.5 'fresh threshold equality'
@@ -127,6 +155,16 @@ for bad in \
   check 0 1 'malformed policy falls back silently'
   check 3 13 'malformed policy refusal' 'malformed policy ignored'
 done
+new_home
+policy "block=1 maxload=1 level=RED epoch=$now"
+chmod 000 "$guard_home/.aeon-remote-policy"
+if ((EUID == 0)); then
+  printf 'T90 skip: unreadable policy checks (running as root)\n'
+else
+  check 0 5 'unreadable policy block and threshold ignored'
+  check 3 13 'unreadable policy uses default maximum' 'malformed policy ignored'
+fi
+chmod 600 "$guard_home/.aeon-remote-policy"
 new_home
 mkdir "$guard_home/.aeon-remote-policy"
 check 3 13 'non-file policy' 'malformed policy ignored'
@@ -169,17 +207,38 @@ HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=1 git -C "$scratch/work" push \
   "$guard_home/aeon-remote.git" "refs/heads/main:$ref" >"$scratch/push-output" 2>&1 || fail 'allowed push rejected'
 [[ $(git --git-dir="$guard_home/aeon-remote.git" rev-parse "$ref") == "$commit" ]] || fail 'allowed push did not update ref'
 
+# A mixed deletion/update must still be refused, preserving both refs.
+if HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=15 git -C "$scratch/work" push \
+  "$guard_home/aeon-remote.git" ":$ref" 'refs/heads/main:refs/runs/new' \
+  >"$scratch/push-output" 2>&1; then
+  fail 'busy mixed deletion/update push was accepted'
+fi
+grep -q '^remote: remote busy' "$scratch/push-output" || fail 'mixed push did not relay guard refusal'
+[[ $(git --git-dir="$guard_home/aeon-remote.git" rev-parse "$ref") == "$commit" ]] || fail 'mixed push deleted the ref'
+if git --git-dir="$guard_home/aeon-remote.git" show-ref --verify --quiet refs/runs/new; then
+  fail 'mixed push created a ref'
+fi
+HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=15 git -C "$scratch/work" push \
+  "$guard_home/aeon-remote.git" ":$ref" >"$scratch/push-output" 2>&1 || fail 'busy deletion push rejected'
+if git --git-dir="$guard_home/aeon-remote.git" show-ref --verify --quiet "$ref"; then
+  fail 'busy deletion push did not delete ref'
+fi
+
 # Stdin must be drained even on refusal, including more than one ref line.
 set +e
 for ((i = 0; i < 5000; i++)); do
-  printf 'old new refs/runs/%s\n' "$i"
+  if ((i == 4999)); then
+    printf 'old new refs/runs/%s\n' "$i"
+  else
+    printf 'old 0000000000000000000000000000000000000000 refs/runs/%s\n' "$i"
+  fi
 done |
   HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=15 "$scratch/pre-receive" \
     >"$scratch/stdout" 2>"$scratch/stderr"
 pipe_status=("${PIPESTATUS[@]}")
 set -e
 [[ ${pipe_status[0]} == 0 && ${pipe_status[1]} == 3 ]] || fail "hook did not drain stdin or exit 3: ${pipe_status[*]}"
-printf 'T90 runtime ok: %s guard cases; busy/allowed local pushes through executable symlink; hook exit 3\n' "$count"
+printf 'T90 runtime ok: %s guard cases; busy/allowed/mixed/deletion local pushes through executable symlink; 5000 stdin lines drained; hook exit 3\n' "$count"
 
 if $runtime_only; then
   printf 'T90 Nix host eval not run (--runtime-only)\n'

@@ -15,6 +15,7 @@ let
       pkgs.gawk
     ];
     text = ''
+      unset AEON_REMOTE_GUARD_LOAD
       readonly guard_hold_file=${lib.escapeShellArg cfg.holdFile}
       readonly guard_policy_file=${lib.escapeShellArg cfg.policyFile}
       readonly guard_default_max_load=${lib.escapeShellArg (toString cfg.defaultMaxLoad)}
@@ -32,17 +33,17 @@ in
   options.services.aeonRemoteGuard = {
     enable = lib.mkEnableOption "host-side admission for remote-test pushes on macOS";
     repo = lib.mkOption {
-      type = lib.types.str;
+      type = lib.types.nonEmptyStr;
       default = "${home}/aeon-remote.git";
       description = "Existing bare repository under the managed home; only its pre-receive hook is managed.";
     };
     holdFile = lib.mkOption {
-      type = lib.types.str;
+      type = lib.types.nonEmptyStr;
       default = "${home}/.hold-mbp2606";
       description = "Refuse remote runs while this path exists.";
     };
     policyFile = lib.mkOption {
-      type = lib.types.str;
+      type = lib.types.nonEmptyStr;
       default = "${home}/.aeon-remote-policy";
       description = "OPS watch policy: block=<0|1> maxload=<number> level=<GREEN|YELLOW|RED> epoch=<unix>.";
     };
@@ -67,6 +68,18 @@ in
       {
         assertion = cfg.defaultMaxLoad >= 0;
         message = "services.aeonRemoteGuard.defaultMaxLoad must be nonnegative.";
+      }
+      {
+        assertion = lib.hasPrefix "/" cfg.repo;
+        message = "services.aeonRemoteGuard.repo must be an absolute path.";
+      }
+      {
+        assertion = lib.hasPrefix "/" cfg.holdFile;
+        message = "services.aeonRemoteGuard.holdFile must be an absolute path.";
+      }
+      {
+        assertion = lib.hasPrefix "/" cfg.policyFile;
+        message = "services.aeonRemoteGuard.policyFile must be an absolute path.";
       }
       {
         assertion = lib.hasPrefix "${home}/" cfg.repo;
