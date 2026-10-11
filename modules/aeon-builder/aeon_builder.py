@@ -496,22 +496,32 @@ def now_utc():
 
 def atomic_write(path, text, mode=0o600):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, tmp = tempfile.mkstemp(dir=path.parent)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as handle:
             handle.write(text)
         os.chmod(tmp, mode)
         os.replace(tmp, path)
-    finally:
+    except BaseException:
         Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+_busy_file_errors = {}
 
 
 def write_busy_file(cfg, data):
+    path = Path(cfg.get("busyFile", "/Users/Shared/ci-pool-busy"))
     try:
-        atomic_write(Path(cfg.get("busyFile", "/Users/Shared/ci-pool-busy")),
-                     f"{len(data['slots'])}/{cfg['slots']} {int(time.time())}\n", mode=0o644)
+        atomic_write(path, f"{len(data['slots'])}/{cfg['slots']} {int(time.time())}\n", mode=0o644)
+        _busy_file_errors.pop(path, None)
     except OSError as err:
         message = f"busy file write failed: {err}"
+        # Failed renames name a fresh random temp file on every attempt.
+        error = (err.errno, err.strerror or str(err))
+        if _busy_file_errors.get(path) == error:
+            return
+        _busy_file_errors[path] = error
         try:
             log(message)
         except OSError:
@@ -668,20 +678,27 @@ class Controller:
         return self.mode() in ("on", "draining")
 
     def sample_host(self):
-        """Serialize tick/publisher samples, transitions and CLI status."""
+        """Sample outside the state lock; serialize hysteresis and transitions."""
+        load1 = self.getloadavg()[0]
+        memory_error = None
+        try:
+            free = self.getmemoryfree()
+        except (OSError, subprocess.SubprocessError, ValueError) as err:
+            free = None
+            memory_error = err
+
         def sample(data):
-            load1 = self.getloadavg()[0]
             high, low = self.cfg["loadHigh"], self.cfg["loadLow"]
             self.load_gated = load_gate(data.get("loadGated", False), load1, high, low)
-            try:
-                free = self.getmemoryfree()
-            except (OSError, subprocess.SubprocessError, ValueError) as err:
-                free = None
-                if not self.memory_warning_logged:
-                    log(f"memory_pressure unreadable; memory gate disabled: {err}")
-                    self.memory_warning_logged = True
-            self.mem_gated = memory_gate(data.get("memGated", False), free,
-                                         self.cfg["memFreeHigh"], self.cfg["memFreeLow"])
+            readable = free is not None or data.get("memSampled", data.get("memFreePercent") is not None)
+            if free is None and readable:
+                self.mem_gated = data.get("memGated", False)
+            else:
+                self.mem_gated = memory_gate(data.get("memGated", False), free,
+                                             self.cfg["memFreeHigh"], self.cfg["memFreeLow"])
+            if free is None and not readable and not self.memory_warning_logged:
+                log(f"memory_pressure unreadable; memory gate disabled: {memory_error}")
+                self.memory_warning_logged = True
             reason = "+".join(name for name, gated in (("load", self.load_gated), ("memory", self.mem_gated)) if gated)
             previous = data.get("hostGateReason", "load" if data.get("loadGated") else "")
             if reason != previous:
@@ -689,7 +706,7 @@ class Controller:
                 detail = f"1-min load {load1}, memory free {memory}"
                 log(f"host gate ON ({reason}): {detail}; not taking new jobs" if reason else f"host gate OFF: {detail}")
             self.host_gated = bool(reason)
-            data.update(loadGated=self.load_gated, load1=load1, memGated=self.mem_gated, memFreePercent=free,
+            data.update(loadGated=self.load_gated, load1=load1, memGated=self.mem_gated, memFreePercent=free, memSampled=readable,
                         hostGated=self.host_gated, hostGateReason=reason)
         return self.state.update(sample)
 
@@ -733,7 +750,7 @@ class Controller:
                 if job.get("status") == "queued" and wants_label(job, self.cfg["label"]):
                     candidates.append((run, job))
         pending = 0
-        claimed = 0
+        attempted = False
         for run, job in candidates:
             data = self.state.load()
             if not self.minting_allowed():
@@ -763,14 +780,14 @@ class Controller:
                     log(f"cancel {run['id']} failed: {err}")
                 self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
                 continue
-            if claimed >= 1:
+            if attempted:
                 pending += 1
                 continue
+            attempted = True
             slot = self.claim_slot(job, run)
             if slot is None:
                 pending += 1
                 continue
-            claimed += 1
             thread = threading.Thread(target=self.serve, args=(slot, run, job), daemon=True)
             self.workers[job["id"]] = thread
             thread.start()

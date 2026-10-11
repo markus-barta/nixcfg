@@ -85,8 +85,10 @@ host RAM for remote-test.
 The host gate stops taking new jobs above a 1-minute load of 12.0 and resumes
 only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). It also gates when
 macOS reports less than 35% free memory, releasing at 45% or more (`memFreeLow`
-/ `memFreeHigh`). Both gates must clear before claims resume. An unreadable
-`memory_pressure` disables the memory gate and logs once. The controller claims
+/ `memFreeHigh`). Both gates must clear before claims resume. If `memory_pressure`
+has never been readable, the memory gate is disabled and logs once. After a
+successful reading, transient failures retain the previous memory gate state,
+including across controller restarts. The controller claims
 at most one slot per tick, at least 180 seconds apart (`claimSpacingSeconds`);
 the last claim time survives restarts. A backwards wall-clock jump allows the
 next claim immediately and starts a new spacing interval. While gated, admitted
@@ -94,6 +96,11 @@ jobs stay queued, running jobs and VMs continue, network proofs are skipped, and
 advertises zero idle runners (`busy=true`) so CI routes new work to hosted
 runners. `aeon-builder status` shows both gates, their last samples, the combined
 reason, and seconds since the last claim; each gate transition is logged once.
+Spacing also applies while draining: `aeon-builder off` with a backlog can take
+queued jobs × 180 seconds, plus job runtime and any time held by host gates.
+The default `--wait 30` waits 30 minutes and returns 2 if still draining. Use
+`aeon-builder off --now` when the machine is needed back; it cancels queued and
+running mbp2606 runs and stops the pool.
 On every publish and mode change, the controller atomically writes
 `N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode 0644) in every mode, counting slots still occupied while off or paused. The
 `aeon-builder-busy` launchd agent runs the hidden `aeon-builder busy-file` command
