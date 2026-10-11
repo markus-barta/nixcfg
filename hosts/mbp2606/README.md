@@ -82,14 +82,21 @@ respectively. Only pushes write the persistent cache; other events use a
 disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
 host RAM for remote-test.
 
-The host load gate stops taking new jobs above a 1-minute load of 12.0 and
-resumes only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). With the
-gate off and sampled load at or above `loadLow`, the controller claims at most
-one new slot per tick; below `loadLow`, it may claim all free slots. While
-gated, admitted jobs stay queued, running jobs and VMs continue, and availability
+The host gate stops taking new jobs above a 1-minute load of 12.0 and resumes
+only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). It also gates when
+macOS reports less than 35% free memory, releasing at 45% or more (`memFreeLow`
+/ `memFreeHigh`). Both gates must clear before claims resume. An unreadable
+`memory_pressure` disables the memory gate and logs once. The controller claims
+at most one slot per tick, at least 180 seconds apart (`claimSpacingSeconds`);
+the last claim time survives restarts. While gated, admitted jobs stay queued,
+running jobs and VMs continue, network proofs are skipped, and availability
 advertises zero idle runners (`busy=true`) so CI routes new work to hosted
-runners. `aeon-builder status` shows the gate and last sampled 1-minute load;
-each transition is logged once.
+runners. `aeon-builder status` shows both gates, their last samples, the combined
+reason, and seconds since the last claim; each gate transition is logged once.
+On every publish and mode change, the controller atomically writes
+`N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode
+0644), or `0/4 <unix-epoch> off` when off or paused. Write failures are logged
+and do not stop the controller.
 
 The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
 main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,

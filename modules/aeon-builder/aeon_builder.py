@@ -168,6 +168,23 @@ def load_gate(gated, load1, high, low):
     return gated
 
 
+def memory_gate(gated, free, high, low):
+    if free is None or free >= high:
+        return False
+    if free < low:
+        return True
+    return gated
+
+
+def get_memory_free():
+    proc = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True,
+                          check=True, timeout=5)
+    match = re.search(r"System-wide memory free percentage:\s*(\d+(?:\.\d+)?)%", proc.stdout)
+    if not match or not 0 <= float(match[1]) <= 100:
+        raise ValueError("memory_pressure free percentage missing or invalid")
+    return float(match[1])
+
+
 def availability_record(cfg, free_slots, now=None):
     now = now or dt.datetime.now(dt.timezone.utc)
     return {
@@ -480,10 +497,23 @@ def now_utc():
 def atomic_write(path, text, mode=0o600):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(dir=path.parent)
-    with os.fdopen(fd, "w") as handle:
-        handle.write(text)
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def write_busy_file(cfg, data):
+    off = data.get("mode") in ("off", "paused")
+    busy = 0 if off else len(data["slots"])
+    try:
+        atomic_write(Path(cfg.get("busyFile", "/Users/Shared/ci-pool-busy")),
+                     f"{busy}/{cfg['slots']} {int(time.time())}{' off' if off else ''}\n", mode=0o644)
+    except OSError as err:
+        log(f"busy file write failed: {err}")
 
 
 class State:
@@ -598,13 +628,20 @@ def prove_network_block(cfg, lima, vm="aeon-probe"):
 
 
 class Controller:
-    def __init__(self, cfg, gh=None, lima=None, state=None, getloadavg=os.getloadavg):
-        self.cfg = {**cfg, "loadHigh": float(cfg["loadHigh"]), "loadLow": float(cfg["loadLow"])}
+    def __init__(self, cfg, gh=None, lima=None, state=None, getloadavg=os.getloadavg,
+                 getmemoryfree=get_memory_free):
+        self.cfg = {**cfg, "loadHigh": float(cfg["loadHigh"]), "loadLow": float(cfg["loadLow"]),
+                    "memFreeHigh": float(cfg.get("memFreeHigh", 45)), "memFreeLow": float(cfg.get("memFreeLow", 35)),
+                    "claimSpacingSeconds": cfg.get("claimSpacingSeconds", 180)}
         self.gh = gh or GitHub(cfg)
         self.lima = lima or Lima(cfg)
         self.state = state or State()
         self.getloadavg = getloadavg
+        self.getmemoryfree = getmemoryfree
         self.load_gated = False
+        self.mem_gated = False
+        self.host_gated = False
+        self.memory_warning_logged = False
         self.lock = threading.Lock()
         self.workers = {}
         self.pending = 0
@@ -628,19 +665,30 @@ class Controller:
     def minting_allowed(self):
         return self.mode() in ("on", "draining")
 
-    def sample_load(self):
+    def sample_host(self):
         """Serialize tick/publisher samples, transitions and CLI status."""
         def sample(data):
             load1 = self.getloadavg()[0]
             high, low = self.cfg["loadHigh"], self.cfg["loadLow"]
-            gated = load_gate(self.load_gated, load1, high, low)
-            if gated != self.load_gated:
-                if gated:
-                    log(f"load gate ON: 1-min load {load1} > high {high}; not taking new jobs")
-                else:
-                    log(f"load gate OFF: 1-min load {load1} < low {low}")
-            self.load_gated = gated
-            data.update(loadGated=gated, load1=load1)
+            self.load_gated = load_gate(data.get("loadGated", False), load1, high, low)
+            try:
+                free = self.getmemoryfree()
+            except (OSError, subprocess.SubprocessError, ValueError) as err:
+                free = None
+                if not self.memory_warning_logged:
+                    log(f"memory_pressure unreadable; memory gate disabled: {err}")
+                    self.memory_warning_logged = True
+            self.mem_gated = memory_gate(data.get("memGated", False), free,
+                                         self.cfg["memFreeHigh"], self.cfg["memFreeLow"])
+            reason = "+".join(name for name, gated in (("load", self.load_gated), ("memory", self.mem_gated)) if gated)
+            previous = data.get("hostGateReason", "load" if data.get("loadGated") else "")
+            if reason != previous:
+                memory = f"{free}%" if free is not None else "unknown"
+                detail = f"1-min load {load1}, memory free {memory}"
+                log(f"host gate ON ({reason}): {detail}; not taking new jobs" if reason else f"host gate OFF: {detail}")
+            self.host_gated = bool(reason)
+            data.update(loadGated=self.load_gated, load1=load1, memGated=self.mem_gated, memFreePercent=free,
+                        hostGated=self.host_gated, hostGateReason=reason)
         return self.state.update(sample)
 
     def pause(self, reason):
@@ -648,7 +696,8 @@ class Controller:
         cancel queued mbp2606 runs so nothing waits on a pool that is off."""
         log(f"PAUSE: {reason}")
 
-        def clear(_):
+        def clear(data):
+            write_busy_file(self.cfg, data)
             try:
                 self.gh.clear()
             except BuilderError as err:
@@ -671,7 +720,7 @@ class Controller:
         return not problems
 
     def tick(self):
-        load1 = self.sample_load()["load1"]
+        self.sample_host()
         self.reap_finished_workers()
         mode = self.mode()
         if mode not in ("on", "draining"):
@@ -712,7 +761,7 @@ class Controller:
                     log(f"cancel {run['id']} failed: {err}")
                 self.state.update(lambda d, r=run["id"]: d["cancelledRuns"].append(r))
                 continue
-            if load1 >= self.cfg["loadLow"] and claimed >= 1:
+            if claimed >= 1:
                 pending += 1
                 continue
             slot = self.claim_slot(job, run)
@@ -724,14 +773,15 @@ class Controller:
             self.workers[job["id"]] = thread
             thread.start()
         self.pending = pending
-        if not self.load_gated:
+        if not self.host_gated:
             self.maybe_prove()
         if time.time() - self.last_sweep > 60:
             self.last_sweep = time.time()
             self.sweep_stale_runners()
         data = self.state.load()
         if data.get("mode") == "draining" and not candidates and not data["slots"] and not self.workers:
-            self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "draining" else None)
+            self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "draining" else None,
+                              then=lambda d: write_busy_file(self.cfg, d))
             log("drained; pool is off")
             return "off"
         for key in ("verifiedRuns", "cancelledRuns"):
@@ -745,7 +795,7 @@ class Controller:
         if self.proof and self.proof.is_alive():
             return
         data = self.state.load()
-        if data.get("mode") != "on" or not self.cfg["requireNetworkBlock"] or data["slots"] \
+        if data.get("mode") != "on" or data.get("hostGated") or not self.cfg["requireNetworkBlock"] or data["slots"] \
                 or time.time() - self.last_proof < self.cfg["proofMinutes"] * 60:
             return
         self.last_proof = time.time()
@@ -773,14 +823,15 @@ class Controller:
         """The mode check and the remote write happen under the state lock, the
         same lock pause() and `off` hold while clearing: a publish can never
         land after a clear."""
-        self.sample_load()
-        if self.mode() != "on" or not self.check_ruleset():
+        self.sample_host()
+        if self.mode() == "on" and not self.check_ruleset():
             return False
         published = []
 
         def publish(data):
+            write_busy_file(self.cfg, data)
             if data.get("mode") == "on":
-                free = 0 if self.load_gated else self.free_slots(data, self.pending)
+                free = 0 if data.get("hostGated") else self.free_slots(data, self.pending)
                 self.gh.publish(availability_record(self.cfg, free))
                 published.append(True)
         self.state.update(lambda d: None, then=publish)
@@ -851,7 +902,11 @@ class Controller:
         claimed = []
 
         def claim(data):
-            if data.get("mode") not in ("on", "draining") or self.load_gated:
+            if data.get("mode") not in ("on", "draining") or data.get("hostGated"):
+                return
+            now = time.time()
+            last = data.get("lastClaimAt")
+            if last is not None and now - last < self.cfg["claimSpacingSeconds"]:
                 return
             for slot in range(self.cfg["slots"]):
                 if str(slot) not in data["slots"]:
@@ -859,6 +914,7 @@ class Controller:
                         "jobId": job["id"], "runId": run["id"], "attempt": run.get("run_attempt"), "event": run["event"],
                         "since": now_utc().isoformat(), "phase": "cloning",
                     }
+                    data["lastClaimAt"] = now
                     claimed.append(slot)
                     return
         self.state.update(claim)
@@ -1154,13 +1210,15 @@ class Controller:
                     mode = self.mode()
                 self.reap_finished_workers()
                 if self.terminate_requested:
-                    self.state.update(lambda d: d.update(mode="stopping") if d.get("mode") in ("on", "draining", "paused") else None)
+                    self.state.update(lambda d: d.update(mode="stopping") if d.get("mode") in ("on", "draining", "paused") else None,
+                                      then=lambda d: write_busy_file(self.cfg, d))
                     mode = self.mode()
                 busy = bool(self.workers) or bool(self.proof and self.proof.is_alive())
                 if mode in ("off", "paused") and not busy:
                     break
                 if mode == "stopping" and not busy:
-                    self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "stopping" else None)
+                    self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "stopping" else None,
+                                      then=lambda d: write_busy_file(self.cfg, d))
                     break
                 time.sleep(self.cfg["pollSeconds"])
         finally:
@@ -1169,7 +1227,8 @@ class Controller:
                 self.proof.join(timeout=180)
             self.lima.delete("aeon-probe")
 
-            def clear(_):
+            def clear(data):
+                write_busy_file(self.cfg, data)
                 try:
                     self.gh.clear()
                 except BuilderError as err:
@@ -1275,7 +1334,7 @@ def cmd_on(cfg, args):
         if not ok:
             raise BuilderError(f"network block missing ({detail}); install it: sudo aeon-builder pf-install")
         state.update(lambda d: d.update(networkProof=now_utc().isoformat()))
-    state.update(lambda d: (d.update(mode="on"), d.pop("alert", None)))
+    state.update(lambda d: (d.update(mode="on"), d.pop("alert", None)), then=lambda d: write_busy_file(cfg, d))
     if controller_pid():
         print("aeon-builder: on (controller already running)")
         return
@@ -1302,7 +1361,8 @@ def cmd_off(cfg, args):
         print(f"aeon-builder: warning, GitHub App unusable ({err}); stopping locally only", file=sys.stderr)
         gh = None
 
-    def clear(_):
+    def clear(data):
+        write_busy_file(cfg, data)
         if gh is None:
             return
         try:
@@ -1341,7 +1401,7 @@ def cmd_off(cfg, args):
         print(f"aeon-builder: could not delete {', '.join(stuck)}; the machine is NOT free", file=sys.stderr)
         return 3
     if gh is None:
-        state.update(lambda d: d.update(mode="off"))
+        state.update(lambda d: d.update(mode="off"), then=lambda d: write_busy_file(cfg, d))
         print("aeon-builder: off locally — no job VMs; GitHub cleanup skipped")
         return 0
     try:
@@ -1353,7 +1413,7 @@ def cmd_off(cfg, args):
                     print(f"aeon-builder: runner {runner['name']} not deleted yet ({err})", file=sys.stderr)
     except BuilderError as err:
         print(f"aeon-builder: warning, runner cleanup failed ({err})", file=sys.stderr)
-    state.update(lambda d: d.update(mode="off"))
+    state.update(lambda d: d.update(mode="off"), then=lambda d: write_busy_file(cfg, d))
     print("aeon-builder: off — no job VMs")
     return 0
 
@@ -1371,6 +1431,12 @@ def cmd_status(cfg, args):
     print(f"controller:  {'pid ' + str(pid) if pid else 'not running'}")
     gate = 'ON' if data.get('loadGated') else 'OFF'
     print(f"load gate:   {gate}  1-min load {data.get('load1', 'unknown')} (last sampled; high {cfg['loadHigh']}, low {cfg['loadLow']})")
+    mem_gate = 'ON' if data.get('memGated') else 'OFF'
+    free = data.get('memFreePercent')
+    print(f"memory gate: {mem_gate}  free {str(free) + '%' if free is not None else 'unknown'} (last sampled; low {cfg.get('memFreeLow', 35)}, high {cfg.get('memFreeHigh', 45)})")
+    print(f"host gate:   {'ON (' + data['hostGateReason'] + ')' if data.get('hostGated') else 'OFF'}")
+    last = data.get('lastClaimAt')
+    print(f"last claim:  {str(max(0, int(time.time() - last))) + ' s ago' if last is not None else 'never'}")
     print(f"base VM:     {base}")
     print(f"net block:   last proven {data.get('networkProof', 'never')[:19]}")
     print(f"slots:       {len(data['slots'])}/{cfg['slots']} busy ({cfg['slotCpus']} CPU / {cfg['slotMemoryGiB']} GiB each)")
