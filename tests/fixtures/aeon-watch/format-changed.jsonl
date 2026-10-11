@@ -1,0 +1,4 @@
+{"msg":"http request","route":"/api/health","status_code":200}
+{"msg":"request","method":"GET","route":"/api/me","status":401}
+{"msg":"request","path":"GET /api/me","status":"401"}
+not structured JSON
