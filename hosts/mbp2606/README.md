@@ -102,7 +102,10 @@ The default `--wait 30` waits 30 minutes and returns 2 if still draining. Use
 `aeon-builder off --now` when the machine is needed back; it cancels queued and
 running mbp2606 runs and stops the pool.
 On every publish and mode change, the controller atomically writes
-`N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode 0644) in every mode, counting slots still occupied while off or paused. The
+`N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode 0640,
+group `staff` by default via `busyFileGroup`) in every mode, counting slots still
+occupied while off or paused. Mode and group are set before rename; group lookup
+or ownership failures skip the write. The
 `aeon-builder-busy` launchd agent runs the hidden `aeon-builder busy-file` command
 every 60 seconds and at load, keeping the timestamp fresh without a controller.
 Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the

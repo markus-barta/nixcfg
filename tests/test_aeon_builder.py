@@ -1,6 +1,7 @@
 """NIX-600: mode-B admission, the job-started hook, pf rules and the controller loop."""
 
 import importlib.util
+import grp
 import io
 import json
 import os
@@ -39,6 +40,7 @@ CFG = {
     "memFreeLow": 35,
     "memFreeHigh": 45,
     "busyFile": str(Path(TEST_TMP.name) / "ci-pool-busy"),
+    "busyFileGroup": grp.getgrgid(os.getgid()).gr_name,
     "slotCpus": 4,
     "slotMemoryGiB": 6,
     "slotDiskGiB": 60,
@@ -157,6 +159,7 @@ class HostConfigTests(unittest.TestCase):
           memFreeLow = options.memFreeLow.default;
           memFreeHigh = options.memFreeHigh.default;
           busyFile = options.busyFile.default;
+          busyFileGroup = options.busyFileGroup.default;
         }''' % json.dumps(str(ROOT))
         proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
                               capture_output=True, text=True)
@@ -165,6 +168,7 @@ class HostConfigTests(unittest.TestCase):
         self.assertTrue(cfg.pop("enable"))
         expected = {key: CFG[key] for key in cfg}
         expected["busyFile"] = "/Users/Shared/ci-pool-busy"
+        expected["busyFileGroup"] = "staff"
         self.assertEqual(cfg, expected)
 
     def test_load_options_assertion_and_json_settings(self):
@@ -217,6 +221,7 @@ class HostConfigTests(unittest.TestCase):
           spacingType = module.options.services.aeonBuilder.claimSpacingSeconds.type.type;
           spacingBounds = map module.options.services.aeonBuilder.claimSpacingSeconds.type.check [ (-1) 0 180 0.5 ];
           busyFileType = module.options.services.aeonBuilder.busyFile.type;
+          busyFileGroupType = module.options.services.aeonBuilder.busyFileGroup.type;
           busyFileRefreshType = module.options.services.aeonBuilder.busyFileRefresh.type;
           busyFileRefreshDefault = module.options.services.aeonBuilder.busyFileRefresh.default;
           busyAgent = module.config.launchd.agents.aeon-builder-busy;
@@ -230,6 +235,7 @@ class HostConfigTests(unittest.TestCase):
           command = (builtins.head module.config.home.packages).text;
           overrideCommand = (builtins.head (evaluate {
             claimSpacingSeconds = 240; memFreeLow = 25.5; memFreeHigh = 40.5; busyFile = "/tmp/test-busy";
+            busyFileGroup = "test-group";
           }).config.home.packages).text;
         }''' % json.dumps(str(ROOT))
         proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
@@ -243,6 +249,7 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(result["spacingType"], "int")
         self.assertEqual(result["spacingBounds"], [False, True, True, False])
         self.assertEqual(result["busyFileType"], "str")
+        self.assertEqual(result["busyFileGroupType"], "str")
         self.assertEqual(result["busyFileRefreshType"], "bool")
         self.assertTrue(result["busyFileRefreshDefault"])
         self.assertFalse(result["refreshDisabledHasAgent"])
@@ -267,9 +274,11 @@ class HostConfigTests(unittest.TestCase):
         for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh"):
             self.assertEqual(settings[key], CFG[key])
         self.assertEqual(settings["busyFile"], "/Users/Shared/ci-pool-busy")
+        self.assertEqual(settings["busyFileGroup"], "staff")
         overrides = json.loads(result["overrideCommand"].split("--config ", 1)[1].split(' "$@"', 1)[0])
         self.assertEqual({key: overrides[key] for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh", "busyFile")},
                          {"claimSpacingSeconds": 240, "memFreeLow": 25.5, "memFreeHigh": 40.5, "busyFile": "/tmp/test-busy"})
+        self.assertEqual(overrides["busyFileGroup"], "test-group")
 
 
 class LoadGateTests(unittest.TestCase):
@@ -1226,7 +1235,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [])
         self.assertTrue(gh.published[-1]["busy"])
 
-    def test_busy_file_is_replaced_atomically_with_occupied_slots_and_mode(self):
+    def test_busy_file_is_replaced_atomically_with_occupied_slots_mode_and_group(self):
         gh = FakeGitHub([], {})
         ctl = self.controller(gh, getmemoryfree=lambda: 34)
         self.state.update(lambda d: d["slots"].update({"0": {"jobId": 1}, "1": {"jobId": 2}}))
@@ -1242,18 +1251,56 @@ class ControllerTests(unittest.TestCase):
                 self.assertNotEqual(Path(src), path)
                 self.assertTrue(Path(src).name.startswith(f".{path.name}."))
                 self.assertEqual(Path(src).read_text(), "2/4 1000\n")
-                self.assertEqual(Path(src).stat().st_mode & 0o777, 0o644)
+                self.assertEqual(Path(src).stat().st_mode & 0o777, 0o640)
+                self.assertEqual(Path(src).stat().st_gid, os.getgid())
+                chown.assert_called_once_with(src, -1, os.getgid())
                 replaced.append(src)
             real_replace(src, dst)
-        with patch.object(ab.os, "replace", side_effect=replace), patch.object(Path, "unlink") as unlink:
+        with patch.object(ab.os, "chown", wraps=ab.os.chown) as chown, \
+                patch.object(ab.os, "replace", side_effect=replace), patch.object(Path, "unlink") as unlink:
             self.assertTrue(ctl.publish_once())
         unlink.assert_not_called()
         self.assertEqual(len(replaced), 1)
         self.assertEqual(path.read_text(), "2/4 1000\n", "the file counts occupied slots even while host-gated")
-        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(path.stat().st_gid, os.getgid())
+        self.assertEqual(self.state.file.stat().st_mode & 0o777, 0o600)
         self.clock.return_value = 1005
         ctl.publish_once()
         self.assertEqual(path.read_text(), "2/4 1005\n", "each publish refreshes the timestamp")
+
+    def test_unknown_busy_file_group_logs_once_and_leaves_no_files(self):
+        self.cfg["busyFileGroup"] = "aeon-builder-no-such-test-group"
+        ctl = self.controller(FakeGitHub([], {}))
+        path = Path(self.cfg["busyFile"])
+        original_files = set(self.tmp.iterdir())
+        with patch.object(ab.grp, "getgrnam", side_effect=KeyError(self.cfg["busyFileGroup"])), \
+                patch.object(ab, "log") as log:
+            for _ in range(2):
+                self.assertTrue(ctl.publish_once())
+        log.assert_called_once()
+        self.assertIn("busy file write failed:", log.call_args.args[0])
+        self.assertIn(self.cfg["busyFileGroup"], log.call_args.args[0])
+        self.assertFalse(path.exists())
+        self.assertEqual(set(self.tmp.iterdir()), original_files, "group lookup failures leave no temp files")
+
+    def test_busy_file_chown_failure_logs_once_and_keeps_previous_file(self):
+        ctl = self.controller(FakeGitHub([], {}))
+        path = Path(self.cfg["busyFile"])
+        path.write_text("previous\n")
+        original_files = set(self.tmp.iterdir())
+
+        def chown(target, uid, gid):
+            self.assertEqual((uid, gid), (-1, os.getgid()))
+            raise PermissionError(1, "busy file group denied", str(target))
+
+        with patch.object(ab.os, "chown", side_effect=chown), patch.object(ab, "log") as log:
+            for _ in range(2):
+                self.assertTrue(ctl.publish_once())
+        log.assert_called_once()
+        self.assertIn("busy file write failed: [Errno 1] busy file group denied:", log.call_args.args[0])
+        self.assertEqual(path.read_text(), "previous\n")
+        self.assertEqual(set(self.tmp.iterdir()), original_files, "chown failures leave no temp files")
 
     def test_busy_file_preserves_occupied_slots_and_epoch_in_every_mode(self):
         gh = FakeGitHub([], {})
@@ -1303,12 +1350,12 @@ class ControllerTests(unittest.TestCase):
         real_write = ab.atomic_write
         path = Path(self.cfg["busyFile"])
 
-        def write(target, text, mode=0o600):
+        def write(target, text, mode=0o600, group=None):
             if target == path:
                 error = errors.pop(0)
                 if error:
                     raise error
-            real_write(target, text, mode)
+            real_write(target, text, mode, group)
 
         with patch.object(ab, "atomic_write", side_effect=write), patch.object(ab, "log") as log:
             for _ in range(6):
