@@ -28,6 +28,7 @@ compose = read_json([
           ) (service.labels or [])
         ) spec.services;
         traefikVolumes = spec.services.traefik.volumes;
+        fileServices = (import ./hosts/csb1/ppm-aeon-redirect-routing.nix { }).http.services;
       }
     """,
 ])
@@ -38,6 +39,17 @@ consumers = [
     if any(label.endswith("=aeon-noreuse@file") for label in labels)
 ]
 assert consumers == ["aeon"], "The no-reuse transport must remain scoped to Aeon"
+file_services = compose["fileServices"]
+assert file_services["ops231-aeon"]["loadBalancer"]["servers"] == [{"url": "http://aeon:8080"}], (
+    "The classic API route must still target Aeon"
+)
+for name, service in file_services.items():
+    balancer = service.get("loadBalancer", {})
+    targets_aeon = any(server.get("url") == "http://aeon:8080" for server in balancer.get("servers", []))
+    uses_noreuse = balancer.get("serversTransport") == "aeon-noreuse"
+    assert targets_aeon == uses_noreuse, (
+        f"File service {name}: every Aeon upstream must bind aeon-noreuse, scoped to Aeon"
+    )
 assert "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml" in compose["traefikVolumes"], (
     "Traefik must mount the dynamic file defining Aeon's transport"
 )
