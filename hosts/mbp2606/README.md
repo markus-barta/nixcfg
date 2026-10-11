@@ -82,14 +82,40 @@ respectively. Only pushes write the persistent cache; other events use a
 disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
 host RAM for remote-test.
 
-The host load gate stops taking new jobs above a 1-minute load of 12.0 and
-resumes only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). With the
-gate off and sampled load at or above `loadLow`, the controller claims at most
-one new slot per tick; below `loadLow`, it may claim all free slots. While
-gated, admitted jobs stay queued, running jobs and VMs continue, and availability
+The host gate stops taking new jobs above a 1-minute load of 12.0 and resumes
+only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). It also gates when
+macOS reports less than 35% free memory, releasing at 45% or more (`memFreeLow`
+/ `memFreeHigh`). Both gates must clear before claims resume. If `memory_pressure`
+has never been readable, the memory gate is disabled and logs once. After a
+successful reading, transient failures retain the previous memory gate state,
+including across controller restarts, for up to 600 seconds (`memHoldSeconds`).
+The hold starts with one log line; expiry releases and disables the memory gate
+until a successful reading restores normal hysteresis and logs recovery once.
+`status` shows when the gate was held or disabled. The controller claims
+at most one slot per tick, at least 180 seconds apart (`claimSpacingSeconds`);
+the last claim time survives restarts. A backwards wall-clock jump allows the
+next claim immediately and starts a new spacing interval. While gated, admitted
+jobs stay queued, running jobs and VMs continue, network proofs are skipped, and availability
 advertises zero idle runners (`busy=true`) so CI routes new work to hosted
-runners. `aeon-builder status` shows the gate and last sampled 1-minute load;
-each transition is logged once.
+runners. `aeon-builder status` shows both gates, their last samples, the combined
+reason, and seconds since the last claim; each gate transition is logged once.
+Spacing also applies while draining: `aeon-builder off` with a backlog can take
+queued jobs × 180 seconds, plus job runtime and any time held by host gates.
+The default `--wait 30` waits 30 minutes and returns 2 if still draining. Use
+`aeon-builder off --now` when the machine is needed back; it cancels queued and
+running mbp2606 runs and stops the pool.
+On every publish and mode change, the controller atomically writes
+`N/4 <unix-epoch>` (busy slots) to `/Users/Shared/ci-pool-busy` (`busyFile`, mode 0640,
+group `staff` by default via `busyFileGroup`) in every mode, counting slots still
+occupied while off or paused. Mode and group are set before rename; group lookup
+or ownership failures skip the write. The
+`aeon-builder-busy` launchd agent runs the hidden `aeon-builder busy-file` command
+every 60 seconds and at load, keeping the timestamp fresh without a controller.
+Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the
+controller logs in `~/.local/state/aeon-builder`. The last write error is saved
+in `busy-file.lasterror`; repeated failures log only when the error changes,
+including across refresh processes, and a successful write clears the error.
+Failures do not stop the controller or fail the refresh command.
 
 The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
 main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,

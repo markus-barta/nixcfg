@@ -14,6 +14,7 @@
 
 let
   cfg = config.services.aeonBuilder;
+  stateDir = "${config.home.homeDirectory}/.local/state/aeon-builder";
 
   templates = "${cfg.limaPackage}/share/lima/templates";
 
@@ -60,6 +61,12 @@ let
       pollSeconds
       loadHigh
       loadLow
+      claimSpacingSeconds
+      memFreeLow
+      memFreeHigh
+      memHoldSeconds
+      busyFile
+      busyFileGroup
       sshPortBase
       labGuardUsers
       probeTargets
@@ -202,6 +209,41 @@ in
       default = 8.0;
       description = "Resume taking jobs only when the host's 1-minute load falls below this threshold.";
     };
+    claimSpacingSeconds = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 180;
+      description = "Minimum time between slot claims, persisted across controller restarts; at most one claim per tick.";
+    };
+    memFreeLow = lib.mkOption {
+      type = lib.types.addCheck lib.types.number (value: value >= 0 && value <= 100);
+      default = 35;
+      description = "Stop taking new jobs when the host memory free percentage falls below this threshold.";
+    };
+    memFreeHigh = lib.mkOption {
+      type = lib.types.addCheck lib.types.number (value: value >= 0 && value <= 100);
+      default = 45;
+      description = "Resume taking jobs only when the host memory free percentage reaches this threshold; must exceed memFreeLow.";
+    };
+    memHoldSeconds = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 600;
+      description = "Hold the previous memory gate after a failed reading for this many seconds, then disable it until readings recover.";
+    };
+    busyFile = lib.mkOption {
+      type = lib.types.str;
+      default = "/Users/Shared/ci-pool-busy";
+      description = "Atomically updated busy-slot count and Unix timestamp in every pool mode, with mode 0640 and group busyFileGroup.";
+    };
+    busyFileGroup = lib.mkOption {
+      type = lib.types.str;
+      default = "staff";
+      description = "Group allowed to read the busy file; assigned before atomic publication. Group lookup or ownership failures skip the write.";
+    };
+    busyFileRefresh = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Refresh the busy file every 60 seconds through launchd, including while the controller is off or paused.";
+    };
     sshPortBase = lib.mkOption {
       type = lib.types.port;
       default = 41020;
@@ -282,10 +324,34 @@ in
         assertion = cfg.loadHigh > cfg.loadLow;
         message = "services.aeonBuilder.loadHigh must be greater than loadLow.";
       }
+      {
+        assertion = cfg.memFreeHigh > cfg.memFreeLow;
+        message = "services.aeonBuilder.memFreeHigh must be greater than memFreeLow.";
+      }
     ];
     home.packages = [
       aeonBuilder
       cfg.limaPackage
     ];
+    home.activation.aeonBuilderBusyState = lib.mkIf cfg.busyFileRefresh (
+      lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ] ''
+        run ${pkgs.coreutils}/bin/mkdir -p -m 700 ${lib.escapeShellArg stateDir}
+      ''
+    );
+    launchd.agents = lib.mkIf cfg.busyFileRefresh {
+      aeon-builder-busy = {
+        enable = true;
+        config = {
+          ProgramArguments = [
+            "${aeonBuilder}/bin/aeon-builder"
+            "busy-file"
+          ];
+          StartInterval = 60;
+          RunAtLoad = true;
+          StandardOutPath = "${stateDir}/busy-file.out";
+          StandardErrorPath = "${stateDir}/busy-file.err";
+        };
+      };
+    };
   };
 }
