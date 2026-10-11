@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -94,20 +95,21 @@ class TrafficTest(unittest.TestCase):
 
     def test_docker_stderr_logs_and_exact_read_commands(self):
         responses = [subprocess.CompletedProcess([], 0, "aeon\n", ""),
-                     subprocess.CompletedProcess([], 0, "2026-10-11T12:00:00.123456789Z\n", ""),
+                     subprocess.CompletedProcess([], 0, "2026-10-11T12:00:00.123456789Z 7\n", ""),
                      subprocess.CompletedProcess([], 0, "", fixture("above-threshold"))]
         with patch.object(checks.subprocess, "run", side_effect=responses) as run:
-            started_at, problems = checks.check_container()
+            started_at, restart_count, problems = checks.check_container()
             self.assertEqual(problems, [])
             self.assertIsInstance(started_at, float)
-            self.assertIn("5/10 API", checks.check_traffic(started_at + 120, started_at)[0].text)
+            self.assertEqual(restart_count, 7)
+            self.assertIn("5/10 API", checks.check_traffic(started_at + 120, started_at, True)[0].text)
         self.assertEqual(run.call_args_list[0].args[0], [
             "/fixture/docker", "--host", "unix:///run/docker.sock", "ps", "--filter", "name=^aeon$",
             "--filter", "status=running", "--format", "{{.Names}}"
         ])
         self.assertEqual(run.call_args_list[1].args[0], [
             "/fixture/docker", "--host", "unix:///run/docker.sock", "container", "inspect",
-            "-f", "{{.State.StartedAt}}", "aeon"
+            "-f", "{{.State.StartedAt}} {{.RestartCount}}", "aeon"
         ])
         self.assertEqual(run.call_args_list[2].args[0][-4:], ["logs", "--since", "30s", "aeon"])
         for call in run.call_args_list:
@@ -118,18 +120,18 @@ class TrafficTest(unittest.TestCase):
 
     def test_stopped_unreadable_and_timed_out_docker(self):
         with patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
-            self.assertIn("not running", checks.check_container()[1][0].text)
+            self.assertIn("not running", checks.check_container()[2][0].text)
             self.assertEqual(run.call_count, 1)
         for error in [OSError("raw diagnostic"), subprocess.TimeoutExpired("docker", 5),
                       subprocess.CalledProcessError(1, "docker", stderr="raw log diagnostic")]:
             with patch.object(checks, "docker_command", side_effect=error):
-                text = checks.check_container()[1][0].text
+                text = checks.check_container()[2][0].text
                 self.assertIn("unreadable", text)
                 self.assertNotIn("raw", text)
 
     def test_log_failure_after_container_check(self):
         with patch.object(checks, "docker_command", side_effect=OSError("raw log diagnostic")):
-            self.assertIn("unreadable", checks.check_traffic(1000, 0)[0].text)
+            self.assertIn("unreadable", checks.check_traffic(1000, 0, True)[0].text)
 
     def test_invalid_utf8_docker_output_is_replaced(self):
         real_run = subprocess.run
@@ -152,68 +154,172 @@ class TrafficTest(unittest.TestCase):
 
     def test_blindness_ten_minute_boundary_persists_between_processes(self):
         logs = fixture("format-changed")
-        self.assertEqual(checks.check_request_log(logs, 1000, 0), [])
-        self.assertEqual(checks.check_request_log(logs, 1599, 0), [])
+        self.assertEqual(checks.check_request_log(logs, 1000, 0, True), [])
+        self.assertEqual(checks.check_request_log(logs, 1599, 0, True), [])
         fresh = load_checks()
         fresh.STATE_PATH = checks.STATE_PATH
-        found = fresh.check_request_log(logs, 1600, 0)
+        found = fresh.check_request_log(logs, 1600, 0, True)
         self.assertEqual(found[0].text, "aeon-watch: no parsable request lines for 10 min (log format changed?)")
         self.assertEqual(json.loads(Path(checks.STATE_PATH).with_name("request-log.json").read_text()),
-                         {"last_seen": 1000})
+                         {"last_seen": 1000, "reachable": True})
 
     def test_probe_lines_reset_blindness_without_counting_as_traffic(self):
-        self.assertEqual(checks.check_request_log("", 1000, 0), [])
+        self.assertEqual(checks.check_request_log("", 1000, 0, True), [])
         for logs in [request_line(200, "GET /api/health"), request_line(401)]:
             self.assertEqual(checks.traffic_problems(logs), [])
-            self.assertEqual(checks.check_request_log(logs, 1600, 0), [])
-            self.assertEqual(checks.check_request_log("", 2199, 0), [])
-            self.assertTrue(checks.check_request_log("", 2200, 0))
+            self.assertEqual(checks.check_request_log(logs, 1600, 0, True), [])
+            self.assertEqual(checks.check_request_log("", 2199, 0, True), [])
+            self.assertTrue(checks.check_request_log("", 2200, 0, True))
 
     def test_restart_resets_blindness_and_clock_rollback_is_bounded(self):
-        checks.check_request_log("", 1000, 0)
-        self.assertEqual(checks.check_request_log("", 1800, 1700), [])
-        self.assertEqual(checks.check_request_log("", 900, 0), [])
-        self.assertTrue(checks.check_request_log("", 1500, 0))
+        checks.check_request_log("", 1000, 0, True)
+        self.assertEqual(checks.check_request_log("", 1800, 1700, True), [])
+        self.assertEqual(checks.check_request_log("", 900, 0, True), [])
+        self.assertTrue(checks.check_request_log("", 1500, 0, True))
 
     def test_traffic_check_reports_changed_format_without_storing_logs(self):
         with patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess(
             [], 0, "", fixture("format-changed")
         )):
-            self.assertEqual(checks.check_traffic(1000, 0), [])
-            self.assertEqual(checks.check_traffic(1600, 0)[0].key, "aeon:log-format")
+            self.assertEqual(checks.check_traffic(1000, 0, True), [])
+            self.assertEqual(checks.check_traffic(1600, 0, True)[0].key, "aeon:log-format")
         self.assertEqual(set(json.loads(Path(checks.STATE_PATH).with_name("request-log.json").read_text())),
-                         {"last_seen"})
+                         {"last_seen", "reachable"})
 
-    def test_warm_container_skips_logs_and_probes_until_exact_boundary(self):
+    def test_newly_started_container_always_checks_logs_and_probes(self):
         for age in [0, 119.999, 120, 121]:
             with self.subTest(age=age), patch.object(checks.time, "time", return_value=1000 + age), \
-                 patch.object(checks, "check_container", return_value=(1000, [])), \
+                 patch.object(checks, "check_container", return_value=(1000, 0, [])), \
                  patch.object(checks, "check_traffic", return_value=[]) as traffic, \
-                 patch.object(checks, "check_probes", return_value=[]) as probes:
+                 patch.object(checks, "check_probes", return_value=(True, [])) as probes:
                 self.assertEqual(checks.collect(), [])
-                self.assertEqual(traffic.call_count, int(age >= 120))
-                self.assertEqual(probes.call_count, int(age >= 120))
+                traffic.assert_called_once_with(1000 + age, 1000, True)
+                probes.assert_called_once()
 
     def test_stopped_or_unreadable_container_still_checks_public_probes(self):
         fault = engine.Problem("aeon:traffic", "container not running")
-        with patch.object(checks, "check_container", return_value=(None, [fault])), \
+        with patch.object(checks, "check_container", return_value=(None, None, [fault])), \
              patch.object(checks, "check_traffic") as traffic, \
-             patch.object(checks, "check_probes", return_value=[]) as probes:
+             patch.object(checks, "check_probes", return_value=(True, [])) as probes:
             self.assertEqual(checks.collect(), [fault])
             traffic.assert_not_called()
             probes.assert_called_once()
 
-    def test_invalid_or_unreadable_started_at_is_a_problem(self):
+    def test_invalid_or_unreadable_lifecycle_fields_are_a_problem(self):
         for response in [subprocess.CompletedProcess([], 0, "invalid raw data", ""),
-                         subprocess.CompletedProcess([], 0, "2026-10-11T12:00:00", ""),
+                         subprocess.CompletedProcess([], 0, "2026-10-11T12:00:00 0", ""),
+                         subprocess.CompletedProcess([], 0, "2026-10-11T12:00:00Z invalid", ""),
+                         subprocess.CompletedProcess([], 0, "2026-10-11T12:00:00Z -1", ""),
                          OSError("raw diagnostic")]:
             with self.subTest(response=type(response).__name__), patch.object(checks, "docker_command", side_effect=[
                 subprocess.CompletedProcess([], 0, "aeon\n", ""), response
             ]):
-                started_at, found = checks.check_container()
+                started_at, restart_count, found = checks.check_container()
                 self.assertIsNone(started_at)
+                self.assertIsNone(restart_count)
                 self.assertIn("unreadable", found[0].text)
                 self.assertNotIn("raw", found[0].text)
+
+    def test_blindness_counts_only_reachable_windows(self):
+        health_fault = engine.Problem("aeon:probe:/api/health", "health unreachable")
+        with patch.object(checks, "check_container", return_value=(0, 0, [])), \
+             patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            for now, reachable in [(1000, True), (1599, True), (1600, False),
+                                   (2200, False), (2300, True), (2899, True), (2900, True)]:
+                with self.subTest(now=now), patch.object(checks.time, "time", return_value=now), \
+                     patch.object(checks, "check_probes", return_value=(reachable, [] if reachable else [health_fault])):
+                    found = checks.collect()
+                    self.assertEqual(any(p.key == "aeon:log-format" for p in found), now == 2900)
+                    self.assertEqual(health_fault in found, not reachable)
+
+    def test_unreadable_logs_reset_blind_observation(self):
+        checks.check_request_log("", 1000, 0, True)
+        with patch.object(checks, "docker_command", side_effect=OSError("raw diagnostic")):
+            self.assertEqual(checks.check_traffic(1600, 0, True)[0].key, "aeon:traffic")
+        self.assertEqual(checks.check_request_log("", 1700, 0, True), [])
+        self.assertEqual(checks.check_request_log("", 2299, 0, True), [])
+        self.assertTrue(checks.check_request_log("", 2300, 0, True))
+
+    def test_corrupt_request_state_resets_once_without_diagnostics(self):
+        path = Path(checks.STATE_PATH).with_name("request-log.json")
+        for raw in ["{raw synthetic", "[]", "{}", '{"last_seen":"raw synthetic"}',
+                    '{"last_seen":null}', '{"last_seen":true}', '{"last_seen":NaN}',
+                    '{"last_seen":Infinity}', '{"last_seen":1000,"reachable":[]}']:
+            with self.subTest(raw=raw):
+                path.write_text(raw)
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(checks.check_request_log("", 1000, 0, True), [])
+                    self.assertEqual(checks.check_request_log("", 1030, 0, True), [])
+                self.assertEqual(output.getvalue().count("resetting request-log.json"), 1)
+                self.assertNotIn("raw synthetic", output.getvalue())
+                self.assertEqual(json.loads(path.read_text()), {"last_seen": 1000, "reachable": True})
+
+    def test_unexpected_read_exception_resets_request_state(self):
+        with patch.object(Path, "read_text", side_effect=RuntimeError("raw diagnostic")), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(checks.check_request_log("", 1000, 0, True), [])
+        self.assertEqual(output.getvalue().count("resetting request-log.json"), 1)
+        self.assertNotIn("raw", output.getvalue())
+
+    def test_corrupt_request_state_does_not_stop_other_checks(self):
+        Path(checks.STATE_PATH).with_name("request-log.json").write_text("{raw synthetic")
+        probe_fault = engine.Problem("aeon:probe:/api/me", "returned 500")
+        with patch.object(checks, "check_container", return_value=(0, 0, [])), \
+             patch.object(checks, "check_probes", return_value=(True, [probe_fault])), \
+             patch.object(checks.time, "time", return_value=1000), \
+             patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess(
+                 [], 0, "", fixture("above-threshold")
+             )), contextlib.redirect_stdout(io.StringIO()):
+            found = checks.collect()
+        self.assertEqual([p.key for p in found], ["aeon:traffic", "aeon:probe:/api/me"])
+
+    def test_restart_history_counts_manual_restarts_and_recreates(self):
+        for count in [0, 7]:
+            path = str(Path(checks.STATE_PATH).parent / f"case-{count}" / "state.json")
+            with self.subTest(count=count), patch.object(checks, "STATE_PATH", path):
+                self.assertEqual(checks.check_restarts(1000, 1000, count), [])
+                self.assertEqual(checks.check_restarts(1030, 1030, count), [])
+                self.assertEqual(checks.check_restarts(1060, 1060, count)[0].text,
+                                 "aeon restarting repeatedly (3 starts in 10 min)")
+                self.assertTrue(checks.check_restarts(1600, 1060, count))
+                self.assertEqual(checks.check_restarts(1600.001, 1060, count), [])
+
+    def test_lifetime_restart_count_is_not_a_recent_crash_loop(self):
+        self.assertEqual(checks.check_restarts(1000, 999, 500), [])
+        self.assertEqual(checks.check_restarts(1030, 999, 500), [])
+
+    def test_restarts_between_polls_of_an_old_container_are_counted(self):
+        self.assertEqual(checks.check_restarts(1000, 0, 50), [])
+        found = checks.check_restarts(1030, 1025, 53)
+        self.assertEqual(found[0].text, "aeon restarting repeatedly (3 starts in 10 min)")
+
+    def test_missed_restarts_expire_from_the_earliest_possible_time(self):
+        checks.check_restarts(1000, 0, 50)
+        self.assertTrue(checks.check_restarts(1030, 1025, 53))
+        self.assertTrue(checks.check_restarts(1600, 1025, 53))
+        self.assertEqual(checks.check_restarts(1600.001, 1025, 53), [])
+
+    def test_recreate_with_counter_reset_includes_its_early_crashes(self):
+        checks.check_restarts(1000, 0, 50)
+        found = checks.check_restarts(1030, 1025, 2)
+        self.assertEqual(found[0].text, "aeon restarting repeatedly (3 starts in 10 min)")
+
+    def test_long_observation_gap_does_not_count_old_restart_delta(self):
+        self.assertEqual(checks.check_restarts(1000, 0, 50), [])
+        self.assertEqual(checks.check_restarts(2000, 1999, 100), [])
+
+    def test_corrupt_container_state_is_reset_once(self):
+        path = Path(checks.STATE_PATH).with_name("container.json")
+        for raw in ["{raw synthetic", "[]", "{}", json.dumps({
+            "started_at": 1000, "observed_at": 1000, "restart_count": 0, "starts": [None],
+        })]:
+            with self.subTest(raw=raw):
+                path.write_text(raw)
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(checks.check_restarts(1000, 1000, 0), [])
+                    self.assertEqual(checks.check_restarts(1030, 1000, 0), [])
+                self.assertEqual(output.getvalue().count("resetting container.json"), 1)
+                self.assertNotIn("raw synthetic", output.getvalue())
 
 
 class Response:
@@ -373,7 +479,8 @@ class ProbeTest(unittest.TestCase):
 
         with patch.object(checks.urllib.request, "build_opener") as build:
             build.return_value.open.side_effect = open_request
-            problems = checks.check_probes()
+            reachable, problems = checks.check_probes()
+        self.assertTrue(reachable)
         self.assertEqual(sorted(calls), [("/api/health", 5)] * 3 + [("/api/me", 5)] * 3)
         self.assertEqual(build.call_count, 6)
         self.assertEqual([p.key for p in problems], ["aeon:probe:/api/health", "aeon:probe:/api/me"])
@@ -383,12 +490,24 @@ class ProbeTest(unittest.TestCase):
 
     def test_all_good_and_mixed_timeout_counts(self):
         with patch.object(checks, "probe_once", side_effect=lambda path: None):
-            self.assertEqual(checks.check_probes(), [])
+            self.assertEqual(checks.check_probes(), (True, []))
         answers = deque(["timed out", "returned 500", None])
         with patch.object(checks, "probe_once", side_effect=lambda path: answers.popleft() if path == "/api/me" else None):
-            text = checks.check_probes()[0].text
+            reachable, problems = checks.check_probes()
+            text = problems[0].text
+        self.assertTrue(reachable)
         self.assertIn("timed out (1/3)", text)
         self.assertIn("returned 500 (1/3)", text)
+
+    def test_only_http_200_db_ok_health_probe_makes_aeon_reachable(self):
+        for reason in ["timed out", "returned 500", "db is not ok", "returned invalid JSON",
+                       "blocked by Cloudflare (403 10xx)"]:
+            with self.subTest(reason=reason), patch.object(checks, "probe_once", side_effect=lambda path:
+                reason if path == "/api/health" else None
+            ):
+                reachable, problems = checks.check_probes()
+                self.assertFalse(reachable)
+                self.assertEqual([p.key for p in problems], ["aeon:probe:/api/health"])
 
 
 class EngineIntegrationTest(unittest.TestCase):
@@ -479,8 +598,8 @@ class EngineIntegrationTest(unittest.TestCase):
         windows = [fixture("above-threshold"), request_line() * 10, request_line() * 10]
         with patch.object(checks, "STATE_PATH", self.state):
             for index, logs in enumerate(windows):
-                with patch.object(checks, "check_container", return_value=(0, [])), \
-                     patch.object(checks, "check_probes", return_value=[]), \
+                with patch.object(checks, "check_container", return_value=(0, 0, [])), \
+                     patch.object(checks, "check_probes", return_value=(True, [])), \
                      patch.object(checks.time, "time", return_value=1000 + index * 30), \
                      patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess([], 0, logs, "")) as docker, \
                      contextlib.redirect_stdout(io.StringIO()):
@@ -490,14 +609,118 @@ class EngineIntegrationTest(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
     def test_headers_action_and_mixed_recovery(self):
-        action = 'check: ssh csb1 \'docker logs --since 5m aeon | grep "\\"status\\":5"\' ; runbook OPS-307'
+        action = 'check: ssh csb1 "docker logs --since 5m aeon 2>&1 | grep \'\\"status\\":5\'" ; runbook OPS-307'
         self.assertTrue(checks.render(["fault"], []).startswith("🔴 aeon-watch (csb1):\n"))
         self.assertTrue(checks.render([], ["fault"]).startswith("🟢 aeon-watch (csb1) recovered:\n"))
         mixed = checks.render(["new fault"], ["old fault"])
         self.assertIn("🟢 aeon-watch (csb1) recovered:", mixed)
         self.assertEqual(mixed.splitlines()[-1], action)
         self.assertEqual(mixed.count("check:"), 1)
+        self.assertNotIn("check:", checks.render([], ["fault"]))
         self.assertEqual(checks.render([], []), "")
+        # Shell parsing leaves the exact stderr-inclusive command on csb1.
+        remote_command = shlex.split(action.removeprefix("check: "))[2]
+        self.assertEqual(remote_command, 'docker logs --since 5m aeon 2>&1 | grep \'"status":5\'')
+        self.assertIn('ssh csb1 "docker logs --since 5m aeon 2>&1 | grep \'\\"status\\":5\'"',
+                      (REPO / "hosts/csb1/docs/RUNBOOK.md").read_text())
+
+    def run_collected(self, now, started_at, restart_count, probes=(True, []), module=checks):
+        with patch.object(module, "STATE_PATH", self.state), \
+             patch.object(module.time, "time", return_value=now), \
+             patch.object(module, "check_container", return_value=(started_at, restart_count, [])), \
+             patch.object(module, "check_probes", return_value=probes), \
+             patch.object(module, "docker_command", return_value=subprocess.CompletedProcess([], 0, "", "")), \
+             contextlib.redirect_stdout(io.StringIO()):
+            return engine.run_cycle(self.state, now, module.collect, module.render,
+                                    lambda text, identifier: self.sent.append(text) or True, clear_confirm_runs=2)
+
+    def test_crash_loop_pages_with_persistent_history_between_processes(self):
+        self.run_collected(1000, 1000, 0)
+        self.run_collected(1030, 1030, 1)
+        fresh = load_checks()
+        self.assertEqual(self.run_collected(1060, 1060, 2, module=fresh), engine.EXIT_PROBLEMS)
+        self.assertEqual(self.sent, [])
+        self.run_collected(1090, 1090, 3, module=fresh)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("aeon restarting repeatedly (4 starts in 10 min)", self.sent[0])
+        state = json.loads(Path(self.state).with_name("container.json").read_text())
+        self.assertEqual(state["restart_count"], 3)
+        self.assertEqual(state["started_at"], 1090)
+
+    def test_repeated_recreates_with_reset_counters_still_page(self):
+        for now, started_at in [(1000, 1000), (1030, 1030), (1060, 1060), (1090, 1060)]:
+            self.run_collected(now, started_at, 0)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("3 starts in 10 min", self.sent[0])
+
+    def test_single_recreate_with_one_bad_probe_run_does_not_page(self):
+        fault = engine.Problem("aeon:probe:/api/health", "returned 503")
+        self.run_collected(1000, 0, 10)
+        self.run_collected(1030, 1030, 0, probes=(False, [fault]))
+        self.run_collected(1060, 1030, 0)
+        self.run_collected(1090, 1030, 0)
+        self.assertEqual(self.sent, [])
+
+    def test_single_docker_restart_does_not_page(self):
+        for now, started_at, count in [(1000, 1000, 0), (1030, 1030, 1), (1060, 1030, 1), (1090, 1030, 1)]:
+            self.run_collected(now, started_at, count)
+        self.assertEqual(self.sent, [])
+
+    def test_restart_during_active_probe_fault_never_fakes_recovery(self):
+        fault = engine.Problem("aeon:probe:/api/me", "returned 500")
+        for now, started_at in [(1000, 0), (1030, 0), (1060, 1060), (1090, 1060)]:
+            self.run_collected(now, started_at, 0, probes=(True, [fault]))
+        self.assertEqual(len(self.sent), 1)
+        self.assertNotIn("recovered", self.sent[0])
+        self.assertNotIn("clean_count", engine.load_state(self.state)["seen"][fault.key])
+
+    def test_corrupt_alert_state_recovers_and_logs_once(self):
+        for raw in ["{raw synthetic", "[]", '{"seen":[]}', '{"raw synthetic":{}}',
+                    json.dumps({"seen": {"fault": {"text": "raw synthetic", "count": "invalid", "alerted": True}}}),
+                    json.dumps({"seen": {"fault": None}}),
+                    json.dumps({"seen": {}, "pending": {"text": "raw synthetic"}}),
+                    json.dumps({"seen": {}, "pending": {"text": "raw synthetic", "event_id": "id", "next_state": []}})]:
+            with self.subTest(raw=raw):
+                Path(self.state).write_text(raw)
+                with patch.object(checks, "STATE_PATH", self.state), \
+                     patch.object(checks.engine, "env_file_value", return_value="synthetic target"), \
+                     patch.object(checks.engine, "shoutrrr_telegram_sender", return_value=lambda *_: True), \
+                     patch.object(checks, "collect", return_value=[]), \
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(checks.main(), engine.EXIT_CLEAN)
+                    self.assertEqual(checks.main(), engine.EXIT_CLEAN)
+                self.assertEqual(output.getvalue().count("resetting state.json"), 1)
+                self.assertNotIn("raw synthetic", output.getvalue())
+                self.assertEqual(engine.load_state(self.state), {"seen": {}, "pending": None})
+
+    def test_unexpected_alert_state_read_exception_recovers(self):
+        with patch.object(checks, "STATE_PATH", self.state), \
+             patch.object(checks.engine, "env_file_value", return_value="synthetic target"), \
+             patch.object(checks.engine, "shoutrrr_telegram_sender", return_value=lambda *_: True), \
+             patch.object(checks, "collect", return_value=[]), \
+             patch.object(Path, "read_text", side_effect=RuntimeError("raw diagnostic")), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(checks.main(), engine.EXIT_CLEAN)
+        self.assertEqual(output.getvalue().count("resetting state.json"), 1)
+        self.assertNotIn("raw", output.getvalue())
+
+    def test_valid_pending_alert_survives_validation_and_retries(self):
+        fault = engine.Problem("aeon:probe:/api/me", "returned 500")
+        delivered = []
+        with patch.object(checks, "STATE_PATH", self.state), \
+             patch.object(checks.engine, "env_file_value", return_value="synthetic target"), \
+             patch.object(checks.engine, "shoutrrr_telegram_sender", return_value=lambda *_: False), \
+             patch.object(checks, "collect", return_value=[fault]), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(checks.main(), engine.EXIT_PROBLEMS)
+            self.assertEqual(checks.main(), engine.EXIT_UNDELIVERED)
+            pending = engine.load_state(self.state)["pending"]
+            with patch.object(checks.engine, "shoutrrr_telegram_sender",
+                              return_value=lambda text, identifier: delivered.append((text, identifier)) or True):
+                self.assertEqual(checks.main(), engine.EXIT_PROBLEMS)
+        self.assertNotIn("resetting", output.getvalue())
+        self.assertEqual(delivered, [(pending["text"], pending["event_id"])])
+        self.assertIsNone(engine.load_state(self.state)["pending"])
 
     def test_unexpected_crash_exits_two_without_diagnostics(self):
         for failure in [RecursionError("raw log body"), OSError("raw credential detail")]:

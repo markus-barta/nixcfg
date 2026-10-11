@@ -46,7 +46,7 @@ in
         # Existing host-side Docker access pattern. The Traefik socket proxy is
         # on an internal container network with no host listener. Docker group
         # access still grants daemon control; the poller reads ps, logs and only
-        # the StartedAt field via container inspect -f (never the environment).
+        # StartedAt and RestartCount via container inspect -f (never the environment).
         SupplementaryGroups = [ "docker" ];
         # Copy the existing target for this user, without granting root group
         # access or inheriting the entire notification environment.

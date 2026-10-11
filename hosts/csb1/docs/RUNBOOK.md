@@ -1507,24 +1507,41 @@ checks: at least 3 API 5xx in a 30-second window, at least 10 total API requests
 and at least a 10% error rate. These thresholds apply to each window separately.
 Exclude `POST /api/github/webhook`, `GET /api/health` (all statuses), and
 `GET /api/me` with status 401 from both counts so probes cannot supply the floor
-or dilute the rate. A stopped container or unreadable logs also counts as a
+or dilute the rate. **The public probes are the primary signal; the 5xx-rate
+check arms only with real API traffic meeting the 10-request floor.** A stopped
+container or unreadable logs also counts as a
 problem, as does any of three public `/api/health` probes failing HTTP 200 with
 `db = "ok"` or three `/api/me` probes failing the expected 401.
 
-While the running container is less than 120 seconds old, skip both traffic
-checks and public probes without problems. Age comes from the single field
-`docker container inspect -f '{{.State.StartedAt}}' aeon`; never inspect its
-environment. This grace covers container restarts/deploys as well as reboots;
-it does not suppress a stopped-container outage. Longer maintenance still
-requires stopping the timer.
+Every run checks logs and public probes, including immediately after a container
+restart. The two-run confirmation absorbs a normal recreate; there is no
+container-age grace. The timer retains its 120-second boot delay. Read only
+`docker container inspect -f '{{.State.StartedAt}} {{.RestartCount}}' aeon`;
+never inspect its environment. Persist the previous start timestamp, restart
+count, observation timestamp and rolling start counts in
+`/var/lib/aeon-watch/container.json`. At least three starts in ten minutes raises
+`aeon restarting repeatedly (N starts in 10 min)`, with the same two-run
+confirmation. Manual restarts and recreates also count; resetting Docker's
+restart counter does not erase the window. Lifetime restarts observed at first
+startup do not count as recent starts. Docker exposes only the latest start
+timestamp: additional starts between observations within ten minutes expire
+from the previous observation timestamp, conservatively excluding any that
+could be older than the window. A stopped
+container is a problem on that run. Longer maintenance requires stopping the timer.
 
 The watcher's requests guarantee regular request lines. If the container is
-running but no request line parses for 10 consecutive minutes, report
+running and `/api/health` returns HTTP 200 with `db = "ok"`, but no request line
+parses for 10 consecutive reachable minutes, report
 `aeon-watch: no parsable request lines for 10 min (log format changed?)`, subject
 to the same two-run confirmation. Persist the last-seen timestamp in
 `/var/lib/aeon-watch/request-log.json`, separate from the engine's `state.json`.
-Probe and webhook lines still count for parser liveness. A new container resets
-the observation period; stopped time does not count toward blindness. Decode
+Probe and webhook lines still count for parser liveness. A failed health-probe
+window resets this observation period; probe outages are reported by the probe
+check. At least one successful health probe is required to consider a window
+reachable. A new container resets the observation period; stopped time and
+unreadable-log windows do not count toward blindness. Corrupt or unreadable
+request-log, container or alert state resets that file and logs one value-free
+diagnostic; raw state and exception messages are never printed. Decode
 Docker output as UTF-8 with replacement so isolated invalid bytes do not blind
 the entire window.
 
@@ -1543,7 +1560,7 @@ keep-alive/authentication outage. A 403 body containing `error code: 10`
 reports `blocked by Cloudflare (403 10xx)` and remains a problem because the
 probe cannot observe the API. Delivery reuses
 `csb1-watchtower-env` via systemd credentials. The dynamic user has the existing
-Docker group access for `ps`, `logs`, and the single `StartedAt` field; this
+Docker group access for `ps`, `logs`, and only `StartedAt`/`RestartCount`; this
 grants daemon control, and the Traefik socket proxy has no host listener. OPS
 should check the live log driver before deployment: with `journald`, consider a
 follow-up using the narrower journal group; with `json-file`, verify rotation
@@ -1552,10 +1569,11 @@ remains unchanged here. Alerts/state contain route patterns and counts, never
 raw logs, response bodies or fake headers. Unexpected Python exceptions print
 only their type and exit 2, failing the service visibly (`SuccessExitStatus`
 accepts only 0/1). Alerts begin `🔴 aeon-watch (csb1):`, recovery messages begin
-`🟢 aeon-watch (csb1) recovered:`, and both include the first action below:
+`🟢 aeon-watch (csb1) recovered:`. Announcements include the first action below;
+recovery-only messages omit it:
 
 ```bash
-ssh csb1 'docker logs --since 5m aeon | grep "\"status\":5"' # runbook OPS-307
+ssh csb1 "docker logs --since 5m aeon 2>&1 | grep '\"status\":5'" # runbook OPS-307
 ```
 
 To silence during
