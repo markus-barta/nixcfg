@@ -246,6 +246,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
 
+      - name: Verify aeon upstream transport disables connection reuse (OPS-308)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 yq-go --run "bash tests/T97-aeon-upstream-transport.sh"
+
       - name: Verify stale compose updater generation guard (NIX-496)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T59-compose-update-generation.sh

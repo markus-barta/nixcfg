@@ -31,6 +31,11 @@ http:
       loadBalancer:
         servers:
           - url: ""
+  serversTransports:
+    # OPS-308: negative idle capacity disables HTTP/1.1 connection reuse.
+    # Keep all other transport settings at Traefik's defaults.
+    aeon-noreuse:
+      maxIdleConnsPerHost: -1
 
 # https://doc.traefik.io/traefik/https/tls/
 tls:
