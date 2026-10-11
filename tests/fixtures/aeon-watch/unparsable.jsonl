@@ -1,0 +1,15 @@
+server starting
+{bad json
+null
+[]
+"request"
+{"msg":"request","path":"GET /api/me","status":"500"}
+{"msg":"request","path":"GET /api/me","status":true}
+{"msg":"request","path":null,"status":500}
+{"msg":"request","path":{},"status":500}
+{"msg":"request","path":"GET /api/me","status":999}
+{"msg":"request","path":"GET /api/me"}
+{"msg":"request","method":[],"path":"/api/me","status":500}
+{"msg":"request","path":"GET /","status":500}
+{"msg":"request","path":"GET /assets/app.js","status":500}
+{"msg":"startup","path":"GET /api/me","status":500}

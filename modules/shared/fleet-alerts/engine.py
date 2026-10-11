@@ -132,13 +132,19 @@ def load_state(path: str) -> dict:
     return {"seen": seen, "pending": pending if isinstance(pending, dict) else None}
 
 
-def advance(previous: dict, problems: list[Problem]) -> tuple[dict, list[str], list[str]]:
+def advance(
+    previous: dict, problems: list[Problem], *, clear_confirm_runs: int = 1
+) -> tuple[dict, list[str], list[str]]:
     """Fold this run's problems into state; return (next_state, to_announce, cleared).
 
     `to_announce` holds only problems confirmed on CONFIRM_RUNS consecutive runs.
     `cleared` holds only problems that were actually announced -- otherwise a
     single blip produces a "recovered" message for something never reported.
+    Callers can require consecutive clean runs before clearing (OPS-307);
+    the default preserves existing pollers' immediate recovery behavior.
     """
+    if clear_confirm_runs < 1:
+        raise ValueError("clear_confirm_runs must be positive")
     seen_before = previous.get("seen", {})
     current = {p.key: p.text for p in problems}
 
@@ -153,11 +159,15 @@ def advance(previous: dict, problems: list[Problem]) -> tuple[dict, list[str], l
             alerted = True
         seen_now[key] = {"text": text, "count": count, "alerted": alerted}
 
-    cleared = [
-        prior.get("text", key)
-        for key, prior in seen_before.items()
-        if key not in current and prior.get("alerted")
-    ]
+    cleared: list[str] = []
+    for key, prior in seen_before.items():
+        if key in current or not prior.get("alerted"):
+            continue
+        clean_count = int(prior.get("clean_count", 0)) + 1
+        if clean_count >= clear_confirm_runs:
+            cleared.append(prior.get("text", key))
+        else:
+            seen_now[key] = {**prior, "clean_count": clean_count}
     return {"seen": seen_now, "pending": None}, to_announce, cleared
 
 
@@ -197,10 +207,22 @@ def telegram_sender(token: str, chat_id: str) -> Sender:
     return send
 
 
-def env_file_value(path: str, key: str) -> str:
-    """One value out of a KEY=VALUE env file. Never logs the file's contents."""
+def env_file_value(path: str, key: str, *, require_canonical_path: bool = False) -> str:
+    """Read one key from a build-time absolute path, without logging contents.
+
+    Agenix paths may be symlinks. Systemd credential consumers opt into exact
+    canonical paths so a symlink cannot redirect the fixed credential read.
+    """
     try:
-        with open(path, encoding="utf-8") as handle:
+        configured = Path(path)
+        if not configured.is_absolute() or ".." in configured.parts:
+            return ""
+        resolved = configured.resolve(strict=True)
+        if require_canonical_path and resolved != configured:
+            return ""
+        if not resolved.is_file():
+            return ""
+        with open(resolved, encoding="utf-8") as handle:
             lines = handle.read().splitlines()
     except Exception:
         return ""
@@ -256,6 +278,8 @@ def run_cycle(
     check: Callable[[], list[Problem]],
     render: Callable[[list[str], list[str]], str],
     sender: Sender,
+    *,
+    clear_confirm_runs: int = 1,
 ) -> int:
     """One poll. See the module docstring for the write-ahead-log contract."""
     state = load_state(state_path)
@@ -271,7 +295,7 @@ def run_cycle(
         state = load_state(state_path)
 
     problems = check()
-    next_state, announce, cleared = advance(state, problems)
+    next_state, announce, cleared = advance(state, problems, clear_confirm_runs=clear_confirm_runs)
 
     if announce or cleared:
         text = render(announce, cleared)
