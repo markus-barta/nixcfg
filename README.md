@@ -228,12 +228,16 @@ commands are preserved. Unsupported packages are skipped on that platform;
 other failures keep the prior files and are reported (Home Manager continues,
 whereas `just update-ai-clis` fails).
 
-If Codex needs a runtime repair, the command asks before proceeding. Active
-Codex sessions or a non-interactive terminal defer repair without failing the
-successful npm update. After closing Codex sessions, run `just codex-doctor --fix`
-from a regular terminal, then `just codex-doctor --check` to verify. The check is
-read-only and returns nonzero if drift remains; installation and repair failures
-still fail the update command.
+If the Codex app-server daemon, its package or the models cache is older than
+the new CLI, the command repairs it with `codex app-server daemon update`, which
+moves the daemon into its dedicated, self-updating package. Running `codex exec …`
+workers do not block this. A client connected to the daemon (an open Codex TUI,
+an SSH `app-server proxy`) or enabled remote control defers the repair without
+failing the successful npm update. Remote control is a persistent daemon setting:
+disable it before the repair. After closing those
+sessions, run `just codex-doctor --fix`, then `just codex-doctor --check` to
+verify. The check is read-only and returns nonzero if drift remains; installation
+and repair failures still fail the update command.
 
 | Command         | Description                     |
 | --------------- | ------------------------------- |

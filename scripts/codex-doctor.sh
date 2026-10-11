@@ -3,45 +3,64 @@
 # codex-doctor.sh — Detect and repair Codex CLI ↔ app-server daemon version drift
 #
 # Usage:
-#   ./scripts/codex-doctor.sh           # Report. On drift, ask "[y/N]" before the cleanup.
+#   ./scripts/codex-doctor.sh           # Report. On drift, ask "[y/N]" before the repair.
 #   ./scripts/codex-doctor.sh --check   # Report only; never prompts; exit 1 on drift.
-#   ./scripts/codex-doctor.sh --fix     # Cleanup without the question. Still refuses while
-#                                       # an interactive Codex session is running.
-#   ./scripts/codex-doctor.sh --after-update # Ask when safe; defer successfully if busy
-#                                            # or non-interactive. Repair failures still fail.
+#   ./scripts/codex-doctor.sh --fix     # Repair without the question. Still refuses while
+#                                       # a daemon-attached Codex session is running.
+#   ./scripts/codex-doctor.sh --after-update # Repair without asking when no daemon-attached
+#                                            # session runs; defer successfully otherwise.
+#                                            # Repair failures still fail.
 #
 # Why (NIX-435, 2026-09-06): `just update-ai-clis` bumps the npm CLI, but every
-# Codex TUI attaches to a long-running app-server daemon launched from the
-# standalone package under ~/.codex/packages/standalone/current. Per the
-# upstream daemon docs that daemon keeps its old binary until an explicit
-# restart — and it is the process that refreshes ~/.codex/models_cache.json,
+# Codex TUI attaches to a long-running app-server daemon. Per the upstream
+# daemon docs that daemon keeps its old binary until it is replaced and
+# restarted — and it is the process that refreshes ~/.codex/models_cache.json,
 # as ITS version. Seen on mbp2607: CLI 0.153.4, daemon 0.150.1, a catalog
 # without gpt-6-astra, and the backend answering "requires a newer version of
 # Codex" to the newest CLI. Upstream: openai/codex #31826, #42853.
 #
+# NIX-609 (2026-10-10): the daemon still ran 0.158.0 from the legacy standalone
+# package twelve days after the CLI moved on, and the backend refused
+# gpt-6.1-sol to it as "not supported when using Codex with a ChatGPT account".
+# The repair never ran: every `codex exec` worker counted as a live session,
+# and agents' non-interactive updates always deferred.
+#
+# Daemon package: `codex app-server daemon version` names it (managedCodexPath,
+# managedCodexVersion). Since 0.162, `daemon update` moves it into a dedicated
+# package (~/.codex/packages/app-server-daemon) that keeps itself current with
+# its own update loop, so the daemon may run NEWER than the CLI; only older is
+# drift. The legacy standalone package (~/.codex/packages/standalone) has no
+# working update loop: a daemon still managed from there is drift even at the
+# CLI version. After the move the standalone package stays behind, unused.
+#
 # Drift = any of:
-#   - the daemon runs a version other than the CLI
-#   - the standalone package (what the next `daemon start` runs) ≠ CLI
-#   - the models cache was written by a client version ≠ CLI
+#   - the daemon runs a version older than the CLI
+#   - the daemon package (what the next `daemon start` runs) is older than the
+#     CLI, or is the legacy standalone package
+#   - the models cache was written by a client version older than the CLI
 # Missing configured models are warnings: availability may depend on the account
-# or provider, so a missing model alone must never trigger daemon cleanup.
-# Reports never refresh the cache; only an explicitly approved repair does.
+# or provider, so a missing model alone must never trigger a repair.
+# Reports never refresh the cache; only a repair does.
 #
-# Cleanup (only after a typed `y`, only with no interactive Codex session —
-# background terminals and MCP servers are daemon children, stopping the
-# daemon kills an in-flight turn):
-#   1. `codex app-server daemon stop` (+ TERM for a leftover app-server or
-#      code-mode-host)
-#   2. trash the models cache (`trash` when present, else moved to $TMPDIR)
-#   3. standalone installer pinned to the CLI version, downloaded to a temp
-#      file first (never `curl | sh`) — only when a standalone package exists
-#   4. `daemon start` ONLY if a daemon was running before; verify versions
+# Repair (only with no daemon-attached Codex client — `daemon update` restarts
+# the daemon, which ends their in-flight turns; `codex exec` runs its own
+# app-server in-process and is never touched). Attached = a process connected
+# to the daemon's control socket (lsof: TUIs, `app-server proxy` for SSH
+# clients, whatever the prompt says), or a codex process that looks like a
+# client (anything but the daemon and `exec`), or remote control / a TCP
+# listener on the daemon (remote clients cannot be ruled out; remote control
+# is a persistent setting and blocks until it is disabled). A daemon status
+# that cannot be established refuses the repair. The window between the last
+# check and the restart stays, as before.
+#   1. `codex app-server daemon update --yes` — upstream installs the current
+#      release into the dedicated package and restarts the daemon
+#   2. `codex debug models` refreshes the models cache; then report again
 #
-# Never: kills a TUI, edits config.toml, touches auth.json.
+# Never: kills a process, edits config.toml, touches auth.json.
 #
 # Exit codes:
-#   0 — no drift, cleanup succeeded/declined, or --after-update repair deferred
-#   1 — drift with --check, cleanup refused (live sessions), or cleanup failed
+#   0 — no drift, repair succeeded/declined, or --after-update repair deferred
+#   1 — drift with --check, repair refused (live sessions), or repair failed
 #   2 — usage / environment error
 #
 set -euo pipefail
@@ -69,8 +88,8 @@ esac
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 CACHE="$CODEX_HOME_DIR/models_cache.json"
 CONFIG="$CODEX_HOME_DIR/config.toml"
+DEDICATED="$CODEX_HOME_DIR/packages/app-server-daemon/current"
 STANDALONE="$CODEX_HOME_DIR/packages/standalone/current"
-INSTALLER_URL="https://chatgpt.com/codex/install.sh"
 
 for tool in codex node ps; do
   command -v "$tool" >/dev/null 2>&1 || {
@@ -120,6 +139,45 @@ version_of() { # version_of BINARY → "0.153.4" or empty
   "$1" --version 2>/dev/null | awk '{print $NF}' || true
 }
 
+# version_cmp A B → prints -1, 0 or 1 (semver precedence: numeric dotted core,
+# then pre-release identifiers; a release sorts after its pre-releases; build
+# metadata is ignored). Prints "invalid" when either side does not parse.
+version_cmp() {
+  node -e '
+    const id = "[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*";
+    const re = new RegExp("^(\\d+(?:\\.\\d+)*)(?:-(" + id + "))?(?:\\+" + id + ")?$");
+    const parse = (v) => { const m = re.exec(v); return m &&
+      { core: m[1].split(".").map(Number), pre: m[2] ? m[2].split(".") : null }; };
+    const [a, b] = process.argv.slice(1).map(parse);
+    const out = (n) => { process.stdout.write(String(n)); process.exit(0); };
+    if (!a || !b) { process.stdout.write("invalid"); process.exit(0); }
+    for (let i = 0; i < Math.max(a.core.length, b.core.length); i++) {
+      const x = a.core[i] || 0, y = b.core[i] || 0;
+      if (x !== y) out(x < y ? -1 : 1);
+    }
+    if (!a.pre || !b.pre) out(a.pre ? -1 : b.pre ? 1 : 0);
+    const num = (s) => /^\d+$/.test(s);
+    for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+      const x = a.pre[i], y = b.pre[i];
+      if (x === undefined) out(-1);
+      if (y === undefined) out(1);
+      if (x === y) continue;
+      if (num(x) && num(y)) out(Number(x) < Number(y) ? -1 : 1);
+      if (num(x) !== num(y)) out(num(x) ? -1 : 1);
+      out(x < y ? -1 : 1);
+    }
+    out(0);
+  ' "$1" "$2"
+}
+
+# older_than_cli VERSION → exit 0 when VERSION is older than $CLI_VER. An empty
+# or unparseable version counts as older, so it can never hide drift.
+older_than_cli() {
+  local order
+  order="$(version_cmp "$1" "$CLI_VER")"
+  [ "$order" = -1 ] || [ "$order" = invalid ]
+}
+
 standalone_bin() {
   if [ -x "$STANDALONE/bin/codex" ]; then
     echo "$STANDALONE/bin/codex"
@@ -128,41 +186,118 @@ standalone_bin() {
   fi
 }
 
-# PATH for the installer: $TMP/bin first, every directory holding a `codex` removed.
-installer_path() {
-  local d out="" parts
-  IFS=: read -ra parts <<<"$PATH"
-  for d in "${parts[@]}"; do
-    [ -n "$d" ] && [ ! -x "$d/codex" ] && out="${out:+$out:}$d"
-  done
-  echo "$TMP/bin:$out"
-}
-
 daemon_json() { # → JSON from `daemon version`, written to $TMP/daemon.json
   codex app-server daemon version >"$TMP/daemon.json" 2>/dev/null || echo '{}' >"$TMP/daemon.json"
 }
 
-# Interactive or in-flight Codex sessions (TUI, `codex exec`). The daemon and
-# its code-mode-host are excluded: they are what we manage. Daemon *children*
-# are not a signal — the daemon keeps threads alive after a TUI detaches.
-live_sessions() {
-  # Match the executable and subcommand, not words in a user's exec prompt.
+# codex_processes clients|servers — classify `ps` lines by executable and
+# subcommand, skipping the CLI's global options (and their values) first.
+#   clients: client-looking codex processes — the TUI (with or without a
+#     prompt), resume, fork, agents, queue, … — every codex command except
+#     `app-server …`, `debug`, `--help`/`--version` and `exec`/`e`. exec runs
+#     its own in-process app-server and never attaches (NIX-609: no
+#     daemon-socket descriptor on live exec workers; a daemon update left them
+#     running); a `--remote` anywhere makes it count. Unknown subcommands count:
+#     a new client type blocks the repair rather than losing a turn. `ps`
+#     flattens arguments, so a TUI whose prompt starts with "exec" passes here;
+#     the socket check in daemon_clients is what catches it.
+#   servers: PIDs of app-server server processes (the daemon, or an embedded
+#     one), i.e. `app-server` not followed by daemon/proxy/generate-*/help.
+codex_processes() {
   # pipefail preserves a ps failure without storing its output on disk.
-  if ! ps -eo pid=,command= | awk '
+  if ! ps -eo pid=,command= | awk -v mode="$1" '
     function basename(path) { sub(/^.*\//, "", path); return path }
+    function takes_value(o) {
+      return o ~ /^(-c|--config|--enable|--disable|--remote|--remote-auth-token-env|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-C|--cd|--add-dir|-a|--ask-for-approval)$/
+    }
     {
       executable = 2
       if (basename($executable) == "node") executable++
       if (basename($executable) != "codex") next
-      subcommand = $(executable + 1)
-      if (subcommand == "app-server" || subcommand == "debug" ||
-          subcommand == "--version" || subcommand == "--help") next
+      info = 0
+      for (i = executable + 1; i <= NF && $i ~ /^-/; i++) {
+        if ($i ~ /^(-h|--help|-V|--version)$/) info = 1
+        if ($i !~ /=/ && takes_value($i)) i++
+      }
+      subcommand = i <= NF ? $i : ""
+      if (mode == "servers") {
+        if (subcommand == "app-server" && $(i + 1) !~ /^(daemon|proxy|generate-ts|generate-json-schema|help)$/)
+          print $1
+        next
+      }
+      if (info || subcommand == "app-server" || subcommand == "debug") next
+      if (subcommand == "exec" || subcommand == "e") {
+        remote = 0
+        for (j = executable + 1; j <= NF; j++)
+          if ($j == "--remote" || $j ~ /^--remote=/) remote = 1
+        if (!remote) next
+      }
       print $1, "codex session"
     }
   '; then
-    echo "codex-doctor: cannot inspect live sessions; refusing cleanup" >&2
+    echo "codex-doctor: cannot inspect live sessions; refusing repair" >&2
     return 2
   fi
+}
+
+# Processes connected to the running daemon's control socket. On macOS the
+# daemon's accepted connections carry the socket path as their name and each
+# client's socket names its peer ("->0x…"), so the match is exact. Remote
+# control or a TCP listener means remote clients cannot be ruled out. The
+# socket check is skipped only when no app-server process runs at all; an
+# unknown or failed `daemon version` with one running cannot be judged.
+daemon_clients() {
+  local sock real pid status servers
+  daemon_json
+  status="$(json_get "$TMP/daemon.json" status)"
+  if [ "$status" != running ]; then
+    servers="$(codex_processes servers)" || return 2
+    [ -n "$servers" ] || return 0
+    echo "codex-doctor: daemon status '${status:-unknown}' while an app-server runs; refusing repair" >&2
+    return 2
+  fi
+  sock="$(json_get "$TMP/daemon.json" socketPath)"
+  if [ -z "$sock" ] || ! real="$(node -e 'process.stdout.write(require("fs").realpathSync(process.argv[1]))' "$sock" 2>/dev/null)"; then
+    echo "codex-doctor: cannot resolve the daemon control socket; refusing repair" >&2
+    return 2
+  fi
+  if ! command -v lsof >/dev/null 2>&1 || ! lsof -nP -U -F pdn >"$TMP/sockets" 2>/dev/null ||
+    ! grep -qxF "n$real" "$TMP/sockets"; then
+    echo "codex-doctor: cannot inspect daemon connections; refusing repair" >&2
+    return 2
+  fi
+  : >"$TMP/daemon-pids"
+  awk -v path="$real" -v daemon_pids="$TMP/daemon-pids" '
+    /^p/ { pid = substr($0, 2) }
+    /^d/ { dev = substr($0, 2) }
+    /^n/ {
+      name = substr($0, 2)
+      if (name == path) { server[dev] = 1; daemon[pid] = 1 }
+      else if (name ~ /^->/) { n++; peer_pid[n] = pid; peer_dev[n] = substr(name, 3) }
+    }
+    END {
+      for (i = 1; i <= n; i++)
+        if ((peer_dev[i] in server) && !(peer_pid[i] in daemon) && !seen[peer_pid[i]]++)
+          print peer_pid[i], "attached to the daemon"
+      for (p in daemon) print p > daemon_pids
+    }
+  ' "$TMP/sockets"
+  if [ "$(json_get "$CODEX_HOME_DIR/app-server-daemon/settings.json" remoteControlEnabled)" = true ]; then
+    echo "remote control enabled (remote clients cannot be ruled out)"
+  fi
+  while IFS= read -r pid; do
+    if [ -n "$(lsof -nP -a -p "$pid" -iTCP -sTCP:LISTEN -t 2>/dev/null || true)" ]; then
+      echo "$pid daemon listens on TCP (remote clients cannot be ruled out)"
+    fi
+  done <"$TMP/daemon-pids"
+}
+
+# Everything that blocks a repair, one line each; exit 2 when unknown.
+live_sessions() {
+  local procs clients
+  procs="$(codex_processes clients)" || return 2
+  clients="$(daemon_clients)" || return 2
+  printf '%s\n%s\n' "$procs" "$clients" | awk 'NF && !seen[$0]++'
 }
 
 # ── Report ───────────────────────────────────────────────────────────────────
@@ -172,6 +307,10 @@ report() {
   CLI_VER="$(version_of "$CLI_BIN")"
   [ -n "$CLI_VER" ] || {
     echo "codex-doctor: cannot read 'codex --version'" >&2
+    exit 2
+  }
+  [ "$(version_cmp "$CLI_VER" "$CLI_VER")" = 0 ] || {
+    echo "codex-doctor: cannot parse the CLI version '$CLI_VER'" >&2
     exit 2
   }
   printf '\n\033[1mCodex doctor\033[0m  CLI %s  (%s)\n' "$CLI_VER" "$CLI_BIN"
@@ -192,29 +331,51 @@ report() {
     ok "single codex on PATH"
   fi
 
-  # Standalone package = what `daemon start` will run.
-  SA_BIN="$(standalone_bin)"
-  SA_VER=""
-  if [ -n "$SA_BIN" ]; then
-    SA_VER="$(version_of "$SA_BIN")"
-    if [ "$SA_VER" = "$CLI_VER" ]; then
-      ok "standalone package $SA_VER matches CLI"
+  # Daemon package = what `daemon start` will run. The daemon names it; older
+  # CLIs do not, so fall back to the dedicated, then the legacy location.
+  daemon_json
+  local pkg_path pkg_ver legacy_bin
+  pkg_path="$(json_get "$TMP/daemon.json" managedCodexPath)"
+  pkg_ver="$(json_get "$TMP/daemon.json" managedCodexVersion)"
+  legacy_bin="$(standalone_bin)"
+  if [ -z "$pkg_path" ]; then
+    if [ -x "$DEDICATED/bin/codex" ]; then
+      pkg_path="$DEDICATED/bin/codex"
     else
-      bad "standalone package ${SA_VER:-unreadable} ≠ CLI $CLI_VER ($STANDALONE)"
+      pkg_path="$legacy_bin"
     fi
+    [ -z "$pkg_path" ] || pkg_ver="$(version_of "$pkg_path")"
+  fi
+  if [ -z "$pkg_path" ]; then
+    info "no daemon package (daemon cannot be started; TUI runs embedded)"
   else
-    info "no standalone package (daemon cannot be started; TUI runs embedded)"
+    case "$pkg_path" in
+    */packages/standalone/*)
+      bad "daemon package is the legacy standalone package ${pkg_ver:-unreadable} (no update loop; the repair moves it to the dedicated package)"
+      ;;
+    *)
+      if older_than_cli "$pkg_ver"; then
+        bad "daemon package ${pkg_ver:-unreadable} older than CLI $CLI_VER ($pkg_path)"
+      elif [ "$pkg_ver" = "$CLI_VER" ]; then
+        ok "daemon package $pkg_ver matches CLI"
+      else
+        ok "daemon package $pkg_ver newer than CLI (upstream update loop)"
+      fi
+      if [ -n "$legacy_bin" ]; then
+        info "legacy standalone package $(version_of "$legacy_bin") left behind by the move; unused"
+      fi
+      ;;
+    esac
   fi
 
   # Running daemon.
-  daemon_json
   DAEMON_STATUS="$(json_get "$TMP/daemon.json" status)"
   DAEMON_VER="$(json_get "$TMP/daemon.json" appServerVersion)"
   if [ "$DAEMON_STATUS" = "running" ]; then
-    if [ "$DAEMON_VER" = "$CLI_VER" ]; then
-      ok "app-server daemon running on $DAEMON_VER"
+    if older_than_cli "$DAEMON_VER"; then
+      bad "app-server daemon running on ${DAEMON_VER:-?}, older than CLI $CLI_VER (serves the model catalog to every TUI)"
     else
-      bad "app-server daemon running on ${DAEMON_VER:-?} ≠ CLI $CLI_VER (serves the model catalog to every TUI)"
+      ok "app-server daemon running on $DAEMON_VER"
     fi
   else
     info "app-server daemon not running (status: ${DAEMON_STATUS:-unknown})"
@@ -224,10 +385,10 @@ report() {
   CACHE_VER=""
   if [ -f "$CACHE" ]; then
     CACHE_VER="$(json_get "$CACHE" client_version)"
-    if [ "$CACHE_VER" = "$CLI_VER" ]; then
-      ok "models cache written by client $CACHE_VER"
+    if older_than_cli "$CACHE_VER"; then
+      bad "models cache written by client ${CACHE_VER:-?}, older than CLI $CLI_VER ($CACHE)"
     else
-      bad "models cache written by client ${CACHE_VER:-?} ≠ CLI $CLI_VER ($CACHE)"
+      ok "models cache written by client $CACHE_VER"
     fi
   else
     info "no models cache yet (first run writes it)"
@@ -242,7 +403,7 @@ report() {
     elif catalog_has "$CACHE" "$CFG_MODEL"; then
       ok "configured model '$CFG_MODEL' in cache"
     else
-      warn "configured model '$CFG_MODEL' missing from cache (account/provider availability not verified; no cleanup for this alone)"
+      warn "configured model '$CFG_MODEL' missing from cache (account/provider availability not verified; no repair for this alone)"
     fi
   else
     info "no top-level model in $CONFIG (bundled default applies)"
@@ -250,96 +411,22 @@ report() {
   echo
 }
 
-# ── Cleanup ──────────────────────────────────────────────────────────────────
-wait_gone() { # wait_gone SECONDS PATTERN → 0 when no process matches
-  local i
-  for ((i = 0; i < $1; i++)); do
-    pgrep -f "$2" >/dev/null 2>&1 || return 0
-    sleep 1
-  done
-  ! pgrep -f "$2" >/dev/null 2>&1
-}
-
-cleanup() {
-  local was_running="$1" pat='codex app-server|codex-code-mode-host' ts
-  echo "Cleanup:"
-
-  if [ "$was_running" = running ]; then
-    info "stopping app-server daemon"
-    codex app-server daemon stop >/dev/null 2>&1 || true
+# ── Repair ───────────────────────────────────────────────────────────────────
+repair() {
+  echo "Repair:"
+  info "codex app-server daemon update --yes"
+  if ! codex app-server daemon update --yes >"$TMP/update.log" 2>&1; then
+    cp "$TMP/update.log" "${TMPDIR:-/tmp}/codex-doctor-update.log"
+    bad "daemon update failed — log: ${TMPDIR:-/tmp}/codex-doctor-update.log"
+    tail -5 "$TMP/update.log"
+    return 1
   fi
-  if ! wait_gone 10 "$pat"; then
-    info "sending TERM to leftover app-server/code-mode-host"
-    pkill -TERM -f "$pat" 2>/dev/null || true
-    wait_gone 10 "$pat" || {
-      bad "app-server/code-mode-host still alive; not continuing"
-      pgrep -fl "$pat" || true
-      return 1
-    }
-  fi
-  ok "no app-server / code-mode-host running"
-
-  if [ -f "$CACHE" ]; then
-    if command -v trash >/dev/null 2>&1; then
-      if ! trash "$CACHE"; then
-        bad "could not trash models cache"
-        return 1
-      fi
-      ok "models cache trashed"
-    else
-      ts="$(date +%Y%m%dT%H%M%S)"
-      if ! mv "$CACHE" "${TMPDIR:-/tmp}/codex-models_cache.$ts.json"; then
-        bad "could not move models cache"
-        return 1
-      fi
-      ok "models cache moved to ${TMPDIR:-/tmp}/codex-models_cache.$ts.json"
-    fi
-  fi
-
-  if [ -n "$(standalone_bin)" ]; then
-    info "installing standalone package pinned to $CLI_VER (installer downloaded to $TMP)"
-    if ! curl -fsSL "$INSTALLER_URL" -o "$TMP/install.sh"; then
-      bad "could not download $INSTALLER_URL"
-      return 1
-    fi
-    # The installer also wants to be the user-facing CLI: it symlinks
-    # $CODEX_INSTALL_DIR/codex (default ~/.local/bin) and, whenever it sees
-    # another `codex` via `command -v`, appends a PATH block to ~/.zprofile.
-    # We only want the managed package refreshed for the daemon, so: symlink
-    # into a temp dir that is already on PATH, and hide every other codex.
-    mkdir -p "$TMP/bin"
-    if ! CODEX_INSTALL_DIR="$TMP/bin" CODEX_NON_INTERACTIVE=1 PATH="$(installer_path)" \
-      sh "$TMP/install.sh" --release "$CLI_VER" >"$TMP/install.log" 2>&1; then
-      cp "$TMP/install.log" "${TMPDIR:-/tmp}/codex-doctor-install.log"
-      bad "installer failed — log: ${TMPDIR:-/tmp}/codex-doctor-install.log"
-      tail -20 "$TMP/install.log"
-      return 1
-    fi
-    ok "standalone package now $(version_of "$(standalone_bin)")"
-  fi
-
-  if [ "$was_running" = running ]; then
-    info "starting app-server daemon"
-    if ! codex app-server daemon start >/dev/null 2>&1; then
-      bad "daemon start failed"
-      return 1
-    fi
-    daemon_json
-    if [ "$(json_get "$TMP/daemon.json" appServerVersion)" = "$CLI_VER" ]; then
-      ok "app-server daemon restarted on $CLI_VER"
-    else
-      bad "daemon restarted but reports $(json_get "$TMP/daemon.json" appServerVersion) ≠ $CLI_VER"
-      return 1
-    fi
-  else
-    info "daemon was not running before — leaving it stopped (TUI runs embedded)"
-  fi
-  return 0
+  ok "daemon package updated"
 }
 
 manual_steps() {
   cat <<STEPS
-After closing Codex sessions, run from a regular terminal in nixcfg:
+After closing Codex TUI sessions (exec workers may keep running), run from a regular terminal in nixcfg:
   just codex-doctor --fix
   just codex-doctor --check
 STEPS
@@ -368,24 +455,21 @@ fi
 LIVE="$(live_sessions)"
 if [ -n "$LIVE" ]; then
   if [ "$MODE" = after-update ]; then
-    defer_repair "Codex sessions are active"
+    defer_repair "Codex sessions are attached to the daemon"
   fi
-  printf '\033[31mRefusing the cleanup: interactive Codex sessions are running.\033[0m\n'
-  echo "Stopping the daemon would kill their in-flight turns. Finish or quit them, then rerun."
+  printf '\033[31mRefusing the repair: daemon-attached Codex clients are running.\033[0m\n'
+  echo "Updating the daemon would end their in-flight turns. Finish or quit them, then rerun."
   echo "$LIVE" | sed 's/^/  /' | cut -c1-140
   exit 1
 fi
 
-if [ "$MODE" = ask ] || [ "$MODE" = after-update ]; then
+if [ "$MODE" = ask ]; then
   if [ ! -t 0 ]; then
-    if [ "$MODE" = after-update ]; then
-      defer_repair "stdin is not a terminal"
-    fi
     echo "stdin is not a terminal — not asking. Rerun with --fix to apply."
     manual_steps
     exit 1
   fi
-  printf 'Run the cleanup now? stop daemon → trash cache → reinstall standalone %s → restart daemon only if it was running [y/N] ' "$CLI_VER"
+  printf 'Run the repair now? codex app-server daemon update → refresh models cache [y/N] '
   IFS= read -r -n 1 ANSWER || ANSWER=""
   echo
   case "$ANSWER" in
@@ -402,13 +486,13 @@ fi
 LIVE="$(live_sessions)"
 if [ -n "$LIVE" ]; then
   if [ "$MODE" = after-update ]; then
-    defer_repair "a Codex session started before cleanup"
+    defer_repair "a Codex session attached before the repair"
   fi
-  echo "Refusing cleanup: a Codex session started before cleanup." >&2
+  echo "Refusing the repair: a Codex session attached before the repair." >&2
   exit 1
 fi
 
-if cleanup "$DAEMON_STATUS"; then
+if repair; then
   if ! codex debug models >"$TMP/catalog.json" 2>/dev/null; then
     warn "could not refresh model catalog; the next Codex session will retry"
   fi
@@ -418,8 +502,8 @@ if cleanup "$DAEMON_STATUS"; then
     echo "Fixed."
     exit 0
   fi
-  echo "Cleanup ran but drift remains — see ✗ lines above."
+  echo "Repair ran but drift remains — see ✗ lines above."
   exit 1
 fi
-echo "Cleanup failed — see ✗ lines above."
+echo "Repair failed — see ✗ lines above."
 exit 1

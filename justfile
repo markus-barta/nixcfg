@@ -1602,13 +1602,15 @@ pixoo-logs:
 # verified CLI is published through an atomic symlink replacement; old package
 # files remain available to running processes and for receipt-based rollback.
 # After the bump, scripts/codex-doctor.sh checks that the Codex app-server daemon,
-# the standalone package it starts from, and ~/.codex/models_cache.json all match
+# the package it starts from, and ~/.codex/models_cache.json are not older than
 # the new CLI. Every Codex TUI attaches to that daemon, and a daemon left on an
 # older binary keeps serving an old model catalog — NIX-435 (2026-09-06): CLI
 # 0.153.4, daemon 0.150.1, and "gpt-6-astra requires a newer version of Codex"
-# on the newest CLI. After an update, repair is deferred successfully while
-# sessions are active or stdin is non-interactive. Otherwise the doctor asks
-# [y/N]. Explicit --check and --fix remain strict about unresolved drift.
+# on the newest CLI; NIX-609 (2026-10-10): daemon 0.158.0 for twelve days and
+# "gpt-6.1-sol is not supported" in the TUI. After an update the doctor repairs
+# with `codex app-server daemon update` (dedicated, self-updating package) unless
+# a daemon-attached session (a TUI) is running; then it defers successfully.
+# `codex exec` workers never block it. Explicit --check and --fix stay strict.
 # The Cursor CLI is not an npm package but a hash-pinned Nix package (NIX-514):
 # scripts/update-cursor-agent.sh bumps pkgs/cursor-agent/sources.json to the
 # vendor release and verifies the build. That is a repo change — commit it, then
