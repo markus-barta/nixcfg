@@ -27,6 +27,9 @@ gate="${repo}/tests/compose_stack_gate.py"
 
 nix-instantiate --parse "${module}" >/dev/null
 
+# OPS-308: the Aeon service binding must resolve to its mounted file transport.
+bash "${repo}/tests/T97-aeon-upstream-transport.sh"
+
 # --- module contract -------------------------------------------------------
 # Each of these encodes a decision that is easy to undo by accident and does not
 # fail loudly at build time.
