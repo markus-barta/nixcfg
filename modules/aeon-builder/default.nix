@@ -60,6 +60,10 @@ let
       pollSeconds
       loadHigh
       loadLow
+      claimSpacingSeconds
+      memFreeLow
+      memFreeHigh
+      busyFile
       sshPortBase
       labGuardUsers
       probeTargets
@@ -202,6 +206,26 @@ in
       default = 8.0;
       description = "Resume taking jobs only when the host's 1-minute load falls below this threshold.";
     };
+    claimSpacingSeconds = lib.mkOption {
+      type = lib.types.int;
+      default = 180;
+      description = "Minimum time between slot claims, persisted across controller restarts; at most one claim per tick.";
+    };
+    memFreeLow = lib.mkOption {
+      type = lib.types.number;
+      default = 35;
+      description = "Stop taking new jobs when the host memory free percentage falls below this threshold.";
+    };
+    memFreeHigh = lib.mkOption {
+      type = lib.types.number;
+      default = 45;
+      description = "Resume taking jobs only when the host memory free percentage reaches this threshold; must exceed memFreeLow.";
+    };
+    busyFile = lib.mkOption {
+      type = lib.types.str;
+      default = "/Users/Shared/ci-pool-busy";
+      description = "Atomically updated busy-slot count and Unix timestamp, with an off marker when off or paused.";
+    };
     sshPortBase = lib.mkOption {
       type = lib.types.port;
       default = 41020;
@@ -281,6 +305,10 @@ in
       {
         assertion = cfg.loadHigh > cfg.loadLow;
         message = "services.aeonBuilder.loadHigh must be greater than loadLow.";
+      }
+      {
+        assertion = cfg.memFreeHigh > cfg.memFreeLow;
+        message = "services.aeonBuilder.memFreeHigh must be greater than memFreeLow.";
       }
     ];
     home.packages = [
