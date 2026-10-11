@@ -37,6 +37,7 @@ let
   };
   cfg = if config == null then evaluated.config else config;
   service = cfg.systemd.services.lg-devmode-renew;
+  notifyTest = cfg.systemd.services.lg-devmode-notify-test;
   timer = cfg.systemd.timers.lg-devmode-renew;
   secret = cfg.age.secrets.hsb0-lg-devmode-token;
 in
@@ -49,12 +50,46 @@ in
   enabledTimer = builtins.elem "timers.target" timer.wantedBy;
   rootSecret = secret.owner == "root" && secret.group == "root" && secret.mode == "0400";
   correctCiphertext = builtins.baseNameOf secret.file == "hsb0-lg-devmode-token.age";
-  privateCredential = builtins.elem "token:${secret.path}" service.serviceConfig.LoadCredential;
-  existingEmail = builtins.elem "destinations.json:/run/agenix/hsb0-gateway-notify-config" service.serviceConfig.LoadCredential;
+  privateCredential = service.environment.LG_DEVMODE_TOKEN_FILE == secret.path;
+  existingEmail =
+    service.environment.LG_DEVMODE_DESTINATIONS_FILE == "/run/agenix/hsb0-gateway-notify-config";
+  noCredentialStartFailure = (service.serviceConfig.LoadCredential or [ ]) == [ ];
+  noSilentSkip = (service.unitConfig.ConditionPathExists or [ ]) == [ ];
+  telegramDeferred = !(service.environment ? LG_DEVMODE_NOTIFICATION_ENV_FILE);
   durableState =
     service.serviceConfig.StateDirectory == "lg-devmode-renew"
     && service.serviceConfig.StateDirectoryMode == "0700";
-  sufficientTimeout = service.serviceConfig.TimeoutStartSec == "25min";
+  sufficientTimeout = service.serviceConfig.TimeoutStartSec == "30min";
   noTokenEnvironment = !(service.environment ? LG_DEVMODE_TOKEN);
   noCoreDumps = service.serviceConfig.LimitCORE == 0;
+  noCapabilities = service.serviceConfig.CapabilityBoundingSet == "";
+  privateDevices = service.serviceConfig.PrivateDevices;
+  kernelProtected = service.serviceConfig.ProtectKernelLogs;
+  namespacesRestricted = service.serviceConfig.RestrictNamespaces;
+  clockProtected = service.serviceConfig.ProtectClock;
+  hostProtected = service.serviceConfig.ProtectHostname;
+  realtimeRestricted = service.serviceConfig.RestrictRealtime;
+  procProtected = service.serviceConfig.ProtectProc == "invisible";
+  addressFamilies =
+    service.serviceConfig.RestrictAddressFamilies == [
+      "AF_UNIX"
+      "AF_INET"
+      "AF_INET6"
+    ];
+  nativeSyscalls = service.serviceConfig.SystemCallArchitectures == "native";
+  filteredSyscalls = service.serviceConfig.SystemCallFilter == "@system-service";
+  testNotifyCommand = builtins.match ".* --test-notify" notifyTest.serviceConfig.ExecStart != null;
+  testNotifyTransport = notifyTest.environment == service.environment;
+  testNotifySandbox =
+    (builtins.removeAttrs notifyTest.serviceConfig [
+      "ExecStart"
+      "TimeoutStartSec"
+    ]) == (builtins.removeAttrs service.serviceConfig [
+      "ExecStart"
+      "TimeoutStartSec"
+      "StateDirectory"
+      "StateDirectoryMode"
+    ]);
+  testNotifyNoState = !(notifyTest.serviceConfig ? StateDirectory);
+  testNotifyManual = (notifyTest.wantedBy or [ ]) == [ ];
 }

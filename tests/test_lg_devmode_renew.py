@@ -7,10 +7,13 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from email.parser import BytesParser
+from email.policy import default
 from pathlib import Path
 from unittest import mock
 
@@ -209,6 +212,85 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(sender.call_count, 2)
         self.assertEqual(self.state()["recoveries"], [])
 
+    def test_recovery_is_dropped_after_three_later_retries(self):
+        self.failing()
+        self.failing(day=1)
+        sender = mock.Mock(return_value=False)
+        for attempt in range(renew.RECOVERY_RETRIES + 1):
+            expected = 1 if attempt < renew.RECOVERY_RETRIES else 0
+            self.assertEqual(self.run_cycle(day=attempt + 2, senders={"email": sender}), expected)
+            if expected:
+                self.assertEqual(self.state()["recoveries"][0]["attempts"], {"email": attempt + 1})
+        self.assertEqual(sender.call_count, 4)
+        self.assertEqual(self.state()["recoveries"], [])
+        self.assertIn("recovery notification dropped channel=email reason=retry-limit", self.output.getvalue())
+        self.assertEqual(self.run_cycle(day=6, senders={"email": sender}), 0)
+        self.assertEqual(sender.call_count, 4)
+
+    def test_recovery_attempt_is_saved_before_send_and_resumes_at_limit(self):
+        self.failing()
+        self.failing(day=1)
+
+        def interrupted(_text, _identifier):
+            self.assertEqual(self.state()["recoveries"][0]["attempts"], {"email": 1})
+            raise RuntimeError("synthetic interruption")
+
+        with self.assertRaises(RuntimeError):
+            self.run_cycle(day=2, senders={"email": interrupted})
+        state = self.state()
+        state["recoveries"][0]["attempts"]["email"] = renew.RECOVERY_RETRIES + 1
+        renew.save_state(self.state_path, state)
+        sender = mock.Mock(return_value=False)
+        self.assertEqual(self.run_cycle(day=3, senders={"email": sender}), 0)
+        sender.assert_not_called()
+        self.assertEqual(self.state()["recoveries"], [])
+        self.assertIn("reason=retry-limit", self.output.getvalue())
+
+    def test_removed_recovery_transport_is_dropped(self):
+        self.failing()
+        self.failing(day=1)
+        self.assertEqual(self.run_cycle(day=2, senders={}), 0)
+        self.assertEqual(self.state()["recoveries"], [])
+        self.assertIn("recovery notification dropped channel=email reason=no-existing-transport", self.output.getvalue())
+
+    def test_recovery_retries_are_per_channel(self):
+        self.failing(senders={"email": self.sender, "telegram": self.sender})
+        self.failing(day=1, senders={"email": self.sender, "telegram": self.sender})
+        email = mock.Mock(return_value=True)
+        telegram = mock.Mock(return_value=False)
+        senders = {"email": email, "telegram": telegram}
+        self.assertEqual(self.run_cycle(day=2, senders=senders), 1)
+        self.assertEqual(self.state()["recoveries"][0]["attempts"], {"telegram": 1})
+        for day in range(3, 6):
+            self.run_cycle(day=day, senders=senders)
+        self.assertEqual(email.call_count, 1)
+        self.assertEqual(telegram.call_count, 4)
+        self.assertEqual(self.state()["recoveries"], [])
+
+    def test_legacy_pending_recovery_keeps_its_identity(self):
+        self.failing()
+        self.failing(day=1)
+        state = self.state()
+        identifier = state["streak_id"]
+        state["recoveries"] = [{"id": identifier, "channels": ["email"]}]
+        state.update(consecutive_failed_days=0, last_failed_day=None, streak_id=None, failure_notified=[])
+        renew.save_state(self.state_path, state)
+        self.assertEqual(self.run_cycle(day=2), 0)
+        self.assertEqual(self.alerts[-1][1], f"lgdevmode-{identifier}-recovery")
+        self.assertEqual(self.state()["recoveries"], [])
+        self.assertNotIn("state-reset", self.output.getvalue())
+
+    def test_only_one_queued_recovery_is_sent_per_run(self):
+        state = renew.fresh_state()
+        state["recoveries"] = [{"id": str(renew.uuid.uuid4()), "channels": ["email"],
+                                "attempts": {"email": 0}} for _ in range(5)]
+        renew.save_state(self.state_path, state)
+        sender = mock.Mock(return_value=True)
+        for day in range(5):
+            self.assertEqual(self.run_cycle(day=day, senders={"email": sender}), 0 if day == 4 else 1)
+            self.assertEqual(sender.call_count, day + 1)
+            self.assertEqual(len(self.state()["recoveries"]), 4 - day)
+
     def test_no_recovery_for_an_undelivered_failure(self):
         sender = mock.Mock(return_value=False)
         self.failing(senders={"email": sender})
@@ -224,12 +306,45 @@ class RenewalTests(unittest.TestCase):
         self.assertIsNotNone(self.state()["last_success_time"])
 
     def test_missing_credential_records_failure_without_requests(self):
-        absent = self.root / "absent"
-        with mock.patch.object(renew, "read_token", side_effect=FileNotFoundError(absent)):
-            self.assertEqual(self.run_cycle(), 1)
+        self.credential = self.root / "absent"
+        self.assertEqual(self.run_cycle(), 3)
         self.assertEqual(self.requests, [])
         self.assertEqual(self.sleeps, [])
         self.assertEqual(self.state()["consecutive_failed_days"], 1)
+        self.assertIn("reason=credential-missing", self.output.getvalue())
+
+    def test_cli_checks_declared_agenix_token_path_and_exits_distinctly(self):
+        for arguments in ([], ["--renew"]):
+            with self.subTest(arguments=arguments), \
+                    mock.patch.object(sys, "argv", [str(SCRIPT), *arguments]), \
+                    mock.patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": str(self.root),
+                                    "LG_DEVMODE_TOKEN_FILE": str(self.root / "absent-agenix-token"),
+                                    "STATE_DIRECTORY": str(self.root)}, clear=True), \
+                    mock.patch.object(renew, "request") as request, \
+                    contextlib.redirect_stdout(self.output):
+                self.assertEqual(renew.main(), 3)
+                request.assert_not_called()
+        self.assertIn("reason=credential-missing", self.output.getvalue())
+
+    def test_missing_declared_notification_config_still_renews_and_exits_distinctly(self):
+        with mock.patch.object(sys, "argv", [str(SCRIPT), "--renew"]), \
+                mock.patch.dict(os.environ, {"LG_DEVMODE_TOKEN_FILE": str(self.credential),
+                                "LG_DEVMODE_DESTINATIONS_FILE": str(self.root / "absent-agenix-config"),
+                                "STATE_DIRECTORY": str(self.root)}, clear=True), \
+                mock.patch.object(renew, "request", return_value=renew.Outcome(True, "success")) as request, \
+                contextlib.redirect_stdout(self.output):
+            self.assertEqual(renew.main(), 3)
+        self.assertEqual([call.args[1] for call in request.call_args_list], [True, False])
+        self.assertIsNotNone(self.state()["last_success_time"])
+        self.assertIn("reason=credential-missing kind=email-config", self.output.getvalue())
+
+    def test_no_notification_config_reports_unavailable_transport_after_two_failed_days(self):
+        senders = renew.existing_senders(self.root, "docker-fixture")
+        self.assertEqual(senders, {})
+        self.assertEqual(self.failing(senders=senders), 1)
+        self.assertEqual(self.failing(day=1, senders=senders), 1)
+        self.assertIn("failure notification unavailable: no existing transport", self.output.getvalue())
+        self.assertEqual(self.state()["failure_notified"], [])
 
     def test_credential_custody_and_format(self):
         self.credential.chmod(0o644)
@@ -244,12 +359,54 @@ class RenewalTests(unittest.TestCase):
         with self.assertRaises(OSError):
             renew.read_token(link)
 
-    def test_corrupt_state_fails_closed_without_http_or_alert(self):
+    def test_corrupt_state_is_quarantined_and_renewal_continues(self):
         self.state_path.write_text("{}")
-        with self.assertRaises(ValueError):
-            self.run_cycle()
-        self.assertEqual(self.requests, [])
+        self.assertEqual(self.run_cycle(), 0)
+        self.assertEqual(len(self.requests), 2)
+        quarantines = list(self.root.glob("state.json.corrupt-*"))
+        self.assertEqual(len(quarantines), 1)
+        self.assertEqual(quarantines[0].read_text(), "{}")
+        self.assertIn("state-reset", self.output.getvalue())
+        self.assertIsNotNone(self.state()["last_success_time"])
         self.assertEqual(self.alerts, [])
+
+    def test_parse_and_shape_errors_reset_state_without_disclosing_bad_bytes(self):
+        cases = [b"", b"invalid-json", b"[]", b"x" * 65537, b"[" * 2000 + b"]" * 2000]
+        for field, invalid in (("streak_id", 42), ("last_failed_day", {}),
+                               ("last_success_time", []), ("failure_notified", ["email", "email"])):
+            cases.append(json.dumps({**renew.fresh_state(), field: invalid}).encode())
+        for pending in ({"id": 42, "channels": ["email"]},
+                        {"id": str(renew.uuid.uuid4()), "channels": ["email"], "attempts": {"email": -1}}):
+            cases.append(json.dumps({**renew.fresh_state(), "recoveries": [pending]}).encode())
+        for bad in cases:
+            with self.subTest(size=len(bad)):
+                self.state_path.write_bytes(bad)
+                before = len(self.requests)
+                self.assertEqual(self.run_cycle(), 0)
+                self.assertEqual(len(self.requests), before + 2)
+                self.assertIsNotNone(self.state()["last_success_time"])
+        quarantines = list(self.root.glob("state.json.corrupt-*"))
+        self.assertEqual(len(quarantines), len(cases))
+        self.assertEqual(sorted(path.read_bytes() for path in quarantines), sorted(cases))
+        self.assertNotIn("invalid-json", self.output.getvalue())
+
+    def test_unreadable_state_is_quarantined_and_renewal_continues(self):
+        self.state_path.write_text("opaque refused state")
+        with mock.patch.object(renew, "load_state", side_effect=PermissionError(self.token)):
+            self.assertEqual(self.run_cycle(), 0)
+        self.assertEqual(len(self.requests), 2)
+        quarantines = list(self.root.glob("state.json.corrupt-*"))
+        self.assertEqual(len(quarantines), 1)
+        self.assertEqual(quarantines[0].read_text(), "opaque refused state")
+        self.assertTrue(self.token not in self.output.getvalue(), "exception disclosed credential")
+
+    def test_quarantine_failure_does_not_block_http_renewal(self):
+        self.state_path.write_text("{}")
+        with mock.patch.object(Path, "rename", side_effect=PermissionError(self.token)):
+            self.assertEqual(self.run_cycle(), 0)
+        self.assertEqual(len(self.requests), 2)
+        self.assertIn("state-reset quarantine=unavailable", self.output.getvalue())
+        self.assertTrue(self.token not in self.output.getvalue(), "exception disclosed credential")
 
     def test_reflected_credentials_never_reach_logs_state_messages_or_argv(self):
         reflected = response({"result": self.token, "errorCode": self.token, "errorMsg": self.token},
@@ -301,6 +458,65 @@ class RenewalTests(unittest.TestCase):
             self.assertEqual(renew.main(), 0)
         self.assertFalse(request.call_args.args[1])
         self.assertFalse(self.state_path.exists())
+
+    def test_test_notify_uses_real_mail_path_once_without_token_state_or_lg_access(self):
+        destinations = self.root / "destinations.json"
+        destinations.write_text(json.dumps({"schema_version": 1, "email": {
+            "from": "monitor@example.invalid", "to": "recipient@example.invalid"}}))
+        destinations.chmod(0o600)
+        self.state_path.write_text("opaque existing state")
+        with mock.patch.object(sys, "argv", [str(SCRIPT), "--test-notify"]), \
+                mock.patch.dict(os.environ, {"LG_DEVMODE_DESTINATIONS_FILE": str(destinations),
+                                "LG_DEVMODE_TOKEN_FILE": str(self.root / "absent-token"),
+                                "LG_DEVMODE_DOCKER": "docker-fixture", "STATE_DIRECTORY": str(self.root)}, clear=True), \
+                mock.patch.object(renew, "read_token") as token, \
+                mock.patch.object(renew, "load_or_reset_state") as load, \
+                mock.patch.object(renew, "save_state") as save, \
+                mock.patch.object(renew, "request") as request, \
+                mock.patch.object(renew.subprocess, "run", return_value=response()) as send, \
+                contextlib.redirect_stdout(self.output):
+            self.assertEqual(renew.main(), 0)
+        token.assert_not_called()
+        load.assert_not_called()
+        save.assert_not_called()
+        request.assert_not_called()
+        send.assert_called_once()
+        self.assertEqual(send.call_args.args[0][:4], ["docker-fixture", "exec", "-i", "docker-smtp-1"])
+        self.assertEqual(send.call_args.kwargs["timeout"], 20)
+        message = BytesParser(policy=default).parsebytes(send.call_args.kwargs["input"])
+        self.assertEqual(str(message["Subject"]), "[TEST] LG Developer Mode renew alert path check")
+        self.assertEqual(message.get_content().strip(), renew.TEST_ALERT)
+        self.assertEqual(self.state_path.read_text(), "opaque existing state")
+        self.assertIn("TEST notification accepted channel=email", self.output.getvalue())
+
+    def test_test_notify_sends_only_one_alert_and_returns_delivery_status(self):
+        for accepted, status in ((True, 0), (False, 2)):
+            email, telegram = mock.Mock(return_value=accepted), mock.Mock(return_value=True)
+            with self.subTest(accepted=accepted), \
+                    mock.patch.object(sys, "argv", [str(SCRIPT), "--test-notify"]), \
+                    mock.patch.object(renew, "existing_senders", return_value={"email": email, "telegram": telegram}), \
+                    mock.patch.object(renew, "run_cycle") as run, \
+                    contextlib.redirect_stdout(self.output):
+                self.assertEqual(renew.main(), status)
+                run.assert_not_called()
+            email.assert_called_once()
+            self.assertEqual(email.call_args.args[0], renew.TEST_ALERT)
+            telegram.assert_not_called()
+        with mock.patch.object(sys, "argv", [str(SCRIPT), "--test-notify"]), \
+                mock.patch.object(renew, "existing_senders", return_value={}), \
+                contextlib.redirect_stdout(self.output):
+            self.assertEqual(renew.main(), 2)
+        self.assertIn("TEST notification unavailable: no existing transport", self.output.getvalue())
+        self.assertFalse(self.state_path.exists())
+
+    def test_start_timeout_covers_bounded_work_and_five_minute_margin(self):
+        module = (REPO / "hosts/hsb0/lg-devmode-renew.nix").read_text()
+        match = re.search(r'TimeoutStartSec = "([0-9]+)min";', module)
+        self.assertIsNotNone(match)
+        timeout = int(match[1]) * 60
+        renewal_and_check = (len(renew.BACKOFF) + 2) * renew.TIMEOUT + sum(renew.BACKOFF)
+        # Existing email sender allows 20s each: one queued recovery and one failure.
+        self.assertGreaterEqual(timeout, renewal_and_check + 2 * 20 + 5 * 60)
 
     def test_existing_email_helper_uses_private_destination_and_lg_subject(self):
         document = {"schema_version": 1, "email": {"from": "monitor@example.invalid",

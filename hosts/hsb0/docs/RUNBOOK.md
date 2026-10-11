@@ -360,10 +360,27 @@ time, and keeps the last success and failed calendar-day streak in
 `/var/lib/lg-devmode-renew/state.json`. Run manually with
 `sudo systemctl start lg-devmode-renew`; inspect `journalctl -u lg-devmode-renew`.
 Two consecutive failed days send one notice per streak through the existing
-encrypted Gateway email destination and managed mail relay, followed by one
-recovery notice; failed delivery retries on later runs. hsb0 has no declared
-shoutrrr notification env, so Telegram is unavailable until an existing target is
-configured. Replace the token using `just edit-secret secrets/hsb0-lg-devmode-token.age`
+encrypted Gateway email destination (Amy) and managed mail relay. Alerts go by
+email only; Telegram is deferred until hsb0 has a declared Telegram target.
+A delivered failure notice is followed by one recovery notice. Failed recovery
+delivery gets one initial attempt and at most three retries on later runs, then
+is dropped with a journal entry; channels without a sender are dropped immediately.
+At most one queued recovery is processed per run. A refused or corrupt state file
+is quarantined as `state.json.corrupt-<timestamp>` with a `state-reset` journal
+entry, and renewal continues with fresh state; this can repeat a previous alert.
+Missing configured credential files are checked by the script, logged as
+`credential-missing`, and exit with status 3. The unit is never silently skipped.
+The renewal start timeout is 30 minutes, covering the 1400-second bounded work
+plus 400 seconds of margin with hsb0's email transport.
+
+After the approved deployment, run `sudo systemctl start lg-devmode-notify-test`
+once and inspect `journalctl -u lg-devmode-notify-test`. This invokes
+`--test-notify` with the same protected paths, mail relay and sandbox, sending one
+`[TEST] LG Developer Mode renew alert path check` email without reading the LG
+token, touching renewal state or calling LG. Status 0 means relay acceptance;
+status 2 means failure or no transport. Confirm receipt in Amy's inbox as well.
+
+Replace the token using `just edit-secret secrets/hsb0-lg-devmode-token.age`
 (agenix), preserving one line `LG_DEVMODE_TOKEN=<64 hex characters>`; apply it in
 the normal approved hsb0 deployment. Developer Mode reinstallation changes the
 token. Never send it by message, print it, or put it in a command argument.

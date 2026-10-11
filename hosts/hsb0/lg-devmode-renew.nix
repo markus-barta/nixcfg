@@ -13,6 +13,57 @@ let
     cp ${../../modules/shared/fleet-alerts/engine.py} "$out/engine.py"
     cp ${../../modules/ib-gateway-session/notification_delivery.py} "$out/notification_delivery.py"
   '';
+  common = {
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+    environment = {
+      LG_DEVMODE_CURL = "${pkgs.curl}/bin/curl";
+      LG_DEVMODE_DOCKER = "${config.virtualisation.docker.package}/bin/docker";
+      # Root reads the protected agenix paths with custody checks. Do not use
+      # LoadCredential or ConditionPathExists: missing files must reach the
+      # script, journal a credential-missing error, and exit distinctly (3).
+      LG_DEVMODE_TOKEN_FILE = config.age.secrets.hsb0-lg-devmode-token.path;
+    }
+    // lib.optionalAttrs (notifications.destinationFile != null) {
+      LG_DEVMODE_DESTINATIONS_FILE = toString notifications.destinationFile;
+    }
+    // lib.optionalAttrs (notifications.notificationEnvFile != null) {
+      LG_DEVMODE_NOTIFICATION_ENV_FILE = toString notifications.notificationEnvFile;
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+      UMask = "0077";
+      # hsb0 is email-only: 4*20s renewal + (60+300+900)s backoff + 20s
+      # check + 2*20s mail (one recovery + one failure) = 1400s; 400s margin.
+      TimeoutStartSec = "30min";
+      CapabilityBoundingSet = "";
+      NoNewPrivileges = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      PrivateTmp = true;
+      PrivateDevices = true;
+      ProtectKernelTunables = true;
+      ProtectKernelModules = true;
+      ProtectKernelLogs = true;
+      ProtectClock = true;
+      ProtectHostname = true;
+      ProtectControlGroups = true;
+      ProtectProc = "invisible";
+      RestrictNamespaces = true;
+      RestrictRealtime = true;
+      RestrictAddressFamilies = [
+        "AF_UNIX"
+        "AF_INET"
+        "AF_INET6"
+      ];
+      RestrictSUIDSGID = true;
+      LockPersonality = true;
+      SystemCallArchitectures = "native";
+      SystemCallFilter = "@system-service";
+      LimitCORE = 0;
+    };
+  };
 in
 {
   age.secrets.hsb0-lg-devmode-token = {
@@ -22,42 +73,22 @@ in
     mode = "0400";
   };
 
-  systemd.services.lg-devmode-renew = {
+  systemd.services.lg-devmode-renew = common // {
     description = "Renew LG beamer webOS Developer Mode session (OPS-309)";
-    wants = [ "network-online.target" ];
-    after = [ "network-online.target" ];
-    environment = {
-      LG_DEVMODE_CURL = "${pkgs.curl}/bin/curl";
-      LG_DEVMODE_DOCKER = "${config.virtualisation.docker.package}/bin/docker";
-    };
-    serviceConfig = {
-      Type = "oneshot";
-      User = "root";
+    serviceConfig = common.serviceConfig // {
       ExecStart = "${pkgs.python3}/bin/python3 ${runtime}/renew.py --renew";
-      LoadCredential = [
-        "token:${config.age.secrets.hsb0-lg-devmode-token.path}"
-      ]
-      ++ lib.optional (
-        notifications.destinationFile != null
-      ) "destinations.json:${toString notifications.destinationFile}"
-      ++ lib.optional (
-        notifications.notificationEnvFile != null
-      ) "notification-env:${toString notifications.notificationEnvFile}";
       StateDirectory = "lg-devmode-renew";
       StateDirectoryMode = "0700";
-      UMask = "0077";
-      # 21 minutes of backoff, four bounded requests, a check and notifications.
-      TimeoutStartSec = "25min";
-      NoNewPrivileges = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateTmp = true;
-      ProtectKernelTunables = true;
-      ProtectKernelModules = true;
-      ProtectControlGroups = true;
-      RestrictSUIDSGID = true;
-      LockPersonality = true;
-      LimitCORE = 0;
+    };
+  };
+
+  # Explicit operator check; shares the real transport and sandbox, has no timer
+  # or state directory, and does not read the LG token or call the renewal API.
+  systemd.services.lg-devmode-notify-test = common // {
+    description = "Send one TEST LG Developer Mode alert (OPS-309)";
+    serviceConfig = common.serviceConfig // {
+      ExecStart = "${pkgs.python3}/bin/python3 ${runtime}/renew.py --test-notify";
+      TimeoutStartSec = "1min";
     };
   };
 
