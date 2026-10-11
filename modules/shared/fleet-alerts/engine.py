@@ -207,10 +207,22 @@ def telegram_sender(token: str, chat_id: str) -> Sender:
     return send
 
 
-def env_file_value(path: str, key: str) -> str:
-    """One value out of a KEY=VALUE env file. Never logs the file's contents."""
+def env_file_value(path: str, key: str, *, require_canonical_path: bool = False) -> str:
+    """Read one key from a build-time absolute path, without logging contents.
+
+    Agenix paths may be symlinks. Systemd credential consumers opt into exact
+    canonical paths so a symlink cannot redirect the fixed credential read.
+    """
     try:
-        with open(path, encoding="utf-8") as handle:
+        configured = Path(path)
+        if not configured.is_absolute() or ".." in configured.parts:
+            return ""
+        resolved = configured.resolve(strict=True)
+        if require_canonical_path and resolved != configured:
+            return ""
+        if not resolved.is_file():
+            return ""
+        with open(resolved, encoding="utf-8") as handle:
             lines = handle.read().splitlines()
     except Exception:
         return ""

@@ -11,7 +11,6 @@ from __future__ import annotations
 import http.client
 import json
 import math
-import os
 import secrets
 import ssl
 import subprocess
@@ -20,7 +19,7 @@ import urllib.error
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import engine
@@ -28,6 +27,7 @@ from engine import Problem
 
 STATE_PATH = "/var/lib/aeon-watch/state.json"
 DOCKER = "@DOCKER_BIN@"
+NOTIFICATION_ENV = "@NOTIFICATION_ENV@"
 PROBE_TENANT = "@PROBE_TENANT@"
 WATCH_INTERVAL_SECONDS = int("@WATCH_INTERVAL_SECONDS@")
 RESTART_WINDOW_SECONDS = 600
@@ -166,10 +166,13 @@ def validate_container_state(state: dict) -> None:
 
 def check_restarts(now: float, started_at: float, restart_count: int) -> list[Problem]:
     path = Path(STATE_PATH).with_name("container.json")
+    # Inspect can observe a start after this run's clock snapshot. Bound event
+    # times, but retain Docker's original timestamp as the restart identity.
+    observed_start = min(started_at, now)
     # On first observation, count the current start, not lifetime RestartCount.
     state = read_watch_state(path, {
         "started_at": started_at, "restart_count": restart_count, "observed_at": now,
-        "starts": [{"at": min(started_at, now), "count": 1}],
+        "starts": [{"at": observed_start, "count": 1}],
     }, validate_container_state)
     starts = [event for event in state["starts"] if now - RESTART_WINDOW_SECONDS <= event["at"] <= now]
     if started_at != state["started_at"] or restart_count != state["restart_count"]:
@@ -180,13 +183,13 @@ def check_restarts(now: float, started_at: float, restart_count: int) -> list[Pr
         count = max(1, delta) if delta >= 0 else restart_count + 1
         if not now - RESTART_WINDOW_SECONDS <= state["observed_at"] <= now:
             count = 1
-        if now - RESTART_WINDOW_SECONDS <= started_at <= now:
+        if now - RESTART_WINDOW_SECONDS <= observed_start <= now:
             if count > 1:
                 # Docker gives only the latest timestamp. Earlier unseen
                 # starts expire from their earliest possible time, so they
                 # cannot inflate the count beyond the ten-minute window.
-                starts.append({"at": min(state["observed_at"], started_at), "count": count - 1})
-            starts.append({"at": started_at, "count": 1})
+                starts.append({"at": min(state["observed_at"], observed_start), "count": count - 1})
+            starts.append({"at": observed_start, "count": 1})
     engine.atomic_write_state(str(path), {
         "started_at": started_at, "restart_count": restart_count, "observed_at": now, "starts": starts,
     })
@@ -220,8 +223,11 @@ def check_request_log(logs: str, now: float, started_at: float, reachable: bool)
 
 
 def check_traffic(now: float, started_at: float, reachable: bool) -> list[Problem]:
+    window_start = now - WATCH_INTERVAL_SECONDS
+    since = datetime.fromtimestamp(window_start, timezone.utc).isoformat()
+    until = datetime.fromtimestamp(now, timezone.utc).isoformat()
     try:
-        logs = docker_command(["logs", "--since", f"{WATCH_INTERVAL_SECONDS}s", "aeon"])
+        logs = docker_command(["logs", "--since", since, "--until", until, "aeon"])
     except (OSError, subprocess.SubprocessError) as error:
         check_request_log("", now, started_at, False)
         # Never print Docker stderr or exception text: either may contain logs.
@@ -337,9 +343,8 @@ def validate_alert_state(state: dict) -> None:
 
 
 def run() -> int:
-    credential_dir = os.environ.get("CREDENTIALS_DIRECTORY", "/nonexistent")
     target = engine.env_file_value(
-        str(Path(credential_dir) / "notification-env"), "WATCHTOWER_NOTIFICATION_URL"
+        NOTIFICATION_ENV, "WATCHTOWER_NOTIFICATION_URL", require_canonical_path=True
     )
     if not target:
         print("notification target missing")

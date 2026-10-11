@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "modules" / "shared" / "fleet-alerts" / "engine.py"
@@ -251,6 +253,43 @@ class ShoutrrrTarget(unittest.TestCase):
             "telegram://t@telegram?chats=1",
         )
         self.assertEqual(engine.env_file_value(str(path), "MISSING"), "")
+
+    def test_env_file_value_rejects_traversal_before_opening(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            allowed = root / "credentials"
+            allowed.mkdir()
+            (root / "notification-env").write_text("TARGET=synthetic\n")
+            traversal = allowed / ".." / "notification-env"
+            for strict in [False, True]:
+                with self.subTest(strict=strict), patch("builtins.open") as opening:
+                    self.assertEqual(engine.env_file_value(str(traversal), "TARGET", require_canonical_path=strict), "")
+                    opening.assert_not_called()
+
+    def test_env_file_value_requires_an_absolute_regular_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            credential = root / "notification-env"
+            credential.write_text("TARGET=synthetic\n")
+            fifo = root / "fifo"
+            os.mkfifo(fifo)
+            for bad in ["notification-env", "", str(root), str(root / "missing"), str(fifo)]:
+                with self.subTest(path=bad), patch("builtins.open") as opening:
+                    self.assertEqual(engine.env_file_value(bad, "TARGET"), "")
+                    opening.assert_not_called()
+            self.assertEqual(engine.env_file_value(str(credential), "TARGET", require_canonical_path=True), "synthetic")
+
+    def test_env_file_value_preserves_agenix_symlinks_but_credentials_reject_them(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            credential = root / "notification-env"
+            credential.write_text("TARGET=synthetic\n")
+            alias = root / "alias"
+            alias.symlink_to(credential)
+            self.assertEqual(engine.env_file_value(str(alias), "TARGET"), "synthetic")
+            with patch("builtins.open") as opening:
+                self.assertEqual(engine.env_file_value(str(alias), "TARGET", require_canonical_path=True), "")
+                opening.assert_not_called()
 
 
 if __name__ == "__main__":
