@@ -176,14 +176,22 @@ class HostConfigTests(unittest.TestCase):
             types.number = "number";
             types.int = "int";
             types.str = "str";
+            types.bool = "bool";
             types.addCheck = type: check: { inherit type check; };
             mapAttrs = builtins.mapAttrs;
             importJSON = path: builtins.fromJSON (builtins.readFile path);
+            escapeShellArg = value: value;
+            hm.dag.entryBefore = before: data: { inherit before data; };
           };
           evaluate = overrides: let
             module = import (root + "/modules/aeon-builder") {
               inherit lib;
-              pkgs = { python3 = "/python"; writeText = _: text: text; writeShellApplication = x: x; };
+              pkgs = {
+                python3 = "/python";
+                coreutils = "/coreutils";
+                writeText = _: text: text;
+                writeShellApplication = x: x // { outPath = "/aeon-builder"; };
+              };
               config = {
                 home.homeDirectory = "/test";
                 services.aeonBuilder = builtins.mapAttrs (_: option: option.default)
@@ -201,6 +209,13 @@ class HostConfigTests(unittest.TestCase):
           memoryTypes = map (name: module.options.services.aeonBuilder.${name}.type) [ "memFreeLow" "memFreeHigh" ];
           spacingType = module.options.services.aeonBuilder.claimSpacingSeconds.type;
           busyFileType = module.options.services.aeonBuilder.busyFile.type;
+          busyFileRefreshType = module.options.services.aeonBuilder.busyFileRefresh.type;
+          busyFileRefreshDefault = module.options.services.aeonBuilder.busyFileRefresh.default;
+          busyAgent = module.config.launchd.agents.aeon-builder-busy;
+          builderBinary = "${builtins.head module.config.home.packages}/bin/aeon-builder";
+          refreshDisabledHasAgent = ((evaluate { busyFileRefresh = false; }).config.launchd.agents or {}) ? aeon-builder-busy;
+          moduleDisabledHasAgent = ((evaluate { enable = false; }).config.launchd.agents or {}) ? aeon-builder-busy;
+          busyStateActivation = module.config.home.activation.aeonBuilderBusyState;
           highType = module.options.services.aeonBuilder.loadHigh.type;
           lowType = low.type.type;
           nonnegative = map low.type.check [ (-1.0) (-1) 0.0 0 8.0 8 ];
@@ -218,6 +233,20 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(result["memoryTypes"], ["number", "number"])
         self.assertEqual(result["spacingType"], "int")
         self.assertEqual(result["busyFileType"], "str")
+        self.assertEqual(result["busyFileRefreshType"], "bool")
+        self.assertTrue(result["busyFileRefreshDefault"])
+        self.assertFalse(result["refreshDisabledHasAgent"])
+        self.assertFalse(result["moduleDisabledHasAgent"])
+        self.assertTrue(result["busyAgent"]["enable"])
+        service = result["busyAgent"]["config"]
+        self.assertEqual(service["StartInterval"], 60)
+        self.assertTrue(service["RunAtLoad"])
+        self.assertEqual(service["ProgramArguments"], [result["builderBinary"], "busy-file"])
+        self.assertEqual(service["StandardOutPath"], "/test/.local/state/aeon-builder/busy-file.out")
+        self.assertEqual(service["StandardErrorPath"], "/test/.local/state/aeon-builder/busy-file.err")
+        activation = result["busyStateActivation"]
+        self.assertEqual(activation["before"], ["setupLaunchAgents"])
+        self.assertIn("run /coreutils/bin/mkdir -p -m 700 /test/.local/state/aeon-builder", activation["data"])
         self.assertEqual(result["highType"], "number")
         self.assertEqual(result["lowType"], "number")
         self.assertEqual(result["nonnegative"], [False, False, True, True, True, True])
@@ -882,6 +911,19 @@ class ControllerTests(unittest.TestCase):
         self.assertCountEqual(claimed, [0, None])
         self.assertEqual(len(self.state.load()["slots"]), 1)
 
+    def test_claim_spacing_allows_a_backwards_clock_jump_then_restarts_spacing(self):
+        r = run(id=9)
+        ctl = self.controller(FakeGitHub([], {}))
+        self.assertEqual(ctl.claim_slot({"id": 90}, r), 0)
+        self.clock.return_value = 900
+        self.assertEqual(ctl.claim_slot({"id": 91}, r), 1)
+        self.assertEqual(self.state.load()["lastClaimAt"], 900)
+        self.assertIsNone(ctl.claim_slot({"id": 92}, r))
+        self.clock.return_value = 1079.9
+        self.assertIsNone(ctl.claim_slot({"id": 92}, r))
+        self.clock.return_value = 1080
+        self.assertEqual(ctl.claim_slot({"id": 92}, r), 2)
+
     def test_memory_gate_keeps_jobs_queued_and_running_work_untouched(self):
         r = run(id=9)
         job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
@@ -1097,22 +1139,22 @@ class ControllerTests(unittest.TestCase):
         ctl.publish_once()
         self.assertEqual(path.read_text(), "2/4 1005\n", "each publish refreshes the timestamp")
 
-    def test_busy_file_off_and_paused_publish_zero_with_off_marker(self):
+    def test_busy_file_preserves_occupied_slots_and_epoch_in_every_mode(self):
         gh = FakeGitHub([], {})
         ctl = self.controller(gh)
-        self.state.update(lambda d: d["slots"].update({"0": {"jobId": 1}}))
-        for mode in ("off", "paused", "draining", "stopping"):
-            self.state.update(lambda d: d.update(mode=mode))
-            self.assertFalse(ctl.publish_once())
-            expected = "0/4 1000 off\n" if mode in ("off", "paused") else "1/4 1000\n"
-            self.assertEqual(Path(self.cfg["busyFile"]).read_text(), expected)
-        self.assertEqual(gh.published, [])
+        for slots in ({}, {"0": {"jobId": 1, "phase": "running", "vm": "aeon-job-0"}}):
+            for mode in ("on", "off", "paused", "draining", "stopping"):
+                with self.subTest(mode=mode, occupied=len(slots)):
+                    self.state.update(lambda d: d.update(mode=mode, slots=slots.copy()))
+                    self.assertEqual(ctl.publish_once(), mode == "on")
+                    self.assertEqual(Path(self.cfg["busyFile"]).read_text(), f"{len(slots)}/4 1000\n")
+                    self.assertEqual(self.state.load()["slots"], slots)
 
-    def test_pause_writes_off_before_clearing_availability(self):
+    def test_pause_writes_busy_file_before_clearing_availability(self):
         gh = FakeGitHub([], {})
         ctl = self.controller(gh)
         ctl.publish_once()
-        gh.clear = Mock(side_effect=lambda: self.assertEqual(Path(self.cfg["busyFile"]).read_text(), "0/4 1000 off\n"))
+        gh.clear = Mock(side_effect=lambda: self.assertEqual(Path(self.cfg["busyFile"]).read_text(), "0/4 1000\n"))
         ctl.pause("test")
         gh.clear.assert_called_once_with()
 
@@ -1145,8 +1187,65 @@ class ControllerTests(unittest.TestCase):
                 patch("sys.stdout", new_callable=io.StringIO):
             lima.return_value.instances.return_value = {}
             self.assertEqual(ab.cmd_off(self.cfg, Mock(now=False, wait=0)), 0)
-        self.assertEqual(Path(self.cfg["busyFile"]).read_text(), "0/4 1000 off\n")
+        self.assertEqual(Path(self.cfg["busyFile"]).read_text(), "0/4 1000\n")
         self.assertEqual(self.state.load()["mode"], "off")
+
+    def test_busy_file_command_refreshes_without_locking_or_changing_state(self):
+        config = self.tmp / "config.json"
+        config.write_text(json.dumps(self.cfg))
+        for mode in ("off", "paused"):
+            with self.subTest(mode=mode):
+                slots = {} if mode == "off" else {"0": {"jobId": 1, "phase": "running"}}
+                self.state.update(lambda d: d.update(mode=mode, slots=slots))
+                previous = self.state.file.read_bytes()
+                with patch.object(ab, "State", return_value=self.state) as state, \
+                        patch.object(self.state, "locked", side_effect=AssertionError("read-only command must not lock")), \
+                        patch.object(self.state, "save", side_effect=AssertionError("read-only command must not save")), \
+                        patch.object(ab, "Controller") as controller, \
+                        patch.object(ab, "GitHub") as github, patch.object(ab, "Lima") as lima:
+                    for now in (1000, 1700):
+                        self.clock.return_value = now
+                        self.assertEqual(ab.main(["--config", str(config), "busy-file"]), 0)
+                        self.assertEqual(Path(self.cfg["busyFile"]).read_text(), f"{len(slots)}/4 {now}\n")
+                        self.assertEqual(self.state.file.read_bytes(), previous)
+                    self.assertEqual(state.call_count, 2)
+                    state.assert_called_with()
+                    controller.assert_not_called()
+                    github.assert_not_called()
+                    lima.assert_not_called()
+
+    def test_busy_file_command_returns_zero_on_write_and_log_failure(self):
+        config = self.tmp / "config.json"
+        config.write_text(json.dumps(self.cfg))
+        path = Path(self.cfg["busyFile"])
+        path.write_text("previous\n")
+        previous_state = self.state.file.read_bytes()
+        real_replace = ab.os.replace
+
+        def replace(src, dst):
+            if Path(dst) == path:
+                raise PermissionError("busy file denied")
+            real_replace(src, dst)
+        for log_error in (None, PermissionError("log denied")):
+            with self.subTest(log_error=log_error), \
+                    patch.object(ab, "State", return_value=self.state), \
+                    patch.object(ab.os, "replace", side_effect=replace), \
+                    patch.object(ab, "log", side_effect=log_error) as log, \
+                    patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                original_files = set(self.tmp.iterdir())
+                self.assertEqual(ab.main(["--config", str(config), "busy-file"]), 0)
+                log.assert_called_once_with("busy file write failed: busy file denied")
+                if log_error:
+                    self.assertIn("busy file write failed: busy file denied", stderr.getvalue())
+                self.assertEqual(path.read_text(), "previous\n")
+                self.assertEqual(self.state.file.read_bytes(), previous_state)
+                self.assertEqual(set(self.tmp.iterdir()), original_files)
+
+    def test_busy_file_command_is_hidden_from_help(self):
+        with patch("sys.stdout", new_callable=io.StringIO) as output, self.assertRaises(SystemExit) as exit:
+            ab.main(["--help"])
+        self.assertEqual(exit.exception.code, 0)
+        self.assertNotIn("busy-file", output.getvalue())
 
     def test_status_shows_controller_gate_and_sampled_load(self):
         ctl = self.controller(FakeGitHub([], {}), lambda: (13.0, 0, 0))
