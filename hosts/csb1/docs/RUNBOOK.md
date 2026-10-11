@@ -1500,9 +1500,11 @@ OPS-185) with a comment and a pinned test; the baseline on 2026-08-21 was empty.
 ### Aeon API Watch (aeon-watch, OPS-307)
 
 `aeon-watch.timer` checks every 30 seconds, starting 120 seconds after boot.
-Each run reads exactly `docker logs --since 30s aeon`, using the same interval
-constant as the timer. Matching windows avoids counting one short burst in two
-checks. It pages after two consecutive bad checks and clears after two clean
+Each run captures its start time once, then reads
+`docker logs --since <window_start ISO> --until <run_start ISO> aeon`, where
+`window_start` is 30 seconds before `run_start`, using the same interval constant
+as the timer. Probe duration cannot shift these windows and count one short burst
+in two checks. It pages after two consecutive bad checks and clears after two clean
 checks: at least 3 API 5xx in a 30-second window, at least 10 total API requests
 and at least a 10% error rate. These thresholds apply to each window separately.
 Exclude `POST /api/github/webhook`, `GET /api/health` (all statuses), and
@@ -1522,7 +1524,9 @@ count, observation timestamp and rolling start counts in
 `/var/lib/aeon-watch/container.json`. At least three starts in ten minutes raises
 `aeon restarting repeatedly (N starts in 10 min)`, with the same two-run
 confirmation. Manual restarts and recreates also count; resetting Docker's
-restart counter does not erase the window. Lifetime restarts observed at first
+restart counter does not erase the window. A slow crash loop with fewer than
+three starts in ten minutes does not page for repeated starts; stopped-container
+and probe faults still use their own checks. Lifetime restarts observed at first
 startup do not count as recent starts. Docker exposes only the latest start
 timestamp: additional starts between observations within ten minutes expire
 from the previous observation timestamp, conservatively excluding any that
@@ -1559,7 +1563,10 @@ The probes use fresh connections through Cloudflare and Traefik with
 keep-alive/authentication outage. A 403 body containing `error code: 10`
 reports `blocked by Cloudflare (403 10xx)` and remains a problem because the
 probe cannot observe the API. Delivery reuses
-`csb1-watchtower-env` via systemd credentials. The dynamic user has the existing
+`csb1-watchtower-env` via systemd credentials. The notification path is fixed at
+build time to `/run/credentials/aeon-watch.service/notification-env`; the reader
+rejects traversal, symlink redirection and nonregular files. Runtime environment
+values cannot select another file. The dynamic user has the existing
 Docker group access for `ps`, `logs`, and only `StartedAt`/`RestartCount`; this
 grants daemon control, and the Traefik socket proxy has no host listener. OPS
 should check the live log driver before deployment: with `journald`, consider a

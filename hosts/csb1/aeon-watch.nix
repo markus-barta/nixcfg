@@ -13,6 +13,8 @@ let
     checks = ./aeon-watch-checks.py;
     substitutions = {
       DOCKER_BIN = "${pkgs.docker}/bin/docker";
+      # Fixed system-service credential path; runtime environment cannot choose a file.
+      NOTIFICATION_ENV = "/run/credentials/aeon-watch.service/notification-env";
       PROBE_TENANT = config.aeonWatch.probeTenant;
       WATCH_INTERVAL_SECONDS = toString watchIntervalSeconds;
     };

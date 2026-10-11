@@ -9,6 +9,7 @@ import http.server
 import importlib.util
 import io
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -20,6 +21,7 @@ import unittest
 import urllib.error
 import uuid
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,6 +36,7 @@ SPEC.loader.exec_module(engine)
 
 def load_checks():
     source = CHECKS.read_text().replace("@DOCKER_BIN@", "/fixture/docker")
+    source = source.replace("@NOTIFICATION_ENV@", "/run/credentials/aeon-watch.service/notification-env")
     source = source.replace("@PROBE_TENANT@", "0000a0e7000040008000000000000307")
     source = source.replace("@WATCH_INTERVAL_SECONDS@", "30")
     module = types.ModuleType("aeon_watch_checks")
@@ -111,12 +114,23 @@ class TrafficTest(unittest.TestCase):
             "/fixture/docker", "--host", "unix:///run/docker.sock", "container", "inspect",
             "-f", "{{.State.StartedAt}} {{.RestartCount}}", "aeon"
         ])
-        self.assertEqual(run.call_args_list[2].args[0][-4:], ["logs", "--since", "30s", "aeon"])
+        self.assertEqual(run.call_args_list[2].args[0][-6:], [
+            "logs", "--since", "2026-10-11T12:01:30.123456+00:00",
+            "--until", "2026-10-11T12:02:00.123456+00:00", "aeon",
+        ])
         for call in run.call_args_list:
             self.assertEqual(call.kwargs["timeout"], 5)
             self.assertTrue(call.kwargs["check"])
             self.assertEqual(call.kwargs["encoding"], "utf-8")
             self.assertEqual(call.kwargs["errors"], "replace")
+
+    def test_log_window_uses_utc_and_preserves_fractional_start_time(self):
+        with patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as docker:
+            self.assertEqual(checks.check_traffic(1000.125, 0, True), [])
+        docker.assert_called_once_with([
+            "logs", "--since", "1970-01-01T00:16:10.125000+00:00",
+            "--until", "1970-01-01T00:16:40.125000+00:00", "aeon",
+        ])
 
     def test_stopped_unreadable_and_timed_out_docker(self):
         with patch.object(checks, "docker_command", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
@@ -307,6 +321,25 @@ class TrafficTest(unittest.TestCase):
     def test_long_observation_gap_does_not_count_old_restart_delta(self):
         self.assertEqual(checks.check_restarts(1000, 0, 50), [])
         self.assertEqual(checks.check_restarts(2000, 1999, 100), [])
+
+    def test_start_after_run_snapshot_is_counted_and_clamped(self):
+        checks.check_restarts(1000, 0, 50)
+        found = checks.check_restarts(1030, 1032, 53)
+        self.assertEqual(found[0].text, "aeon restarting repeatedly (3 starts in 10 min)")
+        path = Path(checks.STATE_PATH).with_name("container.json")
+        state = json.loads(path.read_text())
+        self.assertEqual(state["starts"], [{"at": 1000, "count": 2}, {"at": 1030, "count": 1}])
+        self.assertEqual(state["started_at"], 1032)
+        self.assertTrue(checks.check_restarts(1060, 1032, 53))
+        self.assertEqual(json.loads(path.read_text())["starts"], state["starts"])
+        self.assertEqual(checks.check_restarts(1600.001, 1032, 53), [])
+
+    def test_future_start_identity_does_not_invent_repeated_restarts(self):
+        for now in [1000, 1030, 1060, 1090, 1120]:
+            self.assertEqual(checks.check_restarts(now, 1100, 0), [])
+        state = json.loads(Path(checks.STATE_PATH).with_name("container.json").read_text())
+        self.assertEqual(state["started_at"], 1100)
+        self.assertEqual(state["starts"], [{"at": 1000, "count": 1}])
 
     def test_corrupt_container_state_is_reset_once(self):
         path = Path(checks.STATE_PATH).with_name("container.json")
@@ -581,10 +614,12 @@ class EngineIntegrationTest(unittest.TestCase):
         self.assertIsNone(engine.load_state(self.state)["pending"])
 
     def test_main_opts_in_and_notification_errors_are_redacted(self):
-        with patch.object(checks.engine, "env_file_value", return_value="synthetic target"), \
+        with patch.object(checks.engine, "env_file_value", return_value="synthetic target") as reader, \
              patch.object(checks.engine, "shoutrrr_telegram_sender", return_value=lambda *_: True), \
              patch.object(checks.engine, "run_cycle", return_value=0) as run:
             self.assertEqual(checks.main(), 0)
+            reader.assert_called_once_with("/run/credentials/aeon-watch.service/notification-env",
+                                           "WATCHTOWER_NOTIFICATION_URL", require_canonical_path=True)
             self.assertEqual(run.call_args.kwargs["clear_confirm_runs"], 2)
         with patch.object(checks.engine, "env_file_value", return_value=""), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(checks.main(), engine.EXIT_UNDELIVERED)
@@ -593,6 +628,23 @@ class EngineIntegrationTest(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(checks.main(), engine.EXIT_UNDELIVERED)
             self.assertNotIn("raw", output.getvalue())
+
+    def test_runtime_credential_directory_cannot_redirect_notification_read(self):
+        root = Path(self.temp.name).resolve()
+        fixed = root / "fixed" / "notification-env"
+        fixed.parent.mkdir()
+        fixed.write_text("WATCHTOWER_NOTIFICATION_URL=telegram://synthetic@telegram?chats=1\n")
+        other = root / "other"
+        other.mkdir()
+        (other / "notification-env").write_text("WATCHTOWER_NOTIFICATION_URL=other target\n")
+        for directory in [str(other), str(other / ".." / "other"), "relative/../other"]:
+            with self.subTest(directory=directory), patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": directory}), \
+                 patch.object(checks, "NOTIFICATION_ENV", str(fixed)), \
+                 patch.object(checks, "STATE_PATH", self.state), \
+                 patch.object(checks.engine, "shoutrrr_telegram_sender", return_value=lambda *_: True) as sender, \
+                 patch.object(checks.engine, "run_cycle", return_value=0):
+                self.assertEqual(checks.main(), 0)
+                sender.assert_called_once_with("telegram://synthetic@telegram?chats=1")
 
     def test_one_burst_in_distinct_windows_never_pages(self):
         windows = [fixture("above-threshold"), request_line() * 10, request_line() * 10]
@@ -605,7 +657,47 @@ class EngineIntegrationTest(unittest.TestCase):
                      contextlib.redirect_stdout(io.StringIO()):
                     engine.run_cycle(self.state, 1000 + index * 30, checks.collect, checks.render,
                                      lambda text, identifier: self.sent.append(text) or True, clear_confirm_runs=2)
-                    self.assertEqual(docker.call_args.args[0], ["logs", "--since", "30s", "aeon"])
+                    command = docker.call_args.args[0]
+                    self.assertEqual(len(command), 6)
+                    self.assertEqual([command[0], command[1], command[3], command[5]],
+                                     ["logs", "--since", "--until", "aeon"])
+                    self.assertEqual(datetime.fromisoformat(command[2]).timestamp(), 970 + index * 30)
+                    self.assertEqual(datetime.fromisoformat(command[4]).timestamp(), 1000 + index * 30)
+        self.assertEqual(self.sent, [])
+
+    def test_slow_probes_leave_consecutive_log_windows_adjacent(self):
+        clock = {"now": 1000}
+        commands = []
+        delays = iter([11, 19])
+
+        def slow_probes():
+            clock["now"] += next(delays)
+            return True, []
+
+        def logs_for_window(command):
+            commands.append(command)
+            since = datetime.fromisoformat(command[2]).timestamp()
+            until = datetime.fromisoformat(command[4]).timestamp()
+            # The burst predates the first run; slower probes must not move it
+            # into the second confirmation window or pull in newer requests.
+            logs = fixture("above-threshold") if since <= 999 < until else request_line() * 10
+            return subprocess.CompletedProcess([], 0, logs, "")
+
+        with patch.object(checks, "STATE_PATH", self.state), \
+             patch.object(checks.time, "time", side_effect=lambda: clock["now"]) as timestamp, \
+             patch.object(checks, "check_container", side_effect=lambda: (0, 0, [])), \
+             patch.object(checks, "check_probes", side_effect=slow_probes), \
+             patch.object(checks, "docker_command", side_effect=logs_for_window), \
+             contextlib.redirect_stdout(io.StringIO()):
+            for start in [1000, 1030]:
+                clock["now"] = start
+                engine.run_cycle(self.state, start, checks.collect, checks.render,
+                                 lambda text, identifier: self.sent.append(text) or True, clear_confirm_runs=2)
+            self.assertEqual(timestamp.call_count, 2)
+        self.assertEqual([command[2:5:2] for command in commands], [
+            ["1970-01-01T00:16:10+00:00", "1970-01-01T00:16:40+00:00"],
+            ["1970-01-01T00:16:40+00:00", "1970-01-01T00:17:10+00:00"],
+        ])
         self.assertEqual(self.sent, [])
 
     def test_headers_action_and_mixed_recovery(self):
@@ -664,6 +756,12 @@ class EngineIntegrationTest(unittest.TestCase):
     def test_single_docker_restart_does_not_page(self):
         for now, started_at, count in [(1000, 1000, 0), (1030, 1030, 1), (1060, 1030, 1), (1090, 1030, 1)]:
             self.run_collected(now, started_at, count)
+        self.assertEqual(self.sent, [])
+
+    def test_slow_crash_loop_below_three_starts_in_ten_minutes_does_not_page(self):
+        for count, start in enumerate([1000, 1400, 1800, 2200]):
+            self.run_collected(start, start, count)
+            self.run_collected(start + 30, start, count)
         self.assertEqual(self.sent, [])
 
     def test_restart_during_active_probe_fault_never_fakes_recovery(self):

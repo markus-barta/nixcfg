@@ -12,9 +12,12 @@ let
     runCommand =
       name: _: script:
       assert !(lib.hasInfix "@DOCKER_BIN@" script);
+      assert !(lib.hasInfix "@NOTIFICATION_ENV@" script);
       assert !(lib.hasInfix "@PROBE_TENANT@" script);
       assert !(lib.hasInfix "@WATCH_INTERVAL_SECONDS@" script);
       assert lib.hasInfix "DOCKER = \"/fixture/docker/bin/docker\"" script;
+      assert lib.hasInfix "NOTIFICATION_ENV = \"/run/credentials/aeon-watch.service/notification-env\""
+        script;
       assert lib.hasInfix "PROBE_TENANT = \"${cfg.aeonWatch.probeTenant}\"" script;
       assert lib.hasInfix "WATCH_INTERVAL_SECONDS = int(\"30\")" script;
       "/fixture/${name}";
