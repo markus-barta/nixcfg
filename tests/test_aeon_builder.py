@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -39,6 +40,7 @@ CFG = {
     "claimSpacingSeconds": 180,
     "memFreeLow": 35,
     "memFreeHigh": 45,
+    "memHoldSeconds": 600,
     "busyFile": str(Path(TEST_TMP.name) / "ci-pool-busy"),
     "busyFileGroup": grp.getgrgid(os.getgid()).gr_name,
     "slotCpus": 4,
@@ -158,6 +160,7 @@ class HostConfigTests(unittest.TestCase):
           claimSpacingSeconds = options.claimSpacingSeconds.default;
           memFreeLow = options.memFreeLow.default;
           memFreeHigh = options.memFreeHigh.default;
+          memHoldSeconds = options.memHoldSeconds.default;
           busyFile = options.busyFile.default;
           busyFileGroup = options.busyFileGroup.default;
         }''' % json.dumps(str(ROOT))
@@ -220,6 +223,8 @@ class HostConfigTests(unittest.TestCase):
             [ (-1) (-0.5) 0 0.5 35 99.5 100 100.5 101 ]) [ "memFreeLow" "memFreeHigh" ];
           spacingType = module.options.services.aeonBuilder.claimSpacingSeconds.type.type;
           spacingBounds = map module.options.services.aeonBuilder.claimSpacingSeconds.type.check [ (-1) 0 180 0.5 ];
+          holdType = module.options.services.aeonBuilder.memHoldSeconds.type.type;
+          holdBounds = map module.options.services.aeonBuilder.memHoldSeconds.type.check [ (-1) 0 600 0.5 ];
           busyFileType = module.options.services.aeonBuilder.busyFile.type;
           busyFileGroupType = module.options.services.aeonBuilder.busyFileGroup.type;
           busyFileRefreshType = module.options.services.aeonBuilder.busyFileRefresh.type;
@@ -236,6 +241,7 @@ class HostConfigTests(unittest.TestCase):
           overrideCommand = (builtins.head (evaluate {
             claimSpacingSeconds = 240; memFreeLow = 25.5; memFreeHigh = 40.5; busyFile = "/tmp/test-busy";
             busyFileGroup = "test-group";
+            memHoldSeconds = 120;
           }).config.home.packages).text;
         }''' % json.dumps(str(ROOT))
         proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr],
@@ -248,6 +254,8 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(result["memoryBounds"], [[False, False, True, True, True, True, True, False, False]] * 2)
         self.assertEqual(result["spacingType"], "int")
         self.assertEqual(result["spacingBounds"], [False, True, True, False])
+        self.assertEqual(result["holdType"], "int")
+        self.assertEqual(result["holdBounds"], [False, True, True, False])
         self.assertEqual(result["busyFileType"], "str")
         self.assertEqual(result["busyFileGroupType"], "str")
         self.assertEqual(result["busyFileRefreshType"], "bool")
@@ -271,7 +279,7 @@ class HostConfigTests(unittest.TestCase):
         settings = json.loads(result["command"].split("--config ", 1)[1].split(' "$@"', 1)[0])
         self.assertEqual(settings["loadHigh"], CFG["loadHigh"])
         self.assertEqual(settings["loadLow"], CFG["loadLow"])
-        for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh"):
+        for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh", "memHoldSeconds"):
             self.assertEqual(settings[key], CFG[key])
         self.assertEqual(settings["busyFile"], "/Users/Shared/ci-pool-busy")
         self.assertEqual(settings["busyFileGroup"], "staff")
@@ -279,6 +287,7 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual({key: overrides[key] for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh", "busyFile")},
                          {"claimSpacingSeconds": 240, "memFreeLow": 25.5, "memFreeHigh": 40.5, "busyFile": "/tmp/test-busy"})
         self.assertEqual(overrides["busyFileGroup"], "test-group")
+        self.assertEqual(overrides["memHoldSeconds"], 120)
 
 
 class LoadGateTests(unittest.TestCase):
@@ -406,6 +415,52 @@ class LockTests(unittest.TestCase):
         self.assertTrue(ab.controller_pid())
         first.close()
         self.assertIsNone(ab.controller_pid())
+
+
+class AtomicWriteTests(unittest.TestCase):
+    def test_private_content_and_permissions_are_ready_before_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp) / "existing"
+            parent.mkdir(mode=0o755)
+            parent.chmod(0o755)
+            path = parent / "private"
+            path.write_text("old\n")
+            path.chmod(0o644)
+            real_replace = ab.os.replace
+
+            def replace(src, dst):
+                self.assertEqual(path.read_text(), "old\n")
+                self.assertEqual(Path(src).read_text(), "private\n")
+                self.assertEqual(Path(src).stat().st_mode & 0o777, 0o600)
+                real_replace(src, dst)
+
+            with patch.object(ab.os, "replace", side_effect=replace):
+                ab.atomic_write(path, "private\n", mode=0o600)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+            created = Path(tmp) / "created" / "private"
+            ab.atomic_write(created, "private\n")
+            self.assertEqual(created.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_pf_install_atomically_publishes_private_files_before_launchctl(self):
+        anchor = Path("/etc/pf.anchors/at.inspr.aeon-builder")
+        plist = Path("/Library/LaunchDaemons/at.inspr.aeon-builder-pf.plist")
+        events = []
+        with patch.object(ab.os, "geteuid", return_value=0), \
+                patch.object(ab, "atomic_write", side_effect=lambda *args, **kwargs: events.append((args, kwargs))), \
+                patch.object(ab.subprocess, "run", side_effect=lambda *args, **kwargs:
+                             (events.append((args, kwargs)), Mock(stdout="rules"))[1]), \
+                patch.object(ab.time, "sleep"), patch("sys.stdout", new_callable=io.StringIO):
+            ab.cmd_pf_install(CFG, Mock(user="ci"))
+        self.assertEqual(events[0], ((anchor, ab.pf_rules(CFG, "ci")), {"mode": 0o600}))
+        self.assertEqual(events[1][0][0], plist)
+        self.assertIn("<key>RunAtLoad</key><true/>", events[1][0][1])
+        self.assertIn(f"/sbin/pfctl -E; /sbin/pfctl -a com.apple/aeon-builder -f {anchor}", events[1][0][1])
+        self.assertEqual(events[1][1], {"mode": 0o600})
+        self.assertEqual(events[2], ((["/bin/launchctl", "bootout", "system", str(plist)],), {"capture_output": True}))
+        self.assertEqual(events[3], ((["/bin/launchctl", "bootstrap", "system", str(plist)],), {"check": True}))
+        self.assertEqual(events[4], ((["/sbin/pfctl", "-a", "com.apple/aeon-builder", "-sr"],),
+                                     {"capture_output": True, "text": True}))
 
 
 class PagingTests(unittest.TestCase):
@@ -765,6 +820,9 @@ class ControllerTests(unittest.TestCase):
         errors = patch.object(ab, "_busy_file_errors", {})
         errors.start()
         self.addCleanup(errors.stop)
+        state_dir = patch.object(ab, "STATE_DIR", self.tmp)
+        state_dir.start()
+        self.addCleanup(state_dir.stop)
 
     def controller(self, gh, getloadavg=None, getmemoryfree=None):
         ctl = ab.Controller(self.cfg, gh=gh, lima=object(), state=self.state,
@@ -1026,7 +1084,8 @@ class ControllerTests(unittest.TestCase):
         for error in (FileNotFoundError("missing"), subprocess.CalledProcessError(1, "memory_pressure"),
                       subprocess.TimeoutExpired("memory_pressure", 5), ValueError("missing percentage")):
             with self.subTest(error=type(error).__name__):
-                self.state.update(lambda d: d.update(memGated=True, hostGated=True, hostGateReason="memory"))
+                self.state.update(lambda d: d.update(memGated=True, hostGated=True, hostGateReason="memory",
+                                                     memSampled=False, memUnreadableSince=None))
                 gh = FakeGitHub([], {})
                 ctl = self.controller(gh, getmemoryfree=Mock(side_effect=error))
                 with patch.object(ab, "log") as log:
@@ -1038,6 +1097,7 @@ class ControllerTests(unittest.TestCase):
                         self.assertEqual(gh.published[-1]["idle_runners"], 4)
                     warnings = [call.args[0] for call in log.call_args_list if "memory_pressure unreadable" in call.args[0]]
                     self.assertEqual(len(warnings), 1)
+                    self.assertEqual(self.state.load()["memUnreadableSince"], 1000)
 
     def test_unreadable_memory_pressure_preserves_the_load_gate(self):
         gh = FakeGitHub([], {})
@@ -1063,19 +1123,103 @@ class ControllerTests(unittest.TestCase):
                         self.assertEqual(gh.published[-1]["idle_runners"], 0 if gated else 4)
                         self.assertTrue(self.state.load()["memSampled"])
                     self.assertFalse(any("memory gate disabled" in call.args[0] for call in log.call_args_list))
+                    holds = [call.args[0] for call in log.call_args_list if "holding memory gate" in call.args[0]]
+                    self.assertEqual(holds, [f"memory_pressure unreadable (Command 'memory_pressure' timed out after 5 seconds); holding memory gate {'ON' if initial == 34 else 'OFF'}"])
+                    recoveries = [call.args[0] for call in log.call_args_list if "readable again" in call.args[0]]
+                    self.assertEqual(recoveries, ["memory_pressure readable again; memory gate re-enabled"])
+                    self.assertIsNone(self.state.load()["memUnreadableSince"])
 
     def test_memory_failure_after_restart_keeps_a_previously_readable_gate(self):
         gh = FakeGitHub([], {})
         ctl = self.controller(gh, getmemoryfree=Mock(side_effect=[34, OSError("unreadable")]))
         ctl.sample_host()
+        self.clock.return_value = 1005
         ctl.sample_host()
         self.state = ab.State(self.tmp)
+        self.clock.return_value = 1300
         restarted = self.controller(gh, getmemoryfree=Mock(side_effect=OSError("still unreadable")))
         with patch.object(ab, "log") as log:
             self.assertTrue(restarted.publish_once())
         log.assert_not_called()
         self.assertTrue(self.state.load()["memGated"])
+        self.assertEqual(self.state.load()["memUnreadableSince"], 1005)
         self.assertTrue(gh.published[-1]["busy"])
+
+    def test_memory_hold_expires_releases_and_stays_disabled_across_restart(self):
+        for initial in (34, 60):
+            with self.subTest(initial=initial):
+                self.clock.return_value = 1000
+                gh = FakeGitHub([], {})
+                ctl = self.controller(gh, getmemoryfree=Mock(side_effect=[initial] + [OSError("unreadable")] * 4))
+                ctl.sample_host()
+                with patch.object(ab, "log") as log:
+                    for now in (1005, 1604):
+                        self.clock.return_value = now
+                        self.assertTrue(ctl.publish_once())
+                        self.assertEqual(ctl.mem_gated, initial == 34)
+                        self.assertEqual(gh.published[-1]["idle_runners"], 0 if initial == 34 else 4)
+                        self.assertEqual(self.state.load()["memUnreadableSince"], 1005)
+                    for now in (1605, 3000):
+                        self.clock.return_value = now
+                        self.assertTrue(ctl.publish_once())
+                        self.assertFalse(ctl.mem_gated)
+                        self.assertFalse(self.state.load()["memSampled"])
+                        self.assertEqual(gh.published[-1]["idle_runners"], 4)
+                    warnings = [call.args[0] for call in log.call_args_list if "memory_pressure unreadable" in call.args[0]]
+                    self.assertEqual(warnings, [f"memory_pressure unreadable (unreadable); holding memory gate {'ON' if initial == 34 else 'OFF'}",
+                                                "memory_pressure unreadable; memory gate disabled: unreadable"])
+                self.state = ab.State(self.tmp)
+                restarted = self.controller(gh, getmemoryfree=Mock(side_effect=[OSError("still unreadable"), 40, 34]))
+                with patch.object(ab, "log") as log:
+                    restarted.sample_host()
+                    log.assert_not_called()
+                    self.assertFalse(restarted.mem_gated)
+                    self.assertEqual(self.state.load()["memUnreadableSince"], 1005)
+                    restarted.sample_host()
+                    self.assertFalse(restarted.mem_gated, "recovery restores hysteresis from the released gate")
+                    self.assertIsNone(self.state.load()["memUnreadableSince"])
+                    self.assertTrue(self.state.load()["memSampled"])
+                    restarted.sample_host()
+                    self.assertTrue(restarted.mem_gated)
+
+    def test_memory_hold_recovery_resets_the_next_outage_deadline(self):
+        ctl = self.controller(FakeGitHub([], {}), getmemoryfree=Mock(side_effect=[
+            34, OSError("unreadable"), 40, OSError("unreadable"), OSError("unreadable"),
+        ]))
+        with patch.object(ab, "log") as log:
+            ctl.sample_host()
+            self.clock.return_value = 1010
+            ctl.sample_host()
+            self.assertEqual(self.state.load()["memUnreadableSince"], 1010)
+            self.clock.return_value = 1500
+            ctl.sample_host()
+            self.assertIsNone(self.state.load()["memUnreadableSince"])
+            self.assertTrue(ctl.mem_gated, "recovery in the hysteresis band preserves the gate")
+            self.clock.return_value = 1600
+            ctl.sample_host()
+            self.assertEqual(self.state.load()["memUnreadableSince"], 1600)
+            self.clock.return_value = 1610
+            ctl.sample_host()
+            self.assertTrue(ctl.mem_gated, "the previous outage does not shorten the new hold")
+        self.assertEqual(sum("holding memory gate" in call.args[0] for call in log.call_args_list), 2)
+        self.assertEqual(sum("readable again" in call.args[0] for call in log.call_args_list), 1)
+        self.assertFalse(any("memory gate disabled" in call.args[0] for call in log.call_args_list))
+
+    def test_custom_memory_hold_and_zero_hold_preserve_the_load_gate(self):
+        for hold in (0, 30):
+            with self.subTest(hold=hold):
+                self.cfg["memHoldSeconds"] = hold
+                self.clock.return_value = 1000
+                ctl = self.controller(FakeGitHub([], {}), lambda: (13, 0, 0),
+                                      Mock(side_effect=[34, OSError("unreadable"), OSError("unreadable")]))
+                ctl.sample_host()
+                self.clock.return_value = 1010
+                ctl.sample_host()
+                self.assertEqual(ctl.mem_gated, hold > 0)
+                self.clock.return_value = 1040
+                ctl.sample_host()
+                self.assertFalse(ctl.mem_gated)
+                self.assertEqual(self.state.load()["hostGateReason"], "load")
 
     def test_host_samples_do_not_hold_the_state_lock_and_use_latest_gate_state(self):
         def load():
@@ -1253,10 +1397,19 @@ class ControllerTests(unittest.TestCase):
                 self.assertEqual(Path(src).read_text(), "2/4 1000\n")
                 self.assertEqual(Path(src).stat().st_mode & 0o777, 0o640)
                 self.assertEqual(Path(src).stat().st_gid, os.getgid())
-                chown.assert_called_once_with(src, -1, os.getgid())
+                self.assertEqual(chown.call_count, 1)
+                self.assertEqual(chown.call_args.args[1:], (-1, os.getgid()))
                 replaced.append(src)
             real_replace(src, dst)
-        with patch.object(ab.os, "chown", wraps=ab.os.chown) as chown, \
+
+        def fchown(fd, uid, gid):
+            self.assertIsInstance(fd, int)
+            self.assertEqual(os.fstat(fd).st_size, 0, "permissions precede writing content")
+            self.assertEqual(os.fstat(fd).st_mode & 0o777, 0o640)
+            real_fchown(fd, uid, gid)
+
+        real_fchown = ab.os.fchown
+        with patch.object(ab.os, "fchown", side_effect=fchown) as chown, \
                 patch.object(ab.os, "replace", side_effect=replace), patch.object(Path, "unlink") as unlink:
             self.assertTrue(ctl.publish_once())
         unlink.assert_not_called()
@@ -1269,20 +1422,22 @@ class ControllerTests(unittest.TestCase):
         ctl.publish_once()
         self.assertEqual(path.read_text(), "2/4 1005\n", "each publish refreshes the timestamp")
 
-    def test_unknown_busy_file_group_logs_once_and_leaves_no_files(self):
+    def test_unknown_busy_file_group_logs_once_without_creating_a_temp_file(self):
         self.cfg["busyFileGroup"] = "aeon-builder-no-such-test-group"
-        ctl = self.controller(FakeGitHub([], {}))
         path = Path(self.cfg["busyFile"])
         original_files = set(self.tmp.iterdir())
         with patch.object(ab.grp, "getgrnam", side_effect=KeyError(self.cfg["busyFileGroup"])), \
+                patch.object(ab.tempfile, "mkstemp", wraps=ab.tempfile.mkstemp) as mkstemp, \
                 patch.object(ab, "log") as log:
             for _ in range(2):
-                self.assertTrue(ctl.publish_once())
+                ab.write_busy_file(self.cfg, self.state.load())
+        self.assertFalse(any(call.kwargs["prefix"] == f".{path.name}." for call in mkstemp.call_args_list))
         log.assert_called_once()
         self.assertIn("busy file write failed:", log.call_args.args[0])
         self.assertIn(self.cfg["busyFileGroup"], log.call_args.args[0])
         self.assertFalse(path.exists())
-        self.assertEqual(set(self.tmp.iterdir()), original_files, "group lookup failures leave no temp files")
+        self.assertEqual(set(self.tmp.iterdir()), original_files | {self.tmp / "busy-file.lasterror"},
+                         "group lookup failures leave only the persisted error")
 
     def test_busy_file_chown_failure_logs_once_and_keeps_previous_file(self):
         ctl = self.controller(FakeGitHub([], {}))
@@ -1294,13 +1449,14 @@ class ControllerTests(unittest.TestCase):
             self.assertEqual((uid, gid), (-1, os.getgid()))
             raise PermissionError(1, "busy file group denied", str(target))
 
-        with patch.object(ab.os, "chown", side_effect=chown), patch.object(ab, "log") as log:
+        with patch.object(ab.os, "fchown", side_effect=chown), patch.object(ab, "log") as log:
             for _ in range(2):
                 self.assertTrue(ctl.publish_once())
         log.assert_called_once()
         self.assertIn("busy file write failed: [Errno 1] busy file group denied:", log.call_args.args[0])
         self.assertEqual(path.read_text(), "previous\n")
-        self.assertEqual(set(self.tmp.iterdir()), original_files, "chown failures leave no temp files")
+        self.assertEqual(set(self.tmp.iterdir()), original_files | {self.tmp / "busy-file.lasterror"},
+                         "chown failures leave no temp files")
 
     def test_busy_file_preserves_occupied_slots_and_epoch_in_every_mode(self):
         gh = FakeGitHub([], {})
@@ -1337,7 +1493,8 @@ class ControllerTests(unittest.TestCase):
             for _ in range(2):
                 self.assertTrue(ctl.publish_once())
             self.assertEqual(path.read_text(), "previous\n")
-            self.assertEqual(set(self.tmp.iterdir()), original_files, "failed writes leave no temporary files")
+            self.assertEqual(set(self.tmp.iterdir()), original_files | {self.tmp / "busy-file.lasterror"},
+                             "failed writes leave no temporary files")
             self.assertEqual(log.call_count, 1, "changing temp filenames do not repeat the same error")
             self.assertIn("busy file write failed: [Errno 1] busy file denied:", log.call_args.args[0])
         self.assertEqual(gh.published[-1]["idle_runners"], 4)
@@ -1358,11 +1515,50 @@ class ControllerTests(unittest.TestCase):
             real_write(target, text, mode, group)
 
         with patch.object(ab, "atomic_write", side_effect=write), patch.object(ab, "log") as log:
-            for _ in range(6):
+            for index in range(6):
                 self.assertTrue(ctl.publish_once())
+                marker = self.tmp / "busy-file.lasterror"
+                self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+                if index == 4:
+                    self.assertEqual(marker.read_text(), "", "success clears the persisted error")
         self.assertEqual(log.call_args_list, [unittest.mock.call(f"busy file write failed: {error}")
                                              for error in ("denied", "disk full", "disk full")])
         self.assertEqual(path.read_text(), "0/4 1000\n")
+
+    def test_second_busy_file_process_does_not_log_the_same_error(self):
+        self.cfg["busyFileGroup"] = "aeon-builder-no-such-test-group"
+        script = '''import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("aeon_builder", sys.argv[1])
+ab = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ab)
+ab.STATE_DIR = Path(sys.argv[2])
+ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
+'''
+        command = [sys.executable, "-c", script, str(ROOT / "modules/aeon-builder/aeon_builder.py"),
+                   str(self.tmp), json.dumps(self.cfg)]
+        first = subprocess.run(command, capture_output=True, text=True)
+        second = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("busy file write failed:", first.stdout)
+        self.assertEqual(second.stdout, "")
+        self.assertEqual(second.stderr, "")
+        self.assertEqual((self.tmp / "controller.log").read_text().count("busy file write failed:"), 1)
+
+    def test_busy_file_error_persistence_failure_is_nonfatal_and_deduplicated_locally(self):
+        real_write = ab.atomic_write
+
+        def write(target, *args, **kwargs):
+            if target == self.tmp / "busy-file.lasterror":
+                raise PermissionError("state directory denied")
+            return real_write(target, *args, **kwargs)
+
+        self.cfg["busyFileGroup"] = "aeon-builder-no-such-test-group"
+        with patch.object(ab, "atomic_write", side_effect=write), patch.object(ab, "log") as log:
+            ab.write_busy_file(self.cfg, self.state.load())
+            ab.write_busy_file(self.cfg, self.state.load())
+        log.assert_called_once()
 
     def test_off_command_writes_busy_file_when_controller_is_not_running(self):
         gh = FakeGitHub([], {})
@@ -1414,6 +1610,9 @@ class ControllerTests(unittest.TestCase):
                 raise PermissionError("busy file denied")
             real_replace(src, dst)
         for log_error in (None, PermissionError("log denied")):
+            marker = self.tmp / "busy-file.lasterror"
+            if marker.exists():
+                marker.write_text("")
             with self.subTest(log_error=log_error), \
                     patch.object(ab, "_busy_file_errors", {}), \
                     patch.object(ab, "State", return_value=self.state), \
@@ -1427,7 +1626,7 @@ class ControllerTests(unittest.TestCase):
                     self.assertIn("busy file write failed: busy file denied", stderr.getvalue())
                 self.assertEqual(path.read_text(), "previous\n")
                 self.assertEqual(self.state.file.read_bytes(), previous_state)
-                self.assertEqual(set(self.tmp.iterdir()), original_files)
+                self.assertEqual(set(self.tmp.iterdir()), original_files | {marker})
 
     def test_busy_file_command_is_hidden_from_help(self):
         with patch("sys.stdout", new_callable=io.StringIO) as output, self.assertRaises(SystemExit) as exit:
@@ -1468,6 +1667,21 @@ class ControllerTests(unittest.TestCase):
         self.assertIn("low 35, high 45", output.getvalue())
         self.assertIn("host gate:   ON (memory)", output.getvalue())
         self.assertIn("last claim:  120 s ago", output.getvalue())
+
+    def test_status_shows_memory_hold_and_unreadable_disable_timestamps(self):
+        for sampled, gated, expected in ((True, True, "ON  held since 1970-01-01T00:16:40Z"),
+                                         (True, False, "OFF  held since 1970-01-01T00:16:40Z"),
+                                         (False, False, "disabled (unreadable since 1970-01-01T00:16:40Z)")):
+            with self.subTest(sampled=sampled, gated=gated):
+                self.state.update(lambda d: d.update(memSampled=sampled, memGated=gated, memUnreadableSince=1000))
+                with patch.object(ab, "State", return_value=self.state), \
+                        patch.object(ab, "controller_pid", return_value=None), \
+                        patch.object(ab, "Lima") as lima, patch.object(ab, "lab_vms", return_value=[]), \
+                        patch.object(ab.subprocess, "run", return_value=Mock(stdout="")), \
+                        patch("sys.stdout", new_callable=io.StringIO) as output:
+                    lima.return_value.instances.return_value = {}
+                    ab.cmd_status(CFG, None)
+                self.assertIn(f"memory gate: {expected}", output.getvalue())
 
     def test_unverified_run_is_cancelled_and_never_served(self):
         fork = run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"})
