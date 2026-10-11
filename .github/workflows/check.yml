@@ -110,6 +110,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T89-tm-watch.sh
 
+      - name: Verify mbp2606 remote-test guard and pre-receive hook (OPS-300)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash git python3 gawk --run "bash tests/T90-aeon-remote-guard.sh"
+
       - name: Enforce funkeykid config and sound path boundaries
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T26-funkeykid-path-boundaries.sh

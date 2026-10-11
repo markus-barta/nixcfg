@@ -136,6 +136,7 @@ Examples:
 - `T87-ir-bridge-watch.sh` — hsb1 IR bridge witness wiring + unit/engine tests, and the bridge's send/stale-event/SIGTERM contracts (OPS-223, OPS-224, OPS-225)
 - `T88-model-role-lint.sh` — agent-instruction surfaces name roles, never models; runs the pinned doctrine's `model-role-doctrine.sh --lint` (NIX-568)
 - `T89-tm-watch.sh` — hsb1 Time Machine: Samba `max size` ≤ refquota pairing, 7-day sanoid, tm-watch witness wiring + unit/engine tests (OPS-226)
+- `T90-aeon-remote-guard.sh` — mbp2606 mba remote-test admission: hold, policy freshness and decimal load checks under GNU awk (matching the Nix wrapper), actual local pushes through an executable symlink hook, and Home Manager wiring eval (OPS-300)
 - `T90-nix-gc-home-manager.sh` — macOS standalone Home Manager: weekly dead-paths-only Nix GC (Sunday 04:00) plus a 30 min low-space guard exist on exactly one account per Mac, the one owning the console session (markus@mbp2607, ci@mbp2606), none elsewhere; eval-only, no GC runs (NIX-603)
 - `T92-headscale-policy.sh` — csb0 headscale 0.29 ACL: stage 1 is allow-all and referenced; stage 2 keeps markus@ and gerhard@ on `*:*` and limits amy@ to tcp 100.64.0.6:8470 (OPS-266)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)

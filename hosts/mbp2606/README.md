@@ -140,6 +140,19 @@ The regression tests require the five checks (`go`, `web`, `release-check`,
 The supplied live policy retains the existing role-5 PR-only bypass; tests
 permit its removal but reject additional actors or broader bypass permissions.
 
+## Remote-test admission (OPS-300)
+
+The `mba` profile supplies `aeon-remote-guard` and manages the executable
+pre-receive hook in `~/aeon-remote.git/hooks/`. It rejects pushes while
+`~/.hold-mbp2606` exists (`touch ~/.hold-mbp2606` to hold), while a fresh
+OPS watch policy in `~/.aeon-remote-policy` says `block=1`, or when the
+1-minute load exceeds the policy's `maxload` (default 12). The policy is one
+line: `block=<0|1> maxload=<number> level=<GREEN|YELLOW|RED> epoch=<unix>`;
+policies older than 900 seconds or malformed policies use the default load
+limit. Refusals print `remote busy` with retry guidance and exit 3. Clients
+should also call `aeon-remote-guard || exit 3` first in their `bash -s`
+scripts to check again before running tests and get a clean exit 3.
+
 ## Inbound SSH (declarative)
 
 Since 2026-07-04 (NIX-215) `~/.ssh/authorized_keys` is managed by

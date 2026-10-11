@@ -36,6 +36,7 @@ in
   # ============================================================================
   imports = [
     ../../modules/uzumaki/home-manager.nix
+    ../../modules/aeon-remote-guard
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
     # markus-defaults bundles all 3 INSPR public modules + Markus's values
     # (identities, contexts, instances, encrypted-secrets root)
@@ -110,6 +111,7 @@ in
   home.homeDirectory = "/Users/mba";
 
   home.stateVersion = "24.11";
+  services.aeonRemoteGuard.enable = true;
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;
 
