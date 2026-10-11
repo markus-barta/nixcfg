@@ -55,6 +55,9 @@ in
         permanent = false;
       };
     };
-    services.ops231-aeon.loadBalancer.servers = [ { url = "http://aeon:8080"; } ];
+    services.ops231-aeon.loadBalancer = {
+      servers = [ { url = "http://aeon:8080"; } ];
+      serversTransport = "aeon-noreuse";
+    };
   };
 }
