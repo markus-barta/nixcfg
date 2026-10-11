@@ -242,6 +242,8 @@ in
         "traefik.http.routers.aeon.tls.certresolver=default"
         "traefik.http.routers.aeon.middlewares=cloudflarewarp@file"
         "traefik.http.services.aeon.loadbalancer.server.port=8080"
+        # OPS-308: prevent a poisoned upstream keep-alive connection from being reused.
+        "traefik.http.services.aeon.loadbalancer.serversTransport=aeon-noreuse@file"
       ];
     };
     # AEON-12: PAIMOS AEON database (Postgres 18 + pgvector). Superuser and app
