@@ -13,6 +13,7 @@ esac
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_aeon_watch_checks.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 "${repo}/tests/test_fleet_alerts_engine.py"
 nix-instantiate --parse "${repo}/hosts/csb1/aeon-watch.nix" >/dev/null
 
 PYTHONDONTWRITEBYTECODE=1 python3 - "$repo" "$mode" <<'PY'
@@ -34,7 +35,7 @@ def evaluate(expression, check=True):
     return result
 
 def verify(cfg, credential_source):
-    assert cfg["tenant"] == "5d32191b252c4ef4a406788316a5ccb7"
+    assert cfg["tenant"] == "0000a0e7000040008000000000000307"
     service, timer = cfg["service"], cfg["timer"]
     unit = service["serviceConfig"]
     assert unit["Type"] == "oneshot"
@@ -57,7 +58,7 @@ def verify(cfg, credential_source):
     assert "docker.service" in service["after"]
     assert "network-online.target" in service["wants"]
     assert timer["wantedBy"] == ["timers.target"]
-    assert timer["timerConfig"] == {"OnBootSec": "30s", "OnUnitActiveSec": "30s",
+    assert timer["timerConfig"] == {"OnBootSec": "120s", "OnUnitActiveSec": "30s",
                                     "AccuracySec": "1s", "Unit": "aeon-watch.service"}
 
 fixture = 'import ./tests/aeon-watch-eval.nix '

@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 import engine
@@ -27,6 +28,9 @@ from engine import Problem
 STATE_PATH = "/var/lib/aeon-watch/state.json"
 DOCKER = "@DOCKER_BIN@"
 PROBE_TENANT = "@PROBE_TENANT@"
+WATCH_INTERVAL_SECONDS = int("@WATCH_INTERVAL_SECONDS@")
+CONTAINER_GRACE_SECONDS = 120
+NO_REQUEST_SECONDS = 600
 DOCKER_TIMEOUT = 5
 PROBE_TIMEOUT = 5
 PROBE_COUNT = 3
@@ -37,10 +41,8 @@ PROBE_URLS = {
 }
 
 
-def traffic_problems(logs: str) -> list[Problem]:
-    """Ignore startup/noise/malformed lines; count structured API requests only."""
-    total = 0
-    failing: Counter[str] = Counter()
+def request_lines(logs: str):
+    """Yield valid request records, including probes, for parser liveness."""
     for line in logs.splitlines():
         try:
             entry = json.loads(line)
@@ -61,18 +63,31 @@ def traffic_problems(logs: str) -> list[Problem]:
         ):
             continue
         method, route = parts
+        if route.startswith("/"):
+            yield method, route, status
+
+
+def traffic_problems(logs: str) -> list[Problem]:
+    """Count API traffic without the webhook or the watcher's own requests."""
+    total = 0
+    failing: Counter[str] = Counter()
+    for method, route, status in request_lines(logs):
         if not route.startswith("/api/") or (method, route) == ("POST", "/api/github/webhook"):
+            continue
+        if (method, route) == ("GET", "/api/health") or (
+            (method, route) == ("GET", "/api/me") and status == 401
+        ):
             continue
         total += 1
         if status >= 500:
             failing[f"{method} {route}"] += 1
     errors = sum(failing.values())
-    if total < 20 or errors < 5 or errors * 100 < total * 10:
+    if total < 10 or errors < 3 or errors * 100 < total * 10:
         return []
     top = ", ".join(f"{path} {count}" for path, count in failing.most_common(3))
     return [Problem(
         "aeon:traffic",
-        f"aeon.barta.cm: {errors}/{total} API requests 5xx in 60 s (top: {top})",
+        f"aeon.barta.cm: {errors}/{total} API requests 5xx in {WATCH_INTERVAL_SECONDS} s (top: {top})",
     )]
 
 
@@ -81,29 +96,66 @@ def docker_command(args: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         [DOCKER, "--host", "unix:///run/docker.sock", *args],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=DOCKER_TIMEOUT,
         check=True,
     )
 
 
-def check_traffic() -> list[Problem]:
+def check_container() -> tuple[float | None, list[Problem]]:
     try:
         running = docker_command([
             "ps", "--filter", "name=^aeon$", "--filter", "status=running",
             "--format", "{{.Names}}",
         ])
         if "aeon" not in running.stdout.splitlines():
-            return [Problem("aeon:traffic", "aeon.barta.cm: aeon container is not running")]
-        logs = docker_command(["logs", "--since", "60s", "aeon"])
-    except (OSError, UnicodeError, subprocess.SubprocessError) as error:
+            return None, [Problem("aeon:traffic", "aeon.barta.cm: aeon container is not running")]
+        # Read this one field only; never inspect the container environment.
+        started = docker_command(["container", "inspect", "-f", "{{.State.StartedAt}}", "aeon"])
+        stamp = datetime.fromisoformat(started.stdout.strip().replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            raise ValueError("StartedAt has no timezone")
+        return stamp.timestamp(), []
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return None, [Problem(
+            "aeon:traffic",
+            f"aeon.barta.cm: container/logs unreadable ({type(error).__name__})",
+        )]
+
+
+def check_request_log(logs: str, now: float, started_at: float) -> list[Problem]:
+    """Persist a liveness timestamp separately from the engine's alert state."""
+    path = Path(STATE_PATH).with_name("request-log.json")
+    try:
+        last_seen = json.loads(path.read_text(encoding="utf-8"))["last_seen"]
+    except FileNotFoundError:
+        last_seen = now
+    # A restart begins a new period of observation; stopped time is not blindness.
+    last_seen = min(now, max(last_seen, started_at))
+    if any(request_lines(logs)):
+        last_seen = now
+    engine.atomic_write_state(str(path), {"last_seen": last_seen})
+    if now - last_seen >= NO_REQUEST_SECONDS:
+        return [Problem(
+            "aeon:log-format",
+            "aeon-watch: no parsable request lines for 10 min (log format changed?)",
+        )]
+    return []
+
+
+def check_traffic(now: float, started_at: float) -> list[Problem]:
+    try:
+        logs = docker_command(["logs", "--since", f"{WATCH_INTERVAL_SECONDS}s", "aeon"])
+    except (OSError, subprocess.SubprocessError) as error:
         # Never print Docker stderr or exception text: either may contain logs.
         return [Problem(
             "aeon:traffic",
             f"aeon.barta.cm: container/logs unreadable ({type(error).__name__})",
         )]
     # Docker preserves the container's two output streams; slog uses stderr.
-    return traffic_problems(logs.stdout + "\n" + logs.stderr)
+    output = logs.stdout + "\n" + logs.stderr
+    return traffic_problems(output) + check_request_log(output, now, started_at)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -129,6 +181,8 @@ def probe_once(path: str) -> str | None:
             response = error
         with response:
             if response.status != expected:
+                if path == "/api/me" and response.status == 200:
+                    return "fake key ACCEPTED — auth bypass?"
                 if response.status == 403 and b"error code: 10" in response.read(65536):
                     return "blocked by Cloudflare (403 10xx)"
                 return f"returned {response.status}"
@@ -163,17 +217,27 @@ def check_probes() -> list[Problem]:
 
 
 def collect() -> list[Problem]:
-    return check_traffic() + check_probes()
+    now = time.time()
+    started_at, problems = check_container()
+    if started_at is not None:
+        if now - started_at < CONTAINER_GRACE_SECONDS:
+            return []
+        problems += check_traffic(now, started_at)
+    return problems + check_probes()
 
 
 def render(announced: list[str], cleared: list[str]) -> str:
-    lines = [f"• {item}" for item in announced]
+    lines = []
+    if announced:
+        lines += ["🔴 aeon-watch (csb1):"] + [f"• {item}" for item in announced]
     if cleared:
-        lines += ["✅ Cleared — two clean checks:"] + [f"• {item}" for item in cleared]
+        lines += ["🟢 aeon-watch (csb1) recovered:"] + [f"• {item}" for item in cleared]
+    if lines:
+        lines.append('check: ssh csb1 \'docker logs --since 5m aeon | grep "\\"status\\":5"\' ; runbook OPS-307')
     return "\n".join(lines)
 
 
-def main() -> int:
+def run() -> int:
     credential_dir = os.environ.get("CREDENTIALS_DIRECTORY", "/nonexistent")
     target = engine.env_file_value(
         str(Path(credential_dir) / "notification-env"), "WATCHTOWER_NOTIFICATION_URL"
@@ -187,6 +251,16 @@ def main() -> int:
         print("notification target unusable")
         return engine.EXIT_UNDELIVERED
     return engine.run_cycle(STATE_PATH, time.time(), collect, render, sender, clear_confirm_runs=2)
+
+
+def main() -> int:
+    try:
+        return run()
+    except Exception as error:
+        # Unexpected failures must fail the unit (1 is a successful problem run).
+        # Exception text/tracebacks can contain logs, headers or credentials.
+        print(f"aeon-watch: watch crashed ({type(error).__name__})")
+        return 2
 
 
 if __name__ == "__main__":
