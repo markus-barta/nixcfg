@@ -1526,6 +1526,11 @@ fix-dead-code args='':
 test-qownnotes:
     nix build .#checks.x86_64-linux.qownnotes-unstable -L --no-link
 
+# Run aeon-watch fixtures, debounce tests and csb1 evaluation without building
+[group('tests')]
+test-aeon-watch:
+    bash tests/T96-aeon-watch.sh
+
 # Run the QOwnNotes interactive test
 [group('tests')]
 test-qownnotes-interactive:

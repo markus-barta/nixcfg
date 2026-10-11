@@ -1497,6 +1497,27 @@ Intentional baseline advisories go into `SUPPRESSED_HEALTH` in the shared
 `modules/shared/fleet-alerts/tailnet-watch-checks.py` (also used by hsb1,
 OPS-185) with a comment and a pinned test; the baseline on 2026-08-21 was empty.
 
+### Aeon API Watch (aeon-watch, OPS-307)
+
+`aeon-watch.timer` checks every 30 seconds. It pages after two consecutive bad
+checks and clears after two clean checks: at least 5 API 5xx in the last 60
+seconds, at least 20 total API requests and at least a 10% error rate (excluding
+`POST /api/github/webhook`), a stopped container or unreadable logs, or any of
+three public `/api/health` probes failing HTTP 200 with `db = "ok"` or three
+`/api/me` probes with fresh fake tenant-prefixed keys failing the expected 401.
+The probes use fresh connections through Cloudflare and Traefik with
+`User-Agent: aeon-watch/1 (OPS-307)`; health alone missed the poisoned
+keep-alive/authentication outage. A 403 body containing `error code: 10`
+reports `blocked by Cloudflare (403 10xx)` and remains a problem because the
+probe cannot observe the API. Delivery reuses
+`csb1-watchtower-env` via systemd credentials. The dynamic user has the existing
+Docker group access for `ps` and `logs`; this grants daemon control, and the
+Traefik socket proxy has no host listener. Alerts/state contain route patterns
+and counts, never raw logs, response bodies or fake headers. To silence during
+maintenance: `sudo systemctl stop aeon-watch.timer` (an in-flight check can finish);
+resume with `sudo systemctl start aeon-watch.timer`. Declarative removal is via
+the `./aeon-watch.nix` import in this host's configuration.
+
 ### Fleet Drift Watch (fleet-drift, OPS-187)
 
 `fleet-drift.timer` runs hourly and reads pharosd's persisted store on this host
