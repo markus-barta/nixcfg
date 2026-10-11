@@ -32,10 +32,10 @@ if [[ -e "$guard_policy_file" || -L "$guard_policy_file" ]]; then
     policy_maxload=${BASH_REMATCH[2]}
     epoch=${BASH_REMATCH[5]}
     if now=$(date +%s 2>/dev/null) && [[ $now =~ ^[0-9]{1,12}$ ]]; then
-      # Bound and decimalize epoch before arithmetic; future policies are not
-      # fresh and cannot extend their lifetime indefinitely after a clock jump.
+      # Bound and decimalize epoch before arithmetic; tolerate at most 60 s of
+      # future skew without extending freshness indefinitely after a clock jump.
       age=$((10#$now - 10#$epoch))
-      if ((age >= 0 && age <= guard_stale_seconds)); then
+      if ((age >= -60 && age <= guard_stale_seconds)); then
         maxload=$policy_maxload
         if [[ $block == 1 ]]; then
           reasons+=("fresh policy block=1")
