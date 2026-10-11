@@ -140,6 +140,25 @@ The regression tests require the five checks (`go`, `web`, `release-check`,
 The supplied live policy retains the existing role-5 PR-only bypass; tests
 permit its removal but reject additional actors or broader bypass permissions.
 
+## Remote-test admission (OPS-300)
+
+The `mba` profile supplies `aeon-remote-guard` and manages the executable
+pre-receive hook in `~/aeon-remote.git/hooks/`. It rejects pushes that create
+or update refs while `~/.hold-mbp2606` exists (`touch ~/.hold-mbp2606` to hold),
+while a fresh OPS watch policy in `~/.aeon-remote-policy` says `block=1`, or when the
+1-minute load exceeds the policy's `maxload` (default 12). The policy is one
+line: `block=<0|1> maxload=<number> level=<GREEN|YELLOW|RED> epoch=<unix>`;
+policies older than 900 seconds, more than 60 seconds in the future, or
+malformed policies use the default load limit. The policy writer must replace
+the file atomically (write a temporary file in the same directory, then `mv`
+it into place); OPS's writer already does. Pushes that only delete refs are
+allowed while busy so cleanup can run. Refusals print `remote busy` with retry
+guidance and exit 3. Clients should also call
+`/Users/mba/.nix-profile/bin/aeon-remote-guard || exit 3` first in their
+`bash -s` scripts to check again before running tests and get a clean exit 3.
+Non-login `ssh mba@mbp2606 bash -s` sessions run via `fish -c` and do not have
+`~/.nix-profile/bin` on PATH, so clients must use the absolute guard path.
+
 ## Inbound SSH (declarative)
 
 Since 2026-07-04 (NIX-215) `~/.ssh/authorized_keys` is managed by
