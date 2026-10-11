@@ -208,17 +208,17 @@ in
       description = "Resume taking jobs only when the host's 1-minute load falls below this threshold.";
     };
     claimSpacingSeconds = lib.mkOption {
-      type = lib.types.int;
+      type = lib.types.ints.unsigned;
       default = 180;
       description = "Minimum time between slot claims, persisted across controller restarts; at most one claim per tick.";
     };
     memFreeLow = lib.mkOption {
-      type = lib.types.number;
+      type = lib.types.addCheck lib.types.number (value: value >= 0 && value <= 100);
       default = 35;
       description = "Stop taking new jobs when the host memory free percentage falls below this threshold.";
     };
     memFreeHigh = lib.mkOption {
-      type = lib.types.number;
+      type = lib.types.addCheck lib.types.number (value: value >= 0 && value <= 100);
       default = 45;
       description = "Resume taking jobs only when the host memory free percentage reaches this threshold; must exceed memFreeLow.";
     };
@@ -322,7 +322,7 @@ in
       cfg.limaPackage
     ];
     home.activation.aeonBuilderBusyState = lib.mkIf cfg.busyFileRefresh (
-      lib.hm.dag.entryBefore [ "setupLaunchAgents" ] ''
+      lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ] ''
         run ${pkgs.coreutils}/bin/mkdir -p -m 700 ${lib.escapeShellArg stateDir}
       ''
     );

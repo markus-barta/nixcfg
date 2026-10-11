@@ -19,6 +19,8 @@ spec.loader.exec_module(ab)
 
 REPO = "inspr-at/paimos"
 SHA = "a" * 40
+TEST_TMP = tempfile.TemporaryDirectory(prefix="aeon-builder-tests-")
+unittest.addModuleCleanup(TEST_TMP.cleanup)
 
 CFG = {
     "repo": REPO,
@@ -36,7 +38,7 @@ CFG = {
     "claimSpacingSeconds": 180,
     "memFreeLow": 35,
     "memFreeHigh": 45,
-    "busyFile": "/Users/Shared/ci-pool-busy",
+    "busyFile": str(Path(TEST_TMP.name) / "ci-pool-busy"),
     "slotCpus": 4,
     "slotMemoryGiB": 6,
     "slotDiskGiB": 60,
@@ -161,7 +163,9 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         cfg = json.loads(proc.stdout)
         self.assertTrue(cfg.pop("enable"))
-        self.assertEqual(cfg, {key: CFG[key] for key in cfg})
+        expected = {key: CFG[key] for key in cfg}
+        expected["busyFile"] = "/Users/Shared/ci-pool-busy"
+        self.assertEqual(cfg, expected)
 
     def test_load_options_assertion_and_json_settings(self):
         # Use the module's real defaults and JSON generation, with only the
@@ -175,13 +179,14 @@ class HostConfigTests(unittest.TestCase):
             mkIf = condition: value: if condition then value else {};
             types.number = "number";
             types.int = "int";
+            types.ints.unsigned = { type = "int"; check = value: builtins.isInt value && value >= 0; };
             types.str = "str";
             types.bool = "bool";
             types.addCheck = type: check: { inherit type check; };
             mapAttrs = builtins.mapAttrs;
             importJSON = path: builtins.fromJSON (builtins.readFile path);
             escapeShellArg = value: value;
-            hm.dag.entryBefore = before: data: { inherit before data; };
+            hm.dag.entryBetween = before: after: data: { inherit before after data; };
           };
           evaluate = overrides: let
             module = import (root + "/modules/aeon-builder") {
@@ -206,8 +211,11 @@ class HostConfigTests(unittest.TestCase):
             [ {} { loadHigh = 14; loadLow = 10; } { loadHigh = 8.0; } { loadHigh = 7; } ];
           memoryAssertions = map (overrides: (builtins.elemAt (evaluate overrides).config.assertions 1).assertion)
             [ {} { memFreeHigh = 50.5; memFreeLow = 40.5; } { memFreeHigh = 35; } { memFreeHigh = 34.5; } ];
-          memoryTypes = map (name: module.options.services.aeonBuilder.${name}.type) [ "memFreeLow" "memFreeHigh" ];
-          spacingType = module.options.services.aeonBuilder.claimSpacingSeconds.type;
+          memoryTypes = map (name: module.options.services.aeonBuilder.${name}.type.type) [ "memFreeLow" "memFreeHigh" ];
+          memoryBounds = map (name: map module.options.services.aeonBuilder.${name}.type.check
+            [ (-1) (-0.5) 0 0.5 35 99.5 100 100.5 101 ]) [ "memFreeLow" "memFreeHigh" ];
+          spacingType = module.options.services.aeonBuilder.claimSpacingSeconds.type.type;
+          spacingBounds = map module.options.services.aeonBuilder.claimSpacingSeconds.type.check [ (-1) 0 180 0.5 ];
           busyFileType = module.options.services.aeonBuilder.busyFile.type;
           busyFileRefreshType = module.options.services.aeonBuilder.busyFileRefresh.type;
           busyFileRefreshDefault = module.options.services.aeonBuilder.busyFileRefresh.default;
@@ -231,7 +239,9 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(result["assertions"], [True, True, False, False])
         self.assertEqual(result["memoryAssertions"], [True, True, False, False])
         self.assertEqual(result["memoryTypes"], ["number", "number"])
+        self.assertEqual(result["memoryBounds"], [[False, False, True, True, True, True, True, False, False]] * 2)
         self.assertEqual(result["spacingType"], "int")
+        self.assertEqual(result["spacingBounds"], [False, True, True, False])
         self.assertEqual(result["busyFileType"], "str")
         self.assertEqual(result["busyFileRefreshType"], "bool")
         self.assertTrue(result["busyFileRefreshDefault"])
@@ -246,6 +256,7 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(service["StandardErrorPath"], "/test/.local/state/aeon-builder/busy-file.err")
         activation = result["busyStateActivation"]
         self.assertEqual(activation["before"], ["setupLaunchAgents"])
+        self.assertEqual(activation["after"], ["writeBoundary"])
         self.assertIn("run /coreutils/bin/mkdir -p -m 700 /test/.local/state/aeon-builder", activation["data"])
         self.assertEqual(result["highType"], "number")
         self.assertEqual(result["lowType"], "number")
@@ -253,8 +264,9 @@ class HostConfigTests(unittest.TestCase):
         settings = json.loads(result["command"].split("--config ", 1)[1].split(' "$@"', 1)[0])
         self.assertEqual(settings["loadHigh"], CFG["loadHigh"])
         self.assertEqual(settings["loadLow"], CFG["loadLow"])
-        for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh", "busyFile"):
+        for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh"):
             self.assertEqual(settings[key], CFG[key])
+        self.assertEqual(settings["busyFile"], "/Users/Shared/ci-pool-busy")
         overrides = json.loads(result["overrideCommand"].split("--config ", 1)[1].split(' "$@"', 1)[0])
         self.assertEqual({key: overrides[key] for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh", "busyFile")},
                          {"claimSpacingSeconds": 240, "memFreeLow": 25.5, "memFreeHigh": 40.5, "busyFile": "/tmp/test-busy"})
@@ -741,6 +753,9 @@ class ControllerTests(unittest.TestCase):
         self._log = ab.log
         ab.log = lambda message: None
         self.addCleanup(setattr, ab, "log", self._log)
+        errors = patch.object(ab, "_busy_file_errors", {})
+        errors.start()
+        self.addCleanup(errors.stop)
 
     def controller(self, gh, getloadavg=None, getmemoryfree=None):
         ctl = ab.Controller(self.cfg, gh=gh, lima=object(), state=self.state,
@@ -897,6 +912,31 @@ class ControllerTests(unittest.TestCase):
         self.clock.return_value = 1180
         self.assertEqual(restarted.claim_slot(job, r), 0)
 
+    def test_blocked_queue_makes_at_most_one_claim_and_ruleset_fetch_per_tick(self):
+        r = run(id=9)
+        jobs = [{"id": 90 + i, "status": "queued", "labels": ab.mint_labels(CFG, r)} for i in range(10)]
+        occupied = {str(i): {"jobId": i} for i in range(self.cfg["slots"])}
+        for blocked in ("spacing", "load", "memory", "full"):
+            with self.subTest(blocked=blocked):
+                self.state.save({"mode": "on", "slots": occupied if blocked == "full" else {},
+                                 "lastClaimAt": 999 if blocked == "spacing" else None})
+                gh = FakeGitHub([r], {9: jobs})
+                gh.ruleset = Mock(return_value=LIVE_RULESET)
+                ctl = self.controller(gh, lambda: (13 if blocked == "load" else 0, 0, 0),
+                                      lambda: 34 if blocked == "memory" else 60)
+                with patch.object(ctl, "claim_slot", wraps=ctl.claim_slot) as claim:
+                    for _ in range(2):
+                        gh.ruleset.reset_mock()
+                        claim.reset_mock()
+                        self.assertEqual(ctl.tick(), "on")
+                        claim.assert_called_once_with(jobs[0], r)
+                        gh.ruleset.assert_called_once_with()
+                        self.assertEqual(ctl.pending, len(jobs))
+                        self.assertEqual(self.state.load()["slots"], occupied if blocked == "full" else {})
+                        self.assertEqual(ctl.workers, {})
+                        self.assertEqual(gh.cancelled, [])
+                        self.assertTrue(all(job["status"] == "queued" for job in jobs))
+
     def test_concurrent_claims_share_the_persisted_spacing_limit(self):
         r = run(id=9)
         gh = FakeGitHub([], {})
@@ -997,6 +1037,80 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.state.load()["hostGateReason"], "load")
         self.assertFalse(ctl.mem_gated)
         self.assertTrue(gh.published[-1]["busy"])
+
+    def test_transient_memory_failures_preserve_both_gate_states_until_readable(self):
+        for initial in (34, 60):
+            with self.subTest(initial=initial):
+                gh = FakeGitHub([], {})
+                ctl = self.controller(gh, getmemoryfree=Mock(side_effect=[
+                    initial, subprocess.TimeoutExpired("memory_pressure", 5),
+                    OSError("unreadable"), ValueError("missing percentage"), 45,
+                ]))
+                with patch.object(ab, "log") as log:
+                    for index in range(5):
+                        self.assertTrue(ctl.publish_once())
+                        gated = initial == 34 and index < 4
+                        self.assertEqual(ctl.mem_gated, gated)
+                        self.assertEqual(gh.published[-1]["idle_runners"], 0 if gated else 4)
+                        self.assertTrue(self.state.load()["memSampled"])
+                    self.assertFalse(any("memory gate disabled" in call.args[0] for call in log.call_args_list))
+
+    def test_memory_failure_after_restart_keeps_a_previously_readable_gate(self):
+        gh = FakeGitHub([], {})
+        ctl = self.controller(gh, getmemoryfree=Mock(side_effect=[34, OSError("unreadable")]))
+        ctl.sample_host()
+        ctl.sample_host()
+        self.state = ab.State(self.tmp)
+        restarted = self.controller(gh, getmemoryfree=Mock(side_effect=OSError("still unreadable")))
+        with patch.object(ab, "log") as log:
+            self.assertTrue(restarted.publish_once())
+        log.assert_not_called()
+        self.assertTrue(self.state.load()["memGated"])
+        self.assertTrue(gh.published[-1]["busy"])
+
+    def test_host_samples_do_not_hold_the_state_lock_and_use_latest_gate_state(self):
+        def load():
+            self.state.update(lambda d: d.update(loadGated=True))
+            return (10, 0, 0)
+
+        def memory():
+            self.state.update(lambda d: d.update(memGated=True, hostGateReason="load+memory"))
+            return 40
+
+        ctl = self.controller(FakeGitHub([], {}), load, memory)
+        with patch.object(ab, "log") as log:
+            sampled = ctl.sample_host()
+        log.assert_not_called()
+        self.assertTrue(sampled["loadGated"])
+        self.assertTrue(sampled["memGated"])
+        self.assertEqual(sampled["hostGateReason"], "load+memory")
+
+    def test_old_load_gated_state_upgrades_without_a_spurious_transition(self):
+        self.state.file.write_text(json.dumps({"mode": "on", "loadGated": True}))
+        self.state = ab.State(self.tmp)
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        ctl = self.controller(gh, Mock(side_effect=[(10, 0, 0), (10, 0, 0), (7, 0, 0)]))
+        with patch.object(ab, "log") as log:
+            self.assertEqual(ctl.tick(), "on")
+            self.assertTrue(ctl.publish_once())
+            log.assert_not_called()
+            data = self.state.load()
+            self.assertTrue(data["loadGated"])
+            self.assertTrue(data["hostGated"])
+            self.assertEqual(data["hostGateReason"], "load")
+            self.assertFalse(data["memGated"])
+            self.assertNotIn("lastClaimAt", data)
+            self.assertEqual(data["slots"], {})
+            self.assertEqual(ctl.pending, 1)
+            self.assertTrue(gh.published[-1]["busy"])
+            self.assertEqual(ctl.tick(), "on")
+            self.assertEqual(log.call_count, 1)
+            self.assertIn("host gate OFF", log.call_args.args[0])
+        self.assertEqual(self.state.load()["slots"]["0"]["jobId"], 90)
+        self.assertEqual(self.state.load()["lastClaimAt"], 1000)
+        self.assertEqual(gh.cancelled, [])
 
     def test_unverified_and_wrong_class_runs_are_cancelled_while_gated(self):
         fork = run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"})
@@ -1126,12 +1240,14 @@ class ControllerTests(unittest.TestCase):
                 self.assertEqual(path.read_text(), "old\n", "previous content is intact until rename")
                 self.assertEqual(Path(src).parent, path.parent)
                 self.assertNotEqual(Path(src), path)
+                self.assertTrue(Path(src).name.startswith(f".{path.name}."))
                 self.assertEqual(Path(src).read_text(), "2/4 1000\n")
                 self.assertEqual(Path(src).stat().st_mode & 0o777, 0o644)
                 replaced.append(src)
             real_replace(src, dst)
-        with patch.object(ab.os, "replace", side_effect=replace):
+        with patch.object(ab.os, "replace", side_effect=replace), patch.object(Path, "unlink") as unlink:
             self.assertTrue(ctl.publish_once())
+        unlink.assert_not_called()
         self.assertEqual(len(replaced), 1)
         self.assertEqual(path.read_text(), "2/4 1000\n", "the file counts occupied slots even while host-gated")
         self.assertEqual(path.stat().st_mode & 0o777, 0o644)
@@ -1168,14 +1284,38 @@ class ControllerTests(unittest.TestCase):
 
         def replace(src, dst):
             if Path(dst) == path:
-                raise PermissionError("busy file denied")
+                raise PermissionError(1, "busy file denied", str(src))
             real_replace(src, dst)
         with patch.object(ab.os, "replace", side_effect=replace), patch.object(ab, "log") as log:
-            self.assertTrue(ctl.publish_once())
+            for _ in range(2):
+                self.assertTrue(ctl.publish_once())
             self.assertEqual(path.read_text(), "previous\n")
             self.assertEqual(set(self.tmp.iterdir()), original_files, "failed writes leave no temporary files")
-            log.assert_called_once_with("busy file write failed: busy file denied")
+            self.assertEqual(log.call_count, 1, "changing temp filenames do not repeat the same error")
+            self.assertIn("busy file write failed: [Errno 1] busy file denied:", log.call_args.args[0])
         self.assertEqual(gh.published[-1]["idle_runners"], 4)
+
+    def test_busy_file_logs_only_changed_errors_and_resets_after_recovery(self):
+        gh = FakeGitHub([], {})
+        ctl = self.controller(gh)
+        errors = [PermissionError("denied"), PermissionError("denied"), OSError("disk full"),
+                  OSError("disk full"), None, OSError("disk full")]
+        real_write = ab.atomic_write
+        path = Path(self.cfg["busyFile"])
+
+        def write(target, text, mode=0o600):
+            if target == path:
+                error = errors.pop(0)
+                if error:
+                    raise error
+            real_write(target, text, mode)
+
+        with patch.object(ab, "atomic_write", side_effect=write), patch.object(ab, "log") as log:
+            for _ in range(6):
+                self.assertTrue(ctl.publish_once())
+        self.assertEqual(log.call_args_list, [unittest.mock.call(f"busy file write failed: {error}")
+                                             for error in ("denied", "disk full", "disk full")])
+        self.assertEqual(path.read_text(), "0/4 1000\n")
 
     def test_off_command_writes_busy_file_when_controller_is_not_running(self):
         gh = FakeGitHub([], {})
@@ -1228,6 +1368,7 @@ class ControllerTests(unittest.TestCase):
             real_replace(src, dst)
         for log_error in (None, PermissionError("log denied")):
             with self.subTest(log_error=log_error), \
+                    patch.object(ab, "_busy_file_errors", {}), \
                     patch.object(ab, "State", return_value=self.state), \
                     patch.object(ab.os, "replace", side_effect=replace), \
                     patch.object(ab, "log", side_effect=log_error) as log, \
@@ -1327,7 +1468,7 @@ class ControllerTests(unittest.TestCase):
                 gh = FakeGitHub([r], {9: [job]})
                 gh.jit = Mock(return_value={"runner": {"id": 123}, "encoded_jit_config": "test-jit"})
                 gh.delete_runner = Mock()
-                ctl = ab.Controller(CFG, gh=gh, lima=Mock(), state=self.state)
+                ctl = ab.Controller(CFG, gh=gh, lima=Mock(), state=self.state, getmemoryfree=lambda: 60)
                 ctl.prepare_disk = Mock(return_value=("aeon-cache-0" if event == "push" else "aeon-scratch-0", False))
                 ctl.retire_slot = Mock()
                 ctl.wait_for_runner = Mock(return_value="idle")
@@ -1348,7 +1489,7 @@ class ControllerTests(unittest.TestCase):
             with self.subTest(event=event):
                 lima = Mock()
                 lima.disks.return_value = []
-                ctl = ab.Controller(CFG, gh=FakeGitHub([], {}), lima=lima, state=self.state)
+                ctl = ab.Controller(CFG, gh=FakeGitHub([], {}), lima=lima, state=self.state, getmemoryfree=lambda: 60)
                 ctl.good_copy = Mock(return_value=good)
                 ctl.disk_file = lambda name: self.tmp / name
                 with patch.object(ab.subprocess, "run") as copy:
