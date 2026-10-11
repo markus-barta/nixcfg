@@ -88,7 +88,10 @@ macOS reports less than 35% free memory, releasing at 45% or more (`memFreeLow`
 / `memFreeHigh`). Both gates must clear before claims resume. If `memory_pressure`
 has never been readable, the memory gate is disabled and logs once. After a
 successful reading, transient failures retain the previous memory gate state,
-including across controller restarts. The controller claims
+including across controller restarts, for up to 600 seconds (`memHoldSeconds`).
+The hold starts with one log line; expiry releases and disables the memory gate
+until a successful reading restores normal hysteresis and logs recovery once.
+`status` shows when the gate was held or disabled. The controller claims
 at most one slot per tick, at least 180 seconds apart (`claimSpacingSeconds`);
 the last claim time survives restarts. A backwards wall-clock jump allows the
 next claim immediately and starts a new spacing interval. While gated, admitted
@@ -109,8 +112,10 @@ or ownership failures skip the write. The
 `aeon-builder-busy` launchd agent runs the hidden `aeon-builder busy-file` command
 every 60 seconds and at load, keeping the timestamp fresh without a controller.
 Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the
-controller logs in `~/.local/state/aeon-builder`. Write failures are logged and
-do not stop the controller or fail the refresh command.
+controller logs in `~/.local/state/aeon-builder`. The last write error is saved
+in `busy-file.lasterror`; repeated failures log only when the error changes,
+including across refresh processes, and a successful write clears the error.
+Failures do not stop the controller or fail the refresh command.
 
 The `ci` user's `aeon-builder` pool deliberately fails closed when paimos's
 main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,

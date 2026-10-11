@@ -64,6 +64,7 @@ let
       claimSpacingSeconds
       memFreeLow
       memFreeHigh
+      memHoldSeconds
       busyFile
       busyFileGroup
       sshPortBase
@@ -222,6 +223,11 @@ in
       type = lib.types.addCheck lib.types.number (value: value >= 0 && value <= 100);
       default = 45;
       description = "Resume taking jobs only when the host memory free percentage reaches this threshold; must exceed memFreeLow.";
+    };
+    memHoldSeconds = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 600;
+      description = "Hold the previous memory gate after a failed reading for this many seconds, then disable it until readings recover.";
     };
     busyFile = lib.mkOption {
       type = lib.types.str;

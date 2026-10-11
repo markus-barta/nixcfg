@@ -496,14 +496,15 @@ def now_utc():
 
 
 def atomic_write(path, text, mode=0o600, group=None):
+    gid = grp.getgrnam(group).gr_gid if group is not None else None
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as handle:
+            os.fchmod(fd, mode)
+            if gid is not None:
+                os.fchown(fd, -1, gid)
             handle.write(text)
-        os.chmod(tmp, mode)
-        if group is not None:
-            os.chown(tmp, -1, grp.getgrnam(group).gr_gid)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -515,21 +516,36 @@ _busy_file_errors = {}
 
 def write_busy_file(cfg, data):
     path = Path(cfg.get("busyFile", "/Users/Shared/ci-pool-busy"))
+    last_error = STATE_DIR / "busy-file.lasterror"
     try:
         atomic_write(path, f"{len(data['slots'])}/{cfg['slots']} {int(time.time())}\n",
                      mode=0o640, group=cfg.get("busyFileGroup", "staff"))
-        _busy_file_errors.pop(path, None)
     except (OSError, KeyError) as err:
         message = f"busy file write failed: {err}"
         # Failed renames name a fresh random temp file on every attempt.
-        error = (err.errno, err.strerror or str(err)) if isinstance(err, OSError) else str(err)
-        if _busy_file_errors.get(path) == error:
+        error = json.dumps((err.errno, err.strerror or str(err)) if isinstance(err, OSError) else str(err))
+        try:
+            previous = last_error.read_text()
+        except OSError:
+            previous = _busy_file_errors.get(path)
+        if previous == error:
             return
         _busy_file_errors[path] = error
+        try:
+            atomic_write(last_error, error)
+        except OSError:
+            pass  # Keep the in-process fallback when the state directory is unwritable.
         try:
             log(message)
         except OSError:
             print(message, file=sys.stderr)
+    else:
+        _busy_file_errors.pop(path, None)
+        try:
+            if last_error.exists():
+                atomic_write(last_error, "")
+        except OSError:
+            pass
 
 
 class State:
@@ -648,6 +664,7 @@ class Controller:
                  getmemoryfree=get_memory_free):
         self.cfg = {**cfg, "loadHigh": float(cfg["loadHigh"]), "loadLow": float(cfg["loadLow"]),
                     "memFreeHigh": float(cfg.get("memFreeHigh", 45)), "memFreeLow": float(cfg.get("memFreeLow", 35)),
+                    "memHoldSeconds": cfg.get("memHoldSeconds", 600),
                     "claimSpacingSeconds": cfg.get("claimSpacingSeconds", 180)}
         self.gh = gh or GitHub(cfg)
         self.lima = lima or Lima(cfg)
@@ -657,7 +674,6 @@ class Controller:
         self.load_gated = False
         self.mem_gated = False
         self.host_gated = False
-        self.memory_warning_logged = False
         self.lock = threading.Lock()
         self.workers = {}
         self.pending = 0
@@ -694,15 +710,28 @@ class Controller:
         def sample(data):
             high, low = self.cfg["loadHigh"], self.cfg["loadLow"]
             self.load_gated = load_gate(data.get("loadGated", False), load1, high, low)
-            readable = free is not None or data.get("memSampled", data.get("memFreePercent") is not None)
-            if free is None and readable:
-                self.mem_gated = data.get("memGated", False)
+            readable = data.get("memSampled", data.get("memFreePercent") is not None)
+            since = data.get("memUnreadableSince")
+            if free is None:
+                first_failure = since is None
+                if first_failure:
+                    since = time.time()
+                if readable and time.time() - since < self.cfg["memHoldSeconds"]:
+                    self.mem_gated = data.get("memGated", False)
+                    if first_failure:
+                        log(f"memory_pressure unreadable ({memory_error}); holding memory gate {'ON' if self.mem_gated else 'OFF'}")
+                else:
+                    self.mem_gated = False
+                    if first_failure or readable:
+                        log(f"memory_pressure unreadable; memory gate disabled: {memory_error}")
+                    readable = False
             else:
+                if since is not None:
+                    log("memory_pressure readable again; memory gate re-enabled")
+                since = None
+                readable = True
                 self.mem_gated = memory_gate(data.get("memGated", False), free,
                                              self.cfg["memFreeHigh"], self.cfg["memFreeLow"])
-            if free is None and not readable and not self.memory_warning_logged:
-                log(f"memory_pressure unreadable; memory gate disabled: {memory_error}")
-                self.memory_warning_logged = True
             reason = "+".join(name for name, gated in (("load", self.load_gated), ("memory", self.mem_gated)) if gated)
             previous = data.get("hostGateReason", "load" if data.get("loadGated") else "")
             if reason != previous:
@@ -711,6 +740,7 @@ class Controller:
                 log(f"host gate ON ({reason}): {detail}; not taking new jobs" if reason else f"host gate OFF: {detail}")
             self.host_gated = bool(reason)
             data.update(loadGated=self.load_gated, load1=load1, memGated=self.mem_gated, memFreePercent=free, memSampled=readable,
+                        memUnreadableSince=since,
                         hostGated=self.host_gated, hostGateReason=reason)
         return self.state.update(sample)
 
@@ -1456,7 +1486,12 @@ def cmd_status(cfg, args):
     print(f"load gate:   {gate}  1-min load {data.get('load1', 'unknown')} (last sampled; high {cfg['loadHigh']}, low {cfg['loadLow']})")
     mem_gate = 'ON' if data.get('memGated') else 'OFF'
     free = data.get('memFreePercent')
-    print(f"memory gate: {mem_gate}  free {str(free) + '%' if free is not None else 'unknown'} (last sampled; low {cfg.get('memFreeLow', 35)}, high {cfg.get('memFreeHigh', 45)})")
+    memory_status = f"{mem_gate}  free {str(free) + '%' if free is not None else 'unknown'}"
+    since = data.get('memUnreadableSince')
+    if since is not None:
+        iso = dt.datetime.fromtimestamp(since, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        memory_status = f"{mem_gate}  held since {iso}" if data.get('memSampled') else f"disabled (unreadable since {iso})"
+    print(f"memory gate: {memory_status} (last sampled; low {cfg.get('memFreeLow', 35)}, high {cfg.get('memFreeHigh', 45)})")
     print(f"host gate:   {'ON (' + data['hostGateReason'] + ')' if data.get('hostGated') else 'OFF'}")
     last = data.get('lastClaimAt')
     print(f"last claim:  {str(max(0, int(time.time() - last))) + ' s ago' if last is not None else 'never'}")
@@ -1481,19 +1516,17 @@ def cmd_pf_install(cfg, args):
     if os.geteuid() != 0:
         raise BuilderError("run with sudo: sudo aeon-builder pf-install")
     anchor = Path("/etc/pf.anchors/at.inspr.aeon-builder")
-    anchor.write_text(pf_rules(cfg, args.user))
-    anchor.chmod(0o600)
+    atomic_write(anchor, pf_rules(cfg, args.user), mode=0o600)
     plist = Path("/Library/LaunchDaemons/at.inspr.aeon-builder-pf.plist")
     load = f"/sbin/pfctl -E; /sbin/pfctl -a com.apple/aeon-builder -f {anchor}"
-    plist.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
+    atomic_write(plist, f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>at.inspr.aeon-builder-pf</string>
   <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>{load}</string></array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
-""")
-    plist.chmod(0o600)
+""", mode=0o600)
     subprocess.run(["/bin/launchctl", "bootout", "system", str(plist)], capture_output=True)
     subprocess.run(["/bin/launchctl", "bootstrap", "system", str(plist)], check=True)
     time.sleep(1)
