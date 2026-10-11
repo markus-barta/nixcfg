@@ -81,6 +81,9 @@ class: `mbp2606-push`, `mbp2606-dispatch`, `mbp2606-pr`, or `mbp2606-mq`,
 respectively. Only pushes write the persistent cache; other events use a
 disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
 host RAM for remote-test.
+The `ci` user's `~/.lima` and `~/.local/state/aeon-builder` are excluded from
+Time Machine by default because they are rebuildable and churn heavily
+(OPS-303); set `services.aeonBuilder.timeMachineExclude = false` to opt out.
 
 The host gate stops taking new jobs above a 1-minute load of 12.0 and resumes
 only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). It also gates when

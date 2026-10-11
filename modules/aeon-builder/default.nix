@@ -107,6 +107,12 @@ in
 
     limaPackage = lib.mkPackageOption pkgs "lima" { };
 
+    timeMachineExclude = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Exclude rebuildable Lima VMs and aeon-builder caches from Time Machine (OPS-303).";
+    };
+
     configDir = lib.mkOption {
       type = lib.types.str;
       default = "${config.home.homeDirectory}/.config/aeon-builder";
@@ -333,11 +339,22 @@ in
       aeonBuilder
       cfg.limaPackage
     ];
-    home.activation.aeonBuilderBusyState = lib.mkIf cfg.busyFileRefresh (
-      lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ] ''
-        run ${pkgs.coreutils}/bin/mkdir -p -m 700 ${lib.escapeShellArg stateDir}
-      ''
-    );
+    home.activation = {
+      aeonBuilderBusyState = lib.mkIf cfg.busyFileRefresh (
+        lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ] ''
+          run ${pkgs.coreutils}/bin/mkdir -p -m 700 ${lib.escapeShellArg stateDir}
+        ''
+      );
+    }
+    // lib.optionalAttrs cfg.timeMachineExclude {
+      aeonBuilderTimeMachineExclude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        for dir in ${lib.escapeShellArg "${config.home.homeDirectory}/.lima"} ${lib.escapeShellArg stateDir}; do
+          run ${pkgs.coreutils}/bin/mkdir -p -m 700 "$dir"
+          run /usr/bin/tmutil addexclusion "$dir" 2>/dev/null \
+            || echo "aeon-builder: tmutil addexclusion failed for $dir (continuing)"
+        done
+      '';
+    };
     launchd.agents = lib.mkIf cfg.busyFileRefresh {
       aeon-builder-busy = {
         enable = true;
