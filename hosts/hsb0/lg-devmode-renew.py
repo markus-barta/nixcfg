@@ -23,6 +23,9 @@ TIMEOUT = 20
 MAX_RESPONSE = 16384
 ORIGIN = "https://developer.lge.com/secure/"
 CHANNELS = {"email", "telegram"}
+RECOVERY_RETRIES = 3  # One initial attempt, then at most three later retries.
+MISSING_CREDENTIAL_EXIT = 3
+TEST_ALERT = "[TEST] LG Developer Mode renew alert path check"
 Sender = Callable[[str, str], bool]
 
 
@@ -128,11 +131,34 @@ def load_state(path: Path) -> dict:
         uuid.UUID(state["streak_id"])
     validate_channels(state["failure_notified"])
     for pending in state["recoveries"]:
-        if not isinstance(pending, dict) or set(pending) != {"id", "channels"}:
+        if (not isinstance(pending, dict)
+                or set(pending) not in ({"id", "channels"}, {"id", "channels", "attempts"})):
             raise ValueError("recovery state refused")
         uuid.UUID(pending["id"])
         validate_channels(pending["channels"])
+        # Accept the previous schema's pending notices without losing them.
+        attempts = pending.setdefault("attempts", dict.fromkeys(pending["channels"], 0))
+        if (not isinstance(attempts, dict) or set(attempts) != set(pending["channels"])
+                or any(type(n) is not int or not 0 <= n <= RECOVERY_RETRIES + 1
+                       for n in attempts.values())):
+            raise ValueError("recovery attempts refused")
     return state
+
+
+def load_or_reset_state(path: Path) -> dict:
+    try:
+        return load_state(path)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, OverflowError):
+        # Notification bookkeeping must never prevent the HTTP renewal. Keep
+        # the refused bytes for diagnosis without printing them or exceptions.
+        quarantine = path.with_name(f"{path.name}.corrupt-{time.time_ns()}")
+        try:
+            path.rename(quarantine)
+        except OSError:
+            print("lg-devmode-renew: state-reset quarantine=unavailable")
+        else:
+            print("lg-devmode-renew: state-reset quarantine=accepted")
+        return fresh_state()
 
 
 def validate_channels(channels: list) -> None:
@@ -159,14 +185,33 @@ def failure_message(days: int) -> str:
 def notify(path: Path, state: dict, senders: dict[str, Sender]) -> bool:
     delivered = True
     # Clear older recovery notices before announcing a later failure streak.
-    for pending in state["recoveries"][:]:
+    # Bound notification time as well as retry count: one queued recovery per
+    # run, plus the current failure notice, using the existing transports.
+    for pending in state["recoveries"][:1]:
         for channel in pending["channels"][:]:
             sender = senders.get(channel)
-            if sender and sender("LG beamer Developer Mode renew recovered — session renewed successfully.",
-                                 f"lgdevmode-{pending['id']}-recovery"):
+            attempts = pending["attempts"][channel]
+            if sender is None or attempts >= RECOVERY_RETRIES + 1:
                 pending["channels"].remove(channel)
+                del pending["attempts"][channel]
+                save_state(path, state)
+                reason = "no-existing-transport" if sender is None else "retry-limit"
+                print(f"lg-devmode-renew: recovery notification dropped channel={channel} reason={reason}")
+                continue
+            # Persist before delivery so interrupted sends also consume a try.
+            pending["attempts"][channel] = attempts + 1
+            save_state(path, state)
+            if sender("LG beamer Developer Mode renew recovered — session renewed successfully.",
+                      f"lgdevmode-{pending['id']}-recovery"):
+                pending["channels"].remove(channel)
+                del pending["attempts"][channel]
                 save_state(path, state)
                 print(f"lg-devmode-renew: recovery notification accepted channel={channel}")
+            elif pending["attempts"][channel] >= RECOVERY_RETRIES + 1:
+                pending["channels"].remove(channel)
+                del pending["attempts"][channel]
+                save_state(path, state)
+                print(f"lg-devmode-renew: recovery notification dropped channel={channel} reason=retry-limit")
             else:
                 delivered = False
                 print(f"lg-devmode-renew: recovery notification pending channel={channel}")
@@ -188,15 +233,19 @@ def notify(path: Path, state: dict, senders: dict[str, Sender]) -> bool:
             else:
                 delivered = False
                 print(f"lg-devmode-renew: failure notification pending channel={channel}")
-    return delivered
+    return delivered and not state["recoveries"]
 
 
 def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, Sender],
               sleep: Callable[[float], None] = time.sleep,
               clock: Callable[[], dt.datetime] = lambda: dt.datetime.now().astimezone()) -> int:
-    state = load_state(state_path)
+    state = load_or_reset_state(state_path)
     try:
         token = read_token(token_path)
+    except FileNotFoundError:
+        token = None
+        outcome = Outcome(False, "credential-missing")
+        log_result("renewal", outcome)
     except (OSError, ValueError):
         token = None
         outcome = Outcome(False, "credential-invalid")
@@ -216,7 +265,8 @@ def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, 
         state["last_success_time"] = now.astimezone(dt.timezone.utc).isoformat()
         if state["failure_notified"]:
             state["recoveries"].append({"id": state["streak_id"],
-                                        "channels": state["failure_notified"][:]})
+                                        "channels": state["failure_notified"][:],
+                                        "attempts": dict.fromkeys(state["failure_notified"], 0)})
         state.update(last_failed_day=None, consecutive_failed_days=0,
                      streak_id=None, failure_notified=[])
     else:
@@ -238,20 +288,22 @@ def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, 
     else:
         print("lg-devmode-renew: remaining_session_time=unavailable")
     delivered = notify(state_path, state, senders)
+    if outcome.reason == "credential-missing":
+        return MISSING_CREDENTIAL_EXIT
     return 0 if outcome.success and delivered else 1
 
 
-def existing_senders(credentials: Path, docker: str) -> dict[str, Sender]:
+def existing_senders(credentials: Path, docker: str, *, test_notify: bool = False) -> dict[str, Sender]:
     senders = {}
-    destinations = credentials / "destinations.json"
+    destinations = Path(os.environ.get("LG_DEVMODE_DESTINATIONS_FILE", credentials / "destinations.json"))
     if destinations.exists():
         try:
             config = private_config(str(destinations))
             senders["email"] = email_sender(config.get("email", {}), docker,
-                                             subject="LG beamer Developer Mode")
+                                             subject=TEST_ALERT if test_notify else "LG beamer Developer Mode")
         except (OSError, ValueError, TypeError, AttributeError):
             print("lg-devmode-renew: email notification configuration unavailable")
-    notification_env = credentials / "notification-env"
+    notification_env = Path(os.environ.get("LG_DEVMODE_NOTIFICATION_ENV_FILE", credentials / "notification-env"))
     if notification_env.exists():
         try:
             target = engine.env_file_value(str(notification_env), "WATCHTOWER_NOTIFICATION_URL")
@@ -261,25 +313,53 @@ def existing_senders(credentials: Path, docker: str) -> dict[str, Sender]:
     return senders
 
 
+def test_notification(senders: dict[str, Sender]) -> int:
+    if not senders:
+        print("lg-devmode-renew: TEST notification unavailable: no existing transport")
+        return 2
+    # Exactly one alert; prefer email, the declared hsb0 path, even if a future
+    # Telegram sender exists. No token, state access, renewal, or retry here.
+    channel = "email" if "email" in senders else next(iter(senders))
+    accepted = senders[channel](TEST_ALERT, f"lgdevmode-{uuid.uuid4()}-test")
+    print(f"lg-devmode-renew: TEST notification {'accepted' if accepted else 'failed'} channel={channel}")
+    return 0 if accepted else 2
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--renew", action="store_true", help="explicitly renew and update durable state")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--renew", action="store_true", help="explicitly renew and update durable state")
+    modes.add_argument("--test-notify", action="store_true", help="send one TEST alert without token or state access")
     args = parser.parse_args()
     credentials = Path(os.environ.get("CREDENTIALS_DIRECTORY", "/nonexistent"))
     curl = os.environ.get("LG_DEVMODE_CURL", "curl")
     try:
+        if args.test_notify:
+            return test_notification(existing_senders(
+                credentials, os.environ.get("LG_DEVMODE_DOCKER", "docker"), test_notify=True))
+        token_path = Path(os.environ.get("LG_DEVMODE_TOKEN_FILE", credentials / "token"))
         if not args.renew:
-            result = request(read_token(credentials / "token"), False, curl)
+            result = request(read_token(token_path), False, curl)
             log_result("check", result)
             print(f"lg-devmode-renew: remaining_session_time={result.remaining}")
             return 0 if result.success else 1
-        return run_cycle(credentials / "token",
-                         Path(os.environ.get("STATE_DIRECTORY", "/var/lib/lg-devmode-renew")) / "state.json",
-                         curl, existing_senders(credentials, os.environ.get("LG_DEVMODE_DOCKER", "docker")))
-    except (OSError, ValueError, TypeError, KeyError):
+        missing_notification_credential = False
+        for variable, kind in (("LG_DEVMODE_DESTINATIONS_FILE", "email-config"),
+                               ("LG_DEVMODE_NOTIFICATION_ENV_FILE", "telegram-config")):
+            if os.environ.get(variable) and not Path(os.environ[variable]).exists():
+                missing_notification_credential = True
+                print(f"lg-devmode-renew: failed reason=credential-missing kind={kind}")
+        result = run_cycle(token_path,
+                           Path(os.environ.get("STATE_DIRECTORY", "/var/lib/lg-devmode-renew")) / "state.json",
+                           curl, existing_senders(credentials, os.environ.get("LG_DEVMODE_DOCKER", "docker")))
+        return MISSING_CREDENTIAL_EXIT if missing_notification_credential else result
+    except FileNotFoundError:
+        print("lg-devmode-renew: failed reason=credential-missing")
+        return 2 if args.test_notify else MISSING_CREDENTIAL_EXIT
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         # Exception text can contain credentials or a reflected response: never echo it.
         print("lg-devmode-renew: failed reason=credential-or-state-unavailable")
-        return 1
+        return 2 if args.test_notify else 1
 
 
 if __name__ == "__main__":
