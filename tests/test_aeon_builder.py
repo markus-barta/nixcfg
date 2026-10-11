@@ -184,6 +184,7 @@ class HostConfigTests(unittest.TestCase):
             mkEnableOption = _: { default = false; };
             mkPackageOption = _: _: _: { default = { outPath = "/lima"; version = "test"; }; };
             mkIf = condition: value: if condition then value else {};
+            optionalAttrs = condition: value: if condition then value else {};
             types.number = "number";
             types.int = "int";
             types.ints.unsigned = { type = "int"; check = value: builtins.isInt value && value >= 0; };
@@ -194,6 +195,7 @@ class HostConfigTests(unittest.TestCase):
             importJSON = path: builtins.fromJSON (builtins.readFile path);
             escapeShellArg = value: value;
             hm.dag.entryBetween = before: after: data: { inherit before after data; };
+            hm.dag.entryAfter = after: data: { before = []; inherit after data; };
           };
           evaluate = overrides: let
             module = import (root + "/modules/aeon-builder") {
@@ -234,6 +236,12 @@ class HostConfigTests(unittest.TestCase):
           refreshDisabledHasAgent = ((evaluate { busyFileRefresh = false; }).config.launchd.agents or {}) ? aeon-builder-busy;
           moduleDisabledHasAgent = ((evaluate { enable = false; }).config.launchd.agents or {}) ? aeon-builder-busy;
           busyStateActivation = module.config.home.activation.aeonBuilderBusyState;
+          timeMachineExcludeType = module.options.services.aeonBuilder.timeMachineExclude.type;
+          timeMachineExcludeDefault = module.options.services.aeonBuilder.timeMachineExclude.default;
+          timeMachineActivation = module.config.home.activation.aeonBuilderTimeMachineExclude;
+          exclusionDisabledHasActivation = ((evaluate { timeMachineExclude = false; }).config.home.activation or {}) ? aeonBuilderTimeMachineExclude;
+          moduleDisabledHasExclusion = ((evaluate { enable = false; }).config.home.activation or {}) ? aeonBuilderTimeMachineExclude;
+          refreshDisabledHasExclusion = ((evaluate { busyFileRefresh = false; }).config.home.activation or {}) ? aeonBuilderTimeMachineExclude;
           highType = module.options.services.aeonBuilder.loadHigh.type;
           lowType = low.type.type;
           nonnegative = map low.type.check [ (-1.0) (-1) 0.0 0 8.0 8 ];
@@ -273,6 +281,17 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(activation["before"], ["setupLaunchAgents"])
         self.assertEqual(activation["after"], ["writeBoundary"])
         self.assertIn("run /coreutils/bin/mkdir -p -m 700 /test/.local/state/aeon-builder", activation["data"])
+        self.assertEqual(result["timeMachineExcludeType"], "bool")
+        self.assertTrue(result["timeMachineExcludeDefault"])
+        self.assertFalse(result["exclusionDisabledHasActivation"])
+        self.assertFalse(result["moduleDisabledHasExclusion"])
+        self.assertTrue(result["refreshDisabledHasExclusion"])
+        exclusion = result["timeMachineActivation"]
+        self.assertEqual(exclusion["after"], ["writeBoundary"])
+        self.assertIn("for dir in /test/.lima /test/.local/state/aeon-builder; do", exclusion["data"])
+        self.assertIn('run /coreutils/bin/mkdir -p -m 700 "$dir"', exclusion["data"])
+        self.assertIn('run /usr/bin/tmutil addexclusion "$dir"', exclusion["data"])
+        self.assertIn('|| echo "aeon-builder: tmutil addexclusion failed for $dir (continuing)"', exclusion["data"])
         self.assertEqual(result["highType"], "number")
         self.assertEqual(result["lowType"], "number")
         self.assertEqual(result["nonnegative"], [False, False, True, True, True, True])
