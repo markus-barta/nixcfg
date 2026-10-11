@@ -273,6 +273,9 @@ if ! command -v yq >/dev/null 2>&1; then
   echo "T37: yq is required for the equivalence gate — run: nix shell nixpkgs#yq-go -c ${0}" >&2
   exit 2
 fi
+# OPS-308: both Aeon service bindings must resolve to the mounted file transport.
+bash "${repo}/tests/T97-aeon-upstream-transport.sh"
+
 python3 "${gate}" --all
 
 echo "T37 compose-stack contract OK"
