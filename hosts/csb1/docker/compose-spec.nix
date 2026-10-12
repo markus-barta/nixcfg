@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261012145858.0.0@sha256:b27085c90f53f7b86b2d46f16f0c7c39c9b37c7e5c8c5210a628d588d469e985"; # release 130 Level Latch (AEON-1244): Models v2, routines, delivery history, keep-alive 500 fix (AEON-1228), migrations 1320-1341
+      image = "ghcr.io/inspr-at/aeon:261012211543.0.0@sha256:6aa5a0c167dd6deb4fa7b3459fee46323c8b34fb80e41588a150c05215a73c13"; # release 131 Myriad Maser (AEON-1263): hotfix on 130, admission for PAIMOS-managed starts (AEON-1251), Actions 403 backoff (AEON-1252), lead panel collapse (AEON-1256)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
