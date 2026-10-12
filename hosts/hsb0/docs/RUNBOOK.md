@@ -373,6 +373,13 @@ Missing configured credential files are checked by the script, logged as
 The renewal start timeout is 30 minutes, covering the 1400-second bounded work
 plus 400 seconds of margin with hsb0's email transport.
 
+Credential and notification paths, the state directory, and curl/Docker/sendmail
+commands are fixed by Nix at build time. Environment variables such as
+`CREDENTIALS_DIRECTORY`, `STATE_DIRECTORY`, and `LG_DEVMODE_*` cannot override
+them; path changes require a reviewed rebuild. File reads reject relative and
+traversal paths and require regular files; token and email config custody checks
+remain in place. Optional transports are enabled only by declared Nix paths.
+
 After the approved deployment, run `sudo systemctl start lg-devmode-notify-test`
 once and inspect `journalctl -u lg-devmode-notify-test`. This invokes
 `--test-notify` with the same protected paths, mail relay and sandbox, sending one

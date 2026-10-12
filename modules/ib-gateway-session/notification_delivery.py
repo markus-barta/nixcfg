@@ -60,7 +60,8 @@ def unavailable(channel: str) -> Sender:
     return send
 
 
-def email_sender(config: dict, docker_bin: str, *, subject: str | None = None) -> Sender:
+def email_sender(config: dict, docker_bin: str, *, subject: str | None = None,
+                 sendmail_bin: str = "/usr/sbin/sendmail") -> Sender:
     sender, recipient = config.get("from"), config.get("to")
     if not all(isinstance(value, str) and ADDRESS.fullmatch(value) for value in (sender, recipient)):
         raise ValueError("email destination invalid")
@@ -81,7 +82,7 @@ def email_sender(config: dict, docker_bin: str, *, subject: str | None = None) -
         message.set_content(text)
         try:
             result = subprocess.run(
-                [docker_bin, "exec", "-i", container, "/usr/sbin/sendmail", "-i", "-f", sender, "-t"],
+                [docker_bin, "exec", "-i", container, sendmail_bin, "-i", "-f", sender, "-t"],
                 input=message.as_bytes(), capture_output=True, timeout=20, check=False,
             )
             # sendmail acceptance means queued at the existing managed relay;

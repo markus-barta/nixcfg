@@ -51,6 +51,14 @@ class RenewalTests(unittest.TestCase):
         self.requests = []
         self.sleeps = []
         self.output = io.StringIO()
+        constants = mock.patch.multiple(
+            renew, TOKEN_PATH=self.credential, STATE_PATH=self.state_path,
+            DESTINATIONS_FILE="", NOTIFICATION_ENV_FILE="",
+            CURL_BIN="/fixture/curl", DOCKER_BIN="/fixture/docker",
+            SENDMAIL_BIN="/usr/sbin/sendmail",
+        )
+        constants.start()
+        self.addCleanup(constants.stop)
 
     def sender(self, text, identifier):
         self.alerts.append((text, identifier))
@@ -69,9 +77,10 @@ class RenewalTests(unittest.TestCase):
                 raise item
             return item
 
-        with contextlib.redirect_stdout(self.output), mock.patch.object(renew.subprocess, "run", http):
-            return renew.run_cycle(self.credential, self.state_path, "curl-fixture",
-                                   {"email": self.sender} if senders is None else senders,
+        with contextlib.redirect_stdout(self.output), \
+                mock.patch.object(renew.subprocess, "run", http), \
+                mock.patch.object(renew, "TOKEN_PATH", self.credential):
+            return renew.run_cycle({"email": self.sender} if senders is None else senders,
                                    sleep=self.sleeps.append,
                                    clock=lambda: self.now + dt.timedelta(days=day))
 
@@ -317,9 +326,7 @@ class RenewalTests(unittest.TestCase):
         for arguments in ([], ["--renew"]):
             with self.subTest(arguments=arguments), \
                     mock.patch.object(sys, "argv", [str(SCRIPT), *arguments]), \
-                    mock.patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": str(self.root),
-                                    "LG_DEVMODE_TOKEN_FILE": str(self.root / "absent-agenix-token"),
-                                    "STATE_DIRECTORY": str(self.root)}, clear=True), \
+                    mock.patch.object(renew, "TOKEN_PATH", self.root / "absent-agenix-token"), \
                     mock.patch.object(renew, "request") as request, \
                     contextlib.redirect_stdout(self.output):
                 self.assertEqual(renew.main(), 3)
@@ -328,9 +335,7 @@ class RenewalTests(unittest.TestCase):
 
     def test_missing_declared_notification_config_still_renews_and_exits_distinctly(self):
         with mock.patch.object(sys, "argv", [str(SCRIPT), "--renew"]), \
-                mock.patch.dict(os.environ, {"LG_DEVMODE_TOKEN_FILE": str(self.credential),
-                                "LG_DEVMODE_DESTINATIONS_FILE": str(self.root / "absent-agenix-config"),
-                                "STATE_DIRECTORY": str(self.root)}, clear=True), \
+                mock.patch.object(renew, "DESTINATIONS_FILE", str(self.root / "absent-agenix-config")), \
                 mock.patch.object(renew, "request", return_value=renew.Outcome(True, "success")) as request, \
                 contextlib.redirect_stdout(self.output):
             self.assertEqual(renew.main(), 3)
@@ -339,7 +344,7 @@ class RenewalTests(unittest.TestCase):
         self.assertIn("reason=credential-missing kind=email-config", self.output.getvalue())
 
     def test_no_notification_config_reports_unavailable_transport_after_two_failed_days(self):
-        senders = renew.existing_senders(self.root, "docker-fixture")
+        senders = renew.existing_senders()
         self.assertEqual(senders, {})
         self.assertEqual(self.failing(senders=senders), 1)
         self.assertEqual(self.failing(day=1, senders=senders), 1)
@@ -358,6 +363,61 @@ class RenewalTests(unittest.TestCase):
         link.symlink_to(self.credential)
         with self.assertRaises(OSError):
             renew.read_token(link)
+        with self.assertRaises(ValueError):
+            renew.read_token(self.root)
+
+    def test_traversal_and_relative_paths_are_rejected_before_file_access(self):
+        (self.root / "nested").mkdir()
+        for path in (self.root / "nested" / ".." / "token", Path("token")):
+            with self.subTest(path=str(path)), mock.patch.object(renew.os, "open") as opened:
+                with self.assertRaises(ValueError):
+                    renew.read_token(path)
+                opened.assert_not_called()
+            with self.subTest(state=str(path)), mock.patch.object(Path, "rename") as quarantine:
+                with self.assertRaises(ValueError):
+                    renew.load_or_reset_state(path)
+                with self.assertRaises(ValueError):
+                    renew.save_state(path, renew.fresh_state())
+                quarantine.assert_not_called()
+
+    def test_notification_paths_require_absolute_regular_files_without_traversal(self):
+        (self.root / "nested").mkdir()
+        for path in (Path("token"), self.root / "nested" / ".." / "token", self.root):
+            for constant, reader in (("DESTINATIONS_FILE", "private_config"),
+                                     ("NOTIFICATION_ENV_FILE", "env_file_value")):
+                owner = renew if reader == "private_config" else renew.engine
+                with self.subTest(path=str(path), constant=constant), \
+                        mock.patch.object(renew, constant, str(path)), \
+                        mock.patch.object(owner, reader) as read, \
+                        contextlib.redirect_stdout(self.output):
+                    self.assertEqual(renew.existing_senders(), {})
+                    read.assert_not_called()
+
+    def test_state_reader_rejects_non_regular_files(self):
+        with self.assertRaises(ValueError):
+            renew.load_state(self.root)
+
+    def test_environment_cannot_override_build_time_paths_or_executables(self):
+        # These old overrides must never affect reads, writes, or child argv.
+        overrides = {
+            "CREDENTIALS_DIRECTORY": str(self.root / "nested" / ".."),
+            "STATE_DIRECTORY": str(self.root / "unwanted-state"),
+            "LG_DEVMODE_TOKEN_FILE": str(self.root / "absent-token"),
+            "LG_DEVMODE_DESTINATIONS_FILE": str(self.credential),
+            "LG_DEVMODE_NOTIFICATION_ENV_FILE": str(self.credential),
+            "LG_DEVMODE_CURL": "/unwanted/curl",
+            "LG_DEVMODE_DOCKER": "/unwanted/docker",
+        }
+        with mock.patch.dict(os.environ, overrides), \
+                mock.patch.object(sys, "argv", [str(SCRIPT), "--renew"]), \
+                mock.patch.object(renew.subprocess, "run", return_value=response()) as child, \
+                contextlib.redirect_stdout(self.output):
+            self.assertEqual(renew.main(), 0)
+        self.assertEqual(child.call_count, 2)
+        self.assertTrue(all(call.args[0][0] == "/fixture/curl" for call in child.call_args_list))
+        self.assertIsNotNone(self.state()["last_success_time"])
+        self.assertFalse((self.root / "unwanted-state").exists())
+        self.assertEqual(renew.existing_senders(), {})
 
     def test_corrupt_state_is_quarantined_and_renewal_continues(self):
         self.state_path.write_text("{}")
@@ -438,11 +498,24 @@ class RenewalTests(unittest.TestCase):
             "print('200', end='')\n"
         )
         fake_curl.chmod(0o700)
+        # Render the same quoted constants as Nix; the child cannot configure
+        # runtime paths/executables through argv or environment anymore.
+        rendered = SCRIPT.read_text()
+        substitutions = {
+            "TOKEN_FILE": str(self.credential), "STATE_DIRECTORY": str(self.root),
+            "DESTINATIONS_FILE": "", "NOTIFICATION_ENV_FILE": "",
+            "CURL_BIN": str(fake_curl), "DOCKER_BIN": "/fixture/docker",
+            "SENDMAIL_BIN": "/usr/sbin/sendmail",
+        }
+        for key, value in substitutions.items():
+            rendered = rendered.replace('"@' + key + '@"', json.dumps(value))
+        self.assertNotRegex(rendered, r"@[A-Z_]+@")
+        helper = self.root / "renew.py"
+        helper.write_text(rendered)
         environment = os.environ.copy()
-        environment.update(CREDENTIALS_DIRECTORY=str(self.root), STATE_DIRECTORY=str(self.root),
-                           LG_DEVMODE_CURL=str(fake_curl), PYTHONDONTWRITEBYTECODE="1",
+        environment.update(PYTHONDONTWRITEBYTECODE="1",
                            PYTHONPATH=os.pathsep.join(sys.path[:2]))
-        result = subprocess.run([sys.executable, str(SCRIPT), "--renew"], env=environment,
+        result = subprocess.run([sys.executable, str(helper), "--renew"], env=environment,
                                 capture_output=True, timeout=10, check=False)
         self.assertEqual(result.returncode, 0)
         self.assertTrue(self.token.encode() not in result.stdout + result.stderr,
@@ -452,7 +525,6 @@ class RenewalTests(unittest.TestCase):
 
     def test_default_cli_checks_without_renewing_or_writing_state(self):
         with mock.patch.object(sys, "argv", [str(SCRIPT)]), \
-                mock.patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": str(self.root)}), \
                 mock.patch.object(renew, "request", return_value=renew.Outcome(True, "success")) as request, \
                 contextlib.redirect_stdout(self.output):
             self.assertEqual(renew.main(), 0)
@@ -466,9 +538,8 @@ class RenewalTests(unittest.TestCase):
         destinations.chmod(0o600)
         self.state_path.write_text("opaque existing state")
         with mock.patch.object(sys, "argv", [str(SCRIPT), "--test-notify"]), \
-                mock.patch.dict(os.environ, {"LG_DEVMODE_DESTINATIONS_FILE": str(destinations),
-                                "LG_DEVMODE_TOKEN_FILE": str(self.root / "absent-token"),
-                                "LG_DEVMODE_DOCKER": "docker-fixture", "STATE_DIRECTORY": str(self.root)}, clear=True), \
+                mock.patch.object(renew, "DESTINATIONS_FILE", str(destinations)), \
+                mock.patch.object(renew, "TOKEN_PATH", self.root / "absent-token"), \
                 mock.patch.object(renew, "read_token") as token, \
                 mock.patch.object(renew, "load_or_reset_state") as load, \
                 mock.patch.object(renew, "save_state") as save, \
@@ -481,7 +552,8 @@ class RenewalTests(unittest.TestCase):
         save.assert_not_called()
         request.assert_not_called()
         send.assert_called_once()
-        self.assertEqual(send.call_args.args[0][:4], ["docker-fixture", "exec", "-i", "docker-smtp-1"])
+        self.assertEqual(send.call_args.args[0][:5],
+                         ["/fixture/docker", "exec", "-i", "docker-smtp-1", "/usr/sbin/sendmail"])
         self.assertEqual(send.call_args.kwargs["timeout"], 20)
         message = BytesParser(policy=default).parsebytes(send.call_args.kwargs["input"])
         self.assertEqual(str(message["Subject"]), "[TEST] LG Developer Mode renew alert path check")
@@ -524,11 +596,14 @@ class RenewalTests(unittest.TestCase):
         destinations = self.root / "destinations.json"
         destinations.write_text(json.dumps(document))
         destinations.chmod(0o600)
-        senders = renew.existing_senders(self.root, "docker-fixture")
+        with mock.patch.object(renew, "DESTINATIONS_FILE", str(destinations)), \
+                mock.patch.object(renew, "SENDMAIL_BIN", "/fixture/sendmail"):
+            senders = renew.existing_senders()
         self.assertEqual(set(senders), {"email"})
         with mock.patch.object(renew.subprocess, "run", return_value=response()) as send:
             self.assertTrue(senders["email"](renew.failure_message(2), "lgdevmode-fixture-failure"))
-        self.assertEqual(send.call_args.args[0][:4], ["docker-fixture", "exec", "-i", "docker-smtp-1"])
+        self.assertEqual(send.call_args.args[0][:5],
+                         ["/fixture/docker", "exec", "-i", "docker-smtp-1", "/fixture/sendmail"])
         message = send.call_args.kwargs["input"]
         self.assertIn(b"Subject: LG beamer Developer Mode", message)
         self.assertIn(b"To: recipient@example.invalid", message)
@@ -537,7 +612,8 @@ class RenewalTests(unittest.TestCase):
         notification_env = self.root / "notification-env"
         notification_env.write_text("WATCHTOWER_NOTIFICATION_URL=telegram://fixture@telegram?chats=-123\n")
         notification_env.chmod(0o600)
-        senders = renew.existing_senders(self.root, "docker-fixture")
+        with mock.patch.object(renew, "NOTIFICATION_ENV_FILE", str(notification_env)):
+            senders = renew.existing_senders()
         self.assertEqual(set(senders), {"telegram"})
 
 

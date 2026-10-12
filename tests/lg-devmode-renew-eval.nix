@@ -40,6 +40,35 @@ let
   notifyTest = cfg.systemd.services.lg-devmode-notify-test;
   timer = cfg.systemd.timers.lg-devmode-renew;
   secret = cfg.age.secrets.hsb0-lg-devmode-token;
+  # Capture the build-time script through pure stubs: evaluate the actual
+  # rendering without building a Linux derivation on the operator's Mac.
+  render =
+    alerts:
+    (import ../hosts/hsb0/lg-devmode-renew.nix {
+      inherit lib;
+      config = cfg // {
+        nixcfg.ibGatewaySession.alert = alerts;
+      };
+      pkgs = pkgs // {
+        writeText = _: text: text;
+        runCommand =
+          _: _: text:
+          text;
+      };
+    }).systemd.services.lg-devmode-renew.serviceConfig.ExecStart;
+  rendered = render cfg.nixcfg.ibGatewaySession.alert;
+  constants =
+    name: value:
+    lib.hasInfix "${name} = ${builtins.toJSON (builtins.unsafeDiscardStringContext value)}" rendered;
+  placeholders = [
+    "TOKEN_FILE"
+    "STATE_DIRECTORY"
+    "DESTINATIONS_FILE"
+    "NOTIFICATION_ENV_FILE"
+    "CURL_BIN"
+    "DOCKER_BIN"
+    "SENDMAIL_BIN"
+  ];
 in
 {
   hasService = service.serviceConfig.Type == "oneshot";
@@ -50,17 +79,49 @@ in
   enabledTimer = builtins.elem "timers.target" timer.wantedBy;
   rootSecret = secret.owner == "root" && secret.group == "root" && secret.mode == "0400";
   correctCiphertext = builtins.baseNameOf secret.file == "hsb0-lg-devmode-token.age";
-  privateCredential = service.environment.LG_DEVMODE_TOKEN_FILE == secret.path;
-  existingEmail =
-    service.environment.LG_DEVMODE_DESTINATIONS_FILE == "/run/agenix/hsb0-gateway-notify-config";
+  privateCredential = lib.hasInfix "TOKEN_PATH = Path(${builtins.toJSON secret.path})" rendered;
+  existingEmail = constants "DESTINATIONS_FILE" "/run/agenix/hsb0-gateway-notify-config";
   noCredentialStartFailure = (service.serviceConfig.LoadCredential or [ ]) == [ ];
   noSilentSkip = (service.unitConfig.ConditionPathExists or [ ]) == [ ];
-  telegramDeferred = !(service.environment ? LG_DEVMODE_NOTIFICATION_ENV_FILE);
+  telegramDeferred = constants "NOTIFICATION_ENV_FILE" "";
+  fixedStatePath = lib.hasInfix ''STATE_PATH = Path("/var/lib/lg-devmode-renew") / "state.json"'' rendered;
+  fixedCurl = constants "CURL_BIN" "${pkgs.curl}/bin/curl";
+  fixedDocker = constants "DOCKER_BIN" "${cfg.virtualisation.docker.package}/bin/docker";
+  fixedContainerSendmail = constants "SENDMAIL_BIN" "/usr/sbin/sendmail";
+  noPlaceholders = builtins.all (key: !(lib.hasInfix "@${key}@" rendered)) placeholders;
+  noRuntimePathInputs = !(lib.hasInfix "os.environ" rendered);
+  noRuntimeOverrides = builtins.all (key: !((service.environment or { }) ? ${key})) [
+    "LG_DEVMODE_CURL"
+    "LG_DEVMODE_DOCKER"
+    "LG_DEVMODE_TOKEN_FILE"
+    "LG_DEVMODE_DESTINATIONS_FILE"
+    "LG_DEVMODE_NOTIFICATION_ENV_FILE"
+  ];
+  undeclaredTransportsDisabled =
+    let
+      disabled = render {
+        destinationFile = null;
+        notificationEnvFile = null;
+      };
+    in
+    lib.hasInfix ''DESTINATIONS_FILE = ""'' disabled
+    && lib.hasInfix ''NOTIFICATION_ENV_FILE = ""'' disabled;
+  declaredTelegramPath =
+    lib.hasInfix ''NOTIFICATION_ENV_FILE = "/run/agenix/notification-fixture"''
+      (render {
+        destinationFile = null;
+        notificationEnvFile = "/run/agenix/notification-fixture";
+      });
+  traversalConfigurationRefused =
+    !(builtins.tryEval (render {
+      destinationFile = "/run/agenix/../notification-fixture";
+      notificationEnvFile = null;
+    })).success;
   durableState =
     service.serviceConfig.StateDirectory == "lg-devmode-renew"
     && service.serviceConfig.StateDirectoryMode == "0700";
   sufficientTimeout = service.serviceConfig.TimeoutStartSec == "30min";
-  noTokenEnvironment = !(service.environment ? LG_DEVMODE_TOKEN);
+  noTokenEnvironment = !((service.environment or { }) ? LG_DEVMODE_TOKEN);
   noCoreDumps = service.serviceConfig.LimitCORE == 0;
   noCapabilities = service.serviceConfig.CapabilityBoundingSet == "";
   privateDevices = service.serviceConfig.PrivateDevices;
@@ -79,7 +140,11 @@ in
   nativeSyscalls = service.serviceConfig.SystemCallArchitectures == "native";
   filteredSyscalls = service.serviceConfig.SystemCallFilter == "@system-service";
   testNotifyCommand = builtins.match ".* --test-notify" notifyTest.serviceConfig.ExecStart != null;
-  testNotifyTransport = notifyTest.environment == service.environment;
+  testNotifyTransport =
+    (notifyTest.environment or { }) == (service.environment or { })
+    &&
+      lib.removeSuffix " --test-notify" notifyTest.serviceConfig.ExecStart
+      == lib.removeSuffix " --renew" service.serviceConfig.ExecStart;
   testNotifySandbox =
     (builtins.removeAttrs notifyTest.serviceConfig [
       "ExecStart"
