@@ -28,6 +28,16 @@ MISSING_CREDENTIAL_EXIT = 3
 TEST_ALERT = "[TEST] LG Developer Mode renew alert path check"
 Sender = Callable[[str, str], bool]
 
+# Nix replaces these literals at build time. Runtime argv/environment may select
+# a mode, but must never redirect credential/state reads or choose an executable.
+TOKEN_PATH = Path("@TOKEN_FILE@")
+STATE_PATH = Path("@STATE_DIRECTORY@") / "state.json"
+DESTINATIONS_FILE = "@DESTINATIONS_FILE@"
+NOTIFICATION_ENV_FILE = "@NOTIFICATION_ENV_FILE@"
+CURL_BIN = "@CURL_BIN@"
+DOCKER_BIN = "@DOCKER_BIN@"
+SENDMAIL_BIN = "@SENDMAIL_BIN@"
+
 
 @dataclass(frozen=True)
 class Outcome:
@@ -38,7 +48,25 @@ class Outcome:
     remaining: str = "unavailable"
 
 
+def validate_absolute_path(path: Path) -> None:
+    if not path.is_absolute() or ".." in path.parts:
+        raise ValueError("path refused")
+
+
+def validate_regular_file(path: Path, *, missing_ok: bool = False) -> None:
+    validate_absolute_path(path)
+    try:
+        metadata = path.stat()
+    except FileNotFoundError:
+        if missing_ok:
+            return
+        raise
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("file type refused")
+
+
 def read_token(path: Path) -> str:
+    validate_absolute_path(path)
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         metadata = os.fstat(descriptor)
@@ -55,10 +83,10 @@ def read_token(path: Path) -> str:
         os.close(descriptor)
 
 
-def request(token: str, renew: bool, curl: str) -> Outcome:
+def request(token: str, renew: bool) -> Outcome:
     endpoint = "ResetDevModeSession.dev" if renew else "CheckDevModeSession.dev"
     # No redirects, user curlrc, URL argv, inherited token environment or body logs.
-    command = [curl, "--disable", "--silent", "--proto", "=https",
+    command = [CURL_BIN, "--disable", "--silent", "--proto", "=https",
                "--max-time", str(TIMEOUT), "--connect-timeout", "10",
                "--max-filesize", str(MAX_RESPONSE), "--write-out", "\n%{http_code}",
                "--config", "-"]
@@ -111,6 +139,7 @@ def fresh_state() -> dict:
 
 def load_state(path: Path) -> dict:
     try:
+        validate_regular_file(path)
         raw = path.read_bytes()
     except FileNotFoundError:
         return fresh_state()
@@ -146,6 +175,8 @@ def load_state(path: Path) -> dict:
 
 
 def load_or_reset_state(path: Path) -> dict:
+    # Reject lexical traversal before the reset/quarantine recovery path too.
+    validate_absolute_path(path)
     try:
         return load_state(path)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, OverflowError):
@@ -168,6 +199,7 @@ def validate_channels(channels: list) -> None:
 
 
 def save_state(path: Path, state: dict) -> None:
+    validate_regular_file(path, missing_ok=True)
     engine.atomic_write_state(str(path), state)
     descriptor = os.open(path.parent, os.O_RDONLY)
     try:
@@ -236,9 +268,10 @@ def notify(path: Path, state: dict, senders: dict[str, Sender]) -> bool:
     return delivered and not state["recoveries"]
 
 
-def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, Sender],
+def run_cycle(senders: dict[str, Sender],
               sleep: Callable[[float], None] = time.sleep,
               clock: Callable[[], dt.datetime] = lambda: dt.datetime.now().astimezone()) -> int:
+    token_path, state_path = TOKEN_PATH, STATE_PATH
     state = load_or_reset_state(state_path)
     try:
         token = read_token(token_path)
@@ -252,7 +285,7 @@ def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, 
         log_result("renewal", outcome)
     else:
         for attempt in range(len(BACKOFF) + 1):
-            outcome = request(token, True, curl)
+            outcome = request(token, True)
             log_result("renewal", outcome)
             if outcome.success:
                 break
@@ -282,7 +315,7 @@ def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, 
     save_state(state_path, state)
     print(f"lg-devmode-renew: consecutive_failed_days={state['consecutive_failed_days']}")
     if token is not None:
-        check = request(token, False, curl)
+        check = request(token, False)
         log_result("check", check)
         print(f"lg-devmode-renew: remaining_session_time={check.remaining}")
     else:
@@ -293,22 +326,25 @@ def run_cycle(token_path: Path, state_path: Path, curl: str, senders: dict[str, 
     return 0 if outcome.success and delivered else 1
 
 
-def existing_senders(credentials: Path, docker: str, *, test_notify: bool = False) -> dict[str, Sender]:
+def existing_senders(*, test_notify: bool = False) -> dict[str, Sender]:
     senders = {}
-    destinations = Path(os.environ.get("LG_DEVMODE_DESTINATIONS_FILE", credentials / "destinations.json"))
-    if destinations.exists():
+    if DESTINATIONS_FILE:
         try:
+            destinations = Path(DESTINATIONS_FILE)
+            validate_regular_file(destinations)
             config = private_config(str(destinations))
-            senders["email"] = email_sender(config.get("email", {}), docker,
+            senders["email"] = email_sender(config.get("email", {}), DOCKER_BIN,
+                                             sendmail_bin=SENDMAIL_BIN,
                                              subject=TEST_ALERT if test_notify else "LG beamer Developer Mode")
         except (OSError, ValueError, TypeError, AttributeError):
             print("lg-devmode-renew: email notification configuration unavailable")
-    notification_env = Path(os.environ.get("LG_DEVMODE_NOTIFICATION_ENV_FILE", credentials / "notification-env"))
-    if notification_env.exists():
+    if NOTIFICATION_ENV_FILE:
         try:
+            notification_env = Path(NOTIFICATION_ENV_FILE)
+            validate_regular_file(notification_env)
             target = engine.env_file_value(str(notification_env), "WATCHTOWER_NOTIFICATION_URL")
             senders["telegram"] = engine.shoutrrr_telegram_sender(target)
-        except (ValueError, TypeError):
+        except (OSError, ValueError, TypeError):
             print("lg-devmode-renew: Telegram notification configuration unavailable")
     return senders
 
@@ -331,27 +367,25 @@ def main() -> int:
     modes.add_argument("--renew", action="store_true", help="explicitly renew and update durable state")
     modes.add_argument("--test-notify", action="store_true", help="send one TEST alert without token or state access")
     args = parser.parse_args()
-    credentials = Path(os.environ.get("CREDENTIALS_DIRECTORY", "/nonexistent"))
-    curl = os.environ.get("LG_DEVMODE_CURL", "curl")
     try:
         if args.test_notify:
-            return test_notification(existing_senders(
-                credentials, os.environ.get("LG_DEVMODE_DOCKER", "docker"), test_notify=True))
-        token_path = Path(os.environ.get("LG_DEVMODE_TOKEN_FILE", credentials / "token"))
+            return test_notification(existing_senders(test_notify=True))
         if not args.renew:
-            result = request(read_token(token_path), False, curl)
+            result = request(read_token(TOKEN_PATH), False)
             log_result("check", result)
             print(f"lg-devmode-renew: remaining_session_time={result.remaining}")
             return 0 if result.success else 1
         missing_notification_credential = False
-        for variable, kind in (("LG_DEVMODE_DESTINATIONS_FILE", "email-config"),
-                               ("LG_DEVMODE_NOTIFICATION_ENV_FILE", "telegram-config")):
-            if os.environ.get(variable) and not Path(os.environ[variable]).exists():
+        for configured, kind in ((DESTINATIONS_FILE, "email-config"),
+                                 (NOTIFICATION_ENV_FILE, "telegram-config")):
+            if not configured:
+                continue
+            path = Path(configured)
+            validate_absolute_path(path)
+            if not path.exists():
                 missing_notification_credential = True
                 print(f"lg-devmode-renew: failed reason=credential-missing kind={kind}")
-        result = run_cycle(token_path,
-                           Path(os.environ.get("STATE_DIRECTORY", "/var/lib/lg-devmode-renew")) / "state.json",
-                           curl, existing_senders(credentials, os.environ.get("LG_DEVMODE_DOCKER", "docker")))
+        result = run_cycle(existing_senders())
         return MISSING_CREDENTIAL_EXIT if missing_notification_credential else result
     except FileNotFoundError:
         print("lg-devmode-renew: failed reason=credential-missing")

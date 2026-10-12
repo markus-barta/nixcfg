@@ -7,29 +7,55 @@
 }:
 let
   notifications = config.nixcfg.ibGatewaySession.alert;
+  stateDirectory = "lg-devmode-renew";
+  substitutions = {
+    TOKEN_FILE = config.age.secrets.hsb0-lg-devmode-token.path;
+    STATE_DIRECTORY = "/var/lib/${stateDirectory}";
+    DESTINATIONS_FILE =
+      if notifications.destinationFile == null then "" else toString notifications.destinationFile;
+    NOTIFICATION_ENV_FILE =
+      if notifications.notificationEnvFile == null then
+        ""
+      else
+        toString notifications.notificationEnvFile;
+    CURL_BIN = "${pkgs.curl}/bin/curl";
+    DOCKER_BIN = "${config.virtualisation.docker.package}/bin/docker";
+    # This binary belongs to the existing managed relay container, not the host.
+    SENDMAIL_BIN = "/usr/sbin/sendmail";
+  };
+  keys = builtins.attrNames substitutions;
+  safePath = path: lib.hasPrefix "/" path && !(builtins.elem ".." (lib.splitString "/" path));
+  rendered = builtins.replaceStrings (map (key: ''"@${key}@"'') keys) (map (
+    key: builtins.toJSON substitutions.${key}
+  ) keys) (builtins.readFile ./lg-devmode-renew.py);
+  renewalScript =
+    assert lib.assertMsg (builtins.all (
+      key:
+      safePath substitutions.${key}
+      || (
+        builtins.elem key [
+          "DESTINATIONS_FILE"
+          "NOTIFICATION_ENV_FILE"
+        ]
+        && substitutions.${key} == ""
+      )
+    ) keys) "lg-devmode-renew: build-time paths must be absolute and contain no traversal";
+    assert lib.assertMsg (builtins.all (
+      key: !(lib.hasInfix "@${key}@" rendered)
+    ) keys) "lg-devmode-renew: a build-time placeholder survived substitution";
+    pkgs.writeText "lg-devmode-renew.py" rendered;
   runtime = pkgs.runCommand "lg-devmode-renew" { } ''
     mkdir -p "$out"
-    cp ${./lg-devmode-renew.py} "$out/renew.py"
+    cp ${renewalScript} "$out/renew.py"
     cp ${../../modules/shared/fleet-alerts/engine.py} "$out/engine.py"
     cp ${../../modules/ib-gateway-session/notification_delivery.py} "$out/notification_delivery.py"
   '';
   common = {
     wants = [ "network-online.target" ];
     after = [ "network-online.target" ];
-    environment = {
-      LG_DEVMODE_CURL = "${pkgs.curl}/bin/curl";
-      LG_DEVMODE_DOCKER = "${config.virtualisation.docker.package}/bin/docker";
-      # Root reads the protected agenix paths with custody checks. Do not use
-      # LoadCredential or ConditionPathExists: missing files must reach the
-      # script, journal a credential-missing error, and exit distinctly (3).
-      LG_DEVMODE_TOKEN_FILE = config.age.secrets.hsb0-lg-devmode-token.path;
-    }
-    // lib.optionalAttrs (notifications.destinationFile != null) {
-      LG_DEVMODE_DESTINATIONS_FILE = toString notifications.destinationFile;
-    }
-    // lib.optionalAttrs (notifications.notificationEnvFile != null) {
-      LG_DEVMODE_NOTIFICATION_ENV_FILE = toString notifications.notificationEnvFile;
-    };
+    # Root reads fixed protected agenix paths with custody checks. Do not use
+    # LoadCredential or ConditionPathExists: missing files must reach the
+    # script, journal a credential-missing error, and exit distinctly (3).
     serviceConfig = {
       Type = "oneshot";
       User = "root";
@@ -77,7 +103,7 @@ in
     description = "Renew LG beamer webOS Developer Mode session (OPS-309)";
     serviceConfig = common.serviceConfig // {
       ExecStart = "${pkgs.python3}/bin/python3 ${runtime}/renew.py --renew";
-      StateDirectory = "lg-devmode-renew";
+      StateDirectory = stateDirectory;
       StateDirectoryMode = "0700";
     };
   };
