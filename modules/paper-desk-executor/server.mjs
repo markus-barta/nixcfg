@@ -219,12 +219,21 @@ export function createServer(options) {
       if (dataUrl) {
         let cached = false;
         let outcome = "unavailable";
+        const controller = new AbortController();
+        const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+        response.once?.("close", disconnected);
+        request.once?.("aborted", disconnected);
+        if (response.destroyed || request.aborted) controller.abort();
         try {
-          const result = await marketData.read(pathname.slice(4), url.searchParams);
+          const result = await marketData.read(pathname.slice(4), url.searchParams, { signal: controller.signal });
           cached = result.body.cached === true;
           outcome = result.statusCode === 200 ? "ok" : result.body.status;
-          send(response, result.statusCode, result.body);
-        } finally { auditData(cached, outcome); }
+          if (!controller.signal.aborted && !response.destroyed && !request.aborted) send(response, result.statusCode, result.body);
+        } finally {
+          response.off?.("close", disconnected);
+          request.off?.("aborted", disconnected);
+          auditData(cached, outcome);
+        }
         return;
       }
       if (request.method === "GET" && pathname === "/v1/health") {

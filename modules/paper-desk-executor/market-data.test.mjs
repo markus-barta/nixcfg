@@ -126,11 +126,17 @@ function fixture(options = {}) {
     marketData: { runtime, now: () => time, timeoutMs: 250, reconnectDelayMs: 0, ...options.marketData },
     marketDataAudit: (row) => audit.push(row), ...options.server,
   });
-  async function request(url, { method = "GET", body, peer = "127.0.0.1" } = {}) {
+  async function request(url, { method = "GET", body, peer = "127.0.0.1", onResponse } = {}) {
     const req = Readable.from(body ? [Buffer.from(JSON.stringify(body))] : []);
     req.method = method; req.url = url; req.headers = { "x-forwarded-for": "127.0.0.1" }; req.socket = { remoteAddress: peer };
     let status; let result;
-    await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
+    const response = Object.assign(new EventEmitter(), {
+      destroyed: false, writableEnded: false,
+      writeHead(code) { status = code; },
+      end(value) { result = JSON.parse(value); this.writableEnded = true; this.emit("close"); },
+    });
+    onResponse?.(response, req);
+    await app.handle(req, response);
     // A forbidden call must fail the test even if the API maps it to a 503.
     assert.deepEqual(broker.forbidden, []);
     return { status, body: result };
@@ -176,6 +182,20 @@ test("bars return the newest N sorted, deduplicated five-minute UTC bars", async
   assert.deepEqual(h.broker.connections, [707]); assert.equal(h.broker.cancelledHistories.length, 1);
   assert.deepEqual(h.broker.types, [], "historical requests do not set a market data type");
   assert.deepEqual(h.broker.forbidden, []);
+});
+
+test("history without a data-type call fails closed on IB 162 and does not cache the failure", async () => {
+  const h = fixture({ broker: { historyError: 162, errorMessage: "no market data permissions" } });
+  const failed = await h.request(barsUrl());
+  assert.equal(failed.status, 503); assert.match(failed.body.reason, /historical data permissions.*162/);
+  assert.deepEqual(h.broker.types, []);
+  assert.deepEqual(h.broker.cancelledHistories, [h.broker.histories[0].id]);
+  assert.equal(h.broker.live.size, 0);
+  h.advance(15_000);
+  h.broker.historyError = null;
+  const fresh = await h.request(barsUrl());
+  assert.equal(fresh.status, 200); assert.equal(fresh.body.cached, false);
+  assert.equal(h.broker.histories.length, 2); assert.deepEqual(h.broker.types, []);
 });
 
 test("legacy finished rows complete history without an exported historicalDataEnd event", async () => {
@@ -284,6 +304,18 @@ test("global bucket protects both endpoints; cache hits do not consume tokens", 
   assert.equal((await h.request(barsUrl("NVDA"))).status, 200);
 });
 
+test("a denied contract-lookup reservation refunds its first data token", async () => {
+  const h = fixture();
+  for (const symbol of ["AAPL", "MSFT"]) assert.equal((await h.request(quoteUrl(symbol))).status, 200);
+  assert.equal((await h.request(barsUrl("AAPL", 1))).status, 200);
+  // One token remains: an unknown contract needs two, but a known one needs one.
+  for (let index = 0; index < 3; index += 1) assert.equal((await h.request(quoteUrl("NVDA"))).status, 429);
+  assert.equal(h.broker.connections.length, 3); assert.equal(h.broker.lookups.length, 2);
+  assert.equal((await h.request(barsUrl("MSFT", 1))).status, 200);
+  assert.equal((await h.request(quoteUrl("IBM"))).status, 429);
+  assert.equal(h.broker.connections.length, 4); assert.equal(h.broker.lookups.length, 2);
+});
+
 test("historical budget enforces a rolling 60 requests per ten minutes", async () => {
   const h = fixture({ broker: { bars: bars(1) } });
   for (let index = 0; index < 60; index += 1) {
@@ -386,12 +418,30 @@ test("IB CLOSED days and short liquid sessions override normal weekday hours", a
   }
 });
 
-test("empty delayed snapshot falls back to a second finite delayed-frozen snapshot", async () => {
+test("empty delayed snapshot returns null fields without a second snapshot", async () => {
   const h = fixture({ broker: { pricesForType: (type) => type === 3 ? [] : [[75, 99]] } });
   const result = await h.request(quoteUrl());
-  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed-frozen");
-  assert.equal(result.body.last, null); assert.equal(result.body.close, 99);
-  assert.deepEqual(h.broker.quotes.map((row) => row.type), [3, 4]); assert.equal(h.broker.cancelledQuotes.length, 2);
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, null]);
+  assert.deepEqual(h.broker.quotes.map((row) => row.type), [3]); assert.equal(h.broker.cancelledQuotes.length, 1);
+});
+
+test("an eleven-second empty delayed snapshot completes without a fallback budget", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  let held;
+  const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => { held = { api, id }; } },
+    marketData: { timeoutMs: undefined, monotonicNow: () => Date.now() } });
+  const request = h.request(quoteUrl());
+  await flushMicrotasks();
+  assert.ok(held);
+  t.mock.timers.tick(11_000);
+  held.api.emit(events.marketDataType, held.id, 3);
+  held.api.emit(events.tickSnapshotEnd, held.id);
+  const result = await request;
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, null]);
+  assert.deepEqual(h.broker.types, [3]); assert.equal(h.broker.quotes.length, 1);
+  assert.equal(h.broker.cancelledQuotes.length, 1); assert.equal(h.broker.live.size, 0);
 });
 
 test("actual realtime entitlement is reported even when delayed data was requested", async () => {
@@ -503,8 +553,9 @@ test("data requests serialize, coalesce cache hits and release the queue after a
   h.broker.onQuote = () => nextReady();
   const hung = h.request(quoteUrl("MSFT"));
   await nextStarted;
+  t.mock.timers.tick(1);
   const queued = h.request(barsUrl("IBM"));
-  t.mock.timers.tick(150);
+  t.mock.timers.tick(149);
   assert.equal((await hung).status, 503); assert.equal((await queued).status, 200);
   assert.equal(h.broker.histories.length, 1); assert.equal(h.broker.maxLive, 1);
 });
@@ -537,6 +588,85 @@ test("a slow snapshot does not consume the next queued request's deadline", asyn
   assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.cancelledQuotes.length, 2);
 });
 
+test("queue waits expire at timeoutMs and queue-full replies cover the outstanding broker budgets", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  const h = fixture({ marketData: { reconnectDelayMs: undefined, timeoutMs: 50, monotonicNow: () => Date.now() } });
+  assert.equal((await h.request(quoteUrl())).status, 200);
+  let activeFinished = false;
+  const active = h.request(quoteUrl("MSFT")).then((result) => { activeFinished = true; return result; });
+  await flushMicrotasks(); // Active request is waiting for the reconnect gap.
+  const queued = Array.from({ length: 15 }, (_, index) => h.request(quoteUrl(`S${index}`)));
+  const full = await h.request(quoteUrl("OVERFLOW"));
+  assert.deepEqual(full, { status: 429, body: { status: "rate_limited", retry_after_s: 33 } }); // 16 × (50 + 2 × 1000) ms.
+  t.mock.timers.tick(49);
+  await flushMicrotasks();
+  assert.equal(h.audit.filter((row) => row.outcome === "rate_limited").length, 1);
+  t.mock.timers.tick(1);
+  for (const result of await Promise.all(queued)) {
+    assert.deepEqual(result, { status: 429, body: { status: "rate_limited", retry_after_s: 31 } }); // 15 requests ahead.
+  }
+  assert.equal(activeFinished, false);
+  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 1);
+  t.mock.timers.tick(950);
+  assert.equal((await active).status, 200);
+  await flushMicrotasks();
+  assert.equal(h.broker.connections.length, 2); assert.equal(h.broker.lookups.length, 2);
+  assert.deepEqual(h.broker.quotes.map((row) => row.contract.symbol), ["AAPL", "MSFT"]);
+  assert.equal(h.broker.live.size, 0); assert.equal(h.broker.maxLive, 1);
+});
+
+test("disconnected clients leave the queue before any IB call and release their listeners", async (t) => {
+  for (const event of ["close", "aborted"]) await t.test(event, async () => {
+    let held;
+    const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => { held = { api, id }; } } });
+    const first = h.request(quoteUrl());
+    await flushMicrotasks();
+    let response; let req;
+    const queued = h.request(quoteUrl("MSFT"), { onResponse: (res, request) => { response = res; req = request; } });
+    await flushMicrotasks();
+    assert.equal(response.listenerCount("close"), 1); assert.equal(req.listenerCount("aborted"), 1);
+    if (event === "close") { response.destroyed = true; response.emit("close"); }
+    else { req.aborted = true; req.emit("aborted"); }
+    assert.deepEqual(await queued, { status: undefined, body: undefined });
+    assert.equal(response.listenerCount("close"), 0); assert.equal(req.listenerCount("aborted"), 0);
+    assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 1);
+    for (const [field, value] of defaults) held.api.emit(events.tickPrice, held.id, field, value);
+    held.api.emit(events.tickSnapshotEnd, held.id);
+    assert.equal((await first).status, 200);
+    h.broker.hungQuote = false;
+    assert.equal((await h.request(quoteUrl("IBM"))).status, 200);
+    assert.deepEqual(h.broker.quotes.map((row) => row.contract.symbol), ["AAPL", "IBM"]);
+    assert.equal(h.broker.live.size, 0); assert.equal(h.broker.maxLive, 1);
+  });
+});
+
+test("disconnect during a reconnect gap cancels the wait before opening another IB session", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  const h = fixture({ marketData: { reconnectDelayMs: undefined, timeoutMs: undefined, monotonicNow: () => Date.now() } });
+  assert.equal((await h.request(quoteUrl())).status, 200);
+  let response;
+  const request = h.request(quoteUrl("MSFT"), { onResponse: (res) => { response = res; } });
+  await flushMicrotasks();
+  response.destroyed = true; response.emit("close");
+  assert.deepEqual(await request, { status: undefined, body: undefined });
+  t.mock.timers.tick(1000);
+  await flushMicrotasks();
+  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 1);
+  assert.equal(h.broker.live.size, 0); assert.equal(response.listenerCount("close"), 0);
+});
+
+test("disconnect during an active snapshot cancels the IB request and closes the session", async () => {
+  const h = fixture({ broker: { hungQuote: true } });
+  let response;
+  const request = h.request(quoteUrl(), { onResponse: (res) => { response = res; } });
+  await flushMicrotasks();
+  assert.equal(h.broker.quotes.length, 1);
+  response.destroyed = true; response.emit("close");
+  assert.deepEqual(await request, { status: undefined, body: undefined });
+  assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]);
+  assert.equal(h.broker.live.size, 0); assert.equal(response.listenerCount("close"), 0);
+});
+
 test("default reconnect gap gives the Gateway one second to release clientId 707", async (t) => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
   const h = fixture({ marketData: { reconnectDelayMs: undefined, timeoutMs: 12_000, monotonicNow: () => Date.now() } });
@@ -550,6 +680,59 @@ test("default reconnect gap gives the Gateway one second to release clientId 707
   assert.equal((await second).status, 200);
   assert.equal(h.broker.connectionTimes[1] - h.broker.disconnectionTimes[0], 1000);
   assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.live.size, 0);
+});
+
+test("a queued quote with the default one-second gap and an eleven-second snapshot succeeds", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  const held = [];
+  const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => held.push({ api, id }) },
+    marketData: { reconnectDelayMs: undefined, timeoutMs: undefined, monotonicNow: () => Date.now() } });
+  const first = h.request(quoteUrl());
+  await flushMicrotasks();
+  assert.equal(held.length, 1);
+  let finished = false;
+  const queued = h.request(quoteUrl("MSFT")).then((result) => { finished = true; return result; });
+  t.mock.timers.tick(100);
+  for (const [field, value] of defaults) held[0].api.emit(events.tickPrice, held[0].id, field, value);
+  held[0].api.emit(events.tickSnapshotEnd, held[0].id);
+  assert.equal((await first).status, 200);
+  t.mock.timers.tick(1000);
+  await flushMicrotasks();
+  assert.equal(held.length, 2);
+  assert.equal(h.broker.connectionTimes[1] - h.broker.disconnectionTimes[0], 1000);
+  t.mock.timers.tick(11_100);
+  await flushMicrotasks();
+  assert.equal(finished, false, "reconnect wait must leave the full snapshot budget available");
+  for (const [field, value] of defaults) held[1].api.emit(events.tickPrice, held[1].id, field, value);
+  held[1].api.emit(events.tickSnapshotEnd, held[1].id);
+  assert.equal((await queued).status, 200);
+  assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.live.size, 0);
+  assert.equal(h.broker.cancelledQuotes.length, 2);
+});
+
+test("a 326 retry gap leaves time for a handshake and an eleven-second snapshot", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  let held;
+  const h = fixture({ broker: { connectErrors: [326], noReady: true, hungQuote: true,
+    onConnect: (api) => { if (h.broker.connections.length === 2) setTimeout(() => api.emit(events.nextValidId, 9000), 100); },
+    onQuote: (api, id) => { held = { api, id }; },
+  }, marketData: { reconnectDelayMs: undefined, timeoutMs: undefined, monotonicNow: () => Date.now() } });
+  let finished = false;
+  const request = h.request(quoteUrl()).then((result) => { finished = true; return result; });
+  await flushMicrotasks();
+  t.mock.timers.tick(1000);
+  await flushMicrotasks();
+  t.mock.timers.tick(100);
+  await flushMicrotasks();
+  assert.ok(held);
+  t.mock.timers.tick(11_000);
+  await flushMicrotasks();
+  assert.equal(finished, false, "retry gap must not consume the broker deadline");
+  for (const [field, value] of defaults) held.api.emit(events.tickPrice, held.id, field, value);
+  held.api.emit(events.tickSnapshotEnd, held.id);
+  assert.equal((await request).status, 200);
+  assert.equal(h.broker.connections.length, 2); assert.equal(h.broker.lookups.length, 1);
+  assert.equal(h.broker.live.size, 0); assert.equal(h.broker.cancelledQuotes.length, 1);
 });
 
 test("IB error 326 retries once after a gap; other connection errors do not retry", async (t) => {
@@ -574,17 +757,31 @@ test("IB error 326 retries once after a gap; other connection errors do not retr
   }
 });
 
-test("a deadline during reconnect backoff cancels the retry before any more IB calls", async (t) => {
+test("a 326 gap pauses the deadline while preserving the budget spent on the first handshake", async (t) => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
-  const h = fixture({ broker: { connectErrors: [326] }, marketData: { reconnectDelayMs: undefined, timeoutMs: 50, monotonicNow: () => Date.now() } });
-  const request = h.request(quoteUrl());
+  const h = fixture({ broker: { noReady: true, onConnect: (api) => {
+    if (h.broker.connections.length === 1) setTimeout(() => api.emit(events.error, new Error("client ID in use"), 326, -1), 40);
+  } }, marketData: { reconnectDelayMs: undefined, timeoutMs: 50, monotonicNow: () => Date.now() } });
+  let finished = false;
+  const request = h.request(quoteUrl()).then((result) => { finished = true; return result; });
   await flushMicrotasks();
-  t.mock.timers.tick(50);
+  t.mock.timers.tick(40);
+  await flushMicrotasks();
+  t.mock.timers.tick(999);
+  await flushMicrotasks();
+  assert.equal(finished, false); assert.equal(h.broker.connections.length, 1);
+  t.mock.timers.tick(1);
+  await flushMicrotasks();
+  assert.equal(h.broker.connections.length, 2);
+  t.mock.timers.tick(9);
+  await flushMicrotasks();
+  assert.equal(finished, false);
+  t.mock.timers.tick(1);
   const result = await request;
   assert.equal(result.status, 503); assert.match(result.body.reason, /timed out/);
   t.mock.timers.tick(1000);
   await flushMicrotasks();
-  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 0);
+  assert.equal(h.broker.connections.length, 2); assert.equal(h.broker.lookups.length, 0);
   assert.equal(h.broker.live.size, 0);
 });
 

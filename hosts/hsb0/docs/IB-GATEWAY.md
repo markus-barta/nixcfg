@@ -211,8 +211,9 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 ### Read-only market data (OPS-311)
 
 `GET /v1/quote?symbol=AAPL&desk=j` returns an IB snapshot with bid, ask,
-last and close; missing prices are `null`. Data is requested as delayed,
-with delayed-frozen fallback outside regular trading hours. IB may supply
+last and close; missing prices are `null`. Each quote requests one snapshot:
+delayed during regular trading hours, delayed-frozen outside those hours.
+An empty delayed snapshot returns null prices without a second snapshot. IB may supply
 realtime or frozen data when entitled; `marketDataType` reports the received
 type: `realtime` (1), `frozen` (2), `delayed` (3), or `delayed-frozen` (4).
 `observedAt` is receipt time, not the price's exchange timestamp.
@@ -241,10 +242,20 @@ ten minutes and one per contract per 15 seconds, including failed requests.
 Resolved contracts cache per symbol for one hour. History pacing is checked
 before connecting or looking up a contract, using its cached conId when known;
 a newly resolved conId is checked again before requesting history.
+History does not call `reqMarketDataType(3)`. After deployment, verify live on
+the paper account that bars return without a realtime data subscription;
+IB error 162 returns 503 (fail closed).
 These in-memory limits cover this executor; other Gateway clients and
 restarts need operational pacing coordination. Limits return 429 with
-`retry_after_s`; broker/permission failures and the 12-second deadline return 503. The deadline starts when a request leaves the queue and allows IB's
-approximately 11-second snapshot window, including connection and lookup.
+`retry_after_s`; broker/permission failures and the 12-second broker deadline
+return 503. The deadline starts after the initial reconnect gap and covers
+connection, lookup and IB's approximately 11-second snapshot window. The gap
+before a 326 retry pauses that same budget; the first handshake still counts.
+At most 16 requests are outstanding. Queue waits are capped at 12 seconds;
+an expired wait returns 429. Queue-limit replies calculate `retry_after_s`
+from the outstanding requests ahead, allowing up to 14 seconds per request
+for the broker budget and both reconnect gaps. Disconnected clients' queued
+requests are dropped before any IB call; active reads are cancelled and closed.
 Each request logs only desk, symbol, endpoint, cached, outcome and duration
 in milliseconds. Historical duration includes overnight/weekend gaps and
 IB-supplied session closures; missing calendar days assume normal US hours.
