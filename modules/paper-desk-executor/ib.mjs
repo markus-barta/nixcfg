@@ -12,6 +12,56 @@ const activeClients = new Set();
 
 export function assertBrokerRuntime() { paperGuard(); const runtime = require("@stoqey/ib"); if (typeof runtime.IBApi !== "function" || !runtime.EventName) throw new Error("IB runtime is unavailable"); }
 
+// Reuse the pinned dependency and paper-only guard without opening an order
+// snapshot or requesting any account, execution, position or order state.
+export function marketDataRuntime(runtime = {}) {
+  paperGuard();
+  return runtime.IBApi ? runtime : require("@stoqey/ib");
+}
+
+export async function openMarketDataSession(clientId, runtime = {}, signal) {
+  const { IBApi, EventName } = marketDataRuntime(runtime);
+  signal?.throwIfAborted();
+  if (!Number.isSafeInteger(clientId) || clientId <= 0 || activeClients.has(clientId)) throw new Error("market data client ID is invalid or already connected");
+  const api = new IBApi({ host: HOST, port: PORT, clientId });
+  activeClients.add(clientId);
+  // Keep error events handled between individual requests. Each request installs
+  // its own scoped handler; broker messages are never logged by this session.
+  api.on(EventName.error, () => {});
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    try { api.disconnect(); } catch { /* best effort */ }
+    activeClients.delete(clientId);
+  };
+  try {
+    await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        api.off(EventName.nextValidId, onReady);
+        api.off(EventName.error, onError);
+        api.off(EventName.disconnected, onDisconnect);
+        signal?.removeEventListener("abort", onAbort);
+        if (error) reject(error); else resolve();
+      };
+      const onReady = () => finish();
+      const onError = (_error, code) => { if (!INFORMATIONAL_CODES.has(Number(code))) finish(Object.assign(new Error("market data connection failed"), { ibCode: Number(code) })); };
+      const onDisconnect = () => finish(new Error("market data connection closed"));
+      const onAbort = () => finish(signal.reason);
+      api.on(EventName.nextValidId, onReady);
+      api.on(EventName.error, onError);
+      api.on(EventName.disconnected, onDisconnect);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      try { api.connect(); } catch (error) { finish(error); }
+    });
+    signal?.throwIfAborted();
+    return { api, events: EventName, close };
+  } catch (error) {
+    close();
+    throw error;
+  }
+}
+
 const HOST = process.env.IB_DESK_GATEWAY_HOST || "100.64.0.6";
 const PORT = Number(process.env.IB_DESK_GATEWAY_PORT || PAPER_PORT);
 const TARGET_ACCOUNT = process.env.IB_DESK_ACCOUNT || ACCOUNT;
@@ -186,31 +236,49 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   throw new Error(`paper Gateway snapshot timed out: ${state.errors.map((item) => item.message).join("; ") || "incomplete callbacks"}`);
 }
 
-export async function resolveStock(session, symbol, requestId = 881001) {
+export async function resolveStock(session, symbol, requestId = 881001, { readOnly = false, signal } = {}) {
+  // Intentional order-path timing improvement too: place/cancel/modify-stop
+  // use a real 10-second timer and fail fast on IB error 200, rather than
+  // polling session.wait until a missing contract times out.
   const EventName = session.events;
   const details = [];
-  let ended = false;
-  const onDetails = (id, value) => {
-    if (Number(id) === requestId) details.push(value);
-  };
-  const onEnd = (id) => {
-    if (id === undefined || Number(id) === requestId) ended = true;
-  };
-  session.api.on(EventName.contractDetails, onDetails);
-  session.api.on(EventName.contractDetailsEnd, onEnd);
-  session.api.reqContractDetails(requestId, { symbol, secType: "STK", exchange: "SMART", currency: "USD" });
-  const started = Date.now();
-  while (!ended && Date.now() - started < 10_000) await session.wait(100);
-  session.api.off(EventName.contractDetails, onDetails);
-  session.api.off(EventName.contractDetailsEnd, onEnd);
-  if (!ended) throw new Error("contract lookup timed out");
-  if (details.length !== 1) throw new Error("symbol does not resolve to exactly one USD stock contract");
+  const notFound = () => Object.assign(new Error("symbol does not resolve to exactly one USD stock contract"), { code: "contract_not_found" });
+  signal?.throwIfAborted();
+  await new Promise((resolve, reject) => {
+    const finish = (error) => {
+      clearTimeout(timer);
+      session.api.off(EventName.contractDetails, onDetails);
+      session.api.off(EventName.contractDetailsEnd, onEnd);
+      session.api.off(EventName.error, onError);
+      signal?.removeEventListener("abort", onAbort);
+      if (error) reject(error); else resolve();
+    };
+    const onDetails = (id, value) => { if (Number(id) === requestId) details.push(value); };
+    const onEnd = (id) => { if (id === undefined || Number(id) === requestId) finish(); };
+    const onError = (_error, code, id) => {
+      if (Number(id) === requestId && Number(code) === 200) finish(notFound());
+      else if (readOnly && (Number(id) === requestId || [1100, 2110].includes(Number(code)))) finish(Object.assign(new Error("contract lookup failed"), { ibCode: Number(code) }));
+    };
+    const onAbort = () => finish(signal.reason);
+    const timer = setTimeout(() => finish(Object.assign(new Error("contract lookup timed out"), { code: "market_data_timeout" })), 10_000);
+    session.api.on(EventName.contractDetails, onDetails);
+    session.api.on(EventName.contractDetailsEnd, onEnd);
+    session.api.on(EventName.error, onError);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try { session.api.reqContractDetails(requestId, { symbol, secType: "STK", exchange: "SMART", currency: "USD" }); } catch (error) { finish(error); }
+  });
+  if (details.length !== 1) throw notFound();
   const detail = details[0];
   const contract = detail.contract;
-  if (String(contract.secType || "").toUpperCase() !== "STK" || String(contract.currency || "").toUpperCase() !== "USD") {
+  if (!contract || String(contract.secType || "").toUpperCase() !== "STK" || String(contract.currency || "").toUpperCase() !== "USD") {
+    if (readOnly) throw notFound();
     throw new Error("contract is not a USD stock");
   }
-  assertContract(contract, { symbol, conId: Number(contract.conId) });
+  // KEEP is a side-effect guard, not a restriction on reading public prices.
+  // The default order-path call still applies exactly the existing guard.
+  if (readOnly) {
+    if (String(contract.symbol || "").toUpperCase() !== symbol || !Number.isSafeInteger(Number(contract.conId)) || Number(contract.conId) <= 0) throw notFound();
+  } else assertContract(contract, { symbol, conId: Number(contract.conId) });
   return {
     contract: {
       conId: Number(contract.conId),
@@ -221,6 +289,7 @@ export async function resolveStock(session, symbol, requestId = 881001) {
       primaryExch: String(contract.primaryExch || ""),
     },
     stockType: String(detail.stockType || "").toUpperCase(),
+    ...(readOnly ? { liquidHours: String(detail.liquidHours || ""), timeZoneId: String(detail.timeZoneId || "") } : {}),
   };
 }
 

@@ -208,6 +208,63 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 | State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                                   |
 | Account | paper `DU0000001`                                                                                       |
 
+### Read-only market data (OPS-311)
+
+`GET /v1/quote?symbol=AAPL&desk=j` returns an IB snapshot with bid, ask,
+last and close; missing prices are `null`. Each quote requests one snapshot:
+delayed during regular trading hours, delayed-frozen outside those hours.
+An empty delayed snapshot returns null prices without a second snapshot. IB may supply
+realtime or frozen data when entitled; `marketDataType` reports the received
+type: `realtime` (1), `frozen` (2), `delayed` (3), or `delayed-frozen` (4).
+`observedAt` is receipt time, not the price's exchange timestamp.
+
+`GET /v1/bars?symbol=AAPL&desk=j&count=24` returns the newest regular-hours
+TRADES bars in ascending order, with five-minute bar starts in UTC.
+The newest bar carries `partial: true` if it is still forming when IB supplies it;
+cached replies retain that flag until a fresh snapshot replaces the data.
+Count defaults to 24 and accepts 1–78; IB can return fewer bars. Both routes
+require an existing desk and an uppercase US stock symbol (STK/SMART/USD).
+They use the existing peer check and listener. They are strictly read-only:
+no order calls, intent/ownership ledger changes or trading rights; HALT and
+KEEP do not block reads.
+An unknown or ambiguous symbol without exactly one matching USD stock
+contract returns 404 (`not_found`).
+
+Market data uses its own clientId **707**, checked against all configured
+order/legacy IDs and pusher IDs 92 and 94, and a separate serial lock.
+Connections close after each request, with at least a one-second gap before
+reconnecting; IB error 326 (client ID in use) is retried once after that gap.
+Quotes cache for 15 seconds; bars cache for 60 seconds per symbol and can
+serve smaller counts. A shared
+data token bucket permits six IB lookup/data calls initially and refills
+one per second. Historical requests additionally allow at most 60 per rolling
+ten minutes and one per contract per 15 seconds, including failed requests.
+Resolved contracts cache per symbol for one hour. History pacing is checked
+before connecting or looking up a contract, using its cached conId when known;
+a newly resolved conId is checked again before requesting history.
+History does not call `reqMarketDataType(3)`. After deployment, verify live on
+the paper account that bars return without a realtime data subscription;
+IB error 162 returns 503 (fail closed).
+These in-memory limits cover this executor; other Gateway clients and
+restarts need operational pacing coordination. Limits return 429 with
+`retry_after_s`; broker/permission failures and the 12-second broker deadline
+return 503. The deadline starts after the initial reconnect gap and covers
+connection, lookup and IB's approximately 11-second snapshot window. The gap
+before a 326 retry pauses that same budget; the first handshake still counts.
+At most 16 requests are outstanding. Queue waits are capped at 12 seconds;
+an expired wait returns 429. Queue-limit replies calculate `retry_after_s`
+from the outstanding requests ahead, allowing up to 14 seconds per request
+for the broker budget and both reconnect gaps. Disconnected clients' queued
+requests are dropped before any IB call; active reads are cancelled and closed.
+Each request logs only desk, symbol, endpoint, cached, outcome and duration
+in milliseconds. Historical duration includes overnight/weekend gaps and
+IB-supplied session closures; missing calendar days assume normal US hours.
+
+OPS-311 also intentionally improves order-path contract resolution:
+`resolveStock`, shared by place/cancel/modify-stop, uses a real 10-second timer
+and fails fast on IB error 200 instead of polling until timeout. Existing
+order validation and KEEP guards still apply.
+
 The same `intentId` and the same body return the stored result. A different
 body is rejected. If the process dies after the claim is stored, the next
 submit returns `uncertain` and is not replayed.
