@@ -351,6 +351,47 @@ nixos-rebuild switch --flake .#hsb8 --target-host hsb8 --use-remote-sudo
 
 ## Maintenance
 
+### LG beamer Developer Mode (OPS-309)
+
+`lg-devmode-renew` renews the webOS Developer Mode session daily with up to one
+hour of jitter and catches up after downtime; the beamer can be off. It retries
+three times after 1, 5 and 15 minutes, logs HTTP/LG status and validated remaining
+time, and keeps the last success and failed calendar-day streak in
+`/var/lib/lg-devmode-renew/state.json`. Run manually with
+`sudo systemctl start lg-devmode-renew`; inspect `journalctl -u lg-devmode-renew`.
+Two consecutive failed days send one notice per streak through the existing
+encrypted Gateway email destination (Amy) and managed mail relay. Alerts go by
+email only; Telegram is deferred until hsb0 has a declared Telegram target.
+A delivered failure notice is followed by one recovery notice. Failed recovery
+delivery gets one initial attempt and at most three retries on later runs, then
+is dropped with a journal entry; channels without a sender are dropped immediately.
+At most one queued recovery is processed per run. A refused or corrupt state file
+is quarantined as `state.json.corrupt-<timestamp>` with a `state-reset` journal
+entry, and renewal continues with fresh state; this can repeat a previous alert.
+Missing configured credential files are checked by the script, logged as
+`credential-missing`, and exit with status 3. The unit is never silently skipped.
+The renewal start timeout is 30 minutes, covering the 1400-second bounded work
+plus 400 seconds of margin with hsb0's email transport.
+
+Credential and notification paths, the state directory, and curl/Docker/sendmail
+commands are fixed by Nix at build time. Environment variables such as
+`CREDENTIALS_DIRECTORY`, `STATE_DIRECTORY`, and `LG_DEVMODE_*` cannot override
+them; path changes require a reviewed rebuild. File reads reject relative and
+traversal paths and require regular files; token and email config custody checks
+remain in place. Optional transports are enabled only by declared Nix paths.
+
+After the approved deployment, run `sudo systemctl start lg-devmode-notify-test`
+once and inspect `journalctl -u lg-devmode-notify-test`. This invokes
+`--test-notify` with the same protected paths, mail relay and sandbox, sending one
+`[TEST] LG Developer Mode renew alert path check` email without reading the LG
+token, touching renewal state or calling LG. Status 0 means relay acceptance;
+status 2 means failure or no transport. Confirm receipt in Amy's inbox as well.
+
+Replace the token using `just edit-secret secrets/hsb0-lg-devmode-token.age`
+(agenix), preserving one line `LG_DEVMODE_TOKEN=<64 hex characters>`; apply it in
+the normal approved hsb0 deployment. Developer Mode reinstallation changes the
+token. Never send it by message, print it, or put it in a command argument.
+
 ### Clean Up Disk Space
 
 ```bash

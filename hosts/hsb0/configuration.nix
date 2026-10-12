@@ -61,6 +61,7 @@ let
 in
 {
   imports = [
+    ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor

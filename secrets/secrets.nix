@@ -120,6 +120,10 @@ in
   # TODO: Rename to hsb0-mqtt-client.age
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
+  # LG webOS Developer Mode session renewal on hsb0 (OPS-309)
+  # Format: one line, LG_DEVMODE_TOKEN=<64 hex characters>
+  "hsb0-lg-devmode-token.age".publicKeys = markus ++ hsb0;
+
   # NIX-158 phase 3 P2 — hsb1 single-consumer service secrets, migrated from
   # /home/mba/secrets/*.env plaintext. Edit: agenix -e secrets/<name>.age
   "hsb1-zigbee2mqtt-env.age".publicKeys = markus ++ hsb1;
