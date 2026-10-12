@@ -237,6 +237,9 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
 }
 
 export async function resolveStock(session, symbol, requestId = 881001, { readOnly = false, signal } = {}) {
+  // Intentional order-path timing improvement too: place/cancel/modify-stop
+  // use a real 10-second timer and fail fast on IB error 200, rather than
+  // polling session.wait until a missing contract times out.
   const EventName = session.events;
   const details = [];
   const notFound = () => Object.assign(new Error("symbol does not resolve to exactly one USD stock contract"), { code: "contract_not_found" });
