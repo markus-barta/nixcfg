@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "modules" / "shared" / "fleet-alerts" / "engine.py"
@@ -55,10 +57,11 @@ class Harness:
         parts = [f"NEW {a}" for a in announced] + [f"CLEARED {c}" for c in cleared]
         return " | ".join(parts)
 
-    def run(self) -> int:
+    def run(self, *, clear_confirm_runs: int = 1) -> int:
         self.clock += 900
         return engine.run_cycle(
-            self.state, self.clock, lambda: list(self.problems), self.render, self.send
+            self.state, self.clock, lambda: list(self.problems), self.render, self.send,
+            clear_confirm_runs=clear_confirm_runs,
         )
 
     def stored(self) -> dict:
@@ -94,6 +97,54 @@ class ConfirmBeforeAlert(unittest.TestCase):
 
     def test_confirm_runs_is_at_least_two(self) -> None:
         self.assertGreaterEqual(engine.CONFIRM_RUNS, 2)
+
+
+class ConfirmRecovery(unittest.TestCase):
+    def setUp(self) -> None:
+        self.h = Harness()
+        self.h.problems = [PROBLEM]
+        self.h.run(clear_confirm_runs=2)
+        self.h.run(clear_confirm_runs=2)
+
+    def test_requires_two_clean_runs_when_opted_in(self) -> None:
+        self.h.problems = []
+        self.h.run(clear_confirm_runs=2)
+        self.assertEqual(len(self.h.sent), 1)
+        self.assertEqual(self.h.stored()["seen"][PROBLEM.key]["clean_count"], 1)
+        self.h.run(clear_confirm_runs=2)
+        self.assertEqual(len(self.h.sent), 2)
+        self.assertIn("CLEARED", self.h.sent[-1][0])
+        self.h.run(clear_confirm_runs=2)
+        self.assertEqual(len(self.h.sent), 2)
+
+    def test_relapse_requires_two_new_clean_runs_without_realerting(self) -> None:
+        self.h.problems = []
+        self.h.run(clear_confirm_runs=2)
+        self.h.problems = [PROBLEM]
+        self.h.run(clear_confirm_runs=2)
+        self.assertEqual(len(self.h.sent), 1)
+        self.assertNotIn("clean_count", self.h.stored()["seen"][PROBLEM.key])
+        self.h.problems = []
+        self.h.run(clear_confirm_runs=2)
+        self.assertEqual(len(self.h.sent), 1)
+        self.h.run(clear_confirm_runs=2)
+        self.assertEqual(len(self.h.sent), 2)
+
+    def test_old_state_without_clean_count_defaults_to_zero(self) -> None:
+        previous = {"seen": {PROBLEM.key: {"text": PROBLEM.text, "count": 2, "alerted": True}}}
+        state, announce, cleared = engine.advance(previous, [], clear_confirm_runs=2)
+        self.assertEqual((announce, cleared), ([], []))
+        self.assertEqual(state["seen"][PROBLEM.key]["clean_count"], 1)
+        _, announce, cleared = engine.advance(state, [], clear_confirm_runs=2)
+        self.assertEqual((announce, cleared), ([], [PROBLEM.text]))
+
+    def test_invalid_clear_confirmation_is_rejected(self) -> None:
+        for invalid in [0, -1]:
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "clear_confirm_runs must be positive"):
+                    engine.advance({}, [], clear_confirm_runs=invalid)
+                with self.assertRaisesRegex(ValueError, "clear_confirm_runs must be positive"):
+                    self.h.run(clear_confirm_runs=invalid)
 
 
 class DurableDelivery(unittest.TestCase):
@@ -202,6 +253,43 @@ class ShoutrrrTarget(unittest.TestCase):
             "telegram://t@telegram?chats=1",
         )
         self.assertEqual(engine.env_file_value(str(path), "MISSING"), "")
+
+    def test_env_file_value_rejects_traversal_before_opening(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            allowed = root / "credentials"
+            allowed.mkdir()
+            (root / "notification-env").write_text("TARGET=synthetic\n")
+            traversal = allowed / ".." / "notification-env"
+            for strict in [False, True]:
+                with self.subTest(strict=strict), patch("builtins.open") as opening:
+                    self.assertEqual(engine.env_file_value(str(traversal), "TARGET", require_canonical_path=strict), "")
+                    opening.assert_not_called()
+
+    def test_env_file_value_requires_an_absolute_regular_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            credential = root / "notification-env"
+            credential.write_text("TARGET=synthetic\n")
+            fifo = root / "fifo"
+            os.mkfifo(fifo)
+            for bad in ["notification-env", "", str(root), str(root / "missing"), str(fifo)]:
+                with self.subTest(path=bad), patch("builtins.open") as opening:
+                    self.assertEqual(engine.env_file_value(bad, "TARGET"), "")
+                    opening.assert_not_called()
+            self.assertEqual(engine.env_file_value(str(credential), "TARGET", require_canonical_path=True), "synthetic")
+
+    def test_env_file_value_preserves_agenix_symlinks_but_credentials_reject_them(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            credential = root / "notification-env"
+            credential.write_text("TARGET=synthetic\n")
+            alias = root / "alias"
+            alias.symlink_to(credential)
+            self.assertEqual(engine.env_file_value(str(alias), "TARGET"), "synthetic")
+            with patch("builtins.open") as opening:
+                self.assertEqual(engine.env_file_value(str(alias), "TARGET", require_canonical_path=True), "")
+                opening.assert_not_called()
 
 
 if __name__ == "__main__":

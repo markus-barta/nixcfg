@@ -162,6 +162,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T44-tailnet-watch.sh
 
+      - name: Verify csb1 aeon API witness and service/timer evaluation (OPS-307)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T96-aeon-watch.sh
+
       - name: Verify mailbridge authorization, queue and alert failure handling (OPS-196)
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 -m unittest discover -s tests -p 'test_mailbridge_watch.py' -v
@@ -241,6 +245,10 @@ jobs:
       - name: Verify compose-stack contract and YAML equivalence (OPS-116/117)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
+
+      - name: Verify aeon upstream transport disables connection reuse (OPS-308)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 yq-go --run "bash tests/T97-aeon-upstream-transport.sh"
 
       - name: Verify stale compose updater generation guard (NIX-496)
         if: steps.pin.outputs.pin_only != 'true'
