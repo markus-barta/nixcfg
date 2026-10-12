@@ -269,8 +269,8 @@ export function createMarketData(options = {}) {
   const now = options.now || Date.now;
   const elapsed = options.monotonicNow || (() => performance.now());
   // IB's natural snapshot end is ~11 seconds. Leave one second of headroom;
-  // the deadline starts on leaving our queue and includes reconnect backoff,
-  // connection, lookup and data callbacks.
+  // connection, lookup and data callbacks share this budget. Queue waits have
+  // their own cap; bounded reconnect gaps do not consume the broker budget.
   const timeoutMs = options.timeoutMs ?? 12_000;
   const reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY;
   const clientId = options.clientId ?? Number(process.env.IB_DESK_MARKET_DATA_CLIENT_ID || MARKET_DATA_CLIENT_ID);
@@ -279,6 +279,8 @@ export function createMarketData(options = {}) {
   if (!Number.isSafeInteger(clientId) || clientId <= 0 || [...orderIds, ...ownershipIds, 92, 94, 700, 701, 702, 703, 704, 705, 706].some((id) => Number(id) === clientId)) throw new Error("market data client ID must be distinct from every order and pusher client ID");
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("market data timeout must be positive");
   if (!Number.isFinite(reconnectDelayMs) || reconnectDelayMs < 0) throw new Error("market data reconnect delay must be nonnegative");
+  // A request can wait for the previous disconnect and for one 326 retry.
+  const requestBudgetMs = timeoutMs + 2 * reconnectDelayMs;
   const runtime = options.runtime || {};
   const cache = { quote: new Map(), bars: new Map() };
   const contracts = new Map();
@@ -326,11 +328,12 @@ export function createMarketData(options = {}) {
     if (contracts.size >= MAX_CACHE_SYMBOLS) contracts.delete(contracts.keys().next().value);
     contracts.set(symbol, { resolved, expiresAt: now() + CONTRACT_TTL });
   }
-  async function connect(signal) {
+  async function connect(signal, suspendDeadline, resumeDeadline) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      suspendDeadline();
       const readyAt = disconnectedAt + reconnectDelayMs;
       while (elapsed() < readyAt) await pause(Math.ceil(readyAt - elapsed()), signal);
-      signal.throwIfAborted();
+      resumeDeadline();
       try { return await openMarketDataSession(clientId, runtime, signal); }
       catch (error) {
         // openMarketDataSession closes even a failed handshake. Give the
@@ -351,15 +354,35 @@ export function createMarketData(options = {}) {
     if (entries.size >= MAX_CACHE_SYMBOLS) entries.delete(entries.keys().next().value);
     entries.set(symbol, { count, body, expiresAt: now() + (endpoint === "quote" ? QUOTE_TTL : BARS_TTL) });
   }
-  async function read(endpoint, params) {
+  async function read(endpoint, params, { signal: clientSignal } = {}) {
     let warningCode;
     try {
       const { symbol, count } = query(endpoint, params);
+      if (clientSignal?.aborted) throw unavailable("IB market data client disconnected");
       const hit = cached(endpoint, symbol, count);
       if (hit) return { statusCode: 200, body: hit };
-      if (pending >= MAX_PENDING) throw rateLimited(timeoutMs);
+      if (pending >= MAX_PENDING) throw rateLimited(pending * requestBudgetMs);
       pending += 1;
+      const controller = new AbortController();
+      const { signal } = controller;
+      const disconnected = () => controller.abort(unavailable("IB market data client disconnected"));
+      clientSignal?.addEventListener("abort", disconnected, { once: true });
+      const queuedAt = elapsed();
+      const queueRetryMs = () => Math.max(0, pending - 1) * requestBudgetMs;
+      let queueTimer; let queueAbort;
+      const queueFailure = new Promise((_resolve, reject) => {
+        queueAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", queueAbort, { once: true });
+        queueTimer = setTimeout(() => controller.abort(rateLimited(queueRetryMs())), timeoutMs);
+      });
+      const stopQueueWait = () => {
+        clearTimeout(queueTimer);
+        signal.removeEventListener("abort", queueAbort);
+      };
       const work = async () => {
+        signal.throwIfAborted();
+        if (elapsed() - queuedAt >= timeoutMs) throw rateLimited(queueRetryMs());
+        stopQueueWait();
         const reused = cached(endpoint, symbol, count);
         if (reused) return reused;
         const known = cachedContract(symbol);
@@ -368,19 +391,34 @@ export function createMarketData(options = {}) {
         // in case another symbol resolved to the same contract.
         if (endpoint === "bars") checkHistory(known?.contract.conId);
         takeToken(); // Reserve the data call before opening a socket.
-        if (!known) takeToken(); // An uncached contract lookup also costs a token.
-        const controller = new AbortController();
-        const { signal } = controller;
-        const deadline = elapsed() + timeoutMs;
+        if (!known) {
+          try { takeToken(); } // An uncached contract lookup also costs a token.
+          catch (error) { tokens = Math.min(TOKEN_CAPACITY, tokens + 1); throw error; }
+        }
+        let remainingMs = timeoutMs;
+        let deadline = null;
+        let timer;
         const timeoutError = () => unavailable(warningCode ? `IB market data request timed out after permissions warning (${warningCode})` : "IB market data request timed out");
         const checkDeadline = () => {
-          if (elapsed() >= deadline && !signal.aborted) controller.abort(timeoutError());
+          if (deadline !== null && elapsed() >= deadline && !signal.aborted) controller.abort(timeoutError());
           signal.throwIfAborted();
         };
-        const timer = setTimeout(() => controller.abort(timeoutError()), timeoutMs);
+        const suspendDeadline = () => {
+          checkDeadline();
+          if (deadline === null) return;
+          remainingMs = Math.max(0, deadline - elapsed());
+          clearTimeout(timer);
+          deadline = null;
+        };
+        const resumeDeadline = () => {
+          signal.throwIfAborted();
+          deadline = elapsed() + remainingMs;
+          timer = setTimeout(() => controller.abort(timeoutError()), remainingMs);
+          checkDeadline();
+        };
         let session;
         try {
-          session = await connect(signal);
+          session = await connect(signal, suspendDeadline, resumeDeadline);
           checkDeadline();
           const resolved = known || await resolveStock(session, symbol, ++requestId, { readOnly: true, signal });
           if (!known) rememberContract(symbol, resolved);
@@ -389,11 +427,7 @@ export function createMarketData(options = {}) {
           let body;
           if (endpoint === "quote") {
             const onWarning = (code) => { warningCode = code; };
-            let quote = await snapshot(session, resolved.contract, clock.closed ? 4 : 3, ++requestId, signal, onWarning);
-            if (!clock.closed && quote.marketDataType === "delayed" && ["bid", "ask", "last", "close"].every((name) => quote[name] === null)) {
-              takeToken();
-              quote = await snapshot(session, resolved.contract, 4, ++requestId, signal, onWarning);
-            }
+            const quote = await snapshot(session, resolved.contract, clock.closed ? 4 : 3, ++requestId, signal, onWarning);
             body = { symbol, conId: resolved.contract.conId, ...quote, observedAt: new Date(now()).toISOString(), source: "ib", cached: false };
           } else {
             takeHistory(resolved.contract.conId);
@@ -412,12 +446,16 @@ export function createMarketData(options = {}) {
         }
       };
       // This promise chain belongs solely to data; the server's intent lock is
-      // never acquired. Queued work gets its own full deadline when it starts;
+      // never acquired. Expired/disconnected queue entries skip all IB calls;
       // retain the lock until cancellation and disconnect have both finished.
       const run = chain.then(work, work);
       chain = run.then(() => {}, () => {});
-      try { return { statusCode: 200, body: await run }; }
-      finally { pending -= 1; }
+      try { return { statusCode: 200, body: await Promise.race([run, queueFailure]) }; }
+      finally {
+        stopQueueWait();
+        clientSignal?.removeEventListener("abort", disconnected);
+        pending -= 1;
+      }
     } catch (error) {
       if (error?.code === "contract_not_found") return { statusCode: 404, body: { status: "not_found", reason: "symbol has no unique USD stock contract" } };
       if (error?.code === "market_data_timeout") error = unavailable("IB contract lookup timed out");
