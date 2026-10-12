@@ -21,6 +21,7 @@ let
     cp ${./policy.mjs} "$out/policy.mjs"
     cp ${./security.mjs} "$out/security.mjs"
     cp ${./ib.mjs} "$out/ib.mjs"
+    cp ${./market-data.mjs} "$out/market-data.mjs"
     cp ${./state.mjs} "$out/state.mjs"
     cp ${./executor.mjs} "$out/executor.mjs"
     cp ${./server.mjs} "$out/server.mjs"
@@ -32,6 +33,7 @@ let
     "IB_DESK_GATEWAY_PORT=${toString cfg.gatewayPort}"
     "IB_DESK_OWNERSHIP_LEDGER=/pusher-state/${ledgerName}"
     "IB_DESK_CLIENT_IDS=${builtins.toJSON cfg.clientIds}"
+    "IB_DESK_MARKET_DATA_CLIENT_ID=${toString cfg.marketDataClientId}"
     "IB_DESK_OWNERSHIP_CLIENT_IDS=${builtins.toJSON cfg.ownershipClientIds}"
     "PAPER_DESK_BIND=${cfg.listenAddress}"
     "PAPER_DESK_PORT=${toString cfg.listenPort}"
@@ -126,6 +128,12 @@ in
       description = "Distinct recon and shared placing client IDs; desk ownership is enforced by orderRef.";
     };
 
+    marketDataClientId = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 707;
+      description = "Read-only quote/history client ID, disjoint from every order and legacy ownership client.";
+    };
+
     ownershipClientIds = lib.mkOption {
       type = lib.types.attrsOf (lib.types.listOf lib.types.int);
       default = {
@@ -214,6 +222,21 @@ in
             "TSLA"
           ];
         message = "paperDeskExecutor KEEP must remain exactly SXR8 and TSLA";
+      }
+      {
+        assertion =
+          !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
+          && !(lib.elem cfg.marketDataClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          && !(lib.elem cfg.marketDataClientId [
+            700
+            701
+            702
+            703
+            704
+            705
+            706
+          ]);
+        message = "paperDeskExecutor market data client must be distinct from all order clients";
       }
       {
         assertion =
