@@ -17,6 +17,13 @@ const events = Object.fromEntries([
 ].map((name) => [name, name]));
 const OPEN_TIME = Date.parse("2026-10-12T18:00:00Z");
 const defaults = [[66, 100], [67, 101], [68, 100.5], [75, 99]];
+const READ_ONLY_METHODS = new Set([
+  "on", "off", "connect", "disconnect", "reqContractDetails", "reqMarketDataType",
+  "reqMktData", "cancelMktData", "reqHistoricalData", "cancelHistoricalData",
+]);
+async function flushMicrotasks() {
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
+}
 function bars(count = 30) {
   const start = Date.parse("2026-10-12T13:30:00Z") / 1000;
   return Array.from({ length: count }, (_, index) => [String(start + index * 300), 100 + index, 102 + index, 99 + index, 101 + index, 10 + index]);
@@ -25,7 +32,8 @@ function bars(count = 30) {
 function fakeRuntime(options = {}) {
   const broker = {
     connections: [], instances: [], live: new Set(), forbidden: [], lookups: [], types: [], quotes: [], histories: [],
-    cancelledQuotes: [], cancelledHistories: [], maxLive: 0, contractIds: new Map(), ...options,
+    cancelledQuotes: [], cancelledHistories: [], connectionTimes: [], disconnectionTimes: [],
+    maxLive: 0, contractIds: new Map(), ...options,
   };
   class FakeIB extends EventEmitter {
     constructor({ clientId, host, port }) {
@@ -33,15 +41,33 @@ function fakeRuntime(options = {}) {
       assert.equal(host, "100.64.0.6"); assert.equal(port, 4002);
       this.clientId = clientId;
       broker.instances.push(this);
+      // Bind allowed methods to the emitter so test callbacks can simulate IB;
+      // the production-facing proxy rejects every other property/method.
+      return new Proxy(this, {
+        get(target, name) {
+          if (!READ_ONLY_METHODS.has(name)) {
+            broker.forbidden.push(String(name));
+            assert.fail(`read-only runtime accessed unapproved IB method ${String(name)}`);
+          }
+          return target[name].bind(target);
+        },
+      });
     }
     connect() {
       assert.equal(broker.live.has(this.clientId), false, "duplicate live client ID");
       broker.connections.push(this.clientId); broker.live.add(this.clientId);
+      broker.connectionTimes.push(Date.now());
       broker.maxLive = Math.max(broker.maxLive, broker.live.size);
+      broker.onConnect?.(this);
+      const code = broker.connectErrors?.shift();
+      if (code) { this.emit(events.error, new Error("connection diagnostic"), code, -1); return; }
       this.emit(events.connected);
       if (!broker.noReady) this.emit(events.nextValidId, 9000);
     }
-    disconnect() { broker.live.delete(this.clientId); this.emit(events.disconnected); }
+    disconnect() {
+      broker.disconnectionTimes.push(Date.now());
+      broker.live.delete(this.clientId); this.emit(events.disconnected);
+    }
     reqContractDetails(id, request) {
       broker.lookups.push({ id, request });
       if (broker.lookupError) { this.emit(events.error, new Error("contract diagnostic"), broker.lookupError, id); return; }
@@ -85,9 +111,6 @@ function fakeRuntime(options = {}) {
     }
     cancelHistoricalData(id) { broker.cancelledHistories.push(id); this.emit(events.error, new Error("finished history"), 366, id); }
   }
-  for (const name of ["placeOrder", "cancelOrder", "reqGlobalCancel", "exerciseOptions", "reqPositions", "reqAllOpenOrders", "reqExecutions", "reqManagedAccts", "reqIds", "reqAccountUpdatesMulti"]) {
-    FakeIB.prototype[name] = function () { broker.forbidden.push(name); assert.fail(`read-only runtime called ${name}`); };
-  }
   const names = { ...events };
   if (broker.legacyHistory) delete names.historicalDataEnd;
   return { broker, runtime: { IBApi: FakeIB, EventName: names } };
@@ -100,7 +123,7 @@ function fixture(options = {}) {
   const app = createServer({
     testMode: true, listenHost: "127.0.0.1", listenPort: 0, gatewayPort: 4002, gatewayHost: "100.64.0.6",
     allowlist: ["127.0.0.1"], stateDir: mkdtempSync(path.join(tmpdir(), "ops311-market-data-")),
-    marketData: { runtime, now: () => time, timeoutMs: 250, ...options.marketData },
+    marketData: { runtime, now: () => time, timeoutMs: 250, reconnectDelayMs: 0, ...options.marketData },
     marketDataAudit: (row) => audit.push(row), ...options.server,
   });
   async function request(url, { method = "GET", body, peer = "127.0.0.1" } = {}) {
@@ -108,6 +131,8 @@ function fixture(options = {}) {
     req.method = method; req.url = url; req.headers = { "x-forwarded-for": "127.0.0.1" }; req.socket = { remoteAddress: peer };
     let status; let result;
     await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
+    // A forbidden call must fail the test even if the API maps it to a 503.
+    assert.deepEqual(broker.forbidden, []);
     return { status, body: result };
   }
   return { app, broker, runtime, audit, request, advance: (ms) => { time += ms; } };
@@ -117,6 +142,16 @@ const barsUrl = (symbol = "AAPL", count = 24, desk = "j") => `/v1/bars?symbol=${
 function reconIntent(id = "j-data-isolation") {
   return { schema: "barta.paper-desk-intent.v2", intentId: id, desk: "j", action: "recon", createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
 }
+
+test("read-only proxy rejects unlisted and future IB methods", () => {
+  const { broker, runtime } = fakeRuntime();
+  const api = new runtime.IBApi({ host: "100.64.0.6", port: 4002, clientId: 707 });
+  for (const name of ["placeOrder", "reqPositions", "futureBrokerWrite"]) {
+    assert.throws(() => api[name](), /unapproved IB method/);
+  }
+  assert.deepEqual(broker.forbidden, ["placeOrder", "reqPositions", "futureBrokerWrite"]);
+  assert.equal(broker.connections.length, 0);
+});
 
 test("quote returns an isolated delayed snapshot and releases the IB request", async () => {
   const h = fixture();
@@ -139,6 +174,7 @@ test("bars return the newest N sorted, deduplicated five-minute UTC bars", async
   assert.equal(result.status, 200); assert.equal(result.body.barSize, "5m"); assert.equal(result.body.cached, false);
   assert.deepEqual(result.body.bars, rows.slice(-3).map(([t, o, high, l, c, v]) => ({ t: new Date(Number(t) * 1000).toISOString(), o, h: high, l, c, v })));
   assert.deepEqual(h.broker.connections, [707]); assert.equal(h.broker.cancelledHistories.length, 1);
+  assert.deepEqual(h.broker.types, [], "historical requests do not set a market data type");
   assert.deepEqual(h.broker.forbidden, []);
 });
 
@@ -190,6 +226,53 @@ test("bars cache serves smaller counts across desks and expires at 60 seconds", 
   assert.equal((await h.request(barsUrl())).body.cached, false); assert.equal(h.broker.histories.length, 2);
 });
 
+test("forming bars are marked at receipt and cached snapshots preserve the flag", async () => {
+  const rows = [OPEN_TIME - 300_000, OPEN_TIME].map((time) => [String(time / 1000), 100, 102, 99, 101, 10]);
+  const h = fixture({ time: OPEN_TIME + 270_000, broker: { bars: rows } });
+  const first = await h.request(barsUrl("AAPL", 2));
+  assert.equal(first.status, 200);
+  assert.equal(Object.hasOwn(first.body.bars[0], "partial"), false);
+  assert.equal(first.body.bars[1].partial, true);
+  h.advance(30_000);
+  const cached = await h.request(barsUrl("AAPL", 1));
+  assert.equal(cached.body.cached, true); assert.equal(cached.body.bars[0].partial, true);
+  h.advance(30_000);
+  const completed = await h.request(barsUrl("AAPL", 2));
+  assert.equal(completed.body.cached, false);
+  assert.equal(Object.hasOwn(completed.body.bars[1], "partial"), false);
+});
+
+test("a forming snapshot stays partial when historicalDataEnd crosses a bar boundary", async () => {
+  let ready; let held;
+  const started = new Promise((resolve) => { ready = resolve; });
+  const h = fixture({ time: OPEN_TIME + 299_000, broker: {
+    bars: [[String(OPEN_TIME / 1000), 100, 102, 99, 101, 10]], noHistoryEnd: true,
+    onHistory: (api, id) => { held = { api, id }; ready(); },
+  } });
+  const request = h.request(barsUrl("AAPL", 1));
+  await started;
+  h.advance(1000);
+  held.api.emit(events.historicalDataEnd, held.id);
+  const result = await request;
+  assert.equal(result.status, 200); assert.equal(result.body.bars[0].partial, true);
+});
+
+test("contract cache spans quote and history requests and expires after one hour", async () => {
+  const h = fixture();
+  await h.request(quoteUrl());
+  h.advance(15_000);
+  assert.equal((await h.request(quoteUrl())).body.cached, false);
+  assert.equal((await h.request(barsUrl("AAPL", 1))).status, 200);
+  assert.equal(h.broker.lookups.length, 1);
+  assert.equal(h.broker.connections.length, 3);
+  h.advance(3_600_000 - 15_000 - 1);
+  assert.equal((await h.request(quoteUrl())).status, 200);
+  assert.equal(h.broker.lookups.length, 1);
+  h.advance(1);
+  assert.equal((await h.request(barsUrl("AAPL", 2))).status, 200);
+  assert.equal(h.broker.lookups.length, 2);
+});
+
 test("global bucket protects both endpoints; cache hits do not consume tokens", async () => {
   const h = fixture();
   for (const symbol of ["AAPL", "MSFT", "IBM"]) assert.equal((await h.request(quoteUrl(symbol))).status, 200);
@@ -210,6 +293,7 @@ test("historical budget enforces a rolling 60 requests per ten minutes", async (
   const limit = await h.request(barsUrl("NEW", 1));
   assert.deepEqual(limit, { status: 429, body: { status: "rate_limited", retry_after_s: 60 } });
   assert.equal(h.broker.histories.length, 60);
+  assert.equal(h.broker.connections.length, 60); assert.equal(h.broker.lookups.length, 60);
   h.advance(60_000);
   assert.equal((await h.request(barsUrl("NEW", 1))).status, 200);
   assert.equal(h.broker.histories.length, 61);
@@ -222,8 +306,10 @@ test("failed historical requests cannot repeat for 15 seconds, across counts and
   assert.deepEqual(await h.request(barsUrl("AAPL", 25, "joe")), { status: 429, body: { status: "rate_limited", retry_after_s: 15 } });
   h.advance(14_000);
   assert.equal((await h.request(barsUrl())).body.retry_after_s, 1);
+  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 1);
   h.advance(1000);
   assert.equal((await h.request(barsUrl())).status, 200); assert.equal(h.broker.histories.length, 2);
+  assert.equal(h.broker.lookups.length, 1);
 });
 
 test("increasing a cached bar count cannot bypass contract pacing", async () => {
@@ -231,6 +317,7 @@ test("increasing a cached bar count cannot bypass contract pacing", async () => 
   await h.request(barsUrl("AAPL", 2));
   assert.equal((await h.request(barsUrl("AAPL", 3))).status, 429);
   assert.equal((await h.request(barsUrl("AAPL", 1))).body.cached, true);
+  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 1);
   h.advance(15_000);
   assert.equal((await h.request(barsUrl("AAPL", 3))).status, 200);
 });
@@ -288,14 +375,14 @@ test("market closed selects delayed-frozen while missing and IB sentinel fields 
   const result = await h.request(quoteUrl());
   assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed-frozen");
   assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, 99]);
-  assert.deepEqual(h.broker.types, [3, 4]); assert.equal(h.broker.quotes[0].type, 4);
+  assert.deepEqual(h.broker.types, [4]); assert.equal(h.broker.quotes[0].type, 4);
 });
 
 test("IB CLOSED days and short liquid sessions override normal weekday hours", async () => {
   for (const liquidHours of ["20261012:CLOSED", "20261012:0930-20261012:1300"]) {
     const h = fixture({ broker: { liquidHours } });
     assert.equal((await h.request(quoteUrl())).body.marketDataType, "delayed-frozen");
-    assert.deepEqual(h.broker.types, [3, 4]);
+    assert.deepEqual(h.broker.types, [4]);
   }
 });
 
@@ -312,6 +399,15 @@ test("actual realtime entitlement is reported even when delayed data was request
   const result = await h.request(quoteUrl());
   assert.equal(result.body.marketDataType, "realtime"); assert.equal(result.body.close, null);
   assert.ok(h.broker.types.every((type) => type === 3));
+});
+
+test("after-hours type 4 requests accept entitled frozen type 2 quotes", async () => {
+  const h = fixture({ time: Date.parse("2026-10-12T22:00:00Z"), broker: { actualType: 2, prices: [[1, 100], [2, 101], [4, 100.5], [9, 99]] } });
+  const result = await h.request(quoteUrl());
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "frozen");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [100, 101, 100.5, 99]);
+  assert.deepEqual(h.broker.types, [4]); assert.equal(h.broker.cancelledQuotes.length, 1);
+  assert.equal(h.broker.live.size, 0);
 });
 
 test("IB warnings that precede usable delayed ticks are informational", async () => {
@@ -354,6 +450,8 @@ test("connection, lookup, quote and history timeouts return 503, disconnect and 
     const result = await h.request(url);
     assert.equal(result.status, 503); assert.match(result.body.reason, /timed out/);
     assert.equal(h.broker.live.size, 0);
+    if (name === "history") assert.deepEqual(h.broker.cancelledHistories, [h.broker.histories[0].id]);
+    if (name === "quote") assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]);
     Object.assign(h.broker, { noReady: false, noLookupEnd: false, noQuoteEnd: false, noHistoryEnd: false });
     h.advance(15_000);
     assert.equal((await h.request(quoteUrl("MSFT"))).status, 200);
@@ -386,7 +484,7 @@ test("a hung intent does not block data", async () => {
   assert.equal((await intent).status, 200);
 });
 
-test("data requests serialize, coalesce cache hits and cancel queued timeouts before IB work", async (t) => {
+test("data requests serialize, coalesce cache hits and release the queue after an active timeout", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let ready; let held;
   const started = new Promise((resolve) => { ready = resolve; });
@@ -407,12 +505,91 @@ test("data requests serialize, coalesce cache hits and cancel queued timeouts be
   await nextStarted;
   const queued = h.request(barsUrl("IBM"));
   t.mock.timers.tick(150);
-  assert.equal((await hung).status, 503); assert.equal((await queued).status, 503);
-  assert.equal(h.broker.histories.length, 0); assert.equal(h.broker.maxLive, 1);
+  assert.equal((await hung).status, 503); assert.equal((await queued).status, 200);
+  assert.equal(h.broker.histories.length, 1); assert.equal(h.broker.maxLive, 1);
 });
 
-test("market data client IDs are disjoint from configured placing and legacy clients", () => {
-  for (const clientId of [700, 701, 702, 703, 704, 705, 706]) assert.throws(() => createMarketData({ clientId }), /distinct/);
+test("a slow snapshot does not consume the next queued request's deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let firstReady; let secondReady;
+  const firstStarted = new Promise((resolve) => { firstReady = resolve; });
+  const secondStarted = new Promise((resolve) => { secondReady = resolve; });
+  const held = [];
+  const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => {
+    held.push({ api, id });
+    if (held.length === 1) firstReady(); else secondReady();
+  } }, marketData: { timeoutMs: 150 } });
+  const first = h.request(quoteUrl());
+  await firstStarted;
+  let secondFinished = false;
+  const second = h.request(quoteUrl("MSFT")).then((result) => { secondFinished = true; return result; });
+  t.mock.timers.tick(140);
+  for (const [field, value] of defaults) held[0].api.emit(events.tickPrice, held[0].id, field, value);
+  held[0].api.emit(events.tickSnapshotEnd, held[0].id);
+  assert.equal((await first).status, 200);
+  await secondStarted;
+  t.mock.timers.tick(140);
+  await flushMicrotasks();
+  assert.equal(secondFinished, false, "queued request has its own full broker deadline");
+  for (const [field, value] of defaults) held[1].api.emit(events.tickPrice, held[1].id, field, value);
+  held[1].api.emit(events.tickSnapshotEnd, held[1].id);
+  assert.equal((await second).status, 200);
+  assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.cancelledQuotes.length, 2);
+});
+
+test("default reconnect gap gives the Gateway one second to release clientId 707", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  const h = fixture({ marketData: { reconnectDelayMs: undefined, timeoutMs: 12_000, monotonicNow: () => Date.now() } });
+  assert.equal((await h.request(quoteUrl())).status, 200);
+  const second = h.request(quoteUrl("MSFT"));
+  await flushMicrotasks();
+  t.mock.timers.tick(999);
+  await flushMicrotasks();
+  assert.equal(h.broker.connections.length, 1);
+  t.mock.timers.tick(1);
+  assert.equal((await second).status, 200);
+  assert.equal(h.broker.connectionTimes[1] - h.broker.disconnectionTimes[0], 1000);
+  assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.live.size, 0);
+});
+
+test("IB error 326 retries once after a gap; other connection errors do not retry", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  for (const errors of [[326], [326, 326], [502]]) {
+    const h = fixture({ broker: { connectErrors: [...errors] }, marketData: { reconnectDelayMs: undefined, timeoutMs: 12_000, monotonicNow: () => Date.now() } });
+    const request = h.request(quoteUrl());
+    await flushMicrotasks();
+    assert.equal(h.broker.connections.length, 1);
+    if (errors[0] === 326) {
+      t.mock.timers.tick(999);
+      await flushMicrotasks();
+      assert.equal(h.broker.connections.length, 1);
+      t.mock.timers.tick(1);
+    }
+    const result = await request;
+    assert.equal(result.status, errors.length === 1 && errors[0] === 326 ? 200 : 503);
+    assert.equal(h.broker.connections.length, errors[0] === 326 ? 2 : 1);
+    assert.equal(h.broker.lookups.length, result.status === 200 ? 1 : 0);
+    assert.equal(h.broker.live.size, 0);
+    if (errors[0] === 326) assert.equal(h.broker.connectionTimes[1] - h.broker.disconnectionTimes[0], 1000);
+  }
+});
+
+test("a deadline during reconnect backoff cancels the retry before any more IB calls", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  const h = fixture({ broker: { connectErrors: [326] }, marketData: { reconnectDelayMs: undefined, timeoutMs: 50, monotonicNow: () => Date.now() } });
+  const request = h.request(quoteUrl());
+  await flushMicrotasks();
+  t.mock.timers.tick(50);
+  const result = await request;
+  assert.equal(result.status, 503); assert.match(result.body.reason, /timed out/);
+  t.mock.timers.tick(1000);
+  await flushMicrotasks();
+  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 0);
+  assert.equal(h.broker.live.size, 0);
+});
+
+test("market data client IDs are disjoint from configured placing, legacy and pusher clients", () => {
+  for (const clientId of [92, 94, 700, 701, 702, 703, 704, 705, 706]) assert.throws(() => createMarketData({ clientId }), /distinct/);
   assert.throws(() => createMarketData({ orderClientIds: { executor: 707, recon: 800 } }), /distinct/);
   assert.throws(() => createMarketData({ ownershipClientIds: { j: [707] } }), /distinct/);
   assert.throws(() => createMarketData({ clientId: 0 }), /distinct/);
@@ -449,4 +626,23 @@ test("order stock resolution still rejects KEEP by default", async () => {
   await assert.rejects(resolveStock(session, "TSLA"), /KEEP/);
   assert.equal((await resolveStock(session, "TSLA", 881002, { readOnly: true })).contract.symbol, "TSLA");
   assert.deepEqual(broker.forbidden, []);
+});
+
+test("order stock resolution uses a real ten-second timer and fails fast on error 200", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const timed = fakeRuntime({ noLookupEnd: true });
+  const api = new timed.runtime.IBApi({ host: "100.64.0.6", port: 4002, clientId: 707 });
+  const session = { api, events, wait: () => assert.fail("contract lookup must not poll session.wait") };
+  let finished = false;
+  const lookup = resolveStock(session, "AAPL").then(() => assert.fail("lookup should time out"), (error) => { finished = true; return error; });
+  t.mock.timers.tick(9999);
+  await flushMicrotasks();
+  assert.equal(finished, false);
+  t.mock.timers.tick(1);
+  assert.equal((await lookup).code, "market_data_timeout");
+  for (const name of ["contractDetails", "contractDetailsEnd", "error"]) assert.equal(timed.broker.instances[0].listenerCount(name), 0);
+  const missing = fakeRuntime({ lookupError: 200 });
+  const missingApi = new missing.runtime.IBApi({ host: "100.64.0.6", port: 4002, clientId: 707 });
+  await assert.rejects(resolveStock({ ...session, api: missingApi }, "AAPL"), { code: "contract_not_found" });
+  assert.deepEqual(timed.broker.forbidden, []); assert.deepEqual(missing.broker.forbidden, []);
 });

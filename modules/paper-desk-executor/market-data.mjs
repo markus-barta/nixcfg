@@ -4,6 +4,8 @@ import { openMarketDataSession, resolveStock } from "./ib.mjs";
 export const MARKET_DATA_CLIENT_ID = 707;
 const QUOTE_TTL = 15_000;
 const BARS_TTL = 60_000;
+const CONTRACT_TTL = 3_600_000;
+const RECONNECT_DELAY = 1000;
 const HISTORY_WINDOW = 600_000;
 const HISTORY_SPACING = 15_000;
 const TOKEN_CAPACITY = 6;
@@ -12,7 +14,7 @@ const MAX_PENDING = 16;
 const MAX_CACHE_SYMBOLS = 256;
 const INFORMATIONAL_CODES = new Set([2104, 2106, 2107, 2108, 2119, 2158]);
 const PRICE_FIELDS = new Map([[1, "bid"], [2, "ask"], [4, "last"], [9, "close"], [66, "bid"], [67, "ask"], [68, "last"], [75, "close"]]);
-const DATA_TYPES = new Map([[1, "realtime"], [3, "delayed"], [4, "delayed-frozen"]]);
+const DATA_TYPES = new Map([[1, "realtime"], [2, "frozen"], [3, "delayed"], [4, "delayed-frozen"]]);
 
 export function validMarketSymbol(symbol) {
   return typeof symbol === "string" && symbol.match(/^[A-Z][A-Z0-9.]{0,9}$/)?.[0] === symbol;
@@ -158,6 +160,21 @@ function ibRequest(session, { id, signal, subscribe, start, cancel, onError }) {
   });
 }
 
+function pause(milliseconds, signal) {
+  signal.throwIfAborted();
+  if (milliseconds <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const finish = (error) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      if (error) reject(error); else resolve();
+    };
+    const abort = () => finish(signal.reason);
+    const timer = setTimeout(() => finish(), milliseconds);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
 function price(value) {
   if (value === null || value === undefined || value === "") return null;
   const numeric = Number(value);
@@ -212,11 +229,11 @@ function barNumber(value, volume = false) {
   if (value === null || value === undefined || value === "" || !Number.isFinite(numeric) || numeric < 0 || numeric >= 1e100 || (!volume && numeric === 0)) throw unavailable("IB returned an invalid historical bar value");
   return numeric;
 }
-async function history(session, contract, duration, count, id, signal) {
+async function history(session, contract, duration, count, id, signal, now) {
   const bars = new Map();
   return ibRequest(session, {
     id, signal,
-    start: () => { session.api.reqMarketDataType(3); session.api.reqHistoricalData(id, contract, "", duration, "5 mins", "TRADES", 1, 2, false); },
+    start: () => session.api.reqHistoricalData(id, contract, "", duration, "5 mins", "TRADES", 1, 2, false),
     cancel: (requestId) => session.api.cancelHistoricalData(requestId),
     subscribe: (finish) => [
       [session.events.historicalData, (requestId, time, open, high, low, close, volume) => {
@@ -231,6 +248,11 @@ async function history(session, contract, duration, count, id, signal) {
           // @stoqey/ib's pinned runtime emits positional bar fields.
           const row = { t: barTime(time), o: barNumber(open), h: barNumber(high), l: barNumber(low), c: barNumber(close), v: barNumber(volume, true) };
           if (row.l > Math.min(row.o, row.c) || row.h < Math.max(row.o, row.c) || row.l > row.h) throw unavailable("IB returned inconsistent historical bar prices");
+          // Mark the captured row before waiting for historicalDataEnd:
+          // crossing a bar boundary cannot complete an earlier snapshot.
+          const received = now();
+          const start = Date.parse(row.t);
+          if (start <= received && received < start + 300_000) row.partial = true;
           bars.set(row.t, row);
           // Retain only the newest N even if IB rounds a duration to a session.
           if (bars.size > count) bars.delete([...bars.keys()].sort()[0]);
@@ -245,16 +267,21 @@ async function history(session, contract, duration, count, id, signal) {
 
 export function createMarketData(options = {}) {
   const now = options.now || Date.now;
+  const elapsed = options.monotonicNow || (() => performance.now());
   // IB's natural snapshot end is ~11 seconds. Leave one second of headroom;
-  // this deadline also includes connection, lookup and waiting for our lock.
+  // the deadline starts on leaving our queue and includes reconnect backoff,
+  // connection, lookup and data callbacks.
   const timeoutMs = options.timeoutMs ?? 12_000;
+  const reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY;
   const clientId = options.clientId ?? Number(process.env.IB_DESK_MARKET_DATA_CLIENT_ID || MARKET_DATA_CLIENT_ID);
   const orderIds = Object.values(options.orderClientIds ?? JSON.parse(process.env.IB_DESK_CLIENT_IDS || '{"recon":700,"executor":705}'));
   const ownershipIds = Object.values(options.ownershipClientIds ?? JSON.parse(process.env.IB_DESK_OWNERSHIP_CLIENT_IDS || "{}")).flat();
-  if (!Number.isSafeInteger(clientId) || clientId <= 0 || [...orderIds, ...ownershipIds, 700, 701, 702, 703, 704, 705, 706].some((id) => Number(id) === clientId)) throw new Error("market data client ID must be distinct from every order client ID");
+  if (!Number.isSafeInteger(clientId) || clientId <= 0 || [...orderIds, ...ownershipIds, 92, 94, 700, 701, 702, 703, 704, 705, 706].some((id) => Number(id) === clientId)) throw new Error("market data client ID must be distinct from every order and pusher client ID");
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("market data timeout must be positive");
+  if (!Number.isFinite(reconnectDelayMs) || reconnectDelayMs < 0) throw new Error("market data reconnect delay must be nonnegative");
   const runtime = options.runtime || {};
   const cache = { quote: new Map(), bars: new Map() };
+  const contracts = new Map();
   const historicalTimes = [];
   const lastHistorical = new Map();
   let tokens = TOKEN_CAPACITY;
@@ -263,6 +290,7 @@ export function createMarketData(options = {}) {
   let pending = 0;
   let requestId = 890000;
   let cooldownUntil = 0;
+  let disconnectedAt = -Infinity;
 
   function takeToken() {
     const time = now();
@@ -272,7 +300,7 @@ export function createMarketData(options = {}) {
     if (tokens < 1) throw rateLimited((1 - tokens) * TOKEN_INTERVAL);
     tokens -= 1;
   }
-  function takeHistory(conId) {
+  function checkHistory(conId) {
     const time = now();
     while (historicalTimes.length && historicalTimes[0] <= time - HISTORY_WINDOW) historicalTimes.shift();
     for (const [key, stamp] of lastHistorical) if (stamp <= time - HISTORY_SPACING) lastHistorical.delete(key);
@@ -281,9 +309,36 @@ export function createMarketData(options = {}) {
     // share this interval, including failed or timed-out historical requests.
     if (prior !== undefined) throw rateLimited(prior + HISTORY_SPACING - time);
     if (historicalTimes.length >= 60) throw rateLimited(historicalTimes[0] + HISTORY_WINDOW - time);
-    takeToken();
+  }
+  function takeHistory(conId) {
+    checkHistory(conId);
+    const time = now();
     historicalTimes.push(time);
     lastHistorical.set(conId, time);
+  }
+  function cachedContract(symbol) {
+    const item = contracts.get(symbol);
+    if (!item || item.expiresAt <= now()) { contracts.delete(symbol); return null; }
+    return item.resolved;
+  }
+  function rememberContract(symbol, resolved) {
+    contracts.delete(symbol);
+    if (contracts.size >= MAX_CACHE_SYMBOLS) contracts.delete(contracts.keys().next().value);
+    contracts.set(symbol, { resolved, expiresAt: now() + CONTRACT_TTL });
+  }
+  async function connect(signal) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const readyAt = disconnectedAt + reconnectDelayMs;
+      while (elapsed() < readyAt) await pause(Math.ceil(readyAt - elapsed()), signal);
+      signal.throwIfAborted();
+      try { return await openMarketDataSession(clientId, runtime, signal); }
+      catch (error) {
+        // openMarketDataSession closes even a failed handshake. Give the
+        // Gateway time to release this ID; retry only an ID-in-use error once.
+        disconnectedAt = elapsed();
+        if (Number(error?.ibCode) !== 326 || attempt === 1) throw error;
+      }
+    }
   }
   function cached(endpoint, symbol, count) {
     const item = cache[endpoint].get(symbol);
@@ -297,44 +352,42 @@ export function createMarketData(options = {}) {
     entries.set(symbol, { count, body, expiresAt: now() + (endpoint === "quote" ? QUOTE_TTL : BARS_TTL) });
   }
   async function read(endpoint, params) {
-    let timer;
     let warningCode;
     try {
       const { symbol, count } = query(endpoint, params);
       const hit = cached(endpoint, symbol, count);
       if (hit) return { statusCode: 200, body: hit };
       if (pending >= MAX_PENDING) throw rateLimited(timeoutMs);
-      const controller = new AbortController();
-      const { signal } = controller;
-      const deadline = performance.now() + timeoutMs;
-      const timeoutError = () => unavailable(warningCode ? `IB market data request timed out after permissions warning (${warningCode})` : "IB market data request timed out");
-      const checkDeadline = () => {
-        if (performance.now() >= deadline && !signal.aborted) controller.abort(timeoutError());
-        signal.throwIfAborted();
-      };
-      const expired = new Promise((_, reject) => {
-        timer = setTimeout(() => {
-          const error = timeoutError();
-          controller.abort(error);
-          reject(error);
-        }, timeoutMs);
-      });
       pending += 1;
       const work = async () => {
-        checkDeadline();
         const reused = cached(endpoint, symbol, count);
         if (reused) return reused;
-        takeToken(); // Contract lookup also consumes the global IB budget.
-        const session = await openMarketDataSession(clientId, runtime, signal);
+        const known = cachedContract(symbol);
+        // Refuse history pacing before any connection or contract lookup.
+        // A first lookup supplies the conId; check it again before dispatch
+        // in case another symbol resolved to the same contract.
+        if (endpoint === "bars") checkHistory(known?.contract.conId);
+        takeToken(); // Reserve the data call before opening a socket.
+        if (!known) takeToken(); // An uncached contract lookup also costs a token.
+        const controller = new AbortController();
+        const { signal } = controller;
+        const deadline = elapsed() + timeoutMs;
+        const timeoutError = () => unavailable(warningCode ? `IB market data request timed out after permissions warning (${warningCode})` : "IB market data request timed out");
+        const checkDeadline = () => {
+          if (elapsed() >= deadline && !signal.aborted) controller.abort(timeoutError());
+          signal.throwIfAborted();
+        };
+        const timer = setTimeout(() => controller.abort(timeoutError()), timeoutMs);
+        let session;
         try {
+          session = await connect(signal);
           checkDeadline();
-          const resolved = await resolveStock(session, symbol, ++requestId, { readOnly: true, signal });
+          const resolved = known || await resolveStock(session, symbol, ++requestId, { readOnly: true, signal });
+          if (!known) rememberContract(symbol, resolved);
           checkDeadline();
           const clock = marketClock(resolved, now(), count);
           let body;
           if (endpoint === "quote") {
-            takeToken();
-            if (clock.closed) session.api.reqMarketDataType(3);
             const onWarning = (code) => { warningCode = code; };
             let quote = await snapshot(session, resolved.contract, clock.closed ? 4 : 3, ++requestId, signal, onWarning);
             if (!clock.closed && quote.marketDataType === "delayed" && ["bid", "ask", "last", "close"].every((name) => quote[name] === null)) {
@@ -344,19 +397,26 @@ export function createMarketData(options = {}) {
             body = { symbol, conId: resolved.contract.conId, ...quote, observedAt: new Date(now()).toISOString(), source: "ib", cached: false };
           } else {
             takeHistory(resolved.contract.conId);
-            const bars = await history(session, resolved.contract, clock.duration, count, ++requestId, signal);
+            const bars = await history(session, resolved.contract, clock.duration, count, ++requestId, signal, now);
             body = { symbol, conId: resolved.contract.conId, barSize: "5m", bars, observedAt: new Date(now()).toISOString(), cached: false };
           }
           checkDeadline();
           remember(endpoint, symbol, count, body);
           return body;
-        } finally { session.close(); }
+        } finally {
+          clearTimeout(timer);
+          if (session) {
+            session.close();
+            disconnectedAt = elapsed();
+          }
+        }
       };
       // This promise chain belongs solely to data; the server's intent lock is
-      // never acquired. Aborted queued work checks its signal before IB calls.
+      // never acquired. Queued work gets its own full deadline when it starts;
+      // retain the lock until cancellation and disconnect have both finished.
       const run = chain.then(work, work);
       chain = run.then(() => {}, () => {});
-      try { return { statusCode: 200, body: await Promise.race([run, expired]) }; }
+      try { return { statusCode: 200, body: await run }; }
       finally { pending -= 1; }
     } catch (error) {
       if (error?.code === "contract_not_found") return { statusCode: 404, body: { status: "not_found", reason: "symbol has no unique USD stock contract" } };
@@ -365,7 +425,7 @@ export function createMarketData(options = {}) {
       if (!(error instanceof DataError)) error = unavailable("IB market data request failed");
       if (/IB .*pacing limit/.test(error.body.reason || "")) cooldownUntil = now() + HISTORY_WINDOW;
       return { statusCode: error.statusCode, body: error.body };
-    } finally { clearTimeout(timer); }
+    }
   }
   return { clientId, read };
 }

@@ -131,7 +131,7 @@ in
     marketDataClientId = lib.mkOption {
       type = lib.types.ints.positive;
       default = 707;
-      description = "Read-only quote/history client ID, disjoint from every order and legacy ownership client.";
+      description = "Read-only quote/history client ID, disjoint from every order, legacy ownership and pusher client.";
     };
 
     ownershipClientIds = lib.mkOption {
@@ -228,6 +228,8 @@ in
           !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.marketDataClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.marketDataClientId [
+            92
+            94
             700
             701
             702
@@ -236,7 +238,7 @@ in
             705
             706
           ]);
-        message = "paperDeskExecutor market data client must be distinct from all order clients";
+        message = "paperDeskExecutor market data client must be distinct from all order and pusher clients";
       }
       {
         assertion =
