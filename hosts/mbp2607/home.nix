@@ -189,7 +189,9 @@ in
       # Ensure Nix paths are prioritized
       fish_add_path --prepend --move ~/.nix-profile/bin
       fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
-      # Homebrew (Apple Silicon) before system /usr/bin — brew-doctor compliance
+      # Homebrew (Apple Silicon) before system /usr/bin — brew-doctor compliance.
+      # sbin first so bin ends up ahead of it (OPS-312: formulae like gnupg install to sbin).
+      fish_add_path --prepend --move /opt/homebrew/sbin
       fish_add_path --prepend --move /opt/homebrew/bin
     '';
 
