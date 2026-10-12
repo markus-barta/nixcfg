@@ -208,6 +208,35 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 | State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                                   |
 | Account | paper `DUR970597`                                                                                       |
 
+### Read-only market data (OPS-311)
+
+`GET /v1/quote?symbol=AAPL&desk=j` returns an IB snapshot with bid, ask,
+last and close; missing prices are `null`. Data is requested as delayed,
+with delayed-frozen fallback outside regular trading hours. IB may supply
+realtime data when entitled; `marketDataType` reports the received type.
+`observedAt` is receipt time, not the price's exchange timestamp.
+
+`GET /v1/bars?symbol=AAPL&desk=j&count=24` returns the newest regular-hours
+TRADES bars in ascending order, with five-minute bar starts in UTC.
+Count defaults to 24 and accepts 1–78; IB can return fewer bars. Both routes
+require an existing desk and an uppercase US stock symbol (STK/SMART/USD).
+They use the existing peer check and listener. They are strictly read-only:
+no order calls, intent/ownership ledger changes or trading rights; HALT and
+KEEP do not block reads.
+
+Market data uses its own clientId **707**, checked against all configured
+order/legacy IDs, and a separate serial lock. Quotes cache for 15 seconds;
+bars cache for 60 seconds per symbol and can serve smaller counts. A shared
+data token bucket permits six IB lookup/data calls initially and refills
+one per second. Historical requests additionally allow at most 60 per rolling
+ten minutes and one per contract per 15 seconds, including failed requests.
+These in-memory limits cover this executor; other Gateway clients and
+restarts need operational pacing coordination. Limits return 429 with
+`retry_after_s`; broker/permission failures and the 12-second deadline return 503. The deadline allows IB's approximately 11-second snapshot window.
+Each request logs only desk, symbol, endpoint, cached, outcome and duration
+in milliseconds. Historical duration includes overnight/weekend gaps and
+IB-supplied session closures; missing calendar days assume normal US hours.
+
 The same `intentId` and the same body return the stored result. A different
 body is rejected. If the process dies after the claim is stored, the next
 submit returns `uncertain` and is not replayed.

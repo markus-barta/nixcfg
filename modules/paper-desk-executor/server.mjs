@@ -7,6 +7,7 @@ import {
   activeHalt,
   assertSideEffect,
   brakeUsage,
+  DESKS,
   digest,
   parseIntent,
   validateKey,
@@ -23,6 +24,7 @@ import {
   peerAllowed,
 } from "./security.mjs";
 import { admitIntent, openLedger } from "./state.mjs";
+import { createMarketData, validMarketSymbol } from "./market-data.mjs";
 
 const BODY_LIMIT = 65_536;
 
@@ -165,6 +167,8 @@ export function createServer(options) {
   const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state");
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
+  const marketData = createMarketData(options.marketData);
+  const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
 
   function logError(error) {
@@ -181,15 +185,48 @@ export function createServer(options) {
   }
 
   async function handle(request, response) {
+    const started = Date.now();
+    let dataUrl;
+    try {
+      const candidate = new URL(request.url || "/", "http://paper-desk.local");
+      if (request.method === "GET" && ["/v1/quote", "/v1/bars"].includes(candidate.pathname)) dataUrl = candidate;
+    } catch { /* Normal route error handling below remains authoritative. */ }
+    function auditData(cached, outcome) {
+      if (!dataUrl) return;
+      const symbol = dataUrl.searchParams.get("symbol");
+      const desk = dataUrl.searchParams.get("desk");
+      try {
+        marketDataAudit({
+          desk: DESKS.includes(desk) ? desk : null,
+          symbol: validMarketSymbol(symbol) ? symbol : null,
+          endpoint: dataUrl.pathname,
+          cached,
+          outcome,
+          duration: Math.max(0, Date.now() - started),
+        });
+      } catch { /* A journal failure must not reach the order/ledger error path. */ }
+    }
     const peer = request.socket?.remoteAddress;
     if (!peerAllowed(peer, allowlist)) {
       request.resume();
       send(response, 403, { status: "rejected", reason: "source is not allowed" });
+      auditData(false, "forbidden");
       return;
     }
     try {
       const url = new URL(request.url || "/", "http://paper-desk.local");
       const pathname = url.pathname;
+      if (dataUrl) {
+        let cached = false;
+        let outcome = "unavailable";
+        try {
+          const result = await marketData.read(pathname.slice(4), url.searchParams);
+          cached = result.body.cached === true;
+          outcome = result.statusCode === 200 ? "ok" : result.body.status;
+          send(response, result.statusCode, result.body);
+        } finally { auditData(cached, outcome); }
+        return;
+      }
       if (request.method === "GET" && pathname === "/v1/health") {
         const [reachable, body] = await Promise.all([
           Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
