@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   DEFAULT_PEERS,
+  DEFAULT_ADMIN_PEERS,
+  assertAdminPeerAllowlist,
   assertListen,
   assertPaperPort,
   assertPeerAllowlist,
@@ -51,4 +53,11 @@ test("production listen stays on the hsb0 tailnet address and port 8470", () => 
   assert.throws(() => assertListen("100.64.0.6", 4001), /port 8470/);
   assert.deepEqual(assertListen("127.0.0.1", 0, { testMode: true }), { host: "127.0.0.1", port: 0 });
   assert.throws(() => assertListen("0.0.0.0", 0, { testMode: true }), /loopback/);
+});
+
+test("admin peers default to OPS and cannot include the desk peer or another order-only peer", () => {
+  assert.deepEqual(assertAdminPeerAllowlist(DEFAULT_ADMIN_PEERS), ["100.64.0.14"]);
+  for (const peer of ["100.64.0.10", "::ffff:100.64.0.10"]) assert.throws(() => assertAdminPeerAllowlist([peer]), /desk peer/);
+  assert.throws(() => assertAdminPeerAllowlist(["100.64.0.15"], { orderAllowlist: ["100.64.0.10", "100.64.0.14", "100.64.0.15"] }), /desk peer/);
+  assert.deepEqual(assertAdminPeerAllowlist(["100.64.0.15"]), ["100.64.0.15"]);
 });
