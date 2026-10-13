@@ -46,6 +46,8 @@ READ = {"actions": "read", "metadata": "read"}
 # Every run status in which a job can still be waiting for a runner.
 ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "pending", "requested")
 MAX_PAGES = 20
+# Leave room before the job-started hook's AEON_CACHE_WAIT=240 self-deny.
+ADMISSION_WAIT_SECONDS = 150
 CANCEL = {"actions": "write"}
 ADMIN_READ = {"administration": "read"}
 ADMIN_WRITE = {"administration": "write"}
@@ -54,6 +56,10 @@ VARIABLES = {"actions_variables": "write"}
 
 class BuilderError(RuntimeError):
     pass
+
+
+class TransientGitHubError(BuilderError):
+    """A temporary API failure after the request's bounded retry budget."""
 
 
 # ---------------------------------------------------------------- pure policy
@@ -282,8 +288,9 @@ def b64url(data):
 
 
 class GitHub:
-    def __init__(self, cfg):
+    def __init__(self, cfg, sleep=time.sleep):
         self.cfg = cfg
+        self.sleep = sleep
         env = {}
         for line in Path(cfg["appEnv"]).read_text().splitlines():
             if "=" in line:
@@ -328,23 +335,38 @@ class GitHub:
         req.add_header("Authorization", f"Bearer {bearer}")
         if etag_key and etag_key in self.etags:
             req.add_header("If-None-Match", self.etags[etag_key][0])
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read()
-                parsed = json.loads(raw) if raw else {}
-                if etag_key and resp.headers.get("ETag"):
-                    self.etags[etag_key] = (resp.headers["ETag"], parsed)
-                return parsed
-        except urllib.error.HTTPError as err:
-            if err.code == 304 and etag_key in self.etags:
-                return self.etags[etag_key][1]
+        # Only idempotent reads retry; token minting and all other writes stay
+        # single-shot. Keep the same request (including its conditional ETag).
+        attempts = 3 if method == "GET" else 1
+        for attempt in range(attempts):
             try:
-                detail = err.read()[:300].decode(errors="replace")
-            except (http.client.HTTPException, OSError):
-                detail = ""
-            raise BuilderError(f"{method} {path}: HTTP {err.code} {detail}") from None
-        except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError) as err:
-            raise BuilderError(f"{method} {path}: {type(err).__name__}: {err}") from None
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    raw = resp.read()
+                    parsed = json.loads(raw) if raw else {}
+                    if etag_key and resp.headers.get("ETag"):
+                        self.etags[etag_key] = (resp.headers["ETag"], parsed)
+                    return parsed
+            except urllib.error.HTTPError as err:
+                try:
+                    if err.code == 304 and etag_key in self.etags:
+                        return self.etags[etag_key][1]
+                    try:
+                        detail = err.read()[:300].decode(errors="replace")
+                    except (http.client.HTTPException, OSError):
+                        detail = ""
+                    transient = 500 <= err.code < 600
+                    message = f"{method} {path}: HTTP {err.code} {detail}"
+                finally:
+                    err.close()
+            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError) as err:
+                reason = err.reason if isinstance(err, urllib.error.URLError) else err
+                transient = isinstance(reason, (http.client.HTTPException, OSError))
+                message = f"{method} {path}: {type(err).__name__}: {err}"
+            if not transient:
+                raise BuilderError(message) from None
+            if attempt == attempts - 1:
+                raise TransientGitHubError(message) from None
+            self.sleep(attempt + 1)
 
     def call(self, method, path, perms, body=None, cache=False):
         return self._raw(method, path, body, bearer=self.token(perms), etag_key=path if cache and method == "GET" else None)
@@ -1170,12 +1192,16 @@ class Controller:
             if active != "active":
                 return "ran" if admitted else "idle"
             if not admitted:
-                current = self.gh.job(job["id"])
-                if current.get("status") != "queued":
-                    idle_since = idle_since or time.time()
-                    if time.time() - idle_since > 60:
-                        log(f"slot {slot}: job {job['id']} went elsewhere ({current.get('status')}); retiring idle runner")
-                        return "idle"
+                try:
+                    current = self.gh.job(job["id"])
+                except TransientGitHubError as err:
+                    log(f"slot {slot}: transient GitHub error polling job {job['id']}: {err}")
+                else:
+                    if current.get("status") != "queued":
+                        idle_since = idle_since or time.time()
+                        if time.time() - idle_since > 60:
+                            log(f"slot {slot}: job {job['id']} went elsewhere ({current.get('status')}); retiring idle runner")
+                            return "idle"
             time.sleep(3)
         log(f"slot {slot}: job exceeded {self.cfg['maxJobMinutes']} min; stopping VM")
         return "timeout"
@@ -1183,21 +1209,42 @@ class Controller:
     def admit(self, slot, vm, name, job):
         """The hook admitted a job; confirm through the API which job this runner
         took, then hand the cache key over. Anything else kills the VM."""
+        deadline = time.monotonic() + ADMISSION_WAIT_SECONDS
         ran = None
-        for _ in range(10):
-            ran = self.find_runner_job(name, job)
-            if ran:
-                break
-            time.sleep(2)
-        verified = set(self.state.load()["verifiedRuns"])
-        if ran is None:
+        metadata = None
+        attempt = 0
+        while time.monotonic() < deadline and attempt < 10:
+            if self.mode() == "stopping":
+                return "stopped"
+            attempt += 1
+            try:
+                if ran is None:
+                    ran = self.find_runner_job(name, job)
+                if self.mode() == "stopping":
+                    return "stopped"
+                if time.monotonic() >= deadline:
+                    break
+                if ran:
+                    verified = set(self.state.load()["verifiedRuns"])
+                    if ran.get("run_id") not in verified:
+                        self.pause(f"slot {slot}: {name} took job {ran.get('id')} of unverified run {ran.get('run_id')} attempt {ran.get('run_attempt')}")
+                        return "unverified"
+                    metadata = self.gh.run(ran["run_id"])
+                    break
+            except TransientGitHubError as err:
+                log(f"slot {slot}: transient GitHub error admitting {name}: {err}")
+            if self.mode() == "stopping":
+                return "stopped"
+            remaining = deadline - time.monotonic()
+            if attempt < 10 and remaining > 0:
+                time.sleep(min(2, remaining))
+        if self.mode() == "stopping":
+            return "stopped"
+        if ran is None or metadata is None or time.monotonic() >= deadline:
             self.pause(f"slot {slot}: hook admitted a job the API cannot attribute to {name}")
             return "unattributed"
-        if ran.get("run_id") not in verified:
-            self.pause(f"slot {slot}: {name} took job {ran.get('id')} of unverified run {ran.get('run_id')} attempt {ran.get('run_attempt')}")
-            return "unverified"
         disk = self.state.load()["slots"].get(str(slot), {}).get("disk") or ""
-        event = self.gh.run(ran["run_id"]).get("event")
+        event = metadata.get("event")
         if disk.startswith("aeon-cache-") and event not in self.cfg["cacheWriteEvents"]:
             # The runner was minted for a push but took a verified non-push job.
             # The trusted disk is attached, so never unlock it for this job.
