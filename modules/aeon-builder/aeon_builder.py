@@ -32,6 +32,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from pathlib import Path
 
 API = "https://api.github.com"
@@ -48,6 +49,8 @@ ACTIVE_STATUSES = ("queued", "in_progress", "waiting", "pending", "requested")
 MAX_PAGES = 20
 # Leave room before the job-started hook's AEON_CACHE_WAIT=240 self-deny.
 ADMISSION_WAIT_SECONDS = 150
+ADMISSION_API_UNAVAILABLE_LIMIT = 3
+ADMISSION_API_UNAVAILABLE_WINDOW_SECONDS = 30 * 60
 CANCEL = {"actions": "write"}
 ADMIN_READ = {"administration": "read"}
 ADMIN_WRITE = {"administration": "write"}
@@ -697,6 +700,7 @@ class Controller:
         self.mem_gated = False
         self.host_gated = False
         self.lock = threading.Lock()
+        self.admission_api_failures = deque()
         self.workers = {}
         self.pending = 0
         self.last_proof = time.time()
@@ -1045,7 +1049,7 @@ class Controller:
             if outcome == "ran":
                 if not self.post_job_check(slot, vm, name, job):
                     self.tainted.add(slot)
-            elif outcome in ("denied", "unverified", "unattributed"):
+            elif outcome in ("denied", "unverified", "unattributed", "api-unavailable"):
                 self.tainted.add(slot)
             elif outcome == "class-mismatch":
                 log(f"slot {slot}: VM stopped before unlocking; the job it took fails and needs a rerun")
@@ -1168,7 +1172,8 @@ class Controller:
         return (self.lima.instances().get(vm) or {}).get("status") == "Running"
 
     def wait_for_runner(self, slot, vm, name, job):
-        """Returns ran | idle | denied | unverified | unattributed | timeout | stopped."""
+        """Returns ran | idle | denied | unverified | unattributed | api-unavailable |
+        class-mismatch | timeout | stopped."""
         deadline = time.time() + self.cfg["maxJobMinutes"] * 60
         idle_since = None
         unlocked = False
@@ -1206,13 +1211,32 @@ class Controller:
         log(f"slot {slot}: job exceeded {self.cfg['maxJobMinutes']} min; stopping VM")
         return "timeout"
 
+    def record_admission_api_unavailable(self):
+        """Keep a bounded, thread-safe history for this controller's lifetime.
+        Isolated outages retire only their VM; repeated outages pause the pool."""
+        with self.lock:
+            now = time.monotonic()
+            self.admission_api_failures.append(now)
+            while self.admission_api_failures and now - self.admission_api_failures[0] > ADMISSION_API_UNAVAILABLE_WINDOW_SECONDS:
+                self.admission_api_failures.popleft()
+            trip = len(self.admission_api_failures) >= ADMISSION_API_UNAVAILABLE_LIMIT
+            if trip:
+                self.admission_api_failures.clear()
+        if trip:
+            minutes = ADMISSION_API_UNAVAILABLE_WINDOW_SECONDS // 60
+            self.pause(f"GitHub API unavailable during admission x{ADMISSION_API_UNAVAILABLE_LIMIT} in {minutes} min")
+
     def admit(self, slot, vm, name, job):
         """The hook admitted a job; confirm through the API which job this runner
-        took, then hand the cache key over. Anything else kills the VM."""
+        took, then hand the cache key over. Anything else kills the VM. API-only
+        exhaustion or verified admission timeouts leave the pool on until the circuit breaker trips;
+        a successful attribution read with no matching job still pauses it."""
         deadline = time.monotonic() + ADMISSION_WAIT_SECONDS
         ran = None
         metadata = None
         attempt = 0
+        answered_unattributed = False
+        last_error = None
         while time.monotonic() < deadline and attempt < 10:
             if self.mode() == "stopping":
                 return "stopped"
@@ -1220,18 +1244,23 @@ class Controller:
             try:
                 if ran is None:
                     ran = self.find_runner_job(name, job)
+                    last_error = None
+                    answered_unattributed = ran is None
                 if self.mode() == "stopping":
                     return "stopped"
-                if time.monotonic() >= deadline:
-                    break
                 if ran:
                     verified = set(self.state.load()["verifiedRuns"])
                     if ran.get("run_id") not in verified:
                         self.pause(f"slot {slot}: {name} took job {ran.get('id')} of unverified run {ran.get('run_id')} attempt {ran.get('run_attempt')}")
                         return "unverified"
+                if time.monotonic() >= deadline:
+                    break
+                if ran:
                     metadata = self.gh.run(ran["run_id"])
+                    last_error = None
                     break
             except TransientGitHubError as err:
+                last_error = str(err)
                 log(f"slot {slot}: transient GitHub error admitting {name}: {err}")
             if self.mode() == "stopping":
                 return "stopped"
@@ -1240,7 +1269,16 @@ class Controller:
                 time.sleep(min(2, remaining))
         if self.mode() == "stopping":
             return "stopped"
-        if ran is None or metadata is None or time.monotonic() >= deadline:
+        expired = time.monotonic() >= deadline
+        if ran is None or metadata is None or expired:
+            if ran is not None and expired:
+                log(f"slot {slot}: {name} attributed to verified job {ran.get('id')} but admission window expired; retiring VM without unlocking cache")
+                self.record_admission_api_unavailable()
+                return "api-unavailable"
+            if last_error is not None and not answered_unattributed:
+                log(f"slot {slot}: GitHub API unavailable during admission for {name}; retiring VM without unlocking cache; last error: {last_error}")
+                self.record_admission_api_unavailable()
+                return "api-unavailable"
             self.pause(f"slot {slot}: hook admitted a job the API cannot attribute to {name}")
             return "unattributed"
         disk = self.state.load()["slots"].get(str(slot), {}).get("disk") or ""
