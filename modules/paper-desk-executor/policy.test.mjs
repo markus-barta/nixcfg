@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ACCOUNT,
   activeHalt,
   belongsToDesk,
   brakeUsage,
@@ -62,13 +63,14 @@ test("desk identity normalizes any case without changing date or thesis", () => 
 });
 
 test("uppercase broker tags preserve desk and client ownership boundaries", () => {
-  for (const clientId of [702, 705]) {
+  for (const clientId of [700, 705]) {
     const row = { clientId, orderRef: "J|261006|S1-AVGO" };
     assert.equal(belongsToDesk(row, "j", [702], 705), true);
     assert.equal(belongsToDesk(row, "joe", [702], 705), false);
     assert.equal(belongsToDesk({ ...row, orderRef: "UNKNOWN|261006|S1-AVGO" }, "j", [702], 705), false);
   }
   assert.equal(belongsToDesk({ clientId: 999, orderRef: "J|261006|S1-AVGO" }, "j", [702], 705), false);
+  assert.equal(belongsToDesk({ clientId: 702, orderRef: "J|261006|S1-AVGO" }, "j", [702], 705), false);
   assert.equal(belongsToDesk({ clientId: 702, orderRef: "UNKNOWN|261006|S1-AVGO" }, "unknown", [702], 705), false);
   assert.equal(belongsToDesk({ clientId: 702 }, "unknown", [702], 705), false);
 });
@@ -147,18 +149,18 @@ test("host-side Stage-0 brakes reject HALT, ETF, risk, notional, daily and concu
 
 test("owned flatten derives quantities from client IDs and always excludes KEEP", () => {
   const executions = [
-    { contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId: "a.1", acctNumber: "DU0000001", clientId: 702, side: "BOT", shares: 3 } },
-    { contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId: "b.1", acctNumber: "DU0000001", clientId: 702, side: "SLD", shares: 1 } },
-    { contract: { conId: 2, symbol: "SXR8", secType: "STK", currency: "EUR" }, execution: { execId: "c.1", acctNumber: "DU0000001", clientId: 702, side: "BOT", shares: 1401 } },
-    { contract: { conId: 3, symbol: "NVDA", secType: "STK", currency: "USD" }, execution: { execId: "d.1", acctNumber: "DU0000001", clientId: 999, side: "BOT", shares: 10 } },
+    { contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId: "a.1", acctNumber: ACCOUNT, clientId: 702, side: "BOT", shares: 3 } },
+    { contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId: "b.1", acctNumber: ACCOUNT, clientId: 702, side: "SLD", shares: 1 } },
+    { contract: { conId: 2, symbol: "SXR8", secType: "STK", currency: "EUR" }, execution: { execId: "c.1", acctNumber: ACCOUNT, clientId: 702, side: "BOT", shares: 1401 } },
+    { contract: { conId: 3, symbol: "NVDA", secType: "STK", currency: "USD" }, execution: { execId: "d.1", acctNumber: ACCOUNT, clientId: 999, side: "BOT", shares: 10 } },
   ];
   assert.deepEqual(ownedPositions(executions, [702]), [{ conId: 1, symbol: "AAPL", currency: "USD", secType: "STK", quantity: 2 }]);
 });
 
-const ownershipFill = (execId, clientId, side, shares, time, extra = {}) => ({ contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId, acctNumber: "DU0000001", clientId, side, shares, time, ...extra } });
-const ownershipSnapshot = (position = 0) => ({ account: "DU0000001", positions: position ? [{ conId: 1, symbol: "AAPL", position }] : [] });
+const ownershipFill = (execId, clientId, side, shares, time, extra = {}) => ({ contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId, acctNumber: ACCOUNT, clientId, orderRef: [701, 702, 705].includes(clientId) ? `${clientId === 701 ? "joe" : "j"}|261005|ownership-test` : undefined, side, shares, time, ...extra } });
+const ownershipSnapshot = (position = 0) => ({ account: ACCOUNT, positions: position ? [{ conId: 1, symbol: "AAPL", position }] : [] });
 const crossDeskClose = () => [ownershipFill("opening.1", 702, "BUY", 1, "2026-10-05T15:00:00Z"), ownershipFill("closing.1", 701, "SELL", 1, "2026-10-06T15:00:00Z")];
-const ownedBy = (rows, desk, snapshot) => ownedPositions(rows, desk === "j" ? [702] : [701], "DU0000001", desk, 705, snapshot);
+const ownedBy = (rows, desk, snapshot) => ownedPositions(rows, desk === "j" ? [702] : [701], ACCOUNT, desk, 705, snapshot);
 
 test("account-flat ownership clears cross-desk closes and counts only the new tagged executor fill", () => {
   const rows = crossDeskClose();
@@ -227,7 +229,7 @@ test("non-empty local HALT is active and there is no remote halt", () => {
 });
 
 test("corrections use numeric revisions and conflicting duplicates refuse", () => {
-  const row = (execId, shares) => ({ contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId, shares, acctNumber: "DU0000001", clientId: 702, side: "BOT" } });
+  const row = (execId, shares) => ({ contract: { conId: 1, symbol: "AAPL", secType: "STK", currency: "USD" }, execution: { execId, shares, acctNumber: ACCOUNT, clientId: 702, side: "BOT" } });
   const one = row("fill.1", 10);
   const ten = row("fill.10", 2);
   assert.deepEqual(mergeExecutions([one, ten, row("fill.2", 5)]), [ten]);
@@ -243,7 +245,7 @@ const pusherFill = () => ({
 });
 const liveFill = () => ({
   contract: { conId: 15124833, symbol: "NFLX", secType: "STK", currency: "USD", exchange: "SMART" },
-  execution: { ...pusherFill().execution, time: "20261006  11:41:49 US/Eastern", side: "SLD", shares: "14", price: "68.1400001", clientId: "55", orderRef: "j|261006|test", permId: 100, orderId: 20, acctNumber: "DU0000001", exchange: "ISLAND", cumQty: 14, avgPrice: 68.14, liquidation: 0, commission: 1 },
+  execution: { ...pusherFill().execution, time: "20261006  11:41:49 US/Eastern", side: "SLD", shares: "14", price: "68.1400001", clientId: "55", orderRef: "j|261006|test", permId: 100, orderId: 20, acctNumber: ACCOUNT, exchange: "ISLAND", cumQty: 14, avgPrice: 68.14, liquidation: 0, commission: 1 },
 });
 
 test("pusher and live duplicates merge economic identity and retain live ownership fields", () => {

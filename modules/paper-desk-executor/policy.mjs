@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 
 export const SCHEMA = "barta.paper-desk-intent.v2";
-export const ACCOUNT = "DU0000001";
+// Production supplies the existing paper-account setting; fixtures use a fake ID.
+export const ACCOUNT = process.env.IB_DESK_ACCOUNT || "DU0000000";
 export const PAPER_PORT = 4002;
 export const KEEP = Object.freeze(["SXR8", "TSLA"]);
 export const DESKS = Object.freeze(["j", "j2", "j3", "j4", "j5", "joe", "joel"]);
+export const EXECUTOR_CLIENT_IDS = Object.freeze([700, 705]);
+export const RETIRED_EXECUTOR_CLIENT_IDS = Object.freeze([701, 702, 703, 704, 706]);
+const HOST_EXECUTOR_CLIENT_IDS = Object.freeze([...EXECUTOR_CLIENT_IDS, ...Object.values(JSON.parse(process.env.IB_DESK_CLIENT_IDS || "{}"))]);
+export const FOREIGN_ALERT_SINCE = "2026-10-12T00:00:00Z";
 export const LIMITS = Object.freeze({
   perNameRiskEur: 25,
   dailyRiskEur: 50,
@@ -304,6 +309,11 @@ function executionSecond(value, cache) {
   return second;
 }
 
+export function executionTimeMs(value, cache = new Map()) {
+  const second = executionSecond(value, cache);
+  return Number.isFinite(second) ? second * 1000 : NaN;
+}
+
 function executionConflicts(left, right, timeCache) {
   const fields = [];
   const normalizedText = (value) => String(value || "").trim().toUpperCase();
@@ -354,7 +364,7 @@ export function mergeExecutions(...collections) {
 
 // Only a matching same-session account position proves a flat boundary. Keep
 // full history on malformed evidence or a mismatch so reconciliation stays closed.
-export function ownershipSinceFlat(executions, snapshot, account = ACCOUNT) {
+export function ownershipSinceFlat(executions, snapshot, account = ACCOUNT, executorClientId = null, attribution = {}) {
   if (snapshot?.account !== account || !Array.isArray(snapshot.positions) || snapshot.ownershipComplete === false) return executions;
   const rows = mergeExecutions(executions);
   const contracts = new Map(), timeCache = new Map(), resets = new Map();
@@ -363,36 +373,41 @@ export function ownershipSinceFlat(executions, snapshot, account = ACCOUNT) {
     const symbol = String(contract.symbol || "").toUpperCase(), conId = Number(contract.conId);
     if (execution.acctNumber !== account || KEEP.includes(symbol) || !Number.isSafeInteger(conId) || conId <= 0) continue;
     const group = contracts.get(conId) || { symbol, currency: String(contract.currency || "").toUpperCase(), valid: true, fills: [] };
+    const needsAttribution = activityAttribution(row, { ...attribution, executorClientId }).needsAttribution;
     const second = executionSecond(execution.time, timeCache), shares = Number(execution.shares), side = String(execution.side || "").toUpperCase();
     const signed = ["BOT", "BUY"].includes(side) ? shares : ["SLD", "SELL"].includes(side) ? -shares : NaN;
     if (!Number.isFinite(second) || !Number.isFinite(shares) || shares <= 0 || !Number.isFinite(signed) || !/^[A-Z][A-Z0-9.]{0,9}$/.test(symbol) || String(contract.secType || "").toUpperCase() !== "STK" || group.symbol !== symbol || group.currency !== String(contract.currency || "").toUpperCase()) group.valid = false;
-    group.fills.push({ second, signed }); contracts.set(conId, group);
+    group.fills.push({ second, signed, needsAttribution }); contracts.set(conId, group);
   }
   for (const [conId, group] of contracts) {
     if (!group.valid) continue;
     const actual = snapshot.positions.filter((row) => Number(row.conId) === conId);
     if (actual.length > 1 || actual.some((row) => row.symbol !== group.symbol || !Number.isFinite(row.position) || row.account && row.account !== account)) continue;
     group.fills.sort((a, b) => a.second - b.second);
-    let net = 0, flat = -Infinity;
+    let net = 0, flat = -Infinity, foreignAtSecond = false;
     for (let i = 0; i < group.fills.length; i++) {
+      if (i === 0 || group.fills[i - 1].second !== group.fills[i].second) foreignAtSecond = false;
+      foreignAtSecond ||= group.fills[i].needsAttribution;
       net += group.fills[i].signed;
       // IB time has second precision; an intermediate fill cannot prove flat.
-      if (group.fills[i + 1]?.second !== group.fills[i].second && Math.abs(net) <= 1e-9) flat = group.fills[i].second;
+      // A foreign close cannot erase desk lots. An executor/admin close can
+      // retire a legacy opening once the same-session broker confirms flatness.
+      if (group.fills[i + 1]?.second !== group.fills[i].second && Math.abs(net) <= 1e-9 && !foreignAtSecond) flat = group.fills[i].second;
     }
     if (Math.abs(net - (actual[0]?.position || 0)) <= 1e-9 && flat !== -Infinity) resets.set(conId, flat);
   }
   return rows.filter((row) => row.execution.acctNumber !== account || KEEP.includes(String(row.contract.symbol || "").toUpperCase()) || !resets.has(Number(row.contract.conId)) || executionSecond(row.execution.time, timeCache) > resets.get(Number(row.contract.conId)));
 }
 
-export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT, desk = null, executorClientId = null, snapshot) {
+export function ownedPositions(executions, ownershipClientIds, account = ACCOUNT, desk = null, executorClientId = null, snapshot, attribution = {}) {
   const clients = new Set(ownershipClientIds);
   const positions = new Map();
-  for (const row of mergeExecutions(ownershipSinceFlat(executions, snapshot, account))) {
+  for (const row of mergeExecutions(ownershipSinceFlat(executions, snapshot, account, executorClientId, attribution))) {
     const contract = row.contract;
     const execution = row.execution;
     if (execution.acctNumber !== account) continue;
     if (desk) {
-      if (!belongsToDesk(execution, desk, ownershipClientIds, executorClientId)) continue;
+      if (!belongsToDesk(row, desk, ownershipClientIds, executorClientId, attribution)) continue;
     } else if (!clients.has(Number(execution.clientId))) continue;
     const symbol = String(contract.symbol || "").toUpperCase();
     if (KEEP.includes(symbol)) continue;
@@ -425,14 +440,29 @@ export function activeHalt(localBody) {
   return { active: false, source: null };
 }
 
-export function belongsToDesk(row, desk, legacyClientIds, executorClientId) {
+export function activityAttribution(row, { ownership = {}, executorClientId, ownClientIds = HOST_EXECUTOR_CLIENT_IDS, foreignAlertSince = process.env.PAPER_DESK_FOREIGN_ALERT_SINCE || FOREIGN_ALERT_SINCE } = {}) {
+  const activity = row.execution || row;
+  const clientId = Number(activity.clientId);
+  let taggedDesk = null;
+  try { taggedDesk = validateKey(activity.orderRef, "orderRef").split("|")[0]; } catch { /* Not proof of ownership. */ }
+  // Retired clients prove ownership only for timestamped pre-cutover fills,
+  // never for working orders or fills with an unknown timestamp.
+  const retiredBeforeCutover = row.execution && RETIRED_EXECUTOR_CLIENT_IDS.includes(clientId) && executionTimeMs(activity.time) < Date.parse(foreignAlertSince);
+  const ownClient = retiredBeforeCutover || [...ownClientIds, executorClientId].some((id) => Number.isSafeInteger(id) && id > 0 && id === clientId);
+  const reasons = [...(!ownClient ? ["outside_client"] : []), ...(!taggedDesk ? ["invalid_order_ref"] : [])];
+  const foreign = reasons.length > 0;
+  const keep = KEEP.includes(String(row.contract?.symbol || row.symbol || "").toUpperCase());
+  const manual = row.execution && row.attribution?.method === "admin" && DESKS.includes(row.attribution.desk);
+  const external = row.execution && row.attribution?.method === "external" && row.attribution.desk === null;
+  const desk = external ? null : manual ? row.attribution.desk : foreign ? null : taggedDesk;
+  const suggestedDesk = foreign ? taggedDesk || DESKS.find((name) => (ownership[name] || []).includes(clientId)) || null : null;
+  return { desk, foreign, needsAttribution: foreign && !manual && !external && !keep, keep, suggestedDesk, reasons, method: external ? "external" : manual ? "admin" : "broker" };
+}
+
+export function belongsToDesk(row, desk, legacyClientIds, executorClientId, attribution = {}) {
   desk = typeof desk === "string" ? desk.toLowerCase() : null;
   if (!DESKS.includes(desk)) return false;
-  const clientId = Number(row.clientId);
-  const ref = normalizeOrderRef(row.orderRef);
-  if (/^[a-z0-9]+\|\d{6}\|[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(ref)) return ref.split("|")[0] === desk && (clientId === executorClientId || legacyClientIds.includes(clientId));
-  if (ref.includes("|")) return false;
-  return clientId !== executorClientId && legacyClientIds.includes(clientId);
+  return activityAttribution(row, { ...attribution, executorClientId }).desk === desk;
 }
 
 export function assertSideEffect(intent, { getHalt = () => ({ active: false }), now = Date.now } = {}) {

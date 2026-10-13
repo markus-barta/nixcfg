@@ -1,6 +1,7 @@
 import { ACCOUNT, LIMITS, newYorkDay, normalizeOrderRef, assertSideEffect, evaluatePlacement, mergeExecutions } from "./policy.mjs";
 import { assertBrokerRuntime, deskPositions, flattenOwned, freshExecutionSnapshot, freshMarks, freshUsdToEur, modifyStopOwned, openSession, placeProtectiveBracket, publicSnapshot, readPusherExecutions, reconcileDeskPositions, resolveStock } from "./ib.mjs";
 import { rememberFirstOrders } from "./state.mjs";
+import { assertPlacementAttribution, attributionConfig, reconcileAttribution } from "./attribution.mjs";
 
 export function publicError(error) { return String(error?.message || error).slice(0, 500); }
 
@@ -95,13 +96,17 @@ function validateConfig(config) {
 function keepAttribution(rows, ...sources) {
   const prefix = (execution) => String(execution?.execId || "").replace(/\d+$/, "");
   const known = new Map();
+  const receipts = new Map();
   for (const row of sources.flat()) {
     const execution = row?.execution;
+    if (row?.foreignAlertReceipt && execution?.execId) receipts.set(execution.execId, row.foreignAlertReceipt);
     if (!execution?.orderRef) continue;
     const prior = known.get(prefix(execution)) || {};
     known.set(prefix(execution), { orderRef: execution.orderRef, orderId: Number(execution.orderId) || prior.orderId, permId: Number(execution.permId) || prior.permId });
   }
   return rows.map((row) => {
+    const receipt = receipts.get(row.execution.execId);
+    if (!row.foreignAlertReceipt && receipt) row = { ...row, foreignAlertReceipt: receipt };
     const found = known.get(prefix(row.execution));
     if (!found || row.execution.orderRef) return row;
     const execution = { ...row.execution, orderRef: found.orderRef };
@@ -120,6 +125,11 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const reconClientId = Number(config.clientIds.recon);
   if (!Number.isSafeInteger(clientId) || clientId <= 0 || !Number.isSafeInteger(reconClientId) || reconClientId <= 0 || clientId === reconClientId) throw new Error("executor and recon require distinct valid client IDs");
   const saveState = context.saveState || (() => {});
+  const attribution = attributionConfig(config);
+  const syncExecutions = (...collections) => {
+    state.executions = keepAttribution(mergeExecutions(...collections), ...collections);
+    reconcileAttribution(state, attribution, { ...context, saveState });
+  };
   const guard = { getHalt: context.getHalt || (() => context.halt || { active: false }), now: context.now || Date.now };
   const ownershipClientIds = config.ownership[intent.desk];
   if (!Array.isArray(ownershipClientIds) || !ownershipClientIds.length) throw new Error("desk has no ownership client IDs");
@@ -130,7 +140,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     let change;
     let placement;
     try {
-      const outcome = await modifyStopOwned({ desk: intent.desk, clientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, intentRecords: state.intents, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, maxDelayedMarkAgeSeconds: config.maxDelayedMarkAgeSeconds, intent, guard, connect, readHistory, onPlan: (plan) => {
+      const outcome = await modifyStopOwned({ desk: intent.desk, clientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, intentRecords: state.intents, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, attribution, maxDelayedMarkAgeSeconds: config.maxDelayedMarkAgeSeconds, intent, guard, connect, readHistory, onPlan: (plan) => {
         placement = state.placements.find((row) => row.orderIds?.[0] === plan.parentId && row.orderIds?.[1] === plan.orderId && row.clientId === clientId && row.desk === intent.desk && row.symbol === plan.symbol && row.quantity === plan.quantity && row.side === (plan.action === "SELL" ? "BUY" : "SELL") && !["rejected", "absent"].includes(row.status) && normalizeOrderRef(row.orderRef) === normalizeOrderRef(plan.orderRef));
         change = { at: new Date().toISOString(), from: plan.from, to: plan.to, intentId: intent.intentId, orderId: plan.orderId, status: "reserved" };
         (placement.stopHistory ||= []).push(change);
@@ -141,9 +151,9 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       change.status = "submitted";
       change.acknowledgedAt = new Date().toISOString();
       placement.currentStopPrice = outcome.modification.to;
-      state.executions = keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions);
+      syncExecutions(keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions));
       state.ownershipComplete = true;
-      state.deskPositions = deskPositions(outcome.ownershipExecutions, config.ownership, clientId, outcome.ownershipSnapshot);
+      state.deskPositions = deskPositions(outcome.ownershipExecutions, config.ownership, clientId, outcome.ownershipSnapshot, attribution);
       state.activeOrders = outcome.openOrders;
       state.concurrentObservedAt = new Date().toISOString();
       saveState(state);
@@ -158,16 +168,21 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
 
   if (["flatten", "cancel"].includes(intent.action)) {
     rememberFirstOrders(state);
-    const outcome = await flattenOwned({ desk: intent.desk, clientId, reconClientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, intent, guard, connect, readHistory, onPlan: (plan) => {
+    const outcome = await flattenOwned({ desk: intent.desk, clientId, reconClientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, attribution, intent, guard, connect, readHistory, onPlan: (plan) => {
       const record = state.intents?.get(intent.intentId);
       if (record) { record.brokerPlan = { ...record.brokerPlan, ...plan }; saveState(state); }
     } });
-    state.executions = keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions);
-    if (outcome.ownershipComplete !== undefined) state.ownershipComplete = outcome.ownershipComplete;
-    state.deskPositions = deskPositions(outcome.ownershipExecutions || state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId, state.ownershipComplete === false ? undefined : outcome.ownershipSnapshot);
-    saveState(state);
-    const { executions: _private, ownershipExecutions: _attribution, ownershipSnapshot: _snapshot, ...body } = outcome;
-    return result(body);
+    try {
+      syncExecutions(keepAttribution(outcome.executions, state.executions, outcome.ownershipExecutions));
+      if (outcome.ownershipComplete !== undefined) state.ownershipComplete = outcome.ownershipComplete;
+      state.deskPositions = deskPositions(outcome.ownershipExecutions || state.executions, state.ownershipComplete === false ? {} : config.ownership, clientId, state.ownershipComplete === false ? undefined : outcome.ownershipSnapshot, attribution);
+      saveState(state);
+      const { executions: _private, ownershipExecutions: _attribution, ownershipSnapshot: _snapshot, ...body } = outcome;
+      return result(body);
+    } catch (error) {
+      if (outcome.cancelled?.length || outcome.flattened?.length) error.code = "uncertain";
+      throw error;
+    }
   }
 
   if (intent.action === "place") assertSideEffect(intent, guard);
@@ -183,18 +198,24 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     if (!recon.state.gateway || recon.state.account !== ACCOUNT || recon.state.errors.length) throw new Error("broker reconciliation has errors");
     try { if (!historyError) freshExecutionSnapshot(recon, history.coverage); }
     catch (error) { historyError = publicError(error); }
-    state.executions = mergeExecutions(history, state.executions, recon.state.executions);
-    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, recon.state);
+    syncExecutions(history, state.executions, recon.state.executions);
+    state.ownershipSnapshot = { account: recon.state.account, positions: recon.state.positions, ownershipComplete: !historyError };
+    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, recon.state, attribution);
     state.commissions = [...new Map([...(state.commissions || []), ...(history.commissions || []), ...(recon.state.commissions || [])].map((row) => [row.execId, row])).values()];
     recon.state.commissions = state.commissions;
     if (intent.action === "recon") await freshMarks(recon);
-    if (intent.action === "place" && !historyError) reconcileDeskPositions(state.executions, recon.state, config.ownership, clientId);
-    if (intent.action === "place") resolved = await resolveStock(recon, intent.order.symbol);
+    state.marks = recon.state.marks || {};
+    if (intent.action === "place") {
+      resolved = await resolveStock(recon, intent.order.symbol);
+      assertPlacementAttribution(state.executions, recon.state.openOrders, attribution, resolved.contract);
+      if (!historyError) reconcileDeskPositions(state.executions, recon.state, config.ownership, clientId, { conId: resolved.contract.conId, attribution });
+    }
     try { usdToEur = await freshUsdToEur(recon); } catch (error) { if (intent.action === "place") throw error; }
-    snapshot = publicSnapshot(recon.state, { executions: state.executions, ownership: config.ownership, executorClientId: clientId, ownershipComplete: !historyError });
+    snapshot = publicSnapshot(recon.state, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     state.ownershipComplete = !historyError;
     state.accountActiveSymbols = [...new Set([...snapshot.positions.filter((row) => row.position !== 0 && !row.keep).map((row) => row.symbol), ...snapshot.openOrders.filter((row) => !row.keep && !["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())).map((row) => row.symbol)])];
     state.activeOrders = snapshot.openOrders;
+    if (intent.action === "recon") reconcileAttribution(state, attribution, { ...context, saveState, openOrders: snapshot.openOrders });
     state.concurrentObservedAt = new Date().toISOString();
     saveState(state);
   } finally { recon.close(); }
@@ -205,7 +226,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     let ownershipSnapshot = evidence.state;
     try {
       if (evidence.state.errors.length || !evidence.state.gateway) throw new Error("placing-client reconciliation has errors");
-      state.executions = mergeExecutions(state.executions, evidence.state.executions);
+      syncExecutions(state.executions, evidence.state.executions);
       const replayedClients = new Set([clientId]);
       const targets = [...(state.intents?.values() || [])].filter((row) => ["claimed", "uncertain"].includes(row.status)).flatMap((row) => row.brokerPlan?.cancellationTargets || []);
       for (const targetClient of new Set(targets.map((row) => row.clientId).filter((id) => id !== clientId && id !== reconClientId))) {
@@ -213,7 +234,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
         try {
           legacy = await connect(targetClient);
           if (!legacy.state.errors.length && legacy.state.gateway) {
-            state.executions = mergeExecutions(state.executions, legacy.state.executions);
+            syncExecutions(state.executions, legacy.state.executions);
             ownershipSnapshot = legacy.state;
             replayedClients.add(targetClient);
           }
@@ -222,10 +243,14 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       }
       resolveUncertain(state, evidence.state, clientId, replayedClients);
     } finally { evidence.close(); }
-    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, ownershipSnapshot);
-    state.activeOrders = [...new Map([...snapshot.openOrders, ...evidence.state.openOrders].map((row) => [`${row.clientId}:${row.orderId}`, row])).values()];
+    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, ownershipSnapshot, attribution);
+    state.ownershipSnapshot = { account: ownershipSnapshot.account, positions: ownershipSnapshot.positions, ownershipComplete: !historyError };
+    const observed = publicSnapshot({ ...evidence.state, openOrders: [...new Map([...snapshot.openOrders, ...evidence.state.openOrders].map((row) => [`${row.clientId}:${row.orderId}`, row])).values()], executions: state.executions, marks: state.marks, commissions: state.commissions }, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
+    state.activeOrders = observed.openOrders;
+    reconcileAttribution(state, attribution, { ...context, saveState, openOrders: observed.openOrders });
+    state.pnlPerDesk = observed.pnlPerDesk;
     saveState(state);
-    return result({ ...snapshot, deskPositions: state.deskPositions, ownershipHistory: historyError ? { status: "unavailable", reason: historyError } : { status: "complete" }, resolutions: Object.fromEntries([...(state.intents || new Map())].filter(([, row]) => row.resolution).map(([id, row]) => [id, row.resolution])) });
+    return result({ ...snapshot, openOrders: observed.openOrders, executions: observed.executions, pnlPerDesk: observed.pnlPerDesk, deskPositions: state.deskPositions, foreignPositions: state.foreignPositions, foreignExecutions: state.executions.filter((row) => row.attribution.needsAttribution), ownershipHistory: historyError ? { status: "unavailable", reason: historyError } : { status: "complete" }, resolutions: Object.fromEntries([...(state.intents || new Map())].filter(([, row]) => row.resolution).map(([id, row]) => [id, row.resolution])) });
   }
 
   // A loaded ledger needs its validated execution receipt before placing;
@@ -239,15 +264,16 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   let placingSession;
   try {
     placingSession = await connect(clientId);
-    state.executions = mergeExecutions(state.executions, placingSession.state.executions);
-    if (!historyError) reconcileDeskPositions(state.executions, placingSession.state, config.ownership, clientId);
-    const current = publicSnapshot(placingSession.state, { executions: state.executions, ownership: config.ownership, executorClientId: clientId, ownershipComplete: !historyError });
+    syncExecutions(state.executions, placingSession.state.executions);
+    assertPlacementAttribution(state.executions, placingSession.state.openOrders, attribution, resolved.contract);
+    if (!historyError) reconcileDeskPositions(state.executions, placingSession.state, config.ownership, clientId, { conId: resolved.contract.conId, attribution });
+    const current = publicSnapshot(placingSession.state, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     evaluatePlacement(intent, current, { ...state, placements: state.placements.filter((row) => row !== placement) }, { halt: guard.getHalt().active, stockType: resolved.stockType, usdToEur, blockOnInitDay: config.blockOnInitDay });
     const placed = await placeProtectiveBracket(placingSession, { ...intent, clientId }, resolved, guard);
     placement.status = "submitted";
     placement.orderIds = [placed.parentOrderId, placed.stopOrderId];
-    state.executions = mergeExecutions(state.executions, placingSession.state.executions);
-    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, placingSession.state);
+    syncExecutions(state.executions, placingSession.state.executions);
+    state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, placingSession.state, attribution);
     state.activeOrders = [...snapshot.openOrders, ...placed.statuses.map((row) => ({ ...row, desk: intent.desk, symbol: intent.order.symbol, orderRef: intent.orderRef, clientId }))];
     state.concurrentObservedAt = new Date().toISOString();
     saveState(state);

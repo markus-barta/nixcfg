@@ -302,7 +302,8 @@ export function createMarketData(options = {}) {
   const clientId = options.clientId ?? Number(process.env.IB_DESK_MARKET_DATA_CLIENT_ID || MARKET_DATA_CLIENT_ID);
   const orderIds = Object.values(options.orderClientIds ?? JSON.parse(process.env.IB_DESK_CLIENT_IDS || '{"recon":700,"executor":705}'));
   const ownershipIds = Object.values(options.ownershipClientIds ?? JSON.parse(process.env.IB_DESK_OWNERSHIP_CLIENT_IDS || "{}")).flat();
-  if (!Number.isSafeInteger(clientId) || clientId <= 0 || [...orderIds, ...ownershipIds, 92, 94, 700, 701, 702, 703, 704, 705, 706].some((id) => Number(id) === clientId)) throw new Error("market data client ID must be distinct from every order and pusher client ID");
+  const bookClientId = options.bookClientId ?? Number(process.env.IB_DESK_BOOK_CLIENT_ID || 708);
+  if (!Number.isSafeInteger(clientId) || clientId <= 0 || [...orderIds, ...ownershipIds, bookClientId, 708, 92, 94, 700, 701, 702, 703, 704, 705, 706].some((id) => Number(id) === clientId)) throw new Error("market data client ID must be distinct from every order, book and pusher client ID");
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("market data timeout must be positive");
   if (!Number.isFinite(reconnectDelayMs) || reconnectDelayMs < 0) throw new Error("market data reconnect delay must be nonnegative");
   // A request can wait for the previous disconnect and for one 326 retry.

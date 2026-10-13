@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,8 +13,25 @@ import { executeIntent } from "./executor.mjs";
 import { deskPositions, flattenOwned, freshMarks, openSession, readPusherExecutions, reconcileDeskPositions } from "./ib.mjs";
 import { brakeUsage, parseIntent, newYorkDay } from "./policy.mjs";
 import { runClient } from "./client/paper-intent.mjs";
+import { openLedger } from "./state.mjs";
+import { attributionConfig } from "./attribution.mjs";
 
-const ACCOUNT = "DU0000001";
+const ACCOUNT = "DU0000000";
+
+test("runtime account identity must match the pinned paper account fingerprint at startup", () => {
+  const script = 'import { assertTargetAccount, marketDataRuntime } from "./ib.mjs"; let allowed = false; try { assertTargetAccount(); allowed = true; } catch {} let connectionRefused = false; try { marketDataRuntime(); } catch (error) { connectionRefused = /pinned paper account/.test(error.message); } process.stdout.write(JSON.stringify({ allowed, connectionRefused }));';
+  const configured = readFileSync(new URL("./default.nix", import.meta.url), "utf8").match(/IB_DESK_ACCOUNT=([A-Z0-9]+)/)[1];
+  for (const [account, allowed] of [[configured, true], ["DU0000001", false], ["U0000000", false], ["", false]]) {
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      cwd: new URL(".", import.meta.url), encoding: "utf8",
+      env: { ...process.env, IB_DESK_ACCOUNT: account, IB_DESK_GATEWAY_HOST: "100.64.0.6", IB_DESK_GATEWAY_PORT: "4002" },
+    });
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout);
+    assert.equal(result.allowed, allowed);
+    if (account.startsWith("DU") && !allowed || account === "") assert.equal(result.connectionRefused, true);
+  }
+});
 const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickString", "tickSnapshotEnd"].map((key) => [key, key]));
 const contract = (symbol = "AAPL", conId = 1) => ({ symbol, conId, secType: "STK", currency: "USD", exchange: "SMART" });
 // Keep order dates on the same New York clock as fills and history coverage,
@@ -154,10 +172,10 @@ function flatHarness(options = {}) {
   return h;
 }
 
-test("live cross-desk and unmapped closes clear ownership, concurrency, place, recon and flatten", async (t) => {
+test("historical outside-client fills stay unassigned during place, recon and flatten", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
   const history = accountFlatHistory(), snapshot = { account: ACCOUNT, positions: keptPositions() };
-  assert.deepEqual(deskPositions(history, liveOwnership, 705).map((row) => [row.desk, row.symbol, row.quantity]), [["j", "AMD", 1], ["j", "AVGO", 2], ["j", "NVDA", 3], ["joe", "AMD", -1], ["joe", "AVGO", -2], ["joe", "NVDA", -4]]);
+  assert.deepEqual(deskPositions(history, liveOwnership, 705), []);
   assert.deepEqual(deskPositions(history, liveOwnership, 705, snapshot), []);
   assert.doesNotThrow(() => reconcileDeskPositions(history, snapshot, liveOwnership, 705));
   for (const desk of ["j", "joe"]) for (const action of ["place", "recon", "flatten"]) {
@@ -192,20 +210,22 @@ test("new tagged ownership after flat is exactly two shares for place, recon and
 test("a mismatched contract retains its old ownership and names the symbol before effects", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
   for (const action of ["place", "flatten", "cancel"]) {
-    const h = flatHarness({ positions: [...keptPositions(), { ...flatContracts[2], position: 1 }], orders: action === "cancel" ? [order({ ...flatContracts[2], clientId: 28, orderRef: "legacy" })] : [] });
+    const owned = [newNvdaFill(), { ...newNvdaFill(), execution: fill({ execId: "owned-short.1", orderId: 120, side: "SLD", shares: 4, orderRef: "joe|261007|short" }).execution }];
+    owned[0].execution.shares = 3;
+    const h = flatHarness({ history: owned, positions: [...keptPositions(), { ...flatContracts[2], position: 1 }], orders: action === "cancel" ? [order({ ...flatContracts[2], clientId: 700 })] : [] });
     const snapshot = { account: ACCOUNT, positions: h.broker.positions };
-    assert.deepEqual(deskPositions(accountFlatHistory(), liveOwnership, 705, snapshot).map((row) => [row.desk, row.symbol, row.quantity]), [["j", "NVDA", 3], ["joe", "NVDA", -4]]);
-    await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /desk ownership does not reconcile with broker position for NVDA/);
+    assert.deepEqual(deskPositions(owned, liveOwnership, 705, snapshot).map((row) => [row.desk, row.symbol, row.quantity]), [["j", "NVDA", 3], ["joe", "NVDA", -4]]);
+    const overrides = action === "cancel" ? { orderId: 30 } : action === "place" ? { order: { ...intent().order, symbol: "NVDA" } } : {};
+    await assert.rejects(h.run(intent(action, overrides)), /desk ownership does not reconcile with broker position for NVDA/);
     assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
   }
 });
 
-test("legacy cancel shares the flat reset and clears saved phantom ownership", async (t) => {
+test("outside-client untagged orders refuse cancellation even when the account is flat", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
   const h = flatHarness({ orders: [order({ ...flatContracts[1], clientId: 76, orderRef: "legacy" })] }), state = ledger();
-  const result = await h.run(intent("cancel", { orderId: 30 }), state);
-  assert.deepEqual(h.broker.cancelled, [30]); assert.deepEqual(h.broker.placed, []);
-  assert.deepEqual(state.deskPositions, []); assert.equal(result.ownershipSnapshot, undefined);
+  await assert.rejects(h.run(intent("cancel", { orderId: 30 }), state), /cancel target/);
+  assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
 });
 
 test("recon gates the reset against the session supplying its latest execution replay", async (t) => {
@@ -220,7 +240,7 @@ test("recon gates the reset against the session supplying its latest execution r
 test("saved ownership after bracket submission uses the placing session's new fills and positions", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-07T20:03:00Z") });
   let placing;
-  const h = flatHarness({ onSnapshot: (session) => { if (session.state.executionSnapshot.requestId === 880705) placing = session.state; }, afterPlace: (count) => {
+  const h = flatHarness({ history: [], onSnapshot: (session) => { if (session.state.executionSnapshot.requestId === 880705) placing = session.state; }, afterPlace: (count) => {
     if (count === 2) { placing.executions.push(newNvdaFill()); placing.positions.push({ ...flatContracts[2], position: 2 }); }
   } });
   const state = ledger();
@@ -341,7 +361,7 @@ test("uppercase intents stamp lowercase desk segments on new orders", async () =
 });
 
 test("recon attributes J|261006|S1-AVGO orders and positions to j", async () => {
-  for (const clientId of [702, 705]) {
+  for (const clientId of [700, 705]) {
     const bought = { ...fill({ clientId, orderRef: "J|261006|S1-AVGO" }), contract: contract("AVGO") };
     const h = harness({ history: [bought], executions: [bought], positions: [{ ...contract("AVGO"), position: 2 }], orders: [order({ ...contract("AVGO"), clientId, orderRef: "J|261006|S1-AVGO" })] });
     const result = await h.run(intent("recon", { desk: "J" }));
@@ -353,16 +373,179 @@ test("recon attributes J|261006|S1-AVGO orders and positions to j", async () => 
   }
 });
 
-test("recon attributes untagged client 706 fills to j2", async () => {
+test("recon keeps untagged client 706 fills foreign and only suggests j2", async () => {
   const bought = fill({ clientId: 706, orderRef: undefined });
   const h = harness({ history: [bought], executions: [bought], positions: [{ ...contract(), position: 2 }] });
   const result = await h.run(intent("recon", { desk: "j2" }));
   assert.equal(result.status, "ok");
   assert.equal(result.desk, "j2");
-  assert.equal(result.deskPositions.length, 1);
-  assert.equal(result.deskPositions[0].desk, "j2");
-  assert.equal(result.deskPositions[0].quantity, 2);
-  assert.equal(result.executions[0].desk, "j2");
+  assert.deepEqual(result.deskPositions, []);
+  assert.equal(result.executions[0].desk, null);
+  assert.equal(result.executions[0].foreign, true);
+  assert.equal(result.executions[0].suggestedDesk, "j2");
+});
+
+test("OPS-313 incident replay stays foreign across recon/restart; assigning its cover flattens joe", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-12T20:00:00Z") });
+  const nvda = contract("NVDA", 11);
+  const short = { contract: nvda, execution: fill({ execId: "test-short.01.01", orderRef: "joe|261012|test-short-nvda", side: "SLD", shares: 4, price: 100, time: "2026-10-12T19:00:00Z" }).execution };
+  const cover = { contract: nvda, execution: fill({ execId: "test-outside.01.01", clientId: 28, orderId: 101, permId: 102, orderRef: "", side: "BOT", shares: 4, price: 98, time: "2026-10-12T19:50:12Z" }).execution };
+  const h = harness({ history: [short, cover], executions: [short, cover], commissions: [short, cover].map((row) => ({ execId: row.execution.execId, commission: 0.1, currency: "USD" })) });
+  h.config.ownership.j.push(28);
+  const saved = openLedger(mkdtempSync(path.join(tmpdir(), "ops313-recon-")));
+  const alerts = [];
+  const context = { saveState: saved.save, audit: saved.audit, alertForeign: (event) => alerts.push(event) };
+  const result = await h.run(intent("recon", { desk: "joe" }), saved.load(), context);
+  const foreign = result.executions.find((row) => row.execution.execId === cover.execution.execId);
+  assert.equal(foreign.desk, null); assert.equal(foreign.foreign, true); assert.equal(foreign.needsAttribution, true); assert.equal(foreign.suggestedDesk, "j");
+  assert.deepEqual(result.deskPositions.map((row) => [row.desk, row.quantity]), [["joe", -4]]);
+  assert.equal(result.foreignPositions[0].quantity, 4);
+  await h.run(intent("recon", { desk: "joe" }), openLedger(saved.root).load(), context);
+  assert.equal(alerts.length, 1);
+  const change = { execId: cover.execution.execId, desk: "joe", actor: "ops-test", reason: "Outside cover belongs to the short desk" };
+  assert.deepEqual(saved.reattribute(change).after.deskPositions, []);
+  const applied = saved.reattribute({ ...change, dryRun: false });
+  assert.deepEqual(applied.after.deskPositions, []); assert.equal(applied.after.pnlPerDesk.joe.realized, 7.8);
+  const after = await h.run(intent("recon", { desk: "joe" }), saved.load(), context);
+  assert.deepEqual(after.deskPositions, []); assert.equal(after.pnlPerDesk.joe.realized, 7.8);
+  assert.equal(after.executions.find((row) => row.execution.execId === cover.execution.execId).desk, "joe");
+  assert.equal(alerts.length, 1); assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+});
+
+test("admin-assigned executor fills with a missing tag remain usable by the owned flatten path", async () => {
+  const untagged = fill({ orderRef: "" });
+  const h = harness({ history: [untagged], executions: [untagged], positions: [{ ...contract(), position: 2 }] });
+  const saved = openLedger(mkdtempSync(path.join(tmpdir(), "ops313-owned-attribution-")));
+  const context = { saveState: saved.save, audit: saved.audit, alertForeign: () => {} };
+  const before = await h.run(intent("recon", { desk: "joe" }), saved.load(), context);
+  assert.deepEqual(before.deskPositions, []);
+  assert.equal(before.foreignPositions[0].quantity, 2);
+  saved.reattribute({ execId: untagged.execution.execId, desk: "joe", actor: "ops-test", reason: "Recorded desk fill omitted its tag", dryRun: false });
+  const after = await h.run(intent("flatten", { desk: "joe", orderRef: ref("joe", "flatten-admin") }), saved.load(), context);
+  assert.equal(after.status, "ok");
+  assert.equal(after.flattened[0].quantity, 2);
+  assert.equal(h.broker.placed.length, 1);
+  assert.equal(h.broker.placed[0].order.action, "SELL");
+  assert.equal(h.broker.placed[0].order.orderRef, ref("joe", "flatten-admin"));
+  assert.deepEqual(h.broker.cancelled, []);
+});
+
+test("place blocks only the incident contract until admin assigns or acknowledges its foreign cover", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-12T20:00:00Z") });
+  for (const disposition of ["desk", "external"]) await t.test(disposition, async () => {
+  const nvda = contract("NVDA", 11);
+  const short = { contract: nvda, execution: fill({ execId: "place-short.01.01", orderRef: "joe|261012|nvda-short", side: "SLD", shares: 4, time: "2026-10-12T19:00:00Z" }).execution };
+  const cover = { contract: nvda, execution: fill({ execId: "place-cover.01.01", clientId: 28, orderId: 9204, permId: 102, orderRef: "", side: "BOT", shares: 4, time: "2026-10-12T19:50:12Z" }).execution };
+  const h = harness({ history: [short, cover], executions: [short, cover], resolve: (request) => request.symbol === "NVDA" ? nvda : contract(request.symbol) });
+  h.config.ownership.j.push(28);
+  const saved = openLedger(mkdtempSync(path.join(tmpdir(), "ops313-place-gate-")));
+  const context = { saveState: saved.save, audit: saved.audit, alertForeign: () => {} };
+  const nvdaIntent = () => intent("place", { desk: "joe", intentId: "joe-place-nvda", orderRef: ref("joe", "nvda-place"), order: { symbol: "NVDA", side: "BUY", quantity: 2, limitPrice: 100, stopPrice: 99, currency: "USD" } });
+  await assert.rejects(h.run(nvdaIntent(), saved.load(), context), (error) => error.publicCode === "placement_refused" && /unassigned foreign activity for NVDA/.test(error.publicReason));
+  assert.deepEqual(h.broker.placed, []);
+  assert.equal((await h.run(intent(), saved.load(), context)).status, "ok");
+  assert.ok(h.broker.placed.every((row) => row.contract.symbol === "AAPL"));
+  const applied = saved.reattribute({ execId: cover.execution.execId, ...(disposition === "external" ? { disposition } : { desk: "joe" }), actor: "ops-test", reason: "Test incident cover", dryRun: false }, { config: attributionConfig(h.config), peer: "100.64.0.14" });
+  if (disposition === "external") assert.deepEqual(applied.after.pnlPerDesk, applied.before.pnlPerDesk);
+  assert.equal((await h.run(nvdaIntent(), saved.load(), context)).status, "ok");
+  assert.equal(h.broker.placed.filter((row) => row.contract.symbol === "NVDA").length, 2);
+  assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("pre-cutover legacy openings closed by executor flattens allow place on the same conId", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-12T20:00:00Z") });
+  const history = ["NVDA", "AMD", "AVGO"].flatMap((symbol, index) => {
+    const c = contract(symbol, 11 + index);
+    return [
+      { contract: c, execution: fill({ execId: `legacy-${symbol}.01`, clientId: 28, orderRef: "", shares: 2, time: "2026-10-11T15:00:00Z" }).execution },
+      { contract: c, execution: fill({ execId: `flatten-${symbol}.01`, orderRef: `j|261011|flatten-${symbol}`, side: "SLD", shares: 2, time: "2026-10-11T16:00:00Z" }).execution },
+    ];
+  });
+  const h = harness({ history, executions: history, resolve: (request) => contract(request.symbol, request.symbol === "NVDA" ? 11 : 1) }), state = ledger();
+  assert.equal((await h.run(intent("place", { order: { ...intent().order, symbol: "NVDA" } }), state)).status, "ok");
+  assert.deepEqual(state.deskPositions, []);
+  assert.equal(state.foreignPositions.length, 3);
+  assert.equal(h.broker.placed.length, 2);
+  assert.ok(h.broker.placed.every((row) => row.contract.conId === 11 && row.contract.symbol === "NVDA"));
+});
+
+test("place rechecks foreign activity for its contract in the placing session before any order", async () => {
+  const h = harness({ onSnapshot: (session) => {
+    if (session.api.clientId === 705) session.state.executions.push(fill({ clientId: 28, orderRef: "", execId: "placing-foreign.01" }));
+  } });
+  const state = ledger();
+  await assert.rejects(h.run(intent(), state, { alertForeign: () => {} }), /unassigned foreign activity for AAPL/);
+  assert.deepEqual(h.broker.placed, []);
+  assert.equal(state.placements[0].status, "rejected");
+  assert.equal(h.broker.live.size, 0);
+});
+
+test("flatten and modify-stop keep exact execution receipts after the full alert receipt expires", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-29T20:00:00Z") });
+  for (const action of ["flatten", "modify-stop"]) await t.test(action, async () => {
+    const receipt = { at: "2026-10-13T20:00:00Z", silent: false };
+    const foreign = { contract: contract("AMD", 2), execution: fill({ execId: "receipt-foreign.01", clientId: 28, orderRef: "", time: "2026-10-13T19:00:00Z" }).execution };
+    const own = fill();
+    const options = { history: [own, foreign], executions: [own, foreign], positions: [{ ...contract(), position: 2 }, { ...foreign.contract, position: 2 }] };
+    const h = action === "modify-stop" ? modifyFixture(options) : harness(options);
+    const state = h.state || ledger();
+    state.executions = [own, { ...foreign, foreignAlertReceipt: receipt }];
+    state.foreignAlerts = [];
+    const alerts = [], audit = [];
+    const result = await h.run(h.value || intent("flatten"), state, { alertForeign: (row) => alerts.push(row), audit: (row) => audit.push(row) });
+    assert.equal(result.status, "ok");
+    assert.deepEqual(state.executions.find((row) => row.execution.execId === foreign.execution.execId).foreignAlertReceipt, receipt);
+    assert.deepEqual(alerts, []); assert.deepEqual(audit, []);
+    assert.equal(h.broker.placed.length, 1);
+    assert.equal(h.broker.placed[0].contract.symbol, "AAPL");
+  });
+});
+
+test("historical retired-client desk fills remain available to owned flatten after the cutover", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-13T20:00:00Z") });
+  const historical = fill({ clientId: 703, orderRef: "j|261011|historical-fill", time: "2026-10-11T19:00:00Z" });
+  const h = harness({ history: [historical], positions: [{ ...contract(), position: 2 }] });
+  const result = await h.run(intent("flatten"), ledger(), { alertForeign: () => {} });
+  assert.equal(result.status, "ok");
+  assert.equal(result.flattened[0].quantity, 2);
+  assert.equal(h.broker.placed[0].clientId, 705);
+});
+
+test("runtime client IDs and cutover stay consistent across recon, ownership, PnL and flatten", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-13T20:00:00Z") });
+  for (const mode of ["configured clients", "configured cutover"]) for (const action of ["recon", "flatten"]) await t.test(`${mode}: ${action}`, async () => {
+    const own = fill({ clientId: mode === "configured clients" ? 901 : 703 });
+    const h = harness({ history: [own], executions: [own], commissions: [{ execId: own.execution.execId, commission: 0.1, currency: "USD" }], positions: [{ ...contract(), position: 2 }], mark: 101 });
+    if (mode === "configured clients") h.config.clientIds = { executor: 900, recon: 901 };
+    else h.config.foreignAlertSince = "2026-10-14T00:00:00Z";
+    const alerts = [], state = ledger();
+    const result = await h.run(intent(action), state, { alertForeign: (row) => alerts.push(row) });
+    assert.equal(result.status, "ok");
+    assert.equal(state.executions[0].attribution.desk, "j");
+    assert.equal(state.executions[0].attribution.foreign, false);
+    assert.equal(state.deskPositions[0].quantity, 2);
+    if (action === "recon") {
+      assert.equal(result.pnlPerDesk.j.unrealized, 2);
+      assert.equal(result.executions[0].desk, "j");
+    } else {
+      assert.equal(result.flattened[0].quantity, 2);
+      assert.equal(h.broker.placed[0].clientId, h.config.clientIds.executor);
+    }
+    assert.deepEqual(alerts, []);
+  });
+});
+
+test("recon alerts on a resting foreign order without waiting for any execution", async () => {
+  const h = harness({ orders: [order({ account: ACCOUNT, clientId: 28, orderId: 9204, permId: 102, orderRef: "" })] });
+  const saved = openLedger(mkdtempSync(path.join(tmpdir(), "ops313-order-alert-")));
+  const alerts = [], context = { saveState: saved.save, audit: saved.audit, alertForeign: (row) => alerts.push(row) };
+  await h.run(intent("recon"), saved.load(), context);
+  await h.run(intent("recon"), openLedger(saved.root).load(), context);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].event, "foreign_open_order");
+  assert.equal(alerts[0].key, "order:permId:102");
+  assert.deepEqual(h.broker.placed, []);
 });
 
 test("cancel matches only the desk segment case-insensitively", async () => {
@@ -382,7 +565,7 @@ test("cancel matches only the desk segment case-insensitively", async () => {
 });
 
 test("flatten owns uppercase tags and leaves another desk's orders and shares alone", async () => {
-  for (const clientId of [702, 705]) {
+  for (const clientId of [700, 705]) {
     const bought = fill({ clientId, orderRef: ref("J", "S1-AVGO") });
     const other = fill({ execId: "joe.1", orderId: 21, orderRef: ref("JOE", "S1-AVGO"), shares: 3 });
     const h = harness({ history: [bought, other], positions: [{ ...contract(), position: 5 }], orders: [order({ clientId, orderRef: bought.execution.orderRef, action: "SELL", orderType: "STP" }), order({ orderId: 31, orderRef: other.execution.orderRef, action: "SELL", orderType: "STP", quantity: 3 })] });
@@ -456,7 +639,7 @@ test("place reconciles overlapping pusher and live fills without losing live own
   const time = new Date().toISOString();
   const history = {
     contract: { conId: 15124833, symbol: "NFLX", secType: "STK", currency: "USD", multiplier: 1 },
-    execution: { execId: "nflx.01", time, clientId: 702, side: "SELL", shares: 14, price: 68.14 },
+    execution: { execId: "nflx.01", time, clientId: 700, side: "SELL", shares: 14, price: 68.14 },
   };
   const live = {
     contract: { ...history.contract, exchange: "SMART" },
@@ -477,7 +660,7 @@ test("place reconciles overlapping pusher and live fills without losing live own
 test("missing, incomplete, invalid-gapped and stale history refuse legacy flatten/cancel before any mutation", async () => {
   for (const options of [ { missingHistory: true }, { coverage: { status: "partial", gaps: [] } }, { coverage: { status: "complete", gaps: [{}] } }, { coverage: { status: "complete", gaps: [], target: { fromInclusive: "2026-01-01T00:00:00Z", toExclusive: "2026-01-02T00:00:00Z" } } } ]) {
     for (const action of ["flatten", "cancel"]) {
-      const h = harness({ ...options, orders: [order({ clientId: 702 })] });
+      const h = harness({ ...options, orders: [order({ clientId: 700 })] });
       await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /ownership|coverage/);
       assert.equal(h.broker.cancelled.length, 0); assert.equal(h.broker.placed.length, 0);
     }
@@ -485,24 +668,24 @@ test("missing, incomplete, invalid-gapped and stale history refuse legacy flatte
 });
 
 test("trailing-today history gap is covered by account-scoped executions and closes the corrected legacy quantity", async () => {
-  const opening = fill({ execId: "legacy-buy.1", clientId: 702, shares: 5 });
+  const opening = fill({ execId: "legacy-buy.1", clientId: 700, shares: 5 });
   const corrected = fill({ ...opening.execution, execId: "legacy-buy.2", shares: 4 });
-  const sold = fill({ execId: "legacy-sell.1", clientId: 702, side: "SLD", shares: 1 });
-  const h = harness({ coverage: intradayCoverage(), history: [opening], executions: [corrected, sold], positions: [{ ...contract(), position: 3 }], orders: [order({ clientId: 702, action: "SELL", orderType: "STP" })] });
+  const sold = fill({ execId: "legacy-sell.1", clientId: 700, side: "SLD", shares: 1 });
+  const h = harness({ coverage: intradayCoverage(), history: [opening], executions: [corrected, sold], positions: [{ ...contract(), position: 3 }], orders: [order({ clientId: 700, action: "SELL", orderType: "STP" })] });
   const result = await h.run(intent("flatten"));
   assert.equal(result.status, "ok");
   assert.deepEqual(h.broker.cancelled, [30]);
   assert.equal(h.broker.placed[0].order.totalQuantity, 3);
   assert.equal(h.broker.placed[0].order.action, "SELL");
   assert.ok(h.broker.executionRequests.every((row) => row.filter.acctCode === ACCOUNT));
-  assert.deepEqual(h.broker.connections, [700, 702, 700, 705]);
+  assert.deepEqual(h.broker.connections, [700, 700, 700, 705]);
   assert.equal(h.broker.live.size, 0);
 });
 
 test("twenty-minute-old history uses fresh execution coverage for the trailing span", async (t) => {
   const now = Date.parse("2026-10-06T18:54:00Z");
   t.mock.timers.enable({ apis: ["Date"], now });
-  for (const gapped of [false, true]) for (const clientId of [702, 705]) for (const action of ["flatten", "cancel"]) {
+  for (const gapped of [false, true]) for (const clientId of [700, 705]) for (const action of ["flatten", "cancel"]) {
     const coverage = intradayCoverage();
     coverage.target.toExclusive = new Date(now - 20 * 60000).toISOString();
     coverage.gaps[0].toExclusive = coverage.target.toExclusive;
@@ -530,7 +713,7 @@ test("lagging history still refuses invalid targets and missing or stale executi
     if (fault === "yesterday") coverage.target.toExclusive = new Date(now - 86400000).toISOString();
     if (fault === "future") coverage.target.toExclusive = new Date(now + 1).toISOString();
     if (fault === "invalid") coverage.target.toExclusive = "invalid";
-    for (const clientId of [702, 705]) for (const action of ["flatten", "cancel"]) {
+    for (const clientId of [700, 705]) for (const action of ["flatten", "cancel"]) {
       // Own unfilled cancellation deliberately needs no ownership history.
       if (clientId === 705 && action === "cancel") continue;
       const h = harness({ coverage, history: [fill({ clientId })], positions: [{ ...contract(), position: 2 }], orders: [order({ clientId })], onSnapshot: (session) => {
@@ -549,7 +732,7 @@ test("a gap crossing New York midnight refuses legacy flatten/cancel with no bro
   const coverage = intradayCoverage();
   coverage.gaps[0].fromInclusive = new Date(Date.parse(coverage.gaps[0].fromInclusive) - 1).toISOString();
   for (const action of ["flatten", "cancel"]) {
-    const h = harness({ coverage, history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], orders: [order({ clientId: 702 })] });
+    const h = harness({ coverage, history: [fill({ clientId: 700 })], positions: [{ ...contract(), position: 2 }], orders: [order({ clientId: 700 })] });
     await assert.rejects(h.run(intent(action, action === "cancel" ? { orderId: 30 } : {})), /outside today's New York/);
     assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
   }
@@ -682,7 +865,7 @@ test("own cancellation rechecks zero-filled status after contract lookup", async
 });
 
 test("legacy unfilled cancel accepts a trailing-today gap only with fresh execution coverage", async () => {
-  const h = harness({ coverage: intradayCoverage(), orders: [order({ clientId: 702 })] });
+  const h = harness({ coverage: intradayCoverage(), orders: [order({ clientId: 700 })] });
   const result = await h.run(intent("cancel", { orderId: 30 }));
   assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]);
   assert.deepEqual(h.broker.placed, []);
@@ -690,9 +873,9 @@ test("legacy unfilled cancel accepts a trailing-today gap only with fresh execut
 
 test("KEEP stays excluded from unified legacy and executor ownership evidence", async () => {
   for (const symbol of ["TSLA", "SXR8"]) for (const own of [false, true]) {
-    const kept = fill({ clientId: own ? 705 : 702 }); kept.contract = contract(symbol, 3);
+    const kept = fill({ clientId: own ? 705 : 700 }); kept.contract = contract(symbol, 3);
     const state = ledger(); if (own) state.executions = [kept];
-    const h = harness({ coverage: intradayCoverage(), history: [kept], executions: [kept], positions: [{ ...kept.contract, position: 2 }], orders: [order({ symbol, conId: 3, clientId: own ? 705 : 702 })] });
+    const h = harness({ coverage: intradayCoverage(), history: [kept], executions: [kept], positions: [{ ...kept.contract, position: 2 }], orders: [order({ symbol, conId: 3, clientId: own ? 705 : 700 })] });
     assert.deepEqual((await h.run(intent("flatten"), state)).flattened, []);
     await assert.rejects(h.run(intent("cancel", { orderId: 30 }), state), /KEEP/);
     assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
@@ -739,7 +922,7 @@ test("HALT and expiry races refuse before the first leg and mark a sent first le
 });
 
 test("flatten uses corrected ownership, cancels then reconnects recon, and broker errors become uncertain", async () => {
-  const first = fill({ execId: "buy.1", clientId: 702, shares: 10 }); const corrected = fill({ execId: "buy.2", clientId: 702, shares: 2 });
+  const first = fill({ execId: "buy.1", clientId: 700, shares: 10 }); const corrected = fill({ execId: "buy.2", clientId: 700, shares: 2 });
   const h = harness({ history: [first, corrected], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })] });
   const result = await h.run(intent("flatten"));
   assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [30]); assert.equal(h.broker.placed[0].order.totalQuantity, 2);
@@ -748,8 +931,30 @@ test("flatten uses corrected ownership, cancels then reconnects recon, and broke
   await assert.rejects(bad.run(intent("flatten")), { code: "uncertain" });
 });
 
+test("flatten and cancel persistence failures after broker effects are uncertain", async (t) => {
+  for (const action of ["flatten", "cancel"]) for (const failure of ["attribution", "book"]) await t.test(`${action}: ${failure}`, async () => {
+    const own = fill();
+    const foreign = { contract: contract("AMD", 2), execution: fill({ execId: "post-send-foreign.01", clientId: 28, orderRef: "" }).execution };
+    const executions = failure === "attribution" ? [own, foreign] : [own];
+    const h = harness({ history: executions, executions, positions: [{ ...contract(), position: 2 }], orders: action === "cancel" ? [order()] : [] });
+    const state = ledger(), value = intent(action, action === "cancel" ? { orderId: 30 } : {});
+    state.executions = executions;
+    state.intents.set(value.intentId, { action, status: "claimed", claimedAt: new Date().toISOString() });
+    let before = 0, after = 0;
+    const audit = [];
+    await assert.rejects(h.run(value, state, { audit: (row) => audit.push(row), alertForeign: () => {}, saveState: () => {
+      if (h.broker.placed.length || h.broker.cancelled.length) { after++; throw new Error(`post-send ${failure} save failed`); }
+      before++;
+    } }), (error) => error.code === "uncertain" && /post-send/.test(error.message));
+    assert.ok(before > 0); assert.equal(after, 1);
+    assert.equal(h.broker.placed.length, action === "flatten" ? 1 : 0);
+    assert.equal(h.broker.cancelled.length, action === "cancel" ? 1 : 0);
+    assert.deepEqual(audit, []); assert.equal(h.broker.live.size, 0);
+  });
+});
+
 test("opposite-sign ownership reconciliation never cancels a protective order", async () => {
-  const h = harness({ history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: -1 }], orders: [order()] });
+  const h = harness({ history: [fill({ clientId: 700 })], positions: [{ ...contract(), position: -1 }], orders: [order()] });
   await assert.rejects(h.run(intent("flatten")), /does not reconcile|exceeds broker/);
   assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
 });
@@ -899,8 +1104,8 @@ test("cancel resolves the contract and refuses missing unfilled evidence", async
 });
 
 test("aggregate ownership cannot flatten another desk's shares", async () => {
-  const other = fill({ execId: "other.1", clientId: 701, orderRef: ref("joe"), shares: 2 });
-  const h = harness({ history: [fill({ clientId: 702 }), other], positions: [{ ...contract(), position: 3 }], orders: [order()] });
+  const other = fill({ execId: "other.1", clientId: 705, orderRef: ref("joe"), shares: 2 });
+  const h = harness({ history: [fill({ clientId: 700 }), other], positions: [{ ...contract(), position: 3 }], orders: [order()] });
   await assert.rejects(h.run(intent("flatten")), /aggregate desk ownership/);
   assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
 });
@@ -940,15 +1145,15 @@ test("flatten-all retains strict reconciliation of unrelated mismatches", async 
 
 test("symbol flatten retains aggregate ownership checks across all desks on the target conId", async () => {
   const own = { ...fill({ execId: "ko-own.1", shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
-  const other = { ...fill({ execId: "ko-other.1", clientId: 702, shares: 1 }), contract: own.contract };
+  const other = { ...fill({ execId: "ko-other.1", clientId: 700, shares: 1 }), contract: own.contract };
   const h = harness({ history: [own, other], positions: [{ ...own.contract, position: 1 }], orders: [order({ ...own.contract, orderRef: ref("joe") })] });
   await assert.rejects(h.run(intent("flatten", { desk: "joe", symbol: "KO" })), /aggregate desk ownership exceeds broker position for KO/);
   assert.deepEqual(h.broker.cancelled, []); assert.deepEqual(h.broker.placed, []);
 });
 
 test("symbol legacy cancel scopes reconciliation and refuses a mismatched symbol selector", async () => {
-  const ko = { ...fill({ execId: "ko.1", clientId: 701, shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
-  const h = harness({ history: [ko, fill()], positions: [{ ...ko.contract, position: 1 }], orders: [order({ ...ko.contract, clientId: 701, orderRef: ref("joe") })] });
+  const ko = { ...fill({ execId: "ko.1", clientId: 700, shares: 1, orderRef: ref("joe") }), contract: contract("KO", 2) };
+  const h = harness({ history: [ko, fill()], positions: [{ ...ko.contract, position: 1 }], orders: [order({ ...ko.contract, clientId: 700, orderRef: ref("joe") })] });
   await assert.rejects(h.run(intent("cancel", { desk: "joe", orderId: 30, symbol: "AAPL" })), /cancel target/);
   assert.deepEqual(h.broker.cancelled, []);
   assert.equal((await h.run(intent("cancel", { desk: "joe", orderId: 30, symbol: "KO" }))).status, "ok");
@@ -968,11 +1173,11 @@ test("CLI carries optional flatten/cancel symbol into the validated intent", asy
 
 test("flatten partial/missing fills and expiry after cancellation stay uncertain", async () => {
   for (const options of [{ noAck: true }, { partial: true }, { badQuantity: true }]) {
-    const h = harness({ history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], ...options });
+    const h = harness({ history: [fill({ clientId: 700 })], positions: [{ ...contract(), position: 2 }], ...options });
     await assert.rejects(h.run(intent("flatten")), { code: "uncertain" });
   }
   let expired = false;
-  const h = harness({ history: [fill({ clientId: 702 })], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })], afterCancel: () => { expired = true; } });
+  const h = harness({ history: [fill({ clientId: 700 })], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })], afterCancel: () => { expired = true; } });
   await assert.rejects(h.run(intent("flatten"), ledger(), { now: () => Date.now() + (expired ? 600000 : 0) }), { code: "uncertain" });
   assert.deepEqual(h.broker.cancelled, [30]); assert.deepEqual(h.broker.placed, []);
 });
@@ -1299,7 +1504,7 @@ test("modify-stop uses complete intraday ownership and refuses stale, cached-onl
       if (kind === "invalid-execution-date") session.state.executions[0].execution.time = "invalid";
       if (kind === "cached-only") session.state.executions = [];
       if (kind === "attribution-missing") { session.state.executions[0].execution.orderRef = ""; session.state.executions[0].execution.orderId = 999; }
-      if (kind === "aggregate-exceeds-position") session.state.executions.push(fill({ execId: "other-desk.1", clientId: 701, orderRef: ref("joe"), shares: 1 }));
+      if (kind === "aggregate-exceeds-position") session.state.executions.push(fill({ execId: "other-desk.1", clientId: 705, orderRef: ref("joe"), shares: 1 }));
     } });
     if (kind === "cached-only") h.state.executions = [fill()];
     await assert.rejects(h.run(h.value, h.state), /ownership|no owned position|broker reconciliation/);

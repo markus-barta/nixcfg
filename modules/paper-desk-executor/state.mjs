@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 
 import { ACCOUNT, newYorkDay, validateKey } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
+import { planReattribution, pruneForeignAlerts } from "./attribution.mjs";
 
 export const RETENTION_MS = 14 * 24 * 60 * 60_000;
 const MAX_INTENTS = 5000;
@@ -37,8 +38,9 @@ function firstOrderDictionary(value) {
 
 // Maps stay in memory; the ledger keeps its existing plain JSON dictionaries.
 function serializeState(state) {
+  const { attributionConfig: _runtimeConfig, ...persisted } = state;
   return JSON.stringify({
-    ...state,
+    ...persisted,
     intents: Object.fromEntries(dictionary(state.intents, "intentId")),
     firstOrders: Object.fromEntries([...firstOrderDictionary(state.firstOrders)].map(([desk, dates]) => [desk, Object.fromEntries(dates)])),
   });
@@ -68,6 +70,7 @@ export function rememberFirstOrders(state) {
 }
 
 export function pruneState(state, now = Date.now()) {
+  pruneForeignAlerts(state, undefined, now);
   state.intents = dictionary(state.intents, "intentId");
   rememberFirstOrders(state);
   for (const [id, row] of state.intents) {
@@ -156,12 +159,13 @@ export function openLedger(root) {
     writeAtomic(statePath, body);
   }
 
-  function load() {
+  function load({ initialize = true } = {}) {
     let handle;
     try {
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      if (!initialize) return initialState();
       const initial = initialState();
       try {
         writeAtomic(statePath, `${serializeState(initial)}\n`, { exclusive: true });
@@ -184,6 +188,7 @@ export function openLedger(root) {
       throw new Error("executor state is invalid");
     }
     value.intents = dictionary(value.intents, "intentId");
+    delete value.attributionConfig;
     rememberFirstOrders(value);
     return value;
   }
@@ -210,5 +215,15 @@ export function openLedger(root) {
     return body;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, load, save, audit, haltBody, setHalt };
+  function reattribute(request, options) {
+    const planned = planReattribution(load({ initialize: false }), request, options);
+    if (!planned.result.dryRun) {
+      // The journal and assignment publish together in the atomic ledger save.
+      save(planned.state);
+      audit(planned.journal);
+    }
+    return planned.result;
+  }
+
+  return { root: resolvedRoot, statePath, auditPath, haltPath, load, save, audit, haltBody, setHalt, reattribute };
 }
