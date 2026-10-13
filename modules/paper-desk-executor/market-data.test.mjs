@@ -173,6 +173,116 @@ test("quote returns an isolated delayed snapshot and releases the IB request", a
   for (const name of Object.values(events).filter((name) => name !== "error")) assert.equal(api.listenerCount(name), 0, name);
 });
 
+test("closed-market probe ticks finish before two seconds despite a 12.2-second snapshot end", async (t) => {
+  const closedTime = Date.parse("2026-10-13T06:00:00Z");
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: closedTime });
+  const h = fixture({ time: closedTime, broker: { hungQuote: true, onQuote: (api, id) => {
+    setTimeout(() => {
+      api.emit(events.marketDataType, id, 3);
+      api.emit(events.error, new Error("delayed data warning"), 10167, id);
+    }, 500);
+    setTimeout(() => { for (const field of [66, 67, 68]) api.emit(events.tickPrice, id, field, -1); }, 800);
+    setTimeout(() => { api.emit(events.tickPrice, id, 75, 99); api.emit(events.tickPrice, id, 76, 0); }, 900);
+    setTimeout(() => api.emit(events.tickSnapshotEnd, id), 12_200);
+  } }, marketData: { timeoutMs: undefined, monotonicNow: () => Date.now() } });
+  let finished = false;
+  const request = h.request(quoteUrl()).then((result) => { finished = true; return result; });
+  await flushMicrotasks();
+  t.mock.timers.tick(800);
+  await flushMicrotasks();
+  assert.equal(finished, false, "wait for the close tick as well as null bid/ask/last ticks");
+  t.mock.timers.tick(100);
+  await flushMicrotasks();
+  assert.equal(finished, true);
+  const result = await request;
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, 99]);
+  assert.deepEqual(h.broker.types, [4]);
+  assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]);
+  assert.equal(h.broker.live.size, 0);
+  t.mock.timers.tick(11_300);
+  await flushMicrotasks();
+  assert.equal(h.broker.cancelledQuotes.length, 1); assert.equal(h.audit.length, 1);
+  for (const name of Object.values(events).filter((name) => name !== "error")) assert.equal(h.broker.instances[0].listenerCount(name), 0, name);
+});
+
+test("all realtime price fields complete without a snapshot-end callback", async () => {
+  const h = fixture({ broker: { actualType: 1, prices: [[1, 100], [2, 101], [4, 100.5], [9, 99]], noQuoteEnd: true } });
+  const result = await h.request(quoteUrl());
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "realtime");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [100, 101, 100.5, 99]);
+  assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]);
+});
+
+test("partial prices settle 1.5 seconds after the last price tick", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  let held;
+  const h = fixture({ broker: { prices: [[66, 100]], noQuoteEnd: true, onQuote: (api, id) => { held = { api, id }; } },
+    marketData: { timeoutMs: 4000, monotonicNow: () => Date.now() } });
+  let finished = false;
+  const request = h.request(quoteUrl()).then((result) => { finished = true; return result; });
+  await flushMicrotasks();
+  t.mock.timers.tick(1000);
+  held.api.emit(events.tickPrice, held.id, 66, 101);
+  held.api.emit(events.tickPrice, held.id, 75, 99);
+  t.mock.timers.tick(1499);
+  held.api.emit(events.tickPrice, held.id + 1, 67, 200);
+  held.api.emit(events.tickPrice, held.id, 76, 0);
+  await flushMicrotasks();
+  assert.equal(finished, false);
+  t.mock.timers.tick(1);
+  await flushMicrotasks();
+  assert.equal(finished, true);
+  const result = await request;
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [101, null, null, 99]);
+  assert.deepEqual(h.broker.cancelledQuotes, [held.id]); assert.equal(h.broker.live.size, 0);
+});
+
+test("partial prices, including null sentinels, survive the shared broker deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  for (const value of [100, -1]) {
+    const h = fixture({ broker: { prices: [[66, value]], quoteError: 10167, noQuoteEnd: true },
+      marketData: { timeoutMs: 100, monotonicNow: () => Date.now() } });
+    let finished = false;
+    const request = h.request(quoteUrl()).then((result) => { finished = true; return result; });
+    await flushMicrotasks();
+    t.mock.timers.tick(99);
+    await flushMicrotasks();
+    assert.equal(finished, false);
+    t.mock.timers.tick(1);
+    const result = await request;
+    assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
+    assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [value > 0 ? value : null, null, null, null]);
+    assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]); assert.equal(h.broker.live.size, 0);
+    assert.equal((await h.request(quoteUrl("AAPL", "joe"))).body.cached, true);
+    t.mock.timers.tick(1500);
+    await flushMicrotasks();
+    assert.equal(h.broker.cancelledQuotes.length, 1);
+  }
+});
+
+test("snapshot end completes partial prices before the settle window", async () => {
+  const h = fixture({ broker: { prices: [[75, 99]] } });
+  const result = await h.request(quoteUrl());
+  assert.equal(result.status, 200);
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, 99]);
+  assert.equal(h.broker.cancelledQuotes.length, 1);
+});
+
+test("without an announced type, realtime and delayed tick inference is preserved", async () => {
+  for (const [time, prices, expected] of [
+    [OPEN_TIME, [[1, 100], [2, 101], [4, 100.5], [9, 99]], "realtime"],
+    [OPEN_TIME, defaults, "delayed"],
+    [Date.parse("2026-10-12T22:00:00Z"), defaults, "delayed-frozen"],
+  ]) {
+    const h = fixture({ time, broker: { noType: true, prices, noQuoteEnd: true } });
+    const result = await h.request(quoteUrl());
+    assert.equal(result.status, 200); assert.equal(result.body.marketDataType, expected);
+    assert.equal(h.broker.cancelledQuotes.length, 1);
+  }
+});
+
 test("bars return the newest N sorted, deduplicated five-minute UTC bars", async () => {
   const rows = bars(5);
   const h = fixture({ broker: { bars: [rows[4], rows[1], rows[0], rows[3], rows[2], rows[4]] } });
@@ -418,15 +528,14 @@ test("IB CLOSED days and short liquid sessions override normal weekday hours", a
   }
 });
 
-test("empty delayed snapshot returns null fields without a second snapshot", async () => {
+test("a snapshot with no price ticks is unavailable without a second snapshot", async () => {
   const h = fixture({ broker: { pricesForType: (type) => type === 3 ? [] : [[75, 99]] } });
   const result = await h.request(quoteUrl());
-  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
-  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, null]);
+  assert.equal(result.status, 503); assert.match(result.body.reason, /no price ticks/);
   assert.deepEqual(h.broker.quotes.map((row) => row.type), [3]); assert.equal(h.broker.cancelledQuotes.length, 1);
 });
 
-test("an eleven-second empty delayed snapshot completes without a fallback budget", async (t) => {
+test("an eleven-second snapshot without price ticks is unavailable", async (t) => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
   let held;
   const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => { held = { api, id }; } },
@@ -438,10 +547,91 @@ test("an eleven-second empty delayed snapshot completes without a fallback budge
   held.api.emit(events.marketDataType, held.id, 3);
   held.api.emit(events.tickSnapshotEnd, held.id);
   const result = await request;
-  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
-  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, null]);
+  assert.equal(result.status, 503); assert.match(result.body.reason, /no price ticks/);
   assert.deepEqual(h.broker.types, [3]); assert.equal(h.broker.quotes.length, 1);
   assert.equal(h.broker.cancelledQuotes.length, 1); assert.equal(h.broker.live.size, 0);
+});
+
+test("announced snapshots without price ticks settle after 1.5 seconds and release the data lane", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  for (const [quoteError, reason] of [
+    [undefined, "IB market data snapshot returned no price ticks"],
+    [10167, "IB offered delayed data but no usable prices arrived (10167)"],
+  ]) {
+    const h = fixture({ broker: { quoteError, prices: [], noQuoteEnd: true },
+      marketData: { timeoutMs: undefined, monotonicNow: () => Date.now() } });
+    let finished = false;
+    const request = h.request(quoteUrl()).then((result) => { finished = true; return result; });
+    await flushMicrotasks();
+    const queued = h.request(quoteUrl("MSFT"));
+    Object.assign(h.broker, { quoteError: undefined, prices: defaults, noQuoteEnd: false });
+    t.mock.timers.tick(1499);
+    await flushMicrotasks();
+    assert.equal(finished, false); assert.equal(h.broker.connections.length, 1);
+    t.mock.timers.tick(1);
+    assert.deepEqual(await request, { status: 503, body: { status: "unavailable", reason } });
+    assert.equal((await queued).status, 200);
+    assert.equal(h.broker.connections.length, 2); assert.equal(h.broker.maxLive, 1);
+    assert.deepEqual(h.broker.cancelledQuotes, h.broker.quotes.map((row) => row.id));
+    assert.equal(h.broker.live.size, 0);
+  }
+});
+
+test("received null price ticks complete successfully even after a permissions warning", async () => {
+  const h = fixture({ broker: { quoteError: 10167, prices: [[66, -1], [67, 0], [68, NaN], [75, ""]], noQuoteEnd: true } });
+  const result = await h.request(quoteUrl());
+  assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "delayed");
+  assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [null, null, null, null]);
+  assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]); assert.equal(h.broker.live.size, 0);
+});
+
+test("permissions warnings with all-null prices remain unavailable on every completion path", async (t) => {
+  for (const [quoteError, reason] of [
+    [354, "IB market data permissions are unavailable (354)"],
+    [10089, "IB market data subscription is unavailable (10089)"],
+  ]) for (const [name, prices, noQuoteEnd, timeoutMs, waitMs] of [
+    ["complete", defaults.map(([field]) => [field, -1]), true, undefined, 0],
+    ["snapshot end", [[66, -1]], false, undefined, 0],
+    ["settle", [[66, -1]], true, undefined, 1500],
+    ["deadline", [[66, -1]], true, 50, 50],
+  ]) await t.test(`${quoteError} ${name}`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+    const h = fixture({ broker: { quoteError, prices, noQuoteEnd },
+      marketData: { timeoutMs, monotonicNow: () => Date.now() } });
+    const request = h.request(quoteUrl());
+    await flushMicrotasks();
+    if (waitMs) t.mock.timers.tick(waitMs);
+    assert.deepEqual(await request, { status: 503, body: { status: "unavailable", reason } });
+    assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]);
+    assert.equal(h.broker.live.size, 0);
+    Object.assign(h.broker, { quoteError: undefined, prices: defaults });
+    const fresh = await h.request(quoteUrl());
+    assert.equal(fresh.status, 200); assert.equal(fresh.body.cached, false);
+    assert.equal(h.broker.quotes.length, 2);
+  });
+});
+
+test("fatal broker errors and disconnects after partial prices return 503", async (t) => {
+  for (const [name, reason] of [
+    ["1100", "IB upstream connection is unavailable (1100)"],
+    ["disconnect", "IB market data connection closed"],
+  ]) await t.test(name, async () => {
+    let held;
+    const h = fixture({ broker: { prices: [[66, 100]], noQuoteEnd: true,
+      onQuote: (api, id) => { held = { api, id }; },
+    } });
+    const request = h.request(quoteUrl());
+    await flushMicrotasks();
+    if (name === "1100") held.api.emit(events.error, new Error("connection diagnostic"), 1100, held.id);
+    else held.api.emit(events.disconnected);
+    assert.deepEqual(await request, { status: 503, body: { status: "unavailable", reason } });
+    assert.deepEqual(h.broker.cancelledQuotes, [held.id]); assert.equal(h.broker.live.size, 0);
+    for (const event of Object.values(events).filter((event) => event !== "error")) assert.equal(held.api.listenerCount(event), 0, event);
+    Object.assign(h.broker, { prices: defaults, noQuoteEnd: false });
+    const fresh = await h.request(quoteUrl());
+    assert.equal(fresh.status, 200); assert.equal(fresh.body.cached, false);
+    assert.equal(h.broker.quotes.length, 2);
+  });
 });
 
 test("actual realtime entitlement is reported even when delayed data was requested", async () => {
@@ -452,7 +642,7 @@ test("actual realtime entitlement is reported even when delayed data was request
 });
 
 test("after-hours type 4 requests accept entitled frozen type 2 quotes", async () => {
-  const h = fixture({ time: Date.parse("2026-10-12T22:00:00Z"), broker: { actualType: 2, prices: [[1, 100], [2, 101], [4, 100.5], [9, 99]] } });
+  const h = fixture({ time: Date.parse("2026-10-12T22:00:00Z"), broker: { actualType: 2, prices: [[1, 100], [2, 101], [4, 100.5], [9, 99]], noQuoteEnd: true } });
   const result = await h.request(quoteUrl());
   assert.equal(result.status, 200); assert.equal(result.body.marketDataType, "frozen");
   assert.deepEqual([result.body.bid, result.body.ask, result.body.last, result.body.close], [100, 101, 100.5, 99]);
@@ -467,17 +657,29 @@ test("IB warnings that precede usable delayed ticks are informational", async ()
   }
 });
 
-test("permissions warnings remain visible when IB never ends the failed snapshot", async () => {
-  const h = fixture({ broker: { quoteError: 354, prices: [], noQuoteEnd: true }, marketData: { timeoutMs: 30 } });
-  const result = await h.request(quoteUrl());
-  assert.equal(result.status, 503); assert.match(result.body.reason, /permissions warning.*354/);
-  assert.equal(h.broker.live.size, 0); assert.equal(h.broker.cancelledQuotes.length, 1);
+test("no price ticks preserve clear timeout and permissions reasons", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  for (const [quoteError, expected] of [
+    [undefined, /request timed out$/], [10167, /permissions warning.*10167/],
+    [10168, /not enabled.*10168/], [354, /permissions warning.*354/], [10089, /permissions warning.*10089/],
+  ]) {
+    const h = fixture({ broker: { quoteError, prices: [], noQuoteEnd: true, onQuote: (api, id) => {
+      api.emit(events.tickPrice, id + 1, 75, 99);
+      api.emit(events.tickPrice, id, 76, 0);
+    } }, marketData: { timeoutMs: 30, monotonicNow: () => Date.now() } });
+    const request = h.request(quoteUrl());
+    await flushMicrotasks();
+    t.mock.timers.tick(30);
+    const result = await request;
+    assert.equal(result.status, 503); assert.match(result.body.reason, expected);
+    assert.equal(h.broker.live.size, 0); assert.equal(h.broker.cancelledQuotes.length, 1);
+  }
 });
 
 test("IB pacing and permission codes give bounded reasons without raw diagnostics", async (t) => {
   for (const [endpoint, code, expected] of [
     ["bars", 162, /historical data.*162/], ["quote", 354, /permissions.*354/],
-    ["quote", 10167, /delayed data.*10167/], ["quote", 10168, /not enabled.*10168/],
+    ["quote", 10167, /delayed data.*10167/], ["quote", 10168, /not enabled.*10168/], ["quote", 10089, /subscription.*10089/],
     ["quote", 100, /pacing.*100/], ["quote", 420, /pacing.*420/],
   ]) await t.test(`${endpoint} ${code}`, async () => {
     const h = fixture({ broker: { [`${endpoint === "bars" ? "history" : "quote"}Error`]: code, prices: [], errorMessage: "internal broker diagnostic" } });
@@ -494,7 +696,7 @@ test("IB pacing and permission codes give bounded reasons without raw diagnostic
 test("connection, lookup, quote and history timeouts return 503, disconnect and release the data lock", async (t) => {
   for (const [name, broker, url] of [
     ["connect", { noReady: true }, quoteUrl()], ["lookup", { noLookupEnd: true }, quoteUrl()],
-    ["quote", { noQuoteEnd: true }, quoteUrl()], ["history", { noHistoryEnd: true }, barsUrl()],
+    ["quote", { hungQuote: true }, quoteUrl()], ["history", { noHistoryEnd: true }, barsUrl()],
   ]) await t.test(name, async () => {
     const h = fixture({ broker, marketData: { timeoutMs: 30 } });
     const result = await h.request(url);
@@ -502,7 +704,7 @@ test("connection, lookup, quote and history timeouts return 503, disconnect and 
     assert.equal(h.broker.live.size, 0);
     if (name === "history") assert.deepEqual(h.broker.cancelledHistories, [h.broker.histories[0].id]);
     if (name === "quote") assert.deepEqual(h.broker.cancelledQuotes, [h.broker.quotes[0].id]);
-    Object.assign(h.broker, { noReady: false, noLookupEnd: false, noQuoteEnd: false, noHistoryEnd: false });
+    Object.assign(h.broker, { noReady: false, noLookupEnd: false, hungQuote: false, noQuoteEnd: false, noHistoryEnd: false });
     h.advance(15_000);
     assert.equal((await h.request(quoteUrl("MSFT"))).status, 200);
   });
@@ -588,30 +790,78 @@ test("a slow snapshot does not consume the next queued request's deadline", asyn
   assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.cancelledQuotes.length, 2);
 });
 
-test("queue waits expire at timeoutMs and queue-full replies cover the outstanding broker budgets", async (t) => {
+test("queue-full retry hints cap at one request budget and round to integers of at least one", async (t) => {
+  for (const [timeoutMs, reconnectDelayMs, expected] of [[12_500, 1000, 15], [50, 0, 1]]) await t.test(`${timeoutMs}ms`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+    let held;
+    const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => { held = { api, id }; } },
+      marketData: { timeoutMs, reconnectDelayMs, monotonicNow: () => Date.now() } });
+    const active = h.request(quoteUrl());
+    await flushMicrotasks();
+    const queued = Array.from({ length: 15 }, () => h.request(quoteUrl("AAPL", "joe")));
+    const full = await h.request(quoteUrl("OVERFLOW"));
+    assert.deepEqual(full, { status: 429, body: { status: "rate_limited", retry_after_s: expected } });
+    assert.ok(Number.isInteger(full.body.retry_after_s) && full.body.retry_after_s >= 1);
+    assert.equal(h.broker.connections.length, 1);
+    for (const [field, value] of defaults) held.api.emit(events.tickPrice, held.id, field, value);
+    assert.equal((await active).status, 200);
+    for (const result of await Promise.all(queued)) {
+      assert.equal(result.status, 200); assert.equal(result.body.cached, true);
+    }
+    assert.equal(h.broker.live.size, 0); assert.equal(h.broker.cancelledQuotes.length, 1);
+  });
+});
+
+test("queue wait allows an active reconnect gap longer than timeoutMs", async (t) => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
-  const h = fixture({ marketData: { reconnectDelayMs: undefined, timeoutMs: 50, monotonicNow: () => Date.now() } });
+  const h = fixture({ marketData: { reconnectDelayMs: 1000, timeoutMs: 50, monotonicNow: () => Date.now() } });
   assert.equal((await h.request(quoteUrl())).status, 200);
+  const active = h.request(quoteUrl("MSFT"));
+  await flushMicrotasks();
+  let finished = false;
+  const queued = h.request(quoteUrl("IBM")).then((result) => { finished = true; return result; });
+  t.mock.timers.tick(50);
+  await flushMicrotasks();
+  assert.equal(finished, false);
+  assert.equal(h.broker.connections.length, 1);
+  t.mock.timers.tick(950);
+  assert.equal((await active).status, 200);
+  t.mock.timers.tick(1000);
+  assert.equal((await queued).status, 200);
+  assert.equal(h.broker.connections.length, 3); assert.equal(h.broker.maxLive, 1); assert.equal(h.broker.live.size, 0);
+});
+
+test("queue waits expire after one request budget plus 100ms and retry hints stay capped", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: OPEN_TIME });
+  const held = [];
+  const h = fixture({ broker: { hungQuote: true, onQuote: (api, id) => held.push({ api, id }) },
+    marketData: { timeoutMs: 2000, monotonicNow: () => Date.now() } });
   let activeFinished = false;
-  const active = h.request(quoteUrl("MSFT")).then((result) => { activeFinished = true; return result; });
-  await flushMicrotasks(); // Active request is waiting for the reconnect gap.
+  const active = h.request(quoteUrl()).then((result) => { activeFinished = true; return result; });
+  await flushMicrotasks();
   const queued = Array.from({ length: 15 }, (_, index) => h.request(quoteUrl(`S${index}`)));
   const full = await h.request(quoteUrl("OVERFLOW"));
-  assert.deepEqual(full, { status: 429, body: { status: "rate_limited", retry_after_s: 33 } }); // 16 × (50 + 2 × 1000) ms.
-  t.mock.timers.tick(49);
+  assert.deepEqual(full, { status: 429, body: { status: "rate_limited", retry_after_s: 2 } });
+  t.mock.timers.tick(1999);
+  await flushMicrotasks();
+  assert.equal(activeFinished, false);
+  assert.equal(h.audit.filter((row) => row.outcome === "rate_limited").length, 1);
+  t.mock.timers.tick(1);
+  assert.equal((await active).status, 503);
+  await flushMicrotasks();
+  assert.equal(held.length, 2, "the first queued request gets the released connection");
+  t.mock.timers.tick(99);
   await flushMicrotasks();
   assert.equal(h.audit.filter((row) => row.outcome === "rate_limited").length, 1);
   t.mock.timers.tick(1);
-  for (const result of await Promise.all(queued)) {
-    assert.deepEqual(result, { status: 429, body: { status: "rate_limited", retry_after_s: 31 } }); // 15 requests ahead.
+  for (const result of await Promise.all(queued.slice(1))) {
+    assert.deepEqual(result, { status: 429, body: { status: "rate_limited", retry_after_s: 2 } });
   }
-  assert.equal(activeFinished, false);
-  assert.equal(h.broker.connections.length, 1); assert.equal(h.broker.lookups.length, 1);
-  t.mock.timers.tick(950);
-  assert.equal((await active).status, 200);
+  for (const [field, value] of defaults) held[1].api.emit(events.tickPrice, held[1].id, field, value);
+  assert.equal((await queued[0]).status, 200);
   await flushMicrotasks();
   assert.equal(h.broker.connections.length, 2); assert.equal(h.broker.lookups.length, 2);
-  assert.deepEqual(h.broker.quotes.map((row) => row.contract.symbol), ["AAPL", "MSFT"]);
+  assert.deepEqual(h.broker.quotes.map((row) => row.contract.symbol), ["AAPL", "S0"]);
   assert.equal(h.broker.live.size, 0); assert.equal(h.broker.maxLive, 1);
 });
 
@@ -655,8 +905,8 @@ test("disconnect during a reconnect gap cancels the wait before opening another 
   assert.equal(h.broker.live.size, 0); assert.equal(response.listenerCount("close"), 0);
 });
 
-test("disconnect during an active snapshot cancels the IB request and closes the session", async () => {
-  const h = fixture({ broker: { hungQuote: true } });
+test("disconnect during a partial snapshot cancels the IB request and closes the session", async () => {
+  const h = fixture({ broker: { prices: [[66, 100]], noQuoteEnd: true } });
   let response;
   const request = h.request(quoteUrl(), { onResponse: (res) => { response = res; } });
   await flushMicrotasks();
