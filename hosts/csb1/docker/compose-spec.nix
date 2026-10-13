@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261012211543.0.0@sha256:6aa5a0c167dd6deb4fa7b3459fee46323c8b34fb80e41588a150c05215a73c13"; # release 131 Myriad Maser (AEON-1263): hotfix on 130, admission for PAIMOS-managed starts (AEON-1251), Actions 403 backoff (AEON-1252), lead panel collapse (AEON-1256)
+      image = "ghcr.io/inspr-at/aeon:261013103112.0.0@sha256:8f815feddb8c1bd58a251c98bec0c0151e6aa9d3d8ee4ae3661882c76267a9dc"; # release 132 Pastel Plume (AEON-1300): incident hotfix on 131 — AEON-1280 GitHub installation-token fix only (first official hotfix path)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
