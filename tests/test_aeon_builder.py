@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -480,6 +481,164 @@ class AtomicWriteTests(unittest.TestCase):
         self.assertEqual(events[3], ((["/bin/launchctl", "bootstrap", "system", str(plist)],), {"check": True}))
         self.assertEqual(events[4], ((["/sbin/pfctl", "-a", "com.apple/aeon-builder", "-sr"],),
                                      {"capture_output": True, "text": True}))
+
+
+class GitHubRetryTests(unittest.TestCase):
+    def setUp(self):
+        # Exercise the real HTTP client without opening App credentials.
+        self.gh = ab.GitHub.__new__(ab.GitHub)
+        self.gh.cfg = CFG
+        self.gh.etags = {}
+        self.gh.sleep = Mock()
+        self.gh.token = Mock(return_value="t")
+
+    def response(self, etag=None):
+        response = io.BytesIO(b'{"ok": true}')
+        response.headers = {"ETag": etag} if etag else {}
+        return response
+
+    def http_error(self, code):
+        return ab.urllib.error.HTTPError(ab.API + "/x", code, "test", {}, io.BytesIO(b"test failure"))
+
+    def test_get_retries_transient_transport_errors_then_succeeds(self):
+        errors = [ab.http.client.RemoteDisconnected("closed"), ab.http.client.HTTPException("bad response"),
+                  ab.http.client.IncompleteRead(b"x"), ConnectionResetError("reset"), OSError("network"),
+                  TimeoutError("timeout"), ab.urllib.error.URLError(ConnectionResetError("reset")),
+                  ab.urllib.error.URLError(ab.http.client.RemoteDisconnected("closed")),
+                  ab.urllib.error.URLError(TimeoutError("timeout")),
+                  ab.urllib.error.URLError(socket.gaierror(socket.EAI_NONAME, "name lookup failed"))]
+        for error in errors:
+            with self.subTest(error=type(error).__name__, reason=str(error)):
+                self.gh.sleep.reset_mock()
+                with patch.object(ab.urllib.request, "urlopen", side_effect=[error, self.response()]) as opened:
+                    self.assertEqual(self.gh._raw("GET", "/x", bearer="t"), {"ok": True})
+                self.assertEqual(opened.call_count, 2)
+                self.gh.sleep.assert_called_once_with(1)
+
+    def test_get_retries_5xx_then_succeeds(self):
+        for code in (500, 502, 503, 504, 599):
+            with self.subTest(code=code):
+                self.gh.sleep.reset_mock()
+                error = self.http_error(code)
+                with patch.object(ab.urllib.request, "urlopen", side_effect=[error, self.response()]) as opened:
+                    self.assertEqual(self.gh._raw("GET", "/x", bearer="t"), {"ok": True})
+                self.assertEqual(opened.call_count, 2)
+                self.gh.sleep.assert_called_once_with(1)
+                self.assertTrue(error.closed)
+
+    def test_get_retry_budget_is_three_attempts_with_bounded_backoff(self):
+        cases = [[ab.http.client.RemoteDisconnected("closed")] * 3,
+                 [self.http_error(503) for _ in range(3)],
+                 [ab.urllib.error.URLError(OSError("network"))] * 3]
+        for errors in cases:
+            error = errors[0]
+            with self.subTest(error=type(error).__name__, reason=str(error)):
+                self.gh.sleep.reset_mock()
+                with patch.object(ab.urllib.request, "urlopen", side_effect=errors) as opened:
+                    with self.assertRaisesRegex(ab.TransientGitHubError, "GET /x:"):
+                        self.gh._raw("GET", "/x", bearer="t")
+                self.assertEqual(opened.call_count, 3)
+                self.assertEqual(self.gh.sleep.call_args_list, [unittest.mock.call(1), unittest.mock.call(2)])
+
+    def test_get_succeeds_on_the_last_attempt(self):
+        with patch.object(ab.urllib.request, "urlopen",
+                          side_effect=[self.http_error(503), TimeoutError("timeout"), self.response()]) as opened:
+            self.assertEqual(self.gh._raw("GET", "/x", bearer="t"), {"ok": True})
+        self.assertEqual(opened.call_count, 3)
+        self.assertEqual(self.gh.sleep.call_args_list, [unittest.mock.call(1), unittest.mock.call(2)])
+
+    def test_writes_never_retry_transient_failures(self):
+        for method in ("POST", "PATCH", "PUT", "DELETE"):
+            for error in (self.http_error(503), self.http_error(429), self.http_error(404),
+                          self.http_error(422), ConnectionResetError("reset")):
+                with self.subTest(method=method, error=str(error)):
+                    with patch.object(ab.urllib.request, "urlopen", side_effect=error) as opened:
+                        with self.assertRaises(ab.BuilderError):
+                            self.gh._raw(method, "/x", bearer="t")
+                    opened.assert_called_once()
+        self.gh.sleep.assert_not_called()
+
+    def test_get_4xx_including_429_never_retry(self):
+        for code in (400, 401, 403, 404, 422, 429):
+            with self.subTest(code=code):
+                error = self.http_error(code)
+                with patch.object(ab.urllib.request, "urlopen", side_effect=error) as opened:
+                    with self.assertRaises(ab.BuilderError) as raised:
+                        self.gh._raw("GET", "/x", bearer="t")
+                self.assertNotIsInstance(raised.exception, ab.TransientGitHubError)
+                self.assertIn(f"HTTP {code}", str(raised.exception))
+                opened.assert_called_once()
+                self.assertTrue(error.closed)
+        self.gh.sleep.assert_not_called()
+
+    def test_non_transient_url_errors_and_invalid_json_never_retry(self):
+        cases = [("string-reason URLError", ab.urllib.error.URLError("string-reason URLError")),
+                 ("invalid JSON", io.BytesIO(b"invalid json"))]
+        for label, result in cases:
+            with self.subTest(result=label):
+                with patch.object(ab.urllib.request, "urlopen", side_effect=[result]) as opened:
+                    with self.assertRaises(ab.BuilderError) as raised:
+                        self.gh._raw("GET", "/x", bearer="t")
+                self.assertNotIsInstance(raised.exception, ab.TransientGitHubError)
+                opened.assert_called_once()
+        self.gh.sleep.assert_not_called()
+
+    def test_conditional_get_keeps_etag_and_cached_304_result_across_retries(self):
+        with patch.object(ab.urllib.request, "urlopen", return_value=self.response('"old"')):
+            cached = self.gh.call("GET", "/x", ab.READ, cache=True)
+        errors = [self.http_error(503), self.http_error(304)]
+        with patch.object(ab.urllib.request, "urlopen",
+                          side_effect=errors) as opened:
+            self.assertIs(self.gh.call("GET", "/x", ab.READ, cache=True), cached)
+        self.assertEqual(opened.call_count, 2)
+        for request in opened.call_args_list:
+            self.assertEqual(request.args[0].get_header("If-none-match"), '"old"')
+        self.assertEqual(self.gh.etags, {"/x": ('"old"', cached)})
+        self.gh.sleep.assert_called_once_with(1)
+        self.assertTrue(all(error.closed for error in errors))
+
+    def test_http_error_is_closed_even_when_reading_its_detail_fails(self):
+        error = self.http_error(400)
+        with patch.object(error, "read", side_effect=OSError("body read failed")), \
+                patch.object(ab.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaisesRegex(ab.BuilderError, "HTTP 400"):
+                self.gh._raw("GET", "/x", bearer="t")
+        self.assertTrue(error.closed)
+        self.gh.sleep.assert_not_called()
+
+    def test_uncached_304_is_closed_and_remains_fatal(self):
+        error = self.http_error(304)
+        with patch.object(ab.urllib.request, "urlopen", side_effect=error) as opened:
+            with self.assertRaises(ab.BuilderError) as raised:
+                self.gh._raw("GET", "/x", bearer="t", etag_key="/x")
+        self.assertNotIsInstance(raised.exception, ab.TransientGitHubError)
+        self.assertTrue(error.closed)
+        opened.assert_called_once()
+        self.gh.sleep.assert_not_called()
+
+    def test_token_mint_remains_single_shot_when_a_get_needs_a_token(self):
+        del self.gh.token  # use the real permission-scoped token mint
+        self.gh.tokens = {}
+        self.gh.lock = threading.Lock()
+        self.gh.installation_id = "1"
+        self.gh._jwt = Mock(return_value="t")
+        with patch.object(ab.urllib.request, "urlopen", side_effect=self.http_error(503)) as opened:
+            with self.assertRaises(ab.TransientGitHubError):
+                self.gh.call("GET", "/x", ab.READ)
+        opened.assert_called_once()
+        self.assertEqual(opened.call_args.args[0].method, "POST")
+        self.assertTrue(opened.call_args.args[0].full_url.endswith("/app/installations/1/access_tokens"))
+        self.gh.sleep.assert_not_called()
+
+    def test_job_and_run_reads_use_the_client_retry(self):
+        for read in (self.gh.job, self.gh.run):
+            with self.subTest(read=read.__name__):
+                self.gh.sleep.reset_mock()
+                with patch.object(ab.urllib.request, "urlopen",
+                                  side_effect=[ab.http.client.RemoteDisconnected("closed"), self.response()]) as opened:
+                    self.assertEqual(read(9), {"ok": True})
+                self.assertEqual(opened.call_count, 2)
+                self.gh.sleep.assert_called_once_with(1)
 
 
 class PagingTests(unittest.TestCase):
@@ -1805,7 +1964,7 @@ ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
         gh.etags = {}
         import urllib.error
         real = ab.urllib.request.urlopen
-        ab.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("dns"))
+        ab.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("string-reason URLError"))
         self.addCleanup(setattr, ab.urllib.request, "urlopen", real)
         with self.assertRaises(ab.BuilderError):
             gh._raw("GET", "/x", bearer="t")
@@ -1856,11 +2015,13 @@ ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
         import http.client
         gh = ab.GitHub.__new__(ab.GitHub)
         gh.etags = {}
+        gh.sleep = Mock()
         real = ab.urllib.request.urlopen
         ab.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(http.client.IncompleteRead(b"x"))
         self.addCleanup(setattr, ab.urllib.request, "urlopen", real)
         with self.assertRaises(ab.BuilderError):
             gh._raw("GET", "/x", bearer="t")
+        self.assertEqual(gh.sleep.call_args_list, [unittest.mock.call(1), unittest.mock.call(2)])
 
     def test_ruleset_drift_pauses_and_clears(self):
         gh = FakeGitHub([run(id=9)], {9: [{"id": 1, "status": "queued", "labels": ["mbp2606", "mbp2606-push"]}]})
@@ -1920,7 +2081,7 @@ ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
         ctl.slot_key = lambda slot: "k" * 128
         ctl.slot_fresh = {0: False}
         sleep = ab.time.sleep
-        ab.time.sleep = lambda s: None
+        ab.time.sleep = Mock()
         self.addCleanup(setattr, ab.time, "sleep", sleep)
         return ctl.admit(0, "aeon-job-0", "mbp2606-s0-90-abc", {"id": 90}), calls, gh
 
@@ -1931,6 +2092,241 @@ ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
         self.assertIn("unlock", calls[0][0])
         self.assertNotIn("--init", calls[0][0], "an existing disk is never re-initialised")
         self.assertEqual(calls[0][1], "k" * 128)
+
+    def test_admit_recovers_from_one_transient_attribution_error(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
+        found = jobs[9][0]
+        error = ab.TransientGitHubError("GET /x: disconnected")
+        with patch.object(ab.Controller, "find_runner_job", side_effect=[error, found]) as find, \
+                patch.object(ab, "log") as log:
+            verdict, calls, _ = self.admit(jobs, [run(id=9)])
+        self.assertEqual(verdict, "ok")
+        self.assertEqual(find.call_count, 2)
+        ab.time.sleep.assert_called_once_with(2)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("unlock", calls[0][0])
+        self.assertEqual(self.state.load()["mode"], "on")
+        transient_logs = [call for call in log.call_args_list if "transient GitHub error" in call.args[0]]
+        self.assertEqual(len(transient_logs), 1)
+
+    def test_admit_transient_window_exhaustion_pauses_without_unlocking(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"]}]}
+        error = ab.TransientGitHubError("GET /x: disconnected")
+        with patch.object(ab.Controller, "find_runner_job", side_effect=error) as find, \
+                patch.object(ab, "log") as log:
+            verdict, calls, _ = self.admit(jobs, [run(id=9)])
+        self.assertEqual(verdict, "unattributed")
+        self.assertEqual(find.call_count, 10)
+        self.assertEqual(ab.time.sleep.call_args_list, [unittest.mock.call(2)] * 9)
+        self.assertEqual(calls, [], "no unlock without API attribution")
+        self.assertEqual(self.state.load()["mode"], "paused")
+        transient_logs = [call for call in log.call_args_list if "transient GitHub error" in call.args[0]]
+        self.assertEqual(len(transient_logs), 10)
+
+    def test_admit_deadline_exhaustion_pauses_without_unlocking(self):
+        clock = Mock(return_value=0)
+
+        def unavailable(*_):
+            clock.return_value += ab.ADMISSION_WAIT_SECONDS / 3 + 1
+            raise ab.TransientGitHubError("GET /x: timeout")
+
+        with patch.object(ab.time, "monotonic", clock), \
+                patch.object(ab.Controller, "find_runner_job", side_effect=unavailable) as find:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "unattributed")
+        self.assertEqual(find.call_count, 3, "the deadline ends admission before ten attempts")
+        self.assertEqual(ab.time.sleep.call_args_list, [unittest.mock.call(2)] * 2)
+        self.assertEqual(calls, [], "no unlock after the admission deadline")
+        self.assertEqual(self.state.load()["mode"], "paused")
+
+    def test_admit_does_not_read_run_metadata_after_attribution_deadline(self):
+        clock = Mock(return_value=0)
+        found = {"id": 90, "run_id": 9, "runner_name": "mbp2606-s0-90-abc"}
+
+        def late_attribution(*_):
+            clock.return_value = ab.ADMISSION_WAIT_SECONDS
+            return found
+
+        with patch.object(ab.time, "monotonic", clock), \
+                patch.object(ab.Controller, "find_runner_job", side_effect=late_attribution), \
+                patch.object(FakeGitHub, "run") as read:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "unattributed")
+        read.assert_not_called()
+        ab.time.sleep.assert_not_called()
+        self.assertEqual(calls, [])
+        self.assertEqual(self.state.load()["mode"], "paused")
+
+    def test_admit_stopping_returns_stopped_without_pausing(self):
+        self.state.update(lambda d: d.update(mode="stopping"))
+        with patch.object(ab.time, "monotonic", return_value=0), \
+                patch.object(ab.Controller, "find_runner_job") as find, \
+                patch.object(ab.Controller, "pause") as pause:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "stopped")
+        find.assert_not_called()
+        pause.assert_not_called()
+        ab.time.sleep.assert_not_called()
+        self.assertEqual(calls, [])
+        self.assertEqual(self.state.load()["mode"], "stopping")
+
+    def test_admit_observes_stopping_during_a_transient_read_without_sleeping(self):
+        def stop(*_):
+            self.state.update(lambda d: d.update(mode="stopping"))
+            raise ab.TransientGitHubError("GET /x: disconnected")
+
+        with patch.object(ab.time, "monotonic", return_value=0), \
+                patch.object(ab.Controller, "find_runner_job", side_effect=stop) as find, \
+                patch.object(ab.Controller, "pause") as pause:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "stopped")
+        find.assert_called_once()
+        pause.assert_not_called()
+        ab.time.sleep.assert_not_called()
+        self.assertEqual(calls, [])
+
+    def test_admit_recovers_from_one_transient_run_metadata_error(self):
+        found = {"id": 90, "run_id": 9, "runner_name": "mbp2606-s0-90-abc"}
+        error = ab.TransientGitHubError("GET /x: disconnected")
+        with patch.object(ab.time, "monotonic", return_value=0), \
+                patch.object(ab.Controller, "find_runner_job", return_value=found) as find, \
+                patch.object(FakeGitHub, "run", side_effect=[error, run(id=9)]) as read, \
+                patch.object(ab, "log") as log:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "ok")
+        find.assert_called_once()
+        self.assertEqual(read.call_count, 2)
+        ab.time.sleep.assert_called_once_with(2)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("unlock", calls[0][0])
+        self.assertEqual(self.state.load()["mode"], "on")
+        transient_logs = [call for call in log.call_args_list if "transient GitHub error" in call.args[0]]
+        self.assertEqual(len(transient_logs), 1)
+
+    def test_admit_run_metadata_deadline_exhaustion_pauses_without_unlocking(self):
+        clock = Mock(return_value=0)
+        found = {"id": 90, "run_id": 9, "runner_name": "mbp2606-s0-90-abc"}
+
+        def unavailable(*_):
+            clock.return_value += ab.ADMISSION_WAIT_SECONDS / 3 + 1
+            raise ab.TransientGitHubError("GET /x: timeout")
+
+        with patch.object(ab.time, "monotonic", clock), \
+                patch.object(ab.Controller, "find_runner_job", return_value=found) as find, \
+                patch.object(FakeGitHub, "run", side_effect=unavailable) as read:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "unattributed")
+        find.assert_called_once()
+        self.assertEqual(read.call_count, 3)
+        self.assertEqual(ab.time.sleep.call_args_list, [unittest.mock.call(2)] * 2)
+        self.assertEqual(calls, [], "no unlock without the run's event")
+        self.assertEqual(self.state.load()["mode"], "paused")
+
+    def test_admit_run_metadata_arriving_after_deadline_never_unlocks(self):
+        clock = Mock(return_value=0)
+        found = {"id": 90, "run_id": 9, "runner_name": "mbp2606-s0-90-abc"}
+
+        def late_metadata(*_):
+            clock.return_value = ab.ADMISSION_WAIT_SECONDS
+            return run(id=9)
+
+        with patch.object(ab.time, "monotonic", clock), \
+                patch.object(ab.Controller, "find_runner_job", return_value=found), \
+                patch.object(FakeGitHub, "run", side_effect=late_metadata):
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "unattributed")
+        self.assertEqual(calls, [])
+        self.assertEqual(self.state.load()["mode"], "paused")
+
+    def test_admit_stopping_during_run_metadata_read_never_unlocks(self):
+        found = {"id": 90, "run_id": 9, "runner_name": "mbp2606-s0-90-abc"}
+
+        def stop(*_):
+            self.state.update(lambda d: d.update(mode="stopping"))
+            return run(id=9)
+
+        with patch.object(ab.time, "monotonic", return_value=0), \
+                patch.object(ab.Controller, "find_runner_job", return_value=found), \
+                patch.object(FakeGitHub, "run", side_effect=stop), \
+                patch.object(ab.Controller, "pause") as pause:
+            verdict, calls, _ = self.admit({}, [run(id=9)])
+        self.assertEqual(verdict, "stopped")
+        pause.assert_not_called()
+        self.assertEqual(calls, [])
+        self.assertEqual(self.state.load()["mode"], "stopping")
+
+    def test_wait_for_runner_retries_a_transient_idle_poll_on_the_next_tick(self):
+        gh = FakeGitHub([], {})
+        gh.job = Mock(side_effect=[ab.TransientGitHubError("GET /x: disconnected"), {"status": "queued"}])
+        ctl = self.controller(gh)
+        ctl.cfg = {**self.cfg, "maxJobMinutes": 1}
+        ctl.vm_running = Mock(return_value=True)
+        ctl.lima = Mock()
+        ctl.lima.shell.side_effect = [
+            subprocess.CompletedProcess([], 1, "", ""),  # no hook denial
+            subprocess.CompletedProcess([], 0, "active\n", ""),
+            subprocess.CompletedProcess([], 1, "", ""),  # not admitted
+        ] * 2 + [
+            subprocess.CompletedProcess([], 1, "", ""),
+            subprocess.CompletedProcess([], 0, "inactive\n", ""),
+            subprocess.CompletedProcess([], 1, "", ""),
+        ]
+        with patch.object(ab.time, "sleep") as sleep, patch.object(ab, "log") as log:
+            self.assertEqual(ctl.wait_for_runner(0, "aeon-job-0", "runner", {"id": 90}), "idle")
+        self.assertEqual(gh.job.call_args_list, [unittest.mock.call(90)] * 2)
+        self.assertEqual(sleep.call_args_list, [unittest.mock.call(3)] * 2)
+        self.assertEqual(self.state.load()["mode"], "on")
+        log.assert_called_once()
+        self.assertIn("transient GitHub error polling job 90", log.call_args.args[0])
+
+    def test_wait_for_runner_propagates_stopped_admission_without_pausing(self):
+        ctl = self.controller(FakeGitHub([], {}))
+        ctl.cfg = {**self.cfg, "maxJobMinutes": 1}
+        ctl.vm_running = Mock(return_value=True)
+        ctl.lima = Mock()
+        ctl.lima.shell.side_effect = [
+            subprocess.CompletedProcess([], 1, "", ""),
+            subprocess.CompletedProcess([], 0, "active\n", ""),
+            subprocess.CompletedProcess([], 0, "", ""),  # admitted
+        ]
+        ctl.admit = Mock(return_value="stopped")
+        ctl.pause = Mock()
+        with patch.object(ab.time, "sleep") as sleep:
+            self.assertEqual(ctl.wait_for_runner(0, "aeon-job-0", "runner", {"id": 90}), "stopped")
+        ctl.admit.assert_called_once()
+        ctl.pause.assert_not_called()
+        sleep.assert_not_called()
+
+    def test_serve_cleans_up_stopped_admission_without_tainting_the_slot(self):
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.jit = Mock(return_value={"runner": {"id": 123}, "encoded_jit_config": "test-jit"})
+        gh.delete_runner = Mock()
+        ctl = self.controller(gh)
+        ctl.lima = Mock()
+        ctl.prepare_disk = Mock(return_value=("aeon-cache-0", False))
+        ctl.retire_slot = Mock()
+        ctl.wait_for_runner = Mock(return_value="stopped")
+        ctl.post_job_check = Mock()
+        slot = ctl.claim_slot(job, r)
+        ab.Controller.serve(ctl, slot, r, job)
+        ctl.post_job_check.assert_not_called()
+        self.assertNotIn(slot, ctl.tainted)
+        ctl.retire_slot.assert_called_once_with(slot, "aeon-job-0", "aeon-cache-0")
+        gh.delete_runner.assert_called_once_with(123)
+
+    def test_admit_non_transient_error_still_propagates_without_unlocking(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"]}]}
+        error = ab.BuilderError("GET /x: HTTP 403")
+        with patch.object(ab.Controller, "find_runner_job", side_effect=error) as find, \
+                patch.object(ab.Controller, "set_slot") as set_slot:
+            with self.assertRaisesRegex(ab.BuilderError, "HTTP 403"):
+                self.admit(jobs, [run(id=9)])
+        find.assert_called_once()
+        set_slot.assert_not_called()
+        ab.time.sleep.assert_not_called()
+        self.assertEqual(self.state.load()["mode"], "on")
 
     def test_trusted_disk_is_never_unlocked_for_non_push_jobs(self):
         jobs = {9: [{"id": 90, "run_id": 9, "run_attempt": 1, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
