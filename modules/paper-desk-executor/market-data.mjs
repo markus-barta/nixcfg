@@ -3,6 +3,8 @@ import { openMarketDataSession, resolveStock } from "./ib.mjs";
 
 export const MARKET_DATA_CLIENT_ID = 707;
 const QUOTE_TTL = 15_000;
+// Allow staggered price callbacks to settle without waiting for IB's ~12s end.
+const QUOTE_SETTLE_MS = 1500;
 const BARS_TTL = 60_000;
 const CONTRACT_TTL = 3_600_000;
 const RECONNECT_DELAY = 1000;
@@ -11,6 +13,7 @@ const HISTORY_SPACING = 15_000;
 const TOKEN_CAPACITY = 6;
 const TOKEN_INTERVAL = 1000;
 const MAX_PENDING = 16;
+const QUEUE_MARGIN_MS = 100;
 const MAX_CACHE_SYMBOLS = 256;
 const INFORMATIONAL_CODES = new Set([2104, 2106, 2107, 2108, 2119, 2158]);
 const PRICE_FIELDS = new Map([[1, "bid"], [2, "ask"], [4, "last"], [9, "close"], [66, "bid"], [67, "ask"], [68, "last"], [75, "close"]]);
@@ -28,7 +31,6 @@ class DataError extends Error {
   }
 }
 const unavailable = (reason) => new DataError(503, { status: "unavailable", reason });
-const rateLimited = (milliseconds) => new DataError(429, { status: "rate_limited", retry_after_s: Math.max(1, Math.ceil(milliseconds / 1000)) });
 
 function brokerFailure(code, message = "") {
   if (Number(code) === 162) {
@@ -182,10 +184,24 @@ function price(value) {
 }
 async function snapshot(session, contract, type, id, signal, onWarning) {
   const values = { bid: null, ask: null, last: null, close: null };
+  const received = new Set();
   let actualType = type;
   let announced = false;
   let warning = null;
-  return ibRequest(session, {
+  let settleTimer;
+  const result = () => ({ ...values, marketDataType: DATA_TYPES.get(actualType) });
+  const complete = () => (actualType >= 3 ? [66, 67, 68, 75] : [1, 2, 4, 9]).every((field) => received.has(field));
+  const missingPermissions = () => [354, 10089].includes(warning) && Object.values(values).every((value) => value === null);
+  const finishSnapshot = (finish) => {
+    if (received.size && !missingPermissions()) finish(null, result());
+    else finish(warning ? brokerFailure(warning) : unavailable("IB market data snapshot returned no price ticks"));
+  };
+  const settleSnapshot = (finish) => {
+    clearTimeout(settleTimer);
+    if (complete()) finishSnapshot(finish);
+    else settleTimer = setTimeout(() => finishSnapshot(finish), QUOTE_SETTLE_MS);
+  };
+  try { return await ibRequest(session, {
     id, signal,
     start: () => { session.api.reqMarketDataType(type); session.api.reqMktData(id, contract, "", true, false); },
     cancel: (requestId) => session.api.cancelMktData(requestId),
@@ -200,20 +216,30 @@ async function snapshot(session, contract, type, id, signal, onWarning) {
         if (Number(requestId) !== id) return;
         if (!DATA_TYPES.has(Number(value))) { finish(unavailable("IB returned an unsupported market data type")); return; }
         actualType = Number(value); announced = true;
+        settleSnapshot(finish);
       }],
       [session.events.tickPrice, (requestId, field, value) => {
         const name = PRICE_FIELDS.get(Number(field));
         if (Number(requestId) !== id || !name) return;
         values[name] = price(value);
+        received.add(Number(field));
         if (!announced) actualType = Number(field) >= 66 ? type : 1;
+        settleSnapshot(finish);
       }],
       [session.events.tickSnapshotEnd, (requestId) => {
         if (Number(requestId) !== id) return;
-        if (warning && Object.values(values).every((value) => value === null)) finish(brokerFailure(warning));
-        else finish(null, { ...values, marketDataType: DATA_TYPES.get(actualType) });
+        finishSnapshot(finish);
       }],
     ],
-  });
+  }); } catch (error) {
+    // A deadline may truncate a real price set, including IB's null sentinels.
+    // Client cancellation and broker failures still propagate normally.
+    if (received.size && error === signal.reason && error?.code === "market_data_deadline") {
+      if (missingPermissions()) throw brokerFailure(warning);
+      return result();
+    }
+    throw error;
+  } finally { clearTimeout(settleTimer); }
 }
 
 function barTime(value) {
@@ -268,8 +294,8 @@ async function history(session, contract, duration, count, id, signal, now) {
 export function createMarketData(options = {}) {
   const now = options.now || Date.now;
   const elapsed = options.monotonicNow || (() => performance.now());
-  // IB's natural snapshot end is ~11 seconds. Leave one second of headroom;
-  // connection, lookup and data callbacks share this budget. Queue waits have
+  // Connection, lookup and data callbacks share this budget. Quotes complete
+  // from price ticks rather than IB's ~12-second snapshot end. Queue waits have
   // their own cap; bounded reconnect gaps do not consume the broker budget.
   const timeoutMs = options.timeoutMs ?? 12_000;
   const reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY;
@@ -281,6 +307,11 @@ export function createMarketData(options = {}) {
   if (!Number.isFinite(reconnectDelayMs) || reconnectDelayMs < 0) throw new Error("market data reconnect delay must be nonnegative");
   // A request can wait for the previous disconnect and for one 326 retry.
   const requestBudgetMs = timeoutMs + 2 * reconnectDelayMs;
+  const queueWaitMs = requestBudgetMs + QUEUE_MARGIN_MS;
+  const rateLimited = (ms) => new DataError(429, {
+    status: "rate_limited", retry_after_s: Math.max(1, Math.ceil(ms / 1000)),
+  });
+  const queueLimited = (ms) => rateLimited(Math.min(ms, requestBudgetMs));
   const runtime = options.runtime || {};
   const cache = { quote: new Map(), bars: new Map() };
   const contracts = new Map();
@@ -361,19 +392,18 @@ export function createMarketData(options = {}) {
       if (clientSignal?.aborted) throw unavailable("IB market data client disconnected");
       const hit = cached(endpoint, symbol, count);
       if (hit) return { statusCode: 200, body: hit };
-      if (pending >= MAX_PENDING) throw rateLimited(pending * requestBudgetMs);
+      if (pending >= MAX_PENDING) throw queueLimited(requestBudgetMs);
       pending += 1;
       const controller = new AbortController();
       const { signal } = controller;
       const disconnected = () => controller.abort(unavailable("IB market data client disconnected"));
       clientSignal?.addEventListener("abort", disconnected, { once: true });
       const queuedAt = elapsed();
-      const queueRetryMs = () => Math.max(0, pending - 1) * requestBudgetMs;
       let queueTimer; let queueAbort;
       const queueFailure = new Promise((_resolve, reject) => {
         queueAbort = () => reject(signal.reason);
         signal.addEventListener("abort", queueAbort, { once: true });
-        queueTimer = setTimeout(() => controller.abort(rateLimited(queueRetryMs())), timeoutMs);
+        queueTimer = setTimeout(() => controller.abort(queueLimited(requestBudgetMs)), queueWaitMs);
       });
       const stopQueueWait = () => {
         clearTimeout(queueTimer);
@@ -381,7 +411,7 @@ export function createMarketData(options = {}) {
       };
       const work = async () => {
         signal.throwIfAborted();
-        if (elapsed() - queuedAt >= timeoutMs) throw rateLimited(queueRetryMs());
+        if (elapsed() - queuedAt >= queueWaitMs) throw queueLimited(requestBudgetMs);
         stopQueueWait();
         const reused = cached(endpoint, symbol, count);
         if (reused) return reused;
@@ -398,9 +428,10 @@ export function createMarketData(options = {}) {
         let remainingMs = timeoutMs;
         let deadline = null;
         let timer;
-        const timeoutError = () => unavailable(warningCode ? `IB market data request timed out after permissions warning (${warningCode})` : "IB market data request timed out");
-        const checkDeadline = () => {
+        const timeoutError = () => Object.assign(unavailable(warningCode ? `IB market data request timed out after permissions warning (${warningCode})` : "IB market data request timed out"), { code: "market_data_deadline" });
+        const checkDeadline = (allowQuoteTimeout = false) => {
           if (deadline !== null && elapsed() >= deadline && !signal.aborted) controller.abort(timeoutError());
+          if (allowQuoteTimeout && signal.reason?.code === "market_data_deadline") return;
           signal.throwIfAborted();
         };
         const suspendDeadline = () => {
@@ -434,7 +465,7 @@ export function createMarketData(options = {}) {
             const bars = await history(session, resolved.contract, clock.duration, count, ++requestId, signal, now);
             body = { symbol, conId: resolved.contract.conId, barSize: "5m", bars, observedAt: new Date(now()).toISOString(), cached: false };
           }
-          checkDeadline();
+          checkDeadline(endpoint === "quote");
           remember(endpoint, symbol, count, body);
           return body;
         } finally {
