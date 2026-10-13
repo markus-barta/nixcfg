@@ -206,7 +206,7 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 | Gateway | paper port `4002`. Live port `4001` is a hard startup error                                             |
 | Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, `modify-stop`, owned `flatten` and `cancel`) |
 | State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                                   |
-| Account | paper `DU0000001`                                                                                       |
+| Account | existing paper account from `IB_DESK_ACCOUNT`                                                           |
 
 ### Read-only market data (OPS-311)
 
@@ -343,8 +343,9 @@ and the desk segment of orderRefs are case-insensitive and normalize to lowercas
 the date and thesis segments remain unchanged. Known desks are `j`, `j2`, `j3`,
 `j4`, `j5`, `joe`, and `joel`; runtime ownership client IDs must still be configured.
 New orders stamp lowercase desk tags. Every bracket
-leg carries that tag. New desk orders share executor client 705; recon uses 700. Tagged positions/orders enforce desk ownership; legacy orders without a desk-formatted tag
-are attributed only through the configured historical desk client IDs.
+leg carries that tag. New desk orders share executor client 705; recon uses 700.
+Attribution requires both an executor client ID and a valid desk-formatted tag.
+Historical client IDs only suggest a desk for foreign activity (OPS-313).
 Dedicated ownership client IDs: `j` → 702, `j2` → 706, `j5` → 703,
 `joe` → 701, and `joel` → 704.
 `cancel` accepts exactly one top-level `orderRef` or `orderId` (CLI
@@ -373,8 +374,11 @@ execution snapshot, completed within two minutes of the host clock.
 Older gaps, a target starting too late, unknown or unreadable history,
 stale/missing snapshots and snapshot errors refuse flatten before any effect.
 For each non-KEEP conId, desk ownership starts after the account's last flat
-point in complete history, counting every client's fills, including unmapped
-clients. Fills in the same second form one group; only a group ending at zero
+point in complete history closed by executor-tagged or admin-assigned fills.
+An unassigned foreign close prevents that reset, so an outside cover cannot
+erase a desk's position before explicit attribution. A legacy opening later
+closed by an executor-tagged flatten does not retain phantom desk positions.
+Fills in the same second form one group; only a group ending at zero
 can reset ownership. The reset applies only when the full history's account net
 matches that session's broker position (an omitted position row means zero).
 Mismatches retain full-history ownership and the existing reconciliation gates.
@@ -391,8 +395,10 @@ paper-account execution snapshot (the pusher's ~30 s live polls leave such a
 gap between its ~15 min official receipts). A loaded ledger whose snapshot
 check fails refuses the placement and reports recon history unavailable.
 Their desk positions and concurrency counts use the same account-flat reset;
-FIFO PnL continues to use the full history. An account flat at history end
-therefore leaves no desk ownership of that contract when the broker agrees.
+FIFO PnL continues to use the full attributed history. An account flat at history
+end leaves no desk ownership when the broker agrees and the closing fill group
+is executor-tagged or admin-assigned. An unassigned foreign close retains the
+desk's lots; a legacy opening closed by an executor-tagged flatten does not.
 When complete ownership history is unavailable, the executor counts all account
 positions/unknown working names toward each desk's concurrency cap and refuses
 piling; it does not accept partial pusher history as ownership evidence.
@@ -420,6 +426,157 @@ Stop the executor without stopping the Gateway:
 cd /home/mba/Code/nixcfg/hosts/hsb0/docker
 sudo docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml stop paper-desk-executor
 ```
+
+### Foreign activity and read-only book (OPS-313)
+
+Recon classifies an execution or open order as `foreign` when its client ID is
+outside the executor's active order/recon set (700, 705 plus configured
+executor/recon IDs), or its orderRef is missing or invalid. Retired executor
+clients 701–704 and 706 prove ownership only for executions before
+`foreignAlertSince`; their newer fills and working orders are foreign unless
+the client is explicitly configured as an active executor/recon ID. A legacy
+desk client ID or even a
+valid tag from an outside client supplies only `suggestedDesk`; the item has
+`desk: null` and `needsAttribution: true`. Foreign executions stay in the
+ledger's holding area and `foreignPositions`, separate from desk positions and
+FIFO PnL. Order placement brakes, HALT and KEEP protections still apply.
+KEEP executions and holdings carry `keep: true, needsAttribution: false` and
+never alert. The placement attribution gate blocks only foreign working orders
+and unassigned foreign executions at or after `foreignAlertSince`, scoped to
+the resolved intent contract in both the recon and placing sessions. An
+execution with a missing or zero conId matches by symbol; an unreadable
+timestamp is treated conservatively as potentially post-cutover. Pre-cutover
+executions do not trigger this gate, so a legacy opening closed by an executor
+flatten allows new placement on the same conId. Ownership reconciliation
+also stays scoped to the resolved contract.
+NVDA remains blocked while its foreign cover is unassigned; unrelated contracts
+retain their existing placement brakes. Admin assignment or an `external`
+disposition releases the gate for that execution; working orders still block.
+
+Each new foreign execId at or after `foreignAlertSince` (default
+`2026-10-12T00:00:00Z`) and within the retention window produces one structured
+`foreign_execution` audit event and an alert on the executor's existing
+stderr/container journal channel. A post-cutover execution first seen more
+than 14 days after its execution time produces a `foreign_execution_late`
+summary audit event and journal alert with a count, rather than per-fill alerts.
+Older executions receive compact receipts;
+pre-cutover executions produce one `foreign_execution_backlog` audit event
+with the backlog count. Foreign working orders alert during recon
+as `foreign_open_order`, keyed by permId or, when absent, clientId:orderId.
+Durable `foreignAlerts` receipts survive recon replay and restarts; execution
+corrections have distinct execIds and receive fresh receipts. Full receipts
+expire after `foreignAlertRetentionDays` (default 14 days). Compact proof on
+retained executions survives flatten/modify-stop rebuilds and prevents expired
+history from alerting again; corrections receive a fresh receipt by exact
+execId. Working
+order receipts stay fresh while the order is still observed. The alert contains
+execution/order/client IDs, symbol, classification and suggested desk, without
+account IDs or broker credentials. The existing mailbox accepts only the two
+desk peers, not the executor's host source, and has no idempotent producer API.
+This round preserves that boundary and uses the executor journal; it does not
+post as another peer or broaden the mailbox allowlist. Alert receipts themselves
+remain inspectable in the ledger if the process stops after saving a receipt
+and before emitting its journal line.
+
+`POST /v1/admin/attribution` assigns exactly one unassigned foreign execution to
+a known desk, or acknowledges it with `"disposition": "external"` and no
+`desk` field. Both use the separate `adminPeerAllowlist`, default
+`100.64.0.14` only, checked before parsing the body. Nix and runtime assertions
+refuse desk peers in that list. It uses the same serial ledger lock as intents,
+makes no Gateway calls, and defaults to dry run. `actor` and `reason`
+are required; use an operator role in the actor field. Apply requires explicit
+`"dryRun": false`. The atomic save journals who, when, source peer, foreign →
+desk/external and reason, preserves the broker execution, and recalculates positions,
+flatness and FIFO PnL through the existing book functions. External disposition
+sets `desk: null, method: "external", needsAttribution: false`; it assigns no
+desk and leaves every desk's FIFO PnL unchanged. A broker-confirmed flat
+boundary may then retire retained desk positions. Its journal event is
+`execution_acknowledged_external`, with actor, peer, time, execId and reason.
+Missing ownership
+history retains empty desk positions and unavailable PnL; missing economic
+evidence also retains unavailable PnL. Runtime attribution config is passed
+directly and never saved in the ledger. Unknown execIds return
+404; non-foreign or already assigned execIds return 409; invalid requests and
+KEEP assignments return 400. Repeating an apply cannot move it twice. A new IB
+correction is a new execution requiring a separate review and assignment.
+Routine attribution refusals are 4xx audit lines without executor error stacks.
+
+To preview an external acknowledgment from the allowlisted OPS peer, use the
+following synthetic execution ID. OPS reviews the before/after book before
+repeating the same request with `"dryRun": false` to apply it. Missing contract
+or economic fields do not prevent an external acknowledgment; desk assignment
+still requires valid contract and execution economics. KEEP remains refused.
+
+```bash
+curl --fail-with-body --max-time 15 -H 'Content-Type: application/json' \
+  --data '{"execId":"paper-outside.01.01","disposition":"external","actor":"ops","reason":"OPS-313: acknowledged external activity","dryRun":true}' \
+  http://100.64.0.6:8470/v1/admin/attribution
+```
+
+Ledger or attribution-sync errors after a flatten/cancel has reached the broker
+are reported as `uncertain`, requiring recon before retry.
+
+From the allowlisted OPS peer, preview the assignment below. The execution ID
+in this example is fake. For the incident order **9204 → joe**, use execId
+`00025b45.6ace1f95.01.01` in its place, after deployment and a fresh recon; check
+that joe's four-share short becomes flat and j receives no position. This
+procedure is prepared only: the builder must not apply the incident correction.
+
+```bash
+curl --fail-with-body --max-time 15 -H 'Content-Type: application/json' \
+  --data '{"execId":"paper-outside.01.01","desk":"joe","actor":"ops","reason":"OPS-313: cover for order 9204 belongs to joe","dryRun":true}' \
+  http://100.64.0.6:8470/v1/admin/attribution
+```
+
+After OPS reviews the before/after book, the exact apply form is:
+
+```bash
+curl --fail-with-body --max-time 15 -H 'Content-Type: application/json' \
+  --data '{"execId":"paper-outside.01.01","desk":"joe","actor":"ops","reason":"OPS-313: cover for order 9204 belongs to joe","dryRun":false}' \
+  http://100.64.0.6:8470/v1/admin/attribution
+```
+
+The book uses `reqManagedAccts`, `reqPositions`, `reqAllOpenOrders` and, when the
+account route is enabled, `reqAccountSummary`; it never calls
+`reqAccountUpdates` or replaces the pusher's single account subscription.
+The account route is disabled by default through
+`bookAccountEnabled = false` until OPS verifies live coexistence and account
+summary limits. The other routes remain available:
+
+| GET endpoint           | Response data                                                                                                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/book/positions`   | Account positions with `pos`, `avgCost`, contract fields, known `desks`, `desk`, `foreign`, `needsAttribution`, `keep`, plus `deskPositions` and the foreign holding area even when the broker account is flat |
+| `/v1/book/open-orders` | All paper open orders with order/client/perm IDs, orderRef, action, quantity, type, parent, status, and attribution                                                                                            |
+| `/v1/book/account`     | When enabled: managed accounts, NetLiquidation/TotalCashValue/BuyingPower/AccountType summary, values derived from that summary, and positions/cost with attribution; market prices/values/PnL are `null`      |
+
+Responses include `observedAt`, `attributionObservedAt`, `ownershipComplete` and
+`cached`. An optional `desk` query labels the read audit; it does not filter the
+account-wide book. All three routes have the quote peer allowlist, work under
+HALT and for KEEP holdings, and never create or modify intents, the ledger,
+HALT or the persistent audit log. Read audit goes to the existing journal.
+Broker reads are paper-only and require the single configured managed account;
+startup also checks the configured account against a pinned SHA-256 and the
+paper-account prefix. Mixed/live accounts, incomplete callbacks and broker
+errors return 503; a disabled account route returns 503 before IB calls or
+cache access. IB 2100 is informational. Invalid queries return 400, and pacing
+or queue limits return 429 with `retry_after_s`.
+
+The dedicated book client ID is **708**, asserted distinct from all order,
+market-data, historical desk, former book client 40, and pusher IDs 92/94.
+One serialized snapshot supplies all three routes and caches for 15 seconds;
+ledger attribution is read again for each reply, including cached replies.
+The token bucket starts with six tokens and refills one per second. Each
+snapshot makes and charges three read requests by default, or four with
+account reads enabled, allowing two or one initial snapshots respectively.
+Connections close and subscriptions cancel after
+each snapshot; reconnection waits at least one second and retries IB 326 once.
+The default deadline is 14 seconds including both reconnect gaps; at most
+16 reads may be pending, with a 14.1-second queue deadline. IB 100 triggers a
+ten-minute cooldown. Limits are per process and require coordination with
+other Gateway clients. Before enabling the account route, OPS must verify
+complete position/summary callbacks, account-summary limits and coexistence
+with the pusher's subscription. joel-bookd is not edited here, and closing
+Gateway port 4002 is a later round.
 
 ## Agent mailbox (OPS-272)
 

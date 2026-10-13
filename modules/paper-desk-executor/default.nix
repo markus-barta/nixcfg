@@ -12,6 +12,8 @@ let
   stack = config.nixcfg.composeStack;
   ledgerName = baseNameOf cfg.ownershipLedgerFile;
   ledgerDir = dirOf cfg.ownershipLedgerFile;
+  allPeers = lib.unique (cfg.peerAllowlist ++ cfg.adminPeerAllowlist);
+  deskPeers = lib.unique ([ "100.64.0.10" ] ++ lib.subtractLists [ "100.64.0.14" ] cfg.peerAllowlist);
   tailnetPeer =
     peer:
     lib.match "100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])" peer
@@ -22,6 +24,8 @@ let
     cp ${./security.mjs} "$out/security.mjs"
     cp ${./ib.mjs} "$out/ib.mjs"
     cp ${./market-data.mjs} "$out/market-data.mjs"
+    cp ${./book.mjs} "$out/book.mjs"
+    cp ${./attribution.mjs} "$out/attribution.mjs"
     cp ${./state.mjs} "$out/state.mjs"
     cp ${./executor.mjs} "$out/executor.mjs"
     cp ${./server.mjs} "$out/server.mjs"
@@ -34,10 +38,15 @@ let
     "IB_DESK_OWNERSHIP_LEDGER=/pusher-state/${ledgerName}"
     "IB_DESK_CLIENT_IDS=${builtins.toJSON cfg.clientIds}"
     "IB_DESK_MARKET_DATA_CLIENT_ID=${toString cfg.marketDataClientId}"
+    "IB_DESK_BOOK_CLIENT_ID=${toString cfg.bookClientId}"
+    "PAPER_DESK_BOOK_ACCOUNT_ENABLED=${lib.boolToString cfg.bookAccountEnabled}"
     "IB_DESK_OWNERSHIP_CLIENT_IDS=${builtins.toJSON cfg.ownershipClientIds}"
     "PAPER_DESK_BIND=${cfg.listenAddress}"
     "PAPER_DESK_PORT=${toString cfg.listenPort}"
     "PAPER_DESK_ALLOW=${builtins.toJSON cfg.peerAllowlist}"
+    "PAPER_DESK_ADMIN_ALLOW=${builtins.toJSON cfg.adminPeerAllowlist}"
+    "PAPER_DESK_FOREIGN_ALERT_SINCE=${cfg.foreignAlertSince}"
+    "PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS=${toString cfg.foreignAlertRetentionDays}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
@@ -47,7 +56,7 @@ let
     lib.concatMapStringsSep "\n" (
       peer:
       "iptables ${action} nixos-fw -i tailscale0 -s ${peer} -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j nixos-fw-accept"
-    ) cfg.peerAllowlist;
+    ) allPeers;
 in
 {
   options.nixcfg.paperDeskExecutor = {
@@ -78,6 +87,24 @@ in
         "100.64.0.14" # mbp2607, OPS tests
       ];
       description = "Tailnet source addresses allowed to call the executor. Any other source receives 403.";
+    };
+
+    adminPeerAllowlist = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ "100.64.0.14" ];
+      description = "Tailnet sources permitted to assign executions or acknowledge them as external. Desk peers are always refused before reading a request body.";
+    };
+
+    foreignAlertSince = lib.mkOption {
+      type = lib.types.str;
+      default = "2026-10-12T00:00:00Z";
+      description = "UTC cutover for execution alerts, the placement attribution gate and retired executor-client ownership. Older foreign executions receive silent receipts and one backlog summary audit event; newly observed post-cutover fills older than 14 days produce a late summary.";
+    };
+
+    foreignAlertRetentionDays = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 14;
+      description = "Days to retain full foreign alert receipts. Compact execution receipts prevent duplicate alerts after pruning.";
     };
 
     image = lib.mkOption {
@@ -134,6 +161,18 @@ in
       description = "Read-only quote/history client ID, disjoint from every order, legacy ownership and pusher client.";
     };
 
+    bookClientId = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 708;
+      description = "Read-only account/positions/open-orders client, distinct from all order, market data and pusher clients.";
+    };
+
+    bookAccountEnabled = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Enable account book reads only after OPS verifies coexistence with the pusher's account subscription and summary request limits.";
+    };
+
     ownershipClientIds = lib.mkOption {
       type = lib.types.attrsOf (lib.types.listOf lib.types.int);
       default = {
@@ -174,7 +213,7 @@ in
         ];
         joel = [ 704 ];
       };
-      description = "Client IDs whose orders each desk may cancel and flatten. KEEP symbols are excluded.";
+      description = "Historical client IDs that may suggest a desk for foreign activity. They never prove desk ownership.";
     };
   };
 
@@ -216,6 +255,14 @@ in
         message = "paperDeskExecutor peers must be tailnet addresses in 100.64.0.0/10";
       }
       {
+        assertion = cfg.adminPeerAllowlist != [ ] && lib.all tailnetPeer cfg.adminPeerAllowlist;
+        message = "paperDeskExecutor admin peers must be tailnet addresses in 100.64.0.0/10";
+      }
+      {
+        assertion = lib.intersectLists cfg.adminPeerAllowlist deskPeers == [ ];
+        message = "paperDeskExecutor admin peers must not overlap with any order-allowlisted desk peer or the desk box";
+      }
+      {
         assertion =
           cfg.keepSymbols == [
             "SXR8"
@@ -225,7 +272,9 @@ in
       }
       {
         assertion =
-          !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
+          cfg.marketDataClientId != cfg.bookClientId
+          && cfg.marketDataClientId != 708
+          && !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.marketDataClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.marketDataClientId [
             92
@@ -239,6 +288,26 @@ in
             706
           ]);
         message = "paperDeskExecutor market data client must be distinct from all order and pusher clients";
+      }
+      {
+        assertion =
+          cfg.bookClientId != cfg.marketDataClientId
+          && !(lib.elem cfg.bookClientId (lib.attrValues cfg.clientIds))
+          && !(lib.elem cfg.bookClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          && !(lib.elem cfg.bookClientId [
+            40
+            92
+            94
+            700
+            701
+            702
+            703
+            704
+            705
+            706
+            707
+          ]);
+        message = "paperDeskExecutor book client must be distinct from all existing clients";
       }
       {
         assertion =
@@ -321,7 +390,7 @@ in
         iptables -t raw -F paper-desk-peers
         ${lib.concatMapStringsSep "\n" (
           peer: "iptables -t raw -A paper-desk-peers -s ${peer} -j RETURN"
-        ) cfg.peerAllowlist}
+        ) allPeers}
         iptables -t raw -A paper-desk-peers -j DROP
         iptables -t raw -C PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers 2>/dev/null || \
           iptables -t raw -I PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers

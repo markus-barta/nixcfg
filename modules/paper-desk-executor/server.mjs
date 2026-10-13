@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  ACCOUNT,
   activeHalt,
   assertSideEffect,
   brakeUsage,
@@ -14,6 +15,7 @@ import {
 } from "./policy.mjs";
 import {
   DEFAULT_PEERS,
+  DEFAULT_ADMIN_PEERS,
   LISTEN_HOST,
   LISTEN_PORT,
   PAPER_PORT,
@@ -21,10 +23,14 @@ import {
   assertListen,
   assertPaperPort,
   assertPeerAllowlist,
+  assertAdminPeerAllowlist,
+  normalizePeer,
   peerAllowed,
 } from "./security.mjs";
 import { admitIntent, openLedger } from "./state.mjs";
 import { createMarketData, validMarketSymbol } from "./market-data.mjs";
+import { createBook } from "./book.mjs";
+import { attributionConfig } from "./attribution.mjs";
 
 const BODY_LIMIT = 65_536;
 
@@ -39,11 +45,13 @@ const PUBLIC_ERRORS = new Map([
   ["uncertain", "broker outcome is uncertain; reconcile before another attempt"],
   ["executor_error", "executor operation failed"],
   ["modify_stop_refused", "modify-stop preflight refused"],
+  ["attribution_refused", "execution attribution refused"],
+  ["placement_refused", "placement preflight refused"],
 ]);
 function publicFailure(error) {
   const code = error?.code === "uncertain" ? "uncertain"
     : PUBLIC_ERRORS.has(error?.publicCode) ? error.publicCode : "executor_error";
-  return { code, reason: code === "modify_stop_refused" ? error.publicReason || PUBLIC_ERRORS.get(code) : PUBLIC_ERRORS.get(code) };
+  return { code, reason: ["modify_stop_refused", "attribution_refused", "placement_refused"].includes(code) ? error.publicReason || PUBLIC_ERRORS.get(code) : PUBLIC_ERRORS.get(code) };
 }
 
 function send(response, status, body) {
@@ -164,10 +172,16 @@ export function createServer(options) {
     options.allowlist ?? (process.env.PAPER_DESK_ALLOW ? JSON.parse(process.env.PAPER_DESK_ALLOW) : DEFAULT_PEERS),
     { testMode },
   );
+  const adminAllowlist = assertAdminPeerAllowlist(
+    options.adminAllowlist ?? (process.env.PAPER_DESK_ADMIN_ALLOW ? JSON.parse(process.env.PAPER_DESK_ADMIN_ALLOW) : DEFAULT_ADMIN_PEERS),
+    { testMode, orderAllowlist: allowlist },
+  );
+  const attribution = attributionConfig(options.attributionConfig);
   const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state");
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
-  const marketData = createMarketData(options.marketData);
+  const marketData = createMarketData({ ...options.marketData, bookClientId: options.book?.clientId });
+  const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false })) });
   const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
 
@@ -187,9 +201,11 @@ export function createServer(options) {
   async function handle(request, response) {
     const started = Date.now();
     let dataUrl;
+    let routeUrl;
     try {
       const candidate = new URL(request.url || "/", "http://paper-desk.local");
-      if (request.method === "GET" && ["/v1/quote", "/v1/bars"].includes(candidate.pathname)) dataUrl = candidate;
+      routeUrl = candidate;
+      if (request.method === "GET" && ["/v1/quote", "/v1/bars", "/v1/book/positions", "/v1/book/open-orders", "/v1/book/account"].includes(candidate.pathname)) dataUrl = candidate;
     } catch { /* Normal route error handling below remains authoritative. */ }
     function auditData(cached, outcome) {
       if (!dataUrl) return;
@@ -206,8 +222,9 @@ export function createServer(options) {
         });
       } catch { /* A journal failure must not reach the order/ledger error path. */ }
     }
-    const peer = request.socket?.remoteAddress;
-    if (!peerAllowed(peer, allowlist)) {
+    const peer = normalizePeer(request.socket?.remoteAddress);
+    const adminRoute = request.method === "POST" && routeUrl?.pathname === "/v1/admin/attribution";
+    if (!peerAllowed(peer, adminRoute ? adminAllowlist : allowlist)) {
       request.resume();
       send(response, 403, { status: "rejected", reason: "source is not allowed" });
       auditData(false, "forbidden");
@@ -225,7 +242,9 @@ export function createServer(options) {
         request.once?.("aborted", disconnected);
         if (response.destroyed || request.aborted) controller.abort();
         try {
-          const result = await marketData.read(pathname.slice(4), url.searchParams, { signal: controller.signal });
+          const result = pathname.startsWith("/v1/book/")
+            ? await book.read(pathname.slice(9), url.searchParams, { signal: controller.signal })
+            : await marketData.read(pathname.slice(4), url.searchParams, { signal: controller.signal });
           cached = result.body.cached === true;
           outcome = result.statusCode === 200 ? "ok" : result.body.status;
           if (!controller.signal.aborted && !response.destroyed && !request.aborted) send(response, result.statusCode, result.body);
@@ -234,6 +253,17 @@ export function createServer(options) {
           request.off?.("aborted", disconnected);
           auditData(cached, outcome);
         }
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/admin/attribution") {
+        let parsed;
+        try { parsed = JSON.parse(await readBody(request)); }
+        catch (error) {
+          if (error.statusCode) throw error;
+          throw Object.assign(new Error("attribution JSON is invalid"), { statusCode: 400, publicCode: "attribution_refused", publicReason: "attribution JSON is invalid" });
+        }
+        const result = await exclusive(() => ledger.reattribute(parsed, { peer, config: attribution }));
+        send(response, 200, result);
         return;
       }
       if (request.method === "GET" && pathname === "/v1/health") {
@@ -246,7 +276,7 @@ export function createServer(options) {
               gatewayReachable: false,
               gatewayHost,
               gatewayPort,
-              account: "DU0000001",
+              account: ACCOUNT,
               halt: activeHalt(ledger.haltBody()),
               brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
             };
@@ -362,7 +392,7 @@ export function createServer(options) {
           const runner = execute || (await import("./executor.mjs")).executeIntent;
           try {
             assertSideEffect(intent, { getHalt: () => activeHalt(ledger.haltBody()) });
-            const result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save });
+            const result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign });
             const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
             finish(state, intent, status, result);
             ledger.save(state);
@@ -391,8 +421,13 @@ export function createServer(options) {
 
       send(response, 404, { status: "not_found", reason: "unknown route" });
     } catch (error) {
-      logError(error);
       const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+      if (error.publicCode === "attribution_refused") {
+        ledger.audit({ event: "attribution_refused", peer, status, ...publicFailure(error) });
+        send(response, status, { status: "rejected", ...publicFailure(error) });
+        return;
+      }
+      logError(error);
       send(response, status, { status: "rejected", ...publicFailure(error), ...(error.publicCode === "intent_conflict" ? { intentId: error.intentId } : {}) });
     }
   }
@@ -410,6 +445,7 @@ export function createServer(options) {
 
   return {
     allowlist,
+    adminAllowlist,
     gatewayPort,
     listenHost: listen.host,
     listenPort: listen.port,
