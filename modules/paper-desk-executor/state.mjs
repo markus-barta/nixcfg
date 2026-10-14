@@ -37,6 +37,8 @@ function reconRetention(value) {
   return value;
 }
 
+const RECON_COUNTED_FIELDS = ["positions", "deskPositions", "openOrders", "executions", "pnlPerDesk", "errors", "resolutions"];
+
 function reconReceipt(result) {
   const receipt = { resultCompacted: true, snapshot: "omitted", resultSha256: digest(result), omittedCounts: {} };
   for (const [key, limit] of [["status", 32], ["intentId", 64], ["desk", 8], ["action", 16], ["observedAt", 64], ["account", 32], ["code", 80], ["reason", 500]]) {
@@ -45,9 +47,11 @@ function reconReceipt(result) {
   for (const key of ["gateway", "ownershipComplete"]) if (typeof result[key] === "boolean") receipt[key] = result[key];
   if (typeof result.paperPort === "number") receipt.paperPort = result.paperPort;
   if (result.ownershipHistory) receipt.ownershipHistory = Object.fromEntries(["status", "reason"].filter((key) => typeof result.ownershipHistory[key] === "string").map((key) => [key, result.ownershipHistory[key].slice(0, key === "reason" ? 500 : 32)]));
-  for (const [key, value] of Object.entries(result)) {
-    if (Array.isArray(value)) Object.defineProperty(receipt.omittedCounts, key, { value: value.length, enumerable: true });
-    else if (value && typeof value === "object" && key !== "ownershipHistory") Object.defineProperty(receipt.omittedCounts, key, { value: Object.keys(value).length, enumerable: true });
+  // Counted fields are a fixed list (CodeQL: no property names taken from the result).
+  for (const key of RECON_COUNTED_FIELDS) {
+    const value = result[key];
+    if (Array.isArray(value)) receipt.omittedCounts[key] = value.length;
+    else if (value && typeof value === "object") receipt.omittedCounts[key] = Object.keys(value).length;
   }
   return receipt;
 }
