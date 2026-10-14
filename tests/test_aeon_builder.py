@@ -3,6 +3,7 @@
 import importlib.util
 import grp
 import io
+import copy
 import json
 import os
 import shutil
@@ -393,6 +394,20 @@ class RulesetTests(unittest.TestCase):
                     rule["parameters"]["required_status_checks"].pop()
         self.assertIn("rules changed", changed(loosen))
         self.assertEqual(ab.ruleset_problems(None, self.expected()), ["ruleset missing"])
+
+    def test_drift_detail_names_the_rule_and_parameter(self):
+        # OPS-329: the pause log must show what GitHub returned.
+        live = copy.deepcopy(LIVE_RULESET)
+        for rule in live["rules"]:
+            if rule["type"] == "merge_queue":
+                rule["parameters"]["max_entries_to_build"] = 99
+        detail = ab.ruleset_drift(live, self.expected())
+        self.assertIn("rule merge_queue: max_entries_to_build: 3 -> 99", detail)
+        dropped = dict(LIVE_RULESET, rules=[r for r in LIVE_RULESET["rules"] if r["type"] != "merge_queue"])
+        self.assertIn("rule merge_queue missing", ab.ruleset_drift(dropped, self.expected()))
+        self.assertIn("enforcement: expected", ab.ruleset_drift(dict(LIVE_RULESET, enforcement="evaluate"), self.expected()))
+        self.assertEqual(ab.ruleset_drift(None, self.expected()), "ruleset missing")
+        self.assertEqual(ab.ruleset_drift(copy.deepcopy(LIVE_RULESET), self.expected()), "no difference found on this read")
 
 
 class LockTests(unittest.TestCase):
@@ -1091,6 +1106,50 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(ctl.load_gated)
         self.assertEqual(self.state.load()["slots"], {})
         self.assertEqual(ctl.workers, {})
+        self.assertEqual(gh.cancelled, [9])
+        self.assertEqual(gh.published, [None])
+
+    def test_malformed_ruleset_still_pauses_clears_and_cancels(self):
+        # OPS-329 gate round 2: the drift diagnostic must never skip the pause.
+        def merge_queue_with(params):
+            rules = copy.deepcopy(LIVE_RULESET["rules"])
+            for rule in rules:
+                if rule["type"] == "merge_queue":
+                    rule["parameters"] = params
+            return dict(LIVE_RULESET, rules=rules)
+        shapes = {
+            "scalar rules": dict(LIVE_RULESET, rules=5),
+            "unhashable rule type": dict(LIVE_RULESET, rules=[{"type": ["merge_queue"]}]),
+            "missing and added types": dict(LIVE_RULESET, rules=[{"type": "creation"}, {"type": "update"}]),
+            "list parameters": merge_queue_with([1, 2]),
+            "scalar parameters": merge_queue_with(7),
+        }
+        for name, live in shapes.items():
+            with self.subTest(name):
+                self.state.save({"mode": "on", "slots": {}})
+                r = run(id=9)
+                job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+                gh = FakeGitHub([r], {9: [job]})
+                gh.ruleset = lambda live=live: live
+                ctl = self.controller(gh)
+                self.assertEqual(ctl.tick(), "paused")
+                self.assertEqual(gh.cancelled, [9])
+                self.assertEqual(gh.published, [None])
+
+    def test_failing_drift_log_still_pauses_clears_and_cancels(self):
+        # OPS-329 gate round 3: a lone surrogate or any logger failure must not skip the pause.
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = lambda: dict(LIVE_RULESET, rules=LIVE_RULESET["rules"] + [{"type": "\ud800"}])
+        ctl = self.controller(gh)
+        real_log = ab.log
+        def log(message):
+            if message.startswith("ruleset drift detail"):
+                raise OSError("log write failed")
+            real_log(message)
+        with patch.object(ab, "log", side_effect=log):
+            self.assertEqual(ctl.tick(), "paused")
         self.assertEqual(gh.cancelled, [9])
         self.assertEqual(gh.published, [None])
 
