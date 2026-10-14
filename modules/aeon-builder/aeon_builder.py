@@ -830,11 +830,11 @@ class Controller:
         if problems:
             # OPS-329: record exactly what differed (twice on 2026-10-14 the
             # ruleset had not changed); the fail-closed pause stays as it is.
-            try:
+            try:  # a diagnostic, computed or written, must never skip the pause below
                 detail = ruleset_drift(live, self.cfg["ruleset"]["expected"])
-            except Exception as err:  # noqa: BLE001 - a diagnostic must never skip the pause below
-                detail = f"unavailable ({type(err).__name__})"
-            log("ruleset drift detail: " + detail)
+                log("ruleset drift detail: " + detail.encode("ascii", "backslashreplace").decode("ascii"))
+            except Exception:  # noqa: BLE001
+                pass
             self.pause("main ruleset changed: " + "; ".join(problems))
         return not problems
 

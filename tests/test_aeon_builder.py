@@ -1136,6 +1136,23 @@ class ControllerTests(unittest.TestCase):
                 self.assertEqual(gh.cancelled, [9])
                 self.assertEqual(gh.published, [None])
 
+    def test_failing_drift_log_still_pauses_clears_and_cancels(self):
+        # OPS-329 gate round 3: a lone surrogate or any logger failure must not skip the pause.
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = lambda: dict(LIVE_RULESET, rules=LIVE_RULESET["rules"] + [{"type": "\ud800"}])
+        ctl = self.controller(gh)
+        real_log = ab.log
+        def log(message):
+            if message.startswith("ruleset drift detail"):
+                raise OSError("log write failed")
+            real_log(message)
+        with patch.object(ab, "log", side_effect=log):
+            self.assertEqual(ctl.tick(), "paused")
+        self.assertEqual(gh.cancelled, [9])
+        self.assertEqual(gh.published, [None])
+
     def test_load_at_or_above_low_claims_one_slot_per_tick(self):
         for load1 in (8.0, 10.0, 12.0):
             with self.subTest(load1=load1):
