@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -316,9 +316,11 @@ test("OPS-331 incident regression: a ledger above admission headroom migrates an
   t.diagnostic(`incident fixture: ${Buffer.byteLength(body)} bytes before, ${ledger.usage().ledgerBytes} bytes after migration`);
   for (const action of ["place", "flatten", "recon", "cancel", "modify-stop"]) assert.doesNotThrow(() => admitIntent(structuredClone(migrated), action));
   for (const row of Object.values(disk.intents).filter((row) => row.action === "recon")) assert.equal(row.result.resultCompacted, true);
-  const before = [ledger.statePath, ledger.backupPath, ledger.reconEvidencePath, `${ledger.reconEvidencePath}.1`].map((file) => [file, readFileSync(file, "utf8"), statSync(file).mtimeMs]);
+  // Read contents and mtime through one descriptor (no check-then-use race).
+  const snapshotOf = (file) => { const fd = openSync(file, "r"); try { return [readFileSync(fd, "utf8"), fstatSync(fd).mtimeMs]; } finally { closeSync(fd); } };
+  const before = [ledger.statePath, ledger.backupPath, ledger.reconEvidencePath, `${ledger.reconEvidencePath}.1`].map((file) => [file, ...snapshotOf(file)]);
   openLedger(ledger.root).load();
-  for (const [file, contents, mtime] of before) { assert.equal(readFileSync(file, "utf8"), contents); assert.equal(statSync(file).mtimeMs, mtime); }
+  for (const [file, contents, mtime] of before) { const [now, nowMtime] = snapshotOf(file); assert.equal(now, contents); assert.equal(nowMtime, mtime); }
   // A retry/old writer can introduce another legacy row after migration.
   disk.intents["recon-extra"] = reconRow("recon-extra");
   writeFileSync(ledger.statePath, JSON.stringify(disk));
