@@ -25,15 +25,20 @@ export const MAX_STATE_BYTES = 16 * 1024 * 1024;
 export const MAX_RECON_EVIDENCE_BYTES = 8 * 1024 * 1024;
 const MAX_AUDIT_BYTES = 1024 * 1024;
 
-function reconRetention(value = Number(process.env.PAPER_DESK_RECON_RETENTION_HOURS || 48) * 60 * 60_000) {
-  // The longest accepted intent is valid for 15 minutes. Never expire its
-  // receipt while the identical request can still pass parseIntent().
-  if (!Number.isSafeInteger(value) || value < 15 * 60_000 || value > RETENTION_MS) throw new Error("recon retention must be between 15 minutes and 14 days");
+function reconRetention(value) {
+  if (value === undefined) {
+    const hours = Number(process.env.PAPER_DESK_RECON_RETENTION_HOURS ?? 48);
+    if (!Number.isFinite(hours) || hours < 16 / 60 || hours > 336) throw new Error("PAPER_DESK_RECON_RETENTION_HOURS must be finite and between 16/60 and 336 hours (16 minutes to 14 days)");
+    value = Math.round(hours * 3_600_000);
+  }
+  // Intent validity is 15 minutes with up to 60 seconds of future clock skew.
+  // Keep the receipt for the entire accepted replay window.
+  if (!Number.isSafeInteger(value) || value < 16 * 60_000 || value > RETENTION_MS) throw new Error("recon retention must be between 16 minutes and 14 days");
   return value;
 }
 
 function reconReceipt(result) {
-  const receipt = { resultCompacted: true, resultSha256: digest(result), omittedCounts: {} };
+  const receipt = { resultCompacted: true, snapshot: "omitted", resultSha256: digest(result), omittedCounts: {} };
   for (const [key, limit] of [["status", 32], ["intentId", 64], ["desk", 8], ["action", 16], ["observedAt", 64], ["account", 32], ["code", 80], ["reason", 500]]) {
     if (typeof result[key] === "string") receipt[key] = result[key].slice(0, limit);
   }
@@ -161,13 +166,13 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     } finally { closeSync(handle); }
   }
 
-  function appendReconEvidence(rows) {
+  function appendReconEvidence(lines) {
     let current = "";
     try { current = readBounded(reconEvidencePath, MAX_RECON_EVIDENCE_BYTES); }
     catch (error) { if (error.code !== "ENOENT") throw error; }
     let bytes = Buffer.byteLength(current);
-    for (const row of rows) {
-      const line = `${JSON.stringify(row)}\n`, size = Buffer.byteLength(line);
+    for (const line of lines) {
+      const size = Buffer.byteLength(line);
       if (size > MAX_RECON_EVIDENCE_BYTES) throw new Error("recon evidence row exceeds size limit");
       if (bytes + size > MAX_RECON_EVIDENCE_BYTES) {
         // Publish the previous complete generation first. A crash between the
@@ -182,20 +187,36 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     writeAtomic(reconEvidencePath, current);
   }
 
-  function compactRecons(state) {
+  function compactRecons(state, { backedUp = false } = {}) {
     state.intents = dictionary(state.intents, "intentId");
-    const changes = [], evidence = [];
-    for (const [intentId, record] of state.intents) {
-      if (record.action !== "recon" || !record.result || record.result.resultCompacted === true) continue;
-      // Hash the JSON actually persisted/returned, including JSON's handling
-      // of undefined fields. The existing sorted-key digest is canonical.
-      const result = JSON.parse(JSON.stringify(record.result));
-      const receipt = reconReceipt(result);
-      evidence.push({ intentId, desk: record.desk, observedAt: result.observedAt || record.finishedAt || record.claimedAt, resultSha256: receipt.resultSha256, result });
-      changes.push([intentId, { ...record, result: receipt }]);
+    const changes = [];
+    function* evidenceLines() {
+      for (const [intentId, record] of state.intents) {
+        if (record.action !== "recon" || !record.result || record.result.resultCompacted === true) continue;
+        // Keep just one normalized result alive; archive strings are bounded
+        // to one generation, rather than cloning the entire legacy ledger.
+        let result = JSON.parse(JSON.stringify(record.result));
+        const receipt = reconReceipt(result);
+        changes.push([intentId, { ...record, result: receipt }]);
+        const line = `${JSON.stringify({ intentId, desk: record.desk, observedAt: result.observedAt || record.finishedAt || record.claimedAt, resultSha256: receipt.resultSha256, result })}\n`;
+        result = null;
+        yield line;
+      }
     }
-    if (evidence.length) appendReconEvidence(evidence);
-    // Evidence is durable before any full result leaves the in-memory ledger.
+    const pending = [...state.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
+    if (!pending) return;
+    try { appendReconEvidence(evidenceLines()); }
+    catch (error) {
+      if (!backedUp) throw error;
+      // Only migration has a durable, complete source before archiving. It
+      // must still unblock admission if the bounded archive is unavailable.
+      console.error(JSON.stringify({ event: "recon_migration_archive_failed", backup: path.basename(backupPath), migrationBackupAvailable: true, code: error.code || "archive_error", reason: error.message }));
+      changes.length = 0;
+      for (const [intentId, record] of state.intents) {
+        if (record.action === "recon" && record.result && record.result.resultCompacted !== true) changes.push([intentId, { ...record, result: reconReceipt(JSON.parse(JSON.stringify(record.result))) }]);
+      }
+    }
+    // The archive (or migration backup) is durable before replacing results.
     for (const [intentId, record] of changes) state.intents.set(intentId, record);
   }
 
@@ -277,10 +298,11 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
       }
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     }
-    let value, original;
+    let value, original, loadedBytes;
     try {
       const info = fstatSync(handle);
       if (!info.isFile() || info.size > MAX_STATE_BYTES) throw new Error("executor ledger exceeds size limit or is not a regular file");
+      loadedBytes = info.size;
       original = readFileSync(handle, "utf8");
       value = JSON.parse(original);
     } finally { closeSync(handle); }
@@ -290,6 +312,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
         || !Array.isArray(value.executions)) {
       throw new Error("executor state is invalid");
     }
+    if (value.reconStorageVersion !== undefined && value.reconStorageVersion !== 1) throw new Error(`unsupported reconStorageVersion: ${value.reconStorageVersion}; refusing to migrate or downgrade`);
     value.intents = dictionary(value.intents, "intentId");
     delete value.attributionConfig;
     rememberFirstOrders(value);
@@ -300,14 +323,18 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
         if (error.code !== "EEXIST") throw error;
         // An existing regular backup is immutable; a symlink/directory is not
         // a backup and must fail closed before publishing a migrated ledger.
-        readBounded(backupPath, MAX_STATE_BYTES);
+        const backup = openSync(backupPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          if (!fstatSync(backup).isFile()) throw new Error("executor backup is not a regular file");
+        } finally { closeSync(backup); }
       }
-      compactRecons(value);
+      original = null;
+      compactRecons(value, { backedUp: true });
       value.reconStorageVersion = 1;
       // Migration preserves every non-recon row, even if already expired.
       // Normal admission/save retention happens only after publication.
       persist(value);
-    } else usage();
+    } else headroom(loadedBytes);
     return value;
   }
 

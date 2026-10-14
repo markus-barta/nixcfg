@@ -47,6 +47,7 @@ let
     "PAPER_DESK_ADMIN_ALLOW=${builtins.toJSON cfg.adminPeerAllowlist}"
     "PAPER_DESK_FOREIGN_ALERT_SINCE=${cfg.foreignAlertSince}"
     "PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS=${toString cfg.foreignAlertRetentionDays}"
+    "PAPER_DESK_RECON_RETENTION_HOURS=${toString cfg.reconRetentionHours}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
@@ -105,6 +106,12 @@ in
       type = lib.types.ints.positive;
       default = 14;
       description = "Days to retain full foreign alert receipts. Compact execution receipts prevent duplicate alerts after pruning.";
+    };
+
+    reconRetentionHours = lib.mkOption {
+      type = lib.types.either lib.types.int lib.types.float;
+      default = 48;
+      description = "Hours to retain read-only recon receipts, from 16/60 (16 minutes, covering validity plus clock skew) through 336 (14 days). Fractional hours are rounded to milliseconds.";
     };
 
     image = lib.mkOption {
@@ -219,6 +226,10 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = cfg.reconRetentionHours >= 16.0 / 60.0 && cfg.reconRetentionHours <= 336;
+        message = "paperDeskExecutor reconRetentionHours must be between 16/60 and 336 hours (16 minutes to 14 days)";
+      }
       {
         assertion = stack.enable;
         message = "paperDeskExecutor requires nixcfg.composeStack";
@@ -366,7 +377,10 @@ in
       cap_drop = [ "ALL" ];
       security_opt = [ "no-new-privileges:true" ];
       pids_limit = 64;
-      mem_limit = "256m";
+      # OPS-331: the one-time recon migration of a full 16 MiB ledger peaks at
+      # about 206 MiB RSS in a bare Node 22 process (real ledger, retry included);
+      # with the server's own ~57 MiB that left too little room under 256m.
+      mem_limit = "384m";
       tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ];
       volumes = [
         "${source}:/executor:ro"
