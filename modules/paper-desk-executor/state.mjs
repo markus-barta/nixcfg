@@ -37,7 +37,7 @@ function reconRetention(value) {
   return value;
 }
 
-const RECON_COUNTED_FIELDS = ["positions", "deskPositions", "openOrders", "executions", "pnlPerDesk", "errors", "resolutions"];
+const RECON_COUNTED_FIELDS = ["positions", "deskPositions", "openOrders", "executions", "pnlPerDesk", "errors", "resolutions", "marks", "foreignPositions", "foreignExecutions"];
 
 function reconReceipt(result) {
   const receipt = { resultCompacted: true, snapshot: "omitted", resultSha256: digest(result), omittedCounts: {} };
