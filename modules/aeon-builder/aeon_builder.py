@@ -51,6 +51,9 @@ MAX_PAGES = 20
 ADMISSION_WAIT_SECONDS = 150
 ADMISSION_API_UNAVAILABLE_LIMIT = 3
 ADMISSION_API_UNAVAILABLE_WINDOW_SECONDS = 30 * 60
+# OPS-329: GitHub returned a ruleset that differed from the live one twice on
+# 2026-10-14 (nothing had changed); one re-read separates that from a change.
+RULESET_RECHECK_SECONDS = 20
 CANCEL = {"actions": "write"}
 ADMIN_READ = {"administration": "read"}
 ADMIN_WRITE = {"administration": "write"}
@@ -686,7 +689,7 @@ def prove_network_block(cfg, lima, vm="aeon-probe"):
 
 class Controller:
     def __init__(self, cfg, gh=None, lima=None, state=None, getloadavg=os.getloadavg,
-                 getmemoryfree=get_memory_free):
+                 getmemoryfree=get_memory_free, sleep=time.sleep):
         self.cfg = {**cfg, "loadHigh": float(cfg["loadHigh"]), "loadLow": float(cfg["loadLow"]),
                     "memFreeHigh": float(cfg.get("memFreeHigh", 45)), "memFreeLow": float(cfg.get("memFreeLow", 35)),
                     "memHoldSeconds": cfg.get("memHoldSeconds", 600),
@@ -696,6 +699,7 @@ class Controller:
         self.state = state or State()
         self.getloadavg = getloadavg
         self.getmemoryfree = getmemoryfree
+        self.sleep = sleep
         self.load_gated = False
         self.mem_gated = False
         self.host_gated = False
@@ -792,8 +796,16 @@ class Controller:
 
     def check_ruleset(self, force=True):
         """Always a fresh read (before every mint and every publish); `force`
-        stays for call-site clarity."""
+        stays for call-site clarity. A mismatch is read once more after
+        RULESET_RECHECK_SECONDS before it pauses (OPS-329). Nothing is minted
+        or published in between, because this call is synchronous."""
         problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
+        if problems:
+            log(f"ruleset mismatch ({'; '.join(problems)}); reading it again in {RULESET_RECHECK_SECONDS} s")
+            self.sleep(RULESET_RECHECK_SECONDS)
+            problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
+            if not problems:
+                log("ruleset matches on the second read; the first answer was transient")
         if problems:
             self.pause("main ruleset changed: " + "; ".join(problems))
         return not problems
