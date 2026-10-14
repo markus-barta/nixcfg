@@ -1003,9 +1003,10 @@ class ControllerTests(unittest.TestCase):
         self.addCleanup(state_dir.stop)
 
     def controller(self, gh, getloadavg=None, getmemoryfree=None):
+        self.sleeps = []
         ctl = ab.Controller(self.cfg, gh=gh, lima=object(), state=self.state,
                             getloadavg=getloadavg or (lambda: (0.0, 0.0, 0.0)),
-                            getmemoryfree=getmemoryfree or (lambda: 60.0))
+                            getmemoryfree=getmemoryfree or (lambda: 60.0), sleep=self.sleeps.append)
         self.served = []
         gate = threading.Event()
 
@@ -1093,6 +1094,22 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(ctl.workers, {})
         self.assertEqual(gh.cancelled, [9])
         self.assertEqual(gh.published, [None])
+        # OPS-329: it paused only after a second read also differed.
+        self.assertEqual(self.sleeps, [ab.RULESET_RECHECK_SECONDS])
+
+    def test_transient_ruleset_mismatch_neither_pauses_nor_cancels(self):
+        # OPS-329: on 2026-10-14 GitHub twice returned a ruleset that differed
+        # for one read; the pool paused and cancelled release-path runs.
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = Mock(side_effect=[dict(LIVE_RULESET, rules=[]), LIVE_RULESET])
+        ctl = self.controller(gh)
+        self.assertEqual(ctl.tick(), "on")
+        self.assertEqual(gh.ruleset.call_count, 2)
+        self.assertEqual(self.sleeps, [ab.RULESET_RECHECK_SECONDS])
+        self.assertEqual(gh.cancelled, [])
+        self.assertNotEqual(self.state.load().get("mode"), "paused")
 
     def test_load_at_or_above_low_claims_one_slot_per_tick(self):
         for load1 in (8.0, 10.0, 12.0):
