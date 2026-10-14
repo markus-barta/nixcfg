@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -55,11 +55,13 @@ const measure = `
   sample();
   peakRss = Math.max(peakRss, process.resourceUsage().maxRSS * 1024);
   const usage = ledger.usage();
-  process.stdout.write(JSON.stringify({ node: process.version, ledgerBytes: Number(process.argv[3]), receiptCount: state.intents.size, compactedBytes: usage.ledgerBytes, baseline, peakHeap, peakRss, heapDelta: peakHeap - baseline.heapUsed, rssDelta: peakRss - baseline.rss, beforeMaxRss, samples }));
+  process.stdout.write(JSON.stringify({ node: process.version, ledgerBytes: Number(process.argv[3]), receiptCount: state.intents.size, compactedBytes: usage.ledgerBytes, baseline, peakHeap, peakRss, heapDelta: peakHeap - baseline.heapUsed, rssDelta: peakRss - Math.max(baseline.rss, beforeMaxRss), beforeMaxRss, samples }));
 `;
 
 test("near-16-MiB object-shaped migration and crash retry have a bounded peak working set", async (t) => {
-  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-memory-")));
+  const root = mkdtempSync(path.join(tmpdir(), "ops331-memory-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const ledger = openLedger(root);
   ledger.load();
   const legacy = JSON.parse(readFileSync(ledger.statePath, "utf8"));
   delete legacy.reconStorageVersion;
@@ -87,7 +89,8 @@ test("near-16-MiB object-shaped migration and crash retry have a bounded peak wo
       assert.ok(metrics.samples > count * 2, "measure throughout compaction, not just its endpoints");
       assert.ok(metrics.heapDelta < ledgerBytes * 6, `heap delta exceeds six ledger sizes: ${JSON.stringify(metrics)}`);
       assert.ok(metrics.rssDelta < ledgerBytes * 11, `RSS delta exceeds eleven ledger sizes: ${JSON.stringify(metrics)}`);
-      assert.ok(metrics.peakRss < 256 * 1024 * 1024, `workstation child RSS exceeds the service memory limit: ${JSON.stringify(metrics)}`);
+      // The service limit is 384m (OPS-331); 256 MiB keeps the old ceiling as a tighter regression guard.
+      assert.ok(metrics.peakRss < 256 * 1024 * 1024, `workstation child RSS exceeds the 256 MiB regression ceiling (service limit is 384m): ${JSON.stringify(metrics)}`);
       assert.ok(metrics.compactedBytes < ledgerBytes / 10);
       assert.equal(statSync(ledger.backupPath).size, ledgerBytes);
       t.diagnostic(`migration memory (${retry ? "retry" : "first"}): ${JSON.stringify(metrics)}`);
