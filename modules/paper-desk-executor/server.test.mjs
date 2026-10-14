@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -114,13 +115,14 @@ async function post(url, body) {
 
 async function runCli(args, origin) {
   let stdout = "";
+  let stderr = "";
   const code = await runClient(args, { fetch: (url, options) => {
     const target = new URL(url);
     assert.equal(target.origin, "http://100.64.0.6:8470");
     assert.equal(options.redirect, "error");
     return fetch(`${origin}${target.pathname}${target.search}`, options);
-  }, write: (line) => { stdout += `${line}\n`; } });
-  return { code, stdout, stderr: "" };
+  }, write: (line) => { stdout += `${line}\n`; }, writeError: (line) => { stderr += `${line}\n`; } });
+  return { code, stdout, stderr };
 }
 
 test("peer allowlist rejects every source that is not listed", async (t) => {
@@ -159,6 +161,7 @@ test("recon returns the full first snapshot and compact replay/lookup receipts a
   assert.equal(first.body.resultCompacted, undefined);
   const ledger = openLedger(ctx.stateDir), receipt = ledger.load().intents.get(intent.intentId).result;
   assert.equal(receipt.resultCompacted, true);
+  assert.equal(receipt.snapshot, "omitted");
   assert.equal(receipt.resultSha256, digest(first.body));
   assert.equal(receipt.ownershipComplete, false);
   assert.deepEqual(receipt.ownershipHistory, first.body.ownershipHistory);
@@ -171,6 +174,14 @@ test("recon returns the full first snapshot and compact replay/lookup receipts a
   assert.equal(replay.status, 200);
   const lookup = await fetch(`${ctx.url}/v1/intents/${intent.intentId}`);
   assert.deepEqual(await lookup.json(), { ...receipt, ledgerStatus: "done" });
+  const cliLookup = await runCli(["status", "--intent-id", intent.intentId], ctx.url);
+  assert.equal(cliLookup.code, 0);
+  assert.equal(JSON.parse(cliLookup.stdout).snapshot, "omitted");
+  assert.match(cliLookup.stderr, /snapshot omitted.*compact receipt.*new recon intent ID/);
+  const oldReceiptState = ledger.load();
+  delete oldReceiptState.intents.get(intent.intentId).result.snapshot;
+  ledger.save(oldReceiptState);
+  assert.deepEqual(await (await fetch(`${ctx.url}/v1/intents/${intent.intentId}`)).json(), { ...receipt, ledgerStatus: "done" }, "older compact receipts also identify the omitted snapshot");
   const restarted = await start(t, { stateDir: ctx.stateDir, execute });
   assert.deepEqual((await post(restarted.url, intent)).body, { ...receipt, idempotentReplay: true });
   assert.equal((await post(restarted.url, { ...intent, desk: "j2" })).status, 409);
@@ -178,6 +189,70 @@ test("recon returns the full first snapshot and compact replay/lookup receipts a
   assert.equal(readFileSync(ledger.reconEvidencePath, "utf8").trim().split("\n").length, 1);
   const audit = readFileSync(ledger.auditPath, "utf8").trim().split("\n").map(JSON.parse).find((row) => row.event === "intent_finished");
   assert.deepEqual(audit.result, receipt, "recon audit points to evidence rather than claiming a full ledger copy");
+});
+
+test("a recon archive write failure leaves its durable claim and still admits subsequent place and flatten", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const seen = [];
+  const ctx = await start(t, { execute: async (intent) => {
+    seen.push(intent.action);
+    return { ...okResult(intent), positions: [{ symbol: "AAPL", position: 2 }], openOrders: [], executions: [] };
+  } });
+  const ledger = openLedger(ctx.stateDir);
+  ledger.load();
+  // Inject ENOSPC in the actual evidence write, after the durable claim.
+  // Other ledger writes still work, including descriptors reused afterwards.
+  const evidenceHandles = new Set();
+  let failedWrites = 0;
+  const { openSync, writeFileSync, closeSync } = fs;
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    const handle = openSync(file, ...args);
+    if (String(file).startsWith(`${ledger.reconEvidencePath}.`) && String(file).endsWith(".new")) evidenceHandles.add(handle);
+    return handle;
+  });
+  t.mock.method(fs, "writeFileSync", (file, ...args) => {
+    if (evidenceHandles.has(file)) { failedWrites++; throw Object.assign(new Error("injected evidence disk full"), { code: "ENOSPC" }); }
+    return writeFileSync(file, ...args);
+  });
+  t.mock.method(fs, "closeSync", (handle) => {
+    evidenceHandles.delete(handle);
+    return closeSync(handle);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const intent = valid({ intentId: "j-recon-archive-failed", action: "recon", order: undefined });
+  const recon = await post(ctx.url, intent);
+  assert.equal(recon.status, 500);
+  assert.equal(recon.body.code, "executor_error");
+  assert.ok(failedWrites >= 1, "fail in the evidence write rather than its path/read checks");
+  const row = ledger.load().intents.get(intent.intentId);
+  assert.equal(row.status, "claimed");
+  assert.equal(row.result, undefined);
+  const replay = await post(ctx.url, intent);
+  assert.equal(replay.status, 409);
+  assert.equal(replay.body.idempotentReplay, true);
+  for (const action of ["place", "flatten"]) {
+    const next = valid({ intentId: `j-after-archive-${action}`, action, ...(action === "flatten" ? { order: undefined } : {}) });
+    assert.equal((await post(ctx.url, next)).status, 200);
+    assert.equal(ledger.load().intents.get(next.intentId).status, "done");
+  }
+  assert.equal(ledger.load().intents.get(intent.intentId).status, "claimed");
+  assert.deepEqual(seen, ["recon", "place", "flatten"]);
+  assert.equal((await fetch(`${ctx.url}/v1/health`)).status, 200);
+});
+
+test("CLI compact recon replay keeps JSON and exit status while adding a stderr snapshot note", async () => {
+  for (const args of [["status", "--intent-id", "recon-cli-receipt"], ["recon", "--desk", "j", "--intent-id", "recon-cli-receipt"]]) {
+    const receipt = { status: "ok", action: "recon", intentId: "recon-cli-receipt", resultCompacted: true, snapshot: "omitted" };
+    let stdout, stderr;
+    const code = await runClient(args, { fetch: async () => new Response(JSON.stringify(receipt)), write: (line) => { stdout = line; }, writeError: (line) => { stderr = line; } });
+    assert.equal(code, 0);
+    assert.deepEqual(JSON.parse(stdout), receipt);
+    assert.match(stderr, /snapshot omitted.*new recon intent ID/);
+  }
+  let notes = 0;
+  assert.equal(await runClient(["health"], { fetch: async () => new Response(JSON.stringify({ status: "ok" })), write: () => {}, writeError: () => { notes++; } }), 0);
+  assert.equal(notes, 0);
 });
 
 test("idempotent resubmit returns the stored result and a different body conflicts", async (t) => {

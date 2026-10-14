@@ -110,6 +110,7 @@ export function probeGateway(host = LISTEN_HOST, port = PAPER_PORT, timeoutMs = 
 function storedResult(record) {
   if (!record?.result) return null;
   const { idempotentReplay: _ignored, ...result } = record.result;
+  if (result.resultCompacted === true) result.snapshot = "omitted";
   return result;
 }
 
