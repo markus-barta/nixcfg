@@ -10,6 +10,41 @@ docs="$repo_root/hosts/hsb0/docs/IB-GATEWAY.md"
 
 node --test "$module"/*.test.mjs
 
+# Pure module evaluation with inert packages, never a NixOS build on macOS.
+python3 - "$repo_root" <<'PY'
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+fixture = Path(sys.argv[1]) / "tests/paper-desk-executor-eval.nix"
+
+def evaluate(options):
+    return subprocess.run(
+        ["nix-instantiate", "--eval", "--strict", "--json", "--expr", f"import {fixture} {options}"],
+        capture_output=True, text=True,
+    )
+
+default = evaluate("{}")
+assert default.returncode == 0, default.stderr
+assert json.loads(default.stdout) == {"reconRetentionHours": 48, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"]}
+for hours in ["16.0 / 60.0", "0.33333333", "72", "336"]:
+    result = evaluate("{ reconRetentionHours = " + hours + "; }")
+    assert result.returncode == 0, result.stderr
+    value = json.loads(result.stdout)
+    assert len(value["retentionEnvironment"]) == 1
+    supplied = float(value["retentionEnvironment"][0].split("=", 1)[1])
+    assert 16 / 60 <= supplied <= 336, value
+for hours in ["0", "-1", "0.25", "0.26666665", "337"]:
+    result = evaluate("{ reconRetentionHours = " + hours + "; }")
+    assert result.returncode != 0, hours
+    assert "reconRetentionHours must be between 16/60 and 336 hours" in result.stderr, result.stderr
+result = evaluate('{ reconRetentionHours = "invalid"; }')
+assert result.returncode != 0
+assert "reconRetentionHours" in result.stderr
+print("OPS-331 retention module evaluation passed: default, 4 valid overrides, 5 bounds failures, invalid type")
+PY
+
 grep -Fq 'nixcfg.paperDeskExecutor.enable = true' "$host"
 grep -Fq '../../modules/paper-desk-executor' "$host"
 # The ${} is Nix interpolation in the module source, not a shell expansion.
