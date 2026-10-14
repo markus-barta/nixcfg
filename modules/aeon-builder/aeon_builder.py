@@ -51,9 +51,6 @@ MAX_PAGES = 20
 ADMISSION_WAIT_SECONDS = 150
 ADMISSION_API_UNAVAILABLE_LIMIT = 3
 ADMISSION_API_UNAVAILABLE_WINDOW_SECONDS = 30 * 60
-# OPS-329: GitHub returned a ruleset that differed from the live one twice on
-# 2026-10-14 (nothing had changed); one re-read separates that from a change.
-RULESET_RECHECK_SECONDS = 20
 CANCEL = {"actions": "write"}
 ADMIN_READ = {"administration": "read"}
 ADMIN_WRITE = {"administration": "write"}
@@ -158,6 +155,34 @@ def canonical(value):
         items = [canonical(v) for v in value]
         return sorted(items, key=lambda v: json.dumps(v, sort_keys=True))
     return value
+
+
+def ruleset_drift(ruleset, expected, limit=600):
+    """Diagnostic only (OPS-329): which rule types and parameters differ, so a
+    pause log shows what GitHub returned. Never decides anything."""
+    if not ruleset:
+        return "ruleset missing"
+    out = []
+    for key in RULESET_KEYS:
+        if key == "rules" or canonical(ruleset.get(key)) == canonical(expected.get(key)):
+            continue
+        out.append(f"{key}: expected {json.dumps(canonical(expected.get(key)))[:120]} got {json.dumps(canonical(ruleset.get(key)))[:120]}")
+    live = {r.get("type"): r for r in ruleset.get("rules") or [] if isinstance(r, dict)}
+    pinned = {r.get("type"): r for r in expected.get("rules") or [] if isinstance(r, dict)}
+    for kind in sorted(set(pinned) - set(live)):
+        out.append(f"rule {kind} missing")
+    for kind in sorted(set(live) - set(pinned)):
+        out.append(f"rule {kind} added")
+    for kind in sorted(set(live) & set(pinned)):
+        a, b = canonical(pinned[kind]), canonical(live[kind])
+        if a == b:
+            continue
+        params_a, params_b = a.get("parameters") or {}, b.get("parameters") or {}
+        diffs = [f"{k}: {json.dumps(params_a.get(k))[:60]} -> {json.dumps(params_b.get(k))[:60]}"
+                 for k in sorted(set(params_a) | set(params_b)) if params_a.get(k) != params_b.get(k)]
+        other = sorted(k for k in set(a) | set(b) if k != "parameters" and a.get(k) != b.get(k))
+        out.append(f"rule {kind}: " + "; ".join(diffs + [f"{k} differs" for k in other]))
+    return " | ".join(out)[:limit] or "no difference found on this read"
 
 
 def ruleset_problems(ruleset, expected):
@@ -689,7 +714,7 @@ def prove_network_block(cfg, lima, vm="aeon-probe"):
 
 class Controller:
     def __init__(self, cfg, gh=None, lima=None, state=None, getloadavg=os.getloadavg,
-                 getmemoryfree=get_memory_free, sleep=time.sleep):
+                 getmemoryfree=get_memory_free):
         self.cfg = {**cfg, "loadHigh": float(cfg["loadHigh"]), "loadLow": float(cfg["loadLow"]),
                     "memFreeHigh": float(cfg.get("memFreeHigh", 45)), "memFreeLow": float(cfg.get("memFreeLow", 35)),
                     "memHoldSeconds": cfg.get("memHoldSeconds", 600),
@@ -699,7 +724,6 @@ class Controller:
         self.state = state or State()
         self.getloadavg = getloadavg
         self.getmemoryfree = getmemoryfree
-        self.sleep = sleep
         self.load_gated = False
         self.mem_gated = False
         self.host_gated = False
@@ -796,17 +820,13 @@ class Controller:
 
     def check_ruleset(self, force=True):
         """Always a fresh read (before every mint and every publish); `force`
-        stays for call-site clarity. A mismatch is read once more after
-        RULESET_RECHECK_SECONDS before it pauses (OPS-329). Nothing is minted
-        or published in between, because this call is synchronous."""
-        problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
+        stays for call-site clarity."""
+        live = self.gh.ruleset()
+        problems = ruleset_problems(live, self.cfg["ruleset"]["expected"])
         if problems:
-            log(f"ruleset mismatch ({'; '.join(problems)}); reading it again in {RULESET_RECHECK_SECONDS} s")
-            self.sleep(RULESET_RECHECK_SECONDS)
-            problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
-            if not problems:
-                log("ruleset matches on the second read; the first answer was transient")
-        if problems:
+            # OPS-329: record exactly what differed (twice on 2026-10-14 the
+            # ruleset had not changed); the fail-closed pause stays as it is.
+            log("ruleset drift detail: " + ruleset_drift(live, self.cfg["ruleset"]["expected"]))
             self.pause("main ruleset changed: " + "; ".join(problems))
         return not problems
 
