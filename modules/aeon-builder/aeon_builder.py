@@ -167,8 +167,10 @@ def ruleset_drift(ruleset, expected, limit=600):
         if key == "rules" or canonical(ruleset.get(key)) == canonical(expected.get(key)):
             continue
         out.append(f"{key}: expected {json.dumps(canonical(expected.get(key)))[:120]} got {json.dumps(canonical(ruleset.get(key)))[:120]}")
-    live = {r.get("type"): r for r in ruleset.get("rules") or [] if isinstance(r, dict)}
-    pinned = {r.get("type"): r for r in expected.get("rules") or [] if isinstance(r, dict)}
+    def by_type(rules):
+        rules = rules if isinstance(rules, list) else []
+        return {str(r.get("type")): r for r in rules if isinstance(r, dict)}
+    live, pinned = by_type(ruleset.get("rules")), by_type(expected.get("rules"))
     for kind in sorted(set(pinned) - set(live)):
         out.append(f"rule {kind} missing")
     for kind in sorted(set(live) - set(pinned)):
@@ -177,7 +179,9 @@ def ruleset_drift(ruleset, expected, limit=600):
         a, b = canonical(pinned[kind]), canonical(live[kind])
         if a == b:
             continue
-        params_a, params_b = a.get("parameters") or {}, b.get("parameters") or {}
+        params_a, params_b = a.get("parameters"), b.get("parameters")
+        params_a = params_a if isinstance(params_a, dict) else {"(parameters)": params_a}
+        params_b = params_b if isinstance(params_b, dict) else {"(parameters)": params_b}
         diffs = [f"{k}: {json.dumps(params_a.get(k))[:60]} -> {json.dumps(params_b.get(k))[:60]}"
                  for k in sorted(set(params_a) | set(params_b)) if params_a.get(k) != params_b.get(k)]
         other = sorted(k for k in set(a) | set(b) if k != "parameters" and a.get(k) != b.get(k))
@@ -826,7 +830,11 @@ class Controller:
         if problems:
             # OPS-329: record exactly what differed (twice on 2026-10-14 the
             # ruleset had not changed); the fail-closed pause stays as it is.
-            log("ruleset drift detail: " + ruleset_drift(live, self.cfg["ruleset"]["expected"]))
+            try:
+                detail = ruleset_drift(live, self.cfg["ruleset"]["expected"])
+            except Exception as err:  # noqa: BLE001 - a diagnostic must never skip the pause below
+                detail = f"unavailable ({type(err).__name__})"
+            log("ruleset drift detail: " + detail)
             self.pause("main ruleset changed: " + "; ".join(problems))
         return not problems
 
