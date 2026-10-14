@@ -1109,6 +1109,33 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [9])
         self.assertEqual(gh.published, [None])
 
+    def test_malformed_ruleset_still_pauses_clears_and_cancels(self):
+        # OPS-329 gate round 2: the drift diagnostic must never skip the pause.
+        def merge_queue_with(params):
+            rules = copy.deepcopy(LIVE_RULESET["rules"])
+            for rule in rules:
+                if rule["type"] == "merge_queue":
+                    rule["parameters"] = params
+            return dict(LIVE_RULESET, rules=rules)
+        shapes = {
+            "scalar rules": dict(LIVE_RULESET, rules=5),
+            "unhashable rule type": dict(LIVE_RULESET, rules=[{"type": ["merge_queue"]}]),
+            "missing and added types": dict(LIVE_RULESET, rules=[{"type": "creation"}, {"type": "update"}]),
+            "list parameters": merge_queue_with([1, 2]),
+            "scalar parameters": merge_queue_with(7),
+        }
+        for name, live in shapes.items():
+            with self.subTest(name):
+                self.state.save({"mode": "on", "slots": {}})
+                r = run(id=9)
+                job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+                gh = FakeGitHub([r], {9: [job]})
+                gh.ruleset = lambda live=live: live
+                ctl = self.controller(gh)
+                self.assertEqual(ctl.tick(), "paused")
+                self.assertEqual(gh.cancelled, [9])
+                self.assertEqual(gh.published, [None])
+
     def test_load_at_or_above_low_claims_one_slot_per_tick(self):
         for load1 in (8.0, 10.0, 12.0):
             with self.subTest(load1=load1):
