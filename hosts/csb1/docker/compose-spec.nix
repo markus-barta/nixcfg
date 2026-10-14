@@ -176,7 +176,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261013103112.0.0@sha256:8f815feddb8c1bd58a251c98bec0c0151e6aa9d3d8ee4ae3661882c76267a9dc"; # release 132 Pastel Plume (AEON-1300): incident hotfix on 131 — AEON-1280 GitHub installation-token fix only (first official hotfix path)
+      image = "ghcr.io/inspr-at/aeon:261014191553.0.0@sha256:ea3d0ec7199e89f20e636a1b1a6db756d3951d7c90f69e8e9fb3571adb514f5e"; # release 133 Rising Rover (AEON-1364): learnings P1+P2 on the Desk, Desk decide fix, one builder per ticket, plain-English agent rows, settings deep-link fix; migrations 1342-1348, 1350
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
