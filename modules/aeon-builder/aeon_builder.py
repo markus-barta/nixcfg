@@ -157,6 +157,38 @@ def canonical(value):
     return value
 
 
+def ruleset_drift(ruleset, expected, limit=600):
+    """Diagnostic only (OPS-329): which rule types and parameters differ, so a
+    pause log shows what GitHub returned. Never decides anything."""
+    if not ruleset:
+        return "ruleset missing"
+    out = []
+    for key in RULESET_KEYS:
+        if key == "rules" or canonical(ruleset.get(key)) == canonical(expected.get(key)):
+            continue
+        out.append(f"{key}: expected {json.dumps(canonical(expected.get(key)))[:120]} got {json.dumps(canonical(ruleset.get(key)))[:120]}")
+    def by_type(rules):
+        rules = rules if isinstance(rules, list) else []
+        return {str(r.get("type")): r for r in rules if isinstance(r, dict)}
+    live, pinned = by_type(ruleset.get("rules")), by_type(expected.get("rules"))
+    for kind in sorted(set(pinned) - set(live)):
+        out.append(f"rule {kind} missing")
+    for kind in sorted(set(live) - set(pinned)):
+        out.append(f"rule {kind} added")
+    for kind in sorted(set(live) & set(pinned)):
+        a, b = canonical(pinned[kind]), canonical(live[kind])
+        if a == b:
+            continue
+        params_a, params_b = a.get("parameters"), b.get("parameters")
+        params_a = params_a if isinstance(params_a, dict) else {"(parameters)": params_a}
+        params_b = params_b if isinstance(params_b, dict) else {"(parameters)": params_b}
+        diffs = [f"{k}: {json.dumps(params_a.get(k))[:60]} -> {json.dumps(params_b.get(k))[:60]}"
+                 for k in sorted(set(params_a) | set(params_b)) if params_a.get(k) != params_b.get(k)]
+        other = sorted(k for k in set(a) | set(b) if k != "parameters" and a.get(k) != b.get(k))
+        out.append(f"rule {kind}: " + "; ".join(diffs + [f"{k} differs" for k in other]))
+    return " | ".join(out)[:limit] or "no difference found on this read"
+
+
 def ruleset_problems(ruleset, expected):
     """The live main ruleset must equal the pinned one exactly (AEON-438):
     enforcement, target, ref conditions, bypass actors, rules and parameters."""
@@ -793,8 +825,16 @@ class Controller:
     def check_ruleset(self, force=True):
         """Always a fresh read (before every mint and every publish); `force`
         stays for call-site clarity."""
-        problems = ruleset_problems(self.gh.ruleset(), self.cfg["ruleset"]["expected"])
+        live = self.gh.ruleset()
+        problems = ruleset_problems(live, self.cfg["ruleset"]["expected"])
         if problems:
+            # OPS-329: record exactly what differed (twice on 2026-10-14 the
+            # ruleset had not changed); the fail-closed pause stays as it is.
+            try:  # a diagnostic, computed or written, must never skip the pause below
+                detail = ruleset_drift(live, self.cfg["ruleset"]["expected"])
+                log("ruleset drift detail: " + detail.encode("ascii", "backslashreplace").decode("ascii"))
+            except Exception:  # noqa: BLE001
+                pass
             self.pause("main ruleset changed: " + "; ".join(problems))
         return not problems
 
