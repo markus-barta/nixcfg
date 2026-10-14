@@ -72,7 +72,7 @@ function intentEnvelope(parsed, action) {
   return intent;
 }
 
-export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, write = (line) => console.log(line) } = {}) {
+export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, write = (line) => console.log(line), writeError = (line) => console.error(line) } = {}) {
   try {
     const [command, ...rest] = argv;
     if (!command || command === "--help" || command === "-h") fail(usage());
@@ -91,6 +91,7 @@ export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, wri
     let result;
     try { result = JSON.parse(text); } catch { result = { status: "rejected", reason: text.slice(0, 500) }; }
     write(JSON.stringify(result));
+    if (result.resultCompacted === true) writeError("Recon snapshot omitted: this is a compact receipt. Request a new recon intent ID for positions, open orders and executions.");
     return response.ok && ["ok", "halted"].includes(result.status) ? 0 : 1;
   } catch (error) {
     write(JSON.stringify({ status: "rejected", reason: String(error?.message || error).slice(0, 500) }));

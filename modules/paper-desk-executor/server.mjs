@@ -110,10 +110,11 @@ export function probeGateway(host = LISTEN_HOST, port = PAPER_PORT, timeoutMs = 
 function storedResult(record) {
   if (!record?.result) return null;
   const { idempotentReplay: _ignored, ...result } = record.result;
+  if (result.resultCompacted === true) result.snapshot = "omitted";
   return result;
 }
 
-function claimRecord(state, intent) {
+function claimRecord(state, intent, ledger) {
   const hash = digest(intent);
   const prior = state.intents.get(intent.intentId);
   if (prior) {
@@ -136,7 +137,7 @@ function claimRecord(state, intent) {
     }
     return { replay: { ...storedResult(prior), idempotentReplay: true } };
   }
-  admitIntent(state);
+  admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs });
   state.intents.set(intent.intentId, {
     hash,
     action: intent.action,
@@ -177,7 +178,7 @@ export function createServer(options) {
     { testMode, orderAllowlist: allowlist },
   );
   const attribution = attributionConfig(options.attributionConfig);
-  const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state");
+  const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state", { reconRetentionMs: options.reconRetentionMs });
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
   const marketData = createMarketData({ ...options.marketData, bookClientId: options.book?.clientId });
@@ -277,6 +278,7 @@ export function createServer(options) {
               gatewayHost,
               gatewayPort,
               account: ACCOUNT,
+              ...ledger.usage(),
               halt: activeHalt(ledger.haltBody()),
               brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
             };
@@ -364,7 +366,7 @@ export function createServer(options) {
         }
         const outcome = await exclusive(async () => {
           const state = ledger.load();
-          const claimed = claimRecord(state, intent);
+          const claimed = claimRecord(state, intent, ledger);
           if (claimed.replay) return claimed.replay;
           ledger.save(state);
           ledger.audit({
@@ -396,7 +398,7 @@ export function createServer(options) {
             const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
             finish(state, intent, status, result);
             ledger.save(state);
-            ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result });
+            ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
             return result;
           } catch (error) {
             logError(error);
@@ -411,7 +413,7 @@ export function createServer(options) {
             };
             finish(state, intent, status, result);
             ledger.save(state);
-            ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result });
+            ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
             return result;
           }
         });
