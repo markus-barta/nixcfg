@@ -336,6 +336,38 @@ only, a fresh IB USD/EUR rate plus a 2% buffer, and no adding to a name that
 already has a position or working order. The paper-only initialization-day
 brake is optional (`nixcfg.paperDeskExecutor.blockOnInitDay`, default false).
 `GET /v1/health` reports daily usage and last-reconciled concurrent usage by desk.
+It also reports `ledgerBytes`, `ledgerMaxBytes` (16 MiB) and `ledgerPercent`;
+the executor logs one warning per crossing of 75% usage.
+
+Recon persistence (OPS-331): the first `POST /v1/intents` response contains the
+full observed snapshot. Repeating its intent ID or looking it up returns a
+compact receipt with `resultCompacted: true`, the original status, observation
+time and ownership-completeness/history status, a sorted-key canonical JSON
+`resultSha256`, and `omittedCounts` (array lengths/object entry counts).
+Replay never reconnects to IB or presents a newer observation under the old ID;
+request a new recon ID for a fresh snapshot. These receipts are not ownership
+proofs: attribution and brakes continue to use the ledger's top-level executions,
+placements, first-order dates, ownership snapshot and attribution journal.
+
+Full recon results are written before compaction to
+`/var/lib/paper-desk-executor/recon-evidence.jsonl`. Every line includes intent ID,
+desk, observation time, digest and full result. Each file is capped at 8 MiB;
+the current file and `.1` are the two retained generations. Publication uses
+0600 temporary files, file fsync, atomic rename and directory fsync. Rotation
+can expire old full snapshots before their receipts expire; the digest remains.
+An individual result exceeding 8 MiB fails persistence without compaction.
+On the first load of a legacy ledger, a never-overwritten 0600
+`ledger.pre-ops331.json` preserves the entire original, then legacy recon results
+are archived and compacted automatically. Migration preserves non-recon rows
+and ownership state; repeated loads do not repeat the migration. Keep that
+backup as the full migration evidence and rollback source.
+
+Recon receipts, including interrupted read-only claims, expire after 48 hours.
+`PAPER_DESK_RECON_RETENTION_HOURS` can configure 0.25–336 hours; the minimum covers
+the 15-minute request-validity/replay window. State-changing intents retain
+their full results for the existing 14 days, and unresolved state-changing
+claims remain retained. Recon has a separate 5000-claim budget: exhausting it
+refuses another recon while preserving admission for state-changing intents.
 
 Place accepts `orderRef: "desk|yymmdd|thesis-id"` (CLI `--order-ref`); omitting
 it generates a desk tag from the intent ID and host New York day. Desk names

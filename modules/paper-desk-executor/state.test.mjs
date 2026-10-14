@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { admitIntent, openLedger, pruneState, RETENTION_MS } from "./state.mjs";
-import { newYorkDay } from "./policy.mjs";
+import { admitIntent, MAX_RECON_EVIDENCE_BYTES, MAX_STATE_BYTES, openLedger, pruneState, RECON_RETENTION_MS, RETENTION_MS } from "./state.mjs";
+import { digest, newYorkDay } from "./policy.mjs";
 
 test("retention preserves recent idempotency and unresolved evidence while pruning expired terminal claims", () => {
   const now = Date.now();
@@ -161,4 +161,199 @@ test("unresolved stop modifications retain their bracket beyond normal placement
   state.placements = ["reserved", "uncertain", "submitted"].map((status) => ({ desk: "j", symbol: "AAPL", reservedAt: old, status: "submitted", stopHistory: [{ at: old, from: 95, to: 100, intentId: `j-stop-${status}`, status }] }));
   ledger.save(state);
   assert.deepEqual(ledger.load().placements.map((row) => row.stopHistory[0].status), ["reserved", "uncertain"]);
+});
+
+function reconRow(intentId, payload = "evidence", at = new Date().toISOString()) {
+  return { action: "recon", desk: "j", hash: `hash-${intentId}`, status: "done", claimedAt: at, finishedAt: at, result: {
+    status: "ok", intentId, desk: "j", action: "recon", observedAt: at,
+    account: "DU0000000", gateway: true, ownershipComplete: true,
+    ownershipHistory: { status: "complete" },
+    positions: [], openOrders: [], executions: [{ payload }], pnlPerDesk: { j: { realized: 10 } },
+  } };
+}
+
+function evidenceRows(ledger, file = ledger.reconEvidencePath) {
+  return readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+}
+
+test("thousands of recon snapshots persist far below the byte limit with matching canonical evidence", () => {
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-many-")));
+  const state = ledger.load();
+  for (let index = 0; index < 4000; index++) {
+    const id = `recon-${String(index).padStart(4, "0")}`;
+    state.intents.set(id, reconRow(id, "x".repeat(2500)));
+  }
+  ledger.save(state);
+  assert.ok(statSync(ledger.statePath).size < MAX_STATE_BYTES / 5);
+  assert.equal(ledger.load().intents.size, 4000);
+  assert.doesNotThrow(() => admitIntent(state, "place"));
+  const rows = evidenceRows(ledger);
+  for (const row of rows) {
+    const receipt = state.intents.get(row.intentId).result;
+    assert.equal(row.resultSha256, digest(row.result));
+    assert.equal(row.resultSha256, receipt.resultSha256);
+    assert.equal(receipt.executions, undefined);
+    assert.deepEqual(receipt.omittedCounts, { positions: 0, openOrders: 0, executions: 1, pnlPerDesk: 1 });
+    assert.equal(row.desk, "j"); assert.equal(row.observedAt, row.result.observedAt);
+  }
+  const row = rows[0], reversed = Object.fromEntries(Object.entries(row.result).reverse());
+  assert.equal(digest(reversed), row.resultSha256, "object key order does not change the digest");
+  for (const file of [ledger.reconEvidencePath, `${ledger.reconEvidencePath}.1`]) {
+    assert.ok(statSync(file).size <= MAX_RECON_EVIDENCE_BYTES);
+    assert.equal(statSync(file).mode & 0o777, 0o600);
+  }
+});
+
+test("recon count exhaustion cannot exhaust the state-changing claim budget", () => {
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-count-")));
+  const state = ledger.load();
+  for (let index = 0; index < 5000; index++) state.intents.set(`recon-${index.toString().padStart(4, "0")}`, { action: "recon", status: "claimed", claimedAt: new Date().toISOString() });
+  assert.throws(() => admitIntent(state, "recon"), /capacity/);
+  for (const action of ["place", "flatten", "cancel", "modify-stop"]) assert.doesNotThrow(() => admitIntent(state, action));
+});
+
+test("48-hour recon retention preserves the replay window and leaves full state-changing results for 14 days", () => {
+  const now = Date.now(), recent = new Date(now - RECON_RETENTION_MS + 1).toISOString();
+  const old = new Date(now - RECON_RETENTION_MS - 1).toISOString();
+  const state = { intents: new Map([
+    ["recon-recent", reconRow("recon-recent", "recent", recent)],
+    ...["done", "claimed", "uncertain"].map((status) => [`recon-${status}`, { ...reconRow(`recon-${status}`, "old", old), status }]),
+    ...["place", "flatten", "cancel", "modify-stop"].map((action) => [`mutation-${action}`, { ...reconRow(`mutation-${action}`, "full mutation evidence", old), action }]),
+    ["mutation-uncertain", { action: "place", status: "uncertain", claimedAt: new Date(now - RETENTION_MS - 1).toISOString(), result: { evidence: "unresolved" } }],
+  ]), placements: [], executions: [] };
+  const results = [...state.intents].filter(([id]) => id.startsWith("mutation-")).map(([id, row]) => [id, row.result]);
+  pruneState(state, now);
+  assert.equal(state.intents.has("recon-recent"), true);
+  for (const status of ["done", "claimed", "uncertain"]) assert.equal(state.intents.has(`recon-${status}`), false);
+  for (const [id, result] of results) assert.deepEqual(state.intents.get(id).result, result);
+  pruneState(state, Date.parse(old) + RETENTION_MS);
+  for (const [id] of results) assert.equal(state.intents.has(id), true);
+  pruneState(state, Date.parse(old) + RETENTION_MS + 1);
+  assert.deepEqual([...state.intents.keys()], ["mutation-uncertain"]);
+
+  const custom = { intents: { "custom-recon": reconRow("custom-recon", "custom", old) }, placements: [], executions: [] };
+  pruneState(custom, now, { reconRetentionMs: 72 * 60 * 60_000 });
+  assert.equal(custom.intents.size, 1);
+  for (const value of [0, -1, 14 * 60_000, RETENTION_MS + 1, NaN, Infinity]) assert.throws(() => openLedger("/unused", { reconRetentionMs: value }), /recon retention/);
+  assert.doesNotThrow(() => openLedger("/unused", { reconRetentionMs: 15 * 60_000 }));
+});
+
+test("OPS-331 incident regression: a ledger above admission headroom migrates and immediately admits new intents", (t) => {
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-incident-")));
+  ledger.load();
+  const legacy = JSON.parse(readFileSync(ledger.statePath, "utf8"));
+  delete legacy.reconStorageVersion;
+  for (let index = 0; index < 269; index++) {
+    const id = `recon-${index.toString().padStart(4, "0")}`;
+    legacy.intents[id] = reconRow(id, "x".repeat(60200));
+  }
+  legacy.executions = [{ evidence: "x".repeat(201000) }];
+  legacy.foreignAlerts = [{ at: new Date().toISOString(), evidence: "x".repeat(148000) }];
+  // Even already-expired non-recon evidence must survive the migration itself.
+  legacy.intents["mutation-old-place"] = { ...reconRow("mutation-old-place", "full", new Date(Date.now() - RETENTION_MS - 1).toISOString()), action: "place" };
+  legacy.placements = [{ desk: "j", symbol: "AAPL", status: "filled", reservedAt: new Date().toISOString(), orderIds: [1, 2], stopHistory: [{ status: "uncertain" }] }];
+  legacy.firstOrders = { j: { AAPL: "2026-10-01" } };
+  legacy.attributionJournal = [{ evidence: "assignment retained" }];
+  legacy.ownershipSnapshot = { account: "DU0000000", positions: [{ symbol: "AAPL", position: 2 }], ownershipComplete: true };
+  legacy.ownershipComplete = true;
+  const body = `${JSON.stringify(legacy)}\n`;
+  assert.ok(Buffer.byteLength(body) > MAX_STATE_BYTES - 262144);
+  assert.ok(Buffer.byteLength(body) < MAX_STATE_BYTES);
+  assert.throws(() => admitIntent(structuredClone(legacy), "place"), /capacity/, "reproduce the old refusal before migration");
+  writeFileSync(ledger.statePath, body);
+
+  const migrated = ledger.load();
+  assert.doesNotThrow(() => admitIntent(structuredClone(migrated), "place"), "migration must unblock the old admission refusal immediately");
+  assert.equal(readFileSync(ledger.backupPath, "utf8"), body);
+  assert.equal(statSync(ledger.backupPath).mode & 0o777, 0o600);
+  assert.equal(migrated.intents.get("mutation-old-place").result.executions[0].payload, "full");
+  const disk = JSON.parse(readFileSync(ledger.statePath, "utf8"));
+  for (const key of ["executions", "placements", "firstOrders", "foreignAlerts", "attributionJournal", "ownershipSnapshot", "ownershipComplete"]) assert.deepEqual(disk[key], legacy[key]);
+  assert.ok(ledger.usage().ledgerBytes < 1024 * 1024);
+  t.diagnostic(`incident fixture: ${Buffer.byteLength(body)} bytes before, ${ledger.usage().ledgerBytes} bytes after migration`);
+  for (const action of ["place", "flatten", "recon", "cancel", "modify-stop"]) assert.doesNotThrow(() => admitIntent(structuredClone(migrated), action));
+  for (const row of Object.values(disk.intents).filter((row) => row.action === "recon")) assert.equal(row.result.resultCompacted, true);
+  const before = [ledger.statePath, ledger.backupPath, ledger.reconEvidencePath, `${ledger.reconEvidencePath}.1`].map((file) => [file, readFileSync(file, "utf8"), statSync(file).mtimeMs]);
+  openLedger(ledger.root).load();
+  for (const [file, contents, mtime] of before) { assert.equal(readFileSync(file, "utf8"), contents); assert.equal(statSync(file).mtimeMs, mtime); }
+  // A retry/old writer can introduce another legacy row after migration.
+  disk.intents["recon-extra"] = reconRow("recon-extra");
+  writeFileSync(ledger.statePath, JSON.stringify(disk));
+  ledger.load();
+  assert.equal(readFileSync(ledger.backupPath, "utf8"), body, "the original backup is never overwritten");
+  assert.equal(evidenceRows(ledger).at(-1).intentId, "recon-extra");
+});
+
+test("recon evidence rotation retains two complete 0600 generations and repeated saves append nothing", () => {
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-rotation-")));
+  const state = ledger.load();
+  for (let index = 0; index < 4; index++) {
+    const id = `recon-rotate-${index}`;
+    state.intents.set(id, reconRow(id, "x".repeat(4 * 1024 * 1024)));
+    ledger.save(state);
+  }
+  assert.deepEqual(evidenceRows(ledger).map((row) => row.intentId), ["recon-rotate-3"]);
+  assert.deepEqual(evidenceRows(ledger, `${ledger.reconEvidencePath}.1`).map((row) => row.intentId), ["recon-rotate-2"]);
+  const files = readdirSync(ledger.root).filter((file) => file.startsWith("recon-evidence"));
+  assert.deepEqual(files.sort(), ["recon-evidence.jsonl", "recon-evidence.jsonl.1"]);
+  const before = files.map((file) => [file, statSync(path.join(ledger.root, file)).mtimeMs]);
+  ledger.save(state);
+  for (const [file, mtime] of before) {
+    assert.equal(statSync(path.join(ledger.root, file)).mtimeMs, mtime);
+    assert.equal(statSync(path.join(ledger.root, file)).mode & 0o777, 0o600);
+    assert.ok(statSync(path.join(ledger.root, file)).size <= MAX_RECON_EVIDENCE_BYTES);
+  }
+});
+
+test("migration fails closed on unusable backup or evidence paths without replacing the original ledger", () => {
+  for (const blocked of ["backup", "evidence"]) {
+    const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-failure-")));
+    ledger.load();
+    const value = JSON.parse(readFileSync(ledger.statePath, "utf8"));
+    delete value.reconStorageVersion;
+    value.intents["recon-failure"] = reconRow("recon-failure");
+    const body = JSON.stringify(value);
+    writeFileSync(ledger.statePath, body);
+    mkdirSync(blocked === "backup" ? ledger.backupPath : ledger.reconEvidencePath);
+    assert.throws(() => ledger.load(), /not a regular file/);
+    assert.equal(readFileSync(ledger.statePath, "utf8"), body);
+    if (blocked === "evidence") assert.equal(readFileSync(ledger.backupPath, "utf8"), body);
+  }
+});
+
+test("recon evidence rejects symlinks and oversized individual results before compacting", () => {
+  for (const blocked of ["link", "size"]) {
+    const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-evidence-boundary-")));
+    const state = ledger.load(), before = readFileSync(ledger.statePath, "utf8");
+    const id = "recon-boundary", row = reconRow(id, "x".repeat(blocked === "size" ? MAX_RECON_EVIDENCE_BYTES : 1));
+    state.intents.set(id, row);
+    const victim = path.join(ledger.root, "unrelated.txt");
+    writeFileSync(victim, "preserve me");
+    if (blocked === "link") symlinkSync(victim, ledger.reconEvidencePath);
+    assert.throws(() => ledger.save(state), blocked === "link" ? /ELOOP/ : /evidence row exceeds size limit/);
+    assert.equal(readFileSync(ledger.statePath, "utf8"), before);
+    assert.equal(state.intents.get(id), row);
+    assert.equal(readFileSync(victim, "utf8"), "preserve me");
+    assert.equal(existsSync(ledger.backupPath), false, "new ledgers do not create migration backups");
+  }
+});
+
+test("headroom reports disk bytes and emits one warning per 75-percent crossing", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const ledger = openLedger(mkdtempSync(path.join(tmpdir(), "ops331-headroom-")));
+  const state = ledger.load();
+  state.intents.set("mutation-large", { action: "place", status: "uncertain", result: { evidence: "x".repeat(12 * 1024 * 1024) } });
+  ledger.save(state);
+  const usage = ledger.usage();
+  assert.equal(usage.ledgerBytes, statSync(ledger.statePath).size);
+  assert.equal(usage.ledgerPercent, usage.ledgerBytes / MAX_STATE_BYTES * 100);
+  assert.equal(usage.ledgerMaxBytes, MAX_STATE_BYTES);
+  assert.ok(usage.ledgerPercent >= 75);
+  ledger.load(); ledger.usage(); ledger.save(state);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.equal(JSON.parse(warn.mock.calls[0].arguments[0]).event, "ledger_headroom_warning");
+  state.intents.delete("mutation-large"); ledger.save(state);
+  state.intents.set("mutation-large", { action: "place", status: "uncertain", result: { evidence: "x".repeat(12 * 1024 * 1024) } });
+  ledger.save(state);
+  assert.equal(warn.mock.callCount(), 2);
 });

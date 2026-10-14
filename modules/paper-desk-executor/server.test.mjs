@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import { runClient } from "./client/paper-intent.mjs";
 
 import { digest, parseIntent } from "./policy.mjs";
 import { createServer } from "./server.mjs";
-import { openLedger } from "./state.mjs";
+import { MAX_STATE_BYTES, openLedger } from "./state.mjs";
 
 // Exercise the real HTTP handler without requiring a listening socket. The
 // separate security tests check production bind constraints; live transport
@@ -139,6 +139,45 @@ test("peer allowlist rejects every source that is not listed", async (t) => {
   assert.equal(body.brakes.dailyRiskEurLimit, 50);
   assert.equal(body.brakes.placementBlockedOnInitDay, false);
   assert.deepEqual(body.brakes.keep, ["SXR8", "TSLA"]);
+  assert.equal(body.ledgerBytes, statSync(openLedger(allowed.stateDir).statePath).size);
+  assert.equal(body.ledgerPercent, body.ledgerBytes / MAX_STATE_BYTES * 100);
+  assert.equal(body.ledgerMaxBytes, MAX_STATE_BYTES);
+});
+
+test("recon returns the full first snapshot and compact replay/lookup receipts after restart without broker calls", async (t) => {
+  t.mock.method(console, "error", () => {});
+  let calls = 0;
+  const execute = async (intent) => {
+    calls++;
+    return { ...okResult(intent), observedAt: new Date().toISOString(), ownershipComplete: false, ownershipHistory: { status: "unavailable", reason: "history gap" }, executions: [{ details: "x".repeat(70000) }], positions: [], openOrders: [], resolutions: { "place-uncertain": { status: "partial" } } };
+  };
+  const ctx = await start(t, { execute });
+  const intent = valid({ intentId: "j-recon-receipt", action: "recon", order: undefined });
+  const first = await post(ctx.url, intent);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.executions[0].details.length, 70000);
+  assert.equal(first.body.resultCompacted, undefined);
+  const ledger = openLedger(ctx.stateDir), receipt = ledger.load().intents.get(intent.intentId).result;
+  assert.equal(receipt.resultCompacted, true);
+  assert.equal(receipt.resultSha256, digest(first.body));
+  assert.equal(receipt.ownershipComplete, false);
+  assert.deepEqual(receipt.ownershipHistory, first.body.ownershipHistory);
+  assert.deepEqual(receipt.omittedCounts, { executions: 1, positions: 0, openOrders: 0, resolutions: 1 });
+  const evidence = JSON.parse(readFileSync(ledger.reconEvidencePath, "utf8"));
+  assert.deepEqual(evidence.result, first.body);
+  assert.equal(evidence.resultSha256, receipt.resultSha256);
+  const replay = await post(ctx.url, intent);
+  assert.deepEqual(replay.body, { ...receipt, idempotentReplay: true });
+  assert.equal(replay.status, 200);
+  const lookup = await fetch(`${ctx.url}/v1/intents/${intent.intentId}`);
+  assert.deepEqual(await lookup.json(), { ...receipt, ledgerStatus: "done" });
+  const restarted = await start(t, { stateDir: ctx.stateDir, execute });
+  assert.deepEqual((await post(restarted.url, intent)).body, { ...receipt, idempotentReplay: true });
+  assert.equal((await post(restarted.url, { ...intent, desk: "j2" })).status, 409);
+  assert.equal(calls, 1);
+  assert.equal(readFileSync(ledger.reconEvidencePath, "utf8").trim().split("\n").length, 1);
+  const audit = readFileSync(ledger.auditPath, "utf8").trim().split("\n").map(JSON.parse).find((row) => row.event === "intent_finished");
+  assert.deepEqual(audit.result, receipt, "recon audit points to evidence rather than claiming a full ledger copy");
 });
 
 test("idempotent resubmit returns the stored result and a different body conflicts", async (t) => {
