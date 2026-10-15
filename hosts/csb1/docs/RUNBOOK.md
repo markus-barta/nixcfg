@@ -148,7 +148,7 @@ restored separately from the runbook backup.
 
 ### jhw22-wp.hausv.org WEG heat-pump page (OPS-340)
 
-`jhw22-wp` serves `https://jhw22-wp.hausv.org/`: one static page about a heat-pump plan
+`jhw22-wp` serves `https://jhw22-wp.hausv.org/`: one static page (index.html plus local illustrations in `img/`) about a heat-pump plan
 for Markus's WEG. It is public by decision (Markus, 2026-10-15): the in-page PIN only
 keeps casual visitors out (it compares a SHA-256 hash in the browser), so the page must
 never contain data that can be traced to a person, unit or address. OPS reviews every
