@@ -137,3 +137,15 @@ resource "cloudflare_record" "notify_resend_dkim_txt" {
   tags    = []
 }
 
+
+# OPS-340: public static page for a private WEG heat-pump project (in-page PIN only, noindex), served by csb1.
+resource "cloudflare_record" "jhw22_wp_cname" {
+  zone_id = local.zone_id
+  type    = "CNAME"
+  name    = "jhw22-wp"
+  content = "cs1.barta.cm"
+  proxied = true
+  ttl     = 1
+  comment = "OPS-340 public WEG heat-pump page on csb1"
+  tags    = []
+}
