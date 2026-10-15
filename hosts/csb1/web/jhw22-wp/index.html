@@ -2042,7 +2042,13 @@ var WPM = (function () {
      the wider of its two states (hot water off / on), so a toggle never changes a column, even in a closed section. */
   function C(h, c) { return { h: String(h), c: c || '' }; }
   function R(cells, c) { return { cells: cells, c: c || '' }; }
-  function plain(h) { return String(h).replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, 'x'); }
+  /* Visible text of a cell, only for the width estimate below (never inserted into the page): drop tags by scanning
+     instead of a regex, then count each entity as one character. */
+  function plain(h) {
+    var s = String(h), o = '', inTag = false;
+    for (var i = 0; i < s.length; i++) { var ch = s[i]; if (inTag) { if (ch === '>') inTag = false; } else if (ch === '<' && s.indexOf('>', i) > i) inTag = true; else o += ch; }
+    return o.replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, 'x');
+  }
   function chWidth(h, bold) {
     var w = 0, t = plain(h);
     for (var i = 0; i < t.length; i++) { var ch = t[i]; w += /[0-9]/.test(ch) ? 1 : /[.,\s ]/.test(ch) ? .48 : /[€−+–]/.test(ch) ? 1.1 : 1; }
