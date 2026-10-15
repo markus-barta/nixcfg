@@ -232,12 +232,16 @@ graphical session here, so a LaunchAgent would never load; cron runs without one
 Check: `crontab -l | grep 'OPS-341'`, `kill -0 "$(cat ~/ci.noindex/mem-guard.pid)"`,
 `tail ~/ci.noindex/mem-guard.log`.
 
-Disable or roll back (as mba; order matters, cron restarts a killed guard):
+Disable or roll back (as mba, in bash; order matters, cron restarts a killed guard):
 
 ```bash
-crontab -l | grep -v '# OPS-341 mem-guard' | crontab -     # 1. no new starts
-kill "$(cat ~/ci.noindex/mem-guard.pid)"                     # 2. stop the running guard
-sleep 2; /usr/bin/lockf -t 0 ~/ci.noindex/mem-guard.lock true && echo stopped   # 3. lock free = no guard
+# 1. No new starts. Writes only after a successful read and filter, so other jobs survive a failed read;
+#    "no crontab" means there is nothing to remove.
+t=$(crontab -l) && f=$(printf '%s\n' "$t" | awk 'index($0, "# OPS-341 mem-guard") == 0') && printf '%s\n' "$f" | crontab -
+# 2. Stop the running guard.
+kill "$(cat ~/ci.noindex/mem-guard.pid)"
+# 3. Lock free = no guard left.
+sleep 2; /usr/bin/lockf -t 0 ~/ci.noindex/mem-guard.lock true && echo stopped
 ```
 
 Then activate the previous Home Manager generation if the whole change is to go.
