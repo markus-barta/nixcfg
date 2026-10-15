@@ -218,3 +218,27 @@ inherit the group, and `core.sharedRepository = group` so git itself creates
 group-writable objects and refs. Without that last part, `.git/index` and
 `.git/FETCH_HEAD` stay mode 644 and the non-owning user cannot commit, fetch
 or pull — only read.
+
+## Memory guard (OPS-341)
+
+mba's aithema browser tests once ran this Mac out of memory (2026-10-15). A guard
+(`./mem-guard.sh`, linked to `~/.local/bin/mbp2606-mem-guard`) samples free memory
+every 10 s; below 10 % it stops the most recently started test browser under
+`~/ci.noindex/aithema-runs/`. It is started by one marked line in mba's crontab
+(`# OPS-341 mem-guard`, kept by Home Manager activation), runs under a `lockf`
+kernel lock (one instance), and logs to `~/ci.noindex/mem-guard.log`. mba has no
+graphical session here, so a LaunchAgent would never load; cron runs without one.
+
+Check: `crontab -l | grep 'OPS-341'`, `kill -0 "$(cat ~/ci.noindex/mem-guard.pid)"`,
+`tail ~/ci.noindex/mem-guard.log`.
+
+Disable or roll back (as mba; order matters, cron restarts a killed guard):
+
+```bash
+crontab -l | grep -v '# OPS-341 mem-guard' | crontab -     # 1. no new starts
+kill "$(cat ~/ci.noindex/mem-guard.pid)"                     # 2. stop the running guard
+sleep 2; /usr/bin/lockf -t 0 ~/ci.noindex/mem-guard.lock true && echo stopped   # 3. lock free = no guard
+```
+
+Then activate the previous Home Manager generation if the whole change is to go.
+A later `home-manager switch` of this config re-installs the cron line.
