@@ -284,7 +284,11 @@ in
       ];
       # OPS-295: 768m was hit 12x (cgroup OOM kills of Postgres backends ->
       # crash recovery -> 500 bursts) under the agent load since 2026-10-09.
-      mem_limit = "1536m";
+      # OPS-326: 1536m pinned at 99.7 % after release 133 (37 backends, ~1.35 GiB
+      # anon; most connections are per-stream LISTEN connections outside the
+      # 16-connection pool). Sized for ~40 backends x ~45 MiB + shared_buffers
+      # until AEON-1353 multiplexes the listeners.
+      mem_limit = "2304m";
       networks = [
         "aeon"
       ];
