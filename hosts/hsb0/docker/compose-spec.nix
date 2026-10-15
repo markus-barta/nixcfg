@@ -321,7 +321,7 @@
       ];
       environment = [
         # One IBKR login for paper + live; TRADING_MODE picks the session.
-        # Paper account DUR970597 / live U28240205 — live port stays unpublished.
+        # Paper account DUR970597 / live account — live port stays unpublished.
         "TWS_USERID=markusbarta"
         "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
