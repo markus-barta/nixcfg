@@ -52,7 +52,7 @@ scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ss
 
 **Container**: `ib-gateway` | **API**: `100.64.0.6:4002` (Tailscale only) | **Data**: `/var/lib/ib-gateway/tws_settings` (uid/gid 1000)
 
-Mac must **not** run Gateway or an SSH `-L` tunnel. Desks connect directly over Tailscale to `100.64.0.6:4002`. Live `U28240205` / 4001 stays OFF.
+Mac must **not** run Gateway or an SSH `-L` tunnel. Desks connect directly over Tailscale to `100.64.0.6:4002`. The live account (port 4001) stays OFF.
 
 ## OpenClaw Gateway (Merlin + Nimue)
 

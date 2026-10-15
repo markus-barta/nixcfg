@@ -8,24 +8,24 @@ paper session. Desks connect **directly over Tailscale** to `100.64.0.6:4002`
 SSH `-L` tunnel on the Mac. Do **not** bind `0.0.0.0` or the LAN IP
 `192.168.1.99` (plaintext IB API).
 
-| Item                | Value                                                                              |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j) |
-| Mode                | paper only (`TRADING_MODE=paper`)                                                  |
-| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                      |
-| API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                     |
-| Live API            | **not published** (no `4001`/`4003`)                                               |
-| IBKR login          | username `markusbarta` (one login for paper + live); password via agenix           |
-| Paper account (ref) | `DUR970597` — selected by `TRADING_MODE=paper`                                     |
-| Live account (ref)  | `U28240205` — only if `TRADING_MODE=live`/`both`; **port 4001 not published**      |
-| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)  |
-| Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                    |
-| Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                        |
+| Item                | Value                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j)  |
+| Mode                | paper only (`TRADING_MODE=paper`)                                                   |
+| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                       |
+| API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                      |
+| Live API            | **not published** (no `4001`/`4003`)                                                |
+| IBKR login          | username `markusbarta` (one login for paper + live); password via agenix            |
+| Paper account (ref) | `DUR970597` — selected by `TRADING_MODE=paper`                                      |
+| Live account (ref)  | not recorded here — only if `TRADING_MODE=live`/`both`; **port 4001 not published** |
+| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)   |
+| Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                     |
+| Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                         |
 
 ## One IBKR login
 
 Interactive Brokers uses **one username/password** (`markusbarta`) for both the
-paper account (`DUR970597`) and the live account (`U28240205`). Which book you
+paper account (`DUR970597`) and the live account. Which book you
 get is selected at Gateway start via `TRADING_MODE` (`paper` / `live` / `both`),
 not via separate credentials. This host stays **`paper` only** and does **not**
 publish live API port `4001` until Markus explicitly keys a live cut.
