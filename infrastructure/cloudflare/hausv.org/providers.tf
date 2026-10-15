@@ -1,4 +1,4 @@
-# OPS-340: jhw22-wp.hausv.org DNS as code (personal zone hausv.org, Markus's Cloudflare account).
+# OPS-340: hausv.org DNS as code (personal zone, Markus's Cloudflare account; adopted 2026-10-15).
 # Run from mbp2607 with the existing personal-zone agent token; state stays local and untracked:
 #   ( set -a; source ~/.inspr/secrets/agents/CF_ZONE_TOKEN_AIA.env; set +a
 #     export TF_VAR_cloudflare_api_token="$CF_ZONE_TOKEN_AIA"
