@@ -28,6 +28,22 @@ reconciled by NixOS. Restart it without touching the rest of the compose stack:
 sudo systemctl restart hsb0-home-dashboard
 ```
 
+### In-flight page (OPS-353)
+
+**URL**: http://100.64.0.6/inflight/ (tailnet) or http://hsb0.lan/inflight/ (home). Never public: hsb0 has no port forward.
+
+AEON-LEAD's progress overview for Markus, served by `hsb0-home` from `/var/lib/inflight`
+(mba, 0755, tmpfiles), mounted read-only at `/srv/inflight`. The location comes from
+`docker/hsb0-home-inflight.conf`, included through the HostDash nginx include point
+`/etc/nginx/hostdash-extra/*.conf`. Headers: `Cache-Control: no-store`,
+`X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`; dotfiles return 404.
+
+Push atomically (the temp dotfile is never served):
+
+```bash
+scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/inflight/.index.html.tmp /var/lib/inflight/index.html'
+```
+
 ---
 
 ## IB Gateway (paper) — enabled
