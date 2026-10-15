@@ -2,7 +2,16 @@
 
 **Provider**: Cloudflare  
 **Primary Domain**: barta.cm  
-**Management**: Manual (Cloudflare Dashboard) - Future: Terraform/OpenTofu
+**Management**: OpenTofu for the zones listed below; every other zone is still managed in the Cloudflare Dashboard.
+
+## OpenTofu stacks
+
+Each stack lives in its own directory. It uses a local state under `~/.local/share/ops-tofu/` on mbp2607 (never committed) and the personal-zone agent token through `TF_VAR_cloudflare_api_token`; `providers.tf` holds the exact commands. Never keep saved plan files: they contain the token.
+
+| Zone          | Directory        | Since      | Ticket  | Notes                                                           |
+| ------------- | ---------------- | ---------- | ------- | --------------------------------------------------------------- |
+| bytepoets.com | `bytepoets.com/` | 2026-10-15 | OPS-337 | Memorial page on csb1; runbook RUN-19 (backup and restore)      |
+| hausv.org     | `hausv.org/`     | 2026-10-15 | OPS-340 | All 12 records imported unchanged; 4 are owned by Email Routing |
 
 ---
 
