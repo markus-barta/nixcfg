@@ -30,7 +30,7 @@ ssh mba@89.58.63.96 -p 2222
 ╠════════════════════════════════════════════════════════════╣
 ║ SSH:       ssh mba@cs0.barta.cm -p 2222                    ║
 ║ IP:        89.58.63.96                                     ║
-║ Netcup:    Customer # 227044 (2FA required)                ║
+║ Netcup:    Customer # in 1Password (2FA)                   ║
 ║ VNC:       servercontrolpanel.de/SCP                       ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🌐 SERVICES                                                ║

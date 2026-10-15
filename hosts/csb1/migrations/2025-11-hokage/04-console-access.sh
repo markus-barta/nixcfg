@@ -67,7 +67,7 @@ fi
 
 # Test 4: Netcup info documented
 echo -n "Test 4: Netcup credentials documented... "
-if grep -qi "netcup\|227044\|servercontrolpanel" "$SECRETS_DIR/RUNBOOK.md" 2>/dev/null; then
+if grep -qi "netcup\|servercontrolpanel" "$SECRETS_DIR/RUNBOOK.md" 2>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${YELLOW}⚠️ CHECK${NC} (add Netcup info to RUNBOOK.md)"
