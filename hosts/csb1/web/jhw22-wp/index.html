@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="googlebot" content="noindex, nofollow">
+<title>Erdwärme für unser Haus</title>
+<script>
+  /* ===== Einstellungen ===== */
+  const PIN_LEN = 6;  // digits only; value never stored as plaintext
+  const PIN_HASH = "7c4a15b703b000ebc71c86bf47f099056f37b0ec14c88d1c7910d2768f830947";  // SHA-256 hex of the PIN
+  /* Contact for the CTA: XOR-coded char codes, decoded only on click (keeps the address out of the source). */
+  const MAIL_K = 0x5a;
+  const MAIL_C = [63,40,62,45,59,63,40,55,63,26,50,59,47,41,44,116,53,40,61];
+  /* Gate: compare SHA-256 of entered digits via crypto.subtle.digest.
+     No plaintext PIN in this file. Casual visitor gate only. */
+</script>
+<style>
+  :root{
+    --bg:#f6f4ef; --card:#ffffff; --ink:#1f2a24; --muted:#5f6b64; --line:#e3e0d8;
+    --accent:#2f6b4f; --accent-soft:#e6efe9; --warm:#b5733a; --warm-soft:#f6ece2;
+    --radius:16px; --shadow:0 1px 2px rgba(0,0,0,.04),0 6px 24px rgba(31,42,36,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow:hidden}
+  a{color:var(--accent)}
+  h1,h2,h3{line-height:1.2;margin:0 0 .5em;font-weight:650;letter-spacing:-.01em}
+  h1{font-size:clamp(1.7rem,4.2vw,2.6rem)}
+  h2{font-size:clamp(1.35rem,3vw,1.9rem)}
+  h3{font-size:1.02rem}
+  p{margin:.3em 0 .8em}
+  small,.muted{color:var(--muted)}
+  .kicker{font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:600;margin-bottom:.4rem}
+
+  /* ---- Deck ---- */
+  #deck{position:fixed;inset:0;display:flex;transition:transform .45s cubic-bezier(.2,.7,.2,1);will-change:transform}
+  .slide{flex:0 0 100%;width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:clamp(20px,4vw,56px) clamp(16px,5vw,72px) 96px}
+  .wrap{max-width:1080px;margin:0 auto}
+  .grid{display:grid;gap:16px}
+  .grid > *{min-width:0}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+  @media (max-width:860px){.g3,.g4{grid-template-columns:1fr 1fr}}
+  @media (max-width:560px){.g3,.g2,.g4{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow)}
+  .card.soft{background:var(--accent-soft);border-color:#d3e3d9;box-shadow:none}
+  .card ul,.card ol{margin:.2em 0 .2em 1.1em;padding:0}
+  .card li{margin:.25em 0}
+  .big{font-size:clamp(1.6rem,3.6vw,2.2rem);font-weight:700;letter-spacing:-.02em;color:var(--accent);line-height:1.1}
+  .big.warm{color:var(--warm)}
+  .label{font-size:.85rem;color:var(--muted)}
+  .src{font-size:.72rem;color:#8a948e;margin-top:.35em}
+  .pill{display:inline-block;padding:.15em .6em;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-size:.8rem;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:.9rem;font-variant-numeric:tabular-nums}
+  th,td{padding:.45em .55em;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  tr.sum td{font-weight:700;border-top:2px solid var(--line)}
+  tr.hl td{background:#f1f7f3}
+  @media (max-width:560px){table{font-size:.82rem} th,td{padding:.4em .3em} thead th{white-space:normal;font-size:.7rem} .card{padding:16px}}
+  .tablebox{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .steps{counter-reset:s;list-style:none;margin:0;padding:0}
+  .steps li{counter-increment:s;position:relative;padding-left:2.2em;margin:.55em 0}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:.05em;width:1.6em;height:1.6em;border-radius:50%;background:var(--accent);color:#fff;font-size:.8rem;display:grid;place-items:center;font-weight:700}
+  .path{font-size:.88rem;background:#faf9f6;border:1px dashed var(--line);border-radius:10px;padding:.55em .8em;margin-top:.4em}
+  details{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 18px;margin:12px 0;box-shadow:var(--shadow)}
+  details summary{cursor:pointer;font-weight:600;list-style:none}
+  details summary::-webkit-details-marker{display:none}
+  details summary::before{content:"＋ ";color:var(--accent)}
+  details[open] summary::before{content:"－ "}
+  details[open] summary{margin-bottom:.6em}
+
+  /* Toggle Brauchwasser */
+  .toggle{display:inline-flex;align-items:center;gap:.6em;cursor:pointer;user-select:none;font-size:.9rem;color:var(--muted)}
+  .toggle input{appearance:none;width:38px;height:22px;border-radius:99px;background:#cfd5d1;position:relative;transition:.2s;cursor:pointer;margin:0}
+  .toggle input::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
+  .toggle input:checked{background:var(--warm)}
+  .toggle input:checked::after{left:19px}
+  .bw{display:none;margin-top:10px;background:var(--warm-soft);border:1px solid #eedcc9;border-radius:12px;padding:12px 16px;font-size:.92rem}
+  body.bw-on .bw{display:block}
+
+  /* Nav */
+  nav.ctrl{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top,var(--bg) 60%,rgba(246,244,239,0));pointer-events:none}
+  nav.ctrl > *{pointer-events:auto}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;width:42px;height:42px;display:inline-grid;place-items:center;padding:0;cursor:pointer;box-shadow:var(--shadow)}
+  .btn svg{width:20px;height:20px}
+  .btn:disabled{opacity:.35;cursor:default}
+  .btn:focus-visible,.cta-btn:focus-visible,.linkish:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .btn.next{width:auto;height:48px;display:inline-flex;align-items:center;gap:10px;padding:0 18px 0 24px;background:var(--accent);border-color:var(--accent);color:#fff;
+    font-family:inherit;font-size:.95rem;font-weight:700;line-height:1;letter-spacing:.1em;text-transform:uppercase;box-shadow:0 2px 4px rgba(31,42,36,.12),0 8px 24px rgba(47,107,79,.28)}
+  .btn.next:hover{background:#285c44}
+  .btn.next.end{visibility:hidden}
+
+  /* CTA (last slide) */
+  .cta h3{font-size:1.25rem;margin-bottom:.3em}
+  .cta-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;margin:16px 0 8px;padding:14px 26px;border:0;border-radius:99px;background:var(--accent);color:#fff;
+    font-family:inherit;font-size:1.05rem;font-weight:700;line-height:1.2;cursor:pointer;box-shadow:0 2px 4px rgba(31,42,36,.12),0 8px 24px rgba(47,107,79,.28)}
+  .cta-btn:hover{background:#285c44}
+  .cta-btn svg{width:20px;height:20px;flex:none}
+  .linkish{border:0;background:none;padding:0;font:inherit;color:var(--accent);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+  #mailShown{display:inline-block;min-width:12em;color:var(--ink)}
+  @media (max-width:560px){.cta-btn{width:100%;padding:14px 12px;gap:8px;font-size:1rem;text-wrap:balance}}
+  @media (max-width:380px){.cta-btn{font-size:.9rem}}
+  .dots{display:flex;gap:8px}
+  .dots button{width:9px;height:9px;border-radius:50%;border:0;background:#c9cec9;cursor:pointer;padding:0}
+  .dots button.on{background:var(--accent);width:24px;border-radius:99px}
+  .hint{position:fixed;top:12px;right:16px;font-size:.75rem;color:#9aa39e}
+  @media (max-width:560px){.hint{display:none}}
+
+  /* PIN-Gate */
+  #gate{position:fixed;inset:0;z-index:50;background:rgba(246,244,239,.97);display:grid;place-items:center;padding:20px}
+  #gate .box{background:var(--card);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:32px 28px;max-width:380px;width:100%;text-align:center}
+  #gate .leaf{font-size:2rem}
+  #pin{font-size:1.8rem;letter-spacing:.6em;text-align:center;width:100%;padding:.4em .2em .4em .8em;border:1px solid var(--line);border-radius:12px;margin:14px 0 8px;font-variant-numeric:tabular-nums;background:#faf9f6}
+  #pin:focus{outline:2px solid var(--accent);outline-offset:1px}
+  #gate .err{color:#a5432f;font-size:.85rem;min-height:1.3em}
+  #gate.shake .box{animation:sh .35s}
+  @keyframes sh{20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+  body.locked #deck, body.locked nav.ctrl, body.locked .hint{filter:blur(8px);pointer-events:none}
+</style>
+</head>
+<body class="locked">
+
+<div id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+  <div class="box">
+    <div class="leaf" aria-hidden="true">🌱</div>
+    <h2 id="gateTitle" style="font-size:1.25rem;margin-top:.3em">Hallo Nachbar:in!</h2>
+    <p class="muted" style="font-size:.92rem">Diese Seite ist nur für unsere WEG gedacht. Bitte gib den PIN aus meiner Nachricht ein.</p>
+    <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="PIN">
+    <div class="err" id="pinErr"></div>
+    <p class="src" style="margin-top:.8em">Leichter Sichtschutz, kein Passwortschutz im technischen Sinn.</p>
+  </div>
+</div>
+
+<div class="hint">← → oder wischen</div>
+
+<main id="deck">
+
+  <!-- ============ 1 · Worum geht's ============ -->
+  <section class="slide" aria-label="Worum geht's">
+    <div class="wrap">
+      <div class="kicker">Unsere WEG</div>
+      <h1>Erdwärme statt alter Gastherme</h1>
+      <p class="muted" style="max-width:720px;font-size:1.08rem">Unsere zentrale Gastherme ist in die Jahre gekommen und muss absehbar ohnehin erneuert werden. Mein Vorschlag: eine gemeinsame <strong>Sole-Wasser-Wärmepumpe mit Tiefenbohrung</strong> für das ganze Haus.</p>
+
+      <div class="grid g3" style="margin-top:22px">
+        <div class="card">
+          <h3>Die Idee</h3>
+          <ul>
+            <li>Eine zentrale Anlage für alle 12 Parteien, Wärme aus der Erde</li>
+            <li>Außen faktisch lautlos, kein sichtbares Außengerät</li>
+            <li>Fußbodenheizung = niedrige Vorlauftemperatur, ideal für die Wärmepumpe</li>
+            <li>Eine Anlage statt zwölf: weniger Wartung</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Warum jetzt?</h3>
+          <ul>
+            <li>Therme alt, Reparaturen werden häufiger</li>
+            <li>Gaspreis und CO₂-Bepreisung steigen</li>
+            <li>Eigene, attraktive Förderung für Mehrparteienhäuser</li>
+            <li>Lieber proaktiv planen als im Notfall tauschen</li>
+          </ul>
+        </div>
+        <div class="card soft">
+          <h3>Was ich von dir brauche</h3>
+          <ol class="steps">
+            <li><strong>Deinen Heiz-Verbrauch in kWh</strong> aus der letzten Jahresabrechnung der Hausverwaltung
+              <div class="path">Anlagenblatt zur Messtechnik (Heizkosten) → Tabelle <b>RAUMHEIZUNG</b> → Zeile „Heizung Verbrauchskosten“ → Spalte „Einheiten“ (z.&nbsp;B. 5.678,900)</div></li>
+            <li><strong>Ein kurzes Ja / Interesse</strong>: unverbindlich, noch kein Beschluss.</li>
+          </ol>
+        </div>
+      </div>
+
+      <p class="src" style="margin-top:16px">Datenschutz: Die Werte verwende ich nur zusammengefasst für die Anbieteranfragen, gebe keine Einzelwerte an Dritte weiter und lösche sie nach der Planungsphase. Die Prüfung von Geologie, Hydrogeologie und Wasserrecht am Hang ist der erste Teil der Planung.</p>
+    </div>
+  </section>
+
+  <!-- ============ 2 · Gegenüberstellung ============ -->
+  <section class="slide" aria-label="Gegenüberstellung">
+    <div class="wrap">
+      <div class="kicker">Gegenüberstellung · Mittel-Szenario</div>
+      <h2>Was kostet es und was bringt es?</h2>
+
+      <div class="grid g4" style="margin-top:14px">
+        <div class="card">
+          <div class="label">Eigenanteil Wärmepumpe (WEG)</div>
+          <div class="big">75.800 €</div>
+          <div class="src">120.000 € Investition − 44.200 € Förderung</div>
+        </div>
+        <div class="card">
+          <div class="label">Zum Vergleich: neue Gastherme</div>
+          <div class="big warm">50.000 €</div>
+          <div class="src">keine Förderung für Gas → Mehrkosten WP 25.800 €</div>
+        </div>
+        <div class="card">
+          <div class="label">Heizkosten pro Jahr (WEG)</div>
+          <div class="big">−6.614 €</div>
+          <div class="src">Gas 11.948 € → Wärmepumpe 5.334 € (Jahr 1)</div>
+        </div>
+        <div class="card soft">
+          <div class="label">Amortisation</div>
+          <div class="big">4 Jahre</div>
+          <div class="src">Mehrkosten ggü. neuer Gastherme · <b>10 Jahre</b> für den gesamten Eigenanteil</div>
+        </div>
+      </div>
+
+      <div class="grid g2" style="margin-top:16px;align-items:start">
+        <div class="card">
+          <h3>Was zahlt jede Partei? <span class="pill">einmalig, nach Anteil</span></h3>
+          <p class="muted" style="font-size:.88rem;margin-top:0">Pro 1&nbsp;% Anteil an den Wohnungen:</p>
+          <div class="tablebox"><table>
+            <thead><tr><th>Szenario</th><th>WEG gesamt</th><th>pro 1 % Anteil</th></tr></thead>
+            <tbody>
+              <tr><td>Konservativ</td><td>113.000 €</td><td>1.130 €</td></tr>
+              <tr class="hl"><td>Mittel</td><td>75.800 €</td><td>758 €</td></tr>
+              <tr><td>Optimistisch</td><td>52.000 €</td><td>520 €</td></tr>
+              <tr><td class="muted">Neue Gastherme</td><td class="muted">50.000 €</td><td class="muted">500 €</td></tr>
+            </tbody>
+          </table></div>
+          <p class="src">Beispiel: bei 8&nbsp;% Anteil im Mittel-Szenario ≈ 6.064 €, eine neue Gastherme ≈ 4.000 €. Dein Betrag: dein Anteil in % × Wert pro 1 %.</p>
+        </div>
+        <div class="card">
+          <h3>Wichtigste Annahmen</h3>
+          <div class="tablebox"><table>
+            <tbody>
+              <tr><td>Heizenergiebedarf WEG</td><td>98.877 kWh/a</td></tr>
+              <tr><td>Gaspreis brutto</td><td>0,0683 €/kWh</td></tr>
+              <tr><td>Wärmepumpen-Strom brutto</td><td>0,22 €/kWh</td></tr>
+              <tr><td>Jahresarbeitszahl (JAZ)</td><td>4,5</td></tr>
+              <tr><td>Preissteigerung Gas / Strom</td><td>4 % / 2 % p.a.</td></tr>
+              <tr><td>Förderquote Kesseltausch</td><td>30 %</td></tr>
+              <tr><td>Investitions-Bandbreite</td><td>95.000 – 155.000 €</td></tr>
+            </tbody>
+          </table></div>
+          <p class="src">Alle Werte sind Schätzungen mit ±20 % Bandbreite. Hart werden die Zahlen erst mit echten Angeboten.</p>
+        </div>
+      </div>
+
+      <label class="toggle" style="margin-top:6px"><input type="checkbox" id="bwToggle"> inkl. Brauchwasser</label>
+      <div class="bw">
+        <strong>Optional: Warmwasser gleich mit erzeugen.</strong> Das ist möglich und kann auf Dauer zusätzlich Stromkosten sparen (Faktor 3–4 effizienter als ein direkt-elektrischer Boiler); viele Boiler sind ohnehin über 15 Jahre alt. Es bedeutet aber <em>mehr Aufwand im Haus</em>: Anbindung an den Boiler in der Wohnung, eventuell eine neue Leitung. Kann individuell mitberücksichtigt werden. In der Kalkulation oben ist das <strong>nicht</strong> eingerechnet.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3 · Fakten zum Vertiefen ============ -->
+  <section class="slide" aria-label="Fakten zum Vertiefen">
+    <div class="wrap">
+      <div class="kicker">Zum Vertiefen</div>
+      <h2>Rechenweg, Amortisation &amp; Rechtliches</h2>
+
+      <details open>
+        <summary>Jährliche Heizkosten: Gas vs. Wärmepumpe (WEG gesamt, Jahr 1)</summary>
+        <div class="tablebox"><table>
+          <thead><tr><th>Position</th><th>Gas heute</th><th>Sole-WP</th><th>Differenz</th></tr></thead>
+          <tbody>
+            <tr><td>Energiekosten<br><small>Gas: kWh × Preis · WP: kWh ÷ JAZ × Strompreis</small></td><td>6.753 €</td><td>4.834 €</td><td>1.919 €</td></tr>
+            <tr><td>Grundkosten / Anschluss<br><small>Gas-Bereitstellung entfällt, kleiner Stromaufschlag</small></td><td>3.041 €</td><td>100 €</td><td>2.941 €</td></tr>
+            <tr><td>Sonstiges (Wartung, Schornstein, Notdienst)</td><td>2.153 €</td><td>400 €</td><td>1.753 €</td></tr>
+            <tr class="sum"><td>Gesamt pro Jahr</td><td>11.948 €</td><td>5.334 €</td><td>6.614 €</td></tr>
+          </tbody>
+        </table></div>
+        <p class="src">Gas: 98.877 kWh × 0,0683 €; Grund- und sonstige Kosten je m² × 1.613 m² Beheizfläche. WP: 98.877 kWh ÷ 4,5 × 0,22 €.</p>
+      </details>
+
+      <details>
+        <summary>Investition, Förderung &amp; drei Szenarien</summary>
+        <div class="tablebox"><table>
+          <thead><tr><th>Position</th><th>Konservativ</th><th>Mittel</th><th>Optimistisch</th></tr></thead>
+          <tbody>
+            <tr><td>Bruttoinvestition</td><td>145.000 €</td><td>120.000 €</td><td>100.000 €</td></tr>
+            <tr><td>Förderung gesamt</td><td>32.000 €</td><td>44.200 €</td><td>48.000 €</td></tr>
+            <tr class="sum"><td>Eigenanteil WEG</td><td>113.000 €</td><td>75.800 €</td><td>52.000 €</td></tr>
+            <tr><td>Mehrkosten ggü. neuer Gastherme (50.000 €)</td><td>63.000 €</td><td>25.800 €</td><td>2.000 €</td></tr>
+          </tbody>
+        </table></div>
+        <p class="src">Förderung im Mittel-Szenario: 30 % von 120.000 € (36.000 €) + „Raus aus Gas“-Pauschale 600 € × 12 Wohnungen (7.200 €) + Energie Steiermark-Aktion 1.000 € (nur für deren Kunden). Die Förderhöhe hängt von förderfähigen Kosten und Anlagentyp ab und wird mit der KPC geklärt; der Antrag muss vor der Auftragsvergabe gestellt werden.</p>
+      </details>
+
+      <details>
+        <summary>Amortisationsrechnung (Mittel-Szenario, WEG gesamt)</summary>
+        <div class="tablebox"><table>
+          <thead><tr><th>Jahr</th><th>Gas /a</th><th>WP /a</th><th>Ersparnis /a</th><th>kumuliert</th><th>Mehrkosten offen</th><th>Eigenanteil offen</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>11.948 €</td><td>5.334 €</td><td>6.614 €</td><td>6.614 €</td><td>19.186 €</td><td>69.186 €</td></tr>
+            <tr><td>2</td><td>12.426 €</td><td>5.441 €</td><td>6.985 €</td><td>13.599 €</td><td>12.201 €</td><td>62.201 €</td></tr>
+            <tr><td>3</td><td>12.923 €</td><td>5.549 €</td><td>7.373 €</td><td>20.972 €</td><td>4.828 €</td><td>54.828 €</td></tr>
+            <tr class="hl"><td>4</td><td>13.440 €</td><td>5.660 €</td><td>7.779 €</td><td>28.751 €</td><td><b>0 €</b></td><td>47.049 €</td></tr>
+            <tr><td>5</td><td>13.977 €</td><td>5.774 €</td><td>8.204 €</td><td>36.955 €</td><td>0 €</td><td>38.845 €</td></tr>
+            <tr><td>6</td><td>14.536 €</td><td>5.889 €</td><td>8.647 €</td><td>45.602 €</td><td>0 €</td><td>30.198 €</td></tr>
+            <tr><td>7</td><td>15.118 €</td><td>6.007 €</td><td>9.111 €</td><td>54.713 €</td><td>0 €</td><td>21.087 €</td></tr>
+            <tr><td>8</td><td>15.722 €</td><td>6.127 €</td><td>9.595 €</td><td>64.308 €</td><td>0 €</td><td>11.492 €</td></tr>
+            <tr><td>9</td><td>16.351 €</td><td>6.250 €</td><td>10.102 €</td><td>74.410 €</td><td>0 €</td><td>1.390 €</td></tr>
+            <tr class="hl"><td>10</td><td>17.005 €</td><td>6.375 €</td><td>10.631 €</td><td>85.041 €</td><td>0 €</td><td><b>0 €</b></td></tr>
+          </tbody>
+        </table></div>
+        <p class="src">Gas +4 %/Jahr, Strom +2 %/Jahr. <b>Mehrkosten offen</b> = 25.800 € (Mehrkosten ggü. neuer Gastherme, der realistische Vergleich, weil die Therme ohnehin ersetzt werden muss) minus kumulierte Ersparnis. <b>Eigenanteil offen</b> = 75.800 € minus kumulierte Ersparnis (falls die alte Therme noch ewig hielte). Weil Kosten und Ersparnis gleich nach Anteil aufgeteilt werden, gelten 4 bzw. 10 Jahre für jede Partei. Nicht eingerechnet: Brauchwasser, mögliche Wertsteigerung der Wohnungen, Wohnbauförderung Steiermark (nur mit thermischer Sanierung).</p>
+      </details>
+
+      <details>
+        <summary>Rechtliches: Welche Mehrheit braucht es?</summary>
+        <p><strong>Keine Einstimmigkeit.</strong> Die zentrale Heizung ist gemeinschaftliches Eigentum. Der Umstieg auf eine Wärmepumpe gilt in der Fachliteratur in der Regel als <em>nützliche Verbesserung</em>, also Maßnahme der außerordentlichen Verwaltung nach <strong>§ 29 WEG 2002</strong>. Darüber entscheidet die <strong>Mehrheit der Wohnungseigentümer, berechnet nach Miteigentumsanteilen</strong>.</p>
+        <p>Seit der <strong>WEG-Novelle 2022</strong> (BGBl. I Nr. 222/2021, in Kraft seit 1.7.2022) gilt nach <strong>§ 24 Abs. 4</strong> als Mehrheit <em>entweder</em> die Mehrheit aller Miteigentumsanteile <em>oder</em> zwei Drittel der abgegebenen Stimmen (nach Anteilen), sofern diese zugleich mindestens ein Drittel aller Anteile ausmachen. Nicht abgegebene Stimmen verhindern einen Beschluss also nicht automatisch.</p>
+        <p>Wer überstimmt wird, kann binnen drei Monaten die gerichtliche Aufhebung beantragen (§ 29 Abs. 1–2), etwa bei übermäßiger Beeinträchtigung oder wenn die Kosten nicht aus der Rücklage gedeckt sind. Aus Kostengründen wird nicht aufgehoben, wenn die Mehrheit den ungedeckten Teil trägt oder die Verbesserung allen eindeutig zum Vorteil gereicht (§ 29 Abs. 3).</p>
+        <p class="muted" style="font-size:.88rem">Die 2022 eingeführten Erleichterungen in § 16 Abs. 5 (z.&nbsp;B. Langsamladen von E-Autos, Balkon-PV) betreffen Änderungen einzelner Eigentümer:innen an ihrer eigenen Wohnung, nicht die zentrale Heizung. Den Beschluss bereite ich gemeinsam mit der Hausverwaltung vor. Das hier ist eine Zusammenfassung, keine Rechtsberatung.</p>
+        <p class="src">Quellen: <a href="https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&amp;Gesetzesnummer=20001921&amp;Paragraf=24" target="_blank" rel="noopener">RIS, § 24 WEG 2002</a> · <a href="https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&amp;Gesetzesnummer=20001921&amp;Paragraf=29" target="_blank" rel="noopener">RIS, § 29 WEG 2002</a> · <a href="https://www.bmluk.gv.at/dam/jcr:2312f044-8fc8-4e7f-a873-43c90a984cb1/SauberHeizen-grossvolumig_UA_WA.pdf" target="_blank" rel="noopener">BMLUK-Studie Heizungstausch im mehrgeschoßigen Wohnbau (Kap. 2.2.3 WEG)</a></p>
+      </details>
+
+      <details>
+        <summary>Förderungen &amp; Links</summary>
+        <ul style="margin:0 0 0 1.1em;padding:0">
+          <li><a href="https://www.sanierungsoffensive.gv.at/fileadmin/user_upload/2026/faq_Kesseltausch_2026_MGW.pdf" target="_blank" rel="noopener">Sanierungsoffensive 2026: FAQ mehrgeschoßiger Wohnbau (PDF)</a>: das wichtigste Dokument für uns</li>
+          <li><a href="https://www.umweltfoerderung.at/privatpersonen/kesseltausch-mehrgeschossiger-wohnbau" target="_blank" rel="noopener">KPC / Umweltförderung: Kesseltausch mehrgeschoßiger Wohnbau</a>: Antrag vor Auftragsvergabe!</li>
+          <li><a href="https://www.sanierungsoffensive.gv.at/" target="_blank" rel="noopener">Sanierungsoffensive 2026: Übersicht</a></li>
+          <li><a href="https://www.wohnbau.steiermark.at/cms/ziel/165238232/DE/" target="_blank" rel="noopener">Land Steiermark: Wärmepumpen im Wohnbau</a></li>
+          <li><a href="https://www.e-steiermark.com/privat/entdecken/bauen-wohnen/aktion-heizungstausch" target="_blank" rel="noopener">Energie Steiermark: Aktion Heizungstausch</a></li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ 4 · Kontakt ============ -->
+  <section class="slide" aria-label="Kontakt">
+    <div class="wrap" style="max-width:720px;padding-top:6vh">
+      <div class="kicker">Nächste Schritte</div>
+      <h2>Danke fürs Reinschauen!</h2>
+      <ol class="steps" style="margin-top:14px">
+        <li>Du schickst mir deinen <strong>Verbrauch in kWh</strong> und ein kurzes <strong>Ja / Interesse</strong>.</li>
+        <li>Ich hole Angebote ein (Tiefenbohrung, Flächenkollektor, Vergleich Luft-Wasser) und kläre Strom-Anschlussleistung und Förderung.</li>
+        <li>Kurzer <strong>Info-Abend</strong> mit dem Stand und ersten Angeboten. Termin folgt.</li>
+      </ol>
+      <div class="card soft cta" style="margin-top:22px">
+        <h3>Schick mir deinen Verbrauch</h3>
+        <p class="muted" style="margin:0">Ein Klick öffnet eine fertige E-Mail an mich. Du trägst nur noch deine kWh ein.</p>
+        <div class="path">Wo steht der Wert? Jahresabrechnung → Anlagenblatt zur Messtechnik (Heizkosten) → Tabelle <b>RAUMHEIZUNG</b> → Zeile „Heizung Verbrauchskosten“ → Spalte „Einheiten“</div>
+        <button class="cta-btn" id="mailCta" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>Verbrauch per E-Mail schicken</button>
+        <p class="src" style="margin:0">Kein Mailprogramm? <button class="linkish" id="mailCopy" type="button">Adresse kopieren</button> <span id="mailShown" aria-live="polite"></span></p>
+        <p class="src" style="margin:.8em 0 0">Fragen, Ideen, Bedenken? Jederzeit gern, auch als Antwort auf meine Nachricht. Markus</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<nav class="ctrl" aria-label="Folien-Navigation">
+  <button class="btn" id="prev" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+  <div class="dots" id="dots"></div>
+  <button class="btn next" id="next">Weiter<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+</nav>
+
+<script>
+(function(){
+  const body=document.body, gate=document.getElementById('gate'), pin=document.getElementById('pin'), err=document.getElementById('pinErr');
+  const KEY='jhw22-ok';
+  function unlock(){ body.classList.remove('locked'); gate.remove(); }
+  if (sessionStorage.getItem(KEY)==='1') unlock(); else setTimeout(()=>pin.focus(),50);
+  async function sha256hex(s){
+    const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  let checking=false;
+  pin.addEventListener('input',async ()=>{
+    pin.value=pin.value.replace(/\D/g,'').slice(0,PIN_LEN); err.textContent='';
+    if(pin.value.length!==PIN_LEN || checking) return;
+    checking=true;
+    try{
+      const h=await sha256hex(pin.value);
+      if(h===PIN_HASH){ sessionStorage.setItem(KEY,'1'); unlock(); }
+      else { err.textContent='Leider falsch, bitte nochmal.'; gate.classList.add('shake'); setTimeout(()=>{gate.classList.remove('shake');pin.value='';},380); }
+    } finally { checking=false; }
+  });
+
+  const deck=document.getElementById('deck'), slides=[...deck.children], dots=document.getElementById('dots');
+  const prev=document.getElementById('prev'), next=document.getElementById('next');
+  let i=0;
+  slides.forEach((s,k)=>{ const b=document.createElement('button'); b.setAttribute('aria-label','Folie '+(k+1)); b.onclick=()=>go(k); dots.appendChild(b); });
+  function go(k){
+    i=Math.max(0,Math.min(slides.length-1,k));
+    deck.style.transform='translateX('+(-100*i)+'%)';
+    [...dots.children].forEach((d,n)=>d.classList.toggle('on',n===i));
+    prev.disabled=i===0; next.classList.toggle('end',i===slides.length-1);
+    if(location.hash!=='#'+(i+1)) history.replaceState(null,'','#'+(i+1));
+    slides.forEach((s,n)=>s.setAttribute('aria-hidden',n!==i));
+  }
+  prev.onclick=()=>go(i-1); next.onclick=()=>go(i+1);
+  document.addEventListener('keydown',e=>{
+    if(body.classList.contains('locked')) return;
+    if(e.target.tagName==='INPUT'&&e.target.type!=='checkbox') return;
+    if(['ArrowRight','PageDown'].includes(e.key)){go(i+1);e.preventDefault();}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){go(i-1);e.preventDefault();}
+    else if(e.key==='Home'){go(0);} else if(e.key==='End'){go(slides.length-1);}
+  });
+  let x0=null,y0=null;
+  deck.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
+  deck.addEventListener('touchend',e=>{
+    if(x0===null) return;
+    const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
+    if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.3){ go(i+(dx<0?1:-1)); }
+    x0=null;
+  },{passive:true});
+  window.addEventListener('resize',()=>go(i));
+  const mailAddr=()=>String.fromCharCode(...MAIL_C.map(c=>c^MAIL_K));
+  const MAIL_SUBJECT='Erdwärme: mein Verbrauch 2025';
+  const MAIL_BODY='Hallo Markus,\n\nmein Verbrauch 2025 p.a. betrug ... kWh.\n\nInteresse an der Erdwärme (unverbindlich): Ja / Vielleicht / Nein\n\nLiebe Grüße\n';
+  document.getElementById('mailCta').addEventListener('click',()=>{
+    const a=document.createElement('a');
+    a.href='mailto:'+mailAddr()+'?subject='+encodeURIComponent(MAIL_SUBJECT)+'&body='+encodeURIComponent(MAIL_BODY.replace(/\n/g,'\r\n'));
+    a.click();
+  });
+  document.getElementById('mailCopy').addEventListener('click',async()=>{
+    const a=mailAddr(), out=document.getElementById('mailShown');
+    try{ await navigator.clipboard.writeText(a); out.textContent='Kopiert: '+a; }catch(e){ out.textContent=a; }
+  });
+  document.getElementById('bwToggle').addEventListener('change',e=>body.classList.toggle('bw-on',e.target.checked));
+  const h=parseInt(location.hash.slice(1),10); go(isNaN(h)?0:h-1);
+})();
+</script>
+</body>
+</html>

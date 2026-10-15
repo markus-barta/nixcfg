@@ -201,6 +201,39 @@ in
         "traefik.http.middlewares.bytepoets-memorial-https.redirectscheme.scheme=https"
       ];
     };
+
+    # OPS-340: jhw22-wp.hausv.org, public static page for a private WEG heat-pump project (one index.html,
+    # in-page PIN only, noindex). Same pinned read-only nginx as bytepoets-memorial; no backend, no state.
+    jhw22-wp = {
+      image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
+      restart = "unless-stopped";
+      read_only = true;
+      tmpfs = [
+        "/var/cache/nginx"
+        "/run"
+        "/tmp"
+      ];
+      volumes = [
+        "${../web/jhw22-wp}:/usr/share/nginx/html:ro"
+        "${../web/jhw22-wp-nginx.conf}:/etc/nginx/conf.d/default.conf:ro"
+      ];
+      networks = [ "traefik" ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=true"
+        "traefik.docker.network=traefik"
+        "traefik.http.routers.jhw22-wp.rule=Host(`jhw22-wp.hausv.org`)"
+        "traefik.http.routers.jhw22-wp.entrypoints=web-secure"
+        "traefik.http.routers.jhw22-wp.tls=true"
+        "traefik.http.routers.jhw22-wp.tls.certresolver=default"
+        "traefik.http.routers.jhw22-wp.middlewares=hausv-hsts@file"
+        "traefik.http.services.jhw22-wp.loadbalancer.server.port=80"
+        "traefik.http.routers.jhw22-wp-http.rule=Host(`jhw22-wp.hausv.org`)"
+        "traefik.http.routers.jhw22-wp-http.entrypoints=web"
+        "traefik.http.routers.jhw22-wp-http.middlewares=jhw22-wp-https@docker"
+        "traefik.http.middlewares.jhw22-wp-https.redirectscheme.scheme=https"
+      ];
+    };
     # AEON-13: PAIMOS AEON app (https://aeon.barta.cm). The release is the image pin below;
     # a release pin changes that one line only (NIX-591 fast lane).
     # Database password, session key, messaging key and the AEON-319 doctrine guard key are
