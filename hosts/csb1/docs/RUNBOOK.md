@@ -146,6 +146,19 @@ csb1 keeps orphan containers, so first stop and remove it explicitly
 switch to the previous generation. Never stop the whole compose stack. DNS is
 restored separately from the runbook backup.
 
+### jhw22-wp.hausv.org WEG heat-pump page (OPS-340)
+
+`jhw22-wp` serves `https://jhw22-wp.hausv.org/`: one static page about a heat-pump plan
+for Markus's WEG. It is public by decision (Markus, 2026-10-15): the in-page PIN only
+keeps casual visitors out (it compares a SHA-256 hash in the browser), so the page must
+never contain data that can be traced to a person, unit or address. OPS reviews every
+new version before it ships. Search engines are kept out (`noindex` meta, `X-Robots-Tag`
+header, `robots.txt` Disallow). Source: `hosts/csb1/web/jhw22-wp/` plus
+`hosts/csb1/web/jhw22-wp-nginx.conf`; same pinned read-only nginx as `bytepoets-memorial`.
+DNS is the `jhw22_wp_cname` record in `infrastructure/cloudflare/hausv.org` (OpenTofu).
+Rollback works as for the memorial: stop and remove `csb1-jhw22-wp-1` explicitly, then
+switch to the previous generation; remove the record with OpenTofu.
+
 ### GitHub Actions Runner
 
 csb1 runs a declarative GitHub Actions runner for `hausv-org` deployments via NixOS `services.github-runners`. The runner is configured in `hosts/csb1/hausv-github-runner.nix` and uses the existing GHCR token (`csb1-hausv-ghcr-pull`) for repo-scoped registration.
@@ -166,6 +179,7 @@ journalctl -u github-runner-csb1-hausv.service --since today
 | --------------------------- | ------------------------------------------------------------ |
 | csb1-barta-public-1         | Public mailbridge homepage and privacy                       |
 | csb1-bytepoets-memorial-1   | bytepoets.com memorial page (OPS-337)                        |
+| csb1-jhw22-wp-1             | jhw22-wp.hausv.org WEG heat-pump page (OPS-340)              |
 | csb1-docmost-1              | Documentation wiki                                           |
 | csb1-docmost-db-1           | PostgreSQL for Docmost                                       |
 | csb1-docmost-redis-1        | Redis cache                                                  |
