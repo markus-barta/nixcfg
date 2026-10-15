@@ -140,8 +140,11 @@ It uses the same digest-pinned, read-only nginx as `barta-public`, and Traefik o
 (`default` resolver, Cloudflare DNS-01). DNS is OpenTofu in
 `infrastructure/cloudflare/bytepoets.com` (proxied apex and www, null MX, SPF -all,
 DMARC reject). The pre-change zone backup and restore steps are in OPS runbook
-`domain-bytepoets-com`. Rollback: the previous NixOS generation, reconciling only this
-service; never stop the whole compose stack.
+`domain-bytepoets-com`. Rollback: earlier generations do not know this service and
+csb1 keeps orphan containers, so first stop and remove it explicitly
+(`docker stop csb1-bytepoets-memorial-1 && docker rm csb1-bytepoets-memorial-1`), then
+switch to the previous generation. Never stop the whole compose stack. DNS is
+restored separately from the runbook backup.
 
 ### GitHub Actions Runner
 
