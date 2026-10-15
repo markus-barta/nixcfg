@@ -149,3 +149,27 @@ resource "cloudflare_record" "jhw22_wp_cname" {
   comment = "OPS-340 public WEG heat-pump page on csb1"
   tags    = []
 }
+
+# OPS-340: contact alias for the page's "send your consumption" button. Retire it after the planning phase, as the page
+# promises. The destination (a verified Email Routing address) is supplied through TF_VAR_erdwaerme_forward_to and never
+# committed; the other hausv.org routing rules (hello@, hallo@, catch-all) are not managed here yet.
+variable "erdwaerme_forward_to" {
+  description = "Verified Email Routing destination for erdwaerme@hausv.org (TF_VAR_erdwaerme_forward_to)"
+  type        = string
+  sensitive   = true
+}
+
+resource "cloudflare_email_routing_rule" "erdwaerme" {
+  zone_id = local.zone_id
+  name    = "OPS-340 erdwaerme@hausv.org (WEG heat-pump page; retire after planning)"
+  enabled = true
+  matcher {
+    type  = "literal"
+    field = "to"
+    value = "erdwaerme@hausv.org"
+  }
+  action {
+    type  = "forward"
+    value = [var.erdwaerme_forward_to]
+  }
+}

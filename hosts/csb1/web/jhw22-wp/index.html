@@ -10,6 +10,9 @@
   /* ===== Einstellungen ===== */
   const PIN_LEN = 6;  // digits only; value never stored as plaintext
   const PIN_HASH = "7c4a15b703b000ebc71c86bf47f099056f37b0ec14c88d1c7910d2768f830947";  // SHA-256 hex of the PIN
+  /* Contact for the CTA: XOR-coded char codes, decoded only on click (keeps the address out of the source). */
+  const MAIL_K = 0x5a;
+  const MAIL_C = [63,40,62,45,59,63,40,55,63,26,50,59,47,41,44,116,53,40,61];
   /* Gate: compare SHA-256 of entered digits via crypto.subtle.digest.
      No plaintext PIN in this file. Casual visitor gate only. */
 </script>
@@ -82,8 +85,25 @@
   nav.ctrl{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));
     background:linear-gradient(to top,var(--bg) 60%,rgba(246,244,239,0));pointer-events:none}
   nav.ctrl > *{pointer-events:auto}
-  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;width:42px;height:42px;font-size:1.1rem;cursor:pointer;box-shadow:var(--shadow)}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;width:42px;height:42px;display:inline-grid;place-items:center;padding:0;cursor:pointer;box-shadow:var(--shadow)}
+  .btn svg{width:20px;height:20px}
   .btn:disabled{opacity:.35;cursor:default}
+  .btn:focus-visible,.cta-btn:focus-visible,.linkish:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .btn.next{width:auto;height:48px;display:inline-flex;align-items:center;gap:10px;padding:0 18px 0 24px;background:var(--accent);border-color:var(--accent);color:#fff;
+    font-family:inherit;font-size:.95rem;font-weight:700;line-height:1;letter-spacing:.1em;text-transform:uppercase;box-shadow:0 2px 4px rgba(31,42,36,.12),0 8px 24px rgba(47,107,79,.28)}
+  .btn.next:hover{background:#285c44}
+  .btn.next.end{visibility:hidden}
+
+  /* CTA (last slide) */
+  .cta h3{font-size:1.25rem;margin-bottom:.3em}
+  .cta-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;margin:16px 0 8px;padding:14px 26px;border:0;border-radius:99px;background:var(--accent);color:#fff;
+    font-family:inherit;font-size:1.05rem;font-weight:700;line-height:1.2;cursor:pointer;box-shadow:0 2px 4px rgba(31,42,36,.12),0 8px 24px rgba(47,107,79,.28)}
+  .cta-btn:hover{background:#285c44}
+  .cta-btn svg{width:20px;height:20px;flex:none}
+  .linkish{border:0;background:none;padding:0;font:inherit;color:var(--accent);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+  #mailShown{display:inline-block;min-width:12em;color:var(--ink)}
+  @media (max-width:560px){.cta-btn{width:100%;padding:14px 12px;gap:8px;font-size:1rem;text-wrap:balance}}
+  @media (max-width:380px){.cta-btn{font-size:.9rem}}
   .dots{display:flex;gap:8px}
   .dots button{width:9px;height:9px;border-radius:50%;border:0;background:#c9cec9;cursor:pointer;padding:0}
   .dots button.on{background:var(--accent);width:24px;border-radius:99px}
@@ -313,10 +333,13 @@
         <li>Ich hole Angebote ein (Tiefenbohrung, Flächenkollektor, Vergleich Luft-Wasser) und kläre Strom-Anschlussleistung und Förderung.</li>
         <li>Kurzer <strong>Info-Abend</strong> mit dem Stand und ersten Angeboten. Termin folgt.</li>
       </ol>
-      <div class="card soft" style="margin-top:22px">
-        <div class="label">Fragen, Ideen, Bedenken? Jederzeit gern.</div>
-        <div style="font-size:1.25rem;font-weight:650;margin-top:.2em">Markus</div>
-        <p class="src" style="margin-bottom:0">Antworte einfach auf meine Nachricht mit dem Link zu dieser Seite.</p>
+      <div class="card soft cta" style="margin-top:22px">
+        <h3>Schick mir deinen Verbrauch</h3>
+        <p class="muted" style="margin:0">Ein Klick öffnet eine fertige E-Mail an mich. Du trägst nur noch deine kWh ein.</p>
+        <div class="path">Wo steht der Wert? Jahresabrechnung → Anlagenblatt zur Messtechnik (Heizkosten) → Tabelle <b>RAUMHEIZUNG</b> → Zeile „Heizung Verbrauchskosten“ → Spalte „Einheiten“</div>
+        <button class="cta-btn" id="mailCta" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>Verbrauch per E-Mail schicken</button>
+        <p class="src" style="margin:0">Kein Mailprogramm? <button class="linkish" id="mailCopy" type="button">Adresse kopieren</button> <span id="mailShown" aria-live="polite"></span></p>
+        <p class="src" style="margin:.8em 0 0">Fragen, Ideen, Bedenken? Jederzeit gern, auch als Antwort auf meine Nachricht. Markus</p>
       </div>
     </div>
   </section>
@@ -324,9 +347,9 @@
 </main>
 
 <nav class="ctrl" aria-label="Folien-Navigation">
-  <button class="btn" id="prev" aria-label="Zurück">‹</button>
+  <button class="btn" id="prev" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
   <div class="dots" id="dots"></div>
-  <button class="btn" id="next" aria-label="Weiter">›</button>
+  <button class="btn next" id="next">Weiter<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
 </nav>
 
 <script>
@@ -359,7 +382,7 @@
     i=Math.max(0,Math.min(slides.length-1,k));
     deck.style.transform='translateX('+(-100*i)+'%)';
     [...dots.children].forEach((d,n)=>d.classList.toggle('on',n===i));
-    prev.disabled=i===0; next.disabled=i===slides.length-1;
+    prev.disabled=i===0; next.classList.toggle('end',i===slides.length-1);
     if(location.hash!=='#'+(i+1)) history.replaceState(null,'','#'+(i+1));
     slides.forEach((s,n)=>s.setAttribute('aria-hidden',n!==i));
   }
@@ -380,6 +403,18 @@
     x0=null;
   },{passive:true});
   window.addEventListener('resize',()=>go(i));
+  const mailAddr=()=>String.fromCharCode(...MAIL_C.map(c=>c^MAIL_K));
+  const MAIL_SUBJECT='Erdwärme: mein Verbrauch 2025';
+  const MAIL_BODY='Hallo Markus,\n\nmein Verbrauch 2025 p.a. betrug ... kWh.\n\nInteresse an der Erdwärme (unverbindlich): Ja / Vielleicht / Nein\n\nLiebe Grüße\n';
+  document.getElementById('mailCta').addEventListener('click',()=>{
+    const a=document.createElement('a');
+    a.href='mailto:'+mailAddr()+'?subject='+encodeURIComponent(MAIL_SUBJECT)+'&body='+encodeURIComponent(MAIL_BODY.replace(/\n/g,'\r\n'));
+    a.click();
+  });
+  document.getElementById('mailCopy').addEventListener('click',async()=>{
+    const a=mailAddr(), out=document.getElementById('mailShown');
+    try{ await navigator.clipboard.writeText(a); out.textContent='Kopiert: '+a; }catch(e){ out.textContent=a; }
+  });
   document.getElementById('bwToggle').addEventListener('change',e=>body.classList.toggle('bw-on',e.target.checked));
   const h=parseInt(location.hash.slice(1),10); go(isNaN(h)?0:h-1);
 })();
