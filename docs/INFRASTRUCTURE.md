@@ -284,7 +284,7 @@ nixos-rebuild switch --flake .#<host> --target-host <host> --use-remote-sudo
 | **Gateway**    | 89.58.60.1     | 152.53.64.1      |
 | **SSH Port**   | 2222           | 2222             |
 | **VNC Access** | Netcup SCP     | Netcup SCP       |
-| **Customer #** | 227044         | 227044           |
+| **Customer #** | 1Password      | 1Password        |
 
 ⚠️ **csb0 subnet is /22** (not /24) — gateway is at .60.1, not .63.1
 
