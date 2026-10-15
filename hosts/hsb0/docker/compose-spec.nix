@@ -411,6 +411,10 @@
         # it back under the same origin.
         "/var/lib/hostdash-status:/srv/hostdash-status:ro"
         "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+        # OPS-353: the In-flight page. Content dir outside the read-only app root (same reason
+        # as /status/ above); the location snippet goes into the shared conf's include point.
+        "/var/lib/inflight:/srv/inflight:ro"
+        "/etc/hsb0-home-inflight.conf:/etc/nginx/hostdash-extra/inflight.conf:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=true"
