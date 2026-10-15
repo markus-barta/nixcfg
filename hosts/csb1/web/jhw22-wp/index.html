@@ -40,7 +40,9 @@
 
   /* ---- Deck ---- */
   #deck{position:fixed;inset:0;display:flex;transition:transform .45s cubic-bezier(.2,.7,.2,1);will-change:transform}
-  .slide{--padX:clamp(16px,5vw,72px);--padT:clamp(20px,4vw,56px);flex:0 0 100%;width:100%;height:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:var(--padT) var(--padX) 96px}
+  :root{--barH:calc(49px + env(safe-area-inset-top))}
+  @media (max-width:699px){:root{--barH:calc(53px + env(safe-area-inset-top))}}
+  .slide{--padX:clamp(16px,5vw,72px);--padT:clamp(20px,4vw,56px);scroll-padding-top:var(--barH);flex:0 0 100%;width:100%;height:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:calc(var(--padT) + var(--barH)) var(--padX) 96px}
   .wrap{max-width:1080px;margin:0 auto}
   .grid{display:grid;gap:16px}
   .grid > *{min-width:0}
@@ -178,10 +180,13 @@
   @container (max-width:330px){ .wi-big .wi-who{display:block} }
   .wi-q{font-size:.85rem;color:var(--muted)}
   body:not(.bw-on) .wi-ww{visibility:hidden}
+  .wi-sum:not(.loan) .wi-q1, .wi-sum.loan .wi-q0{visibility:hidden}
   .wi-hint{font-size:.88rem;color:var(--muted);margin:0 0 .4em}
   table.wi td{vertical-align:middle}
   table.wi td:first-child{white-space:normal;min-width:0;width:100%}
   table.wi th:nth-child(2){white-space:nowrap}
+  table.wi th:first-child{padding-left:calc(.55em + 18px + .6em)}   /* "Annahme" over the label text, the checkbox column stays clear */
+  @media (max-width:699px){ #wiCard .tablebox{margin-top:30px} }   /* phones: a free band above the table for the "Ankreuzen" hint */
   .wi-l{display:flex;align-items:flex-start;gap:.6em;cursor:pointer;padding:.15em 0}
   .wi-l input{flex:none;width:18px;height:18px;margin:.15em 0 0;accent-color:var(--accent);cursor:pointer}
   .wi-l input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -207,7 +212,7 @@
   .wd-s{margin:.4em 0 0;font-size:.8rem;color:var(--muted)}
 
   /* Kontakt */
-  .ct{display:grid;gap:22px;max-width:1120px;margin:0 auto;align-items:center;min-height:calc(100vh - var(--padT) - 96px);min-height:calc(100dvh - var(--padT) - 96px)}
+  .ct{display:grid;gap:22px;max-width:1120px;margin:0 auto;align-items:center;min-height:calc(100vh - var(--padT) - var(--barH) - 96px);min-height:calc(100dvh - var(--padT) - var(--barH) - 96px)}
   @media (min-width:900px){.ct{grid-template-columns:minmax(0,44fr) minmax(0,56fr);gap:44px}}
   .ct-pic img,.ct-ph{display:block;width:100%;height:auto;aspect-ratio:3/2;object-fit:cover;border-radius:var(--radius);box-shadow:var(--shadow);background:#e9e4da}
   @media (max-width:899px){.ct-pic img,.ct-ph{aspect-ratio:16/9}}
@@ -229,6 +234,25 @@
   .ct-find:not(.open) .ct-fp{visibility:hidden}
   .ct-sign{margin:.9em 0 0;font-size:.95rem;color:var(--ink)}
   .ct-name{display:block;margin-top:.35em;font-size:1.3rem;font-weight:600;letter-spacing:.01em;color:var(--accent)}
+
+  /* Hint "Umschalten / Ausprobieren / Ankreuzen": fixed overlay, pointer-events none, never part of the layout */
+  .hint-layer{position:fixed;inset:0;pointer-events:none;z-index:45}
+  .hint-ring{position:absolute;box-sizing:border-box;border:3px solid var(--warm);opacity:0;transform-origin:center;
+    animation:hint-pulse .9s ease-out 0s 2, hint-hold 3.4s linear 1.8s forwards}
+  @keyframes hint-pulse{0%{transform:scale(1);opacity:.9}100%{transform:scale(1.06);opacity:0}}
+  @keyframes hint-hold{0%{opacity:.6}100%{opacity:.4}}
+  .hint-tip{position:absolute;display:flex;align-items:center;gap:0;animation:hint-pop .5s cubic-bezier(.3,1.7,.5,1) .15s both}
+  .hint-tip.side-below,.hint-tip.side-above{flex-direction:column;align-items:flex-start}
+  .hint-tip.end{align-items:flex-end}
+  @keyframes hint-pop{0%{transform:scale(.6);opacity:0}100%{transform:scale(1);opacity:1}}
+  .hint-chip{background:#fff;border:1.5px solid var(--warm);color:var(--ink);font-size:13px;font-weight:650;line-height:1;padding:6px 11px;border-radius:99px;white-space:nowrap;
+    box-shadow:0 2px 8px rgba(181,115,58,.22)}
+  .hint-arrow{width:40px;height:40px;flex:none;fill:none;stroke:var(--warm);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  .hint-layer > .hint-chip{position:absolute}
+  .hint-free{position:absolute;overflow:visible}
+  .hint-pop{animation:hint-pop .5s cubic-bezier(.3,1.7,.5,1) .15s both}
+  .hint-out{opacity:0!important;transition:opacity .35s ease;animation:none!important}
+  @media (prefers-reduced-motion:reduce){.hint-ring{animation:none;opacity:.75}.hint-tip,.hint-pop{animation:none}}
 
   /* Slide 3: plan heading */
   .plan-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px 24px;margin:16px 0}
@@ -270,7 +294,7 @@
   .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;width:42px;height:42px;display:inline-grid;place-items:center;padding:0;cursor:pointer;box-shadow:var(--shadow)}
   .btn svg{width:20px;height:20px}
   .btn:disabled{opacity:.35;cursor:default}
-  .btn:focus-visible,.cta-btn:focus-visible,.linkish:focus-visible,.dots button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .btn:focus-visible,.cta-btn:focus-visible,.linkish:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
   .btn.next{width:auto;height:48px;display:inline-flex;align-items:center;gap:10px;padding:0 18px 0 24px;background:var(--accent);border-color:var(--accent);color:#fff;
     font-family:inherit;font-size:.95rem;font-weight:700;line-height:1;letter-spacing:.1em;text-transform:uppercase;box-shadow:0 2px 4px rgba(31,42,36,.12),0 8px 24px rgba(47,107,79,.28)}
   .btn.next:hover{background:#285c44}
@@ -286,13 +310,42 @@
   #mailShown{display:inline-block;min-width:12em;color:var(--ink)}
   @media (max-width:599px){.cta-btn{width:100%;padding:14px 12px;gap:8px;font-size:1rem;text-wrap:balance}}
   @media (max-width:380px){.cta-btn{font-size:.9rem}}
-  .dots{display:flex;gap:8px}
-  .dots button{width:9px;height:9px;border-radius:50%;border:0;background:#c9cec9;cursor:pointer;padding:0}
-  .dots button.on{background:var(--accent);width:24px;border-radius:99px}
-  .hint{position:fixed;top:12px;right:16px;font-size:.75rem;color:var(--muted);display:flex;align-items:center;gap:2px}
+  /* Top bar: one-word slide menu, fixed height, the current slide marked */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:30;padding-top:env(safe-area-inset-top);background:rgba(246,244,239,.94);
+    -webkit-backdrop-filter:saturate(1.2) blur(8px);backdrop-filter:saturate(1.2) blur(8px);border-bottom:1px solid var(--line)}
+  .tb-strip{display:flex;align-items:center;gap:2px;height:48px;max-width:1240px;margin:0 auto;padding:0 clamp(10px,3vw,40px);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain}
+  .tb-strip::-webkit-scrollbar{display:none}
+  .tb-e{flex:none;height:34px;padding:0 12px;border:0;border-radius:99px;background:none;color:var(--muted);font:inherit;font-size:.9rem;font-weight:600;line-height:1;cursor:pointer;white-space:nowrap}
+  .tb-e:hover{color:var(--ink);background:rgba(47,107,79,.07)}
+  .tb-e[aria-current="page"]{color:var(--ink);background:var(--accent-soft)}
+  .tb-e:focus-visible,.tb-back:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .tb-slot{flex:none;margin-left:auto;padding-left:14px;display:grid;align-items:center;justify-items:end}
+  .tb-slot > *{grid-area:1/1}
+  .tb-sz{visibility:hidden;pointer-events:none}
+  .tb-hint{font-size:.75rem;color:var(--muted);display:flex;align-items:center;gap:2px;white-space:nowrap}
+  .tb-hint svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+  .tb-hint svg:last-of-type{margin-right:4px}
+  .tb-slot.back .tb-hint, .tb-slot:not(.back) .tb-back{visibility:hidden}
+  .tb-back{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px 0 9px;border:1px solid var(--line);border-radius:99px;background:var(--card);color:var(--ink);
+    font:inherit;font-size:.82rem;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:0 1px 2px rgba(31,42,36,.06)}
+  .tb-back svg{width:14px;height:14px;fill:none;stroke:var(--accent);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  @media (max-width:699px){
+    .tb-strip{height:52px}
+    .tb-e{height:44px;padding:0 13px}
+    .tb-slot{margin-left:0} .tb-hint{display:none}
+    .tb-strip.fade-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent)}
+    .tb-strip.fade-l{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 44px);mask-image:linear-gradient(to right,transparent 0,#000 44px)}
+    .tb-strip.fade-l.fade-r{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 44px,#000 calc(100% - 44px),transparent);mask-image:linear-gradient(to right,transparent 0,#000 44px,#000 calc(100% - 44px),transparent)}
+  }
+  /* links that leave the slide: an arrow + the target's one-word name; external links: a small box-with-arrow icon */
+  [data-jump]::after{content:attr(data-jump);display:inline-block;margin-left:.4em;padding:0 7px 0 19px;border-radius:99px;font-size:.78em;font-weight:600;line-height:1.55;color:var(--accent);vertical-align:.06em;
+    background:var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232f6b4f' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12h15M13 6l6 6-6 6'/%3E%3C/svg%3E") no-repeat 6px 50%/10px 10px}
+  .wd [data-jump]::after,.soft [data-jump]::after,.wi-sum [data-jump]::after{background-color:#fff}
+  a[target="_blank"]::after{content:"";display:inline-block;width:.72em;height:.72em;margin-left:.22em;vertical-align:-.02em;background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'/%3E%3C/svg%3E") center/contain no-repeat;
+    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'/%3E%3C/svg%3E") center/contain no-repeat}
   .hint svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
   .hint svg:last-of-type{margin-right:4px}
-  @media (max-width:560px){.hint{display:none}}
 
   /* PIN-Gate */
   #gate{position:fixed;inset:0;z-index:50;background:rgba(246,244,239,.97);display:grid;place-items:center;padding:20px}
@@ -304,7 +357,7 @@
   #gate .err{color:#a5432f;font-size:.85rem;min-height:1.3em}
   #gate.shake .box{animation:sh .35s}
   @keyframes sh{20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
-  body.locked #deck, body.locked nav.ctrl, body.locked .hint{filter:blur(8px);pointer-events:none}
+  body.locked #deck, body.locked nav.ctrl, body.locked .topbar{filter:blur(8px);pointer-events:none}
 
   @media (prefers-reduced-motion:reduce){
     #deck,.seg span,.toggle input,.toggle input::after,.si .v,.ct-chev,.ex-tl .ex-draw,.ex[data-plan] [data-plan],.sf-pic img,.sf-overlay,.sf-caps > *{transition:none!important}
@@ -472,7 +525,12 @@
   </div>
 </div>
 
-<div class="hint"><span class="vh">Pfeiltasten</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>oder wischen</div>
+<header class="topbar" id="topbar">
+  <nav class="tb-strip" id="tbStrip" aria-label="Folien">
+    <button class="tb-e" type="button" data-k="0">Idee</button><button class="tb-e" type="button" data-k="1">Technik</button><button class="tb-e" type="button" data-k="2">Kosten</button><button class="tb-e" type="button" data-k="3">Komfort</button><button class="tb-e" type="button" data-k="4">Zeitplan</button><button class="tb-e" type="button" data-k="5">Details</button><button class="tb-e" type="button" data-k="6">Kontakt</button>
+    <span class="tb-slot" id="tbSlot"><span class="tb-back tb-sz" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12H5"/><path d="m11 18-6-6 6-6"/></svg>zurück zu Zeitplan</span><span class="tb-hint" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>oder wischen</span><button class="tb-back" id="tbBack" type="button" tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5"/><path d="m11 18-6-6 6-6"/></svg><span>zurück zu Kosten</span></button></span>
+  </nav>
+</header>
 
 <main id="deck">
 
@@ -480,8 +538,8 @@
   <section class="slide" aria-label="Worum geht's">
     <header class="hero">
       <picture class="hero-bg" aria-hidden="true">
-        <source media="(max-width: 599px)" srcset="img/hero-portrait.webp" width="752" height="940">
-        <img src="img/hero.webp" width="1600" height="900" alt="" decoding="async" fetchpriority="high">
+        <source media="(max-width: 599px)" srcset="img/hero-portrait.webp?v=25" width="752" height="940">
+        <img src="img/hero.webp?v=25" width="1600" height="900" alt="" decoding="async" fetchpriority="high">
       </picture>
       <div class="wrap">
         <div class="kicker">Unsere WEG</div>
@@ -521,7 +579,7 @@
         </div>
       </div>
 
-      <aside class="wd" aria-label="Wusstest du?"><svg class="wd-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 18h5"/><path d="M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.7 10.7c.8.7 1.2 1.4 1.2 2.3h5c0-.9.4-1.6 1.2-2.3A6 6 0 0 0 12 3Z"/></svg><div class="wd-b"><div class="wd-k">Wusstest du?</div><div class="wd-st"><div class="wd-off"><p class="wd-t">Mit der Wärmepumpe spart unser Haus schon im ersten Jahr rund <b class="wd-n"><span data-v="wdY1" data-st="off">7.970 €</span></b> Heizkosten. Für eine 100-m²-Wohnung sind das rund <span data-v="wdFlatY1" data-st="off">490 €</span> im Jahr, in 10 Jahren rund <span data-v="wdFlat10" data-st="off">5.850 €</span>.</p><p class="wd-s">Für die 100-m²-Wohnung: Anteil an der beheizten Fläche, bei durchschnittlichem Verbrauch.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div><div class="wd-on"><p class="wd-t">Mit der Wärmepumpe spart unser Haus schon im ersten Jahr rund <b class="wd-n"><span data-v="wdY1" data-st="on">11.380 €</span></b> Heiz- und Warmwasserkosten. Für eine 100-m²-Wohnung sind das rund <span data-v="wdFlatY1" data-st="on">710 €</span> im Jahr, in 10 Jahren rund <span data-v="wdFlat10" data-st="on">8.150 €</span>.</p><p class="wd-s">Inkl. Warmwasser, wenn alle 12 mitmachen. Für die 100-m²-Wohnung: Anteil an der beheizten Fläche, bei durchschnittlichem Verbrauch.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div></div></div></aside>
+      <aside class="wd" aria-label="Wusstest du?"><svg class="wd-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 18h5"/><path d="M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.7 10.7c.8.7 1.2 1.4 1.2 2.3h5c0-.9.4-1.6 1.2-2.3A6 6 0 0 0 12 3Z"/></svg><div class="wd-b"><div class="wd-k">Wusstest du?</div><div class="wd-st"><div class="wd-off"><p class="wd-t">Mit der Wärmepumpe spart unser Haus schon im ersten Jahr rund <b class="wd-n"><span data-v="wdY1" data-st="off">7.970 €</span></b> Heizkosten. Für eine 100-m²-Wohnung sind das im ersten Jahr rund <span data-v="wdFlatY1" data-st="off">490 €</span>. Weil Gas (angenommen <span data-v="gasGrowth">+3 %</span>/Jahr) schneller teurer wird als Strom (<span data-v="powerGrowth">+2 %</span>), wächst die Ersparnis: im 10. Jahr rund <span data-v="wdFlatY10" data-st="off">685 €</span>, in 10 Jahren zusammen rund <span data-v="wdFlat10" data-st="off">5.850 €</span>.</p><p class="wd-s">100-m²-Wohnung: bei durchschnittlichem Verbrauch, Anteil nach Fläche.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div><div class="wd-on"><p class="wd-t">Mit der Wärmepumpe spart unser Haus schon im ersten Jahr rund <b class="wd-n"><span data-v="wdY1" data-st="on">11.380 €</span></b> Heiz- und Warmwasserkosten. Für eine 100-m²-Wohnung sind das im ersten Jahr rund <span data-v="wdFlatY1" data-st="on">710 €</span>. Weil Gas (angenommen <span data-v="gasGrowth">+3 %</span>/Jahr) schneller teurer wird als Strom (<span data-v="powerGrowth">+2 %</span>), wächst die Ersparnis: im 10. Jahr rund <span data-v="wdFlatY10" data-st="on">935 €</span>, in 10 Jahren zusammen rund <span data-v="wdFlat10" data-st="on">8.150 €</span>.</p><p class="wd-s">Inkl. Warmwasser, wenn alle 12 mitmachen. 100-m²-Wohnung: bei durchschnittlichem Verbrauch, Anteil nach Fläche.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div></div></div></aside>
 
       <p class="src" style="margin-top:16px">Datenschutz: Die Werte verwende ich nur zusammengefasst für die Anbieteranfragen, gebe keine Einzelwerte an Dritte weiter und lösche sie nach der Planungsphase. Die Prüfung von Geologie, Hydrogeologie und Wasserrecht am Hang ist der erste Teil der Planung.</p>
     </div>
@@ -543,7 +601,7 @@
 
       <figure class="card photo sf" id="sfFig" data-view="a">
         <div class="sf-pic">
-          <img class="sf-a" data-src="img/model3d-a.webp" width="1024" height="576" loading="lazy" decoding="async" alt="Symbolbild: Architekturmodell eines Terrassenhauses am Hang; in der Wiese markieren Kreise die Sondenpunkte, sonst ist die Wiese wieder Wiese.">
+          <img class="sf-a" data-src="img/model3d-a.webp?v=25" width="1024" height="576" loading="lazy" decoding="async" alt="Symbolbild: Architekturmodell eines Terrassenhauses am Hang; in der Wiese markieren Kreise die Sondenpunkte, sonst ist die Wiese wieder Wiese.">
           <svg viewBox="0 0 1024 576" class="sf-overlay" focusable="false" aria-hidden="true">
   <g fill="none" stroke="#fffaf0" stroke-opacity=".7" stroke-width="1.3" stroke-dasharray="3 4" stroke-linecap="round">
     <path d="M350 271 L327 330 M350 271 L462 309 M462 309 L484 309 M484 309 L596 282 M484 309 L512 351 M512 351 L536 353 M536 353 L648 339 M648 339 L675 339 M675 339 L799 319"/>
@@ -618,7 +676,7 @@
           <div class="label">Zum Vergleich: neue Gastherme</div>
           <div class="big warm"><span data-v="gasNew">50.000 €</span></div>
           <div class="src">
-            <span class="l">keine Förderung für Gas · <button class="linkish" type="button" data-goto="gasSrc">Woher?</button></span>
+            <span class="l">keine Förderung für Gas · <button class="linkish" type="button" data-goto="gas-src">Woher?</button></span>
             <span class="l">Mehrkosten Wärmepumpe <span data-v="extra">77.700 €</span></span>
           </div>
         </div>
@@ -671,9 +729,9 @@
         </div>
       </div>
 
-      <aside class="wd" aria-label="Wusstest du?"><svg class="wd-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 18h5"/><path d="M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.7 10.7c.8.7 1.2 1.4 1.2 2.3h5c0-.9.4-1.6 1.2-2.3A6 6 0 0 0 12 3Z"/></svg><div class="wd-b"><div class="wd-k">Wusstest du?</div><div class="wd-st"><div class="wd-off"><p class="wd-t">In 20 Jahren spart unser Haus rund <b class="wd-n"><span data-v="wdHouse20" data-st="off">229.000 €</span></b> an Energie- und Nebenkosten, für eine 100-m²-Wohnung rund <span data-v="wdFlat20" data-st="off">14.200 €</span>.</p><p class="wd-s">Summe der jährlichen Ersparnis mit den angenommenen Preissteigerungen. Für die 100-m²-Wohnung: Anteil an der beheizten Fläche, bei durchschnittlichem Verbrauch.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div><div class="wd-on"><p class="wd-t">In 20 Jahren spart unser Haus rund <b class="wd-n"><span data-v="wdHouse20" data-st="on">312.000 €</span></b> an Energie- und Nebenkosten, für eine 100-m²-Wohnung rund <span data-v="wdFlat20" data-st="on">19.400 €</span>.</p><p class="wd-s">Inkl. Warmwasser, wenn alle 12 mitmachen. Summe der jährlichen Ersparnis mit den angenommenen Preissteigerungen. Für die 100-m²-Wohnung: Anteil an der beheizten Fläche, bei durchschnittlichem Verbrauch.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div></div></div></aside>
+      <aside class="wd" aria-label="Wusstest du?"><svg class="wd-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 18h5"/><path d="M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.7 10.7c.8.7 1.2 1.4 1.2 2.3h5c0-.9.4-1.6 1.2-2.3A6 6 0 0 0 12 3Z"/></svg><div class="wd-b"><div class="wd-k">Wusstest du?</div><div class="wd-st"><div class="wd-off"><p class="wd-t">In 20 Jahren spart unser Haus zusammen rund <b class="wd-n"><span data-v="wdHouse20" data-st="off">229.000 €</span></b> an Energie- und Nebenkosten, weil die Ersparnis jedes Jahr wächst: von rund <span data-v="wdY1" data-st="off">7.970 €</span> im ersten auf rund <span data-v="wdY20" data-st="off">15.720 €</span> im 20. Jahr (Gas angenommen <span data-v="gasGrowth">+3 %</span>/Jahr, Strom <span data-v="powerGrowth">+2 %</span>). Für eine 100-m²-Wohnung sind das zusammen rund <span data-v="wdFlat20" data-st="off">14.200 €</span>.</p><p class="wd-s">Summe der jährlichen Ersparnis mit den angenommenen Preissteigerungen. 100-m²-Wohnung: bei durchschnittlichem Verbrauch, Anteil nach Fläche.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div><div class="wd-on"><p class="wd-t">In 20 Jahren spart unser Haus zusammen rund <b class="wd-n"><span data-v="wdHouse20" data-st="on">312.000 €</span></b> an Energie- und Nebenkosten, weil die Ersparnis jedes Jahr wächst: von rund <span data-v="wdY1" data-st="on">11.380 €</span> im ersten auf rund <span data-v="wdY20" data-st="on">20.690 €</span> im 20. Jahr (Gas angenommen <span data-v="gasGrowth">+3 %</span>/Jahr, Strom <span data-v="powerGrowth">+2 %</span>). Für eine 100-m²-Wohnung sind das zusammen rund <span data-v="wdFlat20" data-st="on">19.400 €</span>.</p><p class="wd-s">Inkl. Warmwasser, wenn alle 12 mitmachen. Summe der jährlichen Ersparnis mit den angenommenen Preissteigerungen. 100-m²-Wohnung: bei durchschnittlichem Verbrauch, Anteil nach Fläche.</p><p class="wd-s">Das sind Betriebskosten. Die Investition zahlt sich daraus zurück, siehe <button class="linkish" type="button" data-goto="keyCards">Amortisation</button>.</p></div></div></div></aside>
       <div class="bw" id="bwBox" data-nr>
-        <img src="img/hotwater.webp" width="1448" height="1086" loading="lazy" decoding="async" alt="Symbolbild: Warmwasserspeicher in der Wohnung mit zweitem Wärmetauscher, von der Heizung vorgewärmt, elektrisch nachgeheizt.">
+        <img src="img/hotwater.webp?v=25" width="1448" height="1086" loading="lazy" decoding="async" alt="Symbolbild: Warmwasserspeicher in der Wohnung mit zweitem Wärmetauscher, von der Heizung vorgewärmt, elektrisch nachgeheizt.">
         <div>
           <strong>Warmwasser gleich mitrechnen</strong>
           <p>Variante: neuer Boiler mit zweitem Wärmetauscher in jeder Wohnung, von der Wärmepumpe vorgewärmt, elektrisch nachgeheizt auf 60&nbsp;°C. Freiwillig je Wohnung, im Rahmen eines gemeinsam beschlossenen technischen Konzepts. Ein normaler Ersatzboiler kostet ohnehin ca. 1.000–1.500&nbsp;€. Die Fußbodenheizung allein (35&nbsp;°C) kann kein Warmwasser machen.</p>
@@ -735,7 +793,7 @@
       <h2>Im Sommer kühlen: der Zeitplan</h2>
 
       <div class="card cool" style="margin-top:14px">
-        <img data-src="img/cooling.webp" width="1600" height="900" loading="lazy" decoding="async" alt="Kühle Fußböden im Sommer; Pfeile zeigen den Wärmetransport zurück ins Erdreich.">
+        <img data-src="img/cooling.webp?v=25" width="1600" height="900" loading="lazy" decoding="async" alt="Kühle Fußböden im Sommer; Pfeile zeigen den Wärmetransport zurück ins Erdreich.">
         <p class="cool-l">Kühlen ist im Plan (nach Kühllast-Berechnung; je nach Bodenbelag; ohne Entfeuchtung): siehe <button class="linkish" type="button" data-goto="komfort">Komfort</button>.</p>
       </div>
 
@@ -766,14 +824,14 @@
         <summary><svg class="si" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path class="v" d="M12 5v14"/></svg>Was wäre, wenn?</summary>
         <div class="wi-card" id="wiCard">
           <div class="wi-sum">
-            <div class="wi-top"><span class="wi-cap">Einfache Amortisation (ohne Zinsen): Mehrkosten ggü. neuer Gastherme zurück im</span><button class="linkish wi-reset" type="button" id="wiReset">Zurücksetzen</button></div>
+            <div class="wi-top"><span class="wi-cap wi-stack"><span class="wi-q0">Einfache Amortisation (ohne Zinsen): Mehrkosten ggü. neuer Gastherme zurück im</span><span class="wi-q1">Einfache Amortisation (mit Zinsen): Mehrkosten ggü. neuer Gastherme zurück im</span></span><button class="linkish wi-reset" type="button" id="wiReset">Zurücksetzen</button></div>
             <div class="wi-stack wi-big" aria-live="polite"><span class="wi-sz" aria-hidden="true">Mit deiner Auswahl: über 30 Jahre</span><span class="wi-cur"><span class="wi-who">Unser Plan:</span> <b class="wi-yr"></b></span></div>
             <div class="wi-stack wi-q"><span class="wi-sz" aria-hidden="true">ganzer Eigenanteil zurück erst nach über 30 Jahren · inkl. Warmwasser</span><span class="wi-cur">ganzer Eigenanteil zurück im <span class="wi-full"></span><span class="wi-ww"> · inkl. Warmwasser</span></span></div>
           </div>
           <p class="wi-hint">Kreuz an, was anders kommen könnte; mehrere Annahmen lassen sich kombinieren. Die Jahre daneben gelten für die Annahme allein.</p>
           <div class="tablebox"><table class="wi">
             <thead><tr><th>Annahme</th><th>zurück im</th><th><span class="vh">Erklärung</span></th></tr></thead>
-            <tbody data-html="whatIf" data-once><tr data-wi="gas1" data-group="gas"><td><label class="wi-l"><input type="checkbox" value="gas1"><span>Gas wird nur 1 % pro Jahr teurer</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas1" aria-label="Erklärung: Gas wird nur 1 % pro Jahr teurer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas1" role="note" hidden><p><strong>Gas wird jedes Jahr 1 % teurer statt 3 %.</strong></p><p>Möglich, wenn die Großhandelspreise flach bleiben: Die Grazer Arbeitspreise sind Mitte 2026 gesunken, und der CO₂-Preis bleibt bis Ende 2027 bei 55 €/t.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Gasseite)</p></div></td></tr><tr data-wi="gas5" data-group="gas"><td><label class="wi-l"><input type="checkbox" value="gas5"><span>Gas wird 5 % pro Jahr teurer (CO₂-Handel ab 2028)</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">8. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas5" aria-label="Erklärung: Gas wird 5 % pro Jahr teurer (CO₂-Handel ab 2028)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas5" role="note" hidden><p><strong>Gas wird jedes Jahr 5 % teurer statt 3 %.</strong></p><p>Möglich, wenn der EU-Emissionshandel ab 2028 Richtung 150 €/t geht und das Gasnetz weiter teurer wird, weil weniger Kunden es tragen.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Gasseite)</p></div></td></tr><tr data-wi="co2"><td><label class="wi-l"><input type="checkbox" value="co2"><span>CO₂-Preis und Erdgasabgabe stecken schon in unserer Gasrechnung</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">11. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-co2" aria-label="Erklärung: CO₂-Preis und Erdgasabgabe stecken schon in unserer Gasrechnung"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-co2" role="note" hidden><p><strong>Gas heute 11.948 € statt 13.846 € pro Jahr.</strong></p><p>Auf den Rechnungen der Versorger stehen CO₂-Preis und Erdgasabgabe meist neben dem Arbeitspreis. Ob unsere Abrechnung sie schon enthält, kläre ich mit der Hausverwaltung.</p><p class="wi-src">Quellen: <a href="https://www.salzburg-ag.at/content/dam/web18/dokumente/waerme_wasser/w%C3%A4rme-wasser/Infoblatt_CO2_Bepreisung.pdf" target="_blank" rel="noopener noreferrer">CO₂-Preis, Infoblatt Salzburg AG</a> · <a href="https://www.usp.gv.at/themen/steuern-finanzen/weitere-steuern-und-abgaben/verbrauchsteuern_und_energieabgaben/erdgasabgabe.html" target="_blank" rel="noopener noreferrer">Erdgasabgabe, usp.gv.at</a></p></div></td></tr><tr data-wi="power"><td><label class="wi-l"><input type="checkbox" value="power"><span>Strom 0,26 €/kWh statt 0,23</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-power" aria-label="Erklärung: Strom 0,26 €/kWh statt 0,23"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-power" role="note" hidden><p><strong>Wärmepumpen-Strom 0,26 € statt 0,23 € je kWh, alles inklusive.</strong></p><p>0,23 € setzen einen günstigen, unterbrechbaren Wärmepumpentarif voraus. Ohne ihn liegt der Preis eher bei 0,25–0,26 €.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Strompreis, Preisblatt Stromnetz Graz 2026)</p></div></td></tr><tr data-wi="sub0" data-group="sub"><td><label class="wi-l"><input type="checkbox" value="sub0"><span>Keine Bundesförderung</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-sub0" aria-label="Erklärung: Keine Bundesförderung"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-sub0" role="note" hidden><p><strong>Förderung 0 € statt 10.000 €.</strong></p><p>Möglich, wenn die Regeln im Dezember Mehrparteienhäuser anders behandeln oder ein Fernwärmeanschluss als zumutbar gilt.</p><p class="wi-src">Quellen: <a href="https://www.ots.at/presseaussendung/OTS_20261015_OTS0181/totschnighattmannsdorfer-500-millionen-euro-booster-fuer-klimamass-nahmen-sowie-bau-und-handwerk" target="_blank" rel="noopener noreferrer">Presseaussendung 15. Oktober 2026</a> · <a href="https://www.sanierungsoffensive.gv.at/Infoblatt_Kesseltausch_2026_MGW.pdf" target="_blank" rel="noopener noreferrer">Infoblatt 2026</a></p></div></td></tr><tr data-wi="sub20" data-group="sub"><td><label class="wi-l"><input type="checkbox" value="sub20"><span>Förderung 20 % der Investition (falls die Regeln im Dezember so kommen)</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">7. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-sub20" aria-label="Erklärung: Förderung 20 % der Investition (falls die Regeln im Dezember so kommen)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-sub20" role="note" hidden><p><strong>Förderung 27.540 € (20 % der Investition) statt 10.000 €.</strong></p><p>Die Regierung spricht für 2027 von „rund 20 %“. Wahrscheinlich ist das nur die Obergrenze über einer Pauschale; als Zuschuss auf die ganze Investition wäre es der günstige Fall.</p><p class="wi-src">Quelle: <a href="https://www.ots.at/presseaussendung/OTS_20261015_OTS0181/totschnighattmannsdorfer-500-millionen-euro-booster-fuer-klimamass-nahmen-sowie-bau-und-handwerk" target="_blank" rel="noopener noreferrer">Presseaussendung 15. Oktober 2026</a></p></div></td></tr><tr data-wi="tender"><td><label class="wi-l"><input type="checkbox" value="tender"><span>Kein Ausschreibungs-Nachlass (−10 %)</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-tender" aria-label="Erklärung: Kein Ausschreibungs-Nachlass (−10 %)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-tender" role="note" hidden><p><strong>Investition 153.000 € statt 137.700 €.</strong></p><p>Wenn die drei Angebote keinen Preisvorteil bringen. Die Bohrpreise streuen am Markt stark (ca. 50–120 € je Meter), daher rechnen wir mit 10 % Nachlass.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Marktpreise, Wettbewerb)</p></div></td></tr><tr data-wi="inv20"><td><label class="wi-l"><input type="checkbox" value="inv20"><span>Investition 20 % höher</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">11. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-inv20" aria-label="Erklärung: Investition 20 % höher"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-inv20" role="note" hidden><p><strong>Investition 165.240 € statt 137.700 €.</strong></p><p>Wenn der Boden die Wärme schlechter leitet und mehr Bohrmeter braucht oder der Hang die Arbeiten verteuert. Das zeigt erst der Test an der ersten Bohrung.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Bohrungen)</p></div></td></tr><tr data-wi="gas70"><td><label class="wi-l"><input type="checkbox" value="gas70"><span>Neue Gastherme kostet mit Rauchfangsanierung 70.000 €</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">7. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas70" aria-label="Erklärung: Neue Gastherme kostet mit Rauchfangsanierung 70.000 €"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas70" role="note" hidden><p><strong>Vergleichswert neue Gastherme 70.000 € statt 50.000 €.</strong></p><p>Wenn der Rauchfang aufwendiger saniert werden muss oder ein neuer Schacht nötig ist. Die Bandbreite liegt bei 35.000–75.000 €.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 · <button class="linkish" type="button" data-goto="gasSrc">Woher die 50.000 € kommen</button></p></div></td></tr><tr data-wi="jaz38"><td><label class="wi-l"><input type="checkbox" value="jaz38"><span>Jahresarbeitszahl 3,8 (falls die Böden 40–⁠45 °C brauchen)</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">9. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-jaz38" aria-label="Erklärung: Jahresarbeitszahl 3,8 (falls die Böden 40–⁠45 °C brauchen)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-jaz38" role="note" hidden><p><strong>JAZ 3,8 statt 4,2: Wärmepumpen-Strom 5.386 € statt 4.873 € im ersten Jahr.</strong></p><p>Ältere Fußbodenheizungen brauchen oft 40–45 °C Vorlauf statt 35 °C; dann arbeitet die Wärmepumpe weniger effizient. Das messen wir an einem kalten Tag.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Effizienz)</p></div></td></tr><tr data-wi="loan"><td><label class="wi-l"><input type="checkbox" value="loan"><span>Finanzierung mit Kredit (ca. 3,6 % Zinsen)</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">11. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-loan" aria-label="Erklärung: Finanzierung mit Kredit (ca. 3,6 % Zinsen)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-loan" role="note" hidden><p><strong>Kredit über die Mehrkosten: jedes Jahr ca. 3,6 % Zinsen auf den Betrag, der noch nicht eingespielt ist.</strong></p><p>Wenn die WEG die Mehrkosten nicht aus der Rücklage oder per Umlage zahlt, sondern finanziert. Die Zinsen verlängern die Amortisation.</p><p class="wi-src">Quelle: Neugeschäft Wohnbaukredite August 2026, eigene Recherche</p></div></td></tr><tr data-wi="gas8"><td><label class="wi-l"><input type="checkbox" value="gas8"><span>Neue Gastherme verbraucht 8 % weniger Gas</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas8" aria-label="Erklärung: Neue Gastherme verbraucht 8 % weniger Gas"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas8" role="note" hidden><p><strong>Gas zum Vergleich 13.154 € statt 13.846 € pro Jahr (Arbeitspreis, CO₂-Preis und Erdgasabgabe 8 % niedriger).</strong></p><p>Eine neue Brennwerttherme nutzt Gas etwas besser als die alte. Dann spart die Wärmepumpe etwas weniger.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026</p></div></td></tr></tbody>
+            <tbody data-html="whatIf" data-once><tr data-wi="gas1" data-group="gas"><td><label class="wi-l"><input type="checkbox" value="gas1"><span>Gas wird nur 1 % pro Jahr teurer</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas1" aria-label="Erklärung: Gas wird nur 1 % pro Jahr teurer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas1" role="note" hidden><p><strong>Gas wird jedes Jahr 1 % teurer statt 3 %.</strong></p><p>Möglich, wenn die Großhandelspreise flach bleiben: Die Grazer Arbeitspreise sind Mitte 2026 gesunken, und der CO₂-Preis bleibt bis Ende 2027 bei 55 €/t.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Gasseite)</p></div></td></tr><tr data-wi="gas5" data-group="gas"><td><label class="wi-l"><input type="checkbox" value="gas5"><span>Gas wird 5 % pro Jahr teurer (CO₂-Handel ab 2028)</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">8. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas5" aria-label="Erklärung: Gas wird 5 % pro Jahr teurer (CO₂-Handel ab 2028)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas5" role="note" hidden><p><strong>Gas wird jedes Jahr 5 % teurer statt 3 %.</strong></p><p>Möglich, wenn der EU-Emissionshandel ab 2028 Richtung 150 €/t geht und das Gasnetz weiter teurer wird, weil weniger Kunden es tragen.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Gasseite)</p></div></td></tr><tr data-wi="co2"><td><label class="wi-l"><input type="checkbox" value="co2"><span>CO₂-Preis und Erdgasabgabe stecken schon in unserer Gasrechnung</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">11. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-co2" aria-label="Erklärung: CO₂-Preis und Erdgasabgabe stecken schon in unserer Gasrechnung"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-co2" role="note" hidden><p><strong>Gas heute 11.948 € statt 13.846 € pro Jahr.</strong></p><p>Auf den Rechnungen der Versorger stehen CO₂-Preis und Erdgasabgabe meist neben dem Arbeitspreis. Ob unsere Abrechnung sie schon enthält, kläre ich mit der Hausverwaltung.</p><p class="wi-src">Quellen: <a href="https://www.salzburg-ag.at/content/dam/web18/dokumente/waerme_wasser/w%C3%A4rme-wasser/Infoblatt_CO2_Bepreisung.pdf" target="_blank" rel="noopener noreferrer">CO₂-Preis, Infoblatt Salzburg AG</a> · <a href="https://www.usp.gv.at/themen/steuern-finanzen/weitere-steuern-und-abgaben/verbrauchsteuern_und_energieabgaben/erdgasabgabe.html" target="_blank" rel="noopener noreferrer">Erdgasabgabe, usp.gv.at</a></p></div></td></tr><tr data-wi="power"><td><label class="wi-l"><input type="checkbox" value="power"><span>Strom 0,26 €/kWh statt 0,23</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-power" aria-label="Erklärung: Strom 0,26 €/kWh statt 0,23"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-power" role="note" hidden><p><strong>Wärmepumpen-Strom 0,26 € statt 0,23 € je kWh, alles inklusive.</strong></p><p>0,23 € setzen einen günstigen, unterbrechbaren Wärmepumpentarif voraus. Ohne ihn liegt der Preis eher bei 0,25–0,26 €.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Strompreis, Preisblatt Stromnetz Graz 2026)</p></div></td></tr><tr data-wi="sub0" data-group="sub"><td><label class="wi-l"><input type="checkbox" value="sub0"><span>Keine Bundesförderung</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-sub0" aria-label="Erklärung: Keine Bundesförderung"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-sub0" role="note" hidden><p><strong>Förderung 0 € statt 10.000 €.</strong></p><p>Möglich, wenn die Regeln im Dezember Mehrparteienhäuser anders behandeln oder ein Fernwärmeanschluss als zumutbar gilt.</p><p class="wi-src">Quellen: <a href="https://www.ots.at/presseaussendung/OTS_20261015_OTS0181/totschnighattmannsdorfer-500-millionen-euro-booster-fuer-klimamass-nahmen-sowie-bau-und-handwerk" target="_blank" rel="noopener noreferrer">Presseaussendung 15. Oktober 2026</a> · <a href="https://www.sanierungsoffensive.gv.at/Infoblatt_Kesseltausch_2026_MGW.pdf" target="_blank" rel="noopener noreferrer">Infoblatt 2026</a></p></div></td></tr><tr data-wi="sub20" data-group="sub"><td><label class="wi-l"><input type="checkbox" value="sub20"><span>Förderung 20 % der Investition (falls die Regeln im Dezember so kommen)</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">7. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-sub20" aria-label="Erklärung: Förderung 20 % der Investition (falls die Regeln im Dezember so kommen)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-sub20" role="note" hidden><p><strong>Förderung 27.540 € (20 % der Investition) statt 10.000 €.</strong></p><p>Die Regierung spricht für 2027 von „rund 20 %“. Wahrscheinlich ist das nur die Obergrenze über einer Pauschale; als Zuschuss auf die ganze Investition wäre es der günstige Fall.</p><p class="wi-src">Quelle: <a href="https://www.ots.at/presseaussendung/OTS_20261015_OTS0181/totschnighattmannsdorfer-500-millionen-euro-booster-fuer-klimamass-nahmen-sowie-bau-und-handwerk" target="_blank" rel="noopener noreferrer">Presseaussendung 15. Oktober 2026</a></p></div></td></tr><tr data-wi="tender"><td><label class="wi-l"><input type="checkbox" value="tender"><span>Kein Ausschreibungs-Nachlass (−10 %)</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-tender" aria-label="Erklärung: Kein Ausschreibungs-Nachlass (−10 %)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-tender" role="note" hidden><p><strong>Investition 153.000 € statt 137.700 €.</strong></p><p>Wenn die drei Angebote keinen Preisvorteil bringen. Die Bohrpreise streuen am Markt stark (ca. 50–120 € je Meter), daher rechnen wir mit 10 % Nachlass.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Marktpreise, Wettbewerb)</p></div></td></tr><tr data-wi="inv20"><td><label class="wi-l"><input type="checkbox" value="inv20"><span>Investition 20 % höher</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">11. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-inv20" aria-label="Erklärung: Investition 20 % höher"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-inv20" role="note" hidden><p><strong>Investition 165.240 € statt 137.700 €.</strong></p><p>Wenn der Boden die Wärme schlechter leitet und mehr Bohrmeter braucht oder der Hang die Arbeiten verteuert. Das zeigt erst der Test an der ersten Bohrung.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Bohrungen)</p></div></td></tr><tr data-wi="gas70"><td><label class="wi-l"><input type="checkbox" value="gas70"><span>Neue Gastherme kostet mit Rauchfangsanierung 70.000 €</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">7. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas70" aria-label="Erklärung: Neue Gastherme kostet mit Rauchfangsanierung 70.000 €"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas70" role="note" hidden><p><strong>Vergleichswert neue Gastherme 70.000 € statt 50.000 €.</strong></p><p>Wenn der Rauchfang aufwendiger saniert werden muss oder ein neuer Schacht nötig ist. Die Bandbreite liegt bei 35.000–75.000 €.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 · <button class="linkish" type="button" data-goto="gas-src">Woher die 50.000 € kommen</button></p></div></td></tr><tr data-wi="jaz38"><td><label class="wi-l"><input type="checkbox" value="jaz38"><span>Jahresarbeitszahl 3,8 (falls die Böden 40–⁠45 °C brauchen)</span></label></td><td><span class="n wi-y" style="min-width:6.1ch">9. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-jaz38" aria-label="Erklärung: Jahresarbeitszahl 3,8 (falls die Böden 40–⁠45 °C brauchen)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-jaz38" role="note" hidden><p><strong>JAZ 3,8 statt 4,2: Wärmepumpen-Strom 5.386 € statt 4.873 € im ersten Jahr.</strong></p><p>Ältere Fußbodenheizungen brauchen oft 40–45 °C Vorlauf statt 35 °C; dann arbeitet die Wärmepumpe weniger effizient. Das messen wir an einem kalten Tag.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026 (Effizienz)</p></div></td></tr><tr data-wi="loan"><td><label class="wi-l"><input type="checkbox" value="loan"><span>Finanzierung mit Kredit (ca. 3,6 % Zinsen)</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">11. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-loan" aria-label="Erklärung: Finanzierung mit Kredit (ca. 3,6 % Zinsen)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-loan" role="note" hidden><p><strong>Kredit über die Mehrkosten: jedes Jahr ca. 3,6 % Zinsen auf den Betrag, der noch nicht eingespielt ist.</strong></p><p>Wenn die WEG die Mehrkosten nicht aus der Rücklage oder per Umlage zahlt, sondern finanziert. Die Zinsen verlängern die Amortisation.</p><p class="wi-src">Quelle: Neugeschäft Wohnbaukredite August 2026, eigene Recherche</p></div></td></tr><tr data-wi="gas8"><td><label class="wi-l"><input type="checkbox" value="gas8"><span>Neue Gastherme verbraucht 8 % weniger Gas</span></label></td><td><span class="n wi-y" style="min-width:7.0ch">10. Jahr</span></td><td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-gas8" aria-label="Erklärung: Neue Gastherme verbraucht 8 % weniger Gas"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button><div class="wi-pop" id="wip-gas8" role="note" hidden><p><strong>Gas zum Vergleich 13.154 € statt 13.846 € pro Jahr (Arbeitspreis, CO₂-Preis und Erdgasabgabe 8 % niedriger).</strong></p><p>Eine neue Brennwerttherme nutzt Gas etwas besser als die alte. Dann spart die Wärmepumpe etwas weniger.</p><p class="wi-src">Quelle: eigene Recherche, Oktober 2026</p></div></td></tr></tbody>
           </table></div>
           <p style="margin:.9em 0 .2em"><strong>Andere Wärmequellen.</strong> Ein Flächenkollektor in der Wiese oder eine Luft-Wasser-Wärmepumpe wären billiger und lägen ebenfalls um das 9. Jahr (laut Recherche). Aber der Kollektor kühlt im Sommer kaum, und Luft-Wasser braucht Außengeräte, die man hört und sieht. Deshalb rechnet der Plan mit Tiefenbohrungen.</p>
         </div>
@@ -783,12 +841,12 @@
         <summary><svg class="si" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path class="v" d="M12 5v14"/></svg>Jährliche Kosten: heute vs. Wärmepumpe (WEG gesamt, Jahr&nbsp;1)</summary>
         <div class="tablebox"><table class="yr">
           <thead><tr><th>in €</th><th>Heute</th><th>Sole-WP</th><th>Differenz</th></tr></thead>
-          <tbody data-html="yearly"><tr><td>Energie&shy;kosten<br><small>Gas: kWh × Arbeitspreis · WP: Wärme ÷ JAZ × Strompreis</small></td><td><span class="n" style="min-width:4.6ch">6.753</span></td><td><span class="n" style="min-width:4.6ch">4.873</span></td><td><span class="n" style="min-width:4.6ch">1.880</span></td></tr><tr><td>CO₂-Preis (55 €/t)<br><small>Annahme aus Recherche · <a href="https://www.salzburg-ag.at/content/dam/web18/dokumente/waerme_wasser/w%C3%A4rme-wasser/Infoblatt_CO2_Bepreisung.pdf" target="_blank" rel="noopener noreferrer">Quelle</a></small></td><td><span class="n" style="min-width:4.6ch">1.192</span></td><td class="muted"><span class="n" style="min-width:1.2ch">–</span></td><td><span class="n" style="min-width:4.6ch">1.192</span></td></tr><tr><td>Erdgas&shy;abgabe<br><small>Annahme aus Recherche · <a href="https://www.usp.gv.at/themen/steuern-finanzen/weitere-steuern-und-abgaben/verbrauchsteuern_und_energieabgaben/erdgasabgabe.html" target="_blank" rel="noopener noreferrer">Quelle</a></small></td><td><span class="n" style="min-width:3.1ch">706</span></td><td class="muted"><span class="n" style="min-width:1.2ch">–</span></td><td><span class="n" style="min-width:3.1ch">706</span></td></tr><tr><td>Grund&shy;kosten / Anschluss<br><small>Gas-Bereit&shy;stellung entfällt, kleiner Stromaufschlag</small></td><td><span class="n" style="min-width:4.6ch">3.042</span></td><td><span class="n" style="min-width:3.1ch">100</span></td><td><span class="n" style="min-width:4.6ch">2.942</span></td></tr><tr><td>Sonstiges (Wartung, Rauch&shy;fang, Not&shy;dienst)</td><td><span class="n" style="min-width:4.6ch">2.153</span></td><td><span class="n" style="min-width:3.1ch">750</span></td><td><span class="n" style="min-width:4.6ch">1.403</span></td></tr><tr><td>Kühlung im Sommer (Pumpen&shy;strom)</td><td class="muted"><span class="n" style="min-width:1.2ch">–</span></td><td><span class="n" style="min-width:3.1ch">150</span></td><td><span class="n" style="min-width:4.2ch">−150</span></td></tr><tr><td>Warmwasser<br><small>nur mit dem Schalter „inkl. Warmwasser“</small></td><td class="muted"><span class="n" style="min-width:4.6ch">–</span></td><td class="muted"><span class="n" style="min-width:4.6ch">–</span></td><td class="muted"><span class="n" style="min-width:4.6ch">–</span></td></tr><tr class="sum"><td>Gesamt pro Jahr</td><td><span class="n" style="min-width:6ch">13.846</span></td><td><span class="n" style="min-width:6ch">5.873</span></td><td><span class="n" style="min-width:6ch">7.973</span></td></tr></tbody>
+          <tbody data-html="yearly"><tr><td>Energie­kosten<br><small>Gas: kWh × Arbeitspreis · WP: Wärme ÷ JAZ × Strompreis</small></td><td><span class="n" style="min-width:4.6ch">6.753</span></td><td><span class="n" style="min-width:4.6ch">4.873</span></td><td><span class="n" style="min-width:4.6ch">1.880</span></td></tr><tr><td>CO₂-Preis (55 €/t)<br><small>Annahme aus Recherche · <a href="https://www.salzburg-ag.at/content/dam/web18/dokumente/waerme_wasser/w%C3%A4rme-wasser/Infoblatt_CO2_Bepreisung.pdf" target="_blank" rel="noopener noreferrer">Quelle</a></small></td><td><span class="n" style="min-width:4.6ch">1.192</span></td><td class="muted"><span class="n" style="min-width:1.2ch">–</span></td><td><span class="n" style="min-width:4.6ch">1.192</span></td></tr><tr><td>Erdgas­abgabe<br><small>Annahme aus Recherche · <a href="https://www.usp.gv.at/themen/steuern-finanzen/weitere-steuern-und-abgaben/verbrauchsteuern_und_energieabgaben/erdgasabgabe.html" target="_blank" rel="noopener noreferrer">Quelle</a></small></td><td><span class="n" style="min-width:3.1ch">706</span></td><td class="muted"><span class="n" style="min-width:1.2ch">–</span></td><td><span class="n" style="min-width:3.1ch">706</span></td></tr><tr><td>Grund­kosten / Anschluss<br><small>Gas-Bereit­stellung entfällt, kleiner Stromaufschlag</small></td><td><span class="n" style="min-width:4.6ch">3.042</span></td><td><span class="n" style="min-width:3.1ch">100</span></td><td><span class="n" style="min-width:4.6ch">2.942</span></td></tr><tr><td>Sonstiges (Wartung, Rauch­fang, Not­dienst)</td><td><span class="n" style="min-width:4.6ch">2.153</span></td><td><span class="n" style="min-width:3.1ch">750</span></td><td><span class="n" style="min-width:4.6ch">1.403</span></td></tr><tr><td>Kühlung im Sommer (Pumpen­strom)</td><td class="muted"><span class="n" style="min-width:1.2ch">–</span></td><td><span class="n" style="min-width:3.1ch">150</span></td><td><span class="n" style="min-width:4.2ch">−150</span></td></tr><tr><td>Warmwasser<br><small>nur mit dem Schalter „inkl. Warmwasser“</small></td><td class="muted"><span class="n" style="min-width:4.6ch">–</span></td><td class="muted"><span class="n" style="min-width:4.6ch">–</span></td><td class="muted"><span class="n" style="min-width:4.6ch">–</span></td></tr><tr class="sum"><td>Gesamt pro Jahr</td><td><span class="n" style="min-width:6ch">13.846</span></td><td><span class="n" style="min-width:6ch">5.873</span></td><td><span class="n" style="min-width:6ch">7.973</span></td></tr></tbody>
         </table></div>
         <p class="src" data-html="yearlyNote">Laut Rechnungsaufbau der Versorger stehen CO₂-Preis und Erdgasabgabe neben dem Arbeitspreis. Falls sie in unserer Abrechnung schon enthalten sind, siehe „CO₂-Preis und Erdgasabgabe stecken schon in unserer Gasrechnung“ unter „Was wäre, wenn?“. Gas: 98.877 kWh × 0,0683 €; Grund- und sonstige Kosten je m² × 1.613 m² Beheizfläche. WP: 98.877 kWh × 90 % = 88.989 kWh Wärme ÷ 4,2 × 0,23 € + 100 € Grundgebühr + 750 € Wartung. Beträge auf ganze Euro so gerundet, dass jede Summe aufgeht.</p>
       </details>
 
-      <details id="gasSrc">
+      <details id="gas-src">
         <summary><svg class="si" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path class="v" d="M12 5v14"/></svg>Woher die 50.000&nbsp;€ für eine neue Gastherme kommen</summary>
         <p class="muted" style="font-size:.9rem;margin-top:0">Neuer Gas-Brennwertkessel für 12 Wohnungen, aus Bausteinen:</p>
         <div class="tablebox"><table>
@@ -874,7 +932,7 @@
   <!-- ============ 7 · Kontakt ============ -->
   <section class="slide" aria-label="Kontakt">
     <div class="ct">
-      <div class="ct-pic"><picture><source media="(max-width: 899px)" data-srcset="img/contact-wide.webp" width="1536" height="864"><img data-src="img/contact.webp" width="1536" height="1024" loading="lazy" decoding="async" alt="Symbolbild: Sommerabend am Hang, Nachbarinnen und Nachbarn auf den Terrassen, Picknick in der Wiese."></picture></div>
+      <div class="ct-pic"><picture><source media="(max-width: 899px)" data-srcset="img/contact-wide.webp?v=25" width="1536" height="864"><img data-src="img/contact.webp?v=25" width="1536" height="1024" loading="lazy" decoding="async" alt="Symbolbild: Sommerabend am Hang, Nachbarinnen und Nachbarn auf den Terrassen, Picknick in der Wiese."></picture></div>
       <div class="ct-main">
         <div class="kicker">Nächste Schritte</div>
         <h2>Danke fürs Reinschauen!</h2>
@@ -903,7 +961,6 @@
 
 <nav class="ctrl" aria-label="Folien-Navigation">
   <button class="btn" id="prev" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
-  <div class="dots" id="dots"></div>
   <button class="btn next" id="next">Weiter<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
 </nav>
 
@@ -912,7 +969,7 @@
   const body=document.body, gate=document.getElementById('gate'), pin=document.getElementById('pin'), err=document.getElementById('pinErr');
   const KEY='jhw22-ok';
   // while locked, everything behind the gate is inert (no focus, no screen reader)
-  const behind=[document.getElementById('deck'),document.querySelector('nav.ctrl'),document.querySelector('.hint')];
+  const behind=[document.getElementById('deck'),document.querySelector('nav.ctrl'),document.getElementById('topbar')];
   const setInert=v=>behind.forEach(e=>{ if(e) e.inert=v; });
   function unlock(){ body.classList.remove('locked'); gate.remove(); setInert(false); }
   if (sessionStorage.getItem(KEY)==='1') unlock(); else { setInert(true); setTimeout(()=>pin.focus(),50); }
@@ -932,14 +989,22 @@
     } finally { checking=false; }
   });
 
-  const deck=document.getElementById('deck'), slides=[...deck.children], dots=document.getElementById('dots');
+  const deck=document.getElementById('deck'), slides=[...deck.children], strip=document.getElementById('tbStrip'), entries=[...strip.querySelectorAll('.tb-e')], listeners=[];
   const prev=document.getElementById('prev'), next=document.getElementById('next');
   let i=0;
-  slides.forEach((s,k)=>{ const b=document.createElement('button'); b.setAttribute('aria-label','Folie '+(k+1)); b.onclick=()=>go(k); dots.appendChild(b); });
-  function go(k){
+  entries.forEach(b=>{ b.onclick=()=>go(+b.dataset.k,'menu'); });
+  // phones: the strip scrolls sideways; an edge fade shows where more entries are
+  const fades=()=>{ strip.classList.toggle('fade-l',strip.scrollLeft>0.5); strip.classList.toggle('fade-r',strip.scrollLeft+strip.clientWidth<strip.scrollWidth-0.5); };
+  strip.addEventListener('scroll',fades,{passive:true}); strip.addEventListener('scrollend',fades); window.addEventListener('resize',fades);
+  // reduced motion is read at call time, so a setting changed while the page is open applies at once
+  const reduce=()=>!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function go(k,src){
+    const from=i;
     i=Math.max(0,Math.min(slides.length-1,k));
     deck.style.transform='translateX('+(-100*i)+'%)';
-    [...dots.children].forEach((d,n)=>d.classList.toggle('on',n===i));
+    entries.forEach((b,n)=>{ if(n===i) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+    const a=entries[i]; if(a && strip.scrollWidth>strip.clientWidth){ const x=a.offsetLeft-(strip.clientWidth-a.offsetWidth)/2; strip.scrollTo({left:Math.max(0,x),behavior:src&&src!=='resize'&&!reduce()?'smooth':'auto'}); }
+    fades();
     prev.disabled=i===0; next.classList.toggle('end',i===slides.length-1);
     if(location.hash!=='#'+(i+1)) history.replaceState(null,'','#'+(i+1));
     // off-screen slides are inert: not focusable, hidden from assistive tech
@@ -947,25 +1012,26 @@
     // images load with their slide (and the next one), not with the first page view
     [i,i+1].forEach(n=>slides[n]&&slides[n].querySelectorAll('[data-src],[data-srcset]').forEach(im=>{ if(im.dataset.srcset){ im.srcset=im.dataset.srcset; im.removeAttribute('data-srcset'); } if(im.dataset.src){ im.src=im.dataset.src; im.removeAttribute('data-src'); } }));
     if(window.WPX) WPX.enter(i);
+    listeners.forEach(f=>f(i,from,src||'go'));
   }
-  prev.onclick=()=>go(i-1); next.onclick=()=>go(i+1);
-  window.WPDECK={ go:k=>go(k), current:()=>i };
+  prev.onclick=()=>go(i-1,'back'); next.onclick=()=>go(i+1,'next');
+  window.WPDECK={ go:(k,src)=>go(k,src), current:()=>i, on:f=>listeners.push(f), names:entries.map(b=>b.textContent) };
   document.addEventListener('keydown',e=>{
     if(body.classList.contains('locked')) return;
     if(e.target.tagName==='INPUT'&&e.target.type!=='checkbox') return;
-    if(['ArrowRight','PageDown'].includes(e.key)){go(i+1);e.preventDefault();}
-    else if(['ArrowLeft','PageUp'].includes(e.key)){go(i-1);e.preventDefault();}
-    else if(e.key==='Home'){go(0);} else if(e.key==='End'){go(slides.length-1);}
+    if(['ArrowRight','PageDown'].includes(e.key)){go(i+1,'key');e.preventDefault();}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){go(i-1,'key');e.preventDefault();}
+    else if(e.key==='Home'){go(0,'key');} else if(e.key==='End'){go(slides.length-1,'key');}
   });
   let x0=null,y0=null;
-  deck.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
+  deck.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});  // the top bar sits outside #deck, so its strip scrolls without changing slides
   deck.addEventListener('touchend',e=>{
     if(x0===null) return;
     const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
-    if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.3){ go(i+(dx<0?1:-1)); }
+    if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.3){ go(i+(dx<0?1:-1),'swipe'); }
     x0=null;
   },{passive:true});
-  window.addEventListener('resize',()=>go(i));
+  window.addEventListener('resize',()=>go(i,'resize'));
   const mailAddr=()=>String.fromCharCode(...MAIL_C.map(c=>c^MAIL_K));
   const MAIL_SUBJECT='Erdwärme: mein Verbrauch 2025';
   const MAIL_BODY='Hallo Markus,\n\nmein Verbrauch 2025 p.a. betrug ... kWh.\n\nInteresse an der Erdwärme (unverbindlich): Ja / Vielleicht / Nein\n\nLiebe Grüße\n';
@@ -1020,6 +1086,8 @@
   /* ---------- DOM helpers ---------- */
   function A(e, a) { for (const k in a) { const v = a[k]; if (v == null) e.removeAttribute(k); else e.setAttribute(k, v); } return e; }
   function S(tag, a, parent) { const e = document.createElementNS(NS, tag); if (a) A(e, a); if (parent) parent.appendChild(e); return e; }
+  // text inside the fixed markup below goes through esc(), so a label can never become markup
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   function H(tag, cls, parent, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; if (parent) parent.appendChild(e); return e; }
   function T(parent, x, y, s, a) { const t = S('text', Object.assign({ x, y }, a), parent); t.textContent = s; return t; }
   const f1 = v => (Math.round(v * 10) / 10).toString();
@@ -1141,7 +1209,7 @@
       if (f.dataset.switch !== 'off' && f.dataset.ex !== 'cooling') {
         const sw = H('div', 'ex-switch'); A(sw, { role: 'group', 'aria-label': 'Jahreszeit' });
         this.btns = [['heat', ICON_SNOW, 'Winter: heizen'], ['cool', ICON_SUN, 'Sommer: kühlen']].map(([m, ic, l]) => {
-          const b = H('button', null, sw, icon(ic) + '<span>' + l + '</span>'); A(b, { type: 'button', 'aria-pressed': String(m === this.mode) });
+          const b = H('button', null, sw, icon(ic) + '<span>' + esc(l) + '</span>'); A(b, { type: 'button', 'aria-pressed': String(m === this.mode) });
           b.addEventListener('click', () => this.setMode(m)); b.dataset.m = m; return b;
         });
         f.insertBefore(sw, this.body);
@@ -1214,6 +1282,7 @@
       const outL = (t1, t2) => (tw(t1 + ' ' + t2, fs, 600) <= room0 ? [t1 + ' ' + t2] : [t1, t2]);
       const lw = outL('draußen', 'ca. −5 °C'), ly = sy + fs * .35 - (lw.length - 1) * fs * .6;
       this.tOutW = multi(lx, ly, lw, fs, { class: 'hf-t-sky' });
+      this.skyTop = Math.max(top, Math.round(ly + (lw.length - 1) * fs * 1.2 + fs * .8));   // flakes start below the outside label
       this.tOutS = multi(lx, ly, outL('draußen', 'ca. 30 °C'), fs, { class: 'hf-t-sun' });
       // warm haze on the facade (summer)
       this.haze = S('rect', { x: hx0 - 9, y: top - 9, width: hx1 - hx0 + 18, height: gy - top + 9, rx: 16, class: 'hf-haze' }, g);
@@ -1383,7 +1452,7 @@
       const lg = H('div', 'ex-legend', this.body);
       A(lg, { 'aria-hidden': 'true' });
       [['--ex-warm', '--ex-acc', 'Energie (Gas bzw. Strom)'], ['--ex-warm-0', null, 'CO₂-Preis & Erdgasabgabe'], ['--ex-warm-2', '--ex-acc-2', 'Grundkosten & Anschluss'], ['--ex-warm-3', '--ex-acc-3', 'Wartung, Rauchfang & Sonstiges']]
-        .forEach(([a, b, l]) => H('span', 'ex-lg', lg, '<span class="ex-sw"><i style="background:var(' + a + ')"></i>' + (b ? '<i style="background:var(' + b + ')"></i>' : '') + '</span>' + l));
+        .forEach(([a, b, l]) => H('span', 'ex-lg', lg, '<span class="ex-sw"><i style="background:var(' + a + ')"></i>' + (b ? '<i style="background:var(' + b + ')"></i>' : '') + '</span>' + esc(l)));
       // hot water (only with the "inkl. Warmwasser" toggle): always laid out, shown by visibility, so the legend never reflows
       this.lgDhw = H('span', 'ex-lg ex-lg-dhw', lg, '<span class="ex-sw"><i class="hw-w"></i><i class="hw-a"></i></span>Warmwasser');
     }
@@ -1932,6 +2001,36 @@ var WPM = (function () {
   function yrs(n) { return n == null ? 'über ' + PARAMS.horizon + ' Jahre' : n + ' Jahre'; }
   function inYear(n) { return n == null ? 'erst nach über ' + PARAMS.horizon + ' Jahren' : 'im ' + n + '. Jahr'; }
   function nthYear(n) { return n == null ? 'über ' + PARAMS.horizon + ' Jahre' : n + '. Jahr'; }
+  /* ---------- one escaping layer for all HTML built from PARAMS or page data ----------
+     Markup is written only by el() below, with tag and attribute names from this file. Every value goes through it:
+     text through esc(), attribute values through attr(), URLs through safeUrl() (https: or an in-page #target,
+     anything else becomes '#'), ids through idOf() ([a-z0-9-] only). So a value can never become markup, a link
+     target or an event handler. */
+  function Safe(s) { this.s = s; }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+  function attr(s) { return esc(s); }
+  function safeUrl(u) { var s = String(u == null ? '' : u).trim(); return /^https:\/\/[^\s"'<>\\`]+$/i.test(s) || /^#[a-z0-9-]*$/.test(s) ? s : '#'; }
+  function idOf(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9-]/g, '') || 'x'; }
+  // a value as HTML: markup built by el() stays, anything else (strings, numbers) is text; arrays are joined
+  function h(x) { return x instanceof Safe ? x.s : Array.isArray(x) ? x.map(h).join('') : esc(x); }
+  var TAGS = { a: 1, b: 1, br: 1, small: 1, strong: 1, span: 1, p: 1, div: 1, tr: 1, td: 1, label: 1, input: 1, button: 1 }, VOID = { br: 1, input: 1 };
+  var IDATTR = { id: 1, 'aria-controls': 1, 'data-goto': 1, 'data-wi': 1, 'data-group': 1 };
+  function el(tag, at) {
+    if (!TAGS[tag]) throw new Error('el: tag ' + tag);
+    var out = '<' + tag, k, v;
+    for (k in at || {}) {
+      v = at[k]; if (v == null || v === false) continue;
+      if (!/^[a-z][a-z-]*$/.test(k) || /^on/.test(k)) throw new Error('el: attribute ' + k);
+      if (k === 'href') v = safeUrl(v);
+      else if (IDATTR[k]) v = idOf(v);
+      else if (k === 'style' && !/^min-width:[0-9.]+ch$/.test(v)) throw new Error('el: style ' + v);
+      out += v === true ? ' ' + k : ' ' + k + '="' + attr(v) + '"';
+    }
+    return new Safe(out + '>' + (VOID[tag] ? '' : h([].slice.call(arguments, 2)) + '</' + tag + '>'));
+  }
+  // a fixed piece of markup written in this file (never data)
+  function M(lit) { return new Safe(lit); }
+  var BR = el('br');
   function round100(v) { return Math.round(v / 100) * 100; }
   function round10(v) { return Math.round(v / 10) * 10; }
   function roundTo(v, n) { return Math.round(v / n) * n; }
@@ -1943,26 +2042,27 @@ var WPM = (function () {
   function invAt(o) { var s = {}, k; for (k in P0) s[k] = P0[k]; for (k in o) s[k] = o[k]; return (s.investBase + s.sizing + s.cooling) * (1 - s.tender) * s.investFactor; }
   var OTS = 'https://www.ots.at/presseaussendung/OTS_20261015_OTS0181/totschnighattmannsdorfer-500-millionen-euro-booster-fuer-klimamass-nahmen-sowie-bau-und-handwerk';
   var IB = 'https://www.sanierungsoffensive.gv.at/Infoblatt_Kesseltausch_2026_MGW.pdf';
-  function a(href, t) { return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + t + '</a>'; }
+  // a source link: external links open in a new tab; anything that is not https: or an in-page target becomes '#'
+  function a(href, t) { var u = safeUrl(href); return u.charAt(0) === '#' ? el('a', { href: u }, t) : el('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, t); }
   var WHATIF = [
     { id: 'gas1', group: 'gas', label: 'Gas wird nur 1 % pro Jahr teurer', o: { gasGrowth: 0.01 },
       info: ['Gas wird jedes Jahr 1 % teurer statt 3 %.', 'Möglich, wenn die Großhandelspreise flach bleiben: Die Grazer Arbeitspreise sind Mitte 2026 gesunken, und der CO₂-Preis bleibt bis Ende 2027 bei 55 €/t.', 'Quelle: eigene Recherche, Oktober 2026 (Gasseite)'] },
     { id: 'gas5', group: 'gas', label: 'Gas wird 5 % pro Jahr teurer (CO₂-Handel ab 2028)', o: { gasGrowth: 0.05 },
       info: ['Gas wird jedes Jahr 5 % teurer statt 3 %.', 'Möglich, wenn der EU-Emissionshandel ab 2028 Richtung 150 €/t geht und das Gasnetz weiter teurer wird, weil weniger Kunden es tragen.', 'Quelle: eigene Recherche, Oktober 2026 (Gasseite)'] },
     { id: 'co2', label: 'CO₂-Preis und Erdgasabgabe stecken schon in unserer Gasrechnung', o: { co2: 0, levy: 0 },
-      info: function () { var r0 = compute(false), r1 = compute(false, { co2: 0, levy: 0 }); return ['Gas heute ' + eur(r1.d.today1) + ' statt ' + eur(r0.d.today1) + ' pro Jahr.', 'Auf den Rechnungen der Versorger stehen CO₂-Preis und Erdgasabgabe meist neben dem Arbeitspreis. Ob unsere Abrechnung sie schon enthält, kläre ich mit der Hausverwaltung.', 'Quellen: ' + a(PARAMS.links.co2, 'CO₂-Preis, Infoblatt Salzburg AG') + ' · ' + a(PARAMS.links.levy, 'Erdgasabgabe, usp.gv.at')]; } },
+      info: function () { var r0 = compute(false), r1 = compute(false, { co2: 0, levy: 0 }); return ['Gas heute ' + eur(r1.d.today1) + ' statt ' + eur(r0.d.today1) + ' pro Jahr.', 'Auf den Rechnungen der Versorger stehen CO₂-Preis und Erdgasabgabe meist neben dem Arbeitspreis. Ob unsere Abrechnung sie schon enthält, kläre ich mit der Hausverwaltung.', ['Quellen: ', a(PARAMS.links.co2, 'CO₂-Preis, Infoblatt Salzburg AG'), ' · ', a(PARAMS.links.levy, 'Erdgasabgabe, usp.gv.at')]]; } },
     { id: 'power', label: 'Strom ' + dec(0.26, 2) + ' €/kWh statt ' + dec(P0.wpPrice, 2), o: { wpPrice: 0.26 },
       info: ['Wärmepumpen-Strom ' + dec(0.26, 2) + ' € statt ' + dec(P0.wpPrice, 2) + ' € je kWh, alles inklusive.', dec(P0.wpPrice, 2) + ' € setzen einen günstigen, unterbrechbaren Wärmepumpentarif voraus. Ohne ihn liegt der Preis eher bei 0,25–0,26 €.', 'Quelle: eigene Recherche, Oktober 2026 (Strompreis, Preisblatt Stromnetz Graz 2026)'] },
     { id: 'sub0', group: 'sub', label: 'Keine Bundesförderung', o: { subsidy: 0 },
-      info: ['Förderung 0 € statt ' + eur(P0.subsidy) + '.', 'Möglich, wenn die Regeln im Dezember Mehrparteienhäuser anders behandeln oder ein Fernwärmeanschluss als zumutbar gilt.', 'Quellen: ' + a(OTS, 'Presseaussendung 15. Oktober 2026') + ' · ' + a(IB, 'Infoblatt 2026')] },
+      info: ['Förderung 0 € statt ' + eur(P0.subsidy) + '.', 'Möglich, wenn die Regeln im Dezember Mehrparteienhäuser anders behandeln oder ein Fernwärmeanschluss als zumutbar gilt.', ['Quellen: ', a(OTS, 'Presseaussendung 15. Oktober 2026'), ' · ', a(IB, 'Infoblatt 2026')]] },
     { id: 'sub20', group: 'sub', label: 'Förderung 20 % der Investition (falls die Regeln im Dezember so kommen)', o: { subsidyPct: 0.20 },
-      info: function () { return ['Förderung ' + eur(invAt({}) * 0.2) + ' (20 % der Investition) statt ' + eur(P0.subsidy) + '.', 'Die Regierung spricht für 2027 von „rund 20 %“. Wahrscheinlich ist das nur die Obergrenze über einer Pauschale; als Zuschuss auf die ganze Investition wäre es der günstige Fall.', 'Quelle: ' + a(OTS, 'Presseaussendung 15. Oktober 2026')]; } },
+      info: function () { return ['Förderung ' + eur(invAt({}) * 0.2) + ' (20 % der Investition) statt ' + eur(P0.subsidy) + '.', 'Die Regierung spricht für 2027 von „rund 20 %“. Wahrscheinlich ist das nur die Obergrenze über einer Pauschale; als Zuschuss auf die ganze Investition wäre es der günstige Fall.', ['Quelle: ', a(OTS, 'Presseaussendung 15. Oktober 2026')]]; } },
     { id: 'tender', label: 'Kein Ausschreibungs-Nachlass (−' + dec(P0.tender * 100, 0) + ' %)', o: { tender: 0 },
       info: function () { return ['Investition ' + eur(invAt({ tender: 0 })) + ' statt ' + eur(invAt({})) + '.', 'Wenn die drei Angebote keinen Preisvorteil bringen. Die Bohrpreise streuen am Markt stark (ca. 50–120 € je Meter), daher rechnen wir mit ' + dec(P0.tender * 100, 0) + ' % Nachlass.', 'Quelle: eigene Recherche, Oktober 2026 (Marktpreise, Wettbewerb)']; } },
     { id: 'inv20', label: 'Investition 20 % höher', o: { investFactor: 1.2 },
       info: function () { return ['Investition ' + eur(invAt({ investFactor: 1.2 })) + ' statt ' + eur(invAt({})) + '.', 'Wenn der Boden die Wärme schlechter leitet und mehr Bohrmeter braucht oder der Hang die Arbeiten verteuert. Das zeigt erst der Test an der ersten Bohrung.', 'Quelle: eigene Recherche, Oktober 2026 (Bohrungen)']; } },
     { id: 'gas70', label: 'Neue Gastherme kostet mit Rauchfangsanierung ' + int(70000) + ' €', o: { gasNew: 70000 },
-      info: ['Vergleichswert neue Gastherme ' + eur(70000) + ' statt ' + eur(P0.gasNew) + '.', 'Wenn der Rauchfang aufwendiger saniert werden muss oder ein neuer Schacht nötig ist. Die Bandbreite liegt bei ' + int(PARAMS.gasNewRange[0]) + '–' + int(PARAMS.gasNewRange[1]) + ' €.', 'Quelle: eigene Recherche, Oktober 2026 · <button class="linkish" type="button" data-goto="gasSrc">Woher die ' + eur(P0.gasNew) + ' kommen</button>'] },
+      info: ['Vergleichswert neue Gastherme ' + eur(70000) + ' statt ' + eur(P0.gasNew) + '.', 'Wenn der Rauchfang aufwendiger saniert werden muss oder ein neuer Schacht nötig ist. Die Bandbreite liegt bei ' + int(PARAMS.gasNewRange[0]) + '–' + int(PARAMS.gasNewRange[1]) + ' €.', ['Quelle: eigene Recherche, Oktober 2026 · ', el('button', { 'class': 'linkish', type: 'button', 'data-goto': 'gas-src' }, 'Woher die ' + eur(P0.gasNew) + ' kommen')]] },
     { id: 'jaz38', label: 'Jahresarbeitszahl 3,8 (falls die Böden 40–\u206045\u00a0°C brauchen)', o: { jaz: 3.8 },
       info: function () { var r0 = compute(false), r1 = compute(false, { jaz: 3.8 }); return ['JAZ 3,8 statt ' + dec(P0.jaz, 1) + ': Wärmepumpen-Strom ' + eur(r1.d.wp.energy) + ' statt ' + eur(r0.d.wp.energy) + ' im ersten Jahr.', 'Ältere Fußbodenheizungen brauchen oft 40–45\u00a0°C Vorlauf statt 35\u00a0°C; dann arbeitet die Wärmepumpe weniger effizient. Das messen wir an einem kalten Tag.', 'Quelle: eigene Recherche, Oktober 2026 (Effizienz)']; } },
     { id: 'loan', label: 'Finanzierung mit Kredit (ca. 3,6\u00a0% Zinsen)', o: { loanRate: 0.036 },
@@ -1974,16 +2074,18 @@ var WPM = (function () {
   function whatIfRow(id, dhw) { var w = WHATIF.filter(function (x) { return x.id === id; })[0]; return compute(dhw, w.o).pbGas; }
   function whatIfCombo(dhw, ids) { var r = compute(dhw, wiOver(ids || [])); return { pbGas: r.pbGas, pbFull: r.pbFull }; }
   // rows: a real checkbox with its label, one year column (that assumption alone), an info button with its explainer
+  var ICON_INFO = M('<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg>');
   function whatIfHTML(st) {
-    return WHATIF.map(function (w, i) {
+    return WHATIF.map(function (w) {
       var y0 = nthYear(compute(false, w.o).pbGas), y1 = nthYear(compute(true, w.o).pbGas), cur = st.dhw ? y1 : y0;
-      var wch = Math.max(y0.length, y1.length) * 0.82 + 0.4, info = typeof w.info === 'function' ? w.info() : w.info;
-      return '<tr data-wi="' + w.id + '"' + (w.group ? ' data-group="' + w.group + '"' : '') + '>' +
-        '<td><label class="wi-l"><input type="checkbox" value="' + w.id + '"><span>' + w.label + '</span></label></td>' +
-        '<td><span class="n wi-y" style="min-width:' + wch.toFixed(1) + 'ch">' + cur + '</span></td>' +
-        '<td class="wi-i"><button class="wi-ib" type="button" aria-expanded="false" aria-controls="wip-' + w.id + '" aria-label="Erklärung: ' + w.label.replace(/"/g, '') + '">' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2"/></svg></button>' +
-        '<div class="wi-pop" id="wip-' + w.id + '" role="note" hidden><p><strong>' + info[0] + '</strong></p><p>' + info[1] + '</p><p class="wi-src">' + info[2] + '</p></div></td></tr>';
+      var wch = Math.max(y0.length, y1.length) * 0.82 + 0.4, info = typeof w.info === 'function' ? w.info() : w.info, id = idOf(w.id);
+      return h(el('tr', { 'data-wi': id, 'data-group': w.group || null },
+        el('td', null, el('label', { 'class': 'wi-l' }, el('input', { type: 'checkbox', value: id }), el('span', null, w.label))),
+        el('td', null, el('span', { 'class': 'n wi-y', style: 'min-width:' + wch.toFixed(1) + 'ch' }, cur)),
+        el('td', { 'class': 'wi-i' },
+          el('button', { 'class': 'wi-ib', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'wip-' + id, 'aria-label': 'Erklärung: ' + w.label }, ICON_INFO),
+          el('div', { 'class': 'wi-pop', id: 'wip-' + id, role: 'note', hidden: true },
+            el('p', null, el('strong', null, info[0])), el('p', null, info[1]), el('p', { 'class': 'wi-src' }, info[2])))));
     }).join('');
   }
 
@@ -2029,6 +2131,8 @@ var WPM = (function () {
     wdFlatY1: function (r) { return eur(roundTo(r.d.saving1 * PARAMS.flatM2 / PARAMS.area, 10)); },
     wdFlat10: function (r) { return eur(roundTo(r.d.cum[10] * PARAMS.flatM2 / PARAMS.area, 50)); },
     wdHouse20: function (r) { return eur(roundTo(r.d.cum[20], 1000)); },
+    wdFlatY10: function (r) { return eur(roundTo(r.d.years[9].save * PARAMS.flatM2 / PARAMS.area, 5)); },   // the saving grows every year
+    wdY20: function (r) { return eur(roundTo(r.d.years[19].save, 10)); },
     wdFlat20: function (r) { return eur(roundTo(r.d.cum[20] * PARAMS.flatM2 / PARAMS.area, 100)); },
     wdYear: function (r) { return eur(roundTo(r.d.saving1, 1000)); },
     jazKWh: function (r) { return dec(r.s.jaz, 1) + '\u00a0kWh Wärme'; },
@@ -2040,14 +2144,14 @@ var WPM = (function () {
   /* ---------- rendered blocks: <tbody data-html="name"> ----------
      Tables are built as rows of cells. Every number cell gets a fixed min-width in ch (tabular figures), taken from
      the wider of its two states (hot water off / on), so a toggle never changes a column, even in a closed section. */
-  function C(h, c) { return { h: String(h), c: c || '' }; }
+  function C(x, c) { return { x: x, c: c || '' }; }   // x: text, el() markup, or an array of both
   function R(cells, c) { return { cells: cells, c: c || '' }; }
   /* Visible text of a cell, only for the width estimate below (never inserted into the page): drop tags by scanning
      instead of a regex, then count each entity as one character. */
   function plain(h) {
     var s = String(h), o = '', inTag = false;
     for (var i = 0; i < s.length; i++) { var ch = s[i]; if (inTag) { if (ch === '>') inTag = false; } else if (ch === '<' && s.indexOf('>', i) > i) inTag = true; else o += ch; }
-    return o.replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, 'x');
+    return o.replace(/&nbsp;/g, ' ').replace(/&(?:[a-z]+|#[0-9]+);/g, 'x');
   }
   function chWidth(h, bold) {
     var w = 0, t = plain(h);
@@ -2056,13 +2160,14 @@ var WPM = (function () {
   }
   function emit(cur, alt) {
     return cur.map(function (r, i) {
-      var a = alt && alt[i], bold = /sum/.test(r.c);
-      return '<tr' + (r.c ? ' class="' + r.c + '"' : '') + '>' + r.cells.map(function (c, j) {
-        var cls = c.c ? ' class="' + c.c + '"' : '';
-        if (j === 0) return '<td' + cls + '>' + c.h + '</td>';
-        var w = Math.max(chWidth(c.h, bold || /<b>/.test(c.h)), a && a.cells[j] ? chWidth(a.cells[j].h, bold || /<b>/.test(a.cells[j].h)) : 0);
-        return '<td' + cls + '><span class="n" style="min-width:' + w + 'ch">' + c.h + '</span></td>';
-      }).join('') + '</tr>';
+      var ar = alt && alt[i], bold = /sum/.test(r.c);
+      return h(el('tr', { 'class': r.c || null }, r.cells.map(function (c, j) {
+        var at = { 'class': c.c || null };
+        if (j === 0) return el('td', at, c.x);
+        var x = h(c.x), y = ar && ar.cells[j] ? h(ar.cells[j].x) : null;
+        var w = Math.max(chWidth(x, bold || /<b>/.test(x)), y != null ? chWidth(y, bold || /<b>/.test(y)) : 0);
+        return el('td', at, el('span', { 'class': 'n', style: 'min-width:' + w + 'ch' }, c.x));
+      })));
     }).join('');
   }
   var DASH = C('–', 'muted');
@@ -2094,16 +2199,16 @@ var WPM = (function () {
     yearly: function (st) {
       var r = compute(st.dhw), g = r.d.gas, w = r.d.wp, L = PARAMS.links;
       var row = function (label, a, b) { return R([C(label), a == null ? DASH : C(int(a)), b == null ? DASH : C(int(b)), C(int((a || 0) - (b || 0)))]); };
-      var src = function (href) { return '<br><small>Annahme aus Recherche · <a href="' + href + '" target="_blank" rel="noopener noreferrer">Quelle</a></small>'; };
+      var src = function (href) { return [BR, el('small', null, 'Annahme aus Recherche · ', a(href, 'Quelle'))]; };
       var rows = [
-        row('Energie&shy;kosten<br><small>Gas: kWh × Arbeitspreis · WP: Wärme ÷ JAZ × Strompreis</small>', g.energy, w.energy),
-        row('CO₂-Preis (55 €/t)' + src(L.co2), g.co2, null),
-        row('Erdgas&shy;abgabe' + src(L.levy), g.levy, null),
-        row('Grund&shy;kosten / Anschluss<br><small>Gas-Bereit&shy;stellung entfällt, kleiner Stromaufschlag</small>', g.base, w.base),
-        row('Sonstiges (Wartung, Rauch&shy;fang, Not&shy;dienst)', g.other, w.other),
-        row('Kühlung im Sommer (Pumpen&shy;strom)', null, w.cool),
-        st.dhw ? row('Warmwasser<br><small>Heute: Strom-Boiler · WP: vorgewärmt, elektrisch nachgeheizt</small>', g.dhw, w.dhw)
-          : R([C('Warmwasser<br><small>nur mit dem Schalter „inkl. Warmwasser“</small>'), DASH, DASH, DASH])
+        row(['Energie\u00adkosten', BR, el('small', null, 'Gas: kWh × Arbeitspreis · WP: Wärme ÷ JAZ × Strompreis')], g.energy, w.energy),
+        row(['CO₂-Preis (55 €/t)', src(L.co2)], g.co2, null),
+        row(['Erdgas\u00adabgabe', src(L.levy)], g.levy, null),
+        row(['Grund\u00adkosten / Anschluss', BR, el('small', null, 'Gas-Bereit\u00adstellung entfällt, kleiner Stromaufschlag')], g.base, w.base),
+        row('Sonstiges (Wartung, Rauch\u00adfang, Not\u00addienst)', g.other, w.other),
+        row('Kühlung im Sommer (Pumpen\u00adstrom)', null, w.cool),
+        st.dhw ? row(['Warmwasser', BR, el('small', null, 'Heute: Strom-Boiler · WP: vorgewärmt, elektrisch nachgeheizt')], g.dhw, w.dhw)
+          : R([C(['Warmwasser', BR, el('small', null, 'nur mit dem Schalter „inkl. Warmwasser“')]), DASH, DASH, DASH])
       ];
       rows.push(R([C('Gesamt pro Jahr'), C(int(r.d.today1)), C(int(r.d.wp1)), C(int(r.d.saving1))], 'sum'));
       return rows;
@@ -2123,9 +2228,9 @@ var WPM = (function () {
         R([C('Ausschreibung mit mindestens 3 Angeboten (−' + dec(r.s.tender * 100, 0) + ' %)'), C(e(v.tender))]),
         R([C('Investition'), C(eur(v.total))], 'sub'),
         R([C('Förderung 2027 (Schätzung)'), C(e(-v.subsidy))]),
-        st.dhw ? R([C('Warmwasser, wenn alle 12 mitmachen<br><small>' + eur(v.dhwGross) + ' Speicher ' + int(v.dhwTender).replace('\u2212', '\u2212\u00a0') + '\u00a0€ Ausschreibung ' +
-            int(v.dhwRepl).replace('\u2212', '\u2212\u00a0') + '\u00a0€ für Ersatzboiler, die ohnehin fällig wären (' + PARAMS.flats + ' × ' + eur(r.s.dhwBoilerRepl) + ')</small>'), C(e(v.dhw))])
-          : R([C('Warmwasser <small>(Schalter aus)</small>'), DASH]),
+        st.dhw ? R([C(['Warmwasser, wenn alle 12 mitmachen', BR, el('small', null, eur(v.dhwGross) + ' Speicher ' + int(v.dhwTender).replace('\u2212', '\u2212\u00a0') + '\u00a0€ Ausschreibung ' +
+            int(v.dhwRepl).replace('\u2212', '\u2212\u00a0') + '\u00a0€ für Ersatzboiler, die ohnehin fällig wären (' + PARAMS.flats + ' × ' + eur(r.s.dhwBoilerRepl) + ')')]), C(e(v.dhw))])
+          : R([C(['Warmwasser ', el('small', null, '(Schalter aus)')]), DASH]),
         R([C('Eigenanteil WEG'), C(eur(own))], 'sum'),
         R([C('Neue Gastherme zum Vergleich'), C(e(-r.gasOwn))]),
         R([C('Mehrkosten der Wärmepumpe'), C(eur(own - r.gasOwn))], 'sum')
@@ -2135,7 +2240,7 @@ var WPM = (function () {
     amort: function (st) {
       var r = compute(st.dhw);
       return r.d.years.slice(0, PARAMS.tableYears).map(function (y) {
-        var b = function (v, on) { return on ? '<b>' + int(v) + '</b>' : int(v); };
+        var b = function (v, on) { return on ? el('b', null, int(v)) : int(v); };
         return R([C(y.n), C(int(y.today), 'opt'), C(int(y.wp), 'opt'), C(int(y.save)), C(int(y.cum)), C(b(y.extraOpen, y.n === r.pbGas)), C(b(y.ownOpen, y.n === r.pbFull))],
           y.n === r.pbGas || y.n === r.pbFull ? 'hl' : '');
       });
@@ -2154,11 +2259,11 @@ var WPM = (function () {
     },
     amortNote: function (st) {
       var r = compute(st.dhw), s = r.s;
-      return 'Beträge in €; Heute, WP und Ersparnis pro Jahr. Gas +' + pct(s.gasGrowth) + '/Jahr (auch CO₂-Preis und Erdgasabgabe), Strom +' + pct(s.powerGrowth) + '/Jahr' +
-        (r.dhw ? ', Warmwasser wie Strom' : '') + '. <b>Mehrkosten offen</b> = ' + eur(r.extra) +
-        ' (Mehrkosten ggü. neuer Gastherme, der realistische Vergleich, weil die Therme ohnehin ersetzt werden muss) minus kumulierte Ersparnis. <b>Eigenanteil offen</b> = ' + eur(r.own) +
+      return ['Beträge in €; Heute, WP und Ersparnis pro Jahr. Gas +' + pct(s.gasGrowth) + '/Jahr (auch CO₂-Preis und Erdgasabgabe), Strom +' + pct(s.powerGrowth) + '/Jahr' +
+        (r.dhw ? ', Warmwasser wie Strom' : '') + '. ', el('b', null, 'Mehrkosten offen'), ' = ' + eur(r.extra) +
+        ' (Mehrkosten ggü. neuer Gastherme, der realistische Vergleich, weil die Therme ohnehin ersetzt werden muss) minus kumulierte Ersparnis. ', el('b', null, 'Eigenanteil offen'), ' = ' + eur(r.own) +
         ' minus kumulierte Ersparnis (falls die alte Therme noch ewig hielte). Die Mehrkosten sind ' + inYear(r.pbGas) + ' eingespielt, der gesamte Eigenanteil ' + inYear(r.pbFull) +
-        '. Die Investition wird nach Anteilen verteilt, die Heizkosten nach dem Heizkostenabrechnungsgesetz: zum größten Teil nach Verbrauch, ein Teil nach Fläche. Die WEG-Zahl ist der Durchschnitt; wer mehr verbraucht, spart mehr. Nicht eingerechnet: mögliche Wertsteigerung der Wohnungen.';
+        '. Die Investition wird nach Anteilen verteilt, die Heizkosten nach dem Heizkostenabrechnungsgesetz: zum größten Teil nach Verbrauch, ein Teil nach Fläche. Die WEG-Zahl ist der Durchschnitt; wer mehr verbraucht, spart mehr. Nicht eingerechnet: mögliche Wertsteigerung der Wohnungen.'];
     }
   };
 
@@ -2166,7 +2271,7 @@ var WPM = (function () {
     st = st || {};
     if (name === 'whatIf') return whatIfHTML(st);
     if (ROWS[name]) return emit(ROWS[name](st), ROWS[name]({ dhw: !st.dhw }));
-    var f = TEXTBLOCK[name]; return f ? f(st) : '';
+    var f = TEXTBLOCK[name]; return f ? h(f(st)) : '';
   }
 
   /* ---------- model for the animated figures (window.WPX) ---------- */
@@ -2187,7 +2292,8 @@ var WPM = (function () {
     };
   }
 
-  return { PARAMS: PARAMS, compute: compute, WHATIF: WHATIF, whatIfRow: whatIfRow, whatIfCombo: whatIfCombo, whatIfHTML: whatIfHTML, nthYear: nthYear, text: text, html: html, figures: figures, eur: eur, int: int, dec: dec };
+  return { PARAMS: PARAMS, compute: compute, WHATIF: WHATIF, whatIfRow: whatIfRow, whatIfCombo: whatIfCombo, whatIfHTML: whatIfHTML, nthYear: nthYear, text: text, html: html, figures: figures, eur: eur, int: int, dec: dec,
+    esc: esc, attr: attr, safeUrl: safeUrl, idOf: idOf, el: el, h: h, link: a };
 })();
 </script>
 <script>
@@ -2265,6 +2371,7 @@ var WPM = (function () {
     if (!wiCard) return;
     const ids = wiBoxes.filter(b => b.checked).map(b => b.value), c = WPM.whatIfCombo(st.dhw, ids);
     wiCard.querySelector('.wi-sum').classList.toggle('has', ids.length > 0);
+    wiCard.querySelector('.wi-sum').classList.toggle('loan', ids.indexOf('loan') >= 0);
     wiCard.querySelector('.wi-who').textContent = ids.length ? 'Mit deiner Auswahl:' : 'Unser Plan:';
     wiCard.querySelector('.wi-yr').textContent = WPM.nthYear(c.pbGas);
     const full = wiCard.querySelector('.wi-full'); full.textContent = c.pbFull == null ? 'erst nach über 30 Jahren' : c.pbFull + '. Jahr';
@@ -2322,10 +2429,32 @@ var WPM = (function () {
 
   // in-page links: "Woher?", "Was wäre, wenn?", and the hot-water card on the comfort slide
   const slides = Array.from(document.querySelectorAll('#deck > .slide'));
+  // after a jump to another slide, a "zurück zu …" chip in the top bar returns to the same place (15 s, or until used)
+  const NAMES = (window.WPDECK && WPDECK.names) || [], slot = document.getElementById('tbSlot'), backBtn = document.getElementById('tbBack');
+  let backTo = null, backT = 0;
+  function backHide() { backTo = null; clearTimeout(backT); if (slot) slot.classList.remove('back'); if (backBtn) backBtn.tabIndex = -1; }
+  function backShow(from, top) {
+    if (!slot || !backBtn) return;
+    backTo = { k: from, top }; backBtn.querySelector('span').textContent = 'zurück zu ' + NAMES[from];
+    slot.classList.add('back'); backBtn.tabIndex = 0; clearTimeout(backT); backT = setTimeout(backHide, 15000);
+    // phones: the chip sits at the end of the strip; bring it into view
+    const strip = slot.parentElement, br = backBtn.getBoundingClientRect(), sr = strip.getBoundingClientRect();
+    if (br.right > sr.right - 4) setTimeout(() => strip.scrollTo({ left: strip.scrollWidth, behavior: rm && rm.matches ? 'auto' : 'smooth' }), 60);
+  }
+  if (backBtn) backBtn.addEventListener('click', () => { if (!backTo) return; const b = backTo; backHide(); WPDECK.go(b.k, 'return'); slides[b.k].scrollTop = b.top; });
+  if (window.WPDECK) WPDECK.on((k, from, src) => { if (src !== 'jump' && src !== 'resize') backHide(); });
+  function jumpFrom() { const k = WPDECK.current(); return { k, top: slides[k].scrollTop }; }
+  // links that leave the slide name their target (the same word as in the top bar)
+  document.querySelectorAll('[data-goto]').forEach(b => {
+    const id = b.dataset.goto, tg = document.getElementById(id === 'dhw' ? 'keyCards' : id);
+    const tk = slides.findIndex(s => s.contains(tg)), own = slides.findIndex(s => s.contains(b));
+    if (tk >= 0 && own >= 0 && tk !== own && NAMES[tk]) { b.dataset.jump = NAMES[tk]; b.setAttribute('aria-label', b.textContent.trim() + ' (wechselt zu „' + NAMES[tk] + '“)'); }
+  });
   function goto(id) {
+    const f0 = window.WPDECK ? jumpFrom() : null;
     if (id === 'dhw') {
       const k = slides.findIndex(s => s.querySelector('#keyCards'));
-      if (window.WPDECK) WPDECK.go(k);
+      if (window.WPDECK) { WPDECK.go(k, 'jump'); if (f0 && f0.k !== k) backShow(f0.k, f0.top); }
       if (!st.dhw) { st.dhw = true; apply(); }
       setTimeout(() => { const t = slides[k].querySelector('input.dhwT'); if (t) t.focus({ preventScroll: true }); }, 480);
       return;
@@ -2333,7 +2462,7 @@ var WPM = (function () {
     const el = document.getElementById(id); if (!el) return;
     const k = slides.findIndex(s => s.contains(el));
     if (el.tagName === 'DETAILS') el.open = true;
-    if (window.WPDECK) WPDECK.go(k);
+    if (window.WPDECK) { WPDECK.go(k, 'jump'); if (f0 && f0.k !== k) backShow(f0.k, f0.top); }
     setTimeout(() => {
       el.scrollIntoView({ block: 'start', behavior: rm && rm.matches ? 'auto' : 'smooth' });
       const f = el.querySelector('summary') || el; f.focus({ preventScroll: true });
@@ -2341,8 +2470,186 @@ var WPM = (function () {
   }
   document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => goto(b.dataset.goto)));
 
+
+  /* "Umschalten / Ausprobieren / Ankreuzen": after 6 s of a control fully visible on an untouched slide, a short
+     amber hint (ring + hand-drawn arrow + label) shows once per control per visit. A fixed overlay, never layout. */
+  (function hints() {
+    const store = { m: {}, get(k) { try { return sessionStorage.getItem('wphint:' + k) === '1' || this.m[k] } catch (e) { return this.m[k] } }, set(k) { this.m[k] = true; try { sessionStorage.setItem('wphint:' + k, '1') } catch (e) {} } };
+    const q = s => document.querySelector(s);
+    const dhwToggle = () => { const s = slides.find(x => x.querySelector('#keyCards')); return s && s.querySelector('label.toggle'); };
+    const H = [
+      { id: 'season', text: 'Umschalten', sides: ['right', 'below', 'above', 'left'], ctrl: () => q('figure[data-ex="heatflow"] .ex-switch'), ring: () => q('figure[data-ex="heatflow"] .ex-switch button[aria-pressed="false"]') },
+      { id: 'sf', text: 'Umschalten', sides: ['right', 'below', 'above', 'left'], ctrl: () => q('#sfFig .seg'), ring: () => q('#sfFig .seg input:not(:checked) + span') },
+      { id: 'dhw', text: 'Ausprobieren', sides: ['left', 'below', 'above', 'right'], ctrl: dhwToggle, ring: () => { const l = dhwToggle(); return l && l.querySelector('input'); } },
+      { id: 'plan', text: 'Ausprobieren', sides: ['left', 'below', 'above', 'right'], ctrl: () => { const i = q('#planB'); return i && i.closest('label'); }, ring: () => q('#planB') },
+      { id: 'wi', text: 'Ankreuzen', sides: ['below', 'above', 'right', 'left'], ctrl: () => q('#wiCard tr[data-wi] .wi-l'), ring: () => q('#wiCard tr[data-wi] input') }
+    ];
+    const rmq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    // skipped: hints that found no free spot on this visit; they try again only on the next visit of their slide
+    const touched = new Set(), skipped = new Set(); let active = null, endT = 0, last = null;
+    const layer = document.createElement('div'); layer.className = 'hint-layer'; layer.setAttribute('aria-hidden', 'true'); document.body.appendChild(layer);
+    const slideOf = el => slides.findIndex(s => s.contains(el));
+    const ARROW = { l: '<path d="M44 20C33 8 19 7 7 15"/><path d="M7 15l9.5-1.2M7 15l4-8.5"/>', r: '<path d="M4 20C15 8 29 7 41 15"/><path d="M41 15l-9.5-1.2M41 15l-4-8.5"/>', u: '<path d="M8 42C2 30 4 17 15 8"/><path d="M15 8l-9.4 1.6M15 8l-1.2 9.5"/>', d: '<path d="M8 6C2 18 4 31 15 40"/><path d="M15 40l-9.4-1.6M15 40l-1.2-9.5"/>',
+      ur: '<path d="M40 42C46 30 44 17 33 8"/><path d="M33 8l9.4 1.6M33 8l1.2 9.5"/>', dr: '<path d="M40 6C46 18 44 31 33 40"/><path d="M33 40l9.4-1.6M33 40l1.2-9.5"/>' };
+    function visibleFor(h) {
+      if (body.classList.contains('locked')) return false;
+      const c = h.ctrl(), t = h.ring(); if (!c || !t || !c.getClientRects().length) return false;
+      const k = slideOf(c); if (k < 0 || !window.WPDECK || WPDECK.current() !== k) return false;
+      const sr = slides[k].getBoundingClientRect(); if (Math.abs(sr.left) > 1) return false;   // the deck is still moving
+      const r = c.getBoundingClientRect(), nav = q('nav.ctrl'), tb = q('#topbar'), bottom = nav ? nav.getBoundingClientRect().top + 12 : innerHeight, top = tb ? tb.getBoundingClientRect().bottom : 0;
+      return r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= top && r.bottom <= bottom;
+    }
+    // a hint stays `active` until its pieces are gone (also while fading), so two hints never coexist
+    function end(fade) {
+      const a = active; if (!a) return;
+      clearTimeout(endT);
+      const fin = () => { clearTimeout(a.t); a.els.forEach(e => e.remove()); if (active === a) active = null; };
+      if (!fade) { fin(); return; }
+      if (a.ending) return;
+      a.ending = true; a.els.forEach(e => e.classList.add('hint-out')); a.t = setTimeout(fin, 380);
+    }
+    // every visible piece of text in the slide (HTML text and figure labels) that a hint must not cover
+    function textRects(slide) {
+      const out = [], range = document.createRange();
+      const seen = el => { for (let e = el; e && e !== slide; e = e.parentElement) { const cs = getComputedStyle(e); if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < .05) return false; if (e.hasAttribute && e.hasAttribute('opacity') && +e.getAttribute('opacity') < .05) return false; } return true; };
+      const tw = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT, { acceptNode: n => (/\S/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT) });
+      for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+        const el = n.parentElement; if (!el || !seen(el)) continue;
+        if (el.closest('svg')) { const r = el.closest('text') ? el.closest('text').getBoundingClientRect() : null; if (r && r.width) out.push(r); continue; }
+        range.selectNodeContents(n); for (const r of range.getClientRects()) if (r.width && r.height && r.bottom > 0 && r.top < innerHeight) out.push(r);
+      }
+      return out;
+    }
+    const hits = (a, list, pad) => list.filter(b => a.left < b.right + pad && b.left < a.right + pad && a.top < b.bottom + pad && b.top < a.bottom + pad).length;
+    function show(h) {
+      const t = h.ring(), r = t.getBoundingClientRect(), c = h.ctrl().getBoundingClientRect(), o = 6, rad = parseFloat(getComputedStyle(t).borderTopLeftRadius) || 4;
+      const ring = document.createElement('div'); ring.className = 'hint-ring';
+      Object.assign(ring.style, { left: (r.left - o) + 'px', top: (r.top - o) + 'px', width: (r.width + 2 * o) + 'px', height: (r.height + 2 * o) + 'px', borderRadius: Math.min(99, rad + o) + 'px' });
+      const tip = document.createElement('div'); tip.className = 'hint-tip';
+      layer.appendChild(ring); layer.appendChild(tip);
+      const k = slideOf(h.ctrl()), texts = textRects(slides[k]);
+      const navTop = q('nav.ctrl') ? q('nav.ctrl').getBoundingClientRect().top : innerHeight, tbB = q('#topbar') ? q('#topbar').getBoundingClientRect().bottom : 0;
+      const ringBox = { left: r.left - o, right: r.right + o, top: r.top - o, bottom: r.bottom + o };
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      // the tip in one of its shapes: beside (arrow + chip in a row) or above/below (chip and arrow in a column)
+      const shape = (side, end) => {
+        tip.className = 'hint-tip side-' + side + (end ? ' end' : '');
+        const a = { right: 'l', left: 'r', below: end ? 'ur' : 'u', above: end ? 'dr' : 'd' }[side];
+        const svg = '<svg class="hint-arrow" viewBox="0 0 48 48" aria-hidden="true">' + ARROW[a] + '</svg>', chip = '<span class="hint-chip">' + WPM.esc(h.text) + '</span>';
+        tip.innerHTML = side === 'left' || side === 'above' ? chip + svg : svg + chip;
+        tip.style.left = '0px'; tip.style.top = '0px';
+        return [tip.offsetWidth, tip.offsetHeight];
+      };
+      const cands = [];
+      const add = (side, end, x, y, w, ht) => {
+        const box = { left: x, top: y, right: x + w, bottom: y + ht };
+        const inside = x >= 4 && x + w <= innerWidth - 4 && y >= tbB + 4 && y + ht <= navTop - 2;
+        cands.push({ side, end, x, y, n: (inside ? 0 : 1000) + hits(box, texts, 2) + 50 * hits(box, [ringBox], 0) });
+      };
+      // (a) the same row, right of the control's own label  (desktop keeps its own first choice)
+      const order = innerWidth >= 700 && h.sides ? h.sides.concat(['right', 'above', 'below', 'left']) : ['right', 'above', 'below', 'left'];
+      const done = new Set();
+      for (const side of order) {
+        if (done.has(side)) continue; done.add(side);
+        if (side === 'right' || side === 'left') {
+          const [w, ht] = shape(side, false), x = side === 'right' ? Math.max(r.right, c.right) + o + 2 : Math.min(r.left, c.left) - o - 2 - w;
+          for (const dy of [0, -8, 8]) add(side, false, x, cy - ht / 2 - 6 + dy, w, ht);
+        } else {
+          // (b) above / (c) below, sliding sideways in free space while the arrow still points at the ring
+          for (const end of [false, true]) {
+            const [w, ht] = shape(side, end), y = side === 'above' ? Math.min(r.top, c.top) - o - 2 - ht : Math.max(r.bottom, c.bottom) + o + 2;
+            const ax = end ? w - 18 : 18;   // where the arrow tip sits inside the tip box
+            for (let d = -Math.min(40, r.width / 2); d <= Math.min(40, r.width / 2); d += 10) add(side, end, cx + d - ax, y, w, ht);
+          }
+        }
+      }
+      // (d) last resort: the slide's left or right gutter
+      { const [w, ht] = shape('right', false); add('right', false, 4, cy - ht / 2, w, ht); add('right', false, innerWidth - w - 4, cy - ht / 2, w, ht); }
+      // first free candidate in this order; if none is free (dense figures on phones), search the free space
+      // around the control for the chip and draw the arrow from the chip to the ring, both clear of any text
+      // no free spot at all: no hint on this visit (never at unchecked coordinates)
+      let best = cands.find(x => x.n === 0), els = [ring, tip];
+      if (best) { shape(best.side, best.end); tip.style.left = best.x + 'px'; tip.style.top = best.y + 'px'; }
+      else {
+        tip.remove(); const f = free();
+        if (!f) { ring.remove(); skipped.add(h.id); return false; }
+        els = [ring].concat(f);
+      }
+      store.set(h.id);
+      active = { h, els, slide: k };
+      function free() {
+        const chip = document.createElement('span'); chip.className = 'hint-chip hint-pop'; chip.textContent = h.text; layer.appendChild(chip);
+        const w = chip.offsetWidth, ht = chip.offsetHeight, ctrlBox = { left: c.left - 4, right: c.right + 4, top: c.top - 4, bottom: c.bottom + 4 };
+        const rank = (x, y) => (y + ht / 2 > c.top && y + ht / 2 < c.bottom && x >= c.right) ? 0 : (y + ht <= c.top) ? 1 : (y >= c.bottom) ? 2 : 3;
+        let pick = null;
+        for (let y = Math.max(tbB + 4, r.top - 170); y <= Math.min(navTop - ht - 4, r.bottom + 170); y += 4) {
+          for (let x = 4; x <= innerWidth - w - 4; x += 6) {
+            const box = { left: x, top: y, right: x + w, bottom: y + ht };
+            if (hits(box, texts, 2) || hits(box, [ctrlBox, ringBox], 4)) continue;
+            // arrow from the chip edge towards the ring
+            const ccx = x + w / 2, ccy = y + ht / 2;
+            const A = [Math.max(box.left, Math.min(cx, box.right)), Math.max(box.top, Math.min(cy, box.bottom))];
+            const B = [Math.max(ringBox.left, Math.min(ccx, ringBox.right)), Math.max(ringBox.top, Math.min(ccy, ringBox.bottom))];
+            const L = Math.hypot(B[0] - A[0], B[1] - A[1]); if (L < 22 || L > 150) continue;
+            const g = arrowGeo(A, B);
+            if (hits(g.box, texts, 0.5)) continue;
+            const score = rank(x, y) * 1000 + L;
+            if (!pick || score < pick.score) pick = { x, y, g, score };
+          }
+        }
+        if (!pick) { chip.remove(); return null; }
+        chip.style.left = pick.x + 'px'; chip.style.top = pick.y + 'px';
+        // the arrow's SVG box is exactly its drawn extent (path, head, stroke), so the text check above is exact
+        const { g } = pick, svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), bx = g.box;
+        svg.setAttribute('class', 'hint-arrow hint-free hint-pop'); svg.setAttribute('aria-hidden', 'true');
+        Object.assign(svg.style, { left: bx.left + 'px', top: bx.top + 'px', width: (bx.right - bx.left) + 'px', height: (bx.bottom - bx.top) + 'px' });
+        svg.setAttribute('viewBox', bx.left + ' ' + bx.top + ' ' + (bx.right - bx.left) + ' ' + (bx.bottom - bx.top));
+        svg.innerHTML = '<path d="' + g.d + '"/><path d="' + g.h + '"/>';
+        layer.appendChild(svg);
+        return [chip, svg];
+      }
+      // a gently curved arrow from A to B with its head at B, and its exact extent
+      function arrowGeo(A, B) {
+        const [ax, ay] = A, [bx, by] = B, dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len, bend = Math.min(5, len * .1);
+        const mx = (ax + bx) / 2 + nx * bend, my = (ay + by) / 2 + ny * bend, hx = bx - mx, hy = by - my, hl = Math.hypot(hx, hy), ux = hx / hl, uy = hy / hl;
+        const hp = ang => [bx - 7 * (ux * Math.cos(ang) - uy * Math.sin(ang)), by - 7 * (uy * Math.cos(ang) + ux * Math.sin(ang))];
+        const h1 = hp(.5), h2 = hp(-.5), pts = [A, B, h1, h2];
+        for (let t = .1; t < 1; t += .1) pts.push([(1 - t) * (1 - t) * ax + 2 * (1 - t) * t * mx + t * t * bx, (1 - t) * (1 - t) * ay + 2 * (1 - t) * t * my + t * t * by]);
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), sw = 1.6;
+        const f = v => v.toFixed(1);
+        return { box: { left: Math.min(...xs) - sw, right: Math.max(...xs) + sw, top: Math.min(...ys) - sw, bottom: Math.max(...ys) + sw },
+          d: 'M' + f(ax) + ' ' + f(ay) + 'Q' + f(mx) + ' ' + f(my) + ' ' + f(bx) + ' ' + f(by), h: 'M' + f(h1[0]) + ' ' + f(h1[1]) + 'L' + f(bx) + ' ' + f(by) + 'L' + f(h2[0]) + ' ' + f(h2[1]) };
+      }
+      endT = setTimeout(() => end(true), rmq && rmq.matches ? 4000 : 5200);
+      return true;
+    }
+    // any interaction with a control marks its slide as touched; an interaction with a hinted control ends that hint
+    const ctl = 'input, button, label, summary, select, a, [role="radiogroup"]';
+    ['pointerdown', 'keydown', 'change'].forEach(ev => document.addEventListener(ev, e => {
+      const el = ev === 'keydown' ? document.activeElement : e.target; if (!el || !el.closest) return;
+      const k = slideOf(el); if (k >= 0 && el.closest(ctl)) touched.add(k);
+      H.forEach(h => { const c = h.ctrl(); if (c && (c.contains(el) || (h.ring() && h.ring().contains && h.ring().contains(el)))) { store.set(h.id); if (active && active.h === h) end(false); } });
+    }, true));
+    slides.forEach(s => s.addEventListener('scroll', () => end(true), { passive: true }));
+    window.addEventListener('resize', () => end(false));
+    if (window.WPDECK) WPDECK.on((k, from) => { if (k !== from) skipped.clear(); });
+    const since = {};
+    setInterval(() => {
+      if (active && (WPDECK.current() !== active.slide)) end(false);
+      const now = Date.now();
+      H.forEach(h => {
+        if (store.get(h.id)) { since[h.id] = 0; return; }
+        const c = h.ctrl(), k = c ? slideOf(c) : -1;
+        if (k < 0 || touched.has(k) || skipped.has(h.id) || !visibleFor(h)) { since[h.id] = 0; return; }
+        since[h.id] = since[h.id] || now;
+        if (!active && now - since[h.id] >= 6000) { const w = now - since[h.id]; since[h.id] = 0; last = { id: h.id, waited: w, shown: show(h) }; }
+      });
+    }, 250);
+    window.WPHINT = { active: () => active && active.h.id, last: () => last, skipped: () => [...skipped], seen: id => store.get(id), reset: () => { H.forEach(h => { delete store.m[h.id]; try { sessionStorage.removeItem('wphint:' + h.id) } catch (e) {} }); touched.clear(); skipped.clear(); }, touched: () => [...touched] };
+  })();
+
   // for checks
-  window.WPAPP = { state: st, result: () => R(st.dhw), wiShow, wiHide, set(dhw, plan) { if (dhw != null) st.dhw = !!dhw; apply(); if (plan && planB && (plan === 'b') !== planB.checked) planB.click(); }, goto };
+  window.WPAPP = { state: st, result: () => R(st.dhw), wiShow, wiHide, backTo: () => backTo, set(dhw, plan) { if (dhw != null) st.dhw = !!dhw; apply(); if (plan && planB && (plan === 'b') !== planB.checked) planB.click(); }, goto };
 })();
 </script>
 </body>
