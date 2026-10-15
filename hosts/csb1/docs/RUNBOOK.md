@@ -131,6 +131,18 @@ For rollback, select the previous NixOS generation and reconcile only the
 `barta-public` service; never stop the entire compose stack. Production OAuth
 state and consent evidence live in OPS-196 and its onboarding runbook.
 
+### bytepoets.com memorial (OPS-337)
+
+`bytepoets-memorial` serves `https://bytepoets.com/` (`www` is an alias): the
+BYTEPOETS logo with "2011–2026" below it. Every path serves the page, so old deep links
+land on it. Source: `hosts/csb1/web/bytepoets/` plus `hosts/csb1/web/bytepoets-nginx.conf`.
+It uses the same digest-pinned, read-only nginx as `barta-public`, and Traefik owns HTTPS
+(`default` resolver, Cloudflare DNS-01). DNS is OpenTofu in
+`infrastructure/cloudflare/bytepoets.com` (proxied apex and www, null MX, SPF -all,
+DMARC reject). The pre-change zone backup and restore steps are in OPS runbook
+`domain-bytepoets-com`. Rollback: the previous NixOS generation, reconciling only this
+service; never stop the whole compose stack.
+
 ### GitHub Actions Runner
 
 csb1 runs a declarative GitHub Actions runner for `hausv-org` deployments via NixOS `services.github-runners`. The runner is configured in `hosts/csb1/hausv-github-runner.nix` and uses the existing GHCR token (`csb1-hausv-ghcr-pull`) for repo-scoped registration.
@@ -150,6 +162,7 @@ journalctl -u github-runner-csb1-hausv.service --since today
 | Container                   | Purpose                                                      |
 | --------------------------- | ------------------------------------------------------------ |
 | csb1-barta-public-1         | Public mailbridge homepage and privacy                       |
+| csb1-bytepoets-memorial-1   | bytepoets.com memorial page (OPS-337)                        |
 | csb1-docmost-1              | Documentation wiki                                           |
 | csb1-docmost-db-1           | PostgreSQL for Docmost                                       |
 | csb1-docmost-redis-1        | Redis cache                                                  |
