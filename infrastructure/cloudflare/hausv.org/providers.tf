@@ -3,6 +3,7 @@
 #   ( set -a; source ~/.inspr/secrets/agents/CF_ZONE_TOKEN_AIA.env; set +a
 #     export TF_VAR_cloudflare_api_token="$CF_ZONE_TOKEN_AIA"
 #     tofu init -backend-config="path=$HOME/.local/share/ops-tofu/cloudflare-hausv.org/terraform.tfstate"
+#     export TF_VAR_erdwaerme_forward_to=<verified destination, see OPS-340>   # OPS-340 email alias
 #     tofu plan )
 # This stack manages ONLY the records declared in main.tf; every other hausv.org record stays as it is (not imported).
 # Pre-change zone backup: ~/.local/share/ops-qa/hausv/ (BIND export + JSON), referenced on OPS-340.
