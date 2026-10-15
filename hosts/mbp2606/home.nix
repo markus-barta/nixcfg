@@ -38,6 +38,7 @@ in
     ../../modules/uzumaki/home-manager.nix
     ../../modules/aeon-remote-guard
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
+    ./mem-guard.nix # OPS-341: memory guard for the aithema browser-test lane, started by mba's crontab
     # markus-defaults bundles all 3 INSPR public modules + Markus's values
     # (identities, contexts, instances, encrypted-secrets root)
     ../../modules/shared/markus-defaults.nix
