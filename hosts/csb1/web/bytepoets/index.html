@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="BYTEPOETS 2011–2026">
+  <title>BYTEPOETS · 2011–2026</title>
+  <link rel="icon" href="/bytepoets-logo.jpg">
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100svh;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    img { display: block; width: clamp(150px, 30vmin, 260px); height: auto; will-change: transform; }
+    p {
+      margin: 1.75rem 0 0;
+      color: #6e6e73;
+      font-size: clamp(0.95rem, 2.4vmin, 1.15rem);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.22em;
+      padding-left: 0.22em; /* letter-spacing trails the last glyph; keep the line optically centred */
+    }
+  </style>
+</head>
+<body>
+  <img src="/bytepoets-logo.jpg" width="594" height="672" alt="BYTEPOETS">
+  <p>2011–2026</p>
+  <script>
+    // The logo turns gently toward the pointer: mouse only, never with reduced motion.
+    (() => {
+      const logo = document.querySelector('img');
+      if (!matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const MAX = 8, EASE = 0.1;
+      let targetX = 0, targetY = 0, x = 0, y = 0, frame = 0;
+      const clamp = v => Math.max(-1, Math.min(1, v));
+      const step = () => {
+        frame = 0;
+        x += (targetX - x) * EASE;
+        y += (targetY - y) * EASE;
+        logo.style.transform = `perspective(900px) rotateX(${(-y).toFixed(2)}deg) rotateY(${x.toFixed(2)}deg)`;
+        if (Math.abs(targetX - x) > 0.01 || Math.abs(targetY - y) > 0.01) frame = requestAnimationFrame(step);
+      };
+      const kick = () => { if (!frame) frame = requestAnimationFrame(step); };
+      addEventListener('pointermove', e => {
+        const r = logo.getBoundingClientRect();
+        targetX = clamp((e.clientX - (r.left + r.width / 2)) / (innerWidth / 2)) * MAX;
+        targetY = clamp((e.clientY - (r.top + r.height / 2)) / (innerHeight / 2)) * MAX;
+        kick();
+      });
+      document.documentElement.addEventListener('pointerleave', () => { targetX = targetY = 0; kick(); });
+    })();
+  </script>
+</body>
+</html>
