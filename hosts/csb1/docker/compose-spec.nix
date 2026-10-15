@@ -170,6 +170,37 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
+    # OPS-337: bytepoets.com memorial page (BYTEPOETS 2011–2026); DNS in
+    # infrastructure/cloudflare/bytepoets.com. Every path serves the page.
+    bytepoets-memorial = {
+      image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
+      restart = "unless-stopped";
+      read_only = true;
+      tmpfs = [
+        "/var/cache/nginx"
+        "/run"
+        "/tmp"
+      ];
+      volumes = [
+        "${../web/bytepoets}:/usr/share/nginx/html:ro"
+        "${../web/bytepoets-nginx.conf}:/etc/nginx/conf.d/default.conf:ro"
+      ];
+      networks = [ "traefik" ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=true"
+        "traefik.docker.network=traefik"
+        "traefik.http.routers.bytepoets-memorial.rule=Host(`bytepoets.com`) || Host(`www.bytepoets.com`)"
+        "traefik.http.routers.bytepoets-memorial.entrypoints=web-secure"
+        "traefik.http.routers.bytepoets-memorial.tls=true"
+        "traefik.http.routers.bytepoets-memorial.tls.certresolver=default"
+        "traefik.http.services.bytepoets-memorial.loadbalancer.server.port=80"
+        "traefik.http.routers.bytepoets-memorial-http.rule=Host(`bytepoets.com`) || Host(`www.bytepoets.com`)"
+        "traefik.http.routers.bytepoets-memorial-http.entrypoints=web"
+        "traefik.http.routers.bytepoets-memorial-http.middlewares=bytepoets-memorial-https@docker"
+        "traefik.http.middlewares.bytepoets-memorial-https.redirectscheme.scheme=https"
+      ];
+    };
     # AEON-13: PAIMOS AEON app (https://aeon.barta.cm). The release is the image pin below;
     # a release pin changes that one line only (NIX-591 fast lane).
     # Database password, session key, messaging key and the AEON-319 doctrine guard key are
