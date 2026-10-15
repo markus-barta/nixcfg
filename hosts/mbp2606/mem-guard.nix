@@ -25,32 +25,37 @@ in
   # only written when it was read successfully (or confirmed absent) and filtered successfully; any other failure
   # leaves it untouched and says so, so existing jobs can never be lost.
   home.activation.memGuardCron = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    memGuardLine='${cronLine}'
-    memGuardOk=1
-    memGuardErr=$(/usr/bin/mktemp)
-    if memGuardCurrent=$(/usr/bin/crontab -l 2>"$memGuardErr"); then
-      :
-    elif /usr/bin/grep -q 'no crontab for' "$memGuardErr"; then
-      memGuardCurrent=""
-    else
-      echo "OPS-341: WARNING: crontab -l failed, crontab left unchanged: $(cat "$memGuardErr")" >&2
-      memGuardOk=0
-    fi
-    rm -f "$memGuardErr"
-    if [ "$memGuardOk" = 1 ]; then
-      if memGuardKept=$(printf '%s\n' "$memGuardCurrent" | /usr/bin/awk -v m='${marker}' 'index($0, m) == 0 && NF > 0'); then
-        if [ -n "$memGuardKept" ]; then
-          memGuardWanted=$(printf '%s\n%s' "$memGuardKept" "$memGuardLine")
-        else
-          memGuardWanted=$memGuardLine
-        fi
-        if [ "$memGuardWanted" != "$memGuardCurrent" ]; then
-          printf '%s\n' "$memGuardWanted" | run /usr/bin/crontab -
-          echo "OPS-341: mem-guard crontab line installed"
-        fi
+    # Own subshell and umask: an earlier activation step (agent-secrets) leaves umask 0277 behind, which made the
+    # mktemp file read-only (2026-10-15 23:37, "Permission denied"); 077 keeps the temp files private and writable.
+    (
+      umask 077
+      memGuardLine='${cronLine}'
+      memGuardOk=1
+      memGuardErr=$(/usr/bin/mktemp)
+      if memGuardCurrent=$(/usr/bin/crontab -l 2>"$memGuardErr"); then
+        :
+      elif /usr/bin/grep -q 'no crontab for' "$memGuardErr"; then
+        memGuardCurrent=""
       else
-        echo "OPS-341: WARNING: filtering the crontab failed, crontab left unchanged" >&2
+        echo "OPS-341: WARNING: crontab -l failed, crontab left unchanged: $(cat "$memGuardErr")" >&2
+        memGuardOk=0
       fi
-    fi
+      rm -f "$memGuardErr"
+      if [ "$memGuardOk" = 1 ]; then
+        if memGuardKept=$(printf '%s\n' "$memGuardCurrent" | /usr/bin/awk -v m='${marker}' 'index($0, m) == 0 && NF > 0'); then
+          if [ -n "$memGuardKept" ]; then
+            memGuardWanted=$(printf '%s\n%s' "$memGuardKept" "$memGuardLine")
+          else
+            memGuardWanted=$memGuardLine
+          fi
+          if [ "$memGuardWanted" != "$memGuardCurrent" ]; then
+            printf '%s\n' "$memGuardWanted" | run /usr/bin/crontab -
+            echo "OPS-341: mem-guard crontab line installed"
+          fi
+        else
+          echo "OPS-341: WARNING: filtering the crontab failed, crontab left unchanged" >&2
+        fi
+      fi
+    )
   '';
 }
