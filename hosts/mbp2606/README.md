@@ -218,3 +218,31 @@ inherit the group, and `core.sharedRepository = group` so git itself creates
 group-writable objects and refs. Without that last part, `.git/index` and
 `.git/FETCH_HEAD` stay mode 644 and the non-owning user cannot commit, fetch
 or pull — only read.
+
+## Memory guard (OPS-341)
+
+mba's aithema browser tests once ran this Mac out of memory (2026-10-15). A guard
+(`./mem-guard.sh`, linked to `~/.local/bin/mbp2606-mem-guard`) samples free memory
+every 10 s; below 10 % it stops the most recently started test browser under
+`~/ci.noindex/aithema-runs/`. It is started by one marked line in mba's crontab
+(`# OPS-341 mem-guard`, kept by Home Manager activation), runs under a `lockf`
+kernel lock (one instance), and logs to `~/ci.noindex/mem-guard.log`. mba has no
+graphical session here, so a LaunchAgent would never load; cron runs without one.
+
+Check: `crontab -l | grep 'OPS-341'`, `kill -0 "$(cat ~/ci.noindex/mem-guard.pid)"`,
+`tail ~/ci.noindex/mem-guard.log`.
+
+Disable or roll back (as mba, in bash; order matters, cron restarts a killed guard):
+
+```bash
+# 1. No new starts. Writes only after a successful read and filter, so other jobs survive a failed read;
+#    "no crontab" means there is nothing to remove.
+t=$(crontab -l) && f=$(printf '%s\n' "$t" | awk 'index($0, "# OPS-341 mem-guard") == 0') && printf '%s\n' "$f" | crontab -
+# 2. Stop the running guard.
+kill "$(cat ~/ci.noindex/mem-guard.pid)"
+# 3. Lock free = no guard left.
+sleep 2; /usr/bin/lockf -t 0 ~/ci.noindex/mem-guard.lock true && echo stopped
+```
+
+Then activate the previous Home Manager generation if the whole change is to go.
+A later `home-manager switch` of this config re-installs the cron line.
