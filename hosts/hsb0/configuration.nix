@@ -1016,6 +1016,8 @@ in
   # the spec (verified live 2026-08-01).
 
   environment.etc."hostdash/hsb0".source = hostdashHsb0;
+  # OPS-353: /inflight/ location for hsb0-home (mounted into the HostDash include point).
+  environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
 
   # ============================================================================
   # NCPS - Nix binary Cache Proxy Service
@@ -1045,6 +1047,8 @@ in
     "d /var/lib/ncps-db 0755 994 992 - -"
     # Official node:22-alpine runs the Dockerfile's USER node as uid/gid 1000.
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
+    # OPS-353: In-flight page content; mba pushes index.html, hsb0-home reads it (ro mount).
+    "d /var/lib/inflight 0755 mba users - -"
   ];
 
   # Fix: P6400 / P5012 - Remove evaluation warning by forcing null on initialHashedPassword
