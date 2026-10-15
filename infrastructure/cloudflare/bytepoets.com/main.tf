@@ -18,6 +18,8 @@ resource "cloudflare_record" "apex_a" {
   tags    = []
 }
 
+# A CNAME cannot coexist with A/AAAA on the same name: the 2026-10-15 migration removed the
+# legacy www A/AAAA in a separate, earlier apply (runbook domain-bytepoets-com).
 resource "cloudflare_record" "www_cname" {
   zone_id = local.zone_id
   type    = "CNAME"
