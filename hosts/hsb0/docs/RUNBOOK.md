@@ -34,20 +34,86 @@ After activation, hausnetz is served at `http://192.168.1.99/ops/` through
 `hsb0-home`. Its `/ops` redirect keeps relative UI, API and SSE requests under
 `/ops/`; nginx strips that prefix and disables buffering for the event stream.
 The container resolves `host.docker.internal` through Docker's `host-gateway`.
+Both `/ops` and `/ops/` allow only IPv4 LAN sources in `192.168.1.0/24`;
+tailnet, IPv6 and same-host/bridge clients receive **403 by design**. The
+slashless redirect runs after the access check. `/ops/` permits bodies up to
+13 MiB for the app's 12 MiB floor-plan uploads. nginx hides upstream
+Cache-Control and sends a single `no-store` policy.
 
 The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
 only on `br-+` and `docker0`, never the LAN interface. mDNS discovery opens
 UDP 5353 only on `enp2s0f0`. State starts empty in `/var/lib/hausnetz`, with
 no seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
+The `br-+` iptables wildcard intentionally covers every user-defined Docker
+bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
 The private flake input is pinned to `1f876f1d28d74d5931f4f3628a90de112a43506c`.
-Root's SSH client selects the existing `/root/.ssh/hausnetz_deploy` for
-`github.com`; the declarative known-host entry uses GitHub's published Ed25519
-key. CI uses the existing `GH_TOKEN_FOR_UPDATES` through a Git URL rewrite;
-both automated lock-update jobs exclude hausnetz from their input selection.
+Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
+hand-provisioned private file is a **read-only deploy key registered on
+markus-barta/hausnetz**, not a Nix-managed secret. A reinstall/recovery must
+restore it through the operator's 1Password procedure before hsb0 can evaluate;
+do not add it to Git, copy it to other hosts or grant `mba` access. The
+declarative known-host entry uses GitHub's published Ed25519 key. CI uses its
+own read-only deploy key, repository secret `HAUSNETZ_DEPLOY_KEY`, scoped to
+jobs that can evaluate hsb0, with a 0600 runner-temp key file, `IdentitiesOnly`
+and pinned known_hosts. `GH_TOKEN_FOR_UPDATES` only manages existing update
+PRs; it cannot read hausnetz. Both automated lock-update jobs still exclude
+hausnetz from their input selection.
 
-Local contract: `bash tests/T99-hausnetz-hsb0.sh`. Full hsb0 evaluation in CI
-also applies `tests/hausnetz-hsb0-eval.nix`. Before accepting a deployment,
+For OPS's first attended switch, start from the reviewed, merged clean `main`
+checkout on **hsb0**, with the root deploy key restored (0600). Pre-fetch and
+build with an explicit key and the literal published host key because the SSH
+declaration is not active yet. `sudo env` preserves the command for root:
+
+```bash
+known_hosts=$(mktemp)
+printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$known_hosts"
+sudo env GIT_SSH_COMMAND="ssh -F /dev/null -i /root/.ssh/hausnetz_deploy -o IdentitiesOnly=yes -o UserKnownHostsFile=$known_hosts -o StrictHostKeyChecking=yes" \
+  nixos-rebuild build --flake .#hsb0
+```
+
+Only after that build succeeds, run the normal attended `just switch`. The
+build also verifies the Go/npm fixed-output hashes under nixcfg's followed
+nixpkgs pin. After switch, test the declarative SSH path without that temporary
+override:
+
+```bash
+sudo ssh -G github.com | grep -iE '^identit'
+sudo ssh -T git@github.com
+```
+
+Expect the hausnetz deploy-key greeting (`Hi markus-barta/hausnetz!`); GitHub
+returns status 1 even on successful authentication because it offers no shell.
+Check resolved identities because root's personal SSH config is read first.
+
+hsb8 has no hausnetz access. Guarded system updates declare hsb0 in
+`inspr.pharosGuardedDeploy.privateInputHosts` and log
+`hsb0 skipped: private input, covered by CI` during the on-host fleet check.
+Every other host is still evaluated. A credentialed evaluator sets
+`canEvaluatePrivateInputs`; the deployment target itself is never skipped.
+CI's full fleet evaluation remains mandatory and includes hsb0.
+
+`ncps-warmer` runs as `mba`, which has **no hausnetz access**. Warming hsb0 can
+work only while the pinned private source is already available to that user;
+a root pre-fetch does not grant access or guarantee a cache hit for `mba`.
+After cache eviction, its evaluation/dry-run may fail. The unit logs that
+failure, continues warming the other LAN targets, and exits non-zero rather
+than claiming hsb0 is already cached. Inspect `journalctl -u ncps-warmer`;
+do not distribute the root deploy key to make this optional warm succeed.
+
+Local contracts: `bash tests/T99-hausnetz-hsb0.sh` and, under Bash 5,
+`bash tests/T14-pharos-system-update.sh`. OPS runs this exact CI command from
+the clean committed checkout, with network/private-input access (root on hsb0
+after activation, or the CI-specific key and pinned known_hosts above):
+
+```bash
+nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
+  --apply 'system: import ./tests/hausnetz-hsb0-eval.nix { inherit (system) config lib; }' \
+  | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-207 full hsb0 evaluation: OK")'
+```
+
+The source-path contract uses `lib.hasSuffix` so checkout/store roots may
+differ. Before accepting a deployment,
 verify `/ops/` and its event stream from the LAN and confirm that direct
 LAN connections to port 8377 fail. Roll back the OPS-207 commit and rebuild
 through the normal attended deployment workflow to remove this integration;

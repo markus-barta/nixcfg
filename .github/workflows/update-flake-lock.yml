@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "0 3 * * 0" # Runs every Sunday at 3am UTC
 
-env:
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_TOKEN_FOR_UPDATES }}@github.com/.insteadOf
-  GIT_CONFIG_VALUE_0: ssh://git@github.com/
-
 jobs:
   update-and-merge:
     name: Update and Auto-Merge
@@ -22,6 +17,8 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@33c9ab3ef95cd57c164d9d6eb1f9a46338538d41 # main @ 2026-07-23
       - name: Select automatically updated inputs (OPS-207)
+        # This workflow updates selected locks without evaluating hsb0, so it
+        # needs no hausnetz key. GH_TOKEN_FOR_UPDATES only manages the PR.
         id: inputs
         run: |
           inputs=$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)

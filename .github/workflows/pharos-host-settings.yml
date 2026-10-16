@@ -52,11 +52,6 @@ concurrency:
   group: pharos-host-settings-${{ inputs.host }}
   cancel-in-progress: false
 
-env:
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_TOKEN_FOR_UPDATES }}@github.com/.insteadOf
-  GIT_CONFIG_VALUE_0: ssh://git@github.com/
-
 jobs:
   update-and-merge:
     name: Validate, open PR, and merge
@@ -123,6 +118,12 @@ jobs:
           if ! git diff --cached --quiet --exit-code; then
             git commit -m 'pharos: regenerate declared hsb8 manifest'
           fi
+
+      - name: Read private hsb0 input (OPS-207)
+        if: inputs.host == 'hsb0'
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
 
       - name: Validate schema and target configuration
         run: |

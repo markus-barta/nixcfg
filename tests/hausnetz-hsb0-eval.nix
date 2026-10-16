@@ -1,5 +1,5 @@
 # OPS-207: applied to the complete hsb0 config in CI, including upstream defaults.
-{ config }:
+{ config, lib }:
 let
   cfg = config.services.hausnetz;
   fw = config.networking.firewall;
@@ -53,7 +53,7 @@ in
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
   nice = unit.Nice == 10;
-  proxySource =
-    config.environment.etc."hsb0-home-hausnetz.conf".source
-    == ../hosts/hsb0/docker/hsb0-home-hausnetz.conf;
+  proxySource = lib.hasSuffix "/hosts/hsb0/docker/hsb0-home-hausnetz.conf" (
+    toString config.environment.etc."hsb0-home-hausnetz.conf".source
+  );
 }

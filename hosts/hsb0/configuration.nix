@@ -1146,15 +1146,24 @@ in
       cd "$REPO"
 
       warm() {
-        name="$1"; ref="$2"
+        local name="$1" ref="$2" plan paths n
+        # mba has no hausnetz deploy-key access. Missing private source/cache
+        # must fail this unit rather than masquerade as an already-warm closure.
+        if ! plan="$(nix build "$ref" --dry-run 2>&1)"; then
+          echo "warmer: $name — evaluation/dry-run FAILED" >&2
+          if [ "$name" = hsb0 ]; then
+            echo "warmer: hsb0 — mba has no hausnetz access; warming requires the private source already available to mba" >&2
+          fi
+          return 1
+        fi
         # Substitutable closure paths only ("will be fetched"); the
         # "will be built" host-specific derivations are skipped.
-        paths="$(nix build "$ref" --dry-run 2>&1 \
+        paths="$(printf '%s\n' "$plan" \
           | awk '/will be fetched/{f=1;next} /will be built/{f=0} f && /\/nix\/store\//{gsub(/^ +/,"");print}')"
         if [ -z "$paths" ]; then
           echo "warmer: $name — nothing to fetch (already cached)"; return 0
         fi
-        n="$(printf '%s\n' "$paths" | wc -l)"
+        n="$(printf '%s\n' "$paths" | wc -l | tr -d '[:space:]')"
         if printf '%s\n' "$paths" \
           | xargs nix-store --realise --option substituters "$NCPS" --option max-jobs 0 >/dev/null 2>&1; then
           echo "warmer: $name — warmed $n paths"
@@ -1164,10 +1173,15 @@ in
       }
 
       # STATIC LAN list (NIX-155). NixOS hosts:
-      warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel"
-      warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel"
+      failed=0
+      warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel" || failed=1
+      warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel" || failed=1
       # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):
-      warm mbp2607   '.#homeConfigurations."markus@mbp2607".activationPackage'
+      warm mbp2607   '.#homeConfigurations."markus@mbp2607".activationPackage' || failed=1
+      if [ "$failed" -ne 0 ]; then
+        echo "warmer: FAILED — one or more evaluations/dry-runs failed" >&2
+        exit 1
+      fi
       echo "warmer: done"
     '';
     serviceConfig = {

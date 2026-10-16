@@ -20,12 +20,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# OPS-207: use the existing read token for the private, revision-pinned input.
-env:
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_TOKEN_FOR_UPDATES }}@github.com/.insteadOf
-  GIT_CONFIG_VALUE_0: ssh://git@github.com/
-
 jobs:
   janus-flow-mounts:
     name: Janus Flow private mount lifecycle
@@ -67,6 +61,13 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      # T38 evaluates deployment evidence for every host, including hsb0.
+      - name: Read private hsb0 input (OPS-207)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
 
       - name: Verify Pharos host preferences and correlated outcomes
         if: steps.pin.outputs.pin_only != 'true'
@@ -545,6 +546,12 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
+      - name: Read private hsb0 input (OPS-207)
+        if: matrix.host == 'hsb0'
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+
       - name: Run nix eval for ${{ matrix.host }}
         # We don't want to continue on error of the workflow will not fail if one host fails
         # continue-on-error: true
@@ -563,8 +570,8 @@ jobs:
       - name: Verify hausnetz in the full hsb0 configuration (OPS-207)
         if: matrix.host == 'hsb0'
         run: |
-          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0.config \
-            --apply 'config: import ./tests/hausnetz-hsb0-eval.nix { inherit config; }' \
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
+            --apply 'system: import ./tests/hausnetz-hsb0-eval.nix { inherit (system) config lib; }' \
             | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-207 full hsb0 evaluation: OK")'
 
   # ============================================================================
