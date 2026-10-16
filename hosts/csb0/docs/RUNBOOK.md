@@ -763,3 +763,14 @@ It rejects anonymous public data access. It never requests v2 `/joe/healthz`
 or counts its 404 as success. The command prints the hsb0 fast-forward,
 source/pin gate, image/generation checks and `just switch`; the operator
 executes and verifies those separately, then confirms before timers resume.
+
+### Production host gate (README item 4)
+
+`just test-joedesk SOURCE` includes T102, which runs the actual legacy P1
+function and replacement P3 host module from the release-set Git pins. The
+canonical production `cs0.barta.cm` must pass; foreign host/suffix lookalikes
+must fail, and both app entrypoints must call that gate. No application
+source is copied into nixcfg and no allowlist is guessed from the hostname.
+This client privacy stub does not replace SSO or private-port enforcement.
+README item 4 adds no route exemption beyond the existing token inbox and
+item 1's exact GET/HEAD health.

@@ -200,6 +200,11 @@ async function main() {
   }
   if (!source || run("git", ["-C", source, "rev-parse", "HEAD"]).trim() !== V2)
     throw new Error("exact_candidate_source_required");
+  run(process.execPath, [
+    path.join(repo, "tests/T102-joedesk-host-gate.mjs"),
+    "--joedesk-source",
+    source,
+  ]);
   const root = fs.mkdtempSync(
     path.join(fs.realpathSync(os.tmpdir()), "ops354-rehearsal-"),
   );
