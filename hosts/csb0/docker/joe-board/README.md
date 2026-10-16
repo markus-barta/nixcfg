@@ -64,3 +64,32 @@ for this release-set refactor against ed5e43d6 (routing is held constant). OPS
 must also compare Linux `config.system.build.toplevel.drvPath` on the states
 before/after the release-set item, with the routing item applied to both.
 This is evaluation only; do not build a NixOS configuration on macOS.
+
+## Rehearsal and rollback
+
+Use `just rehearse-joedesk SOURCE --dry-run` for actual offline backup,
+verification, migration, the shared forward/rollback swaps and recovery
+guards without Docker. `just rehearse-joedesk SOURCE` additionally builds the
+exact v1/v2 images, uses extracted Traefik v3 rules with a stub forwardAuth,
+runs upstream forward smoke and signed-in spoof actor replacement, then
+checks exact-image v1 rollback with private probes and authenticated reads.
+It refuses fleet lab hosts and remote Docker contexts. Fixtures and their
+fixed receipt clock prove lab behavior only. Output is value-free; private
+lab artifacts/images are retained.
+
+The production procedure and required private rollback record are in
+`hosts/csb0/docs/RUNBOOK.md`, OPS-354 sections. `just rollback-joedesk` on csb0
+selects the recorded compatible previous set through a separately reviewed
+rollback commit and normal `just switch`; it restores the verified v1 backup
+into a new sibling, then calls `scripts/joedesk-data-swap.mjs` for ownership,
+0700/0600 modes, same-filesystem rename and failure recovery. That same script
+provides the forward swap used by the lab and cutover runbook. Stop all
+writers first; the activation script's chown of the fixed store does not
+prepare staged directories. Retain the unique old sibling, backup, exact
+image tags/IDs, NixOS generations and v2 preparation source. The previous
+selector uses declarative `pull_policy = never` to retain the old image.
+
+The command prompts y/N at each action and prints cross-host commands for
+hsb0; it never SSHs. Its legacy smoke uses private `/healthz` and `/readyz`,
+the exact retained image/release and authenticated public v1 version/data
+checks against the matching backup. New-smoke 404s never establish rollback.
