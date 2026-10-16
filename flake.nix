@@ -56,9 +56,9 @@
       url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # OPS-207: explicitly reviewed revision; automated updates skip this input.
+    # OPS-355: v261016175105.0.0; explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=1f876f1d28d74d5931f4f3628a90de112a43506c";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=a5a3f5a569ed26387913c2cb7b89ac1188abcc16";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

@@ -267,7 +267,12 @@ class WorkflowFixtures(unittest.TestCase):
         self.assertIn('>> "$GITHUB_OUTPUT"', steps[1]["run"])
         for step in steps[2:]:
             with self.subTest(step=step.get("name", step.get("uses"))):
-                self.assertEqual(step["if"], "steps.pin.outputs.pin_only != 'true'")
+                # Key cleanup must also run after T38 fails, while pin-only
+                # diffs still skip every rollout step, including cleanup.
+                expected = "steps.pin.outputs.pin_only != 'true'"
+                if step.get("name") == "Clean up private hsb0 input access (OPS-355)":
+                    expected = "always() && " + expected
+                self.assertEqual(step["if"], expected)
 
     def test_gate_always_reports_and_both_jobs_use_the_aggregate_diff(self):
         gate_job = self.workflow["jobs"]["aeon-pin-gate"]

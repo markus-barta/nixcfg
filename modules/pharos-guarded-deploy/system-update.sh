@@ -349,6 +349,7 @@ review)
     '{
       changed_file_count:$changed_file_count,
       changed_areas:$areas[0],
+      # All evaluated hosts passed; private-input skips require the full CI gate.
       all_host_eval_passed:true,
       target_build_passed:true,
       backup_ready:true,
