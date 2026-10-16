@@ -56,6 +56,11 @@
       url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # OPS-207: explicitly reviewed revision; automated updates skip this input.
+    hausnetz = {
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=1f876f1d28d74d5931f4f3628a90de112a43506c";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     janus = {
       url = "github:inspr-at/janus/rust-engine-v0.1.17";
       inputs.nixpkgs.follows = "nixpkgs";

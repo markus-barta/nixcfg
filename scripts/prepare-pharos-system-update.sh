@@ -49,7 +49,10 @@ if ! grep -Fxq "$source_host" "$work_dir/hosts"; then
   fail "source_host_not_active"
 fi
 
-if ! nix flake update >"$work_dir/update.log" 2>&1; then
+# OPS-207: hausnetz advances only through an explicit reviewed revision change.
+read -r -a update_inputs <<<"$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)"
+[[ ${#update_inputs[@]} -gt 0 ]] || fail "no_update_inputs"
+if ! nix flake update "${update_inputs[@]}" >"$work_dir/update.log" 2>&1; then
   fail "flake_update_failed"
 fi
 
