@@ -260,18 +260,24 @@ jobs:
         run: tests/T59-compose-update-generation.sh
 
       # T38 evaluates deployment evidence for every host, including hsb0.
+      # Later hsb0 evaluations (T64/T54/T68/T99) reuse the locked hausnetz
+      # source T38 stores in Nix; they have no SSH override or private key.
       - name: Read private hsb0 input (OPS-207)
+        id: hausnetz-input
         if: steps.pin.outputs.pin_only != 'true'
         uses: ./.github/actions/hausnetz-input
         with:
           deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+          persist-ssh-command: "false"
 
       - name: Verify Pharos deployment evidence wiring (NIX-348 / OPS-186)
         if: steps.pin.outputs.pin_only != 'true'
+        env:
+          GIT_SSH_COMMAND: ${{ steps.hausnetz-input.outputs.git-ssh-command }}
         run: tests/T38-pharos-deployment-evidence.sh
 
       - name: Clean up private hsb0 input access (OPS-355)
-        if: always()
+        if: always() && steps.pin.outputs.pin_only != 'true'
         run: |
           python3 - <<'PYTHON'
           import os
@@ -281,7 +287,6 @@ jobs:
           for directory in Path(os.environ['RUNNER_TEMP']).glob('hausnetz-ssh.*'):
               shutil.rmtree(directory)
           PYTHON
-          echo 'GIT_SSH_COMMAND=' >> "$GITHUB_ENV"
 
       - name: Verify static uid/gid collision gate (NIX-354)
         if: steps.pin.outputs.pin_only != 'true'
