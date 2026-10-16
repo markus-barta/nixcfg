@@ -119,6 +119,12 @@ jobs:
             git commit -m 'pharos: regenerate declared hsb8 manifest'
           fi
 
+      - name: Read private hsb0 input (OPS-207)
+        if: inputs.host == 'hsb0'
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+
       - name: Validate schema and target configuration
         run: |
           set -euo pipefail

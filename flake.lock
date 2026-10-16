@@ -447,6 +447,25 @@
         "type": "github"
       }
     },
+    "hausnetz": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790078248,
+        "narHash": "sha256-BZyTWNxApPN/K44Bbhub7TNfsziEYLPXaqmizfQ6emM=",
+        "rev": "1f876f1d28d74d5931f4f3628a90de112a43506c",
+        "type": "git",
+        "url": "ssh://git@github.com/markus-barta/hausnetz"
+      },
+      "original": {
+        "rev": "1f876f1d28d74d5931f4f3628a90de112a43506c",
+        "type": "git",
+        "url": "ssh://git@github.com/markus-barta/hausnetz"
+      }
+    },
     "helium-nix": {
       "inputs": {
         "flake-compat": "flake-compat_2",
@@ -1204,6 +1223,7 @@
         ],
         "disko": "disko",
         "git-hooks": "git-hooks",
+        "hausnetz": "hausnetz",
         "helium-nix": "helium-nix",
         "home-manager": "home-manager_2",
         "hostdash": "hostdash",

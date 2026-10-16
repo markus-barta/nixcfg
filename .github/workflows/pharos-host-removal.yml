@@ -69,6 +69,11 @@ jobs:
             "$PHAROS_REQUEST_ID" \
             "$PHAROS_CREDENTIAL_RETIREMENT"
 
+      - name: Read private hsb0 input (OPS-207)
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+
       - name: Evaluate every configured NixOS host
         run: |
           nix eval --no-update-lock-file --json \

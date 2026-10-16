@@ -61,6 +61,7 @@ let
 in
 {
   imports = [
+    inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
     ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
@@ -79,6 +80,40 @@ in
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
   ];
+
+  # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
+  # Options: hausnetz@1f876f1d nix/module.nix:41-50,109-161.
+  # seed and discovery.leasesFile retain their null defaults (:52-60,128-136).
+  # The module owns the initially empty StateDirectory (:217-236); no data import.
+  services.hausnetz = {
+    enable = true;
+    listen = "0.0.0.0:8377";
+    firewallInterfaces = [
+      "br-+"
+      "docker0"
+    ];
+    discovery = {
+      openFirewallMdns = true;
+      mdnsInterfaces = [ "enp2s0f0" ];
+    };
+  };
+  systemd.services.hausnetz.serviceConfig = {
+    MemoryMax = "512M";
+    CPUQuota = "50%";
+    Nice = 10;
+  };
+
+  # NixOS does not include ssh_config.d. Match localuser scopes the existing
+  # read-only deploy key to root's private-input fetches, not other users.
+  programs.ssh.extraConfig = lib.mkBefore ''
+    Match host github.com localuser root
+      IdentityFile /root/.ssh/hausnetz_deploy
+      IdentitiesOnly yes
+    Host *
+  '';
+  # Published host key: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+  programs.ssh.knownHosts."github.com".publicKey =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
 
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
@@ -1018,6 +1053,7 @@ in
   environment.etc."hostdash/hsb0".source = hostdashHsb0;
   # OPS-353: /inflight/ location for hsb0-home (mounted into the HostDash include point).
   environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
+  environment.etc."hsb0-home-hausnetz.conf".source = ./docker/hsb0-home-hausnetz.conf;
 
   # ============================================================================
   # NCPS - Nix binary Cache Proxy Service
@@ -1110,15 +1146,24 @@ in
       cd "$REPO"
 
       warm() {
-        name="$1"; ref="$2"
+        local name="$1" ref="$2" plan paths n
+        # mba has no hausnetz deploy-key access. Missing private source/cache
+        # must fail this unit rather than masquerade as an already-warm closure.
+        if ! plan="$(nix build "$ref" --dry-run 2>&1)"; then
+          echo "warmer: $name — evaluation/dry-run FAILED" >&2
+          if [ "$name" = hsb0 ]; then
+            echo "warmer: hsb0 — mba has no hausnetz access; warming requires the private source already available to mba" >&2
+          fi
+          return 1
+        fi
         # Substitutable closure paths only ("will be fetched"); the
         # "will be built" host-specific derivations are skipped.
-        paths="$(nix build "$ref" --dry-run 2>&1 \
+        paths="$(printf '%s\n' "$plan" \
           | awk '/will be fetched/{f=1;next} /will be built/{f=0} f && /\/nix\/store\//{gsub(/^ +/,"");print}')"
         if [ -z "$paths" ]; then
           echo "warmer: $name — nothing to fetch (already cached)"; return 0
         fi
-        n="$(printf '%s\n' "$paths" | wc -l)"
+        n="$(printf '%s\n' "$paths" | wc -l | tr -d '[:space:]')"
         if printf '%s\n' "$paths" \
           | xargs nix-store --realise --option substituters "$NCPS" --option max-jobs 0 >/dev/null 2>&1; then
           echo "warmer: $name — warmed $n paths"
@@ -1128,10 +1173,15 @@ in
       }
 
       # STATIC LAN list (NIX-155). NixOS hosts:
-      warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel"
-      warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel"
+      failed=0
+      warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel" || failed=1
+      warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel" || failed=1
       # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):
-      warm mbp2607   '.#homeConfigurations."markus@mbp2607".activationPackage'
+      warm mbp2607   '.#homeConfigurations."markus@mbp2607".activationPackage' || failed=1
+      if [ "$failed" -ne 0 ]; then
+        echo "warmer: FAILED — one or more evaluations/dry-runs failed" >&2
+        exit 1
+      fi
       echo "warmer: done"
     '';
     serviceConfig = {

@@ -45,7 +45,11 @@ EOF
 cat >"$fixture/flake.lock" <<'EOF'
 {
   "nodes": {
-    "root": { "inputs": { "nixpkgs": "nixpkgs" } },
+    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "alias": ["nixpkgs"] } },
+    "hausnetz": {
+      "locked": { "type": "git", "rev": "reviewed-pinned-revision" },
+      "original": { "type": "git", "rev": "reviewed-pinned-revision" }
+    },
     "nixpkgs": {
       "locked": { "type": "github", "rev": "old-revision" },
       "original": { "type": "github", "owner": "NixOS", "repo": "nixpkgs" }
@@ -59,7 +63,11 @@ EOF
 cat >"$fixture_root/updated.lock" <<'EOF'
 {
   "nodes": {
-    "root": { "inputs": { "nixpkgs": "nixpkgs" } },
+    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "alias": ["nixpkgs"] } },
+    "hausnetz": {
+      "locked": { "type": "git", "rev": "reviewed-pinned-revision" },
+      "original": { "type": "git", "rev": "reviewed-pinned-revision" }
+    },
     "nixpkgs": {
       "locked": {
         "type": "github",
@@ -79,6 +87,8 @@ cat >"$fake_bin/nix" <<'EOF'
 set -euo pipefail
 
 if [[ "${1-}" == flake && "${2-}" == update ]]; then
+  # OPS-207: update real selected inputs; never all inputs or the pinned app.
+  [[ "$#" == 3 && "$3" == nixpkgs ]] || exit 1
   cp "$FAKE_UPDATED_LOCK" flake.lock
   echo 'update diagnostic private-digest' >&2
   exit 0
@@ -144,5 +154,71 @@ if (
   echo 'invalid source host was accepted' >&2
   exit 1
 fi
+
+# Exercise the actual on-host all-host evaluation block without running its
+# preflight, build, activation or reboot paths. CI's proposal still evaluates
+# every host with its own read-only private-input key.
+python3 - "$repo_root" <<'PY'
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+
+repo = Path(sys.argv[1])
+module = (repo / 'modules/pharos-guarded-deploy/default.nix').read_text()
+source = (repo / 'modules/pharos-guarded-deploy/system-update.sh').read_text()
+assert '(lib.escapeShellArgs cfg.privateInputHosts)' in module
+assert '(lib.boolToString cfg.canEvaluatePrivateInputs)' in module
+assert 'readonly PRIVATE_INPUT_HOSTS=(@PRIVATE_INPUT_HOSTS@)' in source
+assert "readonly CAN_EVALUATE_PRIVATE_INPUTS='@CAN_EVALUATE_PRIVATE_INPUTS@'" in source
+declared = re.search(r'privateInputHosts = lib.mkOption \{.*?default = \[([^]]*)\];', module, re.S)[1]
+private_hosts = re.findall(r'"([a-z0-9-]+)"', declared)
+assert private_hosts == ['hsb0'], private_hosts
+assert re.search(r'canEvaluatePrivateInputs = lib.mkOption \{.*?default = host == "hsb0";', module, re.S)
+block = "  stage='all_host_evaluation'" + source.split("  stage='all_host_evaluation'", 1)[1].split("  stage='target_build'", 1)[0]
+hosts = ['csb0', 'csb1', 'hsb0', 'hsb1', 'hsb8', 'hsb9']
+
+with tempfile.TemporaryDirectory(prefix='ops207-guard-') as tmp:
+    root = Path(tmp)
+    nix = root / 'nix'
+    nix.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *' --json '* ]]; then
+  printf '%s\\n' '["hsb9","hsb8","hsb1","hsb0","csb1","csb0"]'
+else
+  ref="${*: -1}"
+  host="${ref#*#nixosConfigurations.}"
+  host="${host%%.*}"
+  printf '%s\\n' "$host" >> "$EVAL_CALLS"
+  [[ "$host" != "$FAIL_HOST" ]]
+fi
+''')
+    nix.chmod(0o700)
+    calls = root / 'calls'
+    child_env = dict(os.environ, PATH=f'{root}:' + os.environ['PATH'], EVAL_CALLS=str(calls))
+    for evaluator, access, fail_host in [('hsb8', 'false', ''), ('hsb8', 'true', ''), ('hsb0', 'false', ''), ('hsb8', 'false', 'csb1')]:
+        calls.write_text('')
+        detail = root / 'detail.log'
+        detail.write_text('')
+        child_env.update(HOST=evaluator, CAN_EVALUATE_PRIVATE_INPUTS=access, FAIL_HOST=fail_host, action_dir=tmp, repo_dir=tmp, detail_log=str(detail))
+        script = 'set -Eeuo pipefail\nPRIVATE_INPUT_HOSTS=(' + ' '.join(private_hosts) + ')\n' + block
+        result = subprocess.run(['bash', '-c', script], env=child_env, capture_output=True, text=True)
+        actual = calls.read_text().splitlines()
+        if fail_host:
+            assert result.returncode != 0, 'unrelated host failure must close the gate'
+        else:
+            assert result.returncode == 0, result.stderr
+            expected = [h for h in hosts if not (h == 'hsb0' and access == 'false' and evaluator != 'hsb0')]
+            assert actual == expected, (evaluator, access, actual)
+            message = 'hsb0 skipped: private input, covered by CI'
+            if expected != hosts:
+                assert message in result.stdout and message in detail.read_text()
+            else:
+                assert 'skipped:' not in result.stdout + detail.read_text()
+print('OPS-207 guarded private-input evaluation: OK')
+PY
 
 echo 'pharos_system_update=passed'

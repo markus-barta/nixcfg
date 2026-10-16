@@ -8,6 +8,8 @@ readonly BEACON_CONTAINER='@BEACON_CONTAINER@'
 readonly HOSTDASH_CONTAINER='@HOSTDASH_CONTAINER@'
 readonly STATE_DIR='@STATE_DIR@'
 readonly REBOOT_TIMEOUT_SECONDS='@REBOOT_TIMEOUT_SECONDS@'
+readonly PRIVATE_INPUT_HOSTS=(@PRIVATE_INPUT_HOSTS@)
+readonly CAN_EVALUATE_PRIVATE_INPUTS='@CAN_EVALUATE_PRIVATE_INPUTS@'
 readonly REQUEST_FILE="$STATE_DIR/active-agent-request.json"
 
 [ "$(id -u)" -eq 0 ]
@@ -266,6 +268,21 @@ review)
     "$action_dir/hosts.json" >/dev/null
   jq -r '.[]' "$action_dir/hosts.json" | LC_ALL=C sort -u >"$action_dir/hosts"
   while IFS= read -r host; do
+    # OPS-207: CI covers private inputs unavailable to this evaluating host.
+    # Never skip the deployment target, even if its access declaration is wrong.
+    if [ "$CAN_EVALUATE_PRIVATE_INPUTS" != true ] && [ "$host" != "$HOST" ]; then
+      skip_private=false
+      for private_host in "${PRIVATE_INPUT_HOSTS[@]}"; do
+        if [ "$host" = "$private_host" ]; then
+          skip_private=true
+          break
+        fi
+      done
+      if [ "$skip_private" = true ]; then
+        printf '%s skipped: private input, covered by CI\n' "$host" | tee -a "$detail_log"
+        continue
+      fi
+    fi
     nix eval --no-update-lock-file \
       "$repo_dir#nixosConfigurations.$host.config.system.build.toplevel.drvPath" \
       >>"$detail_log" 2>&1
