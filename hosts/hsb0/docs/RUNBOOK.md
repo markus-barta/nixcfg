@@ -55,8 +55,8 @@ seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `a5a3f5a569ed26387913c2cb7b89ac1188abcc16`
-(`v261016175105.0.0`, OPS-355).
+The private flake input is pinned to `cf4fd83ab08b1117a5cc4f4f97911c26c6e56d4c`
+(`v261016191715.0.0`, OPS-355).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
 markus-barta/hausnetz**, not a Nix-managed secret. On a reinstall/recovery,
