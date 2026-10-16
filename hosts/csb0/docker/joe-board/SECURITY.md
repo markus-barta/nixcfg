@@ -42,3 +42,14 @@ ssh mba@hsb0 'cd ~/nixcfg && git pull && just switch'
 
 Compose env `JOE_PUSH_INTERVAL_SEC` (default `30`) on `joe-board-pusher` in
 `hosts/hsb0/docker/compose-spec.nix`. Redeploy hsb0.
+
+## OPS-354 identity boundary
+
+JoeDesk has no published host port and uses the private Traefik network. The
+edge removes client `X-Auth-Request-User`, `X-Auth-Request-Email` and
+`X-Forwarded-User` before SSO, then forwardAuth replaces user/email from
+oauth2-proxy's authenticated response. Health and token inbox use the same
+strip middleware without SSO. Only exact `/joe/healthz` GET/HEAD is public
+health; other methods, near-health paths, all six reads, UI and assets enter
+SSO. The edge must never add, remove or rewrite `X-JoeDesk-Origin`: app-stamped
+401s do not prove SSO enforcement. See T76 and the deployment runbook.

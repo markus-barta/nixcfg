@@ -592,3 +592,28 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 - Service: `joe-board` compose build `./joe-board`; data `/var/lib/joe-board`
 - Security: `hosts/csb0/docker/joe-board/SECURITY.md`
 - Producer: hsb0 `joe-board-pusher` every 30s (paper 4002 only)
+
+### OPS-354 routing gates (preparation only)
+
+Run `python3 tests/T76-joe-slash-routing.py` before review. On the approved
+v2 source after the switch, run
+`python3 tests/T76-joe-slash-routing.py --live --joedesk-source SOURCE`.
+This delegates the canonical version, health allowlist, feed freshness and
+anonymous/spoof matrix to JoeDesk's own smoke and additionally checks HEAD.
+A health redirect is `auth_required`; db621bf's missing `/joe/healthz` cannot
+pass. Near-health paths, UI/assets and six reads require unstamped SSO denials.
+
+Post-deploy item 6 requires a separate signed-in paper-only Fleet Config edit:
+send synthetic `X-Auth-Request-User` and `X-Forwarded-User` through the trusted
+public proxy using a private authenticated cookie jar. Check privately that
+the new audit entry's actor equals the authenticated SSO identity, differs
+from the synthetic identity, and has the expected successful revision/key.
+Restore the original setting through the same Diff/Confirm/Propagate flow,
+then verify its attributed audit entry too. Never print cookies, actor values,
+config bodies or real data in evidence. Keep `authResponseHeaders` enabled;
+this check complements the anonymous spoof matrix and remains an OPS gate.
+
+T76 live mode requires a clean Git source checkout at the exact active
+flake.lock revision before it invokes that source's smoke. An immutable
+source archive can run upstream smoke directly; use an exact Git checkout
+for T76's additional source-identity gate.

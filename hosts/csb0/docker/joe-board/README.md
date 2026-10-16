@@ -18,3 +18,22 @@ selects that previous generation and exact image; never overwrite the live
 history volume.
 
 See `SECURITY.md` for deployment trust boundaries and producer responsibilities.
+
+## OPS-354 routing preparation
+
+The exact `/joe/healthz` GET/HEAD router has priority 400 and no SSO. The
+legacy db621bf board has no such endpoint: a 404 is expected until the approved
+v2 switch and never counts as a passed v2 smoke. `/joe/healthz/`,
+`/joe/healthz-extra`, UI, assets and all six reads stay behind SSO.
+`joe-identity-strip-csb0` removes client `X-Auth-Request-User`,
+`X-Auth-Request-Email` and `X-Forwarded-User` before forwardAuth; its
+`authResponseHeaders` inject the authenticated user/email. Health and inbox
+also strip identity. No host port is published. The edge never manipulates
+`X-JoeDesk-Origin`. Static gate: `python3 tests/T76-joe-slash-routing.py`
+(`--labels-only` omits full flake evaluation).
+
+After the approved v2 switch, run T76 with `--live --joedesk-source SOURCE`.
+It checks no-cookie GET/HEAD health and calls the exact source's
+`scripts/smoke-release.mjs` for its full metadata/freshness/anonymous/spoof
+matrix. Health redirects mean `auth_required`; protected denials must carry
+no app-origin stamp. Use no production credentials in this check.
