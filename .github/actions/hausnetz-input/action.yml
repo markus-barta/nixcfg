@@ -4,12 +4,21 @@ inputs:
   deploy-key:
     description: Read-only deploy key registered on markus-barta/hausnetz
     required: true
+  persist-ssh-command:
+    description: Export the SSH override to later steps; false scopes access to explicit consumers
+    default: "true"
+outputs:
+  git-ssh-command:
+    description: SSH override for an explicit consuming step
+    value: ${{ steps.ssh.outputs.git-ssh-command }}
 runs:
   using: composite
   steps:
     - shell: bash
+      id: ssh
       env:
         HAUSNETZ_DEPLOY_KEY: ${{ inputs.deploy-key }}
+        PERSIST_SSH_COMMAND: ${{ inputs.persist-ssh-command }}
       run: |
         set -euo pipefail
         if [ -z "$HAUSNETZ_DEPLOY_KEY" ]; then
@@ -22,4 +31,8 @@ runs:
         # Pinned published key; never trust an unauthenticated ssh-keyscan.
         # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
         printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$ssh_dir/known_hosts"
-        printf "GIT_SSH_COMMAND=ssh -F /dev/null -i '%s/key' -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile='%s/known_hosts' -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes\n" "$ssh_dir" "$ssh_dir" >> "$GITHUB_ENV"
+        ssh_command="ssh -F /dev/null -i '$ssh_dir/key' -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile='$ssh_dir/known_hosts' -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+        printf 'git-ssh-command=%s\n' "$ssh_command" >> "$GITHUB_OUTPUT"
+        if [ "$PERSIST_SSH_COMMAND" = true ]; then
+          printf 'GIT_SSH_COMMAND=%s\n' "$ssh_command" >> "$GITHUB_ENV"
+        fi
