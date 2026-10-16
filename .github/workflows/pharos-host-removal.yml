@@ -34,11 +34,6 @@ concurrency:
   group: pharos-host-removal-${{ inputs.host }}
   cancel-in-progress: false
 
-env:
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_TOKEN_FOR_UPDATES }}@github.com/.insteadOf
-  GIT_CONFIG_VALUE_0: ssh://git@github.com/
-
 jobs:
   propose:
     name: Validate and open review-only removal
@@ -73,6 +68,11 @@ jobs:
             "$PHAROS_SUCCESSOR" \
             "$PHAROS_REQUEST_ID" \
             "$PHAROS_CREDENTIAL_RETIREMENT"
+
+      - name: Read private hsb0 input (OPS-207)
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
 
       - name: Evaluate every configured NixOS host
         run: |

@@ -16,11 +16,6 @@ concurrency:
   group: pharos-system-update-proposal
   cancel-in-progress: false
 
-env:
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_TOKEN_FOR_UPDATES }}@github.com/.insteadOf
-  GIT_CONFIG_VALUE_0: ssh://git@github.com/
-
 jobs:
   propose:
     name: Validate and open review-only pull request
@@ -42,6 +37,12 @@ jobs:
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      # The proposal keeps hausnetz pinned but evaluates every NixOS host.
+      - name: Read private hsb0 input (OPS-207)
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
 
       - name: Prepare and validate update proposal
         id: prepare
