@@ -108,13 +108,14 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
     bare = "traefik.http.routers.joe-csb0-slash."
     inbox = "traefik.http.routers.joe-inbox-csb0."
     health = "traefik.http.routers.joe-health-csb0."
+    results = "traefik.http.routers.joe-results-inbox-csb0."
     strip = "joe-identity-strip-csb0@docker"
     host = "Host(`cs0.barta.cm`)"
     routers = {key.split(".")[3] for key in labels if key.startswith("traefik.http.routers.")}
-    require(routers == {"joe-csb0", "joe-csb0-slash", "joe-inbox-csb0", "joe-health-csb0"}, "unexpected JoeDesk router/exemption")
+    require(routers == {"joe-csb0", "joe-csb0-slash", "joe-inbox-csb0", "joe-health-csb0", "joe-results-inbox-csb0"}, "unexpected JoeDesk router/exemption")
     require(labels.get(health + "rule") == host + " && Path(`/joe/healthz`) && (Method(`GET`) || Method(`HEAD`))", "health must use exact Path and single-argument v3 Method matchers")
     require(labels.get(health + "middlewares") == strip, "health must strip identity without SSO")
-    require(int(labels[health + "priority"]) > max(int(labels[router + "priority"]) for router in (bare, main, inbox)), "health must outrank every Joe router")
+    require(int(labels[health + "priority"]) > max(int(labels[router + "priority"]) for router in (bare, main, inbox, results)), "health must outrank every Joe router")
     for header in ("X-Auth-Request-User", "X-Auth-Request-Email", "X-Forwarded-User"):
         require(labels.get("traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders." + header) == "", "incoming identity must be removed")
     require(not any("x-joedesk-origin" in (key + value).lower() for key, value in labels.items()), "edge must not manipulate app origin")
@@ -138,7 +139,7 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
         labels.get(bare + "service") == labels.get(main + "service") == "joe-board-csb0",
         "both routes must retain the same JoeDesk service association",
     )
-    for router in (bare, main, inbox, health):
+    for router in (bare, main, inbox, health, results):
         require(labels.get(router + "entrypoints") == "web-secure", "HTTPS required")
         require(labels.get(router + "tls") == "true", "TLS required")
     require(
@@ -162,6 +163,10 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
     require("traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email" in all_labels, "SSO identity replacement must remain enabled")
     require(not any("x-joedesk-origin" in label.lower() for label in all_labels), "edge must preserve app stamp")
 
+    require(labels.get(results + "rule") == host + " && Path(`/joe/inbox/results`)", "Results ingress must be exact")
+    require(labels.get(results + "middlewares") == strip, "Results ingress must strip identity without SSO")
+    require(labels.get(results + "service") == "joe-board-csb0" and int(labels[results + "priority"]) > int(labels[main + "priority"]), "Results service/priority changed")
+
     # Evaluate the small, explicitly asserted rule vocabulary against requests.
     # Identity headers never select a router; protected requests enter forwardAuth.
     def selected(path: str, method: str) -> str:
@@ -183,7 +188,9 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
         require(selected("/joe/healthz", method) == "joe-health-csb0", "exact health routing failed")
     for method in ("POST", "PUT", "DELETE", "OPTIONS"):
         require(selected("/joe/healthz", method) == "joe-csb0", "health write bypasses SSO")
-    protected = ["", "app.js", "healthz/", "healthz-extra", "data.json", "history.json",
+    for method in ("GET", "HEAD", "POST"):
+        require(selected("/joe/inbox/results", method) == "joe-results-inbox-csb0", "Results exact route failed")
+    protected = ["inbox/results/", "inbox/resultsx", "", "app.js", "healthz/", "healthz-extra", "data.json", "history.json",
                  "results.json", "state.json", "fleet-config.json", "fleet-config/actions.json"]
     for path in protected:
         for method in ("GET", "HEAD"):
@@ -249,11 +256,11 @@ def verify_pinned_build(contract: dict[str, Any]) -> None:
     )
 
 
-def request_without_redirects(opener: Any, url: str, method: str = "GET") -> tuple[int, Any]:
+def request_without_redirects(opener: Any, url: str, method: str = "GET", extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
     request = urllib.request.Request(
         url,
         method=method,
-        headers={"User-Agent": "nixcfg-NIX-463-joe-slash-smoke"},
+        headers={"User-Agent": "nixcfg-OPS-354-joe-routing-smoke", **(extra_headers or {})},
     )
     try:
         with opener.open(request, timeout=10) as response:
@@ -282,6 +289,15 @@ def verify_live() -> None:
         status, headers = request_without_redirects(opener, origin + "/joe/healthz", method)
         require(status not in AUTH_FAILURE_STATUSES, "auth_required")
         require(status == 200 and headers.get("X-JoeDesk-Origin") == "app", "app_origin_not_proven")
+
+    # Separate pending JOED-27 router: trailing/extended paths stay behind SSO.
+    for path in ("/joe/inbox/results/", "/joe/inbox/resultsx"):
+        for spoof in (False, True):
+            identity = {name: "joedesk-smoke-spoof" for name in ("X-Auth-Request-User", "X-Auth-Request-Email", "X-Forwarded-User")} if spoof else {}
+            for method in ("GET", "HEAD", "POST"):
+                status, headers = request_without_redirects(opener, origin + path, method, identity)
+                require(status in AUTH_FAILURE_STATUSES and headers.get("X-JoeDesk-Origin") is None, "results_near_path_exposed")
+                require(status >= 400 or bool(headers.get("Location")), "sso_not_proven")
 
 
 def verify_release_smoke(source: pathlib.Path) -> None:

@@ -66,3 +66,14 @@ confirmations and a private verified backup/image/generation record. Remote
 Docker contexts and fleet rehearsal hosts are refused. Lab fixtures and stub
 authentication are never production authorization evidence. Preserve exact
 images/generations/source GC roots until rollback is no longer required.
+
+### Separate Results ingress proposal — pending JOED-27 merge + LEAD confirmation
+
+OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
+droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
+The proposed exact `/joe/inbox/results` router uses identity stripping and
+app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
+the exact route, priority and strip-only chain, while `/joe/inbox/results/`
+and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
+GET/HEAD/POST probes. This infrastructure proposal does not claim an ingress
+implementation or producer/results sign-off in the pinned candidate.

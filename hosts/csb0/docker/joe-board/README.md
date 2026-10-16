@@ -105,3 +105,14 @@ and rejects foreign/suffix lookalikes. This is the browser privacy stub,
 not a network/auth boundary; it adds no route exemption. Run
 `just test-joedesk SOURCE` before review and the full T76 flake gate on Linux.
 The rehearsal also requires this host gate before it creates lab artifacts.
+
+### Separate Results ingress proposal — pending JOED-27 merge + LEAD confirmation
+
+OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
+droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
+The proposed exact `/joe/inbox/results` router uses identity stripping and
+app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
+the exact route, priority and strip-only chain, while `/joe/inbox/results/`
+and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
+GET/HEAD/POST probes. This infrastructure proposal does not claim an ingress
+implementation or producer/results sign-off in the pinned candidate.
