@@ -141,6 +141,9 @@ in
     extraRestartTriggers = [
       hostdashHsb0
       joeBoardPusherSource
+      # Bind-mounted nginx snippets need container recreation after a switch.
+      ./docker/hsb0-home-hausnetz.conf
+      ./docker/hsb0-home-inflight.conf
     ];
     # ncps must not start on an empty /var/lib/ncps — the old docker-ncps
     # ordering unit was a phantom (QA-2). Wants+After, not Requires: the stack

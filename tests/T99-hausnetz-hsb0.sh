@@ -9,12 +9,15 @@ for source in flake.nix hosts/hsb0/configuration.nix hosts/hsb0/docker/compose-s
 done
 
 # Evaluate the actual host declarations and compose service without fetching
-# inputs or realizing derivations. Only mkBefore needs a value-free stub.
+# inputs or realizing derivations. Stub external artifacts for restart triggers.
 nix-instantiate --eval --strict --json --expr '
   let
     host = import ./hosts/hsb0/configuration.nix {
-      pkgs = {}; config = {}; inputs = {};
+      config = {};
+      pkgs.stdenv.hostPlatform.system = "fixture";
+      inputs.hostdash.packages.fixture.hsb0 = "hostdash-fixture";
       lib.mkBefore = x: x;
+      lib.cleanSourceWith = _: "pusher-fixture";
     };
     compose = import ./hosts/hsb0/docker/compose-spec.nix;
   in {
@@ -23,6 +26,7 @@ nix-instantiate --eval --strict --json --expr '
     firewall = host.networking.firewall;
     ssh = host.programs.ssh;
     proxySource = toString host.environment.etc."hsb0-home-hausnetz.conf".source;
+    restartTriggers = map toString host.nixcfg.composeStack.extraRestartTriggers;
     home = compose.services.hsb0-home;
   }
 ' | python3 -c '
@@ -39,6 +43,8 @@ assert home.get("network_mode", "bridge") == "bridge"
 assert home["extra_hosts"] == ["host.docker.internal:host-gateway"]
 assert "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro" in home["volumes"]
 assert c["proxySource"].endswith("/hosts/hsb0/docker/hsb0-home-hausnetz.conf")
+for snippet in ("hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf"):
+    assert any(t.endswith("/hosts/hsb0/docker/" + snippet) for t in c["restartTriggers"]), snippet
 ssh = c["ssh"]
 assert "Match host github.com localuser root" in ssh["extraConfig"]
 assert "IdentityFile /root/.ssh/hausnetz_deploy" in ssh["extraConfig"]
@@ -91,6 +97,8 @@ fixture = {
         'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_UNIX'],
         'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
+    'nixcfg': {'composeStack': {'extraRestartTriggers': [
+        '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf']}},
 }
 
 def check_fixture(config):
@@ -116,6 +124,8 @@ for path, value, failed_check in (
     (('services', 'hausnetz', 'discovery', 'openFirewallSsdp'), False, 'ssdpEnabled'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz"', 'ssdpArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_UNIX'], 'netlinkAllowed'),
+    (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf'], 'proxyRestartTriggers'),
+    (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
 ):
     changed = copy.deepcopy(fixture)
     node = changed
@@ -127,7 +137,7 @@ for path, value, failed_check in (
 proxy = Path('hosts/hsb0/docker/hsb0-home-hausnetz.conf').read_text()
 redirect = re.search(r'location = /ops\s*\{([^}]+)\}', proxy)[1]
 app = re.search(r'location /ops/\s*\{([^}]+)\}', proxy)[1]
-archive = re.search(r'location /ops/api/import\s*\{([^}]+)\}', proxy)[1]
+archive = re.search(r'location = /ops/api/import\s*\{([^}]+)\}', proxy)[1]
 for location in (redirect, app, archive):
     assert re.search(r'allow 192\.168\.1\.0/24;\s*deny all;', location)
 # A rewrite-phase return bypasses access checks, so redirect after try_files.
@@ -180,13 +190,18 @@ for name in workflows:
     if name == 'pharos-host-settings':
         assert "if: inputs.host == 'hsb0'\n        uses: ./.github/actions/hausnetz-input" in text
 
-# The private key exists only for T38; cleanup is the next step even on failure.
+# Only T38 gets the SSH override; later hsb0 evals reuse its stored locked source.
+# The private key is cleaned up in the next step even when T38 fails.
 steps = re.split(r'^      - ', jobs['pharos-rollout'], flags=re.M)[1:]
 key_index, = [i for i, step in enumerate(steps) if 'uses: ./.github/actions/hausnetz-input' in step]
 assert 'run: tests/T38-pharos-deployment-evidence.sh' in steps[key_index + 1]
+assert 'id: hausnetz-input' in steps[key_index]
+assert 'persist-ssh-command: "false"' in steps[key_index]
+assert 'GIT_SSH_COMMAND: ${{ steps.hausnetz-input.outputs.git-ssh-command }}' in steps[key_index + 1]
+assert all('GIT_SSH_COMMAND' not in step for step in steps[key_index + 2:])
 cleanup = steps[key_index + 2]
 assert 'name: Clean up private hsb0 input access (OPS-355)' in cleanup
-assert 'if: always()' in cleanup
+assert "if: always() && steps.pin.outputs.pin_only != 'true'\n" in cleanup
 cleanup_script = '\n'.join(line[10:] for line in cleanup.split('        run: |\n', 1)[1].splitlines())
 assert any('run: bash tests/T14-pharos-system-update.sh' in step for step in steps)
 
@@ -197,18 +212,22 @@ script = '\n'.join(line[8:] for line in action.split('      run: |\n', 1)[1].spl
 assert 'HAUSNETZ_DEPLOY_KEY: ${{ inputs.deploy-key }}' in action
 assert 'ssh-keyscan ' not in script
 with tempfile.TemporaryDirectory(prefix='ops207-ci-') as tmp:
-    output = Path(tmp, 'github-output')
+    output = Path(tmp, 'github-env')
+    output.write_text('')
+    step_output = Path(tmp, 'github-output')
     fixture_key = 'OPS-207 non-secret deploy-key fixture'
-    child_env = dict(os.environ, RUNNER_TEMP=tmp, GITHUB_ENV=str(output), HAUSNETZ_DEPLOY_KEY=fixture_key)
+    child_env = dict(os.environ, RUNNER_TEMP=tmp, GITHUB_ENV=str(output), GITHUB_OUTPUT=str(step_output),
+                     HAUSNETZ_DEPLOY_KEY=fixture_key, PERSIST_SSH_COMMAND='true')
     result = subprocess.run(['bash', '-c', script], env=child_env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert fixture_key not in result.stdout + result.stderr + output.read_text()
+    assert fixture_key not in result.stdout + result.stderr + output.read_text() + step_output.read_text()
     ssh_dir, = Path(tmp).glob('hausnetz-ssh.*')
     assert stat.S_IMODE(ssh_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE((ssh_dir / 'key').stat().st_mode) == 0o600
     assert (ssh_dir / 'key').read_text() == fixture_key + '\n'
     assert (ssh_dir / 'known_hosts').read_text() == 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n'
     assert all(option in output.read_text() for option in ('-F /dev/null', 'IdentitiesOnly=yes', 'BatchMode=yes', 'UserKnownHostsFile=', 'GlobalKnownHostsFile=/dev/null', 'StrictHostKeyChecking=yes'))
+    assert step_output.read_text().removeprefix('git-ssh-command=') == output.read_text().removeprefix('GIT_SSH_COMMAND=')
     child_env['HAUSNETZ_DEPLOY_KEY'] = ''
     result = subprocess.run(['bash', '-c', script], env=child_env, capture_output=True, text=True)
     assert result.returncode != 0 and 'HAUSNETZ_DEPLOY_KEY is required' in result.stderr
@@ -218,8 +237,22 @@ with tempfile.TemporaryDirectory(prefix='ops207-ci-') as tmp:
         result = subprocess.run(['bash', '-c', cleanup_script], env=child_env, capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         assert not list(Path(tmp).glob('hausnetz-ssh.*'))
-        assert output.read_text().splitlines()[-1] == 'GIT_SSH_COMMAND='
         assert unrelated.read_text() == 'keep'
+
+    # T38-only mode never exports the override to the job environment, so
+    # subsequent steps truly have it unset rather than set to an empty string.
+    output.write_text('')
+    step_output.write_text('')
+    child_env.update(HAUSNETZ_DEPLOY_KEY=fixture_key, PERSIST_SSH_COMMAND='false')
+    result = subprocess.run(['bash', '-c', script], env=child_env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == ''
+    assert step_output.read_text().startswith('git-ssh-command=ssh ')
+    assert fixture_key not in result.stdout + result.stderr + step_output.read_text()
+    result = subprocess.run(['bash', '-c', cleanup_script], env=child_env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert not list(Path(tmp).glob('hausnetz-ssh.*'))
+    assert output.read_text() == ''
 
 # Run the declared warmer against a fake Nix. Fail hsb0 while allowing later
 # hosts to warm, and prove that a dry-run failure cannot look already cached.

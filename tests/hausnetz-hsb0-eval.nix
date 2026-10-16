@@ -70,4 +70,16 @@ in
   proxySource = lib.hasSuffix "/hosts/hsb0/docker/hsb0-home-hausnetz.conf" (
     toString config.environment.etc."hsb0-home-hausnetz.conf".source
   );
+  proxyRestartTriggers =
+    builtins.all
+      (
+        snippet:
+        builtins.any (
+          trigger: lib.hasSuffix ("/hosts/hsb0/docker/" + snippet) (toString trigger)
+        ) config.nixcfg.composeStack.extraRestartTriggers
+      )
+      [
+        "hsb0-home-hausnetz.conf"
+        "hsb0-home-inflight.conf"
+      ];
 }

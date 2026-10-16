@@ -38,8 +38,8 @@ Both `/ops` and `/ops/` allow only IPv4 LAN sources in `192.168.1.0/24`;
 tailnet, IPv6 and same-host/bridge clients receive **403 by design**. The
 slashless redirect runs after the access check. `/ops/` permits bodies up to
 13 MiB for the app's 12 MiB floor-plan uploads. The more specific
-`/ops/api/import` location permits 257 MiB for a 256 MiB archive plus
-multipart overhead, keeps the same LAN access rules and proxy settings, and
+exact `/ops/api/import` location permits 257 MiB for the raw application/zip
+body capped at 256 MiB, keeps the same LAN access rules and proxy settings, and
 forwards to exactly `/api/import`. nginx hides upstream
 Cache-Control and sends a single `no-store` policy.
 
@@ -50,7 +50,8 @@ replies only on that same interface (`ssdpInterfaces` defaults to
 `mdnsInterfaces`), never globally or on Docker bridges. UDP 1900 remains the
 remote SSDP query destination, not an additional inbound opening. The module
 also allows AF_NETLINK for Go interface enumeration. State starts empty in
-`/var/lib/hausnetz`, with no seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
+`/var/lib/private/hausnetz` (DynamicUser, exposed as `/var/lib/hausnetz`), with no
+seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
@@ -88,8 +89,11 @@ and build), then `just switch`. Roll back this bump by reverting its reviewed
 commit(s), restoring the previous pin
 `1f876f1d28d74d5931f4f3628a90de112a43506c`, its lock node and compatible
 configuration/tests (`openFirewallSsdp` is absent in that module). Repeat the
-same root-build-before-switch sequence. Retain `/var/lib/hausnetz` and take a state
-backup before activation; reverting a source pin does not undo imported data.
+same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
+download a state backup from `GET /ops/api/export` on the LAN before activation;
+reverting a source pin does not undo imported data. Both nginx snippets
+(`hsb0-home-hausnetz.conf` and `hsb0-home-inflight.conf`) are compose restart
+triggers, so a normal switch recreates `hsb0-home` when either changes.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
 checkout on **hsb0**, with the root deploy key present (0600). The first root
@@ -123,9 +127,9 @@ Check resolved identities because root's personal SSH config is read first.
 hsb8 has no hausnetz access. Guarded system updates declare hsb0 in
 `inspr.pharosGuardedDeploy.privateInputHosts` and log
 `hsb0 skipped: private input, covered by CI` during the on-host fleet check.
-Every other host is still evaluated. The review plan records skipped hosts in
-`skippedHosts`; `all_host_eval_passed` means every host evaluated on that
-machine passed, not that skipped hosts were evaluated locally. A credentialed
+Every other host is still evaluated. Skips remain in stdout and the detail log;
+the published plan keeps Pharos's accepted keys. `all_host_eval_passed` means
+every host evaluated on that machine passed. A credentialed
 evaluator sets `canEvaluatePrivateInputs`; the deployment target itself is never skipped.
 CI's full fleet evaluation remains mandatory and includes hsb0.
 
@@ -151,7 +155,11 @@ nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
 The source-path contract uses `lib.hasSuffix` so checkout/store roots may
 differ. Before accepting a deployment,
 verify `/ops/` and its event stream from the LAN, that `/ops` answers 301 to
-`/ops/` from the LAN, and that direct LAN connections to port 8377 fail. Roll back the OPS-207 commit and rebuild
+`/ops/` from the LAN, and that direct LAN connections to port 8377 fail. From
+the LAN, POST an `application/zip` body larger than 13 MiB to
+`/ops/api/import?dry_run=1`: it must reach the app (for example, 422 for an
+invalid archive), rather than returning nginx's 413. This checks the live
+import location after container recreation. Roll back the OPS-207 commit and rebuild
 through the normal attended deployment workflow to remove this integration;
 existing state is retained. Preparing this configuration does not deploy it.
 

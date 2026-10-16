@@ -181,9 +181,17 @@ private_hosts = re.findall(r'"([a-z0-9-]+)"', declared)
 assert private_hosts == ['hsb0'], private_hosts
 assert re.search(r'canEvaluatePrivateInputs = lib.mkOption \{.*?default = host == "hsb0";', module, re.S)
 block = "  stage='all_host_evaluation'" + source.split("  stage='all_host_evaluation'", 1)[1].split("  stage='target_build'", 1)[0]
-# Exercise the real plan writer too: skipped hosts must survive into the public
-# review plan, while evaluation failure must stop before a success plan exists.
+# Exercise the real plan writer too: its keys must match the deployed Pharos
+# contract, while evaluation failure must stop before a success plan exists.
 plan_block = "  jq -Rsc " + source.split("  jq -Rsc ", 1)[1].split("  printf 'null", 1)[0]
+# Pharos v260925163010.0.0, crates/pharosd/src/host_actions.rs:682-693:
+# HostActionPlan uses deny_unknown_fields. Keep this accepted set explicit;
+# every new published key needs a deployed Pharos contract change first.
+accepted_plan_keys = {
+    'changed_file_count', 'changed_areas', 'all_host_eval_passed',
+    'target_build_passed', 'backup_ready', 'running_kernel',
+    'expected_kernel', 'restart_required',
+}
 hosts = ['csb0', 'csb1', 'hsb0', 'hsb1', 'hsb8', 'hsb9']
 
 with tempfile.TemporaryDirectory(prefix='ops207-guard-') as tmp:
@@ -223,7 +231,7 @@ fi
             expected = [h for h in hosts if not (h == 'hsb0' and access == 'false' and evaluator != 'hsb0')]
             assert actual == expected, (evaluator, access, actual)
             plan = json.loads((action / 'plan.json').read_text())
-            assert plan['skippedHosts'] == [h for h in hosts if h not in expected]
+            assert set(plan) == accepted_plan_keys, (set(plan), accepted_plan_keys)
             assert plan['all_host_eval_passed'] is True
             assert plan['target_build_passed'] is True
             message = 'hsb0 skipped: private input, covered by CI'
