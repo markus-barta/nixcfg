@@ -50,9 +50,21 @@ bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 The private flake input is pinned to `1f876f1d28d74d5931f4f3628a90de112a43506c`.
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
-markus-barta/hausnetz**, not a Nix-managed secret. A reinstall/recovery must
-restore it through the operator's 1Password procedure before hsb0 can evaluate;
-do not add it to Git, copy it to other hosts or grant `mba` access. The
+markus-barta/hausnetz**, not a Nix-managed secret. On a reinstall/recovery,
+generate a new ed25519 key as root on hsb0 (0600), register only its public
+half as a read-only deploy key on markus-barta/hausnetz, and remove the old
+deploy key there; do not add it to Git, copy it to other hosts or grant `mba`
+access.
+
+**Who fetches the input.** `just switch` runs `nh os switch` as **mba**: the
+flake evaluation (and any `git+ssh` fetch of hausnetz) happens as mba, and nh
+uses sudo only for activation. The root SSH declaration therefore does **not**
+serve `just switch`; it serves root evaluations only (`just nix-build`,
+`just nix-switch`, `sudo nixos-rebuild`). `just switch` works because the
+locked hausnetz source is already in `/nix/store` (Nix reuses a locked input
+by its hash). Consequence: **after every hausnetz revision change (each pin
+bump) or on a fresh store, run `just nix-build` (root) first, then `just
+switch`**; if that fails, use `just nix-switch`. The
 declarative known-host entry uses GitHub's published Ed25519 key. CI uses its
 own read-only deploy key, repository secret `HAUSNETZ_DEPLOY_KEY`, scoped to
 jobs that can evaluate hsb0, with a 0600 runner-temp key file, `IdentitiesOnly`
@@ -61,9 +73,10 @@ PRs; it cannot read hausnetz. Both automated lock-update jobs still exclude
 hausnetz from their input selection.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
-checkout on **hsb0**, with the root deploy key restored (0600). Pre-fetch and
-build with an explicit key and the literal published host key because the SSH
-declaration is not active yet. `sudo env` preserves the command for root:
+checkout on **hsb0**, with the root deploy key present (0600). The first root
+build needs an explicit key and the literal published host key because root's
+SSH declaration only arrives with this switch. Run in `bash` (the operator
+shell is fish); `sudo env` preserves the command for root:
 
 ```bash
 known_hosts=$(mktemp)
@@ -72,9 +85,11 @@ sudo env GIT_SSH_COMMAND="ssh -F /dev/null -i /root/.ssh/hausnetz_deploy -o Iden
   nixos-rebuild build --flake .#hsb0
 ```
 
-Only after that build succeeds, run the normal attended `just switch`. The
-build also verifies the Go/npm fixed-output hashes under nixcfg's followed
-nixpkgs pin. After switch, test the declarative SSH path without that temporary
+Only after that build succeeds, switch (`just switch` now works as mba
+because the source is in the store; OPS's first switch used `sudo nixos-rebuild
+switch` with the same explicit key). The build also verifies the Go/npm
+fixed-output hashes under nixcfg's followed nixpkgs pin. After switch, test the
+declarative root SSH path (used by later root builds) without that temporary
 override:
 
 ```bash
@@ -114,8 +129,8 @@ nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
 
 The source-path contract uses `lib.hasSuffix` so checkout/store roots may
 differ. Before accepting a deployment,
-verify `/ops/` and its event stream from the LAN and confirm that direct
-LAN connections to port 8377 fail. Roll back the OPS-207 commit and rebuild
+verify `/ops/` and its event stream from the LAN, that `/ops` answers 301 to
+`/ops/` from the LAN, and that direct LAN connections to port 8377 fail. Roll back the OPS-207 commit and rebuild
 through the normal attended deployment workflow to remove this integration;
 existing state is retained. Preparing this configuration does not deploy it.
 
