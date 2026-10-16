@@ -630,3 +630,136 @@ comparison. Include the new JSON with `git add -N` for Git-backed flake
 evaluation. This is an evaluation comparison, with no build or switch.
 The worker's static proof covers csb0/hsb0 specs and executor image defaults;
 it does not claim this Linux derivation check passed.
+
+### OPS-354 cutover order and stopped-writer swap
+
+This is preparation, not permission to switch. Current active board remains
+db621bf (legacy `calendar`, 26.09.21.12.00, sequence 23, no matching tag). The
+inactive candidate is 9550f81 / `inspr-calver-3` / 261016151218.0.0. Reuse
+JOED-26's approved adoption scope; it remains pending publication and live gates.
+The JOED-20 worktree and draft producer remain separately owned and disabled.
+
+1. On a workstation, run
+   `just rehearse-joedesk SOURCE --dry-run`, then
+   `just rehearse-joedesk SOURCE` using the exact candidate checkout with the
+   legacy Git object available. The second command builds db621bf and 9550f81
+   images, stages JoeDesk's own v2 fixture, uses the same swap script as
+   production, runs upstream forward smoke through `traefik:v3` and stub
+   forwardAuth, checks signed-in spoof replacement/restoration, then restores
+   v1 and tests the exact old image, private probes and authenticated reads.
+   Only the lab host matcher, entrypoint/TLS and provider/endpoint references
+   adapt to loopback; path/method rules, priorities and middleware order come
+   from evaluated labels. The fixture server uses its original fixed receipt
+   clock, explicitly a lab behavior. It is never freshness evidence for live
+   data. Fleet names csb*, hsb*, agm\* and remote Docker contexts are refused.
+   Private temporary artifacts/images and swap receipts are retained; stdout
+   is a value-free summary. No real token, data, broker or cloud host is used.
+2. Record successful rehearsal, Linux before/after drvPath equality for the
+   release-set-only refactor, independent review, Amy's approved staged
+   producer snapshot and executor reconciliation, and Tick/owner UI decisions.
+   In one reviewed cutover commit, update flake URL/lock and the complete
+   selected release set together; retain the exact v1 board/pusher images,
+   executor runtime/source and NixOS generations on both hosts. Record image
+   IDs as well as tags. Keep GC roots for the prior generations and the v2
+   source containing `scripts/prepare-data.mjs`; that CLI is not copied into
+   the application image. Do not GC or prune these rollback artifacts.
+3. Freeze Fleet Config edits and stop **all** board writers, hsb0 pusher and
+   executor, including other producer jobs. Pause both hosts' compose update
+   timers/services and reconcile units; verify no relevant writer container
+   runs. Use each host's existing rendered Compose file only for `stop` and
+   status checks. Leave the paper Gateway untouched. On csb0, stop `joe-board`
+   with `sudo docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml stop joe-board`.
+   On hsb0, use project `docker`, file `/etc/compose/hsb0/docker-compose.yml`,
+   project directory `hosts/hsb0/docker`, and stop `joe-board-pusher paper-desk-executor`.
+   Pause `compose-csb0-update.timer`, `compose-csb0-update.service`,
+   `compose-csb0.service` and the corresponding `compose-hsb0*` units first.
+4. With retained immutable v2 SOURCE and Node 22+, create a **new private**
+   backup using
+   `node SOURCE/scripts/prepare-data.mjs backup --offline /var/lib/joe-board NEW_BACKUP v1`,
+   then `node SOURCE/scripts/prepare-data.mjs verify --offline NEW_BACKUP`.
+   Record the manifest SHA256, exact old image IDs and retained generations in
+   the private rollback record described below; never commit that record.
+   Stage a **new sibling** directory using
+   `node SOURCE/scripts/prepare-data.mjs migrate-v2 --offline NEW_BACKUP /var/lib/joe-board.staged-v2 APPROVED_INGRESS_SNAPSHOT ACTUAL_UTC_RECEIPT`.
+   The approved snapshot has no receivedAt; the receipt is its actual staging
+   arrival in millisecond UTC form, not cutover time. The next producer seq
+   must be higher, with non-regressing generation/evidence times. Old staging
+   needs a new accepted observation before a fresh-feed smoke can pass.
+5. Run the shared forward swap on csb0 only:
+   `sudo node scripts/joedesk-data-swap.mjs forward --source SOURCE --staged /var/lib/joe-board.staged-v2 --gid 1000 --writers-stopped`.
+   It verifies staged v2 through JoeDesk's backup/verify implementation, checks
+   same-filesystem siblings, rejects links, chowns the staged directory and
+   every file to 1000:1000, sets 0700/0600, and renames the current directory
+   to a unique retained sibling before moving the stage to `/var/lib/joe-board`.
+   It refuses overwrite and restores the retained directory if the second
+   rename fails. A private retained-sibling receipt records recovery paths.
+   Keep the writers stopped on any failure; inspect the receipt and retained
+   siblings privately. The normal compose lock protects just this swap, then
+   releases before the switch. Never wrap `just switch` in that lock.
+6. Through the normal reviewed fast-forward Git path and `just switch`, select
+   the approved release on csb0 and the matching hsb0 pins, then start the
+   approved producer/executor. No compose override, --override-input or hot
+   patch. The activation script's `chown -R 1000:1000 /var/lib/joe-board` acts
+   only on the directory currently at the fixed path and preserves modes; it
+   does not prepare a staged sibling or replace the swap's required chown.
+   The same chown is required when no NixOS activation occurs. Retained sibling
+   directories and backup bytes remain available. Resume timers only after
+   compatible pins and normal reconciliation are verified on both hosts.
+7. Require a fresh accepted producer observation, then run the exact source's
+   `node SOURCE/scripts/smoke-release.mjs https://cs0.barta.cm/joe/ inspr-calver-3 CANONICAL_VERSION`
+   and `python3 tests/T76-joe-slash-routing.py --live --joedesk-source SOURCE`.
+   Both must pass; a 302 means auth_required, a 404 is failure. Keep the exact
+   source/version, image IDs and value-free evidence together privately. The
+   canonical smoke must report all six reads, UI/assets and spoof probes as
+   sso-rejected, exact-path health, expected schema/version and fresh feeds.
+   Results may remain explicitly not wired; Amy still owns results sign-off.
+   Complete the signed-in actor replacement/restoration check above and
+   Tick/owner signed-in UI verification before claiming the cutover complete.
+
+### One-command v1 rollback
+
+Before cutover, retain a root/operator-owned mode-0600 JSON record at
+`/var/lib/joedesk-rollback/record.json` (private directory mode 0700). Required
+keys: `previous_set_sha256` (the exported `setDigest` of release.sets.previous),
+`backup_manifest_sha256` (SHA256 of the exact verified v1 backup manifest),
+`board_image_id`, `pusher_image_id` (full sha256 IDs; executor shares that runtime),
+`csb0_generation`, `hsb0_generation` (retained positive generation numbers),
+`v1_backup`, `prepare_source`, `cookie_jar`, `hsb0_checkout` (absolute private
+paths), and `rollback_nixcfg_rev` (the full reviewed rollback commit).
+`prepare_source` must be the retained immutable `/nix/store/` v2 source,
+including its own preparation CLI. The cookie jar is a private signed-in
+SSO session for legacy version/data checks; the command never prints it.
+The rollback commit cannot be known before review: prepare and review it when
+needed, then update this private record before running the command. A missing
+record, generation, local image or exact commit is a hard stop.
+
+The rollback commit selects `active = previous`, restores the recorded
+board flake URL/lock and the previous pusher/executor **runtime source bytes**,
+while retaining unrelated nixcfg changes. csb0's declarative previous selector
+uses `pull_policy = never` so the normal switch reuses the retained exact
+image; it does not rebuild legacy's floating base into a different image.
+Pusher and executor already use never. Never restore the entire old nixcfg
+revision or silently discard intervening host changes. Review the affected
+source paths from the release set and check their recorded source trees.
+
+On csb0, run `just rollback-joedesk` (or pass the private record path). The
+command refuses every other host and noninteractive use, asks y/N before
+each action, and prints exact cross-host commands instead of using SSH.
+It requires operator confirmation that hsb0 and other writers are stopped,
+pauses local reconciliation/update jobs, stops the board, fast-forwards to
+the reviewed rollback commit, and checks the selected set, lock and runtime
+source bytes. It calls the **same** swap script in rollback mode, which runs
+`node SOURCE/scripts/prepare-data.mjs restore --offline BACKUP NEW_RESTORE v1`
+into a new sibling, applies ownership/modes and performs the stopped-service
+rename/recovery procedure. It then runs normal `just switch` and legacy smoke
+before the hsb0 writers restart. No automatic rollback of a failed operator
+step restarts writers; keep them stopped and investigate.
+
+The legacy smoke binds the running container's exact image ID through the
+local Docker **list** API (no inspect/env dump), verifies private `/healthz`
+and `/readyz`, original release metadata, restored file hashes and
+authenticated public `joe-version.js`, v1 data/history and Fleet Config.
+It rejects anonymous public data access. It never requests v2 `/joe/healthz`
+or counts its 404 as success. The command prints the hsb0 fast-forward,
+source/pin gate, image/generation checks and `just switch`; the operator
+executes and verifies those separately, then confirms before timers resume.

@@ -1661,3 +1661,13 @@ codex-doctor *args:
 [group('ci')]
 mbp2606-builder action='status' *args='':
     ./scripts/mbp2606-builder.sh {{ quote(action) }} {{ args }}
+
+# OPS-354: private rollback record, exact previous pins/data and human switch.
+[group('ops')]
+rollback-joedesk record='/var/lib/joedesk-rollback/record.json':
+    node scripts/rollback-joedesk.mjs --record {{ quote(record) }}
+
+# Workstation only; pass --dry-run to exercise every non-Docker swap operation.
+[group('tests')]
+rehearse-joedesk source *args='':
+    node scripts/rehearse-joedesk.mjs --source {{ quote(source) }} {{ args }}

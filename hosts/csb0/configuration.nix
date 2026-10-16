@@ -73,7 +73,8 @@ assert inputs.joedesk.rev == joeSet.board.rev;
       services.joe-board = {
         build = "${inputs.joedesk}";
         image = joeSet.board.image;
-        pull_policy = "build";
+        # Rollback selects the retained exact image through this declaration.
+        pull_policy = if joeRelease.active == "previous" then "never" else "build";
       };
     };
   };
