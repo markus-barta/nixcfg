@@ -357,7 +357,10 @@ in
       # anon; most connections are per-stream LISTEN connections outside the
       # 16-connection pool). Sized for ~40 backends x ~45 MiB + shared_buffers
       # until AEON-1353 multiplexes the listeners.
-      mem_limit = "2304m";
+      # AEON-1444: release 135 backends grow to ~60 MiB (29 backends at
+      # 1985/2304 MiB on 2026-10-16), and the in-app pool of 16 starved (AEON-995).
+      # 3584m covers max_connections=50 x ~64 MiB + shared_buffers; csb1 has 16 GB.
+      mem_limit = "3584m";
       networks = [
         "aeon"
       ];
