@@ -2,7 +2,7 @@ import { constants, openSync, fstatSync, readFileSync, closeSync } from 'node:fs
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { openProducer, createRunner, readJournal } from './producer.mjs';
-import { httpTransport } from './transport.mjs';
+import { httpTransport, credentialHeaders, failureDiagnostic } from './transport.mjs';
 import { verifyContracts } from './verify-contracts.mjs';
 
 export function readJson(filename) {
@@ -21,7 +21,10 @@ async function main() {
   const health = new URL(options.executorHealth);
   if (health.origin !== 'http://127.0.0.1:8471' || health.pathname !== '/v1/health' || health.search || health.hash || health.username || health.password) throw new Error('executor_loopback_only');
   const producer = openProducer(path.join(options.stateDir, 'results.jsonl'), { keepSymbols: options.keepSymbols });
-  const transport = httpTransport(options.endpoint, { keepSymbols: options.keepSymbols });
+  const transport = httpTransport(options.endpoint, {
+    keepSymbols: options.keepSymbols,
+    headers: credentialHeaders(process.env.CREDENTIALS_DIRECTORY),
+  });
   const runner = createRunner({ producer, transport,
     readSource: () => readJournal(options.capturePath),
     readHousehold: () => readJson(options.householdPath),
@@ -39,7 +42,7 @@ async function main() {
   try {
     while (!stopping) {
       try { await runner.tick(); }
-      catch { console.error(JSON.stringify({ status: 'source_not_authoritative' })); }
+      catch (error) { console.error(JSON.stringify(failureDiagnostic(error))); }
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   } finally { producer.close(); }

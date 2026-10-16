@@ -30,7 +30,7 @@ in
     endpoint = lib.mkOption {
       type = lib.types.str;
       default = "";
-      description = "Exact HTTPS ingress endpoint; path/auth remain a separate JoeDesk gate.";
+      description = "Board origin plus /joe/inbox/results; same machine token as the household inbox.";
     };
     ingressAddress = lib.mkOption {
       type = lib.types.str;
@@ -66,7 +66,7 @@ in
       {
         assertion =
           cfg.ingressHost != ""
-          && lib.hasPrefix "https://${cfg.ingressHost}/" cfg.endpoint
+          && cfg.endpoint == "https://${cfg.ingressHost}/joe/inbox/results"
           && builtins.match "[A-Za-z0-9.-]+" cfg.ingressHost != null;
         message = "joeResultsProducer requires an exact HTTPS endpoint on its pinned hostname";
       }
@@ -100,9 +100,13 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [
         "network-online.target"
+        "time-sync.target"
         "compose-hsb0.service"
       ];
-      wants = [ "network-online.target" ];
+      wants = [
+        "network-online.target"
+        "time-sync.target"
+      ];
       serviceConfig = {
         Type = "simple";
         # Same unprivileged identity as the executor container, with its state
@@ -110,6 +114,9 @@ in
         User = "1000";
         Group = "1000";
         SupplementaryGroups = [ ];
+        # systemd copies the existing raw household token before namespace
+        # restrictions apply. The service cannot read the original secret dirs.
+        LoadCredential = [ "joe-board-push-token:${config.age.secrets.joe-board-push-token.path}" ];
         ExecStart = "${pkgs.util-linux}/bin/flock --exclusive --nonblock /var/lib/joe-results-producer/writer.lock ${pkgs.nodejs}/bin/node ${source}/main.mjs ${settings}";
         Restart = "on-failure";
         RestartSec = 5;

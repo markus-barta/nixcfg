@@ -2,6 +2,7 @@ import { openJournal, readJournal, hash } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
 import { validateContract, SCHEMA_FILES } from './contracts/index.mjs';
 import { checkSchema, validInstant } from './contracts/schema-validator.mjs';
+import { validateResults } from './results-validation.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
 
@@ -74,13 +75,19 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (!observations.has(key)) append({ type: 'observation', key, value });
   }
   function snapshot(at = now()) {
-    if (!validInstant(at) || (generatedAt && at < generatedAt)) throw new Error('clock_regressed');
-    if (!start || !authority?.authoritative || !validInstant(authority.at) || authority.at > at) throw unavailable();
+    const current = now();
+    if (!validInstant(at) || !validInstant(current)) throw new Error('clock_regressed');
+    // Never manufacture a future generation to work around a clock rollback.
+    at = new Date(Math.min(Date.parse(at), Date.parse(current))).toISOString();
+    if (generatedAt && Date.parse(at) < Date.parse(generatedAt)) throw new Error('clock_regressed');
+    if (!start || !authority?.authoritative || !validInstant(authority.at) || Date.parse(authority.at) > Date.parse(at)) throw unavailable();
+    if (seq >= Number.MAX_SAFE_INTEGER) throw new Error('sequence_exhausted');
     const trades = roundTrips([...fills.values()], start, keepSymbols);
-    const { days } = dayCloses([...observations.values()], trades, viennaDate(start));
+    if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
+    const { days, coverage } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at });
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
-    const checked = validateContract('results', candidate, { stage: 'ingress' });
+    const checked = validateResults(candidate, { coverage });
     if (!checked.ok) throw new Error(checked.reason);
     // Reserve durably BEFORE transmission. A failed/ambiguous send burns the
     // sequence; restart cannot replay it or reset it from a compacted ledger.
@@ -102,7 +109,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
 }
 
 export function createRunner({ producer, readSource, readHousehold, readHealth, transport, now = Date.now }) {
-  let next = -Infinity, busy = false;
+  let next = -Infinity, busy = false, failures = 0;
   return {
     async tick() {
       if (busy || now() < next) return false;
@@ -112,7 +119,14 @@ export function createRunner({ producer, readSource, readHousehold, readHealth, 
         if (readHousehold) producer.observe(householdObservation(await readHousehold(), transport.keepSymbols));
         producer.health(await readHealth(), new Date(now()).toISOString());
         await transport.send(producer.snapshot(new Date(now()).toISOString()));
+        failures = 0;
         return true;
+      } catch (error) {
+        // A new snapshot (and durably reserved seq) on each retry. Never replay
+        // rejected bytes; bounded retries also leave room inside the 30 s SLA.
+        failures = Math.min(failures + 1, 6);
+        next = Math.min(next, now() + Math.min(CADENCE_MS, 1000 * 2 ** (failures - 1)));
+        throw error;
       } finally { busy = false; }
     },
   };

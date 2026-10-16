@@ -3,7 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 node "$repo_root/modules/joe-results-producer/verify-contracts.mjs"
-node --test "$repo_root/modules/joe-results-producer/producer.test.mjs"
+node --test "$repo_root/modules/joe-results-producer/"*.test.mjs
 python3 - "$repo_root" <<'PY'
 import json
 import subprocess
@@ -29,13 +29,17 @@ assert "/var/lib/paper-desk-executor" in service["BindReadOnlyPaths"]
 assert service["CapabilityBoundingSet"] == ""
 assert service["SupplementaryGroups"] == []
 assert service["SocketBindDeny"] == ["any"]
+assert service["LoadCredential"] == ["joe-board-push-token:/run/agenix/joe-board-push-token"]
+assert "-/run/agenix" in service["InaccessiblePaths"]
+assert "-/run/secrets" in service["InaccessiblePaths"]
+assert "time-sync.target" in value["services"]["joe-results-producer"]["after"]
 disabled = evaluate("{ enable = false; }")
 assert disabled.returncode == 0, disabled.stderr
 assert json.loads(disabled.stdout) == {"capture": False, "captureKeep": [], "services": {}}
 extended = evaluate('{ keepSymbols = [ "SXR8" "TSLA" "ACME" ]; }')
 assert extended.returncode == 0, extended.stderr
 assert json.loads(extended.stdout)["captureKeep"] == ["SXR8", "TSLA", "ACME"]
-for options in ['{ endpoint = "http://ingress.example.invalid/results"; }', '{ ingressAddress = "any"; }', '{ ingressAddress = "999.0.0.1"; }', '{ keepSymbols = [ "TSLA" ]; }']:
+for options in ['{ endpoint = "http://ingress.example.invalid/joe/inbox/results"; }', '{ endpoint = "https://ingress.example.invalid/joe/inbox"; }', '{ endpoint = "https://ingress.example.invalid/joe/inbox/results?token=bad"; }', '{ ingressAddress = "any"; }', '{ ingressAddress = "999.0.0.1"; }', '{ keepSymbols = [ "TSLA" ]; }']:
     rejected = evaluate(options)
     assert rejected.returncode != 0, options
 host = (repo / "hosts/hsb0/configuration.nix").read_text()
