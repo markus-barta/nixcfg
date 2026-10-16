@@ -45,7 +45,11 @@ EOF
 cat >"$fixture/flake.lock" <<'EOF'
 {
   "nodes": {
-    "root": { "inputs": { "nixpkgs": "nixpkgs" } },
+    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "alias": ["nixpkgs"] } },
+    "hausnetz": {
+      "locked": { "type": "git", "rev": "reviewed-pinned-revision" },
+      "original": { "type": "git", "rev": "reviewed-pinned-revision" }
+    },
     "nixpkgs": {
       "locked": { "type": "github", "rev": "old-revision" },
       "original": { "type": "github", "owner": "NixOS", "repo": "nixpkgs" }
@@ -59,7 +63,11 @@ EOF
 cat >"$fixture_root/updated.lock" <<'EOF'
 {
   "nodes": {
-    "root": { "inputs": { "nixpkgs": "nixpkgs" } },
+    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "alias": ["nixpkgs"] } },
+    "hausnetz": {
+      "locked": { "type": "git", "rev": "reviewed-pinned-revision" },
+      "original": { "type": "git", "rev": "reviewed-pinned-revision" }
+    },
     "nixpkgs": {
       "locked": {
         "type": "github",
@@ -79,6 +87,8 @@ cat >"$fake_bin/nix" <<'EOF'
 set -euo pipefail
 
 if [[ "${1-}" == flake && "${2-}" == update ]]; then
+  # OPS-207: update real selected inputs; never all inputs or the pinned app.
+  [[ "$#" == 3 && "$3" == nixpkgs ]] || exit 1
   cp "$FAKE_UPDATED_LOCK" flake.lock
   echo 'update diagnostic private-digest' >&2
   exit 0

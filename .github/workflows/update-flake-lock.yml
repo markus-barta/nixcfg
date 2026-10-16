@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 3 * * 0" # Runs every Sunday at 3am UTC
 
+env:
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.GH_TOKEN_FOR_UPDATES }}@github.com/.insteadOf
+  GIT_CONFIG_VALUE_0: ssh://git@github.com/
+
 jobs:
   update-and-merge:
     name: Update and Auto-Merge
@@ -16,10 +21,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@33c9ab3ef95cd57c164d9d6eb1f9a46338538d41 # main @ 2026-07-23
+      - name: Select automatically updated inputs (OPS-207)
+        id: inputs
+        run: |
+          inputs=$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)
+          test -n "$inputs"
+          echo "inputs=$inputs" >> "$GITHUB_OUTPUT"
       - name: Update flake.lock
         id: update
         uses: DeterminateSystems/update-flake-lock@ec13d37c32ca75bc750ecc133e944e5a18164688 # main @ 2026-07-23
         with:
+          inputs: ${{ steps.inputs.outputs.inputs }}
           # https://github.com/DeterminateSystems/update-flake-lock?tab=readme-ov-file#with-a-personal-authentication-token
           # Token needed so it can trigger the check workflow
           # Also see https://github.com/orgs/community/discussions/65321

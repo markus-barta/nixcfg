@@ -9,6 +9,7 @@ let
     inherit pkgs lib;
     config = evaluated.config;
     inputs.inspr-modules.nixosModules.ssh-authorized = { };
+    inputs.hausnetz.nixosModules.default = { };
   };
   renewalImports = builtins.filter (
     module: module == ../hosts/hsb0/lg-devmode-renew.nix

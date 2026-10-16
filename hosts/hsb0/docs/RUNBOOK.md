@@ -28,6 +28,31 @@ reconciled by NixOS. Restart it without touching the rest of the compose stack:
 sudo systemctl restart hsb0-home-dashboard
 ```
 
+### hausnetz (OPS-207)
+
+After activation, hausnetz is served at `http://192.168.1.99/ops/` through
+`hsb0-home`. Its `/ops` redirect keeps relative UI, API and SSE requests under
+`/ops/`; nginx strips that prefix and disables buffering for the event stream.
+The container resolves `host.docker.internal` through Docker's `host-gateway`.
+
+The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
+only on `br-+` and `docker0`, never the LAN interface. mDNS discovery opens
+UDP 5353 only on `enp2s0f0`. State starts empty in `/var/lib/hausnetz`, with
+no seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
+
+The private flake input is pinned to `1f876f1d28d74d5931f4f3628a90de112a43506c`.
+Root's SSH client selects the existing `/root/.ssh/hausnetz_deploy` for
+`github.com`; the declarative known-host entry uses GitHub's published Ed25519
+key. CI uses the existing `GH_TOKEN_FOR_UPDATES` through a Git URL rewrite;
+both automated lock-update jobs exclude hausnetz from their input selection.
+
+Local contract: `bash tests/T99-hausnetz-hsb0.sh`. Full hsb0 evaluation in CI
+also applies `tests/hausnetz-hsb0-eval.nix`. Before accepting a deployment,
+verify `/ops/` and its event stream from the LAN and confirm that direct
+LAN connections to port 8377 fail. Roll back the OPS-207 commit and rebuild
+through the normal attended deployment workflow to remove this integration;
+existing state is retained. Preparing this configuration does not deploy it.
+
 ### In-flight page (OPS-353)
 
 **URL**: http://100.64.0.6/inflight/ (tailnet) or http://hsb0.lan/inflight/ (home). Never public: hsb0 has no port forward.
