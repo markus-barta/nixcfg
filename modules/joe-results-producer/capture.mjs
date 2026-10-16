@@ -40,6 +40,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       };
       const ownership = attribute(row, config);
       if (e.acctNumber !== account || !DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external') { exclude(); continue; }
+      if (keepSymbols.includes(c.symbol)) { exclude(); continue; }
       const epoch = executionTime(e.time);
       if (!Number.isFinite(epoch)) throw unavailable();
       // Legacy scope and retired client ownership are not Stage-0 results.
@@ -56,8 +57,8 @@ export function createCapture(filename, config, { account, attribute, executionT
       const fill = {
         key, ordinal: ordinals.get(key), desk: ownership.desk, scope: 'stage0', instrument: hash([c.conId, c.symbol, c.currency]),
         symbol: c.symbol, currency: c.currency, side: { BOT: 'BUY', BUY: 'BUY', SLD: 'SELL', SELL: 'SELL' }[e.side],
-        at: new Date(epoch).toISOString(), quantity: String(e.shares), price: String(e.price),
-        commission: commission ? { amount: String(commission.commission), currency: commission.currency } : null,
+        at: new Date(epoch).toISOString(), quantity: e.shares, price: e.price,
+        commission: commission ? { amount: commission.commission, currency: commission.currency } : null,
         closeFx: fx,
       };
       decimalUnits(fill.quantity); decimalUnits(fill.price);
@@ -95,10 +96,10 @@ export function reconciliationEvidence(state, config, keepSymbols, { account, at
     const previous = owned.get(key) || { quantity: 0n, fills: [] };
     const sign = { BOT: 1n, BUY: 1n, SLD: -1n, SELL: -1n }[e.side];
     if (!sign) continue;
-    previous.quantity += decimalUnits(String(e.shares)) * sign;
+    previous.quantity += decimalUnits(e.shares) * sign;
     previous.fills.push(hash(String(e.execId)));
     owned.set(key, previous);
   }
-  const broker = new Map((state.ownershipSnapshot.positions || []).map(row => [String(row.conId), decimalUnits(String(row.position ?? row.pos))]));
+  const broker = new Map((state.ownershipSnapshot.positions || []).map(row => [String(row.conId), decimalUnits(row.position ?? row.pos)]));
   return [...owned].filter(([key, row]) => !foreign.has(key) && row.quantity !== (broker.get(key) || 0n)).map(([key, row]) => ({ kind: 'fill_position_mismatch', instrument: hash(key), fills: row.fills }));
 }

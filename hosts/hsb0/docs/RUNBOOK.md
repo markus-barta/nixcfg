@@ -696,18 +696,23 @@ When separately enabled, the executor's optional capture writes
 recon compaction and ordinary saves. Each hash-chained, fsynced line is a whole
 capture cut, containing only owned Stage-0 fills, commissions, close FX and
 reconciliation evidence with hashed identifiers. Legacy, unowned and external
-activity does not enter FIFO. The producer opens that input read-only and keeps
+activity and policy KEEP symbols do not enter FIFO. The producer opens that
+input read-only and keeps
 its own append-only `/var/lib/joe-results-producer/results.jsonl`; retain and
 back up **both** files. Never reconstruct them from the bounded executor ledger,
 rotate them as ordinary logs, truncate a damaged tail, or reset sequence state
 to satisfy the board. A damaged journal holds output for operator recovery.
 
 FIFO uses independent `j`, `joe`, `joel` books and emits each closed portion.
-Recorded opening and closing commissions are allocated across portions and
-converted using that close's FX; fees round once to contract precision. Gross
-uses the exact quantity × price move × close rate product. A gross that cannot
-be represented in the contract's eight fractional digits is held back instead
-of rounded. Missing fees/close FX also hold the entire snapshot. USD close FX
+Recorded opening and closing commissions remain rational through allocation
+and conversion using that close's FX, then their sum must be exactly
+representable at contract precision. Gross uses the exact quantity × price move
+× close rate product. A gross or fee that cannot be represented in the
+contract's eight fractional digits holds the whole snapshot; nothing rounds.
+Source quantities, prices, commissions and broker-position evidence must be
+decimal strings; numeric financial inputs are refused rather than stringifying
+an already rounded binary value. Missing fees/close FX also hold the entire
+snapshot. USD close FX
 must have been observed within 60 seconds of the execution; old fills never
 receive today's rate. EUR uses identity FX. Existing open lots can seed the
 book, but round trips closing before capture began are omitted. `trackingStart`
@@ -716,16 +721,21 @@ date**, never as a complete lifetime result.
 
 Daily equity comes only from fresh per-desk `moneyEvidence` and `historyBasis`
 in validated household v2 input. The last observation on each Vienna date wins;
-sessionless desks/dates are omitted. Day realised net, fees and trade counts
-refer to the closed portions through that desk's observation cut, with both
-legs' fees charged to the closed portion. Basis IDs and original observation
-times remain in the accumulated journal. **Pinned Results at JoeDesk
+dates without observations are omitted. Day realised net, fees and trade counts
+sum every included closed portion on that Vienna date across **all** desks,
+including trades later than an equity observation. A traded desk without an
+equity observation has `equityClose: null`, never invented equity. A local
+validator rejects missing traded desks, wrong counts and inexact net/fee sums
+on full-coverage days. Both legs' fees are charged to the closed portion.
+Basis IDs and original observation times remain in the accumulated journal.
+**Pinned Results at JoeDesk
 `9550f81b448110bfa8fb3ea8df0956430012d5e1` forbids a basis field in `days[]`.**
 The board cannot compare those bases over Results until JoeDesk approves a
 contract-set revision; do not add an unversioned extension locally.
 
-Any configured KEEP symbol in an owned Results record holds the whole record
-as `source_not_authoritative`. The protected SXR8/TSLA floor cannot be removed.
+KEEP fills are excluded at capture and again at FIFO, including pre-existing
+captured fills. They contribute nothing to trades, day counts, realised net or
+fees. The protected SXR8/TSLA floor cannot be removed.
 Results never contains account/order IDs, receipts or broker account equity.
 The pre-masked hint `DU…0597` is recorded only in the local household handoff;
 raw health account values are discarded before any producer write.
@@ -739,12 +749,42 @@ Foreign/netted residuals and incomplete broker cuts do not prove disagreement;
 gateway reachability changes alone never do. The optional executor listener on
 `127.0.0.1:8471` serves only `GET /v1/health`; no intent/admin/halt route is exposed.
 
-The Results runner attempts a fresh, strictly increasing producer sequence
-every 25 seconds, reserving it durably before sending. Failed sends burn the
-sequence. It never sends `receivedAt` or `X-Joe-Received-At`; ingress must stamp
-receipt time and use `acceptSnapshot('results')`. HTTP redirects are refused.
-The transport supports injected authentication headers, but the production
-entry point intentionally has no credential wiring until path/auth are agreed.
+The Results runner posts one `results.v2` snapshot to the configurable board
+origin at **`POST /joe/inbox/results`**, with `Content-Type: application/json`
+and the contracts package's 8 MiB limit. Authentication uses the **same** raw
+machine token as the household pusher: systemd `LoadCredential` copies
+`config.age.secrets.joe-board-push-token.path` into a private credential
+directory. The runtime reads only that copy and sends `Authorization: Bearer …`.
+There is no new secret or token value in Nix, Git or logs.
+
+It attempts a fresh, strictly increasing producer sequence every 25 seconds,
+reserving it durably before sending. Failed or ambiguous sends burn the
+sequence, including across restart. Generated time comes from the system clock;
+an explicitly requested future instant is clamped to now. A clock rollback
+holds output until time catches up, without stamping ahead. The unit orders
+after `time-sync.target`; verify hsb0 NTP is synchronized before enablement.
+Board receipt rejects generation more than 5 seconds ahead with `clock_ahead`.
+Retries use 1/2/4/8/16/25-second bounded backoff, capped by the original 25-second
+cycle deadline so request time does not extend the cadence. Every retry builds
+a new snapshot and sequence. It never sends `receivedAt` or `X-Joe-Received-At`;
+ingress stamps receipt time and uses `acceptSnapshot('results')`. HTTP redirects
+are refused. A 200 updates the last-good snapshot; 422 retains it and logs only
+an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
+and network failures also back off with value-free diagnostics. The board is
+stale after 60 seconds without an accepted push; retries do not fake freshness.
+
+JOED-27 remains a release gate: the read-only source and vendored closure are
+still `9550f81b448110bfa8fb3ea8df0956430012d5e1` (manifest revision 2). Coverage
+is computed from the capture/window interval in Vienna civil dates, including
+23/25-hour DST days. A window beginning mid-day or ending before a day's end
+is partial. Until the approved schema arrives, `PARTIAL_COVERAGE_FIELD = null`
+in `results-validation.mjs` suppresses the unsupported wire marker; existing
+wire day totals still equal all included trades. **Do not enable this module
+with an unmarked partial window.** On receipt of LEAD's merged SHA and digest,
+vendor `contracts/` alone from manifest revision 3, verify its complete digest
+closure, update the lock/checker pin, set the single constant to the approved
+coverage field, and rerun the fixture/partial-day tests against the new schema.
+Do not manufacture a schema extension or a merged source pin locally.
 The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
 one writable state directory, empty capabilities, no added groups/Docker socket, and
 IP egress limited to loopback and the pinned ingress address. The private hosts
@@ -759,10 +799,11 @@ Paper proof, for the operator **after** separate enablement approval:
    simulations in this lab; hsb0 remains a production paper host.
 2. Before the approved hsb0 switch, retain its previous generation and compatible
    board/pusher/executor pins plus private backups of both Results journals (if
-   present). Record the rollback path on JOED-20/OPS. Configure the ingress
-   path/auth, household v2 evidence path, complete KEEP policy and IP/TLS pin in
-   the reviewed Nix change. Resolve the basis wire gap and household fragment
-   consumption with JoeDesk/Amy first. Follow the normal remote NixOS build and
+   present). Record the rollback path on JOED-20/OPS. Configure the board
+   endpoint, household v2 evidence path, complete KEEP policy and IP/TLS pin in
+   the reviewed Nix change. Resolve the JOED-27 coverage pin, basis wire gap,
+   exact decimal source evidence and household fragment consumption with
+   JoeDesk/Amy first. Follow the normal remote NixOS build and
    human-controlled switch procedure; no local NixOS build on macOS.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
    Read `http://127.0.0.1:8471/v1/health` privately and verify paper Gateway

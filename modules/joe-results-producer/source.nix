@@ -8,6 +8,7 @@ pkgs.runCommand "joe-results-producer-source" { } ''
   cp ${./journal.mjs} "$out/journal.mjs"
   cp ${./producer.mjs} "$out/producer.mjs"
   cp ${./transport.mjs} "$out/transport.mjs"
+  cp ${./results-validation.mjs} "$out/results-validation.mjs"
   cp ${./verify-contracts.mjs} "$out/verify-contracts.mjs"
   cp ${./contracts.lock.json} "$out/contracts.lock.json"
   cp -r ${./contracts} "$out/contracts"

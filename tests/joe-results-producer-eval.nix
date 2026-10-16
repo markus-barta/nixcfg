@@ -1,7 +1,7 @@
 # JOED-20: evaluate enabled/disabled service wiring with inert packages only.
 {
   enable ? true,
-  endpoint ? "https://ingress.example.invalid/results",
+  endpoint ? "https://ingress.example.invalid/joe/inbox/results",
   ingressAddress ? "192.0.2.10",
   keepSymbols ? [
     "SXR8"
@@ -30,6 +30,10 @@ let
           systemd.services = lib.mkOption {
             type = lib.types.attrs;
             default = { };
+          };
+          age.secrets = lib.mkOption {
+            type = lib.types.attrs;
+            default.joe-board-push-token.path = "/run/agenix/joe-board-push-token";
           };
           nixcfg.paperDeskExecutor = {
             enable = lib.mkOption {
