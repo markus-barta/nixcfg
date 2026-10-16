@@ -1,16 +1,23 @@
 // Small local-engine helpers. Never inspect/dump container configuration or env.
 import { execFileSync } from "node:child_process";
 import http from "node:http";
-export function docker(args, options = {}) {
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+export function docker(args, options = {}, execute = execFileSync) {
   try {
-    return execFileSync("docker", args, {
+    return execute("docker", args, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
       maxBuffer: 16 * 1024 * 1024,
       ...options,
     }).trim();
-  } catch {
-    throw new Error("local_docker_command_failed");
+  } catch (error) {
+    const command = /^[a-z]+$/.test(args[0]) ? args[0] : "unknown";
+    const status = Number.isInteger(error.status)
+      ? error.status
+      : "unavailable";
+    throw new Error(`local_docker_command_failed_${command}_exit_${status}`);
   }
 }
 export function resolveLocalDockerSocket({ context, host, inspect }) {
@@ -28,6 +35,41 @@ export function localDockerSocket() {
     inspect: () =>
       docker(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]),
   });
+}
+export function requireLabDocker(
+  root,
+  command = docker,
+  socket = localDockerSocket,
+) {
+  socket();
+  // A local Unix socket may itself forward to a production engine.
+  const engine = command(["info", "--format", "{{.Name}}"]);
+  if (!engine || /^(csb|hsb|agm)/i.test(engine))
+    throw new Error("fleet_docker_is_not_a_lab");
+  const marker = randomUUID();
+  fs.writeFileSync(path.join(root, "docker-visibility-marker"), marker, {
+    flag: "wx",
+    mode: 0o644,
+  });
+  try {
+    const result = command([
+      "run",
+      "--rm",
+      "--network",
+      "none",
+      "-v",
+      root + ":/lab:ro",
+      "--entrypoint",
+      "node",
+      "node:22-alpine",
+      "--input-type=module",
+      "-e",
+      "import fs from 'node:fs'; process.stdout.write(fs.readFileSync('/lab/docker-visibility-marker','utf8'));",
+    ]);
+    if (result !== marker) throw new Error("marker_mismatch");
+  } catch {
+    throw new Error("lab_root_not_visible_to_docker");
+  }
 }
 export async function runningImage(container) {
   // The LIST endpoint has ImageID and no resolved environment. Do not use the

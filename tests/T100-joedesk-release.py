@@ -6,6 +6,9 @@ import pathlib
 import re
 import subprocess
 import tempfile
+import copy
+import importlib.util
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
@@ -91,12 +94,97 @@ def evaluation_proof():
     print('release_refactor=byte-identical-static-specs executor_default=unchanged linux_drvPath=pending')
 
 
+def selector_regressions():
+    # Evaluate the actual csb0 declaration with isolated release JSON fixtures.
+    # No flake mutation, daemon access or NixOS build is needed.
+    module_path = ROOT / 'tests/T76-joe-slash-routing.py'
+    spec = importlib.util.spec_from_file_location('joe_routing', module_path)
+    routing = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(routing)
+    release = check()
+    update = 'update = a: b: a // builtins.mapAttrs (n: v: if builtins.hasAttr n a && builtins.isAttrs a.${n} && builtins.isAttrs v then update a.${n} v else v) b;'
+    for selected in ('current', 'previous', 'v2'):
+        fixture = copy.deepcopy(release)
+        fixture['active'] = selected
+        active = fixture['sets'][selected]
+        if selected == 'v2':
+            # Synthetic downstream pins exercise evaluation; never producer sign-off.
+            active['board']['image'] = 'csb0-joe-board:source-' + active['board']['rev']
+            for name in ('pusher', 'executor'):
+                active[name] = copy.deepcopy(fixture['sets']['current'][name])
+        with tempfile.TemporaryDirectory(prefix='ops354-selector-') as folder:
+            folder = pathlib.Path(folder)
+            release_path = folder / 'release.json'
+            release_path.write_text(json.dumps(fixture))
+            config = (ROOT / 'hosts/csb0/configuration.nix').read_text()
+            config = config.replace('./joedesk-release.json', str(release_path))
+            config = config.replace('import ./docker/compose-spec.nix', 'import ' + str(ROOT / 'hosts/csb0/docker/compose-spec.nix'))
+            module = folder / 'configuration.nix'
+            module.write_text(config)
+            args = '''{ lib.recursiveUpdate = update; pkgs = {}; config = {}; inputs.joedesk = { outPath = "/nix/store/joedesk-selector-fixture"; rev = "''' + active['board']['rev'] + '''"; }; }'''
+            expr = 'let ' + update + ' in (import ' + str(module) + ' ' + args + ').nixcfg.composeStack.spec.services.joe-board'
+            service = json.loads(subprocess.check_output(['nix', 'eval', '--impure', '--json', '--expr', expr], cwd=ROOT))
+            contract = {'service': service, 'excludeFromPull': ['joe-board']}
+            # Only the Dockerfile I/O is stubbed: image, policy and immutable-path
+            # assertions run unchanged against the real evaluated host declaration.
+            with patch.object(pathlib.Path, 'is_file', return_value=True):
+                routing.verify_pinned_build(contract, fixture, active['board']['rev'])
+                broken = copy.deepcopy(contract)
+                broken['service']['pull_policy'] = 'build' if selected == 'previous' else 'never'
+                try:
+                    routing.verify_pinned_build(broken, fixture, active['board']['rev'])
+                except routing.ContractError:
+                    pass
+                else:
+                    raise AssertionError('incorrect release policy passed')
+                broken = copy.deepcopy(contract)
+                broken['service']['image'] = 'wrong-image'
+                try:
+                    routing.verify_pinned_build(broken, fixture, active['board']['rev'])
+                except routing.ContractError:
+                    pass
+                else:
+                    raise AssertionError('incorrect release image passed')
+    probes = []
+    def fake_request(opener, url, method='GET', extra_headers=None):
+        probes.append((url, method, extra_headers or {}))
+        if '/joe?' in url or url.endswith('/joe'):
+            return 301, {'Location': url.replace('/joe', '/joe/', 1)}
+        return 302, {'Location': '/oauth2/start'}
+    with patch.object(routing, 'request_without_redirects', side_effect=fake_request):
+        routing.verify_live('v1')
+    for route in ('/joe/', '/joe/data.json', '/joe/history.json', '/joe/joe.css'):
+        require(any(url.endswith(route) and not headers for url, _, headers in probes), 'missing v1 anonymous live probe')
+        require(any(url.endswith(route) and 'X_Auth_Request_User' in headers and 'X.Auth.Request.User' in headers and 'X-Forwarded_User' in headers for url, _, headers in probes), 'missing alias live negative probe')
+    require(not any('/healthz' in url for url, _, _ in probes), 'v1 must not require public v2 health')
+    for schema in ('v1', 'v2'):
+        fixture = copy.deepcopy(release)
+        fixture['sets'][fixture['active']]['board']['data_schema'] = schema
+        argv = ['T76', '--labels-only', '--live'] + (['--joedesk-source', '/fixture'] if schema == 'v2' else [])
+        with patch.object(routing, 'RELEASE_SET') as path_mock, \
+             patch.object(routing.sys, 'argv', argv), \
+             patch.object(routing, 'load_joe_labels', return_value={}), \
+             patch.object(routing, 'verify_rendered_contract'), \
+             patch.object(routing, 'verify_live') as live, \
+             patch.object(routing, 'verify_release_smoke') as delegate, \
+             patch('builtins.print'):
+            path_mock.read_text.return_value = json.dumps(fixture)
+            routing.main()
+            live.assert_called_once_with(schema)
+            require(delegate.call_count == (1 if schema == 'v2' else 0), 'live delegate must follow active schema')
+    workflow = (ROOT / '.github/workflows/check.yml').read_text()
+    for name in ('T100-joedesk-release.py', 'T101-joedesk-operations.mjs', 'T102-joedesk-host-gate.mjs'):
+        require(name in workflow, 'JoeDesk regression test missing from CI: ' + name)
+    print('release_selector_fixtures=current,previous,v2 live_mode_fixtures=v1,v2 alias_negatives=ok')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--joedesk-source', type=pathlib.Path)
     parser.add_argument('--prove-current', action='store_true', help='pre-cutover byte equality against baseline HEAD')
     args = parser.parse_args()
     check(args.joedesk_source)
+    selector_regressions()
     if args.prove_current:
         evaluation_proof()
     print('joedesk_release_set=ok')

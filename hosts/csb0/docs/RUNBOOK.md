@@ -595,6 +595,8 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 
 ### OPS-354 routing gates (preparation only)
 
+Keep the OPS-354 PR **DRAFT and unmerged until Markus's cut-over go**: merging lets a later csb0 switch apply items 1 and 5.
+
 Run `python3 tests/T76-joe-slash-routing.py` before review. On the approved
 v2 source after the switch, run
 `python3 tests/T76-joe-slash-routing.py --live --joedesk-source SOURCE`.
@@ -602,6 +604,25 @@ This delegates the canonical version, health allowlist, feed freshness and
 anonymous/spoof matrix to JoeDesk's own smoke and additionally checks HEAD.
 A health redirect is `auth_required`; db621bf's missing `/joe/healthz` cannot
 pass. Near-health paths, UI/assets and six reads require unstamped SSO denials.
+With an active v1 set, `python3 tests/T76-joe-slash-routing.py --live` instead
+checks anonymous and spoofed `/joe/`, data/history and CSS reads behind SSO;
+it requires neither a v2 checkout nor v2 public health. The active release set
+also determines the full-mode image and pull policy (`never` for previous).
+
+Item 1 deletes aliasing headers at `web-secure` before routing and strips user,
+email, preferred username and groups identity headers before forwardAuth.
+Static, live and workstation tests include underscore, dot and mixed aliases.
+The pinned v2 server reads only the literal lowercased `x-auth-request-user`;
+Node does not turn punctuation aliases into that key. oauth2-proxy v7.15.3
+loads identity from its session; its header stripper also normalizes underscores
+when removing managed headers, rather than using them as authentication.
+See the [pinned header middleware](https://github.com/oauth2-proxy/oauth2-proxy/blob/v7.15.3/pkg/middleware/headers.go)
+and [session loading](https://github.com/oauth2-proxy/oauth2-proxy/blob/v7.15.3/oauthproxy.go).
+Traefik's [`aliasHeadersStrategy: delete`](https://doc.traefik.io/traefik/migrate/v3/#v3712)
+requires v3.7.12 or newer; v3.6.20's underscore-only predecessor does not cover
+dots. csb0 declares the floating `traefik` image, so its running version/support
+is **unverified by this no-SSH preparation**. OPS must record the exact deployed
+version and verify option support before switching; this ticket changes no pin.
 
 Post-deploy item 6 requires a separate signed-in paper-only Fleet Config edit:
 send synthetic `X-Auth-Request-User` and `X-Forwarded-User` through the trusted
@@ -612,11 +633,17 @@ Restore the original setting through the same Diff/Confirm/Propagate flow,
 then verify its attributed audit entry too. Never print cookies, actor values,
 config bodies or real data in evidence. Keep `authResponseHeaders` enabled;
 this check complements the anonymous spoof matrix and remains an OPS gate.
+Include `X_Auth_Request_User`, `X.Auth.Request.User`, `X-Forwarded_User` and
+the preferred-username/groups/email variants in that signed-in request too.
 
-T76 live mode requires a clean Git source checkout at the exact active
+T76 v2 live mode requires a clean Git source checkout at the exact active
 flake.lock revision before it invokes that source's smoke. An immutable
 source archive can run upstream smoke directly; use an exact Git checkout
 for T76's additional source-identity gate.
+CI wires T100, T101 and T102 beside T76. T101/T102 attempt immutable archives
+through the same Nix GitHub fetch transport as full T76. If the private source
+cannot be fetched, CI emits an explicit warning and source-dependent skips;
+the remaining T101 guards still run. A skip is never producer/host-gate evidence.
 
 ### Linux evaluation evidence for the release-set-only item
 
@@ -652,6 +679,13 @@ The JOED-20 worktree and draft producer remain separately owned and disabled.
    from evaluated labels. The fixture server uses its original fixed receipt
    clock, explicitly a lab behavior. It is never freshness evidence for live
    data. Fleet names csb*, hsb*, agm\* and remote Docker contexts are refused.
+   The engine name from `docker info` must also be outside those fleet prefixes.
+   The default private lab parent is `~/.cache/joedesk-rehearsal/`, inside
+   Colima's HOME mount; `--lab-root PATH` chooses another parent. Before using
+   any lab data, a disposable container must read its marker or the rehearsal
+   fails with `lab_root_not_visible_to_docker`. The edge publishes loopback on
+   bridge, then joins the internal-only board/auth network; JSON config is
+   mounted as `/dynamic.yml`. Docker failures report only subcommand/exit code.
    Private temporary artifacts/images and swap receipts are retained; stdout
    is a value-free summary. No real token, data, broker or cloud host is used.
 2. Record successful rehearsal, Linux before/after drvPath equality for the
@@ -688,7 +722,7 @@ The JOED-20 worktree and draft producer remain separately owned and disabled.
 5. Run the shared forward swap on csb0 only:
    `sudo node scripts/joedesk-data-swap.mjs forward --source SOURCE --staged /var/lib/joe-board.staged-v2 --gid 1000 --writers-stopped`.
    It verifies staged v2 through JoeDesk's backup/verify implementation, checks
-   same-filesystem siblings, rejects links, chowns the staged directory and
+   same-filesystem siblings, rejects links, uses no-follow descriptors to chown the staged directory and
    every file to 1000:1000, sets 0700/0600, and renames the current directory
    to a unique retained sibling before moving the stage to `/var/lib/joe-board`.
    It refuses overwrite and restores the retained directory if the second
@@ -696,6 +730,9 @@ The JOED-20 worktree and draft producer remain separately owned and disabled.
    Keep the writers stopped on any failure; inspect the receipt and retained
    siblings privately. The normal compose lock protects just this swap, then
    releases before the switch. Never wrap `just switch` in that lock.
+   The lock is acquired internally; no operator `--lock-held` bypass exists.
+   Any existing board container must be exited, including paused/restarting
+   containers in the refusal check; absent containers are also safe to swap.
 6. Through the normal reviewed fast-forward Git path and `just switch`, select
    the approved release on csb0 and the matching hsb0 pins, then start the
    approved producer/executor. No compose override, --override-input or hot
@@ -745,10 +782,16 @@ source paths from the release set and check their recorded source trees.
 On csb0, run `just rollback-joedesk` (or pass the private record path). The
 command refuses every other host and noninteractive use, asks y/N before
 each action, and prints exact cross-host commands instead of using SSH.
-It requires operator confirmation that hsb0 and other writers are stopped,
-pauses local reconciliation/update jobs, stops the board, fast-forwards to
-the reviewed rollback commit, and checks the selected set, lock and runtime
-source bytes. It calls the **same** swap script in rollback mode, which runs
+Before any stop, it fetches main and verifies that the exact recorded commit
+is a fast-forward from HEAD and an ancestor of fetched main, selects previous,
+and contains the required lock and runtime sources. The printed hsb0 commands
+do the same preflight before stopping writers. After operator confirmation of
+stopped remote writers, it pauses local reconciliation/update jobs, stops the
+board, and uses `git merge --ff-only <recorded-rev>` rather than pulling a
+possibly newer main. It rechecks HEAD, selected set, lock and runtime bytes.
+Pusher source must match the full recorded tree, including additions; executor
+runtime file lists and bytes must match both the pin and HEAD. It calls the
+**same** swap script in rollback mode, which runs
 `node SOURCE/scripts/prepare-data.mjs restore --offline BACKUP NEW_RESTORE v1`
 into a new sibling, applies ownership/modes and performs the stopped-service
 rename/recovery procedure. It then runs normal `just switch` and legacy smoke
@@ -757,9 +800,12 @@ step restarts writers; keep them stopped and investigate.
 
 The legacy smoke binds the running container's exact image ID through the
 local Docker **list** API (no inspect/env dump), verifies private `/healthz`
-and `/readyz`, original release metadata, restored file hashes and
+and `/readyz`, shipped package name/version/type, restored file hashes and
 authenticated public `joe-version.js`, v1 data/history and Fleet Config.
-It rejects anonymous public data access. It never requests v2 `/joe/healthz`
+db621bf does not copy `release.json` into `/app`; package identity plus the
+exact retained image ID bind this check to v1. T101 runs the same file-check
+logic against db621bf's actual Dockerfile COPY closure. It rejects anonymous
+public data access. It never requests v2 `/joe/healthz`
 or counts its 404 as success. The command prints the hsb0 fast-forward,
 source/pin gate, image/generation checks and `just switch`; the operator
 executes and verifies those separately, then confirms before timers resume.
@@ -779,9 +825,10 @@ item 1's exact GET/HEAD health.
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
 droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
-The proposed exact `/joe/inbox/results` router uses identity stripping and
+The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`
 and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
-GET/HEAD/POST probes. This infrastructure proposal does not claim an ingress
+GET/HEAD/POST probes. GET/HEAD and every other non-POST method on the exact
+path also require SSO. This infrastructure proposal does not claim an ingress
 implementation or producer/results sign-off in the pinned candidate.

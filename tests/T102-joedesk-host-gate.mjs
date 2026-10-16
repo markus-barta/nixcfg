@@ -5,9 +5,12 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import vm from "node:vm";
 const args = process.argv.slice(2);
-assert.equal(args.length, 2, "use --joedesk-source SOURCE");
-assert.equal(args[0], "--joedesk-source");
-const source = args[1];
+assert.equal(args.length, 2, "use --joedesk-source SOURCE or --source-map MAP");
+assert.ok(["--joedesk-source", "--source-map"].includes(args[0]));
+const source = args[0] === "--joedesk-source" ? args[1] : null;
+// CI creates this map through Nix's immutable GitHub fetchTree transport,
+// the same authenticated source transport used by T76's full flake evaluation.
+const archives = source ? null : JSON.parse(fs.readFileSync(args[1]));
 const read = (file) =>
   JSON.parse(fs.readFileSync(new URL("../" + file, import.meta.url)));
 const release = read("hosts/csb0/joedesk-release.json");
@@ -18,6 +21,13 @@ assert.equal(
 );
 function show(rev, file) {
   assert.match(rev, /^[0-9a-f]{40}$/);
+  if (archives) {
+    assert.ok(
+      archives[rev]?.startsWith("/nix/store/"),
+      "immutable source archive required for exact revision",
+    );
+    return fs.readFileSync(archives[rev] + "/" + file, "utf8");
+  }
   return execFileSync("git", ["-C", source, "show", rev + ":" + file], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

@@ -7,7 +7,7 @@ import os from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID, createHash } from "node:crypto";
-import { docker, localDockerSocket, runningImage } from "./joedesk-docker.mjs";
+import { docker, requireLabDocker, runningImage } from "./joedesk-docker.mjs";
 import { requireSafeHost, runSwap } from "./joedesk-data-swap.mjs";
 import { legacySmoke } from "./joedesk-legacy-smoke.mjs";
 const V1 = "db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
@@ -29,6 +29,55 @@ function run(command, args, options = {}) {
 export function requireWorkstation(hostname = os.hostname()) {
   if (/^(csb|hsb|agm)/i.test(hostname.split(".")[0]))
     throw new Error("fleet_is_not_a_lab");
+}
+export function createLabRoot(
+  base = path.join(os.homedir(), ".cache/joedesk-rehearsal"),
+) {
+  fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(base), "ops354-"));
+  fs.chmodSync(root, 0o700);
+  return root;
+}
+const identityHeaders = [
+  "X-Auth-Request-User",
+  "X-Auth-Request-Email",
+  "X-Auth-Request-Preferred-Username",
+  "X-Auth-Request-Groups",
+  "X-Forwarded-User",
+  "X-Forwarded-Email",
+  "X-Forwarded-Preferred-Username",
+];
+export const spoofHeaders = Object.fromEntries(
+  identityHeaders
+    .flatMap((name) => [
+      name,
+      name.replaceAll("-", "_"),
+      name.replaceAll("-", "."),
+    ])
+    .concat(["X-Forwarded_User"])
+    .map((name) => [name, "synthetic-spoof"]),
+);
+export function startLabEdge({ edge, network, root }, command = docker) {
+  // Docker does not publish ports for an internal-only container. Publish on
+  // bridge first, then attach the edge to the board/auth internal network.
+  command([
+    "run",
+    "-d",
+    "--rm",
+    "--name",
+    edge,
+    "--network",
+    "bridge",
+    "-p",
+    "127.0.0.1::8080",
+    "-v",
+    path.join(root, "dynamic.yml") + ":/dynamic.yml:ro",
+    "traefik:v3",
+    "--entrypoints.web.address=:8080",
+    "--entrypoints.web.http.aliasHeadersStrategy=delete",
+    "--providers.file.filename=/dynamic.yml",
+  ]);
+  command(["network", "connect", network, edge]);
 }
 export function labelsToDynamic(joeLabels, authLabels, board, auth) {
   const http = {
@@ -126,7 +175,7 @@ function fixture(root, source) {
 }
 const authStub = `import http from 'node:http';
 http.createServer((req,res)=>{
-  if(['x-auth-request-user','x-auth-request-email','x-forwarded-user'].some(h=>req.headers[h])) { res.writeHead(500);res.end();return; }
+  if(${JSON.stringify(Object.keys(spoofHeaders).map((h) => h.toLowerCase()))}.some(h=>req.headers[h])) { res.writeHead(500);res.end();return; }
   if((req.headers.cookie||'').split(';').some(c=>c.trim()==='lab=authenticated')) { res.writeHead(200,{'X-Auth-Request-User':'lab-authenticated','X-Auth-Request-Email':'lab-authenticated'});res.end();return; }
   res.writeHead(401,{'content-type':'application/json'});res.end('{"error":"unauthenticated"}');
 }).listen(4180,'0.0.0.0');`;
@@ -152,9 +201,7 @@ async function signedInSpoof(base) {
       ...options,
       headers: {
         Cookie: "lab=authenticated",
-        "X-Auth-Request-User": "synthetic-spoof",
-        "X-Auth-Request-Email": "synthetic-spoof",
-        "X-Forwarded-User": "synthetic-spoof",
+        ...spoofHeaders,
         ...options.headers,
       },
     });
@@ -192,9 +239,12 @@ async function main() {
   requireWorkstation(); // Before any source work or Docker command.
   const args = process.argv.slice(2);
   let source,
+    labRoot,
     dryRun = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--source") source = fs.realpathSync(args[++i]);
+    else if (args[i] === "--lab-root" && args[i + 1])
+      labRoot = path.resolve(args[++i]);
     else if (args[i] === "--dry-run") dryRun = true;
     else throw new Error("usage");
   }
@@ -205,10 +255,8 @@ async function main() {
     "--joedesk-source",
     source,
   ]);
-  const root = fs.mkdtempSync(
-    path.join(fs.realpathSync(os.tmpdir()), "ops354-rehearsal-"),
-  );
-  fs.chmodSync(root, 0o700);
+  const root = createLabRoot(labRoot);
+  if (!dryRun) requireLabDocker(root); // Before archives, data, images or networks.
   const oldSource = path.join(root, "v1-source"),
     candidate = path.join(root, "v2-source");
   exportSource(source, V1, oldSource);
@@ -255,7 +303,11 @@ async function main() {
       ["--test", path.join(repo, "tests/T101-joedesk-operations.mjs")],
       {
         encoding: "utf8",
-        env: { ...process.env, JOEDESK_TEST_SOURCE: candidate },
+        env: {
+          ...process.env,
+          JOEDESK_TEST_SOURCE: candidate,
+          JOEDESK_LEGACY_SOURCE: oldSource,
+        },
       },
     );
     if (tests.status !== 0) throw new Error("non_docker_tests_failed");
@@ -274,7 +326,6 @@ async function main() {
     );
     return;
   }
-  localDockerSocket(); // Reject remote Docker contexts, including DOCKER_HOST.
   const suffix = randomUUID(),
     network = "ops354-" + suffix,
     board = network + "-board",
@@ -367,7 +418,7 @@ async function main() {
     ]),
   );
   const dynamic = labelsToDynamic(labels.joe, labels.auth, board, auth);
-  fs.writeFileSync(path.join(root, "dynamic.json"), JSON.stringify(dynamic), {
+  fs.writeFileSync(path.join(root, "dynamic.yml"), JSON.stringify(dynamic), {
     mode: 0o644,
   });
   fs.writeFileSync(path.join(root, "auth.mjs"), authStub, { mode: 0o644 });
@@ -413,22 +464,7 @@ async function main() {
       "-e",
       factory,
     ]);
-    docker([
-      "run",
-      "-d",
-      "--rm",
-      "--name",
-      edge,
-      "--network",
-      network,
-      "-p",
-      "127.0.0.1::8080",
-      "-v",
-      path.join(root, "dynamic.json") + ":/dynamic.json:ro",
-      "traefik:v3",
-      "--entrypoints.web.address=:8080",
-      "--providers.file.filename=/dynamic.json",
-    ]);
+    startLabEdge({ edge, network, root });
     const port = docker(["port", edge, "8080/tcp"]);
     if (!/^127\.0\.0\.1:\d+$/.test(port))
       throw new Error("loopback_edge_required");
@@ -452,11 +488,7 @@ async function main() {
       const response = await fetch(base + "healthz", {
         method,
         redirect: "manual",
-        headers: {
-          "X-Auth-Request-User": "synthetic-spoof",
-          "X-Auth-Request-Email": "synthetic-spoof",
-          "X-Forwarded-User": "synthetic-spoof",
-        },
+        headers: spoofHeaders,
       });
       if (
         response.status !== 200 ||
@@ -464,6 +496,24 @@ async function main() {
       )
         throw new Error("lab_exact_health_failed");
       await response.body?.cancel();
+    }
+    for (const route of [
+      "",
+      "data.json",
+      "history.json",
+      "fleet-config.json",
+      "inbox/results",
+    ]) {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await fetch(base + route, {
+          method,
+          redirect: "manual",
+          headers: spoofHeaders,
+        });
+        if (response.status !== 401 || response.headers.has("x-joedesk-origin"))
+          throw new Error("lab_alias_identity_bypass");
+        await response.body?.cancel();
+      }
     }
     for (const route of ["healthz", "inbox/results/", "inbox/resultsx"]) {
       const response = await fetch(base + route, {

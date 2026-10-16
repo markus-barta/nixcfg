@@ -404,6 +404,18 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "python3 tests/T76-joe-slash-routing.py"
 
+      - name: Verify JoeDesk active release and rollback selectors (OPS-354)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 --run "python3 tests/T100-joedesk-release.py"
+
+      - name: Verify JoeDesk swap, rollback and Docker guards (OPS-354)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 nodejs --run "python3 scripts/test-joedesk-ci.py tests/T101-joedesk-operations.mjs"
+
+      - name: Verify JoeDesk production host gates at exact source pins (OPS-354)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 nodejs --run "python3 scripts/test-joedesk-ci.py tests/T102-joedesk-host-gate.mjs"
+
       - name: Verify bounded paper Gateway session recovery (HOSTD-58)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "bash tests/T77-ib-gateway-session-supervisor.sh"

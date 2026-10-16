@@ -46,13 +46,19 @@ Compose env `JOE_PUSH_INTERVAL_SEC` (default `30`) on `joe-board-pusher` in
 ## OPS-354 identity boundary
 
 JoeDesk has no published host port and uses the private Traefik network. The
-edge removes client `X-Auth-Request-User`, `X-Auth-Request-Email` and
-`X-Forwarded-User` before SSO, then forwardAuth replaces user/email from
+edge removes client `X-Auth-Request-User`, `X-Auth-Request-Email`,
+`X-Auth-Request-Preferred-Username`, `X-Auth-Request-Groups`, `X-Forwarded-User`,
+`X-Forwarded-Email` and `X-Forwarded-Preferred-Username` before SSO, then forwardAuth replaces user/email from
 oauth2-proxy's authenticated response. Health and token inbox use the same
 strip middleware without SSO. Only exact `/joe/healthz` GET/HEAD is public
 health; other methods, near-health paths, all six reads, UI and assets enter
 SSO. The edge must never add, remove or rewrite `X-JoeDesk-Origin`: app-stamped
 401s do not prove SSO enforcement. See T76 and the deployment runbook.
+The TLS entrypoint also deletes punctuation aliases before routing/auth using
+`aliasHeadersStrategy: delete` (Traefik >=3.7.12). OPS must verify the running
+version before cutover because the image is unpinned. Static, live and lab
+negative checks cover underscore/dot identities; v2 reads only the exact
+`x-auth-request-user` key and oauth2-proxy takes identity from its session.
 
 ## Compatible data and rollback boundary
 
@@ -71,9 +77,10 @@ images/generations/source GC roots until rollback is no longer required.
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
 droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
-The proposed exact `/joe/inbox/results` router uses identity stripping and
+The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`
 and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
-GET/HEAD/POST probes. This infrastructure proposal does not claim an ingress
+GET/HEAD/POST probes. Non-POST requests at the exact path also require SSO.
+This infrastructure proposal does not claim an ingress
 implementation or producer/results sign-off in the pinned candidate.
