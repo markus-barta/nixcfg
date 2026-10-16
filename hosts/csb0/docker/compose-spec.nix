@@ -180,7 +180,7 @@
         "--provider=oidc"
         "--oidc-issuer-url=https://auth.inspr.at"
         "--redirect-url=https://cs0.barta.cm/oauth2/callback"
-        "--email-domain=*"
+        "--email-domain=barta.com"
         "--cookie-domain=.barta.cm"
         "--whitelist-domain=.barta.cm"
         "--cookie-secure=true"
