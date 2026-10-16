@@ -1,0 +1,25 @@
+name: Read the pinned private hausnetz input
+description: Job-local SSH access using the CI-only read-only deploy key (OPS-207)
+inputs:
+  deploy-key:
+    description: Read-only deploy key registered on markus-barta/hausnetz
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        HAUSNETZ_DEPLOY_KEY: ${{ inputs.deploy-key }}
+      run: |
+        set -euo pipefail
+        if [ -z "$HAUSNETZ_DEPLOY_KEY" ]; then
+          echo '::error::HAUSNETZ_DEPLOY_KEY is required to evaluate hsb0' >&2
+          exit 1
+        fi
+        umask 077
+        ssh_dir=$(mktemp -d "$RUNNER_TEMP/hausnetz-ssh.XXXXXX")
+        printf '%s\n' "$HAUSNETZ_DEPLOY_KEY" > "$ssh_dir/key"
+        # Pinned published key; never trust an unauthenticated ssh-keyscan.
+        # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+        printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$ssh_dir/known_hosts"
+        printf "GIT_SSH_COMMAND=ssh -F /dev/null -i '%s/key' -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile='%s/known_hosts' -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes\n" "$ssh_dir" "$ssh_dir" >> "$GITHUB_ENV"

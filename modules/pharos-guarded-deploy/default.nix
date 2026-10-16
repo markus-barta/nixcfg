@@ -113,6 +113,8 @@ let
           "@HOSTDASH_CONTAINER@"
           "@STATE_DIR@"
           "@REBOOT_TIMEOUT_SECONDS@"
+          "@PRIVATE_INPUT_HOSTS@"
+          "@CAN_EVALUATE_PRIVATE_INPUTS@"
         ]
         [
           host
@@ -122,6 +124,8 @@ let
           cfg.hostdashContainer
           "/var/lib/pharos-guarded-deploy"
           (toString cfg.rebootTimeoutSeconds)
+          (lib.escapeShellArgs cfg.privateInputHosts)
+          (lib.boolToString cfg.canEvaluatePrivateInputs)
         ];
   };
 
@@ -353,6 +357,24 @@ in
     repoUrl = lib.mkOption {
       type = lib.types.str;
       default = "https://github.com/markus-barta/nixcfg.git";
+    };
+    privateInputHosts = lib.mkOption {
+      type = lib.types.listOf (lib.types.strMatching "[a-z0-9][a-z0-9-]*");
+      default = [ "hsb0" ];
+      description = ''
+        Hosts whose private flake inputs are evaluated by credentialed CI.
+        Skip these in on-host fleet evaluation when this runner has no access;
+        the deployment target itself is always evaluated and built.
+      '';
+    };
+    canEvaluatePrivateInputs = lib.mkOption {
+      type = lib.types.bool;
+      default = host == "hsb0";
+      description = ''
+        Whether the evaluating root user has access to every private input.
+        Only hsb0 has the declared hausnetz SSH identity; other runners skip
+        privateInputHosts and rely on CI without receiving that credential.
+      '';
     };
     beaconContainer = lib.mkOption {
       type = lib.types.str;
