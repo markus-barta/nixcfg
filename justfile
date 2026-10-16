@@ -1667,7 +1667,7 @@ mbp2606-builder action='status' *args='':
 rollback-joedesk record='/var/lib/joedesk-rollback/record.json':
     node scripts/rollback-joedesk.mjs --record {{ quote(record) }}
 
-# Workstation only; pass --dry-run to exercise every non-Docker swap operation.
+# Workstation only; --dry-run prints the volume plan and runs offline swap tests.
 [group('tests')]
 rehearse-joedesk source *args='':
     node scripts/rehearse-joedesk.mjs --source {{ quote(source) }} {{ args }}

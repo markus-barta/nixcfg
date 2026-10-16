@@ -67,15 +67,22 @@ This is evaluation only; do not build a NixOS configuration on macOS.
 
 ## Rehearsal and rollback
 
-Use `just rehearse-joedesk SOURCE --dry-run` for actual offline backup,
-verification, migration, the shared forward/rollback swaps and recovery
-guards without Docker. `just rehearse-joedesk SOURCE` additionally builds the
+Use `just rehearse-joedesk SOURCE --dry-run` to print the named-volume data
+command plan and run T101's actual offline backup, verification, migration,
+shared forward/rollback swaps and recovery guards without Docker. Ownership
+on the Linux volume remains pending. `just rehearse-joedesk SOURCE` builds the
 exact v1/v2 images, uses extracted Traefik v3 rules with a stub forwardAuth,
 runs upstream forward smoke and signed-in spoof actor replacement, then
 checks exact-image v1 rollback with private probes and authenticated reads.
 It refuses fleet lab hosts and remote Docker contexts. Fixtures and their
 fixed receipt clock prove lab behavior only. Output is value-free; private
-lab artifacts/images are retained.
+source inputs/images are retained. Mutable synthetic data and every swap
+sibling live in a per-run `ops354-<uuid>-data` Docker named volume: helpers
+mount it at `/lab`, and both board images at `/var/lib`. Fixtures are seeded
+through a helper from read-only host inputs. Backup reads and strict
+1000:1000 / 0700/0600 checks run inside containers, avoiding macOS bind-mount
+ownership emulation. The run removes only its own volume in `finally`,
+including on failure; host store paths are never mounted.
 
 The production procedure and required private rollback record are in
 `hosts/csb0/docs/RUNBOOK.md`, OPS-354 sections. `just rollback-joedesk` on csb0
