@@ -204,6 +204,9 @@ in
 
     # OPS-340: jhw22-wp.hausv.org, public static page for a private WEG heat-pump project (one index.html,
     # in-page PIN only, noindex). Same pinned read-only nginx as bytepoets-memorial; no backend, no state.
+    # OPS-343 (Markus 2026-10-16: iterate fast, no per-version PR/CI): the content is no longer part of the
+    # closure. It lives on the host in /var/lib/csb1-docker/jhw22-wp (releases/<id>/ + a relative `current`
+    # symlink that nginx follows per request), deployed by copy + atomic symlink swap (RUNBOOK).
     jhw22-wp = {
       image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
       restart = "unless-stopped";
@@ -214,7 +217,7 @@ in
         "/tmp"
       ];
       volumes = [
-        "${../web/jhw22-wp}:/usr/share/nginx/html:ro"
+        "/var/lib/csb1-docker/jhw22-wp:/srv/jhw22-wp:ro"
         "${../web/jhw22-wp-nginx.conf}:/etc/nginx/conf.d/default.conf:ro"
       ];
       networks = [ "traefik" ];
@@ -240,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261015121011.0.0@sha256:fb3e9db5de92629dfe897bf023baa3cc8024b6aaf6f43211116d6442445b8669"; # release 134 Serene Scope (AEON-1383): Definitions entry checks, Decision Desk polish, status-time and work figures, DB pool cap (AEON-1353), agentd rollback-compatible state; migrations 1351, 1352, 1354
+      image = "ghcr.io/inspr-at/aeon:261016060843.0.0@sha256:d558d3e937e249f4d7b66f3704ae55a8292fd91a1489eca81a6ada1dc4a42497"; # release 135 Teal Timer (AEON-1437): project checklists, Desk step-up fix, model catalog with Opus 5.5, faster ticket creation, isolated Codex reviews, merge-queue admission groundwork (default off); migrations 1355-1359
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
