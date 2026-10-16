@@ -314,6 +314,15 @@
         "traefik.http.routers.joe-inbox-csb0.priority=350"
         "traefik.http.routers.joe-inbox-csb0.service=joe-board-csb0"
         "traefik.http.routers.joe-inbox-csb0.middlewares=joe-identity-strip-csb0@docker"
+        # OPS-354 separate item: pending JOED-27 merge + LEAD confirmation.
+        # Exact token-only Results ingress; near paths still enter SSO.
+        "traefik.http.routers.joe-results-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox/results`)"
+        "traefik.http.routers.joe-results-inbox-csb0.entrypoints=web-secure"
+        "traefik.http.routers.joe-results-inbox-csb0.tls=true"
+        "traefik.http.routers.joe-results-inbox-csb0.tls.certresolver=default"
+        "traefik.http.routers.joe-results-inbox-csb0.priority=350"
+        "traefik.http.routers.joe-results-inbox-csb0.service=joe-board-csb0"
+        "traefik.http.routers.joe-results-inbox-csb0.middlewares=joe-identity-strip-csb0@docker"
         "traefik.http.services.joe-board-csb0.loadbalancer.server.port=8080"
         "com.centurylinklabs.watchtower.enable=false"
       ];
