@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OPS-207: offline declaration/proxy/CI contract; full merged config checked in CI.
+# OPS-207/355: offline declaration/proxy/CI contract; full merged config checked in CI.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
@@ -31,9 +31,9 @@ c = json.load(sys.stdin)
 s, fw, home = c["service"], c["firewall"], c["home"]
 assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
-assert s["discovery"] == {"openFirewallMdns": True, "mdnsInterfaces": ["enp2s0f0"]}
+assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"]}
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s
-assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and 5353 not in fw["allowedUDPPorts"]
+assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and all(p not in fw["allowedUDPPorts"] for p in (5353, 1901))
 assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
 assert home.get("network_mode", "bridge") == "bridge"
 assert home["extra_hosts"] == ["host.docker.internal:host-gateway"]
@@ -49,6 +49,7 @@ print("OPS-207 evaluated host declarations: OK")
 '
 
 python3 - <<'PY'
+import copy
 import json
 import re
 import os
@@ -71,25 +72,84 @@ defaults = json.loads(subprocess.check_output(['nix-instantiate', '--eval', '--s
 assert defaults == {'hsb0': {'privateInputHosts': ['hsb0'], 'canEvaluatePrivateInputs': True},
                     'hsb8': {'privateInputHosts': ['hsb0'], 'canEvaluatePrivateInputs': False}}
 
+# Exercise the actual merged-config checker offline, including negative cases
+# for a global/ranged opening or an SSDP reply port on another interface.
+# CI separately applies this checker to the full real module merge.
+fixture = {
+    'services': {'hausnetz': {
+        'enable': True, 'listen': '0.0.0.0:8377', 'firewallInterfaces': ['br-+', 'docker0'],
+        'seed': None, 'extraArgs': [], 'discovery': {
+            'leasesFile': None, 'openFirewallMdns': True, 'mdnsInterfaces': ['enp2s0f0'],
+            'openFirewallSsdp': True, 'ssdpPort': 1901, 'ssdpInterfaces': ['enp2s0f0']}}},
+    'networking': {'nftables': {'enable': False}, 'firewall': {
+        'enable': True, 'trustedInterfaces': [], 'allowedTCPPorts': [], 'allowedTCPPortRanges': [],
+        'allowedUDPPorts': [], 'allowedUDPPortRanges': [], 'interfaces': {
+            'br-+': {'allowedTCPPorts': [8377]}, 'docker0': {'allowedTCPPorts': [8377]},
+            'enp2s0f0': {'allowedUDPPorts': [5353, 1901]}}}},
+    'systemd': {'services': {'hausnetz': {'serviceConfig': {
+        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901"',
+        'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_UNIX'],
+        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10}}}},
+    'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
+}
+
+def check_fixture(config):
+    expression = 'import ./tests/hausnetz-hsb0-eval.nix { config = builtins.fromJSON ' + json.dumps(json.dumps(config)) + "; lib = {" + '''
+      hasInfix = needle: text: builtins.replaceStrings [ needle ] [ "" ] text != text;
+      hasSuffix = suffix: text: let
+        offset = builtins.stringLength text - builtins.stringLength suffix;
+      in offset >= 0 && builtins.substring offset (builtins.stringLength suffix) text == suffix;
+    }; }
+'''
+    return json.loads(subprocess.check_output(['nix-instantiate', '--eval', '--strict', '--json', '--expr', expression], text=True))
+
+checks = check_fixture(fixture)
+assert all(checks.values()), checks
+for path, value, failed_check in (
+    (('networking', 'firewall', 'allowedUDPPorts'), [1901], 'noGlobalSsdp'),
+    (('networking', 'firewall', 'allowedUDPPortRanges'), [{'from': 1900, 'to': 1902}], 'noGlobalSsdp'),
+    (('networking', 'firewall', 'interfaces', 'docker0', 'allowedUDPPorts'), [1901], 'noOtherInterfaceSsdp'),
+    (('networking', 'firewall', 'interfaces', 'docker0', 'allowedUDPPortRanges'), [{'from': 1900, 'to': 1902}], 'noOtherInterfaceSsdp'),
+    (('networking', 'firewall', 'interfaces', 'enp2s0f0', 'allowedUDPPorts'), [5353], 'ssdpReachable'),
+    (('services', 'hausnetz', 'discovery', 'ssdpInterfaces'), ['docker0'], 'ssdpLanOnly'),
+    (('services', 'hausnetz', 'discovery', 'ssdpPort'), 1900, 'ssdpPort'),
+    (('services', 'hausnetz', 'discovery', 'openFirewallSsdp'), False, 'ssdpEnabled'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz"', 'ssdpArgument'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_UNIX'], 'netlinkAllowed'),
+):
+    changed = copy.deepcopy(fixture)
+    node = changed
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    assert check_fixture(changed)[failed_check] is False, failed_check
+
 proxy = Path('hosts/hsb0/docker/hsb0-home-hausnetz.conf').read_text()
 redirect = re.search(r'location = /ops\s*\{([^}]+)\}', proxy)[1]
 app = re.search(r'location /ops/\s*\{([^}]+)\}', proxy)[1]
-for location in (redirect, app):
+archive = re.search(r'location /ops/api/import\s*\{([^}]+)\}', proxy)[1]
+for location in (redirect, app, archive):
     assert re.search(r'allow 192\.168\.1\.0/24;\s*deny all;', location)
 # A rewrite-phase return bypasses access checks, so redirect after try_files.
 assert not re.search(r'^\s*return\s', redirect, re.M)
 assert 'try_files "" @hausnetz_ops_redirect;' in redirect
 assert re.search(r'location @hausnetz_ops_redirect\s*\{\s*absolute_redirect off;\s*return 301 /ops/;', proxy)
 assert 'client_max_body_size 13m;' in app
-assert 'proxy_hide_header Cache-Control;' in app
-assert 'add_header Cache-Control "no-store" always;' in app
-for directive in ('proxy_pass http://host.docker.internal:8377/;', 'proxy_buffering off;',
-                  'proxy_http_version 1.1;', 'proxy_set_header Connection "";',
-                  'proxy_read_timeout 1h;', 'proxy_cache off;'):
-    assert directive in proxy, directive
+assert 'client_max_body_size 257m;' in archive
+assert 'proxy_pass http://host.docker.internal:8377/;' in app
+assert 'proxy_pass http://host.docker.internal:8377/api/import;' in archive
+# Aside from the larger import limit and exact upstream URI, settings match.
+settings = lambda location: [line.strip() for line in location.splitlines() if line.strip()]
+assert settings(archive.replace('257m;', '13m;').replace(':8377/api/import;', ':8377/;')) == settings(app)
+for location in (app, archive):
+    for directive in ('proxy_buffering off;', 'proxy_http_version 1.1;',
+                      'proxy_set_header Connection "";', 'proxy_read_timeout 1h;',
+                      'proxy_cache off;', 'proxy_hide_header Cache-Control;',
+                      'add_header Cache-Control "no-store" always;'):
+        assert directive in location, directive
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = '1f876f1d28d74d5931f4f3628a90de112a43506c'
+pin = 'a5a3f5a569ed26387913c2cb7b89ac1188abcc16'
 assert f'git+ssh://git@github.com/markus-barta/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -98,7 +158,8 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/markus-barta/hausnetz'
-assert node['locked']['narHash'] == 'sha256-BZyTWNxApPN/K44Bbhub7TNfsziEYLPXaqmizfQ6emM='
+assert node['locked']['narHash'] == 'sha256-fcc816bXG0oYvFLq3XgAVZzhBTVmdonh1tYKbf41VgI='
+assert node['locked']['lastModified'] == 1792173723
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
@@ -118,6 +179,16 @@ for name in workflows:
         assert all('hausnetz-input' not in job for name, job in jobs.items() if name not in ('check', 'pharos-rollout'))
     if name == 'pharos-host-settings':
         assert "if: inputs.host == 'hsb0'\n        uses: ./.github/actions/hausnetz-input" in text
+
+# The private key exists only for T38; cleanup is the next step even on failure.
+steps = re.split(r'^      - ', jobs['pharos-rollout'], flags=re.M)[1:]
+key_index, = [i for i, step in enumerate(steps) if 'uses: ./.github/actions/hausnetz-input' in step]
+assert 'run: tests/T38-pharos-deployment-evidence.sh' in steps[key_index + 1]
+cleanup = steps[key_index + 2]
+assert 'name: Clean up private hsb0 input access (OPS-355)' in cleanup
+assert 'if: always()' in cleanup
+cleanup_script = '\n'.join(line[10:] for line in cleanup.split('        run: |\n', 1)[1].splitlines())
+assert any('run: bash tests/T14-pharos-system-update.sh' in step for step in steps)
 
 # Execute the real composite action script with a non-secret fixture. No SSH
 # connection is made; prove file modes, host pinning and absence from logs/env.
@@ -141,6 +212,14 @@ with tempfile.TemporaryDirectory(prefix='ops207-ci-') as tmp:
     child_env['HAUSNETZ_DEPLOY_KEY'] = ''
     result = subprocess.run(['bash', '-c', script], env=child_env, capture_output=True, text=True)
     assert result.returncode != 0 and 'HAUSNETZ_DEPLOY_KEY is required' in result.stderr
+    unrelated = Path(tmp, 'unrelated-job-file')
+    unrelated.write_text('keep')
+    for _ in range(2):  # Cleanup also tolerates a skipped or failed key step.
+        result = subprocess.run(['bash', '-c', cleanup_script], env=child_env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert not list(Path(tmp).glob('hausnetz-ssh.*'))
+        assert output.read_text().splitlines()[-1] == 'GIT_SSH_COMMAND='
+        assert unrelated.read_text() == 'keep'
 
 # Run the declared warmer against a fake Nix. Fail hsb0 while allowing later
 # hosts to warm, and prove that a dry-run failure cannot look already cached.

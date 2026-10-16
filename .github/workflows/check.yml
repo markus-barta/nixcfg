@@ -62,16 +62,14 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      # T38 evaluates deployment evidence for every host, including hsb0.
-      - name: Read private hsb0 input (OPS-207)
-        if: steps.pin.outputs.pin_only != 'true'
-        uses: ./.github/actions/hausnetz-input
-        with:
-          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
-
       - name: Verify Pharos host preferences and correlated outcomes
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T08-pharos-host-preferences.sh
+
+      - name: Verify Pharos system update proposals and private-input skips
+        if: steps.pin.outputs.pin_only != 'true'
+        # ubuntu-latest supplies Bash 5; Bash 3 can falsely pass these fixtures.
+        run: bash tests/T14-pharos-system-update.sh
 
       - name: Verify Pharos beacon healthcheck contract
         if: steps.pin.outputs.pin_only != 'true'
@@ -261,9 +259,29 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T59-compose-update-generation.sh
 
+      # T38 evaluates deployment evidence for every host, including hsb0.
+      - name: Read private hsb0 input (OPS-207)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+
       - name: Verify Pharos deployment evidence wiring (NIX-348 / OPS-186)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T38-pharos-deployment-evidence.sh
+
+      - name: Clean up private hsb0 input access (OPS-355)
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import shutil
+          from pathlib import Path
+          # Only this job's composite action creates this runner-temp prefix.
+          for directory in Path(os.environ['RUNNER_TEMP']).glob('hausnetz-ssh.*'):
+              shutil.rmtree(directory)
+          PYTHON
+          echo 'GIT_SSH_COMMAND=' >> "$GITHUB_ENV"
 
       - name: Verify static uid/gid collision gate (NIX-354)
         if: steps.pin.outputs.pin_only != 'true'

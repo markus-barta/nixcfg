@@ -267,6 +267,7 @@ review)
   jq -e 'type == "array" and length > 0 and all(.[]; test("^[a-z0-9-]+$"))' \
     "$action_dir/hosts.json" >/dev/null
   jq -r '.[]' "$action_dir/hosts.json" | LC_ALL=C sort -u >"$action_dir/hosts"
+  : >"$action_dir/skipped-hosts"
   while IFS= read -r host; do
     # OPS-207: CI covers private inputs unavailable to this evaluating host.
     # Never skip the deployment target, even if its access declaration is wrong.
@@ -280,6 +281,7 @@ review)
       done
       if [ "$skip_private" = true ]; then
         printf '%s skipped: private input, covered by CI\n' "$host" | tee -a "$detail_log"
+        printf '%s\n' "$host" >>"$action_dir/skipped-hosts"
         continue
       fi
     fi
@@ -341,15 +343,19 @@ review)
   mv "$internal_tmp" "$internal_file"
 
   jq -Rsc 'split("\n") | map(select(length > 0))' "$changed_areas" >"$action_dir/areas.json"
+  jq -Rsc 'split("\n") | map(select(length > 0))' "$action_dir/skipped-hosts" >"$action_dir/skipped-hosts.json"
   jq -n \
     --argjson changed_file_count "$changed_file_count" \
     --slurpfile areas "$action_dir/areas.json" \
+    --slurpfile skipped_hosts "$action_dir/skipped-hosts.json" \
     --arg running_kernel "$running_kernel" \
     --arg expected_kernel "$expected_kernel" \
     '{
       changed_file_count:$changed_file_count,
       changed_areas:$areas[0],
+      # All evaluated hosts passed; skippedHosts require the full CI gate.
       all_host_eval_passed:true,
+      skippedHosts:$skipped_hosts[0],
       target_build_passed:true,
       backup_ready:true,
       running_kernel:$running_kernel,
