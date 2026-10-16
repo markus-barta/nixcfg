@@ -269,11 +269,6 @@ in
         "AEON_REVIEW_APP_REPOSITORY=inspr-at/paimos"
         "AEON_REVIEW_APP_KEY_FILE=/run/secrets/aeon-review-app-key.pem"
         "AEON_REVIEW_WEBHOOK_SECRET_FILE=/run/secrets/aeon-review-webhook-secret"
-        # AEON-1394 (P4, needs release 135 with AEON-1393 + AEON-1435): merge-queue admission
-        # publisher posts aeon/admission through the review App above (statuses only).
-        # AEON_DELIVERY_ADMISSION_QUEUE stays unset = off: the App has no pull_requests/contents
-        # write, the harness enqueues the reviewed head. Releases before 135 ignore the variable.
-        "AEON_DELIVERY_ADMISSION_ENABLED=true"
         "AEON_OIDC_ISSUER=https://auth.inspr.at"
         "AEON_OIDC_CLIENT_ID=392036080846700555@inspr.at"
         "AEON_BOOTSTRAP_ADMIN_EMAIL=markus@barta.com"
