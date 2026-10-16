@@ -8,9 +8,9 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { docker, runningImage } from "./joedesk-docker.mjs";
 const hash = (b) => createHash("sha256").update(b).digest("hex");
-export function expectedBackup(backup) {
+export function expectedBackup(backup, readFile = fs.readFileSync) {
   const manifest = JSON.parse(
-    fs.readFileSync(path.join(backup, "backup-manifest.json")),
+    readFile(path.join(backup, "backup-manifest.json")),
   );
   if (
     manifest.schema !== "joedesk.data-backup.v1" ||
@@ -29,7 +29,7 @@ export function expectedBackup(backup) {
       ].includes(f.name)
     )
       throw new Error("backup_file_invalid");
-    const bytes = fs.readFileSync(path.join(backup, f.name));
+    const bytes = readFile(path.join(backup, f.name));
     if (bytes.length !== f.size || hash(bytes) !== f.sha256)
       throw new Error("backup_digest_mismatch");
     expected[f.name] = f.sha256;
@@ -99,6 +99,7 @@ export async function legacySmoke({
   backup,
   base,
   cookieJar,
+  readBackupFile = fs.readFileSync,
 }) {
   const url = new URL(base);
   if (
@@ -118,7 +119,7 @@ export async function legacySmoke({
   const cookies = fs.lstatSync(cookieJar);
   if (!cookies.isFile() || cookies.isSymbolicLink() || cookies.mode & 0o077)
     throw new Error("private_cookie_jar_required");
-  const expected = expectedBackup(backup);
+  const expected = expectedBackup(backup, readBackupFile);
   const script = `
     import fs from 'node:fs'; import {createHash} from 'node:crypto';
     const expected=JSON.parse(fs.readFileSync(0,'utf8'));
@@ -151,7 +152,7 @@ export async function legacySmoke({
       expected[name] &&
       !isDeepStrictEqual(
         body,
-        JSON.parse(fs.readFileSync(path.join(backup, name))),
+        JSON.parse(readBackupFile(path.join(backup, name))),
       )
     )
       throw new Error("legacy_config_mismatch");

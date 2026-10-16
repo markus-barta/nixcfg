@@ -6,14 +6,12 @@ import path from "node:path";
 import os from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { docker, requireLabDocker, runningImage } from "./joedesk-docker.mjs";
-import { requireSafeHost, runSwap } from "./joedesk-data-swap.mjs";
 import { legacySmoke } from "./joedesk-legacy-smoke.mjs";
 const V1 = "db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
 const V2 = "9550f81b448110bfa8fb3ea8df0956430012d5e1";
 const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const hash = (b) => createHash("sha256").update(b).digest("hex");
 function run(command, args, options = {}) {
   try {
     return execFileSync(command, args, {
@@ -171,7 +169,117 @@ function fixture(root, source) {
   fs.writeFileSync(path.join(root, "snapshot.json"), JSON.stringify(snapshot), {
     mode: 0o600,
   });
-  return { store, receipt };
+  return receipt;
+}
+// One Linux filesystem holds the active store and every rename/backup sibling.
+// The board sees joe-board at its normal /var/lib/joe-board path; helpers see
+// the same volume at /lab. Host files are read-only inputs, never the store.
+export function labData({ root, candidate, volume, image }, command = docker) {
+  if (!/^ops354-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-data$/.test(volume))
+    throw new Error("lab_volume_name_required");
+  let created = false;
+  const helper = (...args) =>
+    command([
+      "run",
+      "--rm",
+      "--network",
+      "none",
+      "--user",
+      "0:0",
+      "-v",
+      volume + ":/lab",
+      "-v",
+      path.join(root, "fixtures") + ":/fixtures:ro",
+      "-v",
+      candidate + ":/source:ro",
+      "-v",
+      path.join(repo, "scripts") + ":/ops:ro",
+      "--entrypoint",
+      "node",
+      image,
+      ...args,
+    ]);
+  return {
+    boardMount: ["-v", volume + ":/var/lib"],
+    create() {
+      if (created) throw new Error("lab_volume_already_created");
+      if (
+        command(["volume", "ls", "--format", "{{.Name}}"])
+          .split(/\s+/)
+          .includes(volume)
+      )
+        throw new Error("lab_volume_exists");
+      command(["volume", "create", volume]);
+      created = true;
+    },
+    cleanup() {
+      // Closure binds this exact per-run UUID; never prune or remove an input.
+      if (created) {
+        command(["volume", "rm", volume]);
+        created = false;
+      }
+    },
+    seed() {
+      helper(
+        "--input-type=module",
+        "-e",
+        "import fs from 'node:fs'; fs.cpSync('/fixtures/joe-board','/lab/joe-board',{recursive:true,errorOnExist:true,force:false}); fs.chmodSync('/lab/joe-board',0o700);",
+      );
+    },
+    prepare: (...args) => helper("/source/scripts/prepare-data.mjs", ...args),
+    swap(direction) {
+      return helper(
+        "/ops/joedesk-data-swap.mjs",
+        direction,
+        "--store",
+        "/lab/joe-board",
+        "--source",
+        "/source",
+        ...(direction === "forward"
+          ? ["--staged", "/lab/staged-v2"]
+          : ["--backup", "/lab/v1-backup"]),
+        "--lab-root",
+        "/lab",
+        "--gid",
+        "1000",
+        "--writers-stopped",
+      );
+    },
+    readBackupFile(file) {
+      if (path.posix.dirname(file) !== "/lab/v1-backup")
+        throw new Error("lab_backup_path_required");
+      // Transport bytes without docker()'s whitespace trimming changing them.
+      return Buffer.from(
+        helper(
+          "--input-type=module",
+          "-e",
+          "import fs from 'node:fs'; process.stdout.write(fs.readFileSync(process.argv[1]).toString('base64'));",
+          file,
+        ),
+        "base64",
+      );
+    },
+    ownership: () =>
+      helper(
+        "--input-type=module",
+        "-e",
+        "import fs from 'node:fs'; const d='/lab/joe-board'; for(const p of [d,...fs.readdirSync(d).map(n=>d+'/'+n)]) { const s=fs.statSync(p); if(s.uid!==1000||s.gid!==1000||(s.mode&511)!==(s.isDirectory()?448:384)) throw Error('ownership'); } console.log('ok');",
+      ),
+  };
+}
+export function prepareLabData(data, receipt) {
+  data.seed();
+  data.prepare("backup", "--offline", "/lab/joe-board", "/lab/v1-backup", "v1");
+  data.prepare("verify", "--offline", "/lab/v1-backup");
+  data.prepare(
+    "migrate-v2",
+    "--offline",
+    "/lab/v1-backup",
+    "/lab/staged-v2",
+    "/fixtures/snapshot.json",
+    receipt,
+  );
+  data.swap("forward");
 }
 const authStub = `import http from 'node:http';
 http.createServer((req,res)=>{
@@ -261,43 +369,35 @@ async function main() {
     candidate = path.join(root, "v2-source");
   exportSource(source, V1, oldSource);
   exportSource(source, V2, candidate);
-  const { store, receipt } = fixture(root, candidate),
-    backup = path.join(root, "v1-backup"),
-    staged = path.join(root, "staged-v2");
-  const original = Object.fromEntries(
-    fs
-      .readdirSync(store)
-      .map((n) => [n, hash(fs.readFileSync(path.join(store, n)))]),
-  );
+  const fixtures = path.join(root, "fixtures");
+  fs.mkdirSync(fixtures, { mode: 0o700 });
+  const receipt = fixture(fixtures, candidate);
+  const suffix = randomUUID(),
+    network = "ops354-" + suffix,
+    volume = network + "-data",
+    board = network + "-board",
+    auth = network + "-auth",
+    edge = network + "-edge";
   if (dryRun) {
-    const prepare = (...rest) =>
-      run(process.execPath, [
-        path.join(candidate, "scripts/prepare-data.mjs"),
-        ...rest,
-      ]);
-    prepare("backup", "--offline", store, backup, "v1");
-    prepare("verify", "--offline", backup);
-    prepare(
-      "migrate-v2",
-      "--offline",
-      backup,
-      staged,
-      path.join(root, "snapshot.json"),
-      receipt,
+    // Exercise the exact container data commands with a recording executor.
+    // Real offline backup/swap/restore behavior is covered by T101 below;
+    // UID/GID normalization needs the Linux volume in the Docker rehearsal.
+    const commands = [];
+    const data = labData(
+      { root, candidate, volume, image: "candidate-image" },
+      (args) => {
+        commands.push(args);
+        return "";
+      },
     );
-    const options = {
-      store,
-      source: candidate,
-      labRoot: root,
-      uid: process.getuid(),
-      gid: process.getgid(),
-      writersStopped: true,
-    };
-    runSwap({ ...options, direction: "forward", staged });
-    runSwap({ ...options, direction: "rollback", backup });
-    for (const [name, digest] of Object.entries(original))
-      if (hash(fs.readFileSync(path.join(store, name))) !== digest)
-        throw new Error("dry_run_restore_mismatch");
+    try {
+      data.create();
+      prepareLabData(data, receipt);
+      data.swap("rollback");
+      data.ownership();
+    } finally {
+      data.cleanup();
+    }
     const tests = spawnSync(
       process.execPath,
       ["--test", path.join(repo, "tests/T101-joedesk-operations.mjs")],
@@ -314,23 +414,18 @@ async function main() {
     console.log(
       JSON.stringify({
         ok: true,
-        mode: "non-docker",
+        mode: "non-docker-plan",
         sourcePins: "verified",
-        backup: "verified",
-        forwardSwap: "passed",
-        rollbackSwap: "exact-v1-bytes",
-        ownership: "current-lab-user",
-        recoveryGuards: "passed",
+        offlineSwapTests: "passed",
+        dataFilesystem: "per-run-linux-named-volume",
+        boardMount: data.boardMount,
+        dataCommands: commands,
+        ownership: "1000:1000-0700/0600-pending-docker",
         dockerImagesAndSmokes: "pending",
       }),
     );
     return;
   }
-  const suffix = randomUUID(),
-    network = "ops354-" + suffix,
-    board = network + "-board",
-    auth = network + "-auth",
-    edge = network + "-edge";
   docker([
     "build",
     "--quiet",
@@ -354,82 +449,32 @@ async function main() {
   for (const id of [oldImage, image])
     if (!/^sha256:[0-9a-f]{64}$/.test(id))
       throw new Error("built_image_id_required");
-  const helperAs = (user, ...rest) =>
-    docker([
-      "run",
-      "--rm",
-      "--network",
-      "none",
-      "--user",
-      user,
-      "-v",
-      root + ":/lab",
-      "-v",
-      candidate + ":/source:ro",
-      "-v",
-      path.join(repo, "scripts") + ":/ops:ro",
-      "--entrypoint",
-      "node",
-      image,
-      ...rest,
-    ]);
-  const helper = (...rest) => helperAs("0:0", ...rest);
-  // Keep the private backup readable by the workstation operator. Only the
-  // shared swap runs as root to normalize the active store to 1000:1000.
-  const prepare = (...rest) =>
-    helperAs(
-      process.getuid() + ":" + process.getgid(),
-      "/source/scripts/prepare-data.mjs",
-      ...rest,
-    );
-  prepare("backup", "--offline", "/lab/joe-board", "/lab/v1-backup", "v1");
-  prepare("verify", "--offline", "/lab/v1-backup");
-  prepare(
-    "migrate-v2",
-    "--offline",
-    "/lab/v1-backup",
-    "/lab/staged-v2",
-    "/lab/snapshot.json",
-    receipt,
-  );
-  helper(
-    "/ops/joedesk-data-swap.mjs",
-    "forward",
-    "--store",
-    "/lab/joe-board",
-    "--source",
-    "/source",
-    "--staged",
-    "/lab/staged-v2",
-    "--lab-root",
-    "/lab",
-    "--gid",
-    "1000",
-    "--writers-stopped",
-  );
-  const labels = JSON.parse(
-    run("nix", [
-      "eval",
-      "--json",
-      "--file",
-      path.join(repo, "hosts/csb0/docker/compose-spec.nix"),
-      "--apply",
-      'spec: { joe = spec.services.joe-board.labels; auth = builtins.filter (label: builtins.match "traefik.http.middlewares.hostdash-auth-csb0.*" label != null) spec.services.hostdash.labels; }',
-    ]),
-  );
-  const dynamic = labelsToDynamic(labels.joe, labels.auth, board, auth);
-  fs.writeFileSync(path.join(root, "dynamic.yml"), JSON.stringify(dynamic), {
-    mode: 0o644,
-  });
-  fs.writeFileSync(path.join(root, "auth.mjs"), authStub, { mode: 0o644 });
-  const cookieJar = path.join(root, "cookies.txt");
-  fs.writeFileSync(
-    cookieJar,
-    "# Netscape HTTP Cookie File\n127.0.0.1\tFALSE\t/\tFALSE\t0\tlab\tauthenticated\n",
-    { mode: 0o600 },
-  );
-  docker(["network", "create", "--internal", network]);
+  const data = labData({ root, candidate, volume, image });
   try {
+    data.create();
+    prepareLabData(data, receipt);
+    const labels = JSON.parse(
+      run("nix", [
+        "eval",
+        "--json",
+        "--file",
+        path.join(repo, "hosts/csb0/docker/compose-spec.nix"),
+        "--apply",
+        'spec: { joe = spec.services.joe-board.labels; auth = builtins.filter (label: builtins.match "traefik.http.middlewares.hostdash-auth-csb0.*" label != null) spec.services.hostdash.labels; }',
+      ]),
+    );
+    const dynamic = labelsToDynamic(labels.joe, labels.auth, board, auth);
+    fs.writeFileSync(path.join(root, "dynamic.yml"), JSON.stringify(dynamic), {
+      mode: 0o644,
+    });
+    fs.writeFileSync(path.join(root, "auth.mjs"), authStub, { mode: 0o644 });
+    const cookieJar = path.join(root, "cookies.txt");
+    fs.writeFileSync(
+      cookieJar,
+      "# Netscape HTTP Cookie File\n127.0.0.1\tFALSE\t/\tFALSE\t0\tlab\tauthenticated\n",
+      { mode: 0o600 },
+    );
+    docker(["network", "create", "--internal", network]);
     docker([
       "run",
       "-d",
@@ -456,8 +501,7 @@ async function main() {
       board,
       "--network",
       network,
-      "-v",
-      store + ":/var/lib/joe-board",
+      ...data.boardMount,
       image,
       "node",
       "--input-type=module",
@@ -526,21 +570,7 @@ async function main() {
     }
     await signedInSpoof(base);
     docker(["stop", board]);
-    helper(
-      "/ops/joedesk-data-swap.mjs",
-      "rollback",
-      "--store",
-      "/lab/joe-board",
-      "--source",
-      "/source",
-      "--backup",
-      "/lab/v1-backup",
-      "--lab-root",
-      "/lab",
-      "--gid",
-      "1000",
-      "--writers-stopped",
-    );
+    data.swap("rollback");
     docker([
       "run",
       "-d",
@@ -549,23 +579,19 @@ async function main() {
       board,
       "--network",
       network,
-      "-v",
-      store + ":/var/lib/joe-board",
+      ...data.boardMount,
       oldImage,
     ]);
     await waitHealth(base, false);
     const rollback = await legacySmoke({
       container: board,
       image: oldImage,
-      backup,
+      backup: "/lab/v1-backup",
+      readBackupFile: data.readBackupFile,
       base,
       cookieJar,
     });
-    const ownership = helper(
-      "--input-type=module",
-      "-e",
-      "import fs from 'node:fs'; const d='/lab/joe-board'; for(const p of [d,...fs.readdirSync(d).map(n=>d+'/'+n)]) { const s=fs.statSync(p); if(s.uid!==1000||s.gid!==1000||(s.mode&511)!==(s.isDirectory()?448:384)) throw Error('ownership'); } console.log('ok');",
-    );
+    const ownership = data.ownership();
     if (rollback.ok !== true || ownership !== "ok")
       throw new Error("rollback_smoke_failed");
     console.log(
@@ -573,6 +599,7 @@ async function main() {
         ok: true,
         sourcePins: "verified",
         images: "built-and-bound",
+        dataFilesystem: "per-run-linux-named-volume",
         backup: "verified-v1",
         forwardSmoke: "passed",
         edge: "traefik-v3-extracted-labels",
@@ -592,8 +619,9 @@ async function main() {
     try {
       docker(["network", "rm", network]);
     } catch {}
-    // Retain only this lab's source archives, images, data and receipts for
-    // inspection; no deletion of any pre-existing workstation artifact.
+    data.cleanup();
+    // Retain this run's read-only inputs and images for inspection. Mutable
+    // synthetic data lived only in the just-removed per-run Linux volume.
   }
 }
 if (

@@ -474,6 +474,116 @@ test("Docker failures reveal only first subcommand and numeric status", async ()
   );
 });
 
+test("lab never bind-mounts the host store: every data operation shares one Linux volume", async () => {
+  const { labData, prepareLabData } =
+    await import("../scripts/rehearse-joedesk.mjs");
+  const { expectedBackup } =
+    await import("../scripts/joedesk-legacy-smoke.mjs");
+  const volume = "ops354-12345678-1234-1234-1234-123456789abc-data";
+  const calls = [],
+    payload = Buffer.from('{"synthetic":"unaltered backup bytes"}\n');
+  const digest = createHash("sha256").update(payload).digest("hex");
+  const manifest = Buffer.from(
+    JSON.stringify({
+      schema: "joedesk.data-backup.v1",
+      boardSchema: "v1",
+      files: ["data.json", "history.json"].map((name) => ({
+        name,
+        size: payload.length,
+        sha256: digest,
+      })),
+    }),
+  );
+  const data = labData(
+    {
+      root: "/host-inputs",
+      candidate: "/host-source",
+      volume,
+      image: "candidate-image",
+    },
+    (args) => {
+      calls.push(args);
+      if (args[0] === "volume") return "";
+      if (args.at(-1) === "/lab/v1-backup/backup-manifest.json")
+        return manifest.toString("base64");
+      if (args.at(-1).startsWith("/lab/v1-backup/"))
+        return payload.toString("base64");
+      return "ok";
+    },
+  );
+  try {
+    data.create();
+    prepareLabData(data, "2026-10-16T00:00:00Z");
+    data.swap("rollback");
+    assert.equal(data.ownership(), "ok");
+    assert.deepEqual(expectedBackup("/lab/v1-backup", data.readBackupFile), {
+      "data.json": digest,
+      "history.json": digest,
+    });
+    assert.deepEqual(data.readBackupFile("/lab/v1-backup/data.json"), payload);
+    assert.throws(
+      () => data.readBackupFile("/host-inputs/joe-board/data.json"),
+      /backup_path/,
+    );
+  } finally {
+    data.cleanup();
+  }
+  const mounts = (args) =>
+    args.flatMap((arg, i) => (arg === "-v" ? [args[i + 1]] : []));
+  assert.deepEqual(mounts(data.boardMount), [volume + ":/var/lib"]);
+  const helpers = calls.filter((args) => args[0] === "run");
+  assert.ok(helpers.length >= 9);
+  for (const args of helpers) {
+    assert.deepEqual(mounts(args), [
+      volume + ":/lab",
+      "/host-inputs/fixtures:/fixtures:ro",
+      "/host-source:/source:ro",
+      new URL("../scripts", import.meta.url).pathname + ":/ops:ro",
+    ]);
+    assert.equal(args[args.indexOf("--user") + 1], "0:0");
+    assert.equal(args[args.indexOf("--network") + 1], "none");
+  }
+  assert.ok(helpers.some((args) => args.includes("/fixtures/snapshot.json")));
+  for (const direction of ["forward", "rollback"]) {
+    const args = helpers.find((args) => args.includes(direction));
+    assert.ok(args.includes("/ops/joedesk-data-swap.mjs"));
+    assert.equal(args[args.indexOf("--store") + 1], "/lab/joe-board");
+    assert.equal(args[args.indexOf("--lab-root") + 1], "/lab");
+    assert.equal(args[args.indexOf("--gid") + 1], "1000");
+    assert.ok(args.includes("--writers-stopped"));
+  }
+  assert.deepEqual(calls.at(-1), ["volume", "rm", volume]);
+  const count = calls.length;
+  data.cleanup();
+  assert.equal(
+    calls.length,
+    count,
+    "cleanup removes only the volume created by this run, once",
+  );
+});
+
+test("lab refuses foreign or pre-existing volumes and never cleans them up", async () => {
+  const { labData } = await import("../scripts/rehearse-joedesk.mjs");
+  for (const volume of [
+    "production-data",
+    "ops354-data",
+    "ops354-../foreign-data",
+  ])
+    assert.throws(() => labData({ volume }), /lab_volume_name_required/);
+  const volume = "ops354-12345678-1234-1234-1234-123456789abc-data",
+    calls = [];
+  const data = labData({ volume }, (args) => {
+    calls.push(args);
+    return volume;
+  });
+  try {
+    assert.throws(() => data.create(), /lab_volume_exists/);
+  } finally {
+    data.cleanup();
+  }
+  assert.deepEqual(calls, [["volume", "ls", "--format", "{{.Name}}"]]);
+});
+
 test("every board state except exited refuses the production swap", () => {
   for (const state of [
     "running",

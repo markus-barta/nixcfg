@@ -686,8 +686,17 @@ The JOED-20 worktree and draft producer remain separately owned and disabled.
    fails with `lab_root_not_visible_to_docker`. The edge publishes loopback on
    bridge, then joins the internal-only board/auth network; JSON config is
    mounted as `/dynamic.yml`. Docker failures report only subcommand/exit code.
-   Private temporary artifacts/images and swap receipts are retained; stdout
-   is a value-free summary. No real token, data, broker or cloud host is used.
+   Store data, backups and all staged/retained/restored swap siblings use one
+   per-run `ops354-<uuid>-data` Docker named volume. Helpers mount it at `/lab`;
+   both board versions mount it at `/var/lib`, preserving `/var/lib/joe-board`.
+   A helper seeds read-only host fixtures into the volume. Every data read,
+   backup, verify, swap and strict 1000:1000 / 0700/0600 ownership check runs
+   inside containers, where Linux chown works even with a macOS Docker host.
+   Host binds carry read-only inputs only. The guarded volume is removed in
+   `finally`, even on failure; only source inputs/images remain on the host.
+   The dry-run prints this volume command plan and runs T101's real offline
+   tests; Docker ownership and smokes remain pending. Stdout is value-free.
+   No real token, data, broker or cloud host is used.
 2. Record successful rehearsal, Linux before/after drvPath equality for the
    release-set-only refactor, independent review, Amy's approved staged
    producer snapshot and executor reconciliation, and Tick/owner UI decisions.
