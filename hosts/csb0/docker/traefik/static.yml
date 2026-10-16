@@ -9,6 +9,10 @@ entryPoints:
     address: ":80"
   web-secure:
     address: ":443"
+    http:
+      # OPS-354 item 1: requires Traefik >=3.7.12; OPS verifies the running
+      # version before cutover because the compose image intentionally floats.
+      aliasHeadersStrategy: delete
     http3: {}
   mqtt:
     address: ":8883"

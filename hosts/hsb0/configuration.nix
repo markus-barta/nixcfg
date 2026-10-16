@@ -8,6 +8,8 @@
   ...
 }:
 let
+  joeRelease = builtins.fromJSON (builtins.readFile ../csb0/joedesk-release.json);
+  joeSet = joeRelease.sets.${joeRelease.active};
   hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
   joeBoardPusherSource = lib.cleanSourceWith {
     name = "joe-board-pusher-source";
@@ -59,6 +61,7 @@ let
     "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
   ];
 in
+assert joeSet.pusher != null && joeSet.executor != null;
 {
   imports = [
     inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
@@ -164,7 +167,7 @@ in
       services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec;
       services.joe-board-pusher = {
         build = "${joeBoardPusherSource}";
-        image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+        image = joeSet.pusher.image;
         pull_policy = "never";
       };
     };

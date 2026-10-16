@@ -592,3 +592,252 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 - Service: `joe-board` compose build `./joe-board`; data `/var/lib/joe-board`
 - Security: `hosts/csb0/docker/joe-board/SECURITY.md`
 - Producer: hsb0 `joe-board-pusher` every 30s (paper 4002 only)
+
+### OPS-354 routing gates (preparation only)
+
+Keep the OPS-354 PR **DRAFT and unmerged until Markus's cut-over go**: merging lets a later csb0 switch apply items 1 and 5.
+
+Run `python3 tests/T76-joe-slash-routing.py` before review. On the approved
+v2 source after the switch, run
+`python3 tests/T76-joe-slash-routing.py --live --joedesk-source SOURCE`.
+This delegates the canonical version, health allowlist, feed freshness and
+anonymous/spoof matrix to JoeDesk's own smoke and additionally checks HEAD.
+A health redirect is `auth_required`; db621bf's missing `/joe/healthz` cannot
+pass. Near-health paths, UI/assets and six reads require unstamped SSO denials.
+With an active v1 set, `python3 tests/T76-joe-slash-routing.py --live` instead
+checks anonymous and spoofed `/joe/`, data/history and CSS reads behind SSO;
+it requires neither a v2 checkout nor v2 public health. The active release set
+also determines the full-mode image and pull policy (`never` for previous).
+
+Item 1 deletes aliasing headers at `web-secure` before routing and strips user,
+email, preferred username and groups identity headers before forwardAuth.
+Static, live and workstation tests include underscore, dot and mixed aliases.
+The pinned v2 server reads only the literal lowercased `x-auth-request-user`;
+Node does not turn punctuation aliases into that key. oauth2-proxy v7.15.3
+loads identity from its session; its header stripper also normalizes underscores
+when removing managed headers, rather than using them as authentication.
+See the [pinned header middleware](https://github.com/oauth2-proxy/oauth2-proxy/blob/v7.15.3/pkg/middleware/headers.go)
+and [session loading](https://github.com/oauth2-proxy/oauth2-proxy/blob/v7.15.3/oauthproxy.go).
+Traefik's [`aliasHeadersStrategy: delete`](https://doc.traefik.io/traefik/migrate/v3/#v3712)
+requires v3.7.12 or newer; v3.6.20's underscore-only predecessor does not cover
+dots. csb0 declares the floating `traefik` image, so its running version/support
+is **unverified by this no-SSH preparation**. OPS must record the exact deployed
+version and verify option support before switching; this ticket changes no pin.
+
+Post-deploy item 6 requires a separate signed-in paper-only Fleet Config edit:
+send synthetic `X-Auth-Request-User` and `X-Forwarded-User` through the trusted
+public proxy using a private authenticated cookie jar. Check privately that
+the new audit entry's actor equals the authenticated SSO identity, differs
+from the synthetic identity, and has the expected successful revision/key.
+Restore the original setting through the same Diff/Confirm/Propagate flow,
+then verify its attributed audit entry too. Never print cookies, actor values,
+config bodies or real data in evidence. Keep `authResponseHeaders` enabled;
+this check complements the anonymous spoof matrix and remains an OPS gate.
+Include `X_Auth_Request_User`, `X.Auth.Request.User`, `X-Forwarded_User` and
+the preferred-username/groups/email variants in that signed-in request too.
+
+T76 v2 live mode requires a clean Git source checkout at the exact active
+flake.lock revision before it invokes that source's smoke. An immutable
+source archive can run upstream smoke directly; use an exact Git checkout
+for T76's additional source-identity gate.
+CI wires T100, T101 and T102 beside T76. T101/T102 attempt immutable archives
+through the same Nix GitHub fetch transport as full T76. If the private source
+cannot be fetched, CI emits an explicit warning and source-dependent skips;
+the remaining T101 guards still run. A skip is never producer/host-gate evidence.
+
+### Linux evaluation evidence for the release-set-only item
+
+On an authorized Linux evaluator with locked inputs already available, use
+`nix eval --offline --no-update-lock-file --raw .#nixosConfigurations.csb0.config.system.build.toplevel.drvPath`
+before and after applying only item 2, keeping item 1's routing identical on
+both sides. Compare hsb0 in the same way. Keep the same Git HEAD/source-info
+metadata for both evaluations (apply item 2 uncommitted to that baseline), so
+a configurationRevision change from different commits does not confound the
+comparison. Include the new JSON with `git add -N` for Git-backed flake
+evaluation. This is an evaluation comparison, with no build or switch.
+The worker's static proof covers csb0/hsb0 specs and executor image defaults;
+it does not claim this Linux derivation check passed.
+
+### OPS-354 cutover order and stopped-writer swap
+
+This is preparation, not permission to switch. Current active board remains
+db621bf (legacy `calendar`, 26.09.21.12.00, sequence 23, no matching tag). The
+inactive candidate is 9550f81 / `inspr-calver-3` / 261016151218.0.0. Reuse
+JOED-26's approved adoption scope; it remains pending publication and live gates.
+The JOED-20 worktree and draft producer remain separately owned and disabled.
+
+1. On a workstation, run
+   `just rehearse-joedesk SOURCE --dry-run`, then
+   `just rehearse-joedesk SOURCE` using the exact candidate checkout with the
+   legacy Git object available. The second command builds db621bf and 9550f81
+   images, stages JoeDesk's own v2 fixture, uses the same swap script as
+   production, runs upstream forward smoke through `traefik:v3` and stub
+   forwardAuth, checks signed-in spoof replacement/restoration, then restores
+   v1 and tests the exact old image, private probes and authenticated reads.
+   Only the lab host matcher, entrypoint/TLS and provider/endpoint references
+   adapt to loopback; path/method rules, priorities and middleware order come
+   from evaluated labels. The fixture server uses its original fixed receipt
+   clock, explicitly a lab behavior. It is never freshness evidence for live
+   data. Fleet names csb*, hsb*, agm\* and remote Docker contexts are refused.
+   The engine name from `docker info` must also be outside those fleet prefixes.
+   The default private lab parent is `~/.cache/joedesk-rehearsal/`, inside
+   Colima's HOME mount; `--lab-root PATH` chooses another parent. Before using
+   any lab data, a disposable container must read its marker or the rehearsal
+   fails with `lab_root_not_visible_to_docker`. The edge publishes loopback on
+   bridge, then joins the internal-only board/auth network; JSON config is
+   mounted as `/dynamic.yml`. Docker failures report only subcommand/exit code.
+   Store data, backups and all staged/retained/restored swap siblings use one
+   per-run `ops354-<uuid>-data` Docker named volume. Helpers mount it at `/lab`;
+   both board versions mount it at `/var/lib`, preserving `/var/lib/joe-board`.
+   A helper seeds read-only host fixtures into the volume. Every data read,
+   backup, verify, swap and strict 1000:1000 / 0700/0600 ownership check runs
+   inside containers, where Linux chown works even with a macOS Docker host.
+   Host binds carry read-only inputs only. The guarded volume is removed in
+   `finally`, even on failure; only source inputs/images remain on the host.
+   The dry-run prints this volume command plan and runs T101's real offline
+   tests; Docker ownership and smokes remain pending. Stdout is value-free.
+   No real token, data, broker or cloud host is used.
+2. Record successful rehearsal, Linux before/after drvPath equality for the
+   release-set-only refactor, independent review, Amy's approved staged
+   producer snapshot and executor reconciliation, and Tick/owner UI decisions.
+   In one reviewed cutover commit, update flake URL/lock and the complete
+   selected release set together; retain the exact v1 board/pusher images,
+   executor runtime/source and NixOS generations on both hosts. Record image
+   IDs as well as tags. Keep GC roots for the prior generations and the v2
+   source containing `scripts/prepare-data.mjs`; that CLI is not copied into
+   the application image. Do not GC or prune these rollback artifacts.
+3. Freeze Fleet Config edits and stop **all** board writers, hsb0 pusher and
+   executor, including other producer jobs. Pause both hosts' compose update
+   timers/services and reconcile units; verify no relevant writer container
+   runs. Use each host's existing rendered Compose file only for `stop` and
+   status checks. Leave the paper Gateway untouched. On csb0, stop `joe-board`
+   with `sudo docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml stop joe-board`.
+   On hsb0, use project `docker`, file `/etc/compose/hsb0/docker-compose.yml`,
+   project directory `hosts/hsb0/docker`, and stop `joe-board-pusher paper-desk-executor`.
+   Pause `compose-csb0-update.timer`, `compose-csb0-update.service`,
+   `compose-csb0.service` and the corresponding `compose-hsb0*` units first.
+4. With retained immutable v2 SOURCE and Node 22+, create a **new private**
+   backup using
+   `node SOURCE/scripts/prepare-data.mjs backup --offline /var/lib/joe-board NEW_BACKUP v1`,
+   then `node SOURCE/scripts/prepare-data.mjs verify --offline NEW_BACKUP`.
+   Record the manifest SHA256, exact old image IDs and retained generations in
+   the private rollback record described below; never commit that record.
+   Stage a **new sibling** directory using
+   `node SOURCE/scripts/prepare-data.mjs migrate-v2 --offline NEW_BACKUP /var/lib/joe-board.staged-v2 APPROVED_INGRESS_SNAPSHOT ACTUAL_UTC_RECEIPT`.
+   The approved snapshot has no receivedAt; the receipt is its actual staging
+   arrival in millisecond UTC form, not cutover time. The next producer seq
+   must be higher, with non-regressing generation/evidence times. Old staging
+   needs a new accepted observation before a fresh-feed smoke can pass.
+5. Run the shared forward swap on csb0 only:
+   `sudo node scripts/joedesk-data-swap.mjs forward --source SOURCE --staged /var/lib/joe-board.staged-v2 --gid 1000 --writers-stopped`.
+   It verifies staged v2 through JoeDesk's backup/verify implementation, checks
+   same-filesystem siblings, rejects links, uses no-follow descriptors to chown the staged directory and
+   every file to 1000:1000, sets 0700/0600, and renames the current directory
+   to a unique retained sibling before moving the stage to `/var/lib/joe-board`.
+   It refuses overwrite and restores the retained directory if the second
+   rename fails. A private retained-sibling receipt records recovery paths.
+   Keep the writers stopped on any failure; inspect the receipt and retained
+   siblings privately. The normal compose lock protects just this swap, then
+   releases before the switch. Never wrap `just switch` in that lock.
+   The lock is acquired internally; no operator `--lock-held` bypass exists.
+   Any existing board container must be exited, including paused/restarting
+   containers in the refusal check; absent containers are also safe to swap.
+6. Through the normal reviewed fast-forward Git path and `just switch`, select
+   the approved release on csb0 and the matching hsb0 pins, then start the
+   approved producer/executor. No compose override, --override-input or hot
+   patch. The activation script's `chown -R 1000:1000 /var/lib/joe-board` acts
+   only on the directory currently at the fixed path and preserves modes; it
+   does not prepare a staged sibling or replace the swap's required chown.
+   The same chown is required when no NixOS activation occurs. Retained sibling
+   directories and backup bytes remain available. Resume timers only after
+   compatible pins and normal reconciliation are verified on both hosts.
+7. Require a fresh accepted producer observation, then run the exact source's
+   `node SOURCE/scripts/smoke-release.mjs https://cs0.barta.cm/joe/ inspr-calver-3 CANONICAL_VERSION`
+   and `python3 tests/T76-joe-slash-routing.py --live --joedesk-source SOURCE`.
+   Both must pass; a 302 means auth_required, a 404 is failure. Keep the exact
+   source/version, image IDs and value-free evidence together privately. The
+   canonical smoke must report all six reads, UI/assets and spoof probes as
+   sso-rejected, exact-path health, expected schema/version and fresh feeds.
+   Results may remain explicitly not wired; Amy still owns results sign-off.
+   Complete the signed-in actor replacement/restoration check above and
+   Tick/owner signed-in UI verification before claiming the cutover complete.
+
+### One-command v1 rollback
+
+Before cutover, retain a root/operator-owned mode-0600 JSON record at
+`/var/lib/joedesk-rollback/record.json` (private directory mode 0700). Required
+keys: `previous_set_sha256` (the exported `setDigest` of release.sets.previous),
+`backup_manifest_sha256` (SHA256 of the exact verified v1 backup manifest),
+`board_image_id`, `pusher_image_id` (full sha256 IDs; executor shares that runtime),
+`csb0_generation`, `hsb0_generation` (retained positive generation numbers),
+`v1_backup`, `prepare_source`, `cookie_jar`, `hsb0_checkout` (absolute private
+paths), and `rollback_nixcfg_rev` (the full reviewed rollback commit).
+`prepare_source` must be the retained immutable `/nix/store/` v2 source,
+including its own preparation CLI. The cookie jar is a private signed-in
+SSO session for legacy version/data checks; the command never prints it.
+The rollback commit cannot be known before review: prepare and review it when
+needed, then update this private record before running the command. A missing
+record, generation, local image or exact commit is a hard stop.
+
+The rollback commit selects `active = previous`, restores the recorded
+board flake URL/lock and the previous pusher/executor **runtime source bytes**,
+while retaining unrelated nixcfg changes. csb0's declarative previous selector
+uses `pull_policy = never` so the normal switch reuses the retained exact
+image; it does not rebuild legacy's floating base into a different image.
+Pusher and executor already use never. Never restore the entire old nixcfg
+revision or silently discard intervening host changes. Review the affected
+source paths from the release set and check their recorded source trees.
+
+On csb0, run `just rollback-joedesk` (or pass the private record path). The
+command refuses every other host and noninteractive use, asks y/N before
+each action, and prints exact cross-host commands instead of using SSH.
+Before any stop, it fetches main and verifies that the exact recorded commit
+is a fast-forward from HEAD and an ancestor of fetched main, selects previous,
+and contains the required lock and runtime sources. The printed hsb0 commands
+do the same preflight before stopping writers. After operator confirmation of
+stopped remote writers, it pauses local reconciliation/update jobs, stops the
+board, and uses `git merge --ff-only <recorded-rev>` rather than pulling a
+possibly newer main. It rechecks HEAD, selected set, lock and runtime bytes.
+Pusher source must match the full recorded tree, including additions; executor
+runtime file lists and bytes must match both the pin and HEAD. It calls the
+**same** swap script in rollback mode, which runs
+`node SOURCE/scripts/prepare-data.mjs restore --offline BACKUP NEW_RESTORE v1`
+into a new sibling, applies ownership/modes and performs the stopped-service
+rename/recovery procedure. It then runs normal `just switch` and legacy smoke
+before the hsb0 writers restart. No automatic rollback of a failed operator
+step restarts writers; keep them stopped and investigate.
+
+The legacy smoke binds the running container's exact image ID through the
+local Docker **list** API (no inspect/env dump), verifies private `/healthz`
+and `/readyz`, shipped package name/version/type, restored file hashes and
+authenticated public `joe-version.js`, v1 data/history and Fleet Config.
+db621bf does not copy `release.json` into `/app`; package identity plus the
+exact retained image ID bind this check to v1. T101 runs the same file-check
+logic against db621bf's actual Dockerfile COPY closure. It rejects anonymous
+public data access. It never requests v2 `/joe/healthz`
+or counts its 404 as success. The command prints the hsb0 fast-forward,
+source/pin gate, image/generation checks and `just switch`; the operator
+executes and verifies those separately, then confirms before timers resume.
+
+### Production host gate (README item 4)
+
+`just test-joedesk SOURCE` includes T102, which runs the actual legacy P1
+function and replacement P3 host module from the release-set Git pins. The
+canonical production `cs0.barta.cm` must pass; foreign host/suffix lookalikes
+must fail, and both app entrypoints must call that gate. No application
+source is copied into nixcfg and no allowlist is guessed from the hostname.
+This client privacy stub does not replace SSO or private-port enforcement.
+README item 4 adds no route exemption beyond the existing token inbox and
+item 1's exact GET/HEAD health.
+
+### Separate Results ingress proposal — pending JOED-27 merge + LEAD confirmation
+
+OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
+droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
+The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
+app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
+the exact route, priority and strip-only chain, while `/joe/inbox/results/`
+and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
+GET/HEAD/POST probes. GET/HEAD and every other non-POST method on the exact
+path also require SSO. This infrastructure proposal does not claim an ingress
+implementation or producer/results sign-off in the pinned candidate.

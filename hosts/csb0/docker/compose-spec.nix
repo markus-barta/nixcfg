@@ -280,7 +280,24 @@
         "traefik.http.routers.joe-csb0.tls.certresolver=default"
         "traefik.http.routers.joe-csb0.priority=300"
         "traefik.http.routers.joe-csb0.service=joe-board-csb0"
-        "traefik.http.routers.joe-csb0.middlewares=hostdash-auth-csb0@docker"
+        "traefik.http.routers.joe-csb0.middlewares=joe-identity-strip-csb0@docker,hostdash-auth-csb0@docker"
+        # Remove client identities before forwardAuth injects its authenticated
+        # result. Never manipulate the application's X-JoeDesk-Origin stamp.
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-User="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-Email="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-Preferred-Username="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-Groups="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Forwarded-User="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Forwarded-Email="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Forwarded-Preferred-Username="
+        # Exact anonymous health; Traefik v3 Method takes one argument.
+        "traefik.http.routers.joe-health-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/healthz`) && (Method(`GET`) || Method(`HEAD`))"
+        "traefik.http.routers.joe-health-csb0.entrypoints=web-secure"
+        "traefik.http.routers.joe-health-csb0.tls=true"
+        "traefik.http.routers.joe-health-csb0.tls.certresolver=default"
+        "traefik.http.routers.joe-health-csb0.priority=400"
+        "traefik.http.routers.joe-health-csb0.service=joe-board-csb0"
+        "traefik.http.routers.joe-health-csb0.middlewares=joe-identity-strip-csb0@docker"
         # Edge canonicalization is a real redirect before OAuth. The app also
         # independently returns 308 when reached directly at the bare path.
         "traefik.http.routers.joe-csb0-slash.rule=Host(`cs0.barta.cm`) && Path(`/joe`)"
@@ -300,6 +317,16 @@
         "traefik.http.routers.joe-inbox-csb0.tls.certresolver=default"
         "traefik.http.routers.joe-inbox-csb0.priority=350"
         "traefik.http.routers.joe-inbox-csb0.service=joe-board-csb0"
+        "traefik.http.routers.joe-inbox-csb0.middlewares=joe-identity-strip-csb0@docker"
+        # OPS-354 separate item: pending JOED-27 merge + LEAD confirmation.
+        # Exact token-only Results ingress; near paths still enter SSO.
+        "traefik.http.routers.joe-results-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox/results`) && Method(`POST`)"
+        "traefik.http.routers.joe-results-inbox-csb0.entrypoints=web-secure"
+        "traefik.http.routers.joe-results-inbox-csb0.tls=true"
+        "traefik.http.routers.joe-results-inbox-csb0.tls.certresolver=default"
+        "traefik.http.routers.joe-results-inbox-csb0.priority=350"
+        "traefik.http.routers.joe-results-inbox-csb0.service=joe-board-csb0"
+        "traefik.http.routers.joe-results-inbox-csb0.middlewares=joe-identity-strip-csb0@docker"
         "traefik.http.services.joe-board-csb0.loadbalancer.server.port=8080"
         "com.centurylinklabs.watchtower.enable=false"
       ];
