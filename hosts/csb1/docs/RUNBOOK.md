@@ -72,6 +72,29 @@ curl -I https://draw.barta.cm  # Excalidraw (expect 200)
 
 ---
 
+## HostDash SSO (OPS-366)
+
+Restrict SSO to the operator domain: `hostdash-auth` uses
+`--email-domain=barta.com` for HostDash. In oauth2-proxy v7.15.3 this matches the
+email claim's exact domain (case-insensitive). The OIDC default rejects
+`email_verified=false`; an absent claim is accepted. Keep
+`--insecure-oidc-allow-unverified-email` absent.
+
+A second identity needs an agenix-managed `--authenticated-emails-file`; creating
+that new secret requires the operator's explicit go. The file supplements the
+domain allowlist. Never put personal addresses in this public repository.
+The durable fix is a Zitadel project role check in inspr-services; OPS proposes
+that change through an INSPR ticket in the owning project.
+
+Offline gate: `python3 tests/T104-oauth2-proxy-email-domain.py`. After the switch,
+OPS runs `python3 tests/T104-oauth2-proxy-email-domain.py --live`: anonymous GETs
+to cs0 `/`, cs0 `/joe/`, and cs1 `/` must return 302 to the HTTPS IdP at
+`auth.inspr.at`, or 401/403. Output is status codes only, in that order; `000`
+means no response and fails the gate. Redirects are not followed.
+
+Rollback: revert the OPS-366 change and switch on the affected host. This restores
+the previous SSO policy; OPS owns execution and live verification.
+
 ## Common Tasks
 
 ### Update & Switch Configuration
