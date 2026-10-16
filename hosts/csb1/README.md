@@ -84,17 +84,17 @@ hosts/csb1/
 
 ## Services (Docker)
 
-| Service            | Domain                            | Purpose                                                                                      |
-| ------------------ | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| barta-public       | barta.cm / www.barta.cm           | Personal mailbridge homepage and privacy                                                     |
-| bytepoets-memorial | bytepoets.com / www.bytepoets.com | Memorial page: BYTEPOETS logo, 2011–2026 (OPS-337)                                           |
-| jhw22-wp           | jhw22-wp.hausv.org                | Public WEG heat-pump page (v2.4: index.html + img/), in-page PIN only, noindex (OPS-340/343) |
-| PAIMOS (ppm)       | pm.barta.cm                       | Project management (paimos v1.x)                                                             |
-| Docmost            | docmost.barta.cm                  | Documentation/wiki                                                                           |
-| Paperless-ngx      | paperless.barta.cm                | Document management                                                                          |
-| Hedgedoc           | hdoc.barta.cm                     | Collaborative markdown                                                                       |
-| HostDash           | cs1.barta.cm                      | Zitadel-gated service dashboard                                                              |
-| Traefik            | cs1.barta.cm/api                  | Reverse proxy & SSL                                                                          |
+| Service            | Domain                            | Purpose                                                                                        |
+| ------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| barta-public       | barta.cm / www.barta.cm           | Personal mailbridge homepage and privacy                                                       |
+| bytepoets-memorial | bytepoets.com / www.bytepoets.com | Memorial page: BYTEPOETS logo, 2011–2026 (OPS-337)                                             |
+| jhw22-wp           | jhw22-wp.hausv.org                | Public WEG heat-pump page (v2.6.3: index.html + img/), in-page PIN only, noindex (OPS-340/343) |
+| PAIMOS (ppm)       | pm.barta.cm                       | Project management (paimos v1.x)                                                               |
+| Docmost            | docmost.barta.cm                  | Documentation/wiki                                                                             |
+| Paperless-ngx      | paperless.barta.cm                | Document management                                                                            |
+| Hedgedoc           | hdoc.barta.cm                     | Collaborative markdown                                                                         |
+| HostDash           | cs1.barta.cm                      | Zitadel-gated service dashboard                                                                |
+| Traefik            | cs1.barta.cm/api                  | Reverse proxy & SSL                                                                            |
 
 All services run via Docker Compose with Traefik handling SSL (15 containers).
 
