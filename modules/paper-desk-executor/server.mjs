@@ -12,6 +12,8 @@ import {
   digest,
   parseIntent,
   validateKey,
+  activityAttribution,
+  executionTimeMs,
 } from "./policy.mjs";
 import {
   DEFAULT_PEERS,
@@ -137,7 +139,7 @@ function claimRecord(state, intent, ledger) {
     }
     return { replay: { ...storedResult(prior), idempotentReplay: true } };
   }
-  admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs });
+  admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs, beforePrune: ledger.beforePrune });
   state.intents.set(intent.intentId, {
     hash,
     action: intent.action,
@@ -178,7 +180,7 @@ export function createServer(options) {
     { testMode, orderAllowlist: allowlist },
   );
   const attribution = attributionConfig(options.attributionConfig);
-  const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state", { reconRetentionMs: options.reconRetentionMs });
+  const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state", { reconRetentionMs: options.reconRetentionMs, beforePrune: options.beforePrune });
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
   const marketData = createMarketData({ ...options.marketData, bookClientId: options.book?.clientId });
@@ -197,6 +199,22 @@ export function createServer(options) {
     const run = chain.then(work, work);
     chain = run.then(() => {}, () => {});
     return run;
+  }
+
+  async function readHealth() {
+    const [reachable, body] = await Promise.all([
+      Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
+      exclusive(() => {
+        const state = ledger.load();
+        return {
+          status: "ok", gatewayReachable: false, gatewayHost, gatewayPort,
+          account: ACCOUNT, ...ledger.usage(), halt: activeHalt(ledger.haltBody()),
+          brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
+        };
+      }),
+    ]);
+    body.gatewayReachable = reachable;
+    return body;
   }
 
   async function handle(request, response) {
@@ -268,24 +286,7 @@ export function createServer(options) {
         return;
       }
       if (request.method === "GET" && pathname === "/v1/health") {
-        const [reachable, body] = await Promise.all([
-          Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
-          exclusive(() => {
-            const state = ledger.load();
-            return {
-              status: "ok",
-              gatewayReachable: false,
-              gatewayHost,
-              gatewayPort,
-              account: ACCOUNT,
-              ...ledger.usage(),
-              halt: activeHalt(ledger.haltBody()),
-              brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
-            };
-          }),
-        ]);
-        body.gatewayReachable = reachable;
-        send(response, 200, body);
+        send(response, 200, await readHealth());
         return;
       }
 
@@ -454,6 +455,7 @@ export function createServer(options) {
     ledger,
     server,
     handle,
+    readHealth,
     listen() {
       return new Promise((resolve, reject) => {
         const onError = (error) => {
@@ -480,6 +482,15 @@ export function createServer(options) {
 
 async function main() {
   const gatewayPort = Number(process.env.IB_DESK_GATEWAY_PORT || PAPER_PORT);
+  const stateDir = process.env.PAPER_DESK_STATE_DIR || "/state";
+  let capture;
+  if (process.env.PAPER_DESK_RESULTS_CAPTURE === "true") {
+    const { createCapture } = await import("./results/capture.mjs");
+    capture = createCapture(path.join(stateDir, "results-input.jsonl"), attributionConfig(), {
+      account: ACCOUNT, attribute: activityAttribution, executionTime: executionTimeMs,
+      keepSymbols: JSON.parse(process.env.PAPER_DESK_RESULTS_KEEP || '["SXR8","TSLA"]'),
+    });
+  }
   const started = createServer({
     testMode: false,
     gatewayPort,
@@ -487,18 +498,36 @@ async function main() {
     listenHost: process.env.PAPER_DESK_BIND || LISTEN_HOST,
     listenPort: Number(process.env.PAPER_DESK_PORT || LISTEN_PORT),
     allowlist: process.env.PAPER_DESK_ALLOW ? JSON.parse(process.env.PAPER_DESK_ALLOW) : DEFAULT_PEERS,
-    stateDir: process.env.PAPER_DESK_STATE_DIR || "/state",
+    stateDir,
+    beforePrune: capture,
   });
   // Fail closed before accept if the IB runtime cannot be loaded.
   const runtime = await import("./executor.mjs");
   runtime.assertRuntime();
   const address = await started.listen();
+  let healthServer;
+  if (capture) {
+    // Separate loopback listener: only a read-only health route, never intents,
+    // admin attribution, halt, cancel or any Gateway request API.
+    healthServer = createHealthServer(started.readHealth);
+    await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(8471, "127.0.0.1", resolve); });
+    capture(started.ledger.load());
+  }
   console.error(`paper-desk-executor listening ${address.address}:${address.port}`);
   const shutdown = () => {
-    started.close().finally(() => process.exit(0));
+    healthServer?.close();
+    started.close().finally(() => { capture?.close(); process.exit(0); });
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
+}
+
+export function createHealthServer(readHealth) {
+  return createHttpServer((request, response) => {
+    request.resume();
+    if (request.method !== "GET" || request.url !== "/v1/health") { send(response, 404, { status: "not_found" }); return; }
+    Promise.resolve().then(readHealth).then(body => send(response, 200, body)).catch(() => send(response, 503, { status: "unavailable" }));
+  });
 }
 
 const entry = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;

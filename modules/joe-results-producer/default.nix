@@ -1,0 +1,170 @@
+# JOED-20: disabled until the ingress contract, household evidence and paper
+# proof are approved. No live mode, IB client, order API or synthetic fallback.
+# Paper proof procedure: hosts/hsb0/docs/RUNBOOK.md, JoeDesk Results producer.
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.nixcfg.joeResultsProducer;
+  source = import ./source.nix { inherit pkgs; };
+  settings = pkgs.writeText "joe-results-producer.json" (
+    builtins.toJSON {
+      mode = "paper";
+      inherit (cfg) endpoint keepSymbols householdPath;
+      executorHealth = "http://127.0.0.1:8471/v1/health";
+      capturePath = "/var/lib/paper-desk-executor/results-input.jsonl";
+      stateDir = "/var/lib/joe-results-producer";
+    }
+  );
+  hostsFile = pkgs.writeText "joe-results-hosts" ''
+    127.0.0.1 localhost
+    ${cfg.ingressAddress} ${cfg.ingressHost}
+  '';
+in
+{
+  options.nixcfg.joeResultsProducer = {
+    enable = lib.mkEnableOption "paper-only JoeDesk Results v2 producer";
+    endpoint = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Exact HTTPS ingress endpoint; path/auth remain a separate JoeDesk gate.";
+    };
+    ingressAddress = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Pinned ingress IPv4 address, the only non-loopback destination allowed by systemd.";
+    };
+    ingressHost = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "TLS hostname bound to ingressAddress in this service's private hosts file; no DNS egress.";
+    };
+    householdPath = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/joe-board-pusher/household-v2.json";
+      description = "Read-only authoritative v2 household ingress snapshot. Legacy snapshots are refused.";
+    };
+    keepSymbols = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "SXR8"
+        "TSLA"
+      ];
+      description = "Full policy KEEP set. The protected floor cannot be removed.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = config.nixcfg.paperDeskExecutor.enable;
+        message = "joeResultsProducer requires the paper executor";
+      }
+      {
+        assertion =
+          cfg.ingressHost != ""
+          && lib.hasPrefix "https://${cfg.ingressHost}/" cfg.endpoint
+          && builtins.match "[A-Za-z0-9.-]+" cfg.ingressHost != null;
+        message = "joeResultsProducer requires an exact HTTPS endpoint on its pinned hostname";
+      }
+      {
+        assertion =
+          builtins.match "(0|[1-9][0-9]{0,2})([.](0|[1-9][0-9]{0,2})){3}" cfg.ingressAddress != null
+          && lib.all (part: builtins.fromJSON part <= 255) (lib.splitString "." cfg.ingressAddress);
+        message = "joeResultsProducer requires a pinned ingress IPv4 address";
+      }
+      {
+        assertion =
+          lib.hasPrefix "/var/lib/joe-board-pusher/" cfg.householdPath
+          && !(lib.hasInfix ".." cfg.householdPath);
+        message = "joeResultsProducer household input must be in the pusher state directory";
+      }
+      {
+        assertion =
+          lib.all (symbol: lib.elem symbol cfg.keepSymbols) [
+            "SXR8"
+            "TSLA"
+          ]
+          && lib.all (symbol: builtins.match "[A-Z0-9][A-Z0-9._-]{0,15}" symbol != null) cfg.keepSymbols;
+        message = "joeResultsProducer KEEP requires the full SXR8/TSLA floor";
+      }
+    ];
+    nixcfg.paperDeskExecutor.resultsCaptureEnabled = true;
+    nixcfg.paperDeskExecutor.resultsKeepSymbols = cfg.keepSymbols;
+
+    systemd.services.joe-results-producer = {
+      description = "JoeDesk paper Results v2 producer (read-only executor access)";
+      wantedBy = [ "multi-user.target" ];
+      after = [
+        "network-online.target"
+        "compose-hsb0.service"
+      ];
+      wants = [ "network-online.target" ];
+      serviceConfig = {
+        Type = "simple";
+        # Same unprivileged identity as the executor container, with its state
+        # mounted read-only here. No added groups, Docker socket or capabilities.
+        User = "1000";
+        Group = "1000";
+        SupplementaryGroups = [ ];
+        ExecStart = "${pkgs.util-linux}/bin/flock --exclusive --nonblock /var/lib/joe-results-producer/writer.lock ${pkgs.nodejs}/bin/node ${source}/main.mjs ${settings}";
+        Restart = "on-failure";
+        RestartSec = 5;
+        StateDirectory = "joe-results-producer";
+        StateDirectoryMode = "0700";
+        UMask = "0077";
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        NoNewPrivileges = true;
+        CapabilityBoundingSet = "";
+        AmbientCapabilities = "";
+        RestrictSUIDSGID = true;
+        RestrictRealtime = true;
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        ProtectClock = true;
+        ProtectProc = "invisible";
+        ProcSubset = "pid";
+        RemoveIPC = true;
+        RestrictAddressFamilies = [
+          "AF_UNIX"
+          "AF_INET"
+        ];
+        SocketBindDeny = [ "any" ];
+        IPAddressDeny = [ "any" ];
+        IPAddressAllow = [
+          "127.0.0.1/32"
+          "${cfg.ingressAddress}/32"
+        ];
+        BindReadOnlyPaths = [
+          "/var/lib/paper-desk-executor"
+          "/var/lib/joe-board-pusher"
+          "${hostsFile}:/etc/hosts"
+        ];
+        InaccessiblePaths = [
+          "-/run/agenix"
+          "-/run/secrets"
+          "-/var/run/docker.sock"
+        ];
+        ReadWritePaths = [ "/var/lib/joe-results-producer" ];
+        SystemCallFilter = [
+          "@system-service"
+          "~@privileged"
+          "~@resources"
+        ];
+        SystemCallArchitectures = "native";
+        TasksMax = 32;
+        MemoryMax = "384M";
+      };
+    };
+  };
+}
