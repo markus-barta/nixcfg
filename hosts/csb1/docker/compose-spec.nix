@@ -255,9 +255,9 @@ in
         # for ppm only (agm1 stays off). Only "true"/"false" are accepted; anything
         # else stops the server at startup. Releases before 129 ignore the variable.
         "AEON_CHAT_ENABLED=true"
-        # AEON-995: no explicit pool size. Since AEON-1353 (release 134) the app sizes it itself: main pool 16,
-        # plus at most 4 listeners and 1 admission session, with 15 min recycling. The explicit 30 kept 29 backends
-        # and about 1.8 GB of aeon-db memory (2026-10-16).
+        # AEON-995: no explicit pool size. Since AEON-1353 (release 134) the app sizes it itself: main pool 16
+        # (15 min lifetime + 3 min jitter, 3 min idle), plus at most 4 listeners (30 min) and 1 admission session.
+        # With the explicit 30, aeon-db held 29 backends at 1985/2304 MiB (1762 MiB anonymous) on 2026-10-16.
         "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
         "AEON_SESSION_KEY_FILE=/run/secrets/aeon-session-key"
