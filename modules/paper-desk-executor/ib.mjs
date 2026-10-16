@@ -304,12 +304,16 @@ export async function resolveStock(session, symbol, requestId = 881001, { readOn
 export async function freshUsdToEur(session, requestId = 881101) {
   const EventName = session.events;
   const rates = new Map();
+  const exactRates = new Map();
   let ended = false;
   const onValue = (id, account, _model, key, value, currency) => {
     if (Number(id) !== requestId || account !== ACCOUNT || key !== "ExchangeRate") return;
     const rate = Number(value);
     const code = String(currency || "").toUpperCase();
-    if (/^[A-Z]{3}$/.test(code) && Number.isFinite(rate) && rate > 0) rates.set(code, rate);
+    if (/^[A-Z]{3}$/.test(code) && Number.isFinite(rate) && rate > 0) {
+      rates.set(code, rate);
+      if (typeof value === "string" && /^(?:0\.[0-9]{1,8}|[1-9][0-9]*(?:\.[0-9]{1,8})?)$/.test(value)) exactRates.set(code, value);
+    }
   };
   const onEnd = (id) => {
     if (Number(id) === requestId) ended = true;
@@ -327,6 +331,7 @@ export async function freshUsdToEur(session, requestId = 881101) {
   const usdToEur = rates.get("USD");
   if (!Number.isFinite(usdToEur) || usdToEur <= 0) throw new Error("IB USD/EUR exchange rate is unavailable");
   session.state.fxObservedAt = new Date().toISOString();
+  session.state.resultsFx = Object.fromEntries([...exactRates].map(([base, rate]) => [base, { base, quote: "EUR", rate, source: "ib-account-exchange-rate", observedAt: session.state.fxObservedAt }]));
   return usdToEur;
 }
 

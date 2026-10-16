@@ -211,6 +211,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       if (!historyError) reconcileDeskPositions(state.executions, recon.state, config.ownership, clientId, { conId: resolved.contract.conId, attribution });
     }
     try { usdToEur = await freshUsdToEur(recon); } catch (error) { if (intent.action === "place") throw error; }
+    state.resultsFx = recon.state.resultsFx || {};
     snapshot = publicSnapshot(recon.state, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     state.ownershipComplete = !historyError;
     state.accountActiveSymbols = [...new Set([...snapshot.positions.filter((row) => row.position !== 0 && !row.keep).map((row) => row.symbol), ...snapshot.openOrders.filter((row) => !row.keep && !["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())).map((row) => row.symbol)])];

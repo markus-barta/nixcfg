@@ -30,6 +30,10 @@ let
     cp ${./executor.mjs} "$out/executor.mjs"
     cp ${./server.mjs} "$out/server.mjs"
     cp ${./client/paper-intent.mjs} "$out/client/paper-intent.mjs"
+    ${lib.optionalString cfg.resultsCaptureEnabled ''
+      cp -r ${import ../joe-results-producer/source.nix { inherit pkgs; }} "$out/results"
+      ${pkgs.nodejs}/bin/node "$out/results/verify-contracts.mjs"
+    ''}
   '';
   environment = [
     "IB_DESK_ACCOUNT=DU0000001"
@@ -50,6 +54,8 @@ let
     "PAPER_DESK_RECON_RETENTION_HOURS=${toString cfg.reconRetentionHours}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
+    "PAPER_DESK_RESULTS_CAPTURE=${lib.boolToString cfg.resultsCaptureEnabled}"
+    "PAPER_DESK_RESULTS_KEEP=${builtins.toJSON cfg.resultsKeepSymbols}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
   ];
   peerRules =
@@ -62,6 +68,17 @@ in
 {
   options.nixcfg.paperDeskExecutor = {
     enable = lib.mkEnableOption "tailnet paper desk executor on hsb0";
+
+    resultsCaptureEnabled = lib.mkEnableOption "durable read-only Results capture before ledger compaction (JOED-20)";
+
+    resultsKeepSymbols = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "SXR8"
+        "TSLA"
+      ];
+      description = "Full Results exclusion policy; independent of the executor's trading KEEP floor.";
+    };
 
     listenAddress = lib.mkOption {
       type = lib.types.str;

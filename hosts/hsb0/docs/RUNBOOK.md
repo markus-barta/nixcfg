@@ -681,3 +681,112 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 
 - [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Full OpenClaw operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
+
+## JoeDesk Results producer (JOED-20, disabled)
+
+`nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
+does not change the board deployment pin or enable a writer. The module requires
+a separately reviewed ingress endpoint, pinned ingress IP/TLS hostname, and an
+authoritative **v2** household producer snapshot at `householdPath`. It rejects
+legacy JSON. No fixtures are selected by the service. No LIVE mode or Gateway
+client exists in the producer.
+
+When separately enabled, the executor's optional capture writes
+`/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
+recon compaction and ordinary saves. Each hash-chained, fsynced line is a whole
+capture cut, containing only owned Stage-0 fills, commissions, close FX and
+reconciliation evidence with hashed identifiers. Legacy, unowned and external
+activity does not enter FIFO. The producer opens that input read-only and keeps
+its own append-only `/var/lib/joe-results-producer/results.jsonl`; retain and
+back up **both** files. Never reconstruct them from the bounded executor ledger,
+rotate them as ordinary logs, truncate a damaged tail, or reset sequence state
+to satisfy the board. A damaged journal holds output for operator recovery.
+
+FIFO uses independent `j`, `joe`, `joel` books and emits each closed portion.
+Recorded opening and closing commissions are allocated across portions and
+converted using that close's FX; fees round once to contract precision. Gross
+uses the exact quantity × price move × close rate product. A gross that cannot
+be represented in the contract's eight fractional digits is held back instead
+of rounded. Missing fees/close FX also hold the entire snapshot. USD close FX
+must have been observed within 60 seconds of the execution; old fills never
+receive today's rate. EUR uses identity FX. Existing open lots can seed the
+book, but round trips closing before capture began are omitted. `trackingStart`
+is the Vienna date capture began; display earlier coverage as **since that
+date**, never as a complete lifetime result.
+
+Daily equity comes only from fresh per-desk `moneyEvidence` and `historyBasis`
+in validated household v2 input. The last observation on each Vienna date wins;
+sessionless desks/dates are omitted. Day realised net, fees and trade counts
+refer to the closed portions through that desk's observation cut, with both
+legs' fees charged to the closed portion. Basis IDs and original observation
+times remain in the accumulated journal. **Pinned Results at JoeDesk
+`9550f81b448110bfa8fb3ea8df0956430012d5e1` forbids a basis field in `days[]`.**
+The board cannot compare those bases over Results until JoeDesk approves a
+contract-set revision; do not add an unversioned extension locally.
+
+Any configured KEEP symbol in an owned Results record holds the whole record
+as `source_not_authoritative`. The protected SXR8/TSLA floor cannot be removed.
+Results never contains account/order IDs, receipts or broker account equity.
+The pre-masked hint `DU…0597` is recorded only in the local household handoff;
+raw health account values are discarded before any producer write.
+
+`safety.executor` in the **household** contract is the home of executor status,
+halt, brakes and gateway reachability. The producer validates that exact fragment
+and journals it for the household owner; it does not publish a second household
+snapshot. Concrete owned-fill quantity vs complete broker-position evidence can
+produce `executor_broker_disagreement` there and in Results' permitted `reason`.
+Foreign/netted residuals and incomplete broker cuts do not prove disagreement;
+gateway reachability changes alone never do. The optional executor listener on
+`127.0.0.1:8471` serves only `GET /v1/health`; no intent/admin/halt route is exposed.
+
+The Results runner attempts a fresh, strictly increasing producer sequence
+every 25 seconds, reserving it durably before sending. Failed sends burn the
+sequence. It never sends `receivedAt` or `X-Joe-Received-At`; ingress must stamp
+receipt time and use `acceptSnapshot('results')`. HTTP redirects are refused.
+The transport supports injected authentication headers, but the production
+entry point intentionally has no credential wiring until path/auth are agreed.
+The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
+one writable state directory, empty capabilities, no added groups/Docker socket, and
+IP egress limited to loopback and the pinned ingress address. The private hosts
+file resolves the TLS hostname without DNS egress. Endpoint and health paths
+are fixed by configuration/code; systemd's IP filter operates at address scope.
+
+Paper proof, for the operator **after** separate enablement approval:
+
+1. On the workstation/CI, run `bash tests/T100-joe-results-producer.sh` and
+   `bash tests/T93-paper-desk-executor.sh`. Confirm the vendored bytes against
+   `contracts.lock.json`. Keep synthetic compaction, torn-write and gateway-flap
+   simulations in this lab; hsb0 remains a production paper host.
+2. Before the approved hsb0 switch, retain its previous generation and compatible
+   board/pusher/executor pins plus private backups of both Results journals (if
+   present). Record the rollback path on JOED-20/OPS. Configure the ingress
+   path/auth, household v2 evidence path, complete KEEP policy and IP/TLS pin in
+   the reviewed Nix change. Resolve the basis wire gap and household fragment
+   consumption with JoeDesk/Amy first. Follow the normal remote NixOS build and
+   human-controlled switch procedure; no local NixOS build on macOS.
+3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
+   Read `http://127.0.0.1:8471/v1/health` privately and verify paper Gateway
+   configuration, halt and brakes. Do not copy its raw body/account into tickets,
+   Git, public logs or fixtures. Verify non-GET/other paths return 404 and the
+   optional listener is bound only to loopback. The producer never submits an
+   intent to perform this check.
+4. Observe an **already authorized paper** desk open/partial close/full close
+   through the normal desk workflow. Compare private broker fill/commission/FX
+   evidence to every Results portion and Vienna close; check original basis IDs
+   in the journal. Verify KEEP holdings are untouched. Observe two accepted
+   Results generations within 30 seconds, strictly increasing sequence and
+   server-stamped receipt; board freshness must remain below 60 seconds. Do not
+   create trades or force a gateway outage solely for this proof.
+5. Restart only the producer through the approved procedure and confirm its
+   sequence advances and accumulated history is unchanged. Verify production
+   evidence contains no fabricated pre-tracking days. Use the offline fixtures
+   for a true disagreement and a clean gateway flap; do not tamper with the
+   production ledger. Record value-free counts/digests and Amy's explicit sign-off
+   on JOED-20. If proof fails, disable the producer through the reviewed config,
+   retain both journals and the prior pins, and keep Results explicitly unwired.
+
+Open ingress gates: exact route/auth and credential handoff; response receipt
+contract; household health/account fragment consumption; a versioned per-desk
+close-basis field; authoritative household evidence availability and close-FX
+sampling cadence; immutable deployment pins and Amy's paper reconciliation
+approval. Local fixture ingress is a test adapter, not an installed service.

@@ -389,6 +389,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify JoeDesk Results v2 producer and pinned contracts (JOED-20)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p nodejs python3 --run "bash tests/T100-joe-results-producer.sh"
+
       - name: Verify LG Developer Mode renewal (OPS-309)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "bash tests/T98-lg-devmode-renew.sh"

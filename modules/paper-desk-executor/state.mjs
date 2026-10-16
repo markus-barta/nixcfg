@@ -102,7 +102,8 @@ export function rememberFirstOrders(state) {
   }
 }
 
-export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention() } = {}) {
+export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention(), beforePrune = () => {} } = {}) {
+  beforePrune(state);
   pruneForeignAlerts(state, undefined, now);
   state.intents = dictionary(state.intents, "intentId");
   rememberFirstOrders(state);
@@ -144,7 +145,7 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
+export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune = () => {} } = {}) {
   reconRetentionMs = reconRetention(reconRetentionMs);
   const resolvedRoot = path.resolve(root);
   const statePath = confinedPath(resolvedRoot, path.join(resolvedRoot, "ledger.json"), "state path");
@@ -274,6 +275,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
   }
 
   function save(state) {
+    beforePrune(state);
     compactRecons(state);
     pruneState(state, Date.now(), { reconRetentionMs });
     persist(state);
@@ -322,6 +324,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     rememberFirstOrders(value);
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
     if (value.reconStorageVersion !== 1 || legacyRecons) {
+      beforePrune(value);
       try { writeAtomic(backupPath, original, { exclusive: true }); }
       catch (error) {
         if (error.code !== "EEXIST") throw error;
@@ -374,5 +377,5 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     return planned.result;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, load, save, usage, audit, haltBody, setHalt, reattribute };
+  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute };
 }
