@@ -8,6 +8,8 @@
   ...
 }:
 let
+  joeRelease = builtins.fromJSON (builtins.readFile ../../hosts/csb0/joedesk-release.json);
+  joeSet = joeRelease.sets.${joeRelease.active};
   cfg = config.nixcfg.paperDeskExecutor;
   stack = config.nixcfg.composeStack;
   ledgerName = baseNameOf cfg.ownershipLedgerFile;
@@ -116,7 +118,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      default = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+      default = joeSet.executor.image;
       description = "Pinned local image used only for Node and @stoqey/ib. The pusher service is unchanged.";
     };
 

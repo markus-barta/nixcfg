@@ -617,3 +617,16 @@ T76 live mode requires a clean Git source checkout at the exact active
 flake.lock revision before it invokes that source's smoke. An immutable
 source archive can run upstream smoke directly; use an exact Git checkout
 for T76's additional source-identity gate.
+
+### Linux evaluation evidence for the release-set-only item
+
+On an authorized Linux evaluator with locked inputs already available, use
+`nix eval --offline --no-update-lock-file --raw .#nixosConfigurations.csb0.config.system.build.toplevel.drvPath`
+before and after applying only item 2, keeping item 1's routing identical on
+both sides. Compare hsb0 in the same way. Keep the same Git HEAD/source-info
+metadata for both evaluations (apply item 2 uncommitted to that baseline), so
+a configurationRevision change from different commits does not confound the
+comparison. Include the new JSON with `git add -N` for Git-backed flake
+evaluation. This is an evaluation comparison, with no build or switch.
+The worker's static proof covers csb0/hsb0 specs and executor image defaults;
+it does not claim this Linux derivation check passed.
