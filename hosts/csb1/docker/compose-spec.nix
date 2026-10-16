@@ -255,8 +255,10 @@ in
         # for ppm only (agm1 stays off). Only "true"/"false" are accepted; anything
         # else stops the server at startup. Releases before 129 ignore the variable.
         "AEON_CHAT_ENABLED=true"
-        # AEON-988: release 126 workers exhausted the default pgx pool (4 conns on 4 CPUs); explicit pool (30 until AEON-995).
-        "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable&pool_max_conns=30"
+        # AEON-995: no explicit pool size. Since AEON-1353 (release 134) the app sizes it itself: main pool 16,
+        # plus at most 4 listeners and 1 admission session, with 15 min recycling. The explicit 30 kept 29 backends
+        # and about 1.8 GB of aeon-db memory (2026-10-16).
+        "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
         "AEON_SESSION_KEY_FILE=/run/secrets/aeon-session-key"
         "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
