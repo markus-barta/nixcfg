@@ -88,7 +88,7 @@ hosts/csb1/
 | ------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------- |
 | barta-public       | barta.cm / www.barta.cm           | Personal mailbridge homepage and privacy                                                       |
 | bytepoets-memorial | bytepoets.com / www.bytepoets.com | Memorial page: BYTEPOETS logo, 2011–2026 (OPS-337)                                             |
-| jhw22-wp           | jhw22-wp.hausv.org                | Public WEG heat-pump page (v2.5.1: index.html + img/), in-page PIN only, noindex (OPS-340/343) |
+| jhw22-wp           | jhw22-wp.hausv.org                | Public WEG heat-pump page (v2.6.2: index.html + img/), in-page PIN only, noindex (OPS-340/343) |
 | PAIMOS (ppm)       | pm.barta.cm                       | Project management (paimos v1.x)                                                               |
 | Docmost            | docmost.barta.cm                  | Documentation/wiki                                                                             |
 | Paperless-ngx      | paperless.barta.cm                | Document management                                                                            |
