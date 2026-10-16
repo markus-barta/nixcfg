@@ -93,3 +93,15 @@ The command prompts y/N at each action and prints cross-host commands for
 hsb0; it never SSHs. Its legacy smoke uses private `/healthz` and `/readyz`,
 the exact retained image/release and authenticated public v1 version/data
 checks against the matching backup. New-smoke 404s never establish rollback.
+
+## Production host gate
+
+P1's gate is the actual `isCanonicalJoeHost` in legacy `public/joe/joe.js`;
+P3 moved it to `public/joe/host.js`, imported by `app.js`.
+`tests/T102-joedesk-host-gate.mjs --joedesk-source SOURCE` executes those real
+functions from Git objects at the active/previous/candidate pins and checks
+that the app invokes them. It requires `cs0.barta.cm` and its uppercase form,
+and rejects foreign/suffix lookalikes. This is the browser privacy stub,
+not a network/auth boundary; it adds no route exemption. Run
+`just test-joedesk SOURCE` before review and the full T76 flake gate on Linux.
+The rehearsal also requires this host gate before it creates lab artifacts.
