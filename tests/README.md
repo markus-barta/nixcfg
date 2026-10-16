@@ -47,6 +47,47 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
+## Traefik API containment (T103 / OPS-365)
+
+Traefik API is not served on public entrypoints. `T103-traefik-api-auth.py`
+evaluates every Compose spec and checks Docker labels, `dynamic.yml`, and
+rendered file-provider fragments. An `api@internal` router must explicitly use
+entrypoints bound to `127.0.0.1`; their ports and 8080 must have no Docker
+publication. Static, CLI and environment settings cannot enable `api.insecure`.
+The dashboard stays disabled, and Traefik retains its container network namespace.
+
+The csb0/csb1 operator route is `traefik-api-local` on container loopback
+`127.0.0.1:8099`, reachable through `docker exec`. HostDash excludes API and
+dashboard paths. Its remaining exact SSO chain, backend address and shared
+network are checked, each with rejection mutations. Additional mutations
+exercise public, unknown, omitted and mixed entrypoints in every provider,
+non-loopback binds, short/long/ranged publications and insecure overrides.
+
+```bash
+# Offline, including equivalence to the pre-change revision:
+python3 tests/T103-traefik-api-auth.py --compare-ref ed5e43d6
+# OPS only, after switching both hosts, before rotation:
+python3 tests/T103-traefik-api-auth.py --live
+```
+
+Requires Nix, Python, Ruby/Psych, yq and the pinned public doctrine Git objects
+(`git submodule update --init doctrine` if unavailable). Synthetic renderer
+fixtures use a dummy token and the exact routing compiler pinned in
+`flake.lock`; no secret files are read and nothing is built. CI runs offline.
+An offline worktree can instead pass `--routing-source /nix/store/...-source`;
+the test verifies that complete source's NAR hash against `flake.lock` before use.
+Equivalence permits only API-router label removal, HostDash API/dashboard path
+exclusions, and the loopback entrypoint/router; OPS separately proves the
+NixOS drvPath/nix-diff A/B.
+
+Live mode sends anonymous **and synthetic-cookie** GET/HEAD requests to
+`/api/rawdata`, `/api/version`, `/api/http/routers` and `/dashboard/` on both
+public hosts. Only **404**, 401 or 403 pass. A 200, 302 (including SSO), 000
+or any other status fails. It prints request identities and statuses only,
+never reads bodies or response headers, and never follows redirects or uses
+real cookies. The offline fixtures prove all 32 probes and rejection statuses.
+See the csb1 runbook for containment-first rotation and inode/recreate details.
+
 ## Cloudflare edge pin probe (T58 / NIX-526)
 
 Run the offline retry tests and the live pin comparison with the same Python

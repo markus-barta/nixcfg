@@ -664,14 +664,7 @@ in
       ++ sharedFlowRouteVolumes;
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
-        "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
-        "traefik.http.routers.traefik.entrypoints=web-secure"
-        "traefik.http.routers.traefik.service=api@internal"
-        "traefik.http.routers.traefik.tls.certresolver=default"
-        "traefik.http.routers.traefik.tls=true"
-        "traefik.http.routers.traefik.priority=100"
       ];
-      # - traefik.http.routers.traefik.middlewares=authelia  # DISABLED 2026-03-06 - no authelia container
       environment = [
         "TZ=Europe/Vienna"
       ];
@@ -738,7 +731,7 @@ in
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
-        "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)"
+        "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`) && !(PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
         "traefik.http.routers.hostdash-csb1.entrypoints=web-secure"
         "traefik.http.routers.hostdash-csb1.tls=true"
         "traefik.http.routers.hostdash-csb1.tls.certresolver=default"

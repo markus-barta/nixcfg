@@ -1,5 +1,10 @@
 http:
   routers:
+    traefik-api-local:
+      rule: "PathPrefix(`/api`)"
+      entryPoints:
+        - traefik-api
+      service: api@internal
     https-redirect:
       rule: "HostRegexp(`{subdomain:.+}.barta.cm`)"
       entryPoints:
