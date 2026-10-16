@@ -151,10 +151,27 @@ restored separately from the runbook backup.
 `jhw22-wp` serves `https://jhw22-wp.hausv.org/`: one static page (index.html plus local illustrations in `img/`) about a heat-pump plan
 for Markus's WEG. It is public by decision (Markus, 2026-10-15): the in-page PIN only
 keeps casual visitors out (it compares a SHA-256 hash in the browser), so the page must
-never contain data that can be traced to a person, unit or address. OPS reviews every
-new version before it ships. Search engines are kept out (`noindex` meta, `X-Robots-Tag`
-header, `robots.txt` Disallow). Source: `hosts/csb1/web/jhw22-wp/` plus
-`hosts/csb1/web/jhw22-wp-nginx.conf`; same pinned read-only nginx as `bytepoets-memorial`.
+never contain data that can be traced to a person, unit or address. Search engines are kept
+out (`noindex` meta, `X-Robots-Tag` header, `robots.txt` Disallow). Same pinned read-only nginx
+as `bytepoets-memorial`; its config is `hosts/csb1/web/jhw22-wp-nginx.conf`.
+
+**Content lives on the host, not in this repo (OPS-343, 2026-10-16).** Markus iterates fast on the
+page, so a new version is a copy, not a PR or switch. Layout, owned by mba:
+
+```text
+/var/lib/csb1-docker/jhw22-wp/
+  releases/<id>/index.html, img/   # one directory per version
+  current -> releases/<id>         # relative symlink; nginx root is /srv/jhw22-wp/current
+```
+
+Deploy: copy the new version to `releases/<id>.partial`, check its sha256 on the host, rename it
+to `releases/<id>`, then swap the link atomically
+(`ln -sfn releases/<id> current.new && mv -T current.new current`). nginx follows the link per
+request, so no restart is needed. Rollback is the same swap back to an older release.
+Before every copy deploy OPS runs an automated privacy diff against the live page (new names,
+emails, phones, addresses, coordinates, external loads); a hit stops the deploy.
+`hosts/csb1/web/jhw22-wp/` in this repo is a frozen copy of v2.6.3 (the seed for the
+content directory) and is no longer served.
 DNS is the `jhw22_wp_cname` record in `infrastructure/cloudflare/hausv.org` (OpenTofu).
 Rollback works as for the memorial: stop and remove `csb1-jhw22-wp-1` explicitly, then
 switch to the previous generation; remove the record with OpenTofu.

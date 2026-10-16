@@ -204,6 +204,9 @@ in
 
     # OPS-340: jhw22-wp.hausv.org, public static page for a private WEG heat-pump project (one index.html,
     # in-page PIN only, noindex). Same pinned read-only nginx as bytepoets-memorial; no backend, no state.
+    # OPS-343 (Markus 2026-10-16: iterate fast, no per-version PR/CI): the content is no longer part of the
+    # closure. It lives on the host in /var/lib/csb1-docker/jhw22-wp (releases/<id>/ + a relative `current`
+    # symlink that nginx follows per request), deployed by copy + atomic symlink swap (RUNBOOK).
     jhw22-wp = {
       image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
       restart = "unless-stopped";
@@ -214,7 +217,7 @@ in
         "/tmp"
       ];
       volumes = [
-        "${../web/jhw22-wp}:/usr/share/nginx/html:ro"
+        "/var/lib/csb1-docker/jhw22-wp:/srv/jhw22-wp:ro"
         "${../web/jhw22-wp-nginx.conf}:/etc/nginx/conf.d/default.conf:ro"
       ];
       networks = [ "traefik" ];
