@@ -1070,6 +1070,9 @@ in
       "d ${dockerRoot}/aeon-files 0750 65532 65532 -"
       "d ${dockerRoot}/aeon-postgres-backup-snapshot 0700 root root -"
       "d ${dockerRoot}/hausv-org 0750 65532 65532 -"
+      # OPS-343: WEG page content (copy deploys; nginx in jhw22-wp reads it read-only).
+      "d ${dockerRoot}/jhw22-wp 0755 mba users -"
+      "d ${dockerRoot}/jhw22-wp/releases 0755 mba users -"
       "d ${dockerRoot}/hausv-org-backup-snapshot 0700 root root -"
       "d ${dockerRoot}/hausv-postgres-backup-snapshot 0700 root root -"
 
