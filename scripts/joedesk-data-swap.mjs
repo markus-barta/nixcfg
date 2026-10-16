@@ -6,6 +6,7 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { docker } from "./joedesk-docker.mjs";
 
 export function requireSafeHost({ labRoot, hostname = os.hostname(), store }) {
   const short = hostname.toLowerCase().split(".")[0];
@@ -62,21 +63,56 @@ function prepare(source, args) {
   if (result.status !== 0) throw new Error("data_preparation_failed");
 }
 export function normalizeStore(dir, uid, gid) {
-  directory(dir);
-  // Validate the entire flat store before changing any ownership or mode.
-  const files = fs.readdirSync(dir).map((name) => path.join(dir, name));
-  for (const file of files) {
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1)
-      throw new Error("store_must_contain_regular_unlinked_files");
+  const before = directory(dir),
+    fds = [];
+  try {
+    const dirFd = fs.openSync(
+      dir,
+      fs.constants.O_RDONLY |
+        fs.constants.O_DIRECTORY |
+        fs.constants.O_NOFOLLOW,
+    );
+    fds.push(dirFd);
+    const opened = fs.fstatSync(dirFd);
+    if (opened.ino !== before.ino || opened.dev !== before.dev)
+      throw new Error("store_directory_changed");
+    // Hold no-follow descriptors for the complete flat store. Validate every
+    // file before changing any ownership; chmod/chown never re-resolve a path.
+    for (const name of fs.readdirSync(dir)) {
+      let fd;
+      try {
+        fd = fs.openSync(
+          path.join(dir, name),
+          fs.constants.O_RDONLY |
+            fs.constants.O_NOFOLLOW |
+            fs.constants.O_NONBLOCK,
+        );
+      } catch {
+        throw new Error("store_must_contain_regular_unlinked_files");
+      }
+      fds.push(fd);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1)
+        throw new Error("store_must_contain_regular_unlinked_files");
+    }
+    for (const [index, fd] of fds.entries()) {
+      fs.fchownSync(fd, uid, gid);
+      fs.fchmodSync(fd, index === 0 ? 0o700 : 0o600);
+    }
+    fs.fsyncSync(dirFd);
+  } finally {
+    for (const fd of fds) fs.closeSync(fd);
   }
-  fs.chownSync(dir, uid, gid);
-  fs.chmodSync(dir, 0o700);
-  for (const file of files) {
-    fs.chownSync(file, uid, gid);
-    fs.chmodSync(file, 0o600);
-  }
-  syncDir(dir);
+}
+export function requireBoardStopped(states) {
+  if (
+    states
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .some((state) => state !== "exited")
+  )
+    throw new Error("board_must_be_stopped");
 }
 export function swapDirectories(
   store,
@@ -134,24 +170,20 @@ export function runSwap(options) {
     throw new Error("configured_board_gid_required");
   directory(store);
   if (!options.labRoot) {
-    const running = spawnSync(
-      "docker",
-      [
+    requireBoardStopped(
+      docker([
         "compose",
         "-p",
         "csb0",
         "-f",
         "/etc/compose/csb0/docker-compose.yml",
         "ps",
-        "--status",
-        "running",
-        "-q",
+        "--all",
+        "--format",
+        "{{.State}}",
         "joe-board",
-      ],
-      { encoding: "utf8" },
+      ]),
     );
-    if (running.status !== 0 || running.stdout.trim())
-      throw new Error("board_must_be_stopped");
   }
   let staged;
   if (options.direction === "rollback") {
@@ -202,7 +234,6 @@ function main() {
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
     if (key === "--writers-stopped") options.writersStopped = true;
-    else if (key === "--lock-held") options.lockHeld = true;
     else {
       const name = {
         "--source": "source",
@@ -220,25 +251,27 @@ function main() {
     }
   }
   requireSafeHost(options);
-  if (!options.labRoot && !options.lockHeld) {
+  if (!options.labRoot) {
     // Hold the normal Compose lock only for the stopped-service data swap;
     // release it BEFORE just switch, whose compose unit acquires it itself.
     const child = spawnSync(
       "flock",
       [
         "--nonblock",
+        "--no-fork",
         "/run/lock/compose-csb0.lock",
         process.execPath,
-        process.argv[1],
-        ...process.argv.slice(2),
-        "--lock-held",
+        "--input-type=module",
+        "-e",
+        `import fs from 'node:fs'; import {runSwap} from ${JSON.stringify(import.meta.url)}; try { runSwap(JSON.parse(fs.readFileSync(0,'utf8'))); } catch(e) { console.error('joedesk_swap_failed: '+(/^[a-z0-9_]+$/.test(e.message)?e.message:'preflight_or_io_error')); process.exitCode=1; }`,
       ],
-      { stdio: "inherit" },
+      { input: JSON.stringify(options), stdio: ["pipe", "inherit", "inherit"] },
     );
-    if (child.status !== 0) process.exitCode = 1;
-    return;
-  }
-  runSwap(options);
+    if (child.status !== 0) {
+      process.exitCode = 1;
+      return;
+    }
+  } else runSwap(options);
   console.log(
     JSON.stringify({
       ok: true,

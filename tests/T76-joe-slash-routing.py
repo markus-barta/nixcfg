@@ -18,6 +18,12 @@ from typing import Any
 REPO = pathlib.Path(__file__).resolve().parents[1]
 COMPOSE_SPEC = REPO / "hosts/csb0/docker/compose-spec.nix"
 FLAKE_LOCK = REPO / "flake.lock"
+RELEASE_SET = REPO / "hosts/csb0/joedesk-release.json"
+IDENTITY_HEADERS = ("X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Preferred-Username",
+                    "X-Auth-Request-Groups", "X-Forwarded-User", "X-Forwarded-Email", "X-Forwarded-Preferred-Username")
+SPOOF_HEADERS = {variant: "joedesk-smoke-spoof" for name in IDENTITY_HEADERS
+                 for variant in (name, name.replace("-", "_"), name.replace("-", "."))}
+SPOOF_HEADERS["X-Forwarded_User"] = "joedesk-smoke-spoof"
 REDIRECT_STATUSES = {301}
 AUTH_FAILURE_STATUSES = {301, 302, 303, 307, 308, 401, 403}
 
@@ -116,7 +122,7 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
     require(labels.get(health + "rule") == host + " && Path(`/joe/healthz`) && (Method(`GET`) || Method(`HEAD`))", "health must use exact Path and single-argument v3 Method matchers")
     require(labels.get(health + "middlewares") == strip, "health must strip identity without SSO")
     require(int(labels[health + "priority"]) > max(int(labels[router + "priority"]) for router in (bare, main, inbox, results)), "health must outrank every Joe router")
-    for header in ("X-Auth-Request-User", "X-Auth-Request-Email", "X-Forwarded-User"):
+    for header in IDENTITY_HEADERS:
         require(labels.get("traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders." + header) == "", "incoming identity must be removed")
     require(not any("x-joedesk-origin" in (key + value).lower() for key, value in labels.items()), "edge must not manipulate app origin")
     require(
@@ -162,8 +168,11 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
     all_labels = [label for item in spec["services"].values() for label in item.get("labels", [])]
     require("traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email" in all_labels, "SSO identity replacement must remain enabled")
     require(not any("x-joedesk-origin" in label.lower() for label in all_labels), "edge must preserve app stamp")
+    static = (REPO / "hosts/csb0/docker/traefik/static.yml").read_text()
+    require(re.search(r'  web-secure:\n(?:(?:    .*|\s*)\n)*?      aliasHeadersStrategy: delete', static) is not None,
+            "TLS entrypoint must delete all aliasing headers before routing/auth")
 
-    require(labels.get(results + "rule") == host + " && Path(`/joe/inbox/results`)", "Results ingress must be exact")
+    require(labels.get(results + "rule") == host + " && Path(`/joe/inbox/results`) && Method(`POST`)", "Results ingress must be exact POST")
     require(labels.get(results + "middlewares") == strip, "Results ingress must strip identity without SSO")
     require(labels.get(results + "service") == "joe-board-csb0" and int(labels[results + "priority"]) > int(labels[main + "priority"]), "Results service/priority changed")
 
@@ -188,8 +197,9 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
         require(selected("/joe/healthz", method) == "joe-health-csb0", "exact health routing failed")
     for method in ("POST", "PUT", "DELETE", "OPTIONS"):
         require(selected("/joe/healthz", method) == "joe-csb0", "health write bypasses SSO")
-    for method in ("GET", "HEAD", "POST"):
-        require(selected("/joe/inbox/results", method) == "joe-results-inbox-csb0", "Results exact route failed")
+    require(selected("/joe/inbox/results", "POST") == "joe-results-inbox-csb0", "Results exact POST route failed")
+    for method in ("GET", "HEAD", "PUT", "DELETE", "OPTIONS", "PATCH"):
+        require(selected("/joe/inbox/results", method) == "joe-csb0", "Results non-POST bypasses SSO")
     protected = ["inbox/results/", "inbox/resultsx", "", "app.js", "healthz/", "healthz-extra", "data.json", "history.json",
                  "results.json", "state.json", "fleet-config.json", "fleet-config/actions.json"]
     for path in protected:
@@ -228,18 +238,21 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
         )
 
 
-def verify_pinned_build(contract: dict[str, Any]) -> None:
+def verify_pinned_build(contract: dict[str, Any], release: dict[str, Any] | None = None,
+                        lock_revision: str | None = None) -> None:
     service = contract.get("service")
     require(isinstance(service, dict), "rendered joe-board service must be an object")
-    lock = json.loads(FLAKE_LOCK.read_text())
-    revision = lock["nodes"]["joedesk"]["locked"]["rev"]
+    release = release or json.loads(RELEASE_SET.read_text())
+    active = release["sets"][release["active"]]
+    revision = lock_revision or json.loads(FLAKE_LOCK.read_text())["nodes"]["joedesk"]["locked"]["rev"]
+    require(active["board"]["rev"] == revision, "active release must match the locked source")
     require(
-        service.get("image") == f"csb0-joe-board:source-{revision}",
+        service.get("image") == active["board"]["image"] == f"csb0-joe-board:source-{revision}",
         "rendered image name must contain the full locked JoeDesk revision",
     )
     require(
-        service.get("pull_policy") == "build",
-        "JoeDesk must build its pinned context without registry fallback",
+        service.get("pull_policy") == ("never" if release["active"] == "previous" else "build"),
+        "JoeDesk must use the active release's build/retained-image policy",
     )
     build = service.get("build")
     require(
@@ -269,7 +282,7 @@ def request_without_redirects(opener: Any, url: str, method: str = "GET", extra_
         return error.code, error.headers
 
 
-def verify_live() -> None:
+def verify_live(data_schema: str = "v1") -> None:
     # This deployment smoke contacts only its canonical public endpoint.
     origin = "https://cs0.barta.cm"
     parsed_base = urllib.parse.urlsplit(origin)
@@ -285,15 +298,24 @@ def verify_live() -> None:
         expected = f"{origin}/joe/{suffix}"
         require(actual == expected, f"{source} redirected to {actual}, not {expected}")
 
-    for method in ("GET", "HEAD"):
-        status, headers = request_without_redirects(opener, origin + "/joe/healthz", method)
-        require(status not in AUTH_FAILURE_STATUSES, "auth_required")
-        require(status == 200 and headers.get("X-JoeDesk-Origin") == "app", "app_origin_not_proven")
+    if data_schema == "v2":
+        for method in ("GET", "HEAD"):
+            status, headers = request_without_redirects(opener, origin + "/joe/healthz", method, SPOOF_HEADERS)
+            require(status not in AUTH_FAILURE_STATUSES, "auth_required")
+            require(status == 200 and headers.get("X-JoeDesk-Origin") == "app", "app_origin_not_proven")
+
+    # v1 remains testable before cutover without a v2 source or public health.
+    for path in ("/joe/", "/joe/data.json", "/joe/history.json", "/joe/joe.css", "/joe/inbox/results"):
+        for identity in ({}, SPOOF_HEADERS):
+            for method in ("GET", "HEAD"):
+                status, headers = request_without_redirects(opener, origin + path, method, identity)
+                require(status in AUTH_FAILURE_STATUSES and headers.get("X-JoeDesk-Origin") is None, "anonymous_or_alias_identity_exposed")
+                require(status >= 400 or bool(headers.get("Location")), "sso_not_proven")
 
     # Separate pending JOED-27 router: trailing/extended paths stay behind SSO.
     for path in ("/joe/inbox/results/", "/joe/inbox/resultsx"):
         for spoof in (False, True):
-            identity = {name: "joedesk-smoke-spoof" for name in ("X-Auth-Request-User", "X-Auth-Request-Email", "X-Forwarded-User")} if spoof else {}
+            identity = SPOOF_HEADERS if spoof else {}
             for method in ("GET", "HEAD", "POST"):
                 status, headers = request_without_redirects(opener, origin + path, method, identity)
                 require(status in AUTH_FAILURE_STATUSES and headers.get("X-JoeDesk-Origin") is None, "results_near_path_exposed")
@@ -326,16 +348,19 @@ def main() -> int:
         help="opt in to the no-auth HTTP smoke at https://cs0.barta.cm",
     )
     parser.add_argument("--labels-only", action="store_true", help="static labels without the full flake/daemon evaluation")
-    parser.add_argument("--joedesk-source", type=pathlib.Path, help="exact v2 checkout; mandatory for live smoke")
+    parser.add_argument("--joedesk-source", type=pathlib.Path, help="exact active v2 checkout; required only for v2 live smoke")
     arguments = parser.parse_args()
-    require(not arguments.live or arguments.joedesk_source is not None, "live mode requires --joedesk-source")
+    active = json.loads(RELEASE_SET.read_text())
+    schema = active["sets"][active["active"]]["board"]["data_schema"]
+    require(not arguments.live or schema == "v1" or arguments.joedesk_source is not None, "v2 live mode requires --joedesk-source")
 
     verify_rendered_contract(load_joe_labels())
     if not arguments.labels_only:
         verify_pinned_build(load_rendered_joe_contract())
     if arguments.live:
-        verify_release_smoke(arguments.joedesk_source)
-        verify_live()
+        if schema == "v2":
+            verify_release_smoke(arguments.joedesk_source)
+        verify_live(schema)
     print(
         "joe_slash_routing=ok "
         f"rendered_config={'skipped' if arguments.labels_only else 'ok'} live={'ok' if arguments.live else 'skipped'}"

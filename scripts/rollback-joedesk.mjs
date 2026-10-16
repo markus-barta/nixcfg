@@ -18,6 +18,72 @@ const git = (...args) =>
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
+export function verifyPreviousRuntimeSource(
+  previous,
+  revision = "HEAD",
+  runGit = git,
+) {
+  for (const name of ["pusher", "executor"]) {
+    const pin = previous[name];
+    const tree = (rev) => runGit("rev-parse", rev + ":" + pin.source_path);
+    if (tree(pin.nixcfg_rev) !== pin.source_tree)
+      throw new Error("recorded_runtime_source_mismatch");
+    if (name === "pusher") {
+      // Compare complete trees: additions after the pin matter too.
+      if (tree(revision) !== pin.source_tree)
+        throw new Error("previous_runtime_source_mismatch");
+    } else {
+      // The executor module's Nix wiring can change while its runtime is pinned.
+      const files = (rev) =>
+        runGit("ls-tree", "-r", "--name-only", rev, "--", pin.source_path)
+          .split("\n")
+          .filter((file) => file.endsWith(".mjs"))
+          .sort();
+      const before = files(pin.nixcfg_rev),
+        after = files(revision);
+      if (
+        !before.length ||
+        JSON.stringify(before) !== JSON.stringify(after) ||
+        runGit("diff", "--name-only", pin.nixcfg_rev, revision, "--", ...before)
+      )
+        throw new Error("previous_runtime_source_mismatch");
+    }
+  }
+}
+export function verifyRollbackTarget(
+  record,
+  previous,
+  runGit = git,
+  revision = record.rollback_nixcfg_rev,
+) {
+  try {
+    if (
+      runGit("rev-parse", record.rollback_nixcfg_rev + "^{commit}") !==
+      record.rollback_nixcfg_rev
+    )
+      throw new Error("revision");
+    runGit("merge-base", "--is-ancestor", "HEAD", record.rollback_nixcfg_rev);
+    runGit(
+      "merge-base",
+      "--is-ancestor",
+      record.rollback_nixcfg_rev,
+      "FETCH_HEAD",
+    );
+  } catch {
+    throw new Error("rollback_commit_not_fetched_fast_forward");
+  }
+  const selected = JSON.parse(
+    runGit("show", revision + ":hosts/csb0/joedesk-release.json"),
+  );
+  const lock = JSON.parse(runGit("show", revision + ":flake.lock"));
+  if (
+    selected.active !== "previous" ||
+    setDigest(selected.sets[selected.active]) !== record.previous_set_sha256 ||
+    lock.nodes.joedesk.locked.rev !== previous.board.rev
+  )
+    throw new Error("reviewed_previous_pins_not_selected");
+  verifyPreviousRuntimeSource(previous, revision, runGit);
+}
 export function rollbackPlan(record, release) {
   const previous = release.sets.previous;
   if (
@@ -52,6 +118,24 @@ export function rollbackPlan(record, release) {
     previous,
     crossStop: [
       "cd " + q(record.hsb0_checkout),
+      // Resolve and verify the exact reviewed target BEFORE stopping writers.
+      'test -z "$(git status --porcelain --untracked-files=no)"',
+      "git fetch origin main",
+      "git merge-base --is-ancestor HEAD " + q(record.rollback_nixcfg_rev),
+      "git merge-base --is-ancestor " +
+        q(record.rollback_nixcfg_rev) +
+        " FETCH_HEAD",
+      "node --input-type=module -e " +
+        q(
+          "import {verifyRollbackTarget} from './scripts/rollback-joedesk.mjs'; verifyRollbackTarget(" +
+            JSON.stringify({
+              rollback_nixcfg_rev: record.rollback_nixcfg_rev,
+              previous_set_sha256: record.previous_set_sha256,
+            }) +
+            "," +
+            JSON.stringify(previous) +
+            ");",
+        ),
       "sudo systemctl stop compose-hsb0-update.timer compose-hsb0-update.service compose-hsb0.service",
       hsbCompose + " stop joe-board-pusher paper-desk-executor",
       hsbCompose +
@@ -59,8 +143,14 @@ export function rollbackPlan(record, release) {
     ],
     crossSwitch: [
       "cd " + q(record.hsb0_checkout),
-      "git pull --ff-only origin main",
+      "git merge --ff-only " + q(record.rollback_nixcfg_rev),
       'test "$(git rev-parse HEAD)" = ' + q(record.rollback_nixcfg_rev),
+      "node --input-type=module -e " +
+        q(
+          "import {verifyPreviousRuntimeSource} from './scripts/rollback-joedesk.mjs'; verifyPreviousRuntimeSource(" +
+            JSON.stringify(previous) +
+            ");",
+        ),
       "python3 tests/T100-joedesk-release.py",
       'test "$(docker image ls --no-trunc --quiet ' +
         q(previous.pusher.image) +
@@ -144,6 +234,12 @@ async function main() {
       throw new Error("operator_step_failed_writers_remain_stopped");
   }
   try {
+    await step(
+      "Fetch the reviewed rollback target before stopping any writer",
+      "git",
+      ["fetch", "origin", "main"],
+    );
+    verifyRollbackTarget(record, plan.previous);
     console.log(
       "On hsb0, run these commands individually; the final ps must print no IDs:\n" +
         plan.crossStop.join("\n"),
@@ -171,47 +267,11 @@ async function main() {
     await step(
       "Fast-forward to the separately reviewed rollback commit",
       "git",
-      ["pull", "--ff-only", "origin", "main"],
+      ["merge", "--ff-only", record.rollback_nixcfg_rev],
     );
     if (git("rev-parse", "HEAD") !== record.rollback_nixcfg_rev)
       throw new Error("rollback_commit_mismatch");
-    const selected = JSON.parse(
-      fs.readFileSync("hosts/csb0/joedesk-release.json"),
-    );
-    const lock = JSON.parse(fs.readFileSync("flake.lock"));
-    if (
-      selected.active !== "previous" ||
-      setDigest(selected.sets[selected.active]) !==
-        record.previous_set_sha256 ||
-      lock.nodes.joedesk.locked.rev !== plan.previous.board.rev
-    )
-      throw new Error("reviewed_previous_pins_not_selected");
-    // Validate runtime bytes, independent of changes to Nix wiring/docs.
-    for (const name of ["pusher", "executor"]) {
-      const pin = plan.previous[name];
-      const files = git(
-        "ls-tree",
-        "-r",
-        "--name-only",
-        pin.nixcfg_rev,
-        "--",
-        pin.source_path,
-      )
-        .split("\n")
-        .filter((file) =>
-          name === "executor"
-            ? file.endsWith(".mjs")
-            : /\.(mjs|py)$/.test(file) ||
-              /\/(Dockerfile|package(?:-lock)?\.json|official-sdk\.lock\.json)$/.test(
-                file,
-              ),
-        );
-      if (
-        !files.length ||
-        git("diff", "--name-only", pin.nixcfg_rev, "--", ...files)
-      )
-        throw new Error("previous_runtime_source_mismatch");
-    }
+    verifyRollbackTarget(record, plan.previous, git, "HEAD");
     await step(
       "Verify and restore v1 into a NEW sibling, normalize uid/gid and swap while stopped",
       "sudo",

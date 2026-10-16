@@ -66,6 +66,33 @@ function publicRead(base, route, cookieJar) {
     body: output.subarray(0, split),
   };
 }
+// db621bf's Dockerfile copies package.json and public, but NOT release.json.
+// Keep this function self-contained: the exact same check runs inside Docker
+// and against that immutable source's actual COPY closure in T101.
+export async function checkLegacyFiles(readFile, probe, digest, expected) {
+  const pkg = JSON.parse(readFile("/app/package.json"));
+  if (
+    pkg.name !== "joedesk" ||
+    pkg.version !== "26.09.21.12.00" ||
+    pkg.type !== "module"
+  )
+    throw new Error("legacy_package_mismatch");
+  for (const route of ["/healthz", "/readyz"]) {
+    const response = await probe(route),
+      body = await response.json();
+    if (
+      response.status !== 200 ||
+      body.ok !== true ||
+      body.service !== "joe-board" ||
+      body.hasData !== true
+    )
+      throw new Error("legacy_probe_failed");
+  }
+  for (const [name, hash] of Object.entries(expected))
+    if (digest(readFile("/var/lib/joe-board/" + name)) !== hash)
+      throw new Error("legacy_restored_bytes_mismatch");
+  return digest(readFile("/app/public/joe/joe-version.js"));
+}
 export async function legacySmoke({
   container,
   image,
@@ -96,14 +123,8 @@ export async function legacySmoke({
     import fs from 'node:fs'; import {createHash} from 'node:crypto';
     const expected=JSON.parse(fs.readFileSync(0,'utf8'));
     const hash=b=>createHash('sha256').update(b).digest('hex');
-    const release=JSON.parse(fs.readFileSync('/app/release.json'));
-    if(release.version_scheme!=='calendar'||release.version!=='26.09.21.12.00'||release.release_sequence!==23) throw Error('release');
-    for(const route of ['/healthz','/readyz']) {
-      const r=await fetch('http://127.0.0.1:8080'+route,{redirect:'manual',signal:AbortSignal.timeout(10000)}),b=await r.json();
-      if(r.status!==200||b.ok!==true||b.service!=='joe-board'||b.hasData!==true) throw Error('legacy_probe');
-    }
-    for(const [name,digest] of Object.entries(expected)) if(hash(fs.readFileSync('/var/lib/joe-board/'+name))!==digest) throw Error('restored_bytes');
-    console.log(hash(fs.readFileSync('/app/public/joe/joe-version.js')));
+    const probe=route=>fetch('http://127.0.0.1:8080'+route,{redirect:'manual',signal:AbortSignal.timeout(10000)});
+    console.log(await (${checkLegacyFiles.toString()})(fs.readFileSync,probe,hash,expected));
   `;
   const versionHash = docker(
     ["exec", "-i", container, "node", "--input-type=module", "-e", script],
@@ -169,8 +190,13 @@ if (
       options[key] = values[i + 1];
     }
     console.log(JSON.stringify(await legacySmoke(options)));
-  } catch {
-    console.error("legacy_smoke_failed");
+  } catch (error) {
+    console.error(
+      "legacy_smoke_failed: " +
+        (/^[a-z0-9_]+$/.test(error.message)
+          ? error.message
+          : "preflight_or_io_error"),
+    );
     process.exitCode = 1;
   }
 }

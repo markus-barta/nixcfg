@@ -285,7 +285,11 @@
         # result. Never manipulate the application's X-JoeDesk-Origin stamp.
         "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-User="
         "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-Email="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-Preferred-Username="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Auth-Request-Groups="
         "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Forwarded-User="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Forwarded-Email="
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders.X-Forwarded-Preferred-Username="
         # Exact anonymous health; Traefik v3 Method takes one argument.
         "traefik.http.routers.joe-health-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/healthz`) && (Method(`GET`) || Method(`HEAD`))"
         "traefik.http.routers.joe-health-csb0.entrypoints=web-secure"
@@ -316,7 +320,7 @@
         "traefik.http.routers.joe-inbox-csb0.middlewares=joe-identity-strip-csb0@docker"
         # OPS-354 separate item: pending JOED-27 merge + LEAD confirmation.
         # Exact token-only Results ingress; near paths still enter SSO.
-        "traefik.http.routers.joe-results-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox/results`)"
+        "traefik.http.routers.joe-results-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox/results`) && Method(`POST`)"
         "traefik.http.routers.joe-results-inbox-csb0.entrypoints=web-secure"
         "traefik.http.routers.joe-results-inbox-csb0.tls=true"
         "traefik.http.routers.joe-results-inbox-csb0.tls.certresolver=default"
