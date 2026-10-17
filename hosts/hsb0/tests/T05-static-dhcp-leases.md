@@ -43,16 +43,16 @@ carry `mac`, `ip` and `hostname`.
 
 ```bash
 ssh mba@192.168.1.99
-sudo cat /var/lib/private/AdGuardHome/data/leases.json | jq '.leases[] | select(.static == true)'
+sudo jq -e 'all(.leases[] | select(.static == true); has("mac") and has("ip") and has("hostname"))' /var/lib/private/AdGuardHome/data/leases.json
 ```
 
-**Expected**: Shows static leases with `static: true` flag
+**Expected**: `true`; validates static lease fields without displaying MACs or lease contents.
 
 ### Step 4: Count Static Leases
 
 ```bash
 ssh mba@192.168.1.99
-sudo cat /var/lib/private/AdGuardHome/data/leases.json | jq '[.leases[] | select(.static == true)] | length'
+sudo jq '[.leases[] | select(.static == true)] | length' /var/lib/private/AdGuardHome/data/leases.json
 ```
 
 **Expected**: Matches number of leases in agenix secret
@@ -122,5 +122,5 @@ journalctl -u adguardhome -n 100 | grep lease
 - Static leases stored encrypted in git (`secrets/static-leases-hsb0.age`)
 - Decrypted at boot by agenix to `/run/agenix/static-leases-hsb0`
 - Merged with dynamic leases via preStart script using jq
-- Format: `[{"mac": "AA:BB:CC:DD:EE:FF", "ip": "192.168.1.X", "hostname": "device"}]`
+- Format: JSON array of objects with `mac`, `ip` and `hostname` fields; never print entries.
 - Static leases have `static: true` and `expires: ""` in leases.json
