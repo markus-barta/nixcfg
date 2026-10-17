@@ -307,8 +307,9 @@ and build), then `just switch`. Roll back this bump by reverting its reviewed
 commit(s), restoring the previous pin
 `577c1590b43dea87e43f101b8e9e8bfa130ecfcf` (`v261017075838.0.0`), its lock
 node and the T99 pin. That release has no leases copy: rolling back removes the
-`hausnetz-leases` units and `/run/hausnetz-leases`, and hausnetz runs without
-leases (no other option changed).
+`hausnetz-leases` units and hausnetz runs without leases (no other option
+changed). The tmpfiles directory `/run/hausnetz-leases` and its copy stay on
+tmpfs until the next reboot; nothing reads them after the rollback.
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /ops/api/export` on the LAN before activation;
 reverting a source pin does not undo imported data. Both nginx snippets

@@ -85,7 +85,7 @@ fixture = {
     'services': {'hausnetz': {
         'enable': True, 'listen': '0.0.0.0:8377', 'firewallInterfaces': ['br-+', 'docker0'],
         'seed': None, 'extraArgs': [], 'discovery': {
-            'leasesFile': None, 'openFirewallMdns': True, 'mdnsInterfaces': ['enp2s0f0'],
+            'leasesFile': '/var/lib/AdGuardHome/data/leases.json', 'openFirewallMdns': True, 'mdnsInterfaces': ['enp2s0f0'],
             'openFirewallSsdp': True, 'ssdpPort': 1901, 'ssdpInterfaces': ['enp2s0f0'],
             'passive': True, 'passiveInterfaces': ['enp2s0f0']}}},
     'networking': {'nftables': {'enable': False}, 'firewall': {
@@ -96,7 +96,7 @@ fixture = {
     'systemd': {'services': {'hausnetz': {'serviceConfig': {
         'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"',
         'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_PACKET', 'AF_UNIX'],
-        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10}}}},
+        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases']}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
     'nixcfg': {'composeStack': {'extraRestartTriggers': [
         '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf']}},
@@ -126,6 +126,8 @@ for path, value, failed_check in (
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz"', 'ssdpArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_UNIX'], 'netlinkAllowed'),
     (('services', 'hausnetz', 'discovery', 'passive'), False, 'passiveEnabled'),
+    (('services', 'hausnetz', 'discovery', 'leasesFile'), None, 'leasesFromAdguard'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), [], 'leasesCopyGroupOnly'),
     (('services', 'hausnetz', 'discovery', 'passiveInterfaces'), ['enp2s0f0', 'docker0'], 'passiveLanOnly'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901"', 'passiveArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_NETLINK', 'AF_UNIX'], 'packetAllowed'),
