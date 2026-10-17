@@ -42,6 +42,11 @@ for hours in ["0", "-1", "0.25", "0.26666665", "337"]:
 result = evaluate('{ reconRetentionHours = "invalid"; }')
 assert result.returncode != 0
 assert "reconRetentionHours" in result.stderr
+for options in ['{ clientIds.executor = 709; }', '{ clientIds.recon = 709; }', '{ ownershipClientIds.j = [ 709 ]; }', '{ marketDataClientId = 709; }', '{ bookClientId = 709; }']:
+    rejected = evaluate(options)
+    assert rejected.returncode != 0, options
+    assert "client" in rejected.stderr.lower(), rejected.stderr
+print("JOED-20 reserved FX client 709 rejects executor, recon, legacy, market and book collisions")
 print("OPS-331 retention module evaluation passed: default, 4 valid overrides, 5 bounds failures, invalid type")
 PY
 

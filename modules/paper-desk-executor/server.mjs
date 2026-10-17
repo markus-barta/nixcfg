@@ -516,10 +516,8 @@ async function main() {
   }
   // An independent background task: never put quote waits on the intent queue,
   // mutate the trading ledger, or route FX failures through executor_error.
-  sampler = createFxSampler({ root: stateDir, onUpdate: fx => {
-    if (capture) capture({ ...started.ledger.load({ initialize: false }), resultsFxSampler: fx });
-  } });
-  sampler.start();
+  sampler = createResultsSampler({ root: stateDir, capture, ledger: started.ledger });
+  sampler?.start();
   console.error(`paper-desk-executor listening ${address.address}:${address.port}`);
   const shutdown = () => {
     sampler?.close();
@@ -528,6 +526,15 @@ async function main() {
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
+}
+
+// The sampler has no consumer until capture is enabled. Its ledger reads must
+// neither initialize nor migrate state, even when an old ledger is present.
+export function createResultsSampler({ capture, ledger, ...options }) {
+  if (!capture) return undefined;
+  return createFxSampler({ ...options, onUpdate: fx => capture({
+    ...ledger.load({ initialize: false, readOnly: true }), resultsFxSampler: fx,
+  }) });
 }
 
 export function createHealthServer(readHealth) {

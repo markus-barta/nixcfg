@@ -109,12 +109,23 @@ async function readRegular(filename, limit) {
 
 export function createFxSampler({ root, now = Date.now, request = requestFxSnapshot, timeoutMs = 10_000, runtime, onUpdate = () => {} } = {}) {
   // No ID collision with order/recon, book, quote, or historical readers.
-  const configured = [707, 708, ...Object.values(JSON.parse(process.env.IB_DESK_CLIENT_IDS || '{}')), ...Object.values(JSON.parse(process.env.IB_DESK_OWNERSHIP_CLIENT_IDS || '{}')).flat(), Number(process.env.IB_DESK_BOOK_CLIENT_ID || 708), Number(process.env.IB_DESK_MARKET_DATA_CLIENT_ID || 707)];
-  if (configured.some(id => Number(id) === FX_CLIENT_ID)) throw failure('fx_client_conflict');
+  let configurationReason = null;
+  try {
+    const parseIds = text => {
+      const value = JSON.parse(text || '{}');
+      if (!value || typeof value !== 'object' || Array.isArray(value)
+        || !Object.values(value).flat().every(id => Number.isInteger(Number(id)) && Number(id) > 0)) throw failure('fx_config_invalid');
+      return Object.values(value).flat();
+    };
+    const configured = [707, 708, ...parseIds(process.env.IB_DESK_CLIENT_IDS), ...parseIds(process.env.IB_DESK_OWNERSHIP_CLIENT_IDS),
+      Number(process.env.IB_DESK_BOOK_CLIENT_ID || 708), Number(process.env.IB_DESK_MARKET_DATA_CLIENT_ID || 707)];
+    if (configured.some(id => !Number.isInteger(Number(id)) || Number(id) <= 0)) configurationReason = 'fx_config_invalid';
+    else if (configured.some(id => Number(id) === FX_CLIENT_ID)) configurationReason = 'fx_client_conflict';
+  } catch { configurationReason = 'fx_config_invalid'; }
   const filename = path.join(root, 'results-fx.json');
   const switchPath = path.join(root, 'FX-SAMPLER-OFF');
-  let state = { schema: 1, days: {} }, enabled = true, reason = 'missing_sample', busy = false, timer, controller, loaded = false, closed = false, lastNotification;
-  const snapshot = () => structuredClone({ enabled, reason, days: state.days });
+  let state = { schema: 1, days: {} }, enabled = !configurationReason, reason = configurationReason || 'missing_sample', busy = false, timer, controller, loaded = false, closed = false, lastNotification;
+  const snapshot = () => structuredClone({ enabled, reason, days: Object.fromEntries(Object.entries(state.days).map(([date, day]) => [date, { samples: day.samples }])) });
   const notify = () => {
     const value = snapshot(), serialized = JSON.stringify(value);
     if (serialized === lastNotification) return;
@@ -134,6 +145,7 @@ export function createFxSampler({ root, now = Date.now, request = requestFxSnaps
   }
   async function tick() {
     if (busy || closed) return;
+    if (configurationReason) { notify(); return; }
     busy = true;
     try {
       let restored = false;
@@ -144,7 +156,7 @@ export function createFxSampler({ root, now = Date.now, request = requestFxSnaps
           state = saved;
           const day = saved.days[fxSlot(now()).date];
           const latest = Object.entries(day?.attempts || {}).sort(([a], [b]) => Number(a) - Number(b)).at(-1)?.[1];
-          reason = latest?.reason === 'ok' ? null : latest?.reason || 'missing_sample';
+          reason = latest?.reason === 'ok' ? null : latest?.reason === 'pending' ? 'missing_sample' : latest?.reason || 'missing_sample';
         } catch (error) { if (error.code !== 'ENOENT') throw failure('state_unavailable'); }
         loaded = true; restored = true;
       }
@@ -168,7 +180,7 @@ export function createFxSampler({ root, now = Date.now, request = requestFxSnaps
       const attempt = day.attempts[slot.bucket] = { at: new Date(now()).toISOString(), reason: 'pending' };
       for (const key of Object.keys(state.days).sort().slice(0, -FX_RETENTION_DAYS)) delete state.days[key];
       await persist();
-      reason = 'pending'; notify();
+      // A durable reservation is internal pacing state, never a Results update.
       controller = new AbortController();
       const deadline = setTimeout(() => controller.abort(), timeoutMs);
       let rejectTimeout;

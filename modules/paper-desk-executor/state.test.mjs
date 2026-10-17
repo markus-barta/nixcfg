@@ -8,6 +8,22 @@ import { Worker } from "node:worker_threads";
 import { admitIntent, MAX_RECON_EVIDENCE_BYTES, MAX_STATE_BYTES, openLedger, pruneState, RECON_RETENTION_MS, RETENTION_MS } from "./state.mjs";
 import { digest, newYorkDay, parseIntent } from "./policy.mjs";
 
+test("read-only sampler load never initializes, migrates, archives or invokes capture", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "joed20-readonly-"));
+  const ledger = openLedger(root, { beforePrune: () => assert.fail("read-only load invoked capture") });
+  ledger.load({ readOnly: true });
+  assert.deepEqual(readdirSync(root), []);
+  const initialized = openLedger(root);
+  initialized.load();
+  const legacy = JSON.parse(readFileSync(initialized.statePath, "utf8"));
+  delete legacy.reconStorageVersion;
+  writeFileSync(initialized.statePath, JSON.stringify(legacy));
+  const before = readFileSync(initialized.statePath, "utf8"), files = readdirSync(root);
+  assert.equal(ledger.load({ initialize: false, readOnly: true }).reconStorageVersion, undefined);
+  assert.equal(readFileSync(initialized.statePath, "utf8"), before);
+  assert.deepEqual(readdirSync(root), files);
+});
+
 test("retention preserves recent idempotency and unresolved evidence while pruning expired terminal claims", () => {
   const now = Date.now();
   const recent = new Date(now - RETENTION_MS + 1000).toISOString();

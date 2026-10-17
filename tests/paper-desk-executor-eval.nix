@@ -1,6 +1,10 @@
 # OPS-331: evaluate the real module with inert package paths; no builds or hosts.
 {
   reconRetentionHours ? null,
+  clientIds ? null,
+  ownershipClientIds ? null,
+  marketDataClientId ? null,
+  bookClientId ? null,
 }:
 let
   lib = import <nixpkgs/lib>;
@@ -38,7 +42,11 @@ let
           nixcfg.paperDeskExecutor = {
             enable = true;
           }
-          // lib.optionalAttrs (reconRetentionHours != null) { inherit reconRetentionHours; };
+          // lib.optionalAttrs (reconRetentionHours != null) { inherit reconRetentionHours; }
+          // lib.optionalAttrs (clientIds != null) { inherit clientIds; }
+          // lib.optionalAttrs (ownershipClientIds != null) { inherit ownershipClientIds; }
+          // lib.optionalAttrs (marketDataClientId != null) { inherit marketDataClientId; }
+          // lib.optionalAttrs (bookClientId != null) { inherit bookClientId; };
           nixcfg.composeStack = {
             enable = true;
             spec.services = {

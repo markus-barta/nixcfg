@@ -5,9 +5,55 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createFxSampler, requestFxSnapshot, fxSlot, FX_RETENTION_DAYS } from './fx-sampler.mjs';
+import { createResultsSampler } from './server.mjs';
 
 const root = () => mkdtempSync(path.join(tmpdir(), 'joed20-fx-'));
 const iso = time => new Date(time).toISOString();
+
+test('Results-off has no sampler or ledger reads; bad ID JSON and client conflicts disable only the sampler', async () => {
+  assert.equal(createResultsSampler({ ledger: { load() { assert.fail('Results off read ledger'); } } }), undefined);
+  const prior = process.env.IB_DESK_CLIENT_IDS;
+  try {
+    for (const [value, reason] of [['{', 'fx_config_invalid'], ['null', 'fx_config_invalid'], ['[]', 'fx_config_invalid'], ['{"executor":709}', 'fx_client_conflict']]) {
+      process.env.IB_DESK_CLIENT_IDS = value;
+      const updates = [];
+      const sampler = createResultsSampler({ root: root(), now: () => Date.parse('2026-10-26T13:30:00Z'),
+        request: () => assert.fail('disabled sampler made request'),
+        ledger: { load(options) { assert.deepEqual(options, { initialize: false, readOnly: true }); return {}; } },
+        capture: state => updates.push(state.resultsFxSampler) });
+      try {
+        await sampler.tick(); await sampler.tick();
+        assert.equal(sampler.snapshot().enabled, false);
+        assert.equal(sampler.snapshot().reason, reason);
+        assert.equal(updates.length, 1);
+      } finally { sampler.close(); }
+    }
+  } finally {
+    if (prior === undefined) delete process.env.IB_DESK_CLIENT_IDS; else process.env.IB_DESK_CLIENT_IDS = prior;
+  }
+});
+
+test('a pending quote does not publish attempts or transient partial status', async () => {
+  let now = Date.parse('2026-10-26T13:30:00Z'), resolve;
+  const updates = [];
+  const sampler = createFxSampler({ root: root(), now: () => now, onUpdate: value => updates.push(value),
+    request: () => new Promise(done => { resolve = done; }) });
+  try {
+    let tick = sampler.tick();
+    while (!resolve) await new Promise(done => setTimeout(done, 1));
+    resolve('0.90000000'); await tick;
+    now += 15 * 60_000; resolve = null;
+    const previous = updates.length;
+    tick = sampler.tick();
+    while (!resolve) await new Promise(done => setTimeout(done, 1));
+    assert.equal(updates.length, previous);
+    assert.equal(sampler.snapshot().reason, null);
+    assert.equal(JSON.stringify(sampler.snapshot()).includes('attempts'), false);
+    resolve('0.90000000'); await tick;
+    assert.equal(updates.length, previous + 1);
+    assert.ok(updates.every(value => value.reason !== 'pending'));
+  } finally { sampler.close(); }
+});
 
 test('fake clock: one request per 15-min RTH bucket plus fixed 16:05, across EDT/CET week and restart', async () => {
   for (const date of ['2026-10-23', '2026-10-26', '2026-10-30', '2026-11-02']) {
@@ -39,7 +85,7 @@ test('weekend, off-hours, repeated failure and runtime off-file never create ext
   now = Date.parse('2026-10-19T13:30:00Z');
   await sampler.tick(); await sampler.tick(); assert.equal(calls, 1);
   assert.equal(sampler.snapshot().reason, 'pacing_rejected');
-  assert.deepEqual(sampler.snapshot().days['2026-10-19'].attempts[0], { at: iso(now), reason: 'pacing_rejected' });
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'results-fx.json'), 'utf8')).days['2026-10-19'].attempts[0], { at: iso(now), reason: 'pacing_rejected' });
   writeFileSync(path.join(dir, 'FX-SAMPLER-OFF'), 'off\n');
   now += 15 * 60_000; await sampler.tick();
   assert.equal(calls, 1); assert.equal(sampler.snapshot().enabled, false);

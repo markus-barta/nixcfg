@@ -288,13 +288,13 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     headroom(Buffer.byteLength(body));
   }
 
-  function load({ initialize = true } = {}) {
+  function load({ initialize = true, readOnly = false } = {}) {
     let handle;
     try {
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      if (!initialize) return initialState();
+      if (!initialize || readOnly) return initialState();
       const initial = initialState();
       try {
         writeAtomic(statePath, `${serializeState(initial)}\n`, { exclusive: true });
@@ -323,7 +323,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     delete value.attributionConfig;
     rememberFirstOrders(value);
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
-    if (value.reconStorageVersion !== 1 || legacyRecons) {
+    if (!readOnly && (value.reconStorageVersion !== 1 || legacyRecons)) {
       beforePrune(value);
       try { writeAtomic(backupPath, original, { exclusive: true }); }
       catch (error) {
@@ -341,7 +341,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       // Migration preserves every non-recon row, even if already expired.
       // Normal admission/save retention happens only after publication.
       persist(value);
-    } else headroom(loadedBytes);
+    } else if (!readOnly) headroom(loadedBytes);
     return value;
   }
 
