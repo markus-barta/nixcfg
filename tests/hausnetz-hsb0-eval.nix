@@ -64,6 +64,11 @@ in
   ) allInterfaces;
   ssdpArgument = lib.hasInfix "\"--ssdp-port\" \"1901\"" unit.ExecStart;
   netlinkAllowed = has "AF_NETLINK" unit.RestrictAddressFamilies;
+  # OPS-355 2026-10-17: passive ARP/DHCP listener, LAN interface only.
+  passiveEnabled = cfg.discovery.passive;
+  passiveLanOnly = cfg.discovery.passiveInterfaces == [ "enp2s0f0" ];
+  passiveArgument = lib.hasInfix "\"--passive\" \"--passive-interfaces\" \"enp2s0f0\"" unit.ExecStart;
+  packetAllowed = has "AF_PACKET" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
   nice = unit.Nice == 10;
