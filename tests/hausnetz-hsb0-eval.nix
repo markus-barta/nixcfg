@@ -71,9 +71,11 @@ in
   passiveEnabled = cfg.discovery.passive;
   passiveLanOnly = cfg.discovery.passiveInterfaces == [ "enp2s0f0" ];
   passiveArgument = lib.hasInfix "\"--passive\" \"--passive-interfaces\" \"enp2s0f0\"" unit.ExecStart;
-  # OPS-355: the web source is hard off on hsb0 again after the trial.
-  webCheckOff = !cfg.discovery.webCheck;
-  webCheckArgument = lib.hasInfix "\"--web-check=false\"" unit.ExecStart;
+  # OPS-355: the web source and the Starlink dish status keep their module defaults (on).
+  webCheckAllowed = cfg.discovery.webCheck;
+  noWebCheckFlag = !(lib.hasInfix "\"--web-check=false\"" unit.ExecStart);
+  starlinkAllowed = cfg.starlink;
+  noStarlinkFlag = !(lib.hasInfix "\"--starlink=false\"" unit.ExecStart);
   packetAllowed = has "AF_PACKET" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";

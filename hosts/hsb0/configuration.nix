@@ -83,14 +83,14 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@037a6b5f nix/module.nix:44-265.
+  # Options: hausnetz@8f71be50 nix/module.nix:44-278.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
-  # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,141-161).
+  # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
   # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
   # copies it to /run/hausnetz-leases (0640, group hausnetz-leases); hausnetz
-  # reads only the copy (:320-372,448-449). Leases are optional enrichment, not
+  # reads only the copy (:333-385,462-463). Leases are optional enrichment, not
   # a dependency.
-  # The module owns the initially empty StateDirectory (:414); no data import.
+  # The module owns the initially empty StateDirectory (:428); no data import.
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
@@ -100,18 +100,19 @@ in
     ];
     discovery = {
       openFirewallMdns = true;
-      # OPS-355: nix/module.nix:204-235,313-317; UDP 1901 on mdnsInterfaces only.
+      # OPS-355: nix/module.nix:217-248,326-330; UDP 1901 on mdnsInterfaces only.
       openFirewallSsdp = true;
       mdnsInterfaces = [ "enp2s0f0" ];
       # OPS-355 (approved 2026-10-17, see the ticket): ARP/DHCP listener
       # between scans; passiveInterfaces defaults to mdnsInterfaces (LAN only,
       # asserted non-empty). Grants the unit CAP_NET_RAW and AF_PACKET only
-      # (nix/module.nix:30,237-263,277-282,435-442,465-466); nothing is sent.
+      # (nix/module.nix:30,250-276,290-295,449-456,479-480); nothing is sent.
       passive = true;
-      # OPS-355: the opt-in web source (HNET-238) is hard off on hsb0 again after
-      # the one-scan trial (see OPS-355); allowing it again needs the owner's go.
-      # The module default is true (:163-174); false adds --web-check=false to the unit.
-      webCheck = false;
+      # OPS-355 (approved 2026-10-17, see the ticket): the web source (HNET-238,
+      # discovery.webCheck, :176-187) and the Starlink dish status (HNET-48,
+      # top-level starlink, :81-92) keep their module defaults (on). Both are
+      # outgoing only, with no firewall or capability change; false adds
+      # --web-check=false or --starlink=false to the unit (:406-407).
     };
   };
   systemd.services.hausnetz.serviceConfig = {
