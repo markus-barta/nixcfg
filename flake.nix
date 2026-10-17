@@ -56,9 +56,9 @@
       url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # OPS-355: v261017161630.0.0 (opt-in web source shipped off HNET-238, online only from own answers HNET-243); explicitly reviewed revision; automated updates skip this input.
+    # OPS-355: v261017204833.0.0 (web check on by default for answering devices HNET-238, Starlink dish status HNET-48); explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=037a6b5f5580937f7e343c0ea04dadefe3f32889";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=8f71be50cab3603af1cabbe31856c1db486df8ee";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
