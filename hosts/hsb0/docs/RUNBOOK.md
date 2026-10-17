@@ -312,9 +312,9 @@ changed). The tmpfiles directory `/run/hausnetz-leases` and its copy stay on
 tmpfs until the next reboot; nothing reads them after the rollback.
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /ops/api/export` on the LAN before activation;
-reverting a source pin does not undo imported data. Both nginx snippets
-(`hsb0-home-hausnetz.conf` and `hsb0-home-inflight.conf`) are compose restart
-triggers, so a normal switch recreates `hsb0-home` when either changes.
+reverting a source pin does not undo imported data. The nginx snippets
+(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
+triggers, so a normal switch recreates `hsb0-home` when any of them changes.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
 checkout on **hsb0**, with the root deploy key present (0600). The first root
@@ -398,6 +398,20 @@ Push atomically (the temp dotfile is never served):
 
 ```bash
 scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/inflight/.index.html.tmp /var/lib/inflight/index.html'
+```
+
+### Video overview page (OPS-380)
+
+**URL**: http://100.64.0.6/videos/ (tailnet) or http://hsb0.lan/videos/ (home). Never public: hsb0 has no port forward.
+
+VID's scored overview of the planned videos (AEON-1480): one self-contained `index.html`
+(inline CSS and JS, no external requests, no private or client content). Same pattern as the
+In-flight page: `/var/lib/videos` (mba, 0755, tmpfiles), mounted read-only at `/srv/videos`,
+location from `docker/hsb0-home-videos.conf` through the HostDash include point, same headers,
+dotfiles return 404. Push atomically:
+
+```bash
+scp -q index.html mba@100.64.0.6:/var/lib/videos/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/videos/.index.html.tmp /var/lib/videos/index.html'
 ```
 
 ---

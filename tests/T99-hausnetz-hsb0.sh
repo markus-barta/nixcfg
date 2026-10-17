@@ -42,8 +42,10 @@ assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
 assert home.get("network_mode", "bridge") == "bridge"
 assert home["extra_hosts"] == ["host.docker.internal:host-gateway"]
 assert "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro" in home["volumes"]
+assert "/var/lib/videos:/srv/videos:ro" in home["volumes"]  # OPS-380
+assert "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro" in home["volumes"]
 assert c["proxySource"].endswith("/hosts/hsb0/docker/hsb0-home-hausnetz.conf")
-for snippet in ("hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf"):
+for snippet in ("hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf", "hsb0-home-videos.conf"):
     assert any(t.endswith("/hosts/hsb0/docker/" + snippet) for t in c["restartTriggers"]), snippet
 ssh = c["ssh"]
 assert "Match host github.com localuser root" in ssh["extraConfig"]
@@ -99,7 +101,8 @@ fixture = {
         'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases']}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
     'nixcfg': {'composeStack': {'extraRestartTriggers': [
-        '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf']}},
+        '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf',
+        '/hosts/hsb0/docker/hsb0-home-videos.conf']}},
 }
 
 def check_fixture(config):
@@ -133,6 +136,7 @@ for path, value, failed_check in (
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_NETLINK', 'AF_UNIX'], 'packetAllowed'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf'], 'proxyRestartTriggers'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
+    (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
 ):
     changed = copy.deepcopy(fixture)
     node = changed
