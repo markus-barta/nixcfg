@@ -840,8 +840,9 @@ validation rejects the reserved code; only the open day without a real cause
 may omit reasons. The board's open-day note rule shows no generic note when
 that day has no reasons, and shows a real FX reason when present.
 A reasonless open day built just before Vienna midnight and received just after
-it gets one 422 `partialReasonsRequired`; the runner's 1 s retry builds a fresh
-snapshot under the new Vienna day and heals the race.
+it gets one 422 `partialReasonsRequired`; the runner silently recomputes and
+resends once without failure logging or counter changes. Only that sole error
+on the day open at generation qualifies; other rejections use normal backoff.
 New cuts journal reported `historyGaps` separately from value-free 1 ms
 `fillGaps`, tagged `unattributed_activity` or `capture_gap`. They revoke coverage and
 remain in earlier-gap position-proof maths; their own day carries its own reason
@@ -956,7 +957,7 @@ For the open day, the reason check ends at the largest validated authoritative
 history target's `toExclusive` or the send time, whichever is earlier.
 The trailing unproven stretch is "so far",
 without a `history_gap` label. Explicit gaps and holes between Vienna midnight
-and that last proven instant still produce `history_gap`; closed-day checks
+and that instant still produce `history_gap`; closed-day checks
 continue to require proof through the next midnight.
 Full days omit `coverage`, using the README's documented default of `"full"`.
 An earlier gap also makes a day partial unless every captured Stage-0

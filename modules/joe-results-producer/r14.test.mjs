@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
 import { roundTrips } from './fifo.mjs';
 import { createCapture } from './capture.mjs';
 import { openProducer } from './producer.mjs';
@@ -12,6 +11,7 @@ import { decimalUnits } from './contracts/decimal.mjs';
 import { validateContract } from './contracts/index.mjs';
 import { validateResults, historyGaps, withFillGaps } from './results-validation.mjs';
 import { httpTransport } from './transport.mjs';
+import { consumerDayNote, consumerPartialReasons, PARTIAL_REASON } from './consumer-note.mjs';
 
 const start = '2026-10-15T22:00:00.000Z', at = '2026-10-16T18:00:00.000Z';
 const instant = (day, hour = '10') => `2026-10-${day}T${hour}:00:00.000Z`;
@@ -78,27 +78,18 @@ test('real mid-day tracking start emits capture_gap only', t => {
   assert.deepEqual(value.days[0].partialReasons, ['capture_gap']);
 });
 
-// Optional consumer check is entirely read-only, with no browser or network.
-// CI without the private source still checks the vendored contract description.
-test('open-day board rule shows no note without a cause and shows FX when present', async t => {
-  const value = snapshot(t), source = process.env.JOED20_CONSUMER_SOURCE;
-  if (!source) {
-    const schema = JSON.parse(readFileSync(new URL('./contracts/results.schema.json', import.meta.url)));
-    assert.match(schema.properties.days.items.properties.partialReasons.description, /open|current/i);
-    t.diagnostic('Consumer UI source unavailable; checked vendored rev 6 description');
-    return;
-  }
-  const modelSource = readFileSync(path.join(source, 'public/joe/results-model.js'), 'utf8');
-  const reasonCode = modelSource.slice(modelSource.indexOf('export const PARTIAL_REASON ='), modelSource.indexOf('export function partialReasonLabel'));
-  const model = runInNewContext(`${reasonCode.replaceAll('export ', '')}\n({partialReasons, PARTIAL_REASON})`, { NB: '\u00a0' });
-  const ui = readFileSync(path.join(source, 'public/joe/results.js'), 'utf8');
-  const rule = ui.match(/const note = reasons\.length[^;]+;/)?.[0];
-  assert.ok(rule, 'pinned consumer must expose the actual day-note rule');
-  const reasons = model.partialReasons(value.days[0]);
-  assert.equal(reasons.length, 0);
-  assert.equal(runInNewContext(`${rule}\nnote`, { reasons, k: '2026-10-16', today: '2026-10-16', partial: true,
-    warning: undefined, PARTIAL_REASON: model.PARTIAL_REASON }), '');
-  assert.equal(model.partialReasons({ partialReasons: ['fx_missing'] })[0].label, 'FX missing');
+test('open-day board rule shows no note without a cause and shows FX when present', t => {
+  const day = snapshot(t).days[0], today = '2026-10-16';
+  assert.deepEqual(consumerPartialReasons(day), []);
+  assert.equal(consumerDayNote(day, today), '');
+  const fxDay = { ...day, partialReasons: ['fx_missing'] };
+  assert.equal(consumerPartialReasons(fxDay)[0].label, 'FX missing');
+  assert.equal(consumerDayNote(fxDay, today), '');
+  assert.equal(consumerDayNote(day, '2026-10-17'), PARTIAL_REASON);
+  assert.equal(consumerDayNote(day, '2026-10-17', { note: 'synthetic-warning' }), 'synthetic-warning');
+  assert.equal(consumerDayNote(fxDay, '2026-10-17'), '');
+  assert.deepEqual(consumerPartialReasons({ partialReasons: ['fx_missing', 'fx_disabled', 'future_code'] }),
+    [{ code: 'fx_disabled', label: 'FX sampling off' }]);
 });
 
 const usd = f => ({ ...f, currency: 'USD', commission: { ...f.commission, currency: 'USD' }, closeFx: { ...f.closeFx, base: 'USD', source: 'synthetic' } });

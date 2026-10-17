@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CONTRACTS } from './contracts/index.mjs';
 import { acceptSnapshot } from './contracts/accept.mjs';
 import { validateResults } from './results-validation.mjs';
+import { viennaDay } from './contracts/vienna-date.mjs';
 
 export const RESULTS_PATH = '/joe/inbox/results';
 const REASONS = new Set(['contract_invalid', 'schema_unsupported', 'sequence_replayed', 'clock_ahead', 'clock_regressed', 'auth_required', 'too_large', 'ingress_unavailable', 'transport_failed']);
@@ -20,6 +21,22 @@ export class IngressError extends Error {
       .filter(error => SAFE_PATH.test(error?.path) && RULES.has(error?.rule))
       .map(({ path, rule }) => ({ path, rule }));
   }
+}
+
+function resultsRejection(status, rejected, payload) {
+  const error = new IngressError(status, rejected.reason, rejected.errors);
+  // Inspect the complete response, before diagnostic filtering/truncation can
+  // hide another error. The pinned receipt-dependent rule itself proves the
+  // named day is closed at the server; inbox rejects expose no receipt clock.
+  const errors = rejected.errors;
+  if (status === 422 && rejected.reason === 'contract_invalid' && Array.isArray(errors) && errors.length === 1
+    && errors[0]?.rule === 'partialReasonsRequired') {
+    const match = /^\$\.days\[(0|[1-9]\d*)\]\.partialReasons$/.exec(errors[0].path);
+    const day = match && payload.days[Number(match[1])];
+    error.midnightStraddle = !!day && day.date === viennaDay(payload.generatedAt)
+      && day.coverage === 'partial' && !day.partialReasons?.length;
+  }
+  return error;
 }
 
 export function failureDiagnostic(error) {
@@ -104,7 +121,8 @@ export function httpTransport(endpoint, { origin, fetchImpl = fetch, headers = (
       if (response.status !== 200) {
         const rejected = await rejectionBody(response);
         const reason = ({ 400: 'contract_invalid', 401: 'auth_required', 413: 'too_large', 503: 'ingress_unavailable' })[response.status] || rejected.reason;
-        throw new IngressError(response.status, reason, response.status === 422 ? rejected.errors : []);
+        if (response.status === 422) throw resultsRejection(response.status, { ...rejected, reason }, payload);
+        throw new IngressError(response.status, reason);
       }
       await response.body?.cancel();
       lastGood = structuredClone(payload);
@@ -123,7 +141,7 @@ export function fixtureIngress({ now = () => new Date().toISOString() } = {}) {
     async send(payload) {
       const receivedAt = now();
       const checked = validateResults(payload, { receivedAt });
-      if (!checked.ok) throw new IngressError(422, checked.reason, checked.errors);
+      if (!checked.ok) throw resultsRejection(422, checked, payload);
       const accepted = acceptSnapshot('results', payload, previous, receivedAt);
       if (accepted.status !== 200) throw new IngressError(422, accepted.reason, accepted.errors);
       previous = accepted;

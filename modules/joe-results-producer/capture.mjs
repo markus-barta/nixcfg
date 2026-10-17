@@ -7,7 +7,7 @@ import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHisto
 import { brokerQuantity, capturePositionProof } from './position-proof.mjs';
 import { captureBrokerRealised } from './broker-backstop.mjs';
 
-function authorityHash(event) {
+export function authorityHash(event) {
   const proof = event.positionProof, epoch = Date.parse(proof?.at);
   const interval = historyIntervals(withFillGaps(event.historyCoverage, event.fillGaps), event.at).find(([a, b]) => a <= epoch && epoch < b);
   // New quantities or a post-gap baseline matter; moving snapshot timestamps

@@ -91,7 +91,8 @@ for (const laterHistory of ['unknown', 'earlier target']) test(`trailing explici
 });
 
 test('explicit open-day target retains a trailing gap but never shortens closed-day coverage', () => {
-  const intervals = [interval(start, at('16', '21:00'))], target = Date.parse(at('16', '21:50'));
+  const intervals = [interval(start, at('16', '21:50'))], target = Date.parse(at('16', '21:50'));
   assert.equal(dayCoverage('2026-10-16', start, at('16', '22:00'), intervals, true, target), 'partial');
-  assert.equal(dayCoverage('2026-10-16', start, at('16', '21:59'), intervals, true, target), 'partial');
+  assert.equal(dayCoverage('2026-10-16', start, at('16', '21:59'), intervals, true, target), 'full');
+  assert.equal(dayCoverage('2026-10-16', start, at('16', '21:59'), [interval(start, at('16', '21:00'))], true, target), 'partial');
 });
