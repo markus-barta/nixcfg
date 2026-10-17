@@ -30,6 +30,7 @@ export function capturePositionProof(state, config, keepSymbols, { account, attr
     if (!Number.isSafeInteger(row.conId) || row.conId <= 0 || typeof row.symbol !== 'string'
       || !/^[A-Z0-9][A-Z0-9._-]{0,15}$/.test(row.symbol) || !/^[A-Z]{3}$/.test(row.currency || '')) return null;
     const key = instrument(row), quantity = row.position ?? row.pos;
+    instruments.add(key);
     // The IB adapter currently supplies Numbers. Only exact safe integers may
     // cross that boundary; decimal strings retain all eight fractional digits.
     try {
@@ -37,52 +38,100 @@ export function capturePositionProof(state, config, keepSymbols, { account, attr
       broker.set(key, brokerQuantity(quantity));
     } catch { return null; }
   }
-  return { at: snapshot.observedAt, positions: [...instruments].filter(key => !foreign.has(key)).sort()
+  return { at: snapshot.observedAt, foreign: [...foreign].sort(), positions: [...instruments].sort()
     .map(key => ({ instrument: key, quantity: unitsDecimal(broker.get(key) ?? 0n) })) };
 }
 
-// Evaluate every FIFO close, including multiple desks/contracts sharing a
-// symbol. A proof after the close cannot retroactively prove a flat baseline.
-export function earlierGapDays(fills, closes, intervals, proofs, start) {
+// First entry at or after epoch. Equal-time fills/proofs stay strictly outside
+// a query for evidence before an execution.
+function lowerBound(rows, epoch) {
+  let low = 0, high = rows.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (rows[middle].at < epoch) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function insert(rows, row) {
+  if (!rows.length || rows.at(-1).at <= row.at) rows.push(row);
+  else rows.splice(lowerBound(rows, row.at), 0, row);
+}
+
+// Parsed once as each cut is applied/replayed. Explicit rows have an instrument
+// index; complete receipts also prove omissions flat unless marked foreign.
+// Old receipts without a foreign set prove only their explicit positions.
+export class PositionProofIndex {
+  constructor() { this.instruments = new Map(); this.complete = []; }
+  add(proof) {
+    if (!validInstant(proof?.at) || !Array.isArray(proof.positions)) return;
+    const receipt = { at: Date.parse(proof.at), positions: new Map(), foreign: new Set(proof.foreign || []) };
+    for (const row of proof.positions) {
+      let quantity = null;
+      try { quantity = decimalUnits(row.quantity); } catch { /* unusable evidence */ }
+      receipt.positions.set(row.instrument, receipt.positions.has(row.instrument) ? null : quantity);
+    }
+    for (const key of new Set([...receipt.positions.keys(), ...receipt.foreign])) {
+      const rows = this.instruments.get(key) || [];
+      insert(rows, receipt); this.instruments.set(key, rows);
+    }
+    if (Array.isArray(proof.foreign)) insert(this.complete, receipt);
+  }
+  latest(instrument, begin, before) {
+    const candidates = [];
+    for (const rows of [this.instruments.get(instrument) || [], this.complete]) {
+      let i = lowerBound(rows, before) - 1;
+      if (i < 0 || rows[i].at < begin) continue;
+      const latest = rows[i].at;
+      while (i >= 0 && rows[i].at === latest) candidates.push(rows[i--]);
+    }
+    const latest = Math.max(...candidates.map(row => row.at));
+    return [...new Set(candidates.filter(row => row.at === latest))];
+  }
+}
+
+// Evaluate every captured Stage-0 fill, even an apparent opening: an omitted
+// entry can make its captured stop look like a new short position.
+export function earlierGapDays(fills, executions, intervals, proofs, start) {
   const partial = new Set(), books = new Map(), firstFill = new Map();
   for (const fill of fills) {
     if (!DESKS.includes(fill.desk) || fill.scope !== 'stage0') continue;
     const rows = books.get(fill.instrument) || [];
-    rows.push(fill); books.set(fill.instrument, rows);
-    firstFill.set(fill.instrument, Math.min(firstFill.get(fill.instrument) ?? Infinity, Date.parse(fill.at)));
+    const at = Date.parse(fill.at), quantity = decimalUnits(fill.quantity) * (fill.side === 'BUY' ? 1n : -1n);
+    rows.push({ at, desk: DESKS.indexOf(fill.desk), quantity }); books.set(fill.instrument, rows);
+    firstFill.set(fill.instrument, Math.min(firstFill.get(fill.instrument) ?? Infinity, at));
   }
-  for (const close of closes) {
-    const epoch = Date.parse(close.at), interval = intervals.find(([a, b]) => a <= epoch && epoch < b);
+  // Prefix quantities avoid rescanning all fills for each proof lookup.
+  for (const rows of books.values()) {
+    rows.sort((a, b) => a.at - b.at);
+    let quantities = DESKS.map(() => 0n), total = 0n;
+    for (const row of rows) {
+      quantities = [...quantities]; quantities[row.desk] += row.quantity;
+      total += row.quantity;
+      row.quantities = quantities; row.total = total;
+    }
+  }
+  const origin = Date.parse(start);
+  for (const execution of executions) {
+    const epoch = Date.parse(execution.at), interval = intervals.find(([a, b]) => a <= epoch && epoch < b);
     if (!interval) continue; // the enclosing day already fails interval coverage
-    const [begin] = interval, rows = books.get(close.instrument) || [];
-    if (begin <= Date.parse(start) && (firstFill.get(close.instrument) ?? Infinity) >= begin) continue;
-    const eligible = proofs.filter(proof => validInstant(proof?.at) && Array.isArray(proof.positions)
-      && Date.parse(proof.at) >= begin && Date.parse(proof.at) < epoch
-      && proof.positions.some(row => row.instrument === close.instrument));
-    const latest = eligible.reduce((latest, proof) => Math.max(latest, Date.parse(proof.at)), -Infinity);
-    const candidates = eligible.filter(proof => Date.parse(proof.at) === latest);
+    const [begin] = interval, rows = books.get(execution.instrument) || [];
+    if (begin <= origin && (firstFill.get(execution.instrument) ?? Infinity) >= begin) continue;
+    const candidates = proofs.latest(execution.instrument, begin, epoch);
     // Contradictory receipts at the same instant are ambiguous. A later
     // mismatch must not be hidden by an earlier matching receipt either.
     const trusted = candidates.length > 0 && candidates.every(proof => {
-      if (!validInstant(proof?.at) || !Array.isArray(proof.positions)) return false;
-      const observed = Date.parse(proof.at);
-      if (observed < begin || observed >= epoch) return false;
-      const positions = proof.positions.filter(row => row.instrument === close.instrument);
-      if (positions.length !== 1) return false;
+      const observed = proof.at;
+      if (proof.foreign.has(execution.instrument)) return false;
+      const broker = proof.positions.has(execution.instrument) ? proof.positions.get(execution.instrument) : 0n;
+      if (broker === null) return false;
       // Equal-time executions have ambiguous ordering relative to positionEnd.
-      if (rows.some(row => Date.parse(row.at) === observed)) return false;
-      const quantities = new Map();
-      let ownedAtStart = 0n, capturedSinceStart = 0n;
-      for (const fill of rows) {
-        if (Date.parse(fill.at) >= observed) continue;
-        const quantity = decimalUnits(fill.quantity) * (fill.side === 'BUY' ? 1n : -1n);
-        quantities.set(fill.desk, (quantities.get(fill.desk) || 0n) + quantity);
-        if (Date.parse(fill.at) < begin) ownedAtStart += quantity;
-        else capturedSinceStart += quantity;
-      }
-      let broker;
-      try { broker = decimalUnits(positions[0].quantity); } catch { return false; }
-      const owned = [...quantities.values()];
+      const cursor = lowerBound(rows, observed);
+      if (rows[cursor]?.at === observed) return false;
+      const prior = rows[cursor - 1];
+      const owned = prior?.quantities || [], ownedAtStart = rows[lowerBound(rows, begin) - 1]?.total ?? 0n;
+      const capturedSinceStart = (prior?.total ?? 0n) - ownedAtStart;
       // (a) Broker-flat AND every desk flat after the last gap. Account netting
       // of opposing desk lots is not a proven flat instrument.
       if (broker === 0n && owned.every(quantity => quantity === 0n)) return true;
@@ -94,7 +143,7 @@ export function earlierGapDays(fills, closes, intervals, proofs, start) {
       return ownedAtStart === brokerAtStart
         && !(owned.some(quantity => quantity > 0n) && owned.some(quantity => quantity < 0n));
     });
-    if (!trusted) partial.add(viennaDate(close.at));
+    if (!trusted) partial.add(viennaDate(execution.at));
   }
   return partial;
 }

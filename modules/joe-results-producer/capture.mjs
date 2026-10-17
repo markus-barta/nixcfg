@@ -10,7 +10,7 @@ function authorityHash(event) {
   const interval = historyIntervals(event.historyCoverage, event.at).find(([a, b]) => a <= epoch && epoch < b);
   // New quantities or a post-gap baseline matter; moving snapshot timestamps
   // alone must not restore the old one-cut-per-poll journal growth.
-  return hash([event.authoritative, event.disagreement, event.evidence, proof?.positions ?? null, interval?.[0] ?? null]);
+  return hash([event.authoritative, event.disagreement, event.evidence, proof?.positions ?? null, proof?.foreign ?? null, interval?.[0] ?? null]);
 }
 
 function closedDays(intervals, at) {
@@ -163,8 +163,13 @@ export function reconciliationEvidence(state, config, keepSymbols, { account, at
     previous.fills.push(hash(String(e.execId)));
     owned.set(key, previous);
   }
-  let broker;
-  try { broker = new Map(state.ownershipSnapshot.positions.map(row => [String(row.conId), brokerQuantity(row.position ?? row.pos)])); }
-  catch { return []; } // unusable quantities cannot supply positive position proof
-  return [...owned].filter(([key, row]) => !foreign.has(key) && row.quantity !== (broker.get(key) || 0n)).map(([key, row]) => ({ kind: 'fill_position_mismatch', instrument: hash(key), fills: row.fills }));
+  const broker = new Map(), unavailable = [];
+  for (const row of state.ownershipSnapshot.positions) {
+    if (keepSymbols.includes(row.symbol)) continue;
+    const key = String(row.conId);
+    try { broker.set(key, brokerQuantity(row.position ?? row.pos)); }
+    catch { unavailable.push({ kind: 'position_unavailable', instrument: hash(key) }); }
+  }
+  return [...unavailable, ...[...owned].filter(([key, row]) => !foreign.has(key) && row.quantity !== (broker.get(key) || 0n))
+    .map(([key, row]) => ({ kind: 'fill_position_mismatch', instrument: hash(key), fills: row.fills }))];
 }
