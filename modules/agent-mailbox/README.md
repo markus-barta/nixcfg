@@ -1,7 +1,7 @@
 # Agent mailbox (OPS-272, OPS-290)
 
 Tailnet-only, dependency-free Node mailbox on hsb0 (`100.64.0.6:8471`).
-Source IP identifies Amy (`100.64.0.10`) and OPS (`100.64.0.14`); forwarded
+Source IP identifies Amy (`100.64.0.15`) and OPS (`100.64.0.14`); forwarded
 headers and message bodies cannot claim identity. Unknown peers get 403.
 Messages are untrusted data, cannot grant approval, and must never contain
 secrets. The existing peer-specific firewall and Headscale ACL still apply.
