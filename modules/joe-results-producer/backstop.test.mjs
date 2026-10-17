@@ -65,6 +65,18 @@ test('one broker closing execution versus two FIFO portions is a count mismatch 
   assert.deepEqual(f.replay().days, value.days);
 });
 
+test('SDK undefined opening PnL survives ledger JSON save and capture to a full EUR round trip', t => {
+  const f = setup(t);
+  const report = f.state.commissions[0];
+  f.state.commissions[0] = JSON.parse(JSON.stringify({ ...report, realizedPNL: undefined }));
+  assert.equal(Object.hasOwn(f.state.commissions[0], 'realizedPNL'), false);
+  const first = f.refresh();
+  assert.equal(first.days[0].coverage ?? 'full', 'full');
+  assert.equal(first.trades[0].netEur.amount, '1.8');
+  assert.deepEqual(readJournal(f.output).filter(row => row.type === 'broker-mismatch'), []);
+  assert.deepEqual(f.replay().days, first.days);
+});
+
 for (const pnl of [undefined, null, Number.MAX_VALUE, 0.011, 'NaN', '1.7976931348623157e+308']) {
   test(`missing or unusable broker PnL (${String(pnl)}) fails closed`, t => {
     const f = setup(t); f.state.commissions[1].realizedPNL = pnl;

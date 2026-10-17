@@ -37,9 +37,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       const row = event.entry;
       if (row.type === 'fill') fills.set(row.fill.key, row.fill);
       else if (row.type === 'authority') authority = row;
-      else if (row.type === 'cut') {
-        for (const fill of row.fills) fills.set(fill.key, fill);
-        authority = row;
+      else if (row.type === 'cut' || row.type === 'fx') {
         if (row.fxSampler) {
           fxStatus = { enabled: row.fxSampler.enabled, reason: row.fxSampler.reason };
           for (const [date, day] of Object.entries(row.fxSampler.days || {})) {
@@ -47,6 +45,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
             fxDays.set(date, frozen ? { ...day, samples: [...(day.samples || []).filter(sample => sample.kind !== 'close'), frozen] } : day);
           }
         }
+        if (row.type === 'fx') return;
+        for (const fill of row.fills) fills.set(fill.key, fill);
+        authority = row;
         if (row.authoritative) {
           coverageIntervals = updateHistoryIntervals(coverageIntervals, row.historyCoverage, row.at);
           if (historyGaps(row.historyCoverage, row.at)) historyStart = Math.min(historyStart, Date.parse(row.historyCoverage.target.fromInclusive));
@@ -105,7 +106,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     const captured = [...fills.values()].map(fill => {
       if (!fxStatus || fill.currency !== 'USD') return fill;
       const fx = dayFx(fxDays.get(viennaDate(fill.at)), viennaDate(fill.at), at);
-      return { ...fill, closeFx: fx };
+      return fx ? { ...fill, closeFx: fx } : fill;
     });
     const excluded = [];
     const trades = roundTrips(captured, start, keepSymbols, () => {}, record => excluded.push(record));
@@ -149,7 +150,10 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     health(health, at = now()) {
       const value = executorHealth(health, at, authority?.disagreement === true);
       // Loopback executor health only; no household/account handoff in v1.
-      append({ type: 'health', value });
+      const { checkedAt: _previousAt, ...previous } = latestHealth || {};
+      const { checkedAt: _currentAt, ...current } = value;
+      if (hash(current) !== hash(previous)) append({ type: 'health', value });
+      latestHealth = value;
       return value;
     },
     get latestHealth() { return latestHealth; },

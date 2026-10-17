@@ -37,9 +37,10 @@ export function createCapture(filename, config, { account, attribute, executionT
   function initialize() {
     if (journal) return;
     known = new Map(); closeFx = new Map(); ordinals = new Map();
-    let previous;
+    let previous, lastCut;
     journal = openJournal(filename, { retain: () => false, onEntry: event => {
       previous = event;
+      if (event.type === 'cut') lastCut = event;
       if (event.authoritative) proven = updateHistoryIntervals(proven, event.historyCoverage, event.at);
       for (const fill of event.fills || []) {
         if (fill.scope === 'stage0') instruments.add(fill.instrument);
@@ -53,10 +54,10 @@ export function createCapture(filename, config, { account, attribute, executionT
       }
     } });
     if (!previous) journal.append({ type: 'start', at: now() });
-    if (previous?.type === 'cut') {
-      lastAuthority = authorityHash(previous);
-      lastGaps = hash(previous.historyCoverage?.gaps ?? null);
-      days = closedDays(proven, previous.at);
+    if (lastCut) {
+      lastAuthority = authorityHash(lastCut);
+      lastGaps = hash(lastCut.historyCoverage?.gaps ?? null);
+      days = closedDays(proven, lastCut.at);
     }
   }
   function capture(state) {
@@ -134,7 +135,7 @@ export function createCapture(filename, config, { account, attribute, executionT
     const positionProof = capturePositionProof(state, config, keepSymbols, { account, attribute }, instruments, at);
     const fxSampler = state.resultsFxSampler ? {
       enabled: state.resultsFxSampler.enabled,
-      reason: state.resultsFxSampler.reason === 'pending' ? null : state.resultsFxSampler.reason,
+      reason: state.resultsFxSampler.reason === 'pending' ? 'missing_sample' : state.resultsFxSampler.reason,
       days: {},
     } : null;
     const changedFx = new Map();
@@ -153,11 +154,15 @@ export function createCapture(filename, config, { account, attribute, executionT
     const nextDays = closedDays(nextProven, at);
     // Moving intraday bounds alone do not justify another durable cut. Keep
     // authority/fill changes and changed gaps immediate, including on restart.
-    if (!changed.length && nextAuthority === lastAuthority && gapHash === lastGaps && fxHash === lastFx && !changedFx.size && ![...nextDays].some(day => !days.has(day))) return;
+    const realCut = changed.length > 0 || nextAuthority !== lastAuthority || gapHash !== lastGaps || [...nextDays].some(day => !days.has(day));
+    if (!realCut && fxHash === lastFx && !changedFx.size) return;
+    // FX-only updates carry no position/history authority. Older producers
+    // ignore the new type; real cuts retain their existing replay shape.
+    const update = realCut ? event : { type: 'fx', at, fxSampler };
     const fxDates = Object.keys(fxSampler?.days || {});
-    if (fxDates.length <= 1) journal.append(event);
+    if (fxDates.length <= 1) journal.append(update);
     else for (const [index, date] of fxDates.entries()) journal.append({
-      ...event, fills: index === 0 ? changed : [],
+      ...(index === 0 ? update : { type: 'fx', at }),
       fxSampler: { ...fxSampler, days: { [date]: fxSampler.days[date] } },
     });
     for (const fill of changed) known.set(fill.key, hash(fill));

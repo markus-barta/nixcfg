@@ -722,9 +722,13 @@ are selected by the service. No LIVE mode or Gateway client exists in the produc
 
 When separately enabled, the executor's optional capture writes
 `/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
-recon compaction and ordinary saves. Each hash-chained, fsynced line is a whole
-capture cut, containing only owned Stage-0 fills, commissions, close FX and
-reconciliation evidence with hashed identifiers. Legacy, unowned and external
+recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
+whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
+fills, commissions, close FX and reconciliation evidence with hashed identifiers.
+FX-only events update samples/status without repeating position or history
+proofs; older producers ignore that event type on rollback. Health rows in the
+producer journal record changed health values; every transmission still reserves
+a sequence durably, even when health is unchanged. Legacy, unowned and external
 activity and policy KEEP symbols do not enter FIFO. The producer opens that
 input read-only and keeps
 its own append-only `/var/lib/joe-results-producer/results.jsonl`; retain and
@@ -754,9 +758,10 @@ is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
 
 Daily rows come only from captured executor activity on each Vienna day; days
-without captured activity are omitted, except coverage gaps from unattributed
-own fills: those days emit a partial row with an empty desk map, whose aggregate
-total is zero until attribution. `equityClose` is always null: v1 does not
+without captured activity are omitted, except every Vienna day touching an
+explicit history gap (including unattributed own fills): those days emit a
+partial row with an empty desk map, whose total is unknown, not zero.
+`equityClose` is always null: v1 does not
 consume household v2 health/account fragments, desk equity or History basis IDs,
 and old household observation journal events are ignored on replay. Day realised
 net, fees and trade counts sum every included closed FIFO portion across all
