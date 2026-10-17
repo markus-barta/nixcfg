@@ -5,6 +5,8 @@ experimental:
       version: v1.3.3
 
 entryPoints:
+  traefik-api:
+    address: "127.0.0.1:8099"
   web:
     address: ":80"
   web-secure:
