@@ -62,6 +62,7 @@ let
 in
 {
   imports = [
+    ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -193,6 +194,7 @@ in
   # Based on miniserver99's proven configuration
   # Web interface: http://192.168.1.100:3000
   services.adguardhome = lib.mkIf enableAdGuard {
+    usersSecretFile = ../../secrets/hsb8-adguard-users.age;
     enable = true;
     host = "0.0.0.0";
     port = 3000;
@@ -222,12 +224,7 @@ in
       # Custom filtering rules (allowlist + any user-defined rules)
       user_rules = dnsAllowlist;
 
-      users = [
-        {
-          name = "admin";
-          password = "$2y$05$6tWeTokm6nLLq7nTIpeQn.J9ln.4CWK9HDyhJzY.w6qAk4CmEpUNy";
-        }
-      ];
+      # Admin users are injected from the root-only agenix secret at startup.
 
       dhcp = {
         enabled = true; # DHCP server enabled for ww87

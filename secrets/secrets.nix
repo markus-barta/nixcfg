@@ -726,3 +726,21 @@ in
   "agents/archive/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
 
 }
+# Pending OPS-372 secrets: keep recipient checks green before OPS provisions
+# the encrypted files. Never synthesize placeholders or rekey all secrets.
+// (
+  if builtins.pathExists ./hsb0-adguard-users.age then
+    {
+      "hsb0-adguard-users.age".publicKeys = markus ++ hsb0;
+    }
+  else
+    { }
+)
+// (
+  if builtins.pathExists ./hsb8-adguard-users.age then
+    {
+      "hsb8-adguard-users.age".publicKeys = markus ++ hsb8;
+    }
+  else
+    { }
+)
