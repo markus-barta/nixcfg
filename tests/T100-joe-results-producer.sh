@@ -26,6 +26,7 @@ assert service["IPAddressDeny"] == ["any"]
 assert service["IPAddressAllow"] == ["127.0.0.1/32", "192.0.2.10/32"]
 assert service["ReadWritePaths"] == ["/var/lib/joe-results-producer"]
 assert "/var/lib/paper-desk-executor" in service["BindReadOnlyPaths"]
+assert "/var/lib/joe-board-pusher" not in service["BindReadOnlyPaths"]
 assert service["CapabilityBoundingSet"] == ""
 assert service["SupplementaryGroups"] == []
 assert service["SocketBindDeny"] == ["any"]
