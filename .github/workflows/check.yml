@@ -503,6 +503,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
+      - name: Verify Traefik API loopback routing and mutations (OPS-365)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 ruby yq-go --run "python3 tests/T103-traefik-api-auth.py"
+
       - name: Verify csb1 inspr-auth Cloudflare edge boundary
         if: steps.pin.outputs.pin_only != 'true'
         run: >-

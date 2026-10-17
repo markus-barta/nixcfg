@@ -681,7 +681,7 @@ or remove the slot. Janus keeps central custody encrypted, delivers a
 host-bound signed envelope, and the root-only host agent recreates only the
 declared Compose service. The canary itself runs as uid `65534` with no
 capabilities and proves that it loaded the current generation by comparing
-hashes in private tmpfs; neither the hash nor the value is exposed in UI or
+hashes in private tmpfs; neither the hash nor the value is displayed in UI or
 operator output.
 
 Before any activation, upgrade, or recovery action:
@@ -1102,6 +1102,284 @@ Traefik uses `secrets/traefik-variables.age` (shared with csb0) for ACME DNS-01 
 4. Commit + push; deploy both csb0 and csb1
 5. `docker restart csb1-traefik-1` to trigger immediate cert renewal
 6. Verify: `docker logs csb1-traefik-1 --tail 50 2>&1 | grep -i acme`
+
+### Traefik API containment and edge-token rotation (OPS-365)
+
+Traefik API is not served on public entrypoints. Both Compose specs remove
+all `traefik` router labels targeting `api@internal`. The HostDash HTTPS rule
+also excludes `/api` and `/dashboard` prefixes so its catch-all does not send
+these requests to SSO. HostDash authentication itself is tracked separately
+in OPS-366; API containment does not depend on its authorization policy.
+
+Operator access uses the file-provider `traefik-api-local` router on the
+`traefik-api` entrypoint, bound to **127.0.0.1:8099 inside the container**.
+There is no host port or Docker port publication for this listener. Both
+static configurations retain `api.dashboard: false` and no `api.insecure`.
+The official Alpine-based Traefik image supplies BusyBox wget; OPS confirms
+its availability with `docker exec csb1-traefik-1 busybox wget --help` (discard
+the help output). API access is through `docker exec` to this loopback listener,
+with responses captured inside the verification process below. Do not print
+raw API responses.
+
+`static.yml` and `dynamic.yml` are bind-mounted from each host checkout. Refresh
+the checkout before the managed switch; the configurations take effect when
+Traefik restarts. `postRecreate` explicitly recreates Traefik on both hosts.
+OPS compares the NixOS drvPath/nix-diff A/B remotely: the evaluated Compose
+changes are the API-label removal and HostDash path exclusions; the static
+and dynamic YAML add only the loopback operator route. Run
+`python3 tests/T103-traefik-api-auth.py --compare-ref ed5e43d6` before handoff.
+T103 requires Nix, Ruby/Psych, yq and the pinned public doctrine source.
+
+**Order: containment first, live verification second, rotation third.** After
+the reviewed containment change is merged and the managed switch is complete
+on **both** hosts, run the status-only probe:
+
+```bash
+nix shell nixpkgs#python3 nixpkgs#age nixpkgs#ruby nixpkgs#yq-go -c \
+  python3 tests/T103-traefik-api-auth.py --live
+```
+
+Anonymous and synthetic-cookie GET/HEAD requests to `/api/rawdata`,
+`/api/version`, `/api/http/routers` and `/dashboard/` on cs0/cs1 must return
+**404**, or 401/403. A 200, any 302 (including SSO), or a connection error fails.
+The probe never reads bodies or response headers and never follows redirects.
+Do not rotate until this passes for both hosts.
+
+#### Rotate only ENTER_EDGE_TOKEN — separate, Markus-gated OPS operation
+
+Contain the API first and verify T103 live before rotating the
+attestation. This procedure is documentation, not authorization to rotate.
+It leaves OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY, INSPR_AUTH_SA_PAT,
+ZITADEL_API_PAT and every other byte outside the token unchanged. No global
+rekey, editor, plaintext temporary file, shell tracing, environment dump, token
+in argv, or raw API output. The value is never shown to anyone; never paste
+values into Git or PPM.
+
+The two active runtime consumers of `csb1-inspr-auth-env` are:
+
+- The `inspr-auth` container, through its `env_file` in the Compose spec.
+- `inspr-edge-config.service`, through systemd `EnvironmentFile`; it renders
+  `/run/inspr-edge/dynamic.yml` for Traefik's file provider.
+
+The agenix declaration and Compose/renderer restart triggers also reference
+the file. `ops136/p1-prepare.sh` checks its existence/mode and archives it for
+historical recovery; `ops136/cutover.sh` archives it too. The historical drill
+and `env-equality.py` use the same Compose definition; they are not additional
+production consumers. Do not run those drills on the fleet. T58 validates
+the two-consumer wiring, T74 preserves the edge fragment, and T75 exercises
+providers/plugin in isolation; none is another production token consumer.
+Recheck the complete tracked source inventory without searching secret files:
+
+```bash
+git grep -n -E 'ENTER_EDGE_TOKEN|csb1-inspr-auth-env|inspr-edge-config|X-Inspr-Edge-Token' \
+  -- '*.nix' '*.sh' '*.py' '*.json' '*.yml' '*.yaml'
+```
+
+1. With Markus's rotation approval recorded on OPS-365, use a clean PR branch
+   in a root-owned csb1 checkout. Run the following **on csb1**, as root from that
+   checkout, in Bash with tracing disabled. Record the printed previous Git
+   revision on the ticket as the rollback/old-token reference. The script
+   decrypts only inside the process, generates 64 lowercase hex characters on
+   the host without printing them, replaces exactly one unquoted token value,
+   encrypts for exactly `secrets/secrets.nix`'s recipients, checks the round trip,
+   and atomically replaces only this ciphertext. Unexpected line shape or
+   concurrent changes fail closed; other ciphertexts remain untouched.
+
+   ```bash
+   set +x
+   nix shell nixpkgs#python3 nixpkgs#age -c python3 - <<'PY'
+   import json, os, pathlib, re, secrets, stat, subprocess, tempfile
+
+   def run(argv, data=None):
+       result = subprocess.run(argv, input=data, capture_output=True, check=False)
+       if result.returncode:
+           raise RuntimeError("rotation subprocess failed; output suppressed")
+       return result.stdout
+
+   def replace_token(plain):
+       matches = list(re.finditer(rb"(?m)^ENTER_EDGE_TOKEN=([0-9a-f]{64})\r?$", plain))
+       assignments = re.findall(rb"(?m)^[ \t]*(?:export[ \t]+)?ENTER_EDGE_TOKEN[ \t]*=", plain)
+       if len(matches) != 1 or len(assignments) != 1:
+           raise RuntimeError("expected exactly one unquoted 64-hex token line")
+       match = matches[0]
+       token = secrets.token_hex(32).encode("ascii")
+       while token == match[1]:
+           token = secrets.token_hex(32).encode("ascii")
+       updated = plain[:match.start(1)] + token + plain[match.end(1):]
+       assert re.fullmatch(rb"[0-9a-f]{64}", token)
+       assert updated[:match.start(1)] == plain[:match.start(1)]
+       assert updated[match.end(1):] == plain[match.end(1):]
+       return updated
+
+   os.umask(0o077)
+   target = pathlib.Path("secrets/csb1-inspr-auth-env.age")
+   assert os.geteuid() == 0 and target.is_file() and not target.is_symlink()
+   assert not run(["git", "status", "--porcelain", "--", str(target)]).strip()
+   previous = run(["git", "rev-parse", "HEAD"]).decode().strip()
+   recipients = json.loads(run([
+       "nix", "eval", "--offline", "--json", "--file", "secrets/secrets.nix",
+       "--apply", 'secrets: secrets."csb1-inspr-auth-env.age".publicKeys',
+   ]))
+   assert recipients and len(recipients) == len(set(recipients))
+   original = target.read_bytes()
+   identity = ["age", "--decrypt", "--identity", "/etc/ssh/ssh_host_ed25519_key"]
+   plain = run(identity, original)
+   updated = replace_token(plain)
+   encrypt = ["age", "--encrypt"]
+   for recipient in recipients:
+       encrypt.extend(["--recipient", recipient])
+   ciphertext = run(encrypt, updated)
+   assert run(identity, ciphertext) == updated
+   assert target.read_bytes() == original
+   mode = stat.S_IMODE(target.stat().st_mode)
+   with tempfile.TemporaryDirectory(dir=target.parent, prefix=".ops365-") as staging:
+       replacement = pathlib.Path(staging) / "ciphertext"
+       with replacement.open("xb") as output:
+           output.write(ciphertext)
+           output.flush()
+           os.fsync(output.fileno())
+       os.chmod(replacement, mode)
+       os.replace(replacement, target)
+   print("previous_revision=" + previous)
+   print("rotation=encrypted only_ENTER_EDGE_TOKEN_changed=true values_returned=false")
+   PY
+   ```
+
+2. On csb1, run the recipient check with the required tools available:
+
+   ```bash
+   nix shell nixpkgs#python3 nixpkgs#age -c \
+     bash tests/T47-agenix-recipient-integrity.sh
+   ```
+
+   This proves the actual age recipient stanzas equal the declared set
+   (currently `markus ++ csb1`). Run T58 offline plus its `--online`
+   Cloudflare-pin gate using the Python/PyYAML environment documented in
+   `tests/README.md`. T47 reads ciphertext headers, not secret values; it is
+   part of this separately approved OPS procedure. Stop on failure or a
+   suspicious header-only ciphertext. Never globally rekey.
+
+   Transfer **only ciphertext** from the root-owned csb1 checkout to a clean,
+   mba-owned PR worktree at the merged containment revision. Let
+   `rotation_worktree` name that existing worktree; first confirm its owner,
+   branch and clean status. As root, copy only the encrypted artifact:
+
+   ```bash
+   install -o mba -g users -m 0600 -- secrets/csb1-inspr-auth-env.age \
+     "$rotation_worktree/secrets/csb1-inspr-auth-env.age"
+   ```
+
+   Verify the source/destination ciphertext SHA256 digests match. As mba in
+   that worktree, rerun T47 through the same Nix shell, inspect `git diff --stat`,
+   `git diff` and `git status`, and commit **only**
+   `secrets/csb1-inspr-auth-env.age`. OPS pushes the branch and opens a PR;
+   merge requires CI and the adversarial approval gate. No plaintext, decrypted
+   file or root SSH identity is copied; the previous ciphertext remains in
+   Git history. These are operator instructions, not builder authorization.
+
+3. After merge, use the managed csb1 refresh/switch procedure. Agenix decrypts
+   on **switch**, not container rebuild. The ciphertext is a restart trigger
+   for both `inspr-edge-config.service` and `compose-csb1.service`; their
+   Requires/After ordering renders the private fragment before reconciliation.
+   The renderer publishes with `mv -f`, replacing the file with a new inode.
+   An existing single-file bind mount can retain the previous inode even
+   after file-provider watch events. The Compose `postRecreate` list therefore
+   recreates Traefik, binding the new fragment before it loads configuration.
+   Compose must recreate `inspr-auth` with the new env_file; a Docker restart
+   alone retains its old environment. Confirm the renderer and reconcile
+   units are active/successful and confirm the new `inspr-auth` start:
+
+   ```bash
+   systemctl show inspr-edge-config.service compose-csb1.service \
+     -p ActiveState -p Result -p ActiveEnterTimestamp
+   docker ps --filter 'name=^/inspr-auth$' --format '{{.Names}} {{.Status}}'
+   ```
+
+   Do not dump unit environments or logs containing runtime configuration.
+
+4. Confirm file-provider reload and the running app generation with the
+   value-free check below, as root on csb1 from the refreshed checkout. Replace
+   `<previous-revision>` with the revision recorded in step 1. No SSO cookie or
+   interactive prompt is used. The script compares SHA256 digests and lengths
+   for the old ciphertext's token, the new agenix value, the runtime fragment,
+   Traefik's loaded middleware from the **container-loopback API via docker
+   exec**, and the running application's process environment inside one
+   process. Only verdicts are emitted; API bodies and values remain in memory.
+
+   ```bash
+   nix shell nixpkgs#python3 nixpkgs#age -c python3 - <previous-revision> <<'PY'
+   import hashlib, hmac, json, pathlib, re, subprocess, sys
+
+   def run(argv, data=None):
+       result = subprocess.run(argv, input=data, capture_output=True, check=False)
+       if result.returncode:
+           raise RuntimeError("verification subprocess failed; output suppressed")
+       return result.stdout
+
+   def token(plain):
+       found = re.findall(rb"(?m)^ENTER_EDGE_TOKEN=([0-9a-f]{64})\r?$", plain)
+       assert len(found) == 1
+       return found[0]
+
+   def same(left, right):
+       return len(left) == len(right) and hmac.compare_digest(
+           hashlib.sha256(left).digest(), hashlib.sha256(right).digest())
+
+   try:
+       old_ciphertext = run(["git", "show", sys.argv[1] + ":secrets/csb1-inspr-auth-env.age"])
+       old = token(run(["age", "--decrypt", "--identity",
+                        "/etc/ssh/ssh_host_ed25519_key"], old_ciphertext))
+       current = token(pathlib.Path("/run/agenix/csb1-inspr-auth-env").read_bytes())
+       rendered = pathlib.Path("/run/inspr-edge/dynamic.yml").read_bytes()
+       found = re.findall(rb'X-Inspr-Edge-Token: "([0-9a-f]{64})"', rendered)
+       assert len(found) == 1 and same(found[0], current) and not same(old, current)
+       pids = run(["docker", "top", "inspr-auth", "-eo", "pid"]).splitlines()[1:]
+       assert len(pids) == 1
+       pid = int(pids[0].strip())
+       process = pathlib.Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+       app = [item.split(b"=", 1)[1] for item in process
+              if item.startswith(b"ENTER_EDGE_TOKEN=")]
+       assert len(app) == 1 and same(app[0], current) and not same(app[0], old)
+       active = json.loads(run([
+           "docker", "exec", "csb1-traefik-1", "busybox", "wget", "-qO-",
+           "http://127.0.0.1:8099/api/http/middlewares/inspr-auth-edge-token@file",
+       ]))
+       assert active["status"] == "enabled" and active["provider"] == "file"
+       loaded = active["headers"]["customRequestHeaders"]["X-Inspr-Edge-Token"].encode()
+       assert same(loaded, current)
+       print("renderer=ok file_provider_reload=ok app_generation=ok old_attestation=mismatched values_returned=false")
+   except Exception:
+       print("rotation_generation_check=failed values_returned=false", file=sys.stderr)
+       raise SystemExit(1)
+   PY
+   ```
+
+   **Old-token refusal means refusal of forwarded identity.** The pinned
+   inspr-auth implementation (`signupClientIPWithResolver`, covered by
+   `TestSignupClientIPTrustsOnlyResolvedTraefikPeer` in its owning repository)
+   requires a constant-time token match. A mismatched old token falls back to
+   the direct peer IP; it does not necessarily return HTTP 401/403. The
+   generation check proves that the running app's comparison value differs
+   from the old token and equals the newly loaded Traefik value. Record this
+   with the pinned image and the owning test evidence; do not claim that a
+   public `/enter` status proves old-token rejection. There is no value-free
+   live endpoint exposing the derived signup IP. A stronger behavioral live
+   negative probe requires a separately owned auth diagnostic; do not create
+   signup attempts or lab containers on csb1 to manufacture that evidence.
+
+5. Rerun `tests/T58-inspr-auth-edge.py --online` with its documented Python
+   environment and the T103 live Nix-shell command above. T58 proves
+   wiring, renderer fixtures and Cloudflare-pin freshness; it does not probe
+   the running app's old-token behavior. Confirm normal SSO login/`/enter`
+   behavior without publishing response bodies or credentials. Record only
+   revisions, image digest, recipient/generation verdicts and status codes.
+
+**Rollback:** restore the previous `.age` from the recorded Git revision in a
+reviewed PR, pass T47 + CI, merge, then perform the managed csb1 switch again.
+The same restart triggers restore both consumer generations. Rerun the reload,
+app-generation and T58/T103 checks against the rollback generation. The
+previous token generation returns with this rollback, so keep API containment
+active, require Markus's decision and arrange a fresh rotation promptly.
 
 ### Shared Flow origin (NIX-501)
 
