@@ -35,7 +35,7 @@ function exactFees(opening, closing) {
   return numerator / denominator;
 }
 
-export function roundTrips(fills, trackingInstant, keepSymbols) {
+export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => {}) {
   const lots = new Map(), trades = [];
   for (const fill of [...fills].sort((a, b) => (a.at || '').localeCompare(b.at || '') || (a.ordinal || 0) - (b.ordinal || 0) || a.key.localeCompare(b.key))) {
     if (!DESKS.includes(fill.desk) || fill.scope !== 'stage0') continue;
@@ -49,6 +49,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols) {
     while (remaining && book.length && book[0].sign !== sign) {
       const lot = book[0], quantity = min(remaining, lot.remaining);
       if (fill.at >= trackingInstant) {
+        onClose({ instrument: fill.instrument, at: fill.at });
         const fx = fxFor(fill), rate = decimalUnits(fx.rate);
         // Exact product, ONE conversion boundary. The contract has only eight
         // fractional digits: hold a nonrepresentable exact gross, never round it.
@@ -74,7 +75,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols) {
   return trades.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.id.localeCompare(b.id));
 }
 
-export function dayCloses(observations, trades, trackingStart, { from, through, intervals } = {}) {
+export function dayCloses(observations, trades, trackingStart, { from, through, intervals, earlierGaps = new Set() } = {}) {
   const days = new Map(), bases = {};
   for (const observation of [...observations].sort((a, b) => a.at.localeCompare(b.at))) {
     if (!validInstant(observation.at)) throw unavailable();
@@ -111,7 +112,7 @@ export function dayCloses(observations, trades, trackingStart, { from, through, 
       const total = totals.get(`${date}:${desk}`) || { count: 0, net: 0n, fees: 0n };
       Object.assign(value, { realisedNet: money(unitsDecimal(total.net)), fees: money(unitsDecimal(total.fees)), trades: total.count });
     }
-    coverage[date] = dayCoverage(date, from, through, intervals);
+    coverage[date] = earlierGaps.has(date) ? 'partial' : dayCoverage(date, from, through, intervals);
     const day = { date, desks };
     // Full is the documented default; only partial days need a wire marker.
     if (coverage[date] === 'partial') day.coverage = 'partial';

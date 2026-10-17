@@ -317,6 +317,21 @@ test("place and recon refuse missing, stale, wrong-account and uncovered recon e
   }
 });
 
+test("Results position proof time belongs to a complete snapshot, never a later streaming update", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const h = harness({ positions: [{ ...contract(), position: 2 }] });
+  const session = await h.connect(700);
+  try {
+    assert.equal(session.state.positionsObservedAt, new Date(now).toISOString());
+    t.mock.timers.tick(1000);
+    session.api.emit(events.position, ACCOUNT, contract(), 1, 100);
+    assert.equal(session.state.positionsObservedAt, null);
+    session.api.emit(events.positionEnd);
+    assert.equal(session.state.positionsObservedAt, new Date(now + 1000).toISOString());
+  } finally { session.close(); }
+});
+
 test("recon accepts today's ownership gap only after the same session's execution request completed", async (t) => {
   const now = Date.parse("2026-10-07T19:13:00Z");
   t.mock.timers.enable({ apis: ["Date"], now });
@@ -330,6 +345,7 @@ test("recon accepts today's ownership gap only after the same session's executio
   const result = await h.run(intent("recon"), state);
   assert.deepEqual(result.ownershipHistory, { status: "complete" }); assert.equal(result.ownershipComplete, true);
   assert.equal(state.ownershipComplete, true); assert.equal(result.deskPositions[0].quantity, 2);
+  assert.equal(state.ownershipSnapshot.observedAt, new Date(now).toISOString());
   assert.deepEqual(state.resultsHistoryCoverage, { status: coverage.status, target: coverage.target,
     gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) });
   assert.equal(state.executions[0].execution.execId, bought.execution.execId);
@@ -358,6 +374,7 @@ test("results history persists only bounds and gaps, excluding receipt lists; le
     gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) };
   assert.deepEqual(persisted, expected);
   assert.deepEqual(store.load().resultsHistoryCoverage, expected);
+  assert.equal(store.load().ownershipSnapshot.observedAt, new Date(now).toISOString());
   assert.deepEqual(coverage.completeIntervals[0].receiptIds, ["synthetic-complete-receipt"]);
   assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
 });

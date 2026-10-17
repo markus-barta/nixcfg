@@ -199,7 +199,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     try { if (!historyError) freshExecutionSnapshot(recon, history.coverage); }
     catch (error) { historyError = publicError(error); }
     syncExecutions(history, state.executions, recon.state.executions);
-    state.ownershipSnapshot = { account: recon.state.account, positions: recon.state.positions, ownershipComplete: !historyError };
+    state.ownershipSnapshot = { account: recon.state.account, positions: recon.state.positions.map(row => ({ ...row })), observedAt: recon.state.positionsObservedAt, ownershipComplete: !historyError };
     state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, recon.state, attribution);
     state.commissions = [...new Map([...(state.commissions || []), ...(history.commissions || []), ...(recon.state.commissions || [])].map((row) => [row.execId, row])).values()];
     recon.state.commissions = state.commissions;
@@ -252,7 +252,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       resolveUncertain(state, evidence.state, clientId, replayedClients);
     } finally { evidence.close(); }
     state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, ownershipSnapshot, attribution);
-    state.ownershipSnapshot = { account: ownershipSnapshot.account, positions: ownershipSnapshot.positions, ownershipComplete: !historyError };
+    state.ownershipSnapshot = { account: ownershipSnapshot.account, positions: ownershipSnapshot.positions.map(row => ({ ...row })), observedAt: ownershipSnapshot.positionsObservedAt, ownershipComplete: !historyError };
     const observed = publicSnapshot({ ...evidence.state, openOrders: [...new Map([...snapshot.openOrders, ...evidence.state.openOrders].map((row) => [`${row.clientId}:${row.orderId}`, row])).values()], executions: state.executions, marks: state.marks, commissions: state.commissions }, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     state.activeOrders = observed.openOrders;
     reconcileAttribution(state, attribution, { ...context, saveState, openOrders: observed.openOrders });

@@ -9,9 +9,119 @@ import { openProducer } from './producer.mjs';
 import { validateResults, historyIntervals } from './results-validation.mjs';
 import { IngressError, failureDiagnostic } from './transport.mjs';
 import { activityAttribution } from '../paper-desk-executor/policy.mjs';
+import { capturePositionProof, earlierGapDays } from './position-proof.mjs';
+import { hash } from './journal.mjs';
 
 const floor = ['SXR8', 'TSLA'];
 const instant = epoch => new Date(epoch).toISOString();
+
+test('position proof uses the complete broker snapshot, exact quantities and no raw identifiers', () => {
+  const at = '2026-10-16T12:00:00.000Z', account = 'synthetic-account';
+  const c = { conId: 1, symbol: 'ACME', currency: 'EUR' }, instrument = hash([1, 'ACME', 'EUR']);
+  const snapshot = { account, observedAt: at, ownershipComplete: true, positions: [{ ...c, position: 1 }] };
+  const state = { ownershipComplete: true, ownershipSnapshot: snapshot, executions: [] };
+  const options = { account, attribute: () => ({ desk: 'j' }) };
+  const proof = () => capturePositionProof(state, { executorClientId: 705 }, floor, options, [instrument], at);
+  assert.deepEqual(proof(), { at, positions: [{ instrument, quantity: '1' }] });
+  snapshot.positions[0].position = '0.12345678';
+  assert.equal(proof().positions[0].quantity, '0.12345678');
+  for (const invalid of [0.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, 'bad']) {
+    snapshot.positions[0].position = invalid;
+    assert.equal(proof(), null);
+  }
+  snapshot.positions[0].position = 1;
+  for (const changed of [{ observedAt: null }, { observedAt: '2026-10-16T13:00:00.000Z' },
+    { ownershipComplete: false }, { account: 'synthetic-other' }, { positions: [{ ...c, position: '1' }, { ...c, position: '1' }] },
+    { positions: [{ conId: 1, position: '1' }] }]) {
+    state.ownershipSnapshot = { ...snapshot, ...changed };
+    assert.equal(proof(), null);
+  }
+  state.ownershipSnapshot = snapshot;
+  state.executions = [{ contract: c, execution: { acctNumber: account, clientId: 999 } }];
+  assert.deepEqual(proof().positions, []); // foreign/netted instruments supply no proof
+});
+
+test('earlier-gap proof is per instrument and every close; corrections and conflicting receipts fail closed', () => {
+  const start = '2026-10-14T22:00:00.000Z', begin = '2026-10-15T09:00:00.000Z';
+  const at = '2026-10-15T10:00:00.000Z', closeAt = '2026-10-16T12:00:00.000Z';
+  const intervals = [[Date.parse(begin), Date.parse('2026-10-17T22:00:00.000Z')]];
+  const fill = (instrument, at, side, quantity = '1', desk = 'j') => ({ instrument, at, side, quantity, desk, scope: 'stage0' });
+  const held = fill('synthetic-a', '2026-10-15T06:00:00.000Z', 'BUY');
+  const close = { instrument: 'synthetic-a', at: closeAt };
+  const proof = (quantity, time = at) => ({ at: time, positions: [{ instrument: 'synthetic-a', quantity }] });
+  const partial = (fills, proofs, closes = [close], origin = start) =>
+    [...earlierGapDays(fills, closes, intervals, proofs, origin)];
+  assert.deepEqual(partial([held], [proof('1')]), []);
+  assert.deepEqual(partial([{ ...held, quantity: '2' }], [proof('1')]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [proof('1'), proof('2')]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [proof('1'), proof('2', '2026-10-15T11:00:00.000Z')]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [{ at, positions: [] }]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [proof('1')], [close, { instrument: 'synthetic-b', at: closeAt }]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [], [close], '2026-10-16T00:00:00.000Z'), ['2026-10-16']);
+  assert.deepEqual(partial([{ ...held, side: 'SELL' }], [proof('-1')]), []);
+  assert.deepEqual(partial([held, { ...held, side: 'SELL', desk: 'joe' }], [proof('0')]), ['2026-10-16']);
+  // A position held across the gap is really flat after a captured close and
+  // a matching broker-flat snapshot. New later closes may then be full.
+  const flattened = [held, fill('synthetic-a', '2026-10-15T09:30:00.000Z', 'SELL')];
+  assert.deepEqual(partial(flattened, [proof('0')]), []);
+  assert.deepEqual(partial(flattened, [proof('0')], [{ instrument: 'synthetic-a', at: '2026-10-15T09:30:00.000Z' }, close]), ['2026-10-15']);
+  // The nonzero start quantity is rolled back through a post-gap add.
+  assert.deepEqual(partial([held, fill('synthetic-a', '2026-10-15T09:30:00.000Z', 'BUY')], [proof('2')]), []);
+});
+
+for (const [name, openingAt, proofAt, quantity, gapAfter, expected] of [
+  ['flat after the earlier gap', '2026-10-16T10:00:00.000Z', '2026-10-15T10:00:00.000Z', '0', false, 'full'],
+  ['held across the earlier gap without reconciliation', '2026-10-15T06:00:00.000Z', null, null, false, 'partial'],
+  ['matching reconciliation at interval start', '2026-10-15T06:00:00.000Z', '2026-10-15T09:00:00.000Z', '1', false, 'full'],
+  ['matching reconciliation rolled back within proven interval', '2026-10-15T06:00:00.000Z', '2026-10-15T10:00:00.000Z', '1', false, 'full'],
+  ['gap after the closed day', '2026-10-15T06:00:00.000Z', null, null, true, 'full'],
+  ['mismatched reconciliation', '2026-10-15T06:00:00.000Z', '2026-10-15T09:00:00.000Z', '2', false, 'partial'],
+  ['flat only after the close', '2026-10-15T06:00:00.000Z', '2026-10-16T13:00:00.000Z', '0', false, 'partial'],
+  ['reconciliation before the last gap', '2026-10-15T06:00:00.000Z', '2026-10-15T07:00:00.000Z', '1', false, 'partial'],
+  ['snapshot simultaneous with a fill is ambiguous', '2026-10-15T09:00:00.000Z', '2026-10-15T09:00:00.000Z', '1', false, 'partial'],
+]) test(`earlier-gap rule: ${name}, capture and producer replay`, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'joed20-earlier-gap-'));
+  const input = path.join(dir, 'capture.jsonl'), output = path.join(dir, 'results.jsonl');
+  const start = '2026-10-14T22:00:00.000Z', at = '2026-10-17T22:00:00.000Z';
+  const closedAt = '2026-10-16T12:00:00.000Z', account = 'synthetic-account';
+  const config = { executorClientId: 705, ownClientIds: [705], foreignAlertSince: start };
+  const raw = (key, time, side, price) => ({ contract: { conId: 1, symbol: 'ACME', currency: 'EUR' },
+    execution: { execId: `${key}.01`, acctNumber: account, clientId: 705, orderRef: 'j|261015|synthetic', time, side, shares: '1', price } });
+  const executions = [raw('synthetic-open', openingAt, 'BOT', '10'), raw('synthetic-close', closedAt, 'SLD', '12')];
+  const state = { ownershipComplete: true, executions,
+    commissions: executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR' })),
+    resultsHistoryCoverage: { status: 'known', target: { fromInclusive: start, toExclusive: at }, gaps: [{
+      fromInclusive: gapAfter ? '2026-10-17T08:00:00.000Z' : '2026-10-15T08:00:00.000Z',
+      toExclusive: gapAfter ? '2026-10-17T09:00:00.000Z' : '2026-10-15T09:00:00.000Z',
+    }] },
+    ownershipSnapshot: { account, ownershipComplete: true, observedAt: proofAt,
+      positions: quantity === null || quantity === '0' ? [] : [{ conId: 1, symbol: 'ACME', currency: 'EUR', position: quantity }] } };
+  let now = start;
+  const options = { account, attribute: activityAttribution, executionTime: Date.parse, now: () => now };
+  let capture = createCapture(input, config, options);
+  capture({ ownershipComplete: true, executions: [] });
+  now = at; capture(state); capture.close();
+  // Neither an executor restart nor a newer unrelated activity timestamp may
+  // restamp a stale snapshot or manufacture a fresh quantity reconciliation.
+  capture = createCapture(input, config, options);
+  capture({ ...state, concurrentObservedAt: at }); capture.close();
+  assert.equal(readJournal(input).length, 3);
+  const serialized = JSON.stringify(readJournal(input));
+  assert.equal(serialized.includes(account), false);
+  assert.equal(serialized.includes('conId'), false);
+  let producer = openProducer(output, { now: () => at });
+  producer.ingest(readJournal(input));
+  producer.observe({ at: closedAt, desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic-earlier-gap' } } });
+  const payload = producer.snapshot();
+  assert.equal(payload.trades.length, 1);
+  assert.equal(payload.days[0].coverage ?? 'full', expected);
+  assert.equal(validateResults(payload).ok, true);
+  producer.close();
+  producer = openProducer(output, { now: () => at });
+  producer.ingest(readJournal(input));
+  assert.deepEqual(producer.snapshot().days, payload.days);
+  producer.close();
+});
 
 for (const [day, begin, end, hours] of [
   ['2026-10-16', '2026-10-15T22:00:00.000Z', '2026-10-16T22:00:00.000Z', 24],
