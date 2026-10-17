@@ -83,13 +83,13 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@a3941487 nix/module.nix:44-252.
+  # Options: hausnetz@037a6b5f nix/module.nix:44-265.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
   # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,141-161).
   # HNET-228 (Markus's go 2026-10-17): a root hausnetz-leases unit copies it to
   # /run/hausnetz-leases (0640, group hausnetz-leases); hausnetz reads only the
-  # copy (:307-359,434-435). Leases are optional enrichment, not a dependency.
-  # The module owns the initially empty StateDirectory (:400); no data import.
+  # copy (:320-372,448-449). Leases are optional enrichment, not a dependency.
+  # The module owns the initially empty StateDirectory (:414); no data import.
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
@@ -107,6 +107,10 @@ in
       # asserted non-empty). Grants the unit CAP_NET_RAW and AF_PACKET only
       # (nix/module.nix:30,201-230,242-245,303-307); nothing is sent.
       passive = true;
+      # OPS-355 pin 7 (LEAD's condition): the opt-in web source (HNET-238) stays
+      # hard off on hsb0 until the trial (Markus's Desk 982dcf2d). The module
+      # default is true (:163-174); false adds --web-check=false to the unit.
+      webCheck = false;
     };
   };
   systemd.services.hausnetz.serviceConfig = {
