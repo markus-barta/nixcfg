@@ -87,6 +87,8 @@ def email_sender(config: dict, docker_bin: str, *, subject: str | None = None,
             )
             # sendmail acceptance means queued at the existing managed relay;
             # do not claim final inbox delivery from this result alone.
+            if result.returncode != 0:
+                print(f"email notification failed: relay exit status {result.returncode}")
             return result.returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             print("email notification failed: managed relay unavailable")
