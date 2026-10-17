@@ -82,7 +82,7 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@680a1d4e nix/module.nix:41-50,109-230.
+  # Options: hausnetz@577c1590 nix/module.nix:41-50,109-230.
   # seed and discovery.leasesFile retain their null defaults (:52-60,128-136).
   # The module owns the initially empty StateDirectory (:252-282); no data import.
   services.hausnetz = {
