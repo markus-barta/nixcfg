@@ -29,27 +29,48 @@ export function validateResults(payload, { stage = 'ingress' } = {}) {
 
 // History bounds are evidence, never inferred from a successful poll. Exclude
 // explicit gaps and reject unknown, malformed or future bounds.
-export function historyIntervals(coverage, at) {
+export function historyGaps(coverage, at) {
   const target = coverage?.target;
   if (!validInstant(at) || !['complete', 'known'].includes(coverage?.status) || !Array.isArray(coverage?.gaps)
-    || !validInstant(target?.fromInclusive) || !validInstant(target?.toExclusive)) return [];
+    || !validInstant(target?.fromInclusive) || !validInstant(target?.toExclusive)) return null;
   const from = Date.parse(target.fromInclusive), to = Date.parse(target.toExclusive);
-  if (from >= to || to > Date.parse(at) || (coverage.status === 'complete' && coverage.gaps.length)) return [];
+  if (from >= to || to > Date.parse(at) || (coverage.status === 'complete' && coverage.gaps.length)) return null;
   const gaps = [];
   for (const gap of coverage.gaps) {
-    if (!validInstant(gap?.fromInclusive) || !validInstant(gap?.toExclusive)) return [];
+    if (!validInstant(gap?.fromInclusive) || !validInstant(gap?.toExclusive)) return null;
     const a = Date.parse(gap.fromInclusive), b = Date.parse(gap.toExclusive);
-    if (a >= b || a < from || b > to) return [];
+    if (a >= b || a < from || b > to) return null;
     gaps.push([a, b]);
   }
-  let cursor = from;
-  const intervals = [];
-  for (const [a, b] of gaps.sort(([a], [b]) => a - b)) {
-    if (a > cursor) intervals.push([cursor, a]);
-    cursor = Math.max(cursor, b);
+  return gaps;
+}
+
+function subtractIntervals(intervals, gaps) {
+  const result = [];
+  for (const [from, to] of intervals) {
+    let cursor = from;
+    for (const [a, b] of gaps) {
+      if (b <= cursor || a >= to) continue;
+      if (a > cursor) result.push([cursor, a]);
+      cursor = Math.max(cursor, b);
+    }
+    if (cursor < to) result.push([cursor, to]);
   }
-  if (cursor < to) intervals.push([cursor, to]);
-  return intervals;
+  return result;
+}
+
+export function historyIntervals(coverage, at) {
+  const gaps = historyGaps(coverage, at);
+  if (!gaps) return [];
+  return subtractIntervals([[Date.parse(coverage.target.fromInclusive), Date.parse(coverage.target.toExclusive)]], gaps.sort(([a], [b]) => a - b));
+}
+
+// New explicit gaps revoke earlier proof too; replay must not union away a
+// newly discovered unattributed fill. Later complete proof can heal the gap.
+export function updateHistoryIntervals(intervals, coverage, at) {
+  const gaps = historyGaps(coverage, at);
+  if (!gaps) return intervals;
+  return subtractIntervals(mergeIntervals([...intervals, [Date.parse(coverage.target.fromInclusive), Date.parse(coverage.target.toExclusive)]]), gaps.sort(([a], [b]) => a - b));
 }
 
 export function mergeIntervals(intervals) {

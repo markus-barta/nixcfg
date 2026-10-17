@@ -7,20 +7,22 @@ import { openProducer } from './producer.mjs';
 import { DESKS } from './fifo.mjs';
 import { CONTRACTS, validateContract } from './contracts/index.mjs';
 
-// 10,000 ms CPU per build + ingress/served validation, below the 25 s cadence.
-// Local Node fixture: spring 156.243 ms, autumn 143.316 ms CPU (macOS).
-// Each served snapshot was 1,030,202 bytes including receivedAt (8 MiB limit).
-const CPU_BOUND_MS = 10_000;
+// 2,500 ms CPU per ingest/build or restart-replay/build operation, including
+// ingress/served validation; each processes 15,000 cuts (250 per day).
+// macOS Node 24.20.0 CPU (spring/autumn): ingest 1677.761/1770.060 ms,
+// replay 228.684/216.614 ms; served snapshots 1,030,202 bytes including receivedAt.
+const CPU_BOUND_MS = 2_500;
 const iso = value => new Date(value).toISOString();
 
 for (const [season, start, firstNoon, dstDay] of [
   ['spring', '2026-03-01T23:00:00.000Z', '2026-03-02T12:00:00.000Z', '2026-03-29'],
   ['autumn', '2026-09-27T22:00:00.000Z', '2026-09-28T12:00:00.000Z', '2026-10-25'],
 ]) test(`bounded CPU: 60 Vienna days, three desks, 4320 fills, KEEP and ${season} DST`, t => {
-  const fills = [], observations = [], base = Date.parse(firstNoon);
+  const fills = [], observations = [], cuts = [], base = Date.parse(firstNoon);
   const at = iso(base + 60 * 86400_000);
   for (let day = 0; day < 60; day++) {
     const noon = base + day * 86400_000;
+    const firstFill = fills.length;
     observations.push({ at: iso(noon), desks: Object.fromEntries(DESKS.map(desk => [desk, {
       equity: { amount: '5000', currency: 'EUR' }, basisId: `synthetic-${season}-${day}-${desk}`,
     }])) });
@@ -34,14 +36,22 @@ for (const [season, start, firstNoon, dstDay] of [
           closeFx: { base: 'EUR', quote: 'EUR', rate: '1', source: 'identity', observedAt: time } });
       }
     }
+    for (let cut = 0; cut < 250; cut++) {
+      const capturedAt = iso(noon + (cut + 1) * 86400_000 / 250);
+      cuts.push({ type: 'cut', at: capturedAt, authoritative: true, disagreement: false,
+        fills: cut === 0 ? fills.slice(firstFill) : [],
+        historyCoverage: { status: 'complete', target: { fromInclusive: start, toExclusive: capturedAt }, gaps: [] } });
+    }
   }
   assert.equal(fills.length, 4320);
-  const producer = openProducer(path.join(mkdtempSync(path.join(tmpdir(), 'joed20-cpu-')), 'results.jsonl'), { now: () => at });
+  assert.equal(cuts.length, 15_000);
+  const filename = path.join(mkdtempSync(path.join(tmpdir(), 'joed20-cpu-')), 'results.jsonl');
+  const source = [{ type: 'start', at: start }, ...cuts];
+  const before = process.cpuUsage();
+  let producer = openProducer(filename, { now: () => at });
   try {
-    producer.ingest([{ type: 'start', at: start }, { type: 'cut', at, authoritative: true, disagreement: false, fills,
-      historyCoverage: { status: 'complete', target: { fromInclusive: start, toExclusive: at }, gaps: [] } }]);
+    producer.ingest(source);
     observations.forEach(producer.observe);
-    const before = process.cpuUsage();
     const payload = producer.snapshot(); // includes vendored validation
     assert.equal(validateContract('results', payload, { stage: 'ingress' }).ok, true);
     // The board adds this server-owned property before its served-size check.
@@ -49,8 +59,19 @@ for (const [season, start, firstNoon, dstDay] of [
     assert.equal(validateContract('results', served, { stage: 'served' }).ok, true);
     const usage = process.cpuUsage(before), cpuMs = (usage.user + usage.system) / 1000;
     const bytes = Buffer.byteLength(JSON.stringify(served));
-    t.diagnostic(`cpu_ms=${cpuMs.toFixed(3)} bound_ms=${CPU_BOUND_MS} served_bytes=${bytes} limit_bytes=${CONTRACTS.limits.results}`);
-    assert.ok(cpuMs < CPU_BOUND_MS, `CPU ${cpuMs} ms exceeds ${CPU_BOUND_MS} ms`);
+    t.diagnostic(`ingest_cpu_ms=${cpuMs.toFixed(3)} bound_ms=${CPU_BOUND_MS} cuts=${cuts.length} served_bytes=${bytes} limit_bytes=${CONTRACTS.limits.results}`);
+    assert.ok(cpuMs < CPU_BOUND_MS, `ingest CPU ${cpuMs} ms exceeds ${CPU_BOUND_MS} ms`);
+    producer.close();
+    const beforeReplay = process.cpuUsage();
+    producer = openProducer(filename, { now: () => at }); // stream and replay all durable cuts
+    producer.ingest(source); // verify the entire already-ingested capture prefix
+    const replayed = producer.snapshot();
+    assert.equal(validateContract('results', replayed, { stage: 'ingress' }).ok, true);
+    assert.equal(validateContract('results', { ...replayed, receivedAt: at }, { stage: 'served' }).ok, true);
+    const replayUsage = process.cpuUsage(beforeReplay), replayMs = (replayUsage.user + replayUsage.system) / 1000;
+    t.diagnostic(`replay_cpu_ms=${replayMs.toFixed(3)} bound_ms=${CPU_BOUND_MS} cuts=${cuts.length}`);
+    assert.ok(replayMs < CPU_BOUND_MS, `replay CPU ${replayMs} ms exceeds ${CPU_BOUND_MS} ms`);
+    assert.deepEqual(replayed.days, payload.days); assert.deepEqual(replayed.trades, payload.trades);
     assert.ok(bytes < CONTRACTS.limits.results);
     assert.equal(payload.days.length, 60);
     assert.ok(payload.days.some(day => day.date === dstDay));

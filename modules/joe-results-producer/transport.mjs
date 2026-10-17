@@ -77,7 +77,10 @@ export function httpTransport(endpoint, { fetchImpl = fetch, headers = () => ({}
     keepSymbols,
     async send(payload) {
       const body = JSON.stringify(payload);
-      if (Buffer.byteLength(body) > CONTRACTS.limits.results) throw new IngressError(413, 'too_large');
+      // Reserve the board's server-owned UTC millisecond timestamp as well as
+      // the ingress bytes; a just-fitting ingress must fit when served too.
+      const servedBytes = Buffer.byteLength(JSON.stringify({ ...payload, receivedAt: '2000-01-01T00:00:00.000Z' }));
+      if (Buffer.byteLength(body) > CONTRACTS.limits.results || servedBytes > CONTRACTS.limits.results) throw new IngressError(413, 'too_large');
       const checked = validateResults(payload);
       if (!checked.ok) throw new IngressError(422, checked.reason, checked.errors);
       const supplied = await headers();

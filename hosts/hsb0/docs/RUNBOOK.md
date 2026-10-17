@@ -790,13 +790,23 @@ closure in a temporary directory, checking bytes and both digest layers. Fetch
 failure is fatal in GitHub Actions; unavailable local/offline sources explicitly
 print SKIP. `--source <checkout>` proves a clean local checkout at the exact pin.
 The deterministic CPU test covers 4,320 synthetic fills across three desks over
-60 Vienna days in each DST season, including KEEP, with a 10,000 ms CPU bound
-for snapshot build plus shared validation. It checks the 8 MiB served-size limit
-including the board's `receivedAt` overhead; no broker or account data is used.
+60 Vienna days in each DST season, including KEEP, with a 2,500 ms CPU bound
+per operation: ingest of 15,000 cuts plus snapshot build/validation, and
+separately restart replay plus prefix verification and snapshot build/validation.
+Both the test and runtime transport check the 8 MiB
+served-size limit including the board's `receivedAt` overhead; no broker or
+account data is used.
 
 Coverage uses the executor history's explicit `fromInclusive`/`toExclusive`
 bounds minus gaps, persisted with capture cuts even when fills do not change.
-The producer unions proven intervals across restart, using the vendored Vienna
+The executor persists only status, target bounds and gap bounds, excluding
+receipt lists. Own-account non-KEEP fills awaiting attribution at or after the
+cutover add a 1 ms gap at their execution time inside the history target.
+Attribution removes that gap on the next cut. Coverage-only cuts are written
+when the gap set changes or another closed Vienna day is proved, rather than
+for each movement of intraday bounds; fill and authority changes stay immediate.
+The producer unions proven intervals across restart and subtracts newly
+declared gaps from earlier proof too, using the vendored Vienna
 date helper for 23/25-hour DST days. Missing/unknown bounds, any uncovered part
 of a closed day, a mid-day window start, and the current day emit
 `"coverage":"partial"`; a stale capture never extends proof to generation time.

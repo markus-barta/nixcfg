@@ -2,30 +2,51 @@ import { decimalUnits } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { DESKS, unavailable } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
-import { historyIntervals } from './results-validation.mjs';
+import { dayCoverage, historyGaps, mergeIntervals, updateHistoryIntervals, viennaDate } from './results-validation.mjs';
+
+function closedDays(intervals, at) {
+  const result = new Set();
+  for (const [from, to] of intervals) {
+    const first = viennaDate(new Date(from).toISOString()), last = viennaDate(new Date(to).toISOString());
+    for (let noon = Date.parse(`${first}T12:00:00.000Z`); ; noon += 86400_000) {
+      const date = new Date(noon).toISOString().slice(0, 10);
+      if (date >= last) break;
+      if (dayCoverage(date, new Date(from).toISOString(), at, [[from, to]]) === 'full') result.add(date);
+    }
+  }
+  return result;
+}
 
 // Runs inside the executor, BEFORE retention/compaction; producer itself only
 // reads this file. No account, broker/order ID, orderRef or receipt is written.
 export function createCapture(filename, config, { account, attribute, executionTime, now = () => new Date().toISOString(), keepSymbols = ['SXR8', 'TSLA'] } = {}) {
   if (!account || typeof attribute !== 'function' || typeof executionTime !== 'function') throw unavailable();
-  let journal, known, closeFx, lastAuthority, ordinals, nextOrdinal = 0;
+  let journal, known, closeFx, lastAuthority, lastGaps, ordinals, nextOrdinal = 0;
+  let proven = [], days = new Set();
   function initialize() {
     if (journal) return;
     journal = openJournal(filename);
     if (!journal.entries.length) journal.append({ type: 'start', at: now() });
     known = new Map(); closeFx = new Map(); ordinals = new Map();
-    for (const event of journal.entries) for (const fill of event.fills || []) {
-      known.set(fill.key, hash(fill));
-      if (fill.closeFx) closeFx.set(fill.key, fill.closeFx);
-      if (fill.ordinal) { ordinals.set(fill.key, fill.ordinal); nextOrdinal = Math.max(nextOrdinal, fill.ordinal); }
+    for (const event of journal.entries) {
+      if (event.authoritative) proven = updateHistoryIntervals(proven, event.historyCoverage, event.at);
+      for (const fill of event.fills || []) {
+        known.set(fill.key, hash(fill));
+        if (fill.closeFx) closeFx.set(fill.key, fill.closeFx);
+        if (fill.ordinal) { ordinals.set(fill.key, fill.ordinal); nextOrdinal = Math.max(nextOrdinal, fill.ordinal); }
+      }
     }
     const previous = journal.entries.at(-1);
-    if (previous?.type === 'cut') lastAuthority = hash([previous.authoritative, previous.disagreement, previous.evidence, previous.historyCoverage ?? null]);
+    if (previous?.type === 'cut') {
+      lastAuthority = hash([previous.authoritative, previous.disagreement, previous.evidence]);
+      lastGaps = hash(previous.historyCoverage?.gaps ?? null);
+      days = closedDays(proven, previous.at);
+    }
   }
   function capture(state) {
     initialize();
     const at = now();
-    const changed = [];
+    const changed = [], unattributed = new Set();
     const commissions = new Map((state.commissions || []).map(row => [row.execId, row]));
     // Preserve broker ordering for same-instant fills WITHOUT retaining the
     // broker identifier as the sort key. Corrections retain the original rank.
@@ -40,6 +61,11 @@ export function createCapture(filename, config, { account, attribute, executionT
         if (known.has(key) && known.get(key) !== hash(tombstone)) changed.push(tombstone);
       };
       const ownership = attribute(row, config);
+      if (e.acctNumber === account && !keepSymbols.includes(c.symbol) && ownership.needsAttribution) {
+        const epoch = executionTime(e.time);
+        if (!Number.isFinite(epoch)) throw unavailable();
+        if (epoch >= Date.parse(config.foreignAlertSince)) unattributed.add(epoch);
+      }
       if (e.acctNumber !== account || !DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external') { exclude(); continue; }
       if (keepSymbols.includes(c.symbol)) { exclude(); continue; }
       const epoch = executionTime(e.time);
@@ -72,17 +98,33 @@ export function createCapture(filename, config, { account, attribute, executionT
     // half-imported fill batch with the preceding cut's authority statement.
     const coverage = state.resultsHistoryCoverage;
     // Copy only value-free coverage metadata, never the history payload.
-    const historyCoverage = authority && historyIntervals(coverage, at).length ? {
+    const historyCoverage = authority && historyGaps(coverage, at) ? {
       status: coverage.status,
       target: { fromInclusive: coverage.target.fromInclusive, toExclusive: coverage.target.toExclusive },
       gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })),
     } : null;
+    if (historyCoverage) {
+      for (const epoch of [...unattributed].sort((a, b) => a - b)) {
+        if (epoch >= Date.parse(historyCoverage.target.fromInclusive) && epoch < Date.parse(historyCoverage.target.toExclusive)) {
+          historyCoverage.gaps.push({ fromInclusive: new Date(epoch).toISOString(), toExclusive: new Date(epoch + 1).toISOString() });
+          historyCoverage.status = 'known';
+        }
+      }
+      historyCoverage.gaps = mergeIntervals(historyCoverage.gaps.map(gap => [Date.parse(gap.fromInclusive), Date.parse(gap.toExclusive)]))
+        .map(([from, to]) => ({ fromInclusive: new Date(from).toISOString(), toExclusive: new Date(to).toISOString() }));
+    }
     const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage };
-    const authorityHash = hash([event.authoritative, event.disagreement, event.evidence, historyCoverage]);
-    if (!changed.length && authorityHash === lastAuthority) return;
+    const authorityHash = hash([event.authoritative, event.disagreement, event.evidence]);
+    const gapHash = hash(historyCoverage?.gaps ?? null);
+    const nextProven = authority ? updateHistoryIntervals(proven, historyCoverage, at) : proven;
+    const nextDays = closedDays(nextProven, at);
+    // Moving intraday bounds alone do not justify another durable cut. Keep
+    // authority/fill changes and changed gaps immediate, including on restart.
+    if (!changed.length && authorityHash === lastAuthority && gapHash === lastGaps && ![...nextDays].some(day => !days.has(day))) return;
     journal.append(event);
     for (const fill of changed) known.set(fill.key, hash(fill));
     lastAuthority = authorityHash;
+    lastGaps = gapHash; proven = nextProven; days = nextDays;
   }
   capture.close = () => journal?.close();
   return capture;
