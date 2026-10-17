@@ -148,7 +148,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
   return trades.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.id.localeCompare(b.id));
 }
 
-export function dayCloses(fills, trades, trackingStart, { from, through, intervals, earlierGaps = new Set() } = {}) {
+export function dayCloses(fills, trades, trackingStart, { from, through, intervals, historyEnd, earlierGaps = new Set() } = {}) {
   const days = new Map();
   // Executor captures are the only daily source. No household equity/account
   // fragment is read; an active desk's unknown equity stays null.
@@ -185,7 +185,7 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
       day.coverage = 'partial';
       if (earlierGaps.has(date)) markPartial(day, 'history_gap');
       if (validInstant(from) && date === viennaDate(from) && !startsAtViennaMidnight(from)) markPartial(day, 'capture_gap');
-      if (dayCoverage(date, from, through, intervals, true) === 'partial'
+      if (dayCoverage(date, from, through, intervals, true, historyEnd) === 'partial'
         && dayCoverage(date, from, through, [[-Infinity, Infinity]], true) === 'full') markPartial(day, 'history_gap');
     }
     return day;

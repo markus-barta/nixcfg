@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
+import { createHash } from 'node:crypto';
 import { createCapture } from './capture.mjs';
 import { openProducer } from './producer.mjs';
 import { hash, readJournal } from './journal.mjs';
@@ -95,7 +96,7 @@ test('pre-tracking unattributed fill creates no earlier row and still revokes la
   assert.deepEqual(producer.snapshot().days, days);
 });
 
-for (const field of ['sample.rate', 'closeFx.rate']) test(`refused ${field} journal is accepted by rollback allowlists and new replay says fx_missing`, t => {
+for (const field of ['sample.rate', 'closeFx.rate']) test(`refused ${field} journal replays through frozen rollback producers and new replay says fx_missing`, async t => {
   const f = captureFixture(t);
   if (field === 'sample.rate') f.state.resultsFxSampler = { enabled: true, days: { '2026-10-16': {
     samples: [{ rate: 1e-7, sampleAt: at('10'), kind: 'rth' }],
@@ -110,9 +111,29 @@ for (const field of ['sample.rate', 'closeFx.rate']) test(`refused ${field} jour
   const entries = readJournal(f.input), issues = entries.flatMap(row => row.captureIssues || []);
   assert.equal(issues.length, 1);
   assert.equal(issues[0].field, field);
-  // Exact issue-kind allowlist in 6c6e15f1 and fce6709b, producer.mjs:43.
-  const rollbackKinds = ['capture_gap', 'broker_evidence_missing'];
-  assert.ok(issues.every(issue => rollbackKinds.includes(issue.kind)));
+  // Byte-for-byte producer sources: exercise their actual apply/issue checks
+  // on ingestion and restart, with sibling dependencies resolved as in r9.
+  for (const [name, digest] of [
+    ['round12b', 'c9039167f39f9b3f383a5bf732d57d99bc98d5c659d2cc63c44829643d10d53e'], // 6c6e15f1
+    ['round13', '37c8ee80eb8b01eb6f6ab30b0192e6b9c868c7774a77ae55ecd283f9d1127fa0'], // fce6709b
+  ]) {
+    const frozen = readFileSync(new URL(`./fixtures/${name}-producer.mjs`, import.meta.url), 'utf8');
+    assert.equal(createHash('sha256').update(frozen).digest('hex'), digest);
+    const source = frozen.replace(/from '(\.\/[^']+)'/g, (_, sibling) => `from '${new URL(sibling, import.meta.url).href}'`);
+    const { openProducer: rollback } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+    const file = path.join(path.dirname(f.input), `${name}.jsonl`);
+    let old = rollback(file, { now: () => now });
+    t.after(() => old.close());
+    old.ingest(entries);
+    assert.equal(old.sourceCount, entries.length);
+    const days = old.snapshot().days;
+    old.close(); old = rollback(file, { now: () => now });
+    assert.equal(old.sourceCount, entries.length);
+    assert.deepEqual(old.snapshot().days, days);
+    // A new kind would fail in precisely the old code this test protects.
+    assert.throws(() => old.ingest([...entries, { type: 'fx', captureIssues: [{ ...issues[0], kind: 'fx_missing' }] }]),
+      /source_not_authoritative/);
+  }
   const filename = path.join(path.dirname(f.input), 'producer.jsonl');
   let producer = openProducer(filename, { now: () => now });
   t.after(() => producer.close());

@@ -121,8 +121,12 @@ export function earlierGapDays(fills, executions, intervals, proofs, start) {
   }
   const origin = Date.parse(start);
   for (const execution of executions) {
-    const epoch = Date.parse(execution.at), interval = intervals.find(([a, b]) => a <= epoch && epoch < b);
-    if (!interval) continue; // the enclosing day already fails interval coverage
+    const epoch = Date.parse(execution.at), last = intervals.at(-1);
+    const interval = intervals.find(([a, b]) => a <= epoch && epoch < b)
+      || (last && epoch >= last[1] ? last : null);
+    // Trailing fills use the last interval's baseline under the open day's
+    // "so far" rule. Fills in a real hole already fail day coverage.
+    if (!interval) continue;
     const [begin] = interval, rows = books.get(execution.instrument) || [];
     if (begin <= origin && (firstFill.get(execution.instrument) ?? Infinity) >= begin) continue;
     const candidates = proofs.latest(execution.instrument, begin, epoch);

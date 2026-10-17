@@ -952,18 +952,20 @@ declared gaps from earlier proof too, using the vendored Vienna
 date helper for 23/25-hour DST days. Missing/unknown bounds, any uncovered part
 of a closed day, a mid-day window start, and the current day emit
 `"coverage":"partial"`; a stale capture never extends proof to generation time.
-For the open day, the reason check ends at the last proven interval end or
-the send time, whichever is earlier. The trailing unproven stretch is "so far",
+For the open day, the reason check ends at the largest validated authoritative
+history target's `toExclusive` or the send time, whichever is earlier.
+The trailing unproven stretch is "so far",
 without a `history_gap` label. Explicit gaps and holes between Vienna midnight
 and that last proven instant still produce `history_gap`; closed-day checks
 continue to require proof through the next midnight.
 Full days omit `coverage`, using the README's documented default of `"full"`.
-An earlier gap also makes a closed day partial unless every captured Stage-0
+An earlier gap also makes a day partial unless every captured Stage-0
 fill on that day has a post-gap baseline for its instrument before that fill
 (openings included): either a broker-flat
 snapshot with every desk flat, or exact captured quantities reconciled to the
-broker at the start of the proven interval containing the day. A later snapshot
-inside that interval can establish the start quantity by subtracting the same
+broker at the start of the proven interval containing the fill, or the last
+proven interval for fills at or after its end under the open-day "so far" rule.
+A later snapshot inside that interval can establish the start quantity by subtracting the same
 captured intervening fills from both books. The executor records the complete
 broker `positionEnd` time as `positionsObservedAt`, persists it with
 `ownershipSnapshot.observedAt`, positions and ownership completeness, and

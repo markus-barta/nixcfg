@@ -16,7 +16,8 @@ export const startsAtViennaMidnight = at => validInstant(at) && clock.format(new
 
 // A half-open observation interval covers a day only from Vienna midnight
 // through the following midnight. Local dates handle 23/25-hour DST days.
-export function dayCoverage(date, from, through, intervals = [], includeOpen = false) {
+export function dayCoverage(date, from, through, intervals = [], includeOpen = false,
+  provenEnd = intervals.reduce((latest, [, b]) => Math.max(latest, b), -Infinity)) {
   if (!validInstant(from) || !validInstant(through) || Date.parse(from) > Date.parse(through)) return 'partial';
   const first = viennaDay(from), last = viennaDay(through);
   if (!(date > first || (date === first && startsAtViennaMidnight(from))) || date > last || date === last && !includeOpen) return 'partial';
@@ -29,8 +30,8 @@ export function dayCoverage(date, from, through, intervals = [], includeOpen = f
   if (includeOpen) {
     end = Math.min(end, Date.parse(through));
     // The open day is "so far": capture history normally lags the send clock.
-    // Check only to the last proven instant, keeping holes before it visible.
-    const provenEnd = intervals.reduce((latest, [, b]) => Math.max(latest, b), -Infinity);
+    // Check to the largest authoritative history target, including trailing
+    // explicit gaps; standalone interval callers use the largest interval end.
     if (date === last && provenEnd >= begin) end = Math.min(end, provenEnd);
   }
   return intervals.some(([a, b]) => a <= begin && b >= end) ? 'full' : 'partial';
