@@ -2,6 +2,7 @@ import { decimalUnits, UNIT, unitsDecimal } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { hash } from './journal.mjs';
 import { viennaDate, dayCoverage } from './results-validation.mjs';
+import { isSampleFx } from './fx.mjs';
 
 export const DESKS = ['j', 'joe', 'joel'];
 export const CLOSE_BASIS = 'execution-fifo-net-current-fx';
@@ -13,13 +14,16 @@ const positive = s => { const n = decimalUnits(s); if (n <= 0n) throw unavailabl
 
 function fxFor(fill) {
   const fx = fill.closeFx;
-  if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt) || !fx.source || fx.source.length > 80) throw Object.assign(unavailable(), { conversionReason: 'fx_unavailable' });
+  if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt) || !fx.source || fx.source.length > 80
+    || fill.currency === 'USD' && !isSampleFx(fx, viennaDate(fill.at)) && Math.abs(Date.parse(fx.observedAt) - Date.parse(fill.at)) > 60_000) {
+    throw Object.assign(unavailable(), { conversionReason: 'fx_missing' });
+  }
   positive(fx.rate);
   return fx;
 }
 
 // Keep each portion rational through allocation AND FX. Opening and closing
-// fees are combined before the single exact representability check; no round.
+// fees are combined before the one authorized rounding point per USD portion.
 function feePortion(fill, quantity, fx) {
   if (!fill.commission || !['EUR', fill.currency].includes(fill.commission.currency)) throw unavailable();
   const fee = decimalUnits(fill.commission.amount);
@@ -29,20 +33,35 @@ function feePortion(fill, quantity, fx) {
   return { numerator: fee * quantity * rate, denominator: total * UNIT };
 }
 
-function exactFees(opening, closing) {
+function feeSum(opening, closing) {
   const numerator = opening.numerator * closing.denominator + closing.numerator * opening.denominator;
   const denominator = opening.denominator * closing.denominator;
-  if (numerator % denominator) throw Object.assign(unavailable(), { conversionReason: 'eur_fee_precision' });
+  return { numerator, denominator };
+}
+
+// Rational units -> integer 10^-8 EUR units, ties to even, including losses.
+// All arithmetic is BigInt; allocation and FX have no intermediate rounding.
+function halfEvenUnits(numerator, denominator) {
+  const negative = numerator < 0n;
+  const magnitude = negative ? -numerator : numerator;
+  const quotient = magnitude / denominator, twiceRemainder = 2n * (magnitude % denominator);
+  const rounded = quotient + (twiceRemainder > denominator || twiceRemainder === denominator && quotient % 2n === 1n ? 1n : 0n);
+  return negative ? -rounded : rounded;
+}
+
+function exactUnits(numerator, denominator) {
+  if (numerator % denominator) throw unavailable();
   return numerator / denominator;
 }
 
-// One replaceable conversion boundary per portion. No rounding is authorized.
+// Amy's JOED-27 amendment: gross and combined fee each round once, here only.
 function eurPortion(lot, fill, quantity, price) {
   const fx = fxFor(fill), rate = decimalUnits(fx.rate);
   const numerator = quantity * (price - lot.price) * lot.sign * rate;
-  if (numerator % (UNIT * UNIT)) throw Object.assign(unavailable(), { conversionReason: 'eur_gross_precision' });
-  const gross = numerator / (UNIT * UNIT);
-  const fees = exactFees(feePortion(lot.fill, quantity, fx), feePortion(fill, quantity, fx));
+  const convert = fill.currency === 'USD' ? halfEvenUnits : exactUnits;
+  const gross = convert(numerator, UNIT * UNIT);
+  const fee = feeSum(feePortion(lot.fill, quantity, fx), feePortion(fill, quantity, fx));
+  const fees = convert(fee.numerator, fee.denominator);
   return { fx, gross, fees };
 }
 
@@ -72,9 +91,9 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
             fx: structuredClone(fx), method: CLOSE_BASIS,
           });
         } catch (error) {
-          // Safe default until a single rounding boundary is approved. Keep the
-          // quantity book advancing so later portions cannot reuse this lot.
-          if (fill.currency !== 'USD' || !error.conversionReason) throw error;
+          // Only absent/stale USD FX excludes a portion. Advance the quantity
+          // book so later portions cannot reuse the excluded lot.
+          if (fill.currency !== 'USD' || error.conversionReason !== 'fx_missing') throw error;
           onExcluded({ day: viennaDate(fill.at), deskHash: hash(fill.desk), kind: error.conversionReason });
         }
       }

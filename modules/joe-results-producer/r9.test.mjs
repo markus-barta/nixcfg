@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createFxSampler, fxSlot } from '../paper-desk-executor/fx-sampler.mjs';
 import { createCapture } from './capture.mjs';
 import { captureBrokerRealised } from './broker-backstop.mjs';
@@ -81,24 +81,18 @@ for (const opening of [undefined, null, Number.MAX_VALUE, String(Number.MAX_VALU
   assert.equal(captureBrokerRealised({ realizedPNL: 0.123, currency: 'USD' }), null);
 });
 
-for (const mode of ['gross', 'fee', 'missing', 'disabled']) test(`USD ${mode} exclusion publishes other portions, stays partial and replays without duplicate reasons`, t => {
+for (const mode of ['missing', 'disabled']) test(`USD ${mode} exclusion publishes other portions, stays partial and replays without duplicate reasons`, t => {
   const root = directory(), output = path.join(root, 'output.jsonl');
   const start = '2026-10-25T23:00:00.000Z', at = '2026-10-27T23:00:00.000Z';
   const sample = { rate: '0.86123457', sampleAt: '2026-10-26T20:05:00.000Z', kind: 'close' };
   const fills = [];
-  for (const [currency, desk, price, fee] of [['USD', 'j', mode === 'fee' ? '12' : '12.37', mode === 'fee' ? '0.01' : '0'], ['EUR', 'joe', '12', '0']]) {
+  for (const [currency, desk, price, fee] of [['USD', 'j', '12.37', '0'], ['EUR', 'joe', '12', '0']]) {
     for (const [leg, side] of [[0, 'BUY'], [1, 'SELL']]) {
       const time = `2026-10-26T${leg ? '14' : '13'}:35:00.000Z`;
       fills.push({ key: `${currency}-${leg}`, desk, scope: 'stage0', instrument: `synthetic-${currency}`, symbol: 'ACME', currency, side,
         at: time, quantity: '1', price: leg ? price : '10',
         commission: { amount: fee, currency }, brokerRealised: leg ? { amount: '2', currency } : { unset: true, currency },
         closeFx: currency === 'USD' ? null : { base: currency, quote: 'EUR', rate: '1', source: 'identity', observedAt: time } });
-    }
-    // A following USD round trip is exactly representable at this rate. Its
-    // quantity must not consume the excluded opening again.
-    if (currency === 'USD' && !['missing', 'disabled'].includes(mode)) {
-      fills.push(...fills.slice(0, 2).map((fill, leg) => ({ ...fill, key: `usd-next-${leg}`, at: `2026-10-26T${leg ? '16' : '15'}:35:00.000Z`,
-        price: leg ? '12' : '10', commission: { amount: '0', currency } })));
     }
   }
   const cut = { type: 'cut', at, authoritative: true, fills,
@@ -112,12 +106,12 @@ for (const mode of ['gross', 'fee', 'missing', 'disabled']) test(`USD ${mode} ex
   assert.equal(validateContract('results', first, { stage: 'ingress' }).ok, true);
   assert.equal(first.days[0].coverage, 'partial');
   assert.ok(first.trades.some(trade => trade.desk === 'joe' && trade.netEur.amount === '2'));
-  assert.equal(first.trades.filter(trade => trade.desk === 'j').length, ['missing', 'disabled'].includes(mode) ? 0 : 1);
+  assert.equal(first.trades.filter(trade => trade.desk === 'j').length, 0);
   const records = () => readJournal(output).filter(row => row.type === 'conversion-exclusion');
   const reasons = records();
   assert.equal(reasons.length, 1);
   assert.deepEqual(Object.keys(reasons[0].record).sort(), ['day', 'deskHash', 'kind']);
-  assert.equal(reasons[0].record.kind, { gross: 'eur_gross_precision', fee: 'eur_fee_precision', missing: 'fx_unavailable', disabled: 'fx_unavailable' }[mode]);
+  assert.equal(reasons[0].record.kind, 'fx_missing');
   producer.close(); producer = openProducer(output, { now: () => at });
   assert.deepEqual(producer.snapshot().trades, first.trades);
   assert.equal(records().length, 1);
@@ -187,7 +181,11 @@ test('FX-only events preserve real authority on restart and add no position proo
   try { producer.ingest(source); } finally { PositionProofIndex.prototype.add = add; }
   assert.equal(proofs, 1);
   const baseline = producer.snapshot();
-  const oldSource = execFileSync('git', ['show', '91b9198b:modules/joe-results-producer/producer.mjs'], { encoding: 'utf8' })
+  // Frozen producer from 91b9198b, including its original apply implementation.
+  // Resolve sibling dependencies against this module, independently of cwd/git.
+  const frozen = readFileSync(new URL('./fixtures/round9-producer.mjs', import.meta.url), 'utf8');
+  assert.equal(createHash('sha256').update(frozen).digest('hex'), '1c7bd5a1da1073441a9e8c50bd3de8b5ded97f38d2b952aa664a218e3f55f84f');
+  const oldSource = frozen
     .replace(/from '(\.\/[^']+)'/g, (_, name) => `from '${new URL(name, import.meta.url).href}'`);
   const { openProducer: oldProducer } = await import(`data:text/javascript;base64,${Buffer.from(oldSource).toString('base64')}`);
   const old = oldProducer(path.join(root, 'old.jsonl'), { now: () => at });

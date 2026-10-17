@@ -18,7 +18,8 @@ function samples(day, at) {
 export function dayFx(day, date, at) {
   const available = samples(day, at).filter(sample => clock(sample.sampleAt).date === date);
   // A frozen close always wins. No later day's rate can fill historical holes.
-  const sample = available.find(sample => sample.kind === 'close') || available.at(-1);
+  const sample = available.find(sample => sample.kind === 'close') || available.filter(sample =>
+    clock(at).date === date && Date.parse(at) - Date.parse(sample.sampleAt) <= 30 * 60_000).at(-1);
   return sample ? { base: 'USD', quote: 'EUR', rate: sample.rate, source: sample.kind === 'close' ? 'ib-fx-close' : 'ib-fx-rth', observedAt: sample.sampleAt } : null;
 }
 export function fxDayPartial(day, date, status, at) {

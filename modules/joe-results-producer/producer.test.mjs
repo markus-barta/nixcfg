@@ -49,9 +49,7 @@ test('exact gross multiplies quantity, move and rate together without intermedia
   ];
   assert.equal(roundTrips(exact, start, floor)[0].grossEur.amount, '0.00000001');
   exact[1].closeFx.rate = '0.9';
-  const excluded = [];
-  assert.deepEqual(roundTrips(exact, start, floor, () => {}, row => excluded.push(row)), []);
-  assert.equal(excluded[0].kind, 'eur_gross_precision');
+  assert.equal(roundTrips(exact, start, floor)[0].grossEur.amount, '0');
 });
 
 test('short FIFO is desk isolated and fees work in EUR or native currency', () => {
@@ -69,7 +67,7 @@ test('missing commission holds; missing USD FX excludes portions; legacy and uno
   const excluded = [];
   const remaining = roundTrips(fills.map(f => f.key === 'close-a' ? { ...f, closeFx: null } : f), start, floor, () => {}, row => excluded.push(row));
   assert.equal(excluded.length, 2);
-  assert.ok(excluded.every(row => row.kind === 'fx_unavailable'));
+  assert.ok(excluded.every(row => row.kind === 'fx_missing'));
   assert.equal(remaining.length, 1);
   assert.throws(() => roundTrips(fills.map(f => ({ ...f, commission: null })), start, floor), /source_not_authoritative/);
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, scope: 'legacy' })), start, floor), []);
