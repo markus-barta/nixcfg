@@ -62,16 +62,14 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      # T38 evaluates deployment evidence for every host, including hsb0.
-      - name: Read private hsb0 input (OPS-207)
-        if: steps.pin.outputs.pin_only != 'true'
-        uses: ./.github/actions/hausnetz-input
-        with:
-          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
-
       - name: Verify Pharos host preferences and correlated outcomes
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T08-pharos-host-preferences.sh
+
+      - name: Verify Pharos system update proposals and private-input skips
+        if: steps.pin.outputs.pin_only != 'true'
+        # ubuntu-latest supplies Bash 5; Bash 3 can falsely pass these fixtures.
+        run: bash tests/T14-pharos-system-update.sh
 
       - name: Verify Pharos beacon healthcheck contract
         if: steps.pin.outputs.pin_only != 'true'
@@ -213,6 +211,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh
 
+      - name: Restrict SSO to the operator domain (OPS-366)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T104-oauth2-proxy-email-domain.py
+
       - name: Verify Pharos kernel posture
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T11-pharos-kernel-posture.sh
@@ -261,9 +263,34 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T59-compose-update-generation.sh
 
+      # T38 evaluates deployment evidence for every host, including hsb0.
+      # Later hsb0 evaluations (T64/T54/T68/T99) reuse the locked hausnetz
+      # source T38 stores in Nix; they have no SSH override or private key.
+      - name: Read private hsb0 input (OPS-207)
+        id: hausnetz-input
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+          persist-ssh-command: "false"
+
       - name: Verify Pharos deployment evidence wiring (NIX-348 / OPS-186)
         if: steps.pin.outputs.pin_only != 'true'
+        env:
+          GIT_SSH_COMMAND: ${{ steps.hausnetz-input.outputs.git-ssh-command }}
         run: tests/T38-pharos-deployment-evidence.sh
+
+      - name: Clean up private hsb0 input access (OPS-355)
+        if: always() && steps.pin.outputs.pin_only != 'true'
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import shutil
+          from pathlib import Path
+          # Only this job's composite action creates this runner-temp prefix.
+          for directory in Path(os.environ['RUNNER_TEMP']).glob('hausnetz-ssh.*'):
+              shutil.rmtree(directory)
+          PYTHON
 
       - name: Verify static uid/gid collision gate (NIX-354)
         if: steps.pin.outputs.pin_only != 'true'
@@ -489,6 +516,10 @@ jobs:
       - name: Verify classic PPM container is absent (NIX-584)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
+
+      - name: Verify Traefik API loopback routing and mutations (OPS-365)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 ruby yq-go --run "python3 tests/T103-traefik-api-auth.py"
 
       - name: Verify csb1 inspr-auth Cloudflare edge boundary
         if: steps.pin.outputs.pin_only != 'true'

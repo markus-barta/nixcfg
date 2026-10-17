@@ -14,6 +14,7 @@ workflow="$repo_root/.github/workflows/pharos-system-update.yml"
 prepare="$repo_root/scripts/prepare-pharos-system-update.sh"
 
 bash -n "$prepare"
+bash -n "$repo_root/modules/pharos-guarded-deploy/system-update.sh"
 grep -Fq 'workflow_dispatch:' "$workflow"
 grep -Fq 'source_host:' "$workflow"
 grep -Fq 'request_id:' "$workflow"
@@ -28,7 +29,8 @@ if grep -Eq 'gh pr merge|nixos-rebuild|switch-to-configuration|--force|auto-merg
 fi
 
 fixture_root=$(mktemp -d)
-trap 'rm -r "$fixture_root"' EXIT
+# Only remove the temporary fixture this test created, as in the Python cases below.
+trap 'python3 -c "import shutil, sys; shutil.rmtree(sys.argv[1])" "$fixture_root"' EXIT
 fixture="$fixture_root/repo"
 fake_bin="$fixture_root/bin"
 mkdir -p "$fixture" "$fake_bin"
@@ -179,6 +181,17 @@ private_hosts = re.findall(r'"([a-z0-9-]+)"', declared)
 assert private_hosts == ['hsb0'], private_hosts
 assert re.search(r'canEvaluatePrivateInputs = lib.mkOption \{.*?default = host == "hsb0";', module, re.S)
 block = "  stage='all_host_evaluation'" + source.split("  stage='all_host_evaluation'", 1)[1].split("  stage='target_build'", 1)[0]
+# Exercise the real plan writer too: its keys must match the deployed Pharos
+# contract, while evaluation failure must stop before a success plan exists.
+plan_block = "  jq -Rsc " + source.split("  jq -Rsc ", 1)[1].split("  printf 'null", 1)[0]
+# Pharos v260925163010.0.0, crates/pharosd/src/host_actions.rs:682-693:
+# HostActionPlan uses deny_unknown_fields. Keep this accepted set explicit;
+# every new published key needs a deployed Pharos contract change first.
+accepted_plan_keys = {
+    'changed_file_count', 'changed_areas', 'all_host_eval_passed',
+    'target_build_passed', 'backup_ready', 'running_kernel',
+    'expected_kernel', 'restart_required',
+}
 hosts = ['csb0', 'csb1', 'hsb0', 'hsb1', 'hsb8', 'hsb9']
 
 with tempfile.TemporaryDirectory(prefix='ops207-guard-') as tmp:
@@ -199,20 +212,28 @@ fi
     nix.chmod(0o700)
     calls = root / 'calls'
     child_env = dict(os.environ, PATH=f'{root}:' + os.environ['PATH'], EVAL_CALLS=str(calls))
-    for evaluator, access, fail_host in [('hsb8', 'false', ''), ('hsb8', 'true', ''), ('hsb0', 'false', ''), ('hsb8', 'false', 'csb1')]:
+    for case, (evaluator, access, fail_host) in enumerate([('hsb8', 'false', ''), ('hsb8', 'true', ''), ('hsb0', 'false', ''), ('hsb8', 'false', 'csb1'), ('hsb8', 'false', 'hsb9'), ('hsb0', 'false', 'hsb0')]):
         calls.write_text('')
+        action = root / f'case-{case}'
+        action.mkdir()
+        (action / 'changed-areas').write_text('host-config\n')
         detail = root / 'detail.log'
         detail.write_text('')
-        child_env.update(HOST=evaluator, CAN_EVALUATE_PRIVATE_INPUTS=access, FAIL_HOST=fail_host, action_dir=tmp, repo_dir=tmp, detail_log=str(detail))
-        script = 'set -Eeuo pipefail\nPRIVATE_INPUT_HOSTS=(' + ' '.join(private_hosts) + ')\n' + block
+        child_env.update(HOST=evaluator, CAN_EVALUATE_PRIVATE_INPUTS=access, FAIL_HOST=fail_host, action_dir=str(action), repo_dir=tmp, detail_log=str(detail), changed_areas=str(action / 'changed-areas'), changed_file_count='1', running_kernel='fixture-kernel', expected_kernel='fixture-kernel')
+        script = 'set -Eeuo pipefail\nPRIVATE_INPUT_HOSTS=(' + ' '.join(private_hosts) + ')\n' + block + plan_block
         result = subprocess.run(['bash', '-c', script], env=child_env, capture_output=True, text=True)
         actual = calls.read_text().splitlines()
         if fail_host:
-            assert result.returncode != 0, 'unrelated host failure must close the gate'
+            assert result.returncode != 0, 'any evaluated host failure must close the gate'
+            assert not (action / 'plan.json').exists()
         else:
             assert result.returncode == 0, result.stderr
             expected = [h for h in hosts if not (h == 'hsb0' and access == 'false' and evaluator != 'hsb0')]
             assert actual == expected, (evaluator, access, actual)
+            plan = json.loads((action / 'plan.json').read_text())
+            assert set(plan) == accepted_plan_keys, (set(plan), accepted_plan_keys)
+            assert plan['all_host_eval_passed'] is True
+            assert plan['target_build_passed'] is True
             message = 'hsb0 skipped: private input, covered by CI'
             if expected != hosts:
                 assert message in result.stdout and message in detail.read_text()

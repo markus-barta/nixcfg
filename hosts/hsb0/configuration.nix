@@ -83,9 +83,9 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@1f876f1d nix/module.nix:41-50,109-161.
+  # Options: hausnetz@e50b0c46 nix/module.nix:41-50,109-197.
   # seed and discovery.leasesFile retain their null defaults (:52-60,128-136).
-  # The module owns the initially empty StateDirectory (:217-236); no data import.
+  # The module owns the initially empty StateDirectory (:252-282); no data import.
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
@@ -95,6 +95,8 @@ in
     ];
     discovery = {
       openFirewallMdns = true;
+      # OPS-355: nix/module.nix:166-197,240-244; UDP 1901 on mdnsInterfaces only.
+      openFirewallSsdp = true;
       mdnsInterfaces = [ "enp2s0f0" ];
     };
   };
@@ -141,6 +143,9 @@ in
     extraRestartTriggers = [
       hostdashHsb0
       joeBoardPusherSource
+      # Bind-mounted nginx snippets need container recreation after a switch.
+      ./docker/hsb0-home-hausnetz.conf
+      ./docker/hsb0-home-inflight.conf
     ];
     # ncps must not start on an empty /var/lib/ncps — the old docker-ncps
     # ordering unit was a phantom (QA-2). Wants+After, not Requires: the stack
