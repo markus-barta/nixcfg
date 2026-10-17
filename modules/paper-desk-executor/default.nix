@@ -22,6 +22,7 @@ let
     mkdir -p "$out/client"
     cp ${./policy.mjs} "$out/policy.mjs"
     cp ${./security.mjs} "$out/security.mjs"
+    cp ${./fx-sampler.mjs} "$out/fx-sampler.mjs"
     cp ${./ib.mjs} "$out/ib.mjs"
     cp ${./market-data.mjs} "$out/market-data.mjs"
     cp ${./book.mjs} "$out/book.mjs"

@@ -1,5 +1,6 @@
 import { decimalUnits, UNIT } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
+import { isSampleFx } from './fx.mjs';
 import { hash } from './journal.mjs';
 import { viennaDate } from './results-validation.mjs';
 
@@ -39,7 +40,7 @@ export function brokerDayTotals(fills, trackingInstant) {
       total.count++;
       const fx = fill.closeFx;
       if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt)
-        || Math.abs(Date.parse(fx.observedAt) - Date.parse(fill.at)) > 60_000) throw new Error('missing');
+        || Math.abs(Date.parse(fx.observedAt) - Date.parse(fill.at)) > 60_000 && !isSampleFx(fx, viennaDate(fill.at))) throw new Error('missing');
       const rate = report.currency === 'EUR' ? UNIT : report.currency === fill.currency ? decimalUnits(fx.rate) : 0n;
       if (rate <= 0n || pnl * rate % UNIT) throw new Error('missing');
       // IB realizedPNL is the broker's net result; do not subtract fees twice.

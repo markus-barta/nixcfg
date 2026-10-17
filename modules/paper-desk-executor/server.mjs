@@ -31,6 +31,7 @@ import {
 } from "./security.mjs";
 import { admitIntent, openLedger } from "./state.mjs";
 import { createMarketData, validMarketSymbol } from "./market-data.mjs";
+import { createFxSampler } from "./fx-sampler.mjs";
 import { createBook } from "./book.mjs";
 import { attributionConfig } from "./attribution.mjs";
 
@@ -483,7 +484,7 @@ export function createServer(options) {
 async function main() {
   const gatewayPort = Number(process.env.IB_DESK_GATEWAY_PORT || PAPER_PORT);
   const stateDir = process.env.PAPER_DESK_STATE_DIR || "/state";
-  let capture;
+  let capture, sampler;
   if (process.env.PAPER_DESK_RESULTS_CAPTURE === "true") {
     const { createCapture } = await import("./results/capture.mjs");
     capture = createCapture(path.join(stateDir, "results-input.jsonl"), attributionConfig(), {
@@ -499,7 +500,7 @@ async function main() {
     listenPort: Number(process.env.PAPER_DESK_PORT || LISTEN_PORT),
     allowlist: process.env.PAPER_DESK_ALLOW ? JSON.parse(process.env.PAPER_DESK_ALLOW) : DEFAULT_PEERS,
     stateDir,
-    beforePrune: capture,
+    beforePrune: capture ? state => capture({ ...state, resultsFxSampler: sampler?.snapshot() ?? { enabled: true, reason: "missing_sample", days: {} } }) : undefined,
   });
   // Fail closed before accept if the IB runtime cannot be loaded.
   const runtime = await import("./executor.mjs");
@@ -511,10 +512,17 @@ async function main() {
     // admin attribution, halt, cancel or any Gateway request API.
     healthServer = createHealthServer(started.readHealth);
     await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(8471, "127.0.0.1", resolve); });
-    capture(started.ledger.load());
+    capture({ ...started.ledger.load(), resultsFxSampler: { enabled: true, reason: "missing_sample", days: {} } });
   }
+  // An independent background task: never put quote waits on the intent queue,
+  // mutate the trading ledger, or route FX failures through executor_error.
+  sampler = createFxSampler({ root: stateDir, onUpdate: fx => {
+    if (capture) capture({ ...started.ledger.load({ initialize: false }), resultsFxSampler: fx });
+  } });
+  sampler.start();
   console.error(`paper-desk-executor listening ${address.address}:${address.port}`);
   const shutdown = () => {
+    sampler?.close();
     healthServer?.close();
     started.close().finally(() => { capture?.close(); process.exit(0); });
   };
