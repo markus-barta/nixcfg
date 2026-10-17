@@ -1141,9 +1141,7 @@ class AlertAndCycle(unittest.TestCase):
         )
         self.assertEqual(self.restarts, ["ib-gateway"])
         self.assertEqual(decision.persist.restarts_this_outage, 1)
-        self.assertTrue(decision.persist.last_alert_status.startswith("not-sent:"))
-        self.assertIn("WATCHTOWER_NOTIFICATION_URL", decision.persist.last_alert_status)
-        self.assertIn("openclaw-gateway is parked", decision.persist.last_alert_status)
+        self.assertEqual(decision.persist.last_alert_status, "not-sent:alert-enable-false")
         self.assertEqual(self.sent, [])
         self.assertIn(code, (0, 1))
 

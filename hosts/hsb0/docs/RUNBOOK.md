@@ -402,6 +402,8 @@ scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ss
 
 Mac must **not** run Gateway or an SSH `-L` tunnel. Desks connect directly over Tailscale to `100.64.0.6:4002`. The live account (port 4001) stays OFF.
 
+The session supervisor exits 0 for a healthy session when alerts are intentionally disabled. Each disabled run logs exactly one `warning: alert adapter disabled; reason=...` line: `alert-enable-false`, `transport-none`, `receiver-parked`, or `receiver-not-declared` describes configuration, not a session failure. On confirmed recovery it retires pending alerts with a value-free record, without claiming delivery; unenrolled chat is also retired while email continues. Session failures exit 3; delivery failures with a configured adapter exit 2 and retain their retry state.
+
 ## OpenClaw Gateway (Merlin + Nimue)
 
 **Status (2026-09-09)**: gateway parked behind inactive Compose profile `openclaw` (default `compose up` does not start it). Data remains under `/var/lib/openclaw-gateway`. Reactivate by removing the `profiles` line (or activating profile `openclaw`) in `compose-spec.nix` and switching.
