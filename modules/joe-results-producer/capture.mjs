@@ -112,6 +112,9 @@ export function createCapture(filename, config, { account, attribute, executionT
       const brokerRealised = captureBrokerRealised(commission);
       if (commission && sdkDecimal(commission.realizedPNL).refused) issue(day, ownership.desk, 'broker_evidence_missing', key, 'brokerRealised.amount');
       if (quantity === undefined || price === undefined || commission && amount === undefined) {
+        // A refused opening must remain a history gap even when a later close
+        // reports exactly zero PnL and therefore cannot reveal the missing lot.
+        unattributed.add(epoch);
         // Replace an earlier usable correction; never leave its old value live.
         const tombstone = { key, desk: null, scope: 'excluded' };
         if (known.has(key) && known.get(key) !== hash(tombstone)) changed.push(tombstone);

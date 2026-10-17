@@ -747,13 +747,22 @@ rate product before that rounding. Amy's 2026-10-17 amendment of JOED-27 is:
 “never round more than once, and only at the portion.” Days and ranges sum
 these rounded portions exactly, with no further rounding; the per-day
 cross-check stays exact. EUR portions retain their exact conversion policy.
-Source quantities, prices, commissions and broker-position evidence must be
-decimal strings; numeric financial inputs are refused rather than stringifying
-an already rounded binary value. Missing fees/close FX also hold the entire
-snapshot, except missing or stale USD FX: that portion is excluded and its day
-is partial, with a value-free `conversion-exclusion` journal record whose
-`kind` is `fx_missing`. These reasons stay journal-only; the revision-4 contracts
-are unchanged. Round-9b journals still replay without rewriting old exclusions
+The producer reads decimal strings only; the capture SDK boundary converts
+Numbers per I-2 (a), as detailed below. Missing or stale USD FX excludes its
+portion and marks its day partial with a value-free `conversion-exclusion`
+journal record whose `kind` is `fx_missing`. Other failed portions, including
+EUR allocations that cannot be represented exactly at eight decimals, are
+excluded with the existing `source_not_authoritative` reason. Their journal
+records contain only day/time and hashed desk, instrument and portion identity.
+The quantity book advances even on exclusion; other portions keep producing.
+Each such exclusion adds a 1 ms history gap at the affected close, scoped to
+its desk and instrument. Its day stays partial, and later days with fills in
+that book stay partial until position evidence covers the gap under the existing
+proof rules. Producer health `portionExclusions` counts distinct exclusions
+of this kind across polls and restart. EUR allocations still use exact arithmetic;
+their rounding policy awaits a separate decision. These reasons stay
+journal-only; the revision-4 contracts are unchanged. Round-9b journals still
+replay without rewriting old exclusions
 or resetting sequence state. Days previously excluded only for precision now
 include their rounded USD portions on the next snapshot and can become full
 when the existing coverage and broker-evidence gates pass. With the JOED-20
@@ -897,6 +906,8 @@ and closing execution count. Only hashed fill/instrument keys and an allowlisted
 `brokerRealised: {amount,currency}` or `{unset:true,currency}` projection of `commissionReport.realizedPNL`
 and `currency` enter the capture. Broker realised PnL is net (fees are not
 subtracted again); the already captured close FX converts it to EUR exactly.
+Broker net sums retain the exact PnL × rate products at 10⁻¹⁶ EUR with no
+rounding, then compare against realised net scaled to the same precision.
 IB unset realised PnL (null or Double.MAX_VALUE) is accepted only on quantity-book
 openings with a commission report; closes require an exact amount.
 No new IB request is added. At the SDK boundary, `Number.MAX_VALUE` (and its
@@ -912,10 +923,13 @@ Every refused field produces a value-free `captureIssues` journal record with
 `day`, hashed identity/desk, field name and kind: `capture_gap` for fill fields,
 `broker_evidence_missing` for broker evidence. Its day stays partial on replay;
 no refused numeric value or raw identifier is stored. Unset required fill fields
-also record a gap, without counting as a conversion refusal. The loopback health
-`resultsCapture.refusals` and producer `captureRefusals` count distinct refused
-field records, deduplicated across polls and restart. Missing reports,
-incompatible currency and nonrepresentable conversions also keep D partial.
+also record a gap, without counting as a conversion refusal. A refused fill
+adds a 1 ms history gap at its timestamp, so later fills cannot silently pair
+against an incomplete FIFO book even when broker PnL is exactly zero.
+A capture issue keeps its day partial even after a clean correction arrives,
+by design. The loopback health `resultsCapture.refusals` and producer
+`captureRefusals` count distinct refused field records, deduplicated across
+polls and restart. Missing reports and incompatible currencies also keep D partial.
 
 A per-desk absolute net difference **above EUR 0.01**, or any count mismatch,
 downgrades D to `partial` on the next push. Broker count is closing executions,

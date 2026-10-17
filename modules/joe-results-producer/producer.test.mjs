@@ -63,13 +63,16 @@ test('short FIFO is desk isolated and fees work in EUR or native currency', () =
   assert.equal(trade.feesEur.amount, '0.46');
 });
 
-test('missing commission holds; missing USD FX excludes portions; legacy and unowned rows are excluded', () => {
+test('missing commission and USD FX exclude portions; legacy and unowned rows are excluded', () => {
   const excluded = [];
   const remaining = roundTrips(fills.map(f => f.key === 'close-a' ? { ...f, closeFx: null } : f), start, floor, () => {}, row => excluded.push(row));
   assert.equal(excluded.length, 2);
   assert.ok(excluded.every(row => row.kind === 'fx_missing'));
   assert.equal(remaining.length, 1);
-  assert.throws(() => roundTrips(fills.map(f => ({ ...f, commission: null })), start, floor), /source_not_authoritative/);
+  const missingFees = [];
+  assert.deepEqual(roundTrips(fills.map(f => ({ ...f, commission: null })), start, floor, () => {}, row => missingFees.push(row)), []);
+  assert.equal(missingFees.length, 3);
+  assert.ok(missingFees.every(row => row.kind === 'source_not_authoritative'));
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, scope: 'legacy' })), start, floor), []);
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, desk: null })), start, floor), []);
 });

@@ -91,10 +91,16 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
             fx: structuredClone(fx), method: CLOSE_BASIS,
           });
         } catch (error) {
-          // Only absent/stale USD FX excludes a portion. Advance the quantity
-          // book so later portions cannot reuse the excluded lot.
-          if (fill.currency !== 'USD' || error.conversionReason !== 'fx_missing') throw error;
-          onExcluded({ day: viennaDate(fill.at), deskHash: hash(fill.desk), kind: error.conversionReason });
+          // A failed portion must not stop other output or reuse its quantity.
+          // EUR retains exactUnits: no rounding policy is introduced here.
+          const missingFx = fill.currency === 'USD' && error.conversionReason === 'fx_missing';
+          onExcluded({ day: viennaDate(fill.at), deskHash: hash(fill.desk),
+            kind: missingFx ? 'fx_missing' : 'source_not_authoritative',
+            ...(!missingFx ? {
+              portionHash: hash([lot.fill.key, fill.key, unitsDecimal(lot.used), unitsDecimal(used)]),
+              instrumentHash: hash(fill.instrument), at: fill.at,
+            } : {}),
+          });
         }
       }
       lot.remaining -= quantity; lot.used += quantity; remaining -= quantity; used += quantity;

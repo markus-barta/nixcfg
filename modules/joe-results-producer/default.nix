@@ -62,8 +62,8 @@ in
         assertion =
           cfg.ingressHost != ""
           && cfg.endpoint == "https://${cfg.ingressHost}/joe/inbox/results"
-          && builtins.match "[A-Za-z0-9.-]+" cfg.ingressHost != null;
-        message = "joeResultsProducer requires an exact HTTPS endpoint on its pinned hostname";
+          && builtins.match "[a-z0-9.-]+" cfg.ingressHost != null;
+        message = "joeResultsProducer requires an exact HTTPS endpoint on its pinned lowercase ingressHost";
       }
       {
         assertion =

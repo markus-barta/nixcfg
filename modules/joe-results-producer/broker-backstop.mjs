@@ -42,9 +42,10 @@ export function brokerDayTotals(fills, trackingInstant) {
       if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt)
         || Math.abs(Date.parse(fx.observedAt) - Date.parse(fill.at)) > 60_000 && !isSampleFx(fx, viennaDate(fill.at))) throw new Error('missing');
       const rate = report.currency === 'EUR' ? UNIT : report.currency === fill.currency ? decimalUnits(fx.rate) : 0n;
-      if (rate <= 0n || pnl * rate % UNIT) throw new Error('missing');
+      if (rate <= 0n) throw new Error('missing');
       // IB realizedPNL is the broker's net result; do not subtract fees twice.
-      total.net += pnl * rate / UNIT;
+      // Keep the exact product in 10^-16 EUR, including USD fractional cents.
+      total.net += pnl * rate;
     } catch { total.complete = false; }
   }
   return totals;
@@ -60,8 +61,8 @@ export function brokerMismatches(days, fills, trackingInstant, at) {
       if (!broker?.complete) kinds.push('broker_evidence_missing');
       else {
         if (broker.count !== value.trades) kinds.push('broker_trade_count_mismatch');
-        const difference = broker.net - decimalUnits(value.realisedNet.amount);
-        if (difference > UNIT / 100n || difference < -UNIT / 100n) kinds.push('broker_realised_pnl_mismatch');
+        const difference = broker.net - decimalUnits(value.realisedNet.amount) * UNIT;
+        if (difference > UNIT * UNIT / 100n || difference < -UNIT * UNIT / 100n) kinds.push('broker_realised_pnl_mismatch');
       }
       for (const kind of kinds) mismatches.push({ day: day.date, deskHash: hash(desk), kind });
     }

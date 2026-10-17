@@ -45,7 +45,7 @@ export function historyGaps(coverage, at) {
   return gaps;
 }
 
-function subtractIntervals(intervals, gaps) {
+export function subtractIntervals(intervals, gaps) {
   const result = [];
   for (const [from, to] of intervals) {
     let cursor = from;
