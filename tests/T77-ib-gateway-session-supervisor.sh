@@ -9,7 +9,7 @@ host="${repo}/hosts/hsb0/configuration.nix"
 compose="${repo}/hosts/hsb0/docker/compose-spec.nix"
 docs="${repo}/hosts/hsb0/docs/IB-GATEWAY.md"
 
-# Includes OPS-377 process-exit and retirement fixtures in test_ib_gateway_session_exit.py.
+# Includes OPS-377 enrollment ordering, live-shape exits and retirement fixtures.
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_ib_gateway*.py' -v
 nix-instantiate --parse "${module}" >/dev/null

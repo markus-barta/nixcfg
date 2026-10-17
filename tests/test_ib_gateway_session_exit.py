@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 import test_ib_gateway_session_supervisor as fixture
+import test_ib_gateway_notification_delivery as delivery_fixture
 import notification_delivery
 import notification_state
 
@@ -34,12 +35,14 @@ class SessionExitTests(unittest.TestCase):
             pusher=fixture.pusher(gateway=True),
         )
 
-    def main(self, config=None, observation=None):
+    def main(self, config=None, observation=None, relay=None):
         output = io.StringIO()
         with mock.patch.object(sup, "config_from_env", return_value=config or self.config), \
                 mock.patch.object(sup, "observe_runtime", return_value=observation or self.healthy), \
-                mock.patch.object(sup.subprocess, "run", side_effect=AssertionError("external process forbidden")), \
+                mock.patch.object(sup.subprocess, "run", side_effect=relay or AssertionError("external process forbidden")), \
                 mock.patch.object(sup.subprocess, "Popen", side_effect=AssertionError("external process forbidden")), \
+                mock.patch.object(notification_delivery.urllib.request, "build_opener",
+                                  side_effect=AssertionError("network forbidden")), \
                 redirect_stdout(output):
             code = sup.main()
         lines = output.getvalue().splitlines()
@@ -63,6 +66,138 @@ class SessionExitTests(unittest.TestCase):
                         "next_state": {"seen": {}, "pending": None}},
         })
         return [Path(directory) / channel / "state.json" for channel in ("email", "grok")]
+
+    def live_config(self, chat, key_file=""):
+        destination = self.root / "destinations.json"
+        destination.write_text(json.dumps({
+            "schema_version": 1,
+            "email": {"from": "monitor@example.invalid", "to": "operator@example.invalid"},
+            **chat,
+        }))
+        destination.chmod(0o600)
+        return replace(
+            self.config, alert_enable=True, alert_transport="email-agent-bus",
+            notification_config=str(destination), aeon_notification_key_file=key_file,
+        )
+
+    def seed_chat_only_pending(self):
+        directory = Path(self.config.alert_state_path).with_suffix(".channels")
+        for channel in ("email", "grok"):
+            engine.atomic_write_state(str(directory / channel / "state.json"), {
+                "version": 1, "outage": None, "pending": None,
+            })
+        paths = self.seed_alerts()
+        notification_state.run_notifications(
+            str(paths[0].parents[1]), fixture.NOW - 300, False, False, "",
+            {"email": mock.Mock(return_value=True)},
+        )
+        self.assertIsNone(json.loads(paths[0].read_text())["pending"])
+        self.assertIsNotNone(json.loads(paths[1].read_text())["pending"])
+        return paths
+
+    def test_live_unenrolled_chat_clears_after_email_recovery(self):
+        for chat in ({}, {"grok": {}}, {"grok": None}, {"grok": {"backend": "invalid"}}):
+            for key_file in ("", None, str(self.root / "not-enrolled")):
+                with self.subTest(chat=chat, key_file=key_file):
+                    config = self.live_config(chat, key_file)
+                    paths = self.seed_chat_only_pending()
+                    relay = mock.Mock(return_value=mock.Mock(returncode=0))
+                    observation = replace(self.healthy, login_state=sup.LOGIN_UNKNOWN,
+                                          container_generation="fixture-generation")
+                    sup.save_supervisor_state(config.state_path, sup.SupervisorState(
+                        login_state=sup.LOGIN_LOGGED_IN,
+                        login_generation=observation.container_generation,
+                    ))
+                    with mock.patch.object(notification_delivery, "aeon_sender") as aeon:
+                        code, warnings, summary = self.main(config, observation, relay)
+                    self.assertEqual(code, 0)
+                    self.assertEqual(warnings, [
+                        "grok notification not enrolled: Aeon notifier key absent, chat channel skipped",
+                    ])
+                    aeon.assert_not_called()
+                    self.assertEqual(summary["phase"], sup.PHASE_API_READY)
+                    self.assertEqual(summary["action"], sup.ACTION_NONE)
+                    self.assertEqual(summary["login"], sup.LOGIN_UNKNOWN)
+                    self.assertIn("login-persisted-across-relay-spam", summary["notes"])
+                    self.assertEqual(summary["alert"], "cleared")
+                    relay.assert_called_once()
+                    self.assertEqual(relay.call_args.args[0][:4], [
+                        config.docker_bin, "exec", "-i", "docker-smtp-1",
+                    ])
+                    self.assertIn(b"Paper Gateway recovered", relay.call_args.kwargs["input"])
+                    for path in paths:
+                        state = json.loads(path.read_text())
+                        self.assertIsNone(state["pending"])
+                        self.assertIsNone(state["outage"])
+                    retired = json.loads(paths[1].read_text())["retired"]
+                    self.assertEqual(retired, {
+                        "at": fixture.NOW, "reason": "receiver-not-enrolled",
+                        "pending_kind": "problem", "outage": False,
+                    })
+                    self.assertNotIn("text", paths[1].read_text())
+                    self.assertNotIn("event_id", paths[1].read_text())
+                    before = paths[1].read_bytes()
+                    self.assertEqual(self.main(config, observation, relay)[0], 0)
+                    relay.assert_called_once()  # No repeated successful email.
+                    self.assertEqual(paths[1].read_bytes(), before)
+
+    def test_enrolled_unusable_chat_stays_undelivered(self):
+        key = self.root / "notifier-fixture"
+        key.touch()
+        for chat in ({}, {"grok": {}}, {"grok": None}, {"grok": {"backend": "invalid"}}):
+            with self.subTest(chat=chat):
+                config = self.live_config(chat, str(key))
+                paths = self.seed_chat_only_pending()
+                original = json.loads(paths[1].read_text())["pending"]["event_id"]
+                relay = mock.Mock(return_value=mock.Mock(returncode=0))
+                code, warnings, summary = self.main(config, relay=relay)
+                self.assertEqual(code, engine.EXIT_UNDELIVERED)
+                self.assertEqual(warnings, [
+                    "grok notification unavailable: configuration or receiver missing",
+                ])
+                self.assertEqual(summary["alert"], "undelivered")
+                state = json.loads(paths[1].read_text())
+                self.assertEqual(state["pending"]["event_id"], original)
+                self.assertNotIn("retired", state)
+                relay.assert_called_once()
+
+    def test_enrolled_unreadable_key_stays_undelivered(self):
+        key = self.root / "notifier-fixture"
+        key.touch()
+        config = self.live_config({"grok": dict(delivery_fixture.AEON_BINDING)}, str(key))
+        paths = self.seed_chat_only_pending()
+        original = json.loads(paths[1].read_text())["pending"]["event_id"]
+        relay = mock.Mock(return_value=mock.Mock(returncode=0))
+        with mock.patch.object(notification_delivery, "read_token", side_effect=PermissionError) as token:
+            code, warnings, summary = self.main(config, relay=relay)
+        token.assert_called_once_with(str(key))
+        self.assertEqual(code, engine.EXIT_UNDELIVERED)
+        self.assertEqual(warnings, ["aeon notification failed: inbox request unavailable"])
+        self.assertEqual(summary["alert"], "undelivered")
+        self.assertEqual(json.loads(paths[1].read_text())["pending"]["event_id"], original)
+
+    def test_live_unenrolled_chat_does_not_hide_failed_email(self):
+        for chat in ({}, {"grok": {}}, {"grok": {"backend": "invalid"}}):
+            with self.subTest(chat=chat):
+                config = self.live_config(chat)
+                paths = self.seed_chat_only_pending()
+                relay = mock.Mock(return_value=mock.Mock(returncode=1))
+                code, warnings, summary = self.main(config, relay=relay)
+                self.assertEqual(code, engine.EXIT_UNDELIVERED)
+                self.assertEqual(warnings, [
+                    "grok notification not enrolled: Aeon notifier key absent, chat channel skipped",
+                ])
+                self.assertEqual(summary["alert"], "undelivered")
+                original = json.loads(paths[0].read_text())["pending"]["event_id"]
+                self.assertEqual(json.loads(paths[1].read_text())["retired"]["reason"],
+                                 "receiver-not-enrolled")
+                relay.assert_called_once()
+                self.assertEqual(self.main(config, relay=relay)[0], engine.EXIT_UNDELIVERED)
+                relay.assert_called_once()  # Retry remains rate limited.
+                relay.return_value.returncode = 0
+                later = replace(self.healthy, now=fixture.NOW + 300)
+                self.assertEqual(self.main(config, later, relay)[0], 0)
+                self.assertIn(original.encode(), relay.call_args.kwargs["input"])
 
     def test_healthy_disabled_retires_problem_recovery_and_announced_outage(self):
         cases = [
