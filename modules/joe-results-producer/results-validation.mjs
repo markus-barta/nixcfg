@@ -1,8 +1,16 @@
 import { validateContract } from './contracts/index.mjs';
 import { viennaDay } from './contracts/vienna-date.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
+import resultsSchema from './contracts/results.schema.json' with { type: 'json' };
 
 export { viennaDay as viennaDate };
+export const PARTIAL_REASONS = Object.freeze(resultsSchema.properties.days.items.properties.partialReasons.items.enum);
+export function markPartial(day, reason) {
+  if (!PARTIAL_REASONS.includes(reason) || reason === 'avg_cost_mismatch') throw new Error('invalid_partial_reason');
+  day.coverage = 'partial';
+  const reasons = new Set([...(day.partialReasons || []), reason]);
+  day.partialReasons = PARTIAL_REASONS.filter(code => reasons.has(code));
+}
 const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Vienna', hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 // A half-open observation interval covers a day only from Vienna midnight
@@ -21,10 +29,18 @@ export function dayCoverage(date, from, through, intervals = []) {
   return intervals.some(([a, b]) => a <= begin && b >= end) ? 'full' : 'partial';
 }
 
-// The producer and ingress share revision 3's exact day/trade semantics.
-// Coverage travels on each day; no private override can bypass the wire check.
-export function validateResults(payload, { stage = 'ingress' } = {}) {
-  return validateContract('results', payload, { stage });
+// Rev 5's schema and semantic checks enforce the board's 422 rules, including
+// reason membership, uniqueness, nonempty lists, order, coverage and counts.
+// Legacy partial days without reasons remain readable, as on the board.
+export function validateResults(payload, { stage = 'ingress', requirePartialReasons = false } = {}) {
+  const result = validateContract('results', payload, { stage });
+  if (!result.ok || !requirePartialReasons) return result;
+  const errors = [];
+  payload.days.forEach((day, i) => {
+    if (day.coverage === 'partial' && !day.partialReasons?.length) errors.push({ path: `$.days[${i}].partialReasons`, rule: 'required' });
+    if (day.partialReasons?.includes('avg_cost_mismatch')) errors.push({ path: `$.days[${i}].partialReasons`, rule: 'reserved' });
+  });
+  return errors.length ? { ok: false, status: 422, reason: 'contract_invalid', errors } : result;
 }
 
 // History bounds are evidence, never inferred from a successful poll. Exclude

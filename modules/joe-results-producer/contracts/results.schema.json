@@ -70,7 +70,25 @@
           "coverage": {
             "type": "string",
             "enum": ["full", "partial"],
-            "description": "Defaults to full when omitted. Partial means trades[] covers only part of this Vienna day; skip day/trade reconciliation.",
+            "description": "Defaults to full when omitted. Partial means this day's numbers are incomplete; skip day/trade reconciliation.",
+            "x-owner": "paper executor 8470"
+          },
+          "partialReasons": {
+            "type": "array",
+            "uniqueItems": true,
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "description": "avg_cost_mismatch is reserved: accepted and rendered, not yet emitted by the producer.",
+              "enum": ["capture_gap", "history_gap", "broker_trade_count_mismatch", "broker_realised_pnl_mismatch", "unattributed_activity", "avg_cost_mismatch", "fx_disabled", "fx_missing", "broker_evidence_missing"]
+            },
+            "description": "Why this Vienna day's numbers are incomplete. Allowed only with coverage 'partial'. Rev-5 producers emit at least one, in canonical enum order.",
+            "x-owner": "paper executor 8470"
+          },
+          "unattributedCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional positive count, only when known and partialReasons contains unattributed_activity.",
             "x-owner": "paper executor 8470"
           },
           "desks": {

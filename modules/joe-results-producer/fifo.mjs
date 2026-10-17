@@ -1,7 +1,7 @@
 import { decimalUnits, UNIT, unitsDecimal } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { hash } from './journal.mjs';
-import { viennaDate, dayCoverage } from './results-validation.mjs';
+import { viennaDate, dayCoverage, markPartial } from './results-validation.mjs';
 import { isSampleFx } from './fx.mjs';
 
 export const DESKS = ['j', 'joe', 'joel'];
@@ -34,22 +34,20 @@ function fxFor(fill) {
   return fx;
 }
 
-// Keep each portion rational through allocation AND FX. Opening and closing
-// fees are combined before the one authorized rounding point per USD portion.
-function feePortion(fill, quantity, fx) {
+// M-2: allocate each commission in its recorded currency, once per portion.
+// Every execution has its own budget, including a close spanning several lots
+// and a reversal whose remainder becomes a new lot. The final share is exact.
+function feePortion(fill, quantity, used, allocated) {
   if (!fill.commission) throw Object.assign(unavailable(), { conversionReason: 'commission_missing' });
   if (!['EUR', fill.currency].includes(fill.commission.currency)) throw unavailable();
   const fee = decimalUnits(fill.commission.amount);
   if (fee < 0n) throw unavailable();
-  const rate = fill.commission.currency === 'EUR' ? UNIT : decimalUnits(fx.rate);
   const total = positive(fill.quantity);
-  return { numerator: fee * quantity * rate, denominator: total * UNIT };
+  return used + quantity === total ? fee - allocated : halfEvenUnits(fee * quantity, total);
 }
 
-function feeSum(opening, closing) {
-  const numerator = opening.numerator * closing.denominator + closing.numerator * opening.denominator;
-  const denominator = opening.denominator * closing.denominator;
-  return { numerator, denominator };
+function convertedFee(fill, share, fx) {
+  return share * (fill.commission.currency === 'EUR' ? UNIT : decimalUnits(fx.rate));
 }
 
 // Rational units -> integer 10^-8 EUR units, ties to even, including losses.
@@ -67,14 +65,15 @@ function exactUnits(numerator, denominator) {
   return numerator / denominator;
 }
 
-// Amy's JOED-27 amendment: gross and combined fee each round once, here only.
-function eurPortion(lot, fill, quantity, price) {
+// Allocation is in commission currency; conversion combines both allocated
+// shares exactly before the single EUR rounding. Daily sums never round.
+function eurPortion(lot, fill, quantity, price, openingFee, closingFee) {
   const fx = fxFor(fill), rate = decimalUnits(fx.rate);
   const numerator = quantity * (price - lot.price) * lot.sign * rate;
   const convert = fill.currency === 'USD' ? halfEvenUnits : exactUnits;
   const gross = convert(numerator, UNIT * UNIT);
-  const fee = feeSum(feePortion(lot.fill, quantity, fx), feePortion(fill, quantity, fx));
-  const fees = convert(fee.numerator, fee.denominator);
+  const fees = halfEvenUnits(convertedFee(lot.fill, openingFee, fx) + convertedFee(fill, closingFee, fx), UNIT);
+  if (fees < 0n) throw unavailable();
   return { fx, gross, fees };
 }
 
@@ -98,13 +97,25 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
     const sign = fill.side === 'BUY' ? 1n : -1n;
     const key = `${fill.desk}:${fill.instrument}:${fill.currency}`;
     const book = lots.get(key) || [];
-    let remaining = total, used = 0n;
+    let remaining = total, used = 0n, allocated = 0n;
     while (remaining && book.length && book[0].sign !== sign) {
       const lot = book[0], quantity = min(remaining, lot.remaining);
+      // Consume allocation budgets even before tracking, or when FX/gross later
+      // fails. An excluded portion must not donate its fee to a later portion.
+      let openingFee, closingFee, allocationError;
+      try {
+        openingFee = feePortion(lot.fill, quantity, lot.used, lot.allocated);
+        lot.allocated += openingFee;
+      } catch (error) { allocationError = error; }
+      try {
+        closingFee = feePortion(fill, quantity, used, allocated);
+        allocated += closingFee;
+      } catch (error) { allocationError ||= error; }
       if (fill.at >= trackingInstant) {
         onClose({ instrument: fill.instrument, at: fill.at });
         try {
-          const { fx, gross, fees } = eurPortion(lot, fill, quantity, price);
+          if (allocationError) throw allocationError;
+          const { fx, gross, fees } = eurPortion(lot, fill, quantity, price, openingFee, closingFee);
           trades.push({
             id: `rt-${hash([lot.fill.key, fill.key, unitsDecimal(lot.used), unitsDecimal(used)]).slice(0, 40)}`,
             desk: fill.desk, symbol: fill.symbol, side: lot.sign === 1n ? 'long' : 'short', quantity: unitsDecimal(quantity),
@@ -115,9 +126,8 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
           });
         } catch (error) {
           // A failed portion must not stop other output or reuse its quantity.
-          // EUR retains exactUnits: no rounding policy is introduced here.
-          const missingFx = fill.currency === 'USD' && error.conversionReason === 'fx_missing';
-          const missingCommission = error.conversionReason === 'commission_missing';
+          const missingFx = fill.currency === 'USD' && error?.conversionReason === 'fx_missing';
+          const missingCommission = error?.conversionReason === 'commission_missing';
           onExcluded({ day: viennaDate(fill.at), deskHash: hash(fill.desk),
             kind: missingFx ? 'fx_missing' : missingCommission ? 'broker_evidence_missing' : 'source_not_authoritative',
             ...(!missingFx && !missingCommission ? {
@@ -130,7 +140,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
       lot.remaining -= quantity; lot.used += quantity; remaining -= quantity; used += quantity;
       if (!lot.remaining) book.shift();
     }
-    if (remaining) book.push({ fill, price, sign, remaining, used });
+    if (remaining) book.push({ fill, price, sign, remaining, used, allocated });
     lots.set(key, book);
   }
   return trades.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.id.localeCompare(b.id));
@@ -169,7 +179,12 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
     coverage[date] = earlierGaps.has(date) ? 'partial' : dayCoverage(date, from, through, intervals);
     const day = { date, desks: { ...desks } };
     // Full is the documented default; only partial days need a wire marker.
-    if (coverage[date] === 'partial') day.coverage = 'partial';
+    if (coverage[date] === 'partial') {
+      if (earlierGaps.has(date)) markPartial(day, 'history_gap');
+      if (dayCoverage(date, from, through, intervals) === 'partial') {
+        markPartial(day, dayCoverage(date, from, through, [[-Infinity, Infinity]]) === 'partial' ? 'capture_gap' : 'history_gap');
+      }
+    }
     return day;
   });
   return { days: result, coverage: { ...coverage } };

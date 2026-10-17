@@ -12,7 +12,7 @@ function authorityHash(event) {
   const interval = historyIntervals(event.historyCoverage, event.at).find(([a, b]) => a <= epoch && epoch < b);
   // New quantities or a post-gap baseline matter; moving snapshot timestamps
   // alone must not restore the old one-cut-per-poll journal growth.
-  return hash([event.authoritative, event.disagreement, event.evidence, proof?.positions ?? null, proof?.foreign ?? null, interval?.[0] ?? null]);
+  return hash([event.authoritative, event.disagreement, event.evidence, proof?.positions ?? null, proof?.foreign ?? null, interval?.[0] ?? null, event.unattributedActivity ?? {}]);
 }
 
 function closedDays(intervals, at) {
@@ -75,7 +75,7 @@ export function createCapture(filename, config, { account, attribute, executionT
   function capture(state) {
     initialize();
     const at = now();
-    const changed = [], unattributed = new Set(), captureIssues = [];
+    const changed = [], unattributed = new Set(), captureIssues = [], unattributedKeys = new Map();
     function issue(day, desk, kind, key, field, refused = true) {
       const record = { id: hash([key, field, kind, day, refused]), day, deskHash: hash(desk), kind, field, refused };
       if (!issues.has(record.id) && !captureIssues.some(row => row.id === record.id)) captureIssues.push(record);
@@ -112,7 +112,10 @@ export function createCapture(filename, config, { account, attribute, executionT
         if (!validInstant(fillAt)) {
           refuseInstant(key, null); exclude(true); continue;
         }
-        if (epoch >= Date.parse(config.foreignAlertSince)) unattributed.add(epoch);
+        if (epoch >= Date.parse(config.foreignAlertSince)) {
+          unattributed.add(epoch);
+          unattributedKeys.set(key, epoch);
+        }
       }
       if (e.acctNumber !== account || !DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external') { exclude(); continue; }
       if (keepSymbols.includes(c.symbol)) { exclude(); continue; }
@@ -218,7 +221,17 @@ export function createCapture(filename, config, { account, attribute, executionT
         changedFx.set(date, digest);
       }
     }
-    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof, ...(captureIssues.length ? { captureIssues } : {}), ...(fxSampler ? { fxSampler } : {}) };
+    // Current, deduplicated counts only: corrections/admin attribution may heal
+    // them. No broker IDs cross this boundary and capture-off state is untouched.
+    const unattributedActivity = Object.create(null);
+    const countFrom = Math.max(Date.parse(captureStart), historyCoverage ? Date.parse(historyCoverage.target.fromInclusive) : -Infinity);
+    const countThrough = Math.min(Date.parse(at), historyCoverage ? Date.parse(historyCoverage.target.toExclusive) : Infinity);
+    for (const epoch of unattributedKeys.values()) {
+      if (epoch < countFrom || epoch >= countThrough) continue;
+      const day = viennaDate(new Date(epoch).toISOString());
+      unattributedActivity[day] = (unattributedActivity[day] || 0) + 1;
+    }
+    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof, unattributedActivity, ...(captureIssues.length ? { captureIssues } : {}), ...(fxSampler ? { fxSampler } : {}) };
     const nextAuthority = authorityHash(event);
     const gapHash = hash(historyCoverage?.gaps ?? null);
     const fxHash = fxSampler ? hash([fxSampler.enabled, fxSampler.reason]) : lastFx;
