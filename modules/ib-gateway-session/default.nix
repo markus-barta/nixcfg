@@ -103,10 +103,7 @@ in
         ExecStart = "${pkgs.python3}/bin/python3 ${supervisor}/supervisor.py";
         StateDirectory = "ib-gateway-session";
         StateDirectoryMode = "0700";
-        SuccessExitStatus = [
-          0
-          1
-        ];
+        SuccessExitStatus = [ 0 ];
         TimeoutStartSec = "90";
       };
       environment = {
