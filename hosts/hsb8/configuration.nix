@@ -195,6 +195,8 @@ in
   # Web interface: http://192.168.1.100:3000
   services.adguardhome = lib.mkIf enableAdGuard {
     usersSecretFile = ../../secrets/hsb8-adguard-users.age;
+    # Existence guard only; hsb8 never decrypts the peer's ciphertext.
+    usersSecretPeers = [ (../../secrets + "/hsb0-adguard-users.age") ];
     enable = true;
     host = "0.0.0.0";
     port = 3000;

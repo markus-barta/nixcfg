@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 
+LOCKED_MESSAGE = "AdGuard admin locked; DNS/DHCP remain enabled (OPS-372)."
+
 
 def unique_object(pairs):
     result = {}
@@ -20,7 +22,7 @@ def unique_object(pairs):
     return result
 
 
-def inject(config_path, secret_path, yq):
+def read_users(secret_path):
     # JSON is a YAML subset. Read the secret here, never in Nix evaluation,
     # shell substitutions, argv, environment, or a diagnostic message.
     with open(secret_path, encoding="utf-8") as handle:
@@ -38,6 +40,19 @@ def inject(config_path, secret_path, yq):
         if not isinstance(verifier, str) or not bcrypt.fullmatch(verifier):
             raise ValueError("invalid verifier")
         names.add(name)
+    return users
+
+
+def inject(config_path, secret_path, yq, marker_path, port):
+    locked = False
+    try:
+        users = read_users(secret_path)
+    except Exception:
+        # Never allow an empty users list (AdGuard treats it as no auth).
+        # The random password exists only in memory and cannot be recovered.
+        import bcrypt
+        users = [{"name": "admin", "password": bcrypt.hashpw(os.urandom(32), bcrypt.gensalt(rounds=12)).decode()}]
+        locked = True
 
     target = Path(config_path)
     metadata = target.lstat()
@@ -51,6 +66,18 @@ def inject(config_path, secret_path, yq):
     if not isinstance(settings, dict):
         raise ValueError("invalid config")
     settings["users"] = users
+    if locked:
+        if not isinstance(settings.get("http"), dict):
+            raise ValueError("missing HTTP settings")
+        settings["http"]["address"] = f"127.0.0.1:{int(port)}"
+
+    marker = Path(marker_path)
+    if locked:
+        # Publish health failure before changing config. Marker write failures
+        # are fatal, as are config/parser failures below.
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write("admin locked\n")
+        marker.chmod(0o600)
 
     temporary = None
     try:
@@ -74,6 +101,10 @@ def inject(config_path, secret_path, yq):
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+    if locked:
+        print(LOCKED_MESSAGE, file=sys.stderr)
+    else:
+        marker.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

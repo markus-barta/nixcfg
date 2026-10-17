@@ -8,117 +8,200 @@
 
 ## AdGuard admin rotation (OPS-372)
 
-**Preparation only:** this revision removes the public verifier. It is not
-safe to switch until the encrypted users file is provisioned and CI passes.
-The agenix declaration is guarded by `builtins.pathExists`; the startup check
-is deliberately unconditional while AdGuard is enabled. A missing, empty, or
-malformed secret stops AdGuard (including DNS/DHCP), rather than opening the
-admin interface. Removing a verifier changes the derivation: guard-off drvPath
-identity with the old main is incompatible with that removal. OPS must resolve
-that rollout criterion before approving a switch. No existing host is changed
-by preparing this branch.
+OPS runs this procedure only after the pending Desk decision is approved. Keep
+both hosts in one reviewed PR; merge only with all three ciphertexts provisioned,
+T105/T47 green, and independent approval recorded. Missing either host's users
+ciphertext fails evaluation on both hosts. Never switch a preparation branch,
+print credentials or verifiers, globally rekey, or rewrite Git history.
 
-1. Markus chooses a **new** admin password in 1Password; do not reuse the
-   exposed credential. Keep its value out of chat, shell history, command
-   arguments, logs, and clipboard diagnostics. Preserve the previous encrypted
-   secret and its matching 1Password revision for rollback when rotating later.
-2. On **hsb0**, OPS prepares `/run/ops372-recipients` as root, mode 0600,
-   containing only the public keys in `markus ++ hsb0` from
-   `secrets/secrets.nix` (one key per line, all Markus identities, this host,
-   no other users/hosts). Confirm this set against the declarations during
-   review. Use the host's normal access path; do not move private keys or
-   plaintext secrets onto a workstation.
-3. On the host, generate the verifier and encrypt it directly. This command
-   prompts through the terminal without displaying the password; the verifier
-   travels only through private process memory and pipes. It creates a new
-   encrypted candidate in `/run`, not a plaintext temporary file:
+### Back up both hosts before generation or switching
 
-   ```bash
-   sudo nix-shell -p apacheHttpd age python3 --run 'python3 -' <<'PYROTATE'
-   import json, os, subprocess, sys
-   os.umask(0o077)
-   try:
-       generated = subprocess.run(
-           ['htpasswd', '-nBC', '12', 'admin'], check=True,
-           stdout=subprocess.PIPE,
-       ).stdout.decode().strip()
-       name, separator, verifier = generated.partition(':')
-       if name != 'admin' or not separator or len(verifier) != 60:
-           raise ValueError()
-       subprocess.run(
-           ['age', '--encrypt', '-R', '/run/ops372-recipients',
-            '--output', '/run/hsb0-adguard-users.age.next'],
-           input=json.dumps([{'name': name, 'password': verifier}]).encode(),
-           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-       )
-   except Exception:
-       sys.exit('Encryption failed; no credential output is permitted.')
-   print('Encrypted candidate written.')
-   PYROTATE
-   ```
+Keep a live root session to each host open **by IP or tailnet IP** throughout
+cutover. DNS names may stop resolving if AdGuard fails. On each host, from the
+repo root, run as root:
 
-   The decrypted format is a nonempty JSON array of objects with exactly
-   `name` and `password` fields. Names must be nonblank and unique; verifiers
-   must have bcrypt syntax and cost 04–31. Do not display the candidate's
-   plaintext or decrypt it for review. Remove any failed encrypted candidate
-   through the operator's normal trash procedure before retrying.
+```bash
+sudo python3 - <<'PYBACKUP'
+import datetime, os, pathlib, shutil, subprocess, sys
+os.umask(0o077)
+try:
+    backup = pathlib.Path('/var/backups/ops372') / datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    backup.mkdir(parents=True, mode=0o700)
+    backup.parent.chmod(0o700)
+    (backup / 'generation').write_text(os.readlink('/run/current-system') + '\n')
+    generations = subprocess.run(['nix-env', '--list-generations', '--profile', '/nix/var/nix/profiles/system'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+    (backup / 'generations').write_bytes(generations)
+    for name in ('AdGuardHome.yaml', 'data/leases.json'):
+        target = backup / pathlib.Path(name).name
+        shutil.copyfile(pathlib.Path('/var/lib/private/AdGuardHome') / name, target)
+        target.chmod(0o600)
+    for name in ('generation', 'generations'):
+        (backup / name).chmod(0o600)
+except Exception:
+    sys.exit('Backup failed; do not proceed.')
+print('backup complete')
+PYBACKUP
+```
 
-4. After Markus's decision, OPS installs **only the ciphertext** at
-   `secrets/hsb0-adguard-users.age` in its host-side review branch, opens a PR,
-   and runs CI, including T105 and T47. Do not globally rekey. Adding the tracked
-   file automatically enables both guarded recipient and agenix declarations;
-   there is no extra flag. The runtime secret is
-   `/run/agenix/hsb0-adguard-users` (`root:root`, 0400). Review both host
-   candidates together before fleet rollout; switch each host only after its
-   own file exists. Complete the independent approval gates, merge, then on
-   this host use `gitpl && just switch`. A service restart alone does not run
-   agenix activation. Never switch the preparation-only branch.
-5. Verify unit state and DNS/DHCP with the existing host tests. Verify admin
-   authentication by **status only**. In a host-local terminal, the following
-   prints only the HTTP status, and sends no password in argv:
+Do not display backup contents: they include runtime verifiers and lease data.
+Keep the previous three encrypted files and their reviewed Git revision for
+later rotations. Record backup paths and generation references on OPS-372.
 
-   ```bash
-   python3 - <<'PYLOGIN'
-   import getpass, json, urllib.request, urllib.error
-   payload = json.dumps({'name': 'admin', 'password': getpass.getpass()}).encode()
-   request = urllib.request.Request(
-       'http://127.0.0.1:3000/control/login', data=payload,
-       headers={'Content-Type': 'application/json'}, method='POST',
-   )
-   try:
-       with urllib.request.urlopen(request, timeout=10) as response:
-           print(response.status)
-   except urllib.error.HTTPError as error:
-       print(error.code)
-   except Exception:
-       print('login check failed')
-   PYLOGIN
-   ```
+### Generate once on hsb0, encrypt three times
 
-   Expect successful login status 200; an intentionally incorrect login must
-   fail. Also check that unauthenticated `/control/status` is denied. Do not
-   print bodies, cookies, headers, runtime YAML, or the users secret. Record
-   statuses only on OPS-372, then close the local verification session.
+Run the following **only on hsb0**, as one root Python process from the reviewed
+repo root. It creates a new candidate directory under root-only tmpfs, refuses to
+overwrite an earlier attempt, derives recipients from the plain declarations,
+and sends encryption input only through stdin. `markus` means the existing
+Markus key set; no host receives the plaintext. The hsb8 users declaration
+intentionally excludes `gb`. Record that recipient boundary on OPS-372.
 
-6. **Rollback:** keep the users-secret hook active. Revert to the last known
-   good encrypted users revision through a reviewed PR and CI, then
-   `gitpl && just switch`; use its matching 1Password revision. For unrelated
-   configuration regressions, select a recorded generation that already uses
-   runtime secret users. The first cutover has no prior safe generation:
-   repair the candidate or have Markus decide emergency recovery. Never
-   silently restore the published verifier or remove the startup check.
+```bash
+sudo nix-shell -p age 'python3.withPackages (p: [ p.bcrypt ])' --run 'python3 -' <<'PYROTATE'
+import bcrypt, json, os, pathlib, secrets, subprocess, sys
+os.umask(0o077)
+try:
+    if os.geteuid() != 0:
+        raise ValueError()
+    fs = subprocess.run(['findmnt', '-n', '-o', 'FSTYPE', '-T', '/run'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.strip()
+    if fs != b'tmpfs':
+        raise ValueError()
+    work = pathlib.Path('/run/ops372')
+    work.mkdir(mode=0o700)  # Existing attempt: stop, inspect status, do not overwrite.
+    output = work / 'ciphertexts'
+    output.mkdir(mode=0o700)
+    password = secrets.token_urlsafe(24).encode()
+    verifiers = [bcrypt.hashpw(password, bcrypt.gensalt(rounds=12)).decode() for _ in range(2)]
+    names = ('adguard-admin-password.age', 'hsb0-adguard-users.age', 'hsb8-adguard-users.age')
+    payloads = [password] + [json.dumps([{'name': 'admin', 'password': value}]).encode() for value in verifiers]
+    for name, payload in zip(names, payloads):
+        recipients = json.loads(subprocess.run(
+            ['nix', 'eval', '--json', '--file', 'secrets/secrets.nix', '--apply', 's: s.' + json.dumps(name) + '.publicKeys'],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout)
+        if not recipients:
+            raise ValueError()
+        args = ['age', '--encrypt', '--output', str(output / name)]
+        for recipient in recipients:
+            args.extend(['--recipient', recipient])
+        subprocess.run(args, input=payload, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with (work / 'admin').open('xb') as handle:
+        handle.write(password)
+        os.fchmod(handle.fileno(), 0o400)
+except Exception:
+    sys.exit('Generation failed; do not switch or publish partial candidates.')
+print('3 ciphertexts written')
+PYROTATE
+```
 
-The pinned upstream module is `nixos/modules/services/networking/adguardhome.nix`
-at nixpkgs `f5c082a40f7571c266e74e80ae2e68aadd8a9fc7`: YAML is generated into
-an immutable store template at lines 37–39; `mutableSettings = false` copies
-it to `$STATE_DIRECTORY/AdGuardHome.yaml` at lines 178–204. systemd loads the
-root-only secret via `LoadCredential`; the additional `ExecStartPre` runs as
-DynamicUser after the upstream copy and existing DHCP hook. It reads JSON from
-the private credentials directory, merges users via pinned `yq-go`, and
-atomically replaces runtime YAML with mode 0600 and the same ownership. The
-upstream sandbox remains active; no root merge step or privileged chown is needed. Parser diagnostics are
-suppressed; errors produce a fixed message and prevent `ExecStart`. Password
-changes in the UI are overwritten at the next restart; rotate through agenix.
+The only temporary plaintext file is `/run/ops372/admin` (root:root, 0400); it
+stays on hsb0 tmpfs solely for the probe below. Never copy it to hsb8 or a
+workstation. On abort, remove it immediately using the probe's unlink cleanup or root Python
+`Path('/run/ops372/admin').unlink(missing_ok=True)`. Never put plaintext in
+persistent Trash.
+Clean failed candidate directories only through the operator's trash procedure.
+Do not reuse a partial set. Candidate ciphertexts may leave hsb0; credentials,
+verifiers, private keys, and runtime YAML may not.
+
+OPS installs only these three ciphertexts into `secrets/` in its review branch
+and stages them before flake evaluation. Do not declare the Markus-only
+`adguard-admin-password.age` in any host or module. Its plaintext is recoverable
+only by Markus; each host receives only `/run/agenix/<host>-adguard-users`
+(root:root, 0400). Run T105 with the flake-pinned `NIXPKGS_LIB`, T47 and full-host
+evaluations, then obtain review and merge the one PR. Retain the root tmpfs file
+only until both post-switch probes finish; remove it on any abort or delay and
+arrange Markus's own status-only probe instead.
+
+### Switch, verify, remove temporary plaintext
+
+On each host, use `gitpl && just switch` only after approval and merge. Agenix
+activation requires the switch; restarting a container or AdGuard alone is
+insufficient. `restartTriggers` tracks ciphertext content, so secret-only
+rotations restart AdGuard. Verify service state and DNS/DHCP using the existing
+host tests (lease contents must stay private). Also require
+`adguardhome-users-health.service` to pass after its next minute tick and the
+`/run/AdGuardHome/admin-locked` marker to be absent.
+
+Immediately after both switches, run this as root **on hsb0**. The hsb8 address
+is discovered from Tailscale and must be in the tailnet IPv4 range; credentials
+travel to hsb0 on loopback and hsb8 only through the encrypted tailnet. Redirects
+are disabled. It prints HTTP status codes only, never bodies, cookies or headers,
+and removes the plaintext in `finally`, including on failure.
+
+```bash
+sudo python3 - <<'PYLOGIN'
+import ipaddress, json, pathlib, secrets, subprocess, sys, urllib.error, urllib.request
+admin = pathlib.Path('/run/ops372/admin')
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+def status(base, path, payload=None):
+    request = urllib.request.Request(base + path, data=payload,
+        headers={'Content-Type': 'application/json'} if payload is not None else {},
+        method='POST' if payload is not None else 'GET')
+    try:
+        with opener.open(request, timeout=10) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+try:
+    password = admin.read_text()
+    state = json.loads(subprocess.run(['tailscale', 'status', '--json'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout)
+    peers = [p for p in state['Peer'].values() if p.get('HostName') == 'hsb8']
+    if len(peers) != 1:
+        raise ValueError()
+    addresses = [ip for ip in peers[0]['TailscaleIPs'] if ipaddress.ip_address(ip) in ipaddress.ip_network('100.64.0.0/10')]
+    if len(addresses) != 1:
+        raise ValueError()
+    valid = json.dumps({'name': 'admin', 'password': password}).encode()
+    invalid = json.dumps({'name': 'admin', 'password': secrets.token_urlsafe(24)}).encode()
+    for base in ('http://127.0.0.1:3000', 'http://' + addresses[0] + ':3000'):
+        positive = status(base, '/control/login', valid)
+        negative = status(base, '/control/login', invalid)
+        unauthenticated = status(base, '/control/status')
+        print(positive, negative, unauthenticated)
+        if positive != 200 or negative not in (400, 401, 403) or unauthenticated not in (302, 401, 403):
+            raise ValueError()
+except Exception:
+    sys.exit('login check failed')
+finally:
+    admin.unlink(missing_ok=True)
+PYLOGIN
+```
+
+Record only status codes, health/unit results, and DNS/DHCP pass/fail on OPS-372.
+Markus can later use the encrypted admin password through his own private
+recovery flow; OPS never decrypts the Markus-only file.
+
+### Immediate first-cutover rollback
+
+If service, DNS/DHCP, or login checks fail, immediately run
+`nixos-rebuild switch --rollback` in the live root session on the affected host,
+using its IP connection. This restores the previous generation, including its
+old compromised verifier, to recover availability. Record that exposure and the
+rollback generation on OPS-372, verify DNS/DHCP recovery, and fix forward with a
+reviewed candidate. Keep the dated YAML/leases backup for controlled recovery;
+never dump it to a terminal. Remove `/run/ops372/admin` immediately on abort.
+For subsequent rotations, revert all three ciphertexts together to the recorded
+known-good revision via PR and CI, then switch both hosts.
+
+### Runtime failure behaviour
+
+The upstream store template contains no users. After upstream preStart and the
+existing static-leases hook, the injector runs as DynamicUser, reads the private
+systemd credential and atomically replaces runtime YAML (0600, same ownership).
+No root merge or sandbox relaxation is used. `LoadCredential` and agenix are
+only declared when the ciphertext exists. An empty `SetCredential` fallback
+lets a missing runtime source reach the injector instead of failing in systemd.
+Missing or malformed users cause a fresh random bcrypt user and loopback-only
+HTTP binding, preserving DNS/DHCP settings. The unknown password is discarded;
+the runtime marker causes the minute health check to fail visibly. Restoring a
+valid secret and restarting recopies the template, restores the configured HTTP
+listener and clears the marker. Template/parser/write failures still prevent
+AdGuard starting, because starting a users-less template would open admin access.
+The pre-existing static-leases preStart failure path is outside this change.
+Password changes in the UI are overwritten on restart; rotate through agenix.
 
 ## Quick Connect
 
