@@ -35,7 +35,10 @@ in
     )
   ) allInterfaces;
   noSeed = cfg.seed == null;
-  noLeases = cfg.discovery.leasesFile == null;
+  # HNET-228 (Markus's go 2026-10-17): leases come from AdGuard's DHCP file through the
+  # root copy unit; hausnetz itself reads only the copy via its supplementary group.
+  leasesFromAdguard = toString cfg.discovery.leasesFile == "/var/lib/AdGuardHome/data/leases.json";
+  leasesCopyGroupOnly = (unit.SupplementaryGroups or [ ]) == [ "hausnetz-leases" ];
   noExtraArguments = cfg.extraArgs == [ ];
   noLeasesBind = (unit.BindReadOnlyPaths or [ ]) == [ ];
   durableEmptyState = unit.StateDirectory == "hausnetz";
@@ -86,5 +89,6 @@ in
       [
         "hsb0-home-hausnetz.conf"
         "hsb0-home-inflight.conf"
+        "hsb0-home-videos.conf"
       ];
 }
