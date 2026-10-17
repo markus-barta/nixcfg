@@ -273,8 +273,9 @@ The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
 The private flake input is pinned to `037a6b5f5580937f7e343c0ea04dadefe3f32889`
-(`v261017161630.0.0`, OPS-355; `discovery.webCheck = false` keeps the opt-in web
-source HNET-238 hard off until the trial, OPS-355), with `discovery.passive = true` (ARP/DHCP
+(`v261017161630.0.0`, OPS-355; `discovery.webCheck = true` for the web-check trial:
+the opt-in web source HNET-238 is allowed but stays off until switched on per
+site; set it back to `false` to hard-disable it again), with `discovery.passive = true` (ARP/DHCP
 listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on

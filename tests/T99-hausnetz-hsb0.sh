@@ -35,7 +35,7 @@ c = json.load(sys.stdin)
 s, fw, home = c["service"], c["firewall"], c["home"]
 assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
-assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True, "webCheck": False}
+assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True, "webCheck": True}
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s
 assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and all(p not in fw["allowedUDPPorts"] for p in (5353, 1901))
 assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
@@ -89,14 +89,14 @@ fixture = {
         'seed': None, 'extraArgs': [], 'discovery': {
             'leasesFile': '/var/lib/AdGuardHome/data/leases.json', 'openFirewallMdns': True, 'mdnsInterfaces': ['enp2s0f0'],
             'openFirewallSsdp': True, 'ssdpPort': 1901, 'ssdpInterfaces': ['enp2s0f0'],
-            'passive': True, 'passiveInterfaces': ['enp2s0f0'], 'webCheck': False}}},
+            'passive': True, 'passiveInterfaces': ['enp2s0f0'], 'webCheck': True}}},
     'networking': {'nftables': {'enable': False}, 'firewall': {
         'enable': True, 'trustedInterfaces': [], 'allowedTCPPorts': [], 'allowedTCPPortRanges': [],
         'allowedUDPPorts': [], 'allowedUDPPortRanges': [], 'interfaces': {
             'br-+': {'allowedTCPPorts': [8377]}, 'docker0': {'allowedTCPPorts': [8377]},
             'enp2s0f0': {'allowedUDPPorts': [5353, 1901]}}}},
     'systemd': {'services': {'hausnetz': {'serviceConfig': {
-        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901" "--web-check=false" "--passive" "--passive-interfaces" "enp2s0f0"',
+        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"',
         'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_PACKET', 'AF_UNIX'],
         'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases']}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
@@ -129,8 +129,8 @@ for path, value, failed_check in (
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz"', 'ssdpArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_UNIX'], 'netlinkAllowed'),
     (('services', 'hausnetz', 'discovery', 'passive'), False, 'passiveEnabled'),
-    (('services', 'hausnetz', 'discovery', 'webCheck'), True, 'webCheckOff'),
-    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"', 'webCheckArgument'),
+    (('services', 'hausnetz', 'discovery', 'webCheck'), False, 'webCheckAllowed'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--web-check=false" "--passive" "--passive-interfaces" "enp2s0f0"', 'noWebCheckFlag'),
     (('services', 'hausnetz', 'discovery', 'leasesFile'), None, 'leasesFromAdguard'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), [], 'leasesCopyGroupOnly'),
     (('services', 'hausnetz', 'discovery', 'passiveInterfaces'), ['enp2s0f0', 'docker0'], 'passiveLanOnly'),
