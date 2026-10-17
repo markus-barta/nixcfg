@@ -202,7 +202,7 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 | Item    | Value                                                                                                   |
 | ------- | ------------------------------------------------------------------------------------------------------- |
 | Bind    | `100.64.0.6:8470`, firewall permits only the listed source IPs on `tailscale0`                          |
-| Peers   | `100.64.0.10` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403                            |
+| Peers   | `100.64.0.15` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403                            |
 | Gateway | paper port `4002`. Live port `4001` is a hard startup error                                             |
 | Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, `modify-stop`, owned `flatten` and `cancel`) |
 | State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                                   |
@@ -630,7 +630,7 @@ Gateway port 4002 is a later round.
 ## Agent mailbox (OPS-272)
 
 Amy and OPS exchange JSON text at `http://100.64.0.6:8471`. Caller identity
-comes only from the socket source: Amy at `100.64.0.10`, OPS at `100.64.0.14`.
+comes only from the socket source: Amy at `100.64.0.15`, OPS at `100.64.0.14`.
 Forwarded headers and body fields cannot set identity. Other sources get 403;
 Headscale grants `amy@` and `tag:paper-desk` exactly TCP ports 8470 and 8471 on
 hsb0. The mailbox has no token, trading API, or command execution capability.
