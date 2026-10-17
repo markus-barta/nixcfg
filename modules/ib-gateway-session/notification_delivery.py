@@ -234,23 +234,24 @@ def declared_senders(path: str, docker_bin: str, aeon_key_file: str = "") -> dic
         mail = email_sender(config.get("email", {}), docker_bin)
     except (ValueError, TypeError, AttributeError):
         mail = unavailable("email")
-    chat_config = config.get("grok", {})
+    # Enrollment is independent of the private chat binding. An absent key
+    # skips chat even when that binding is absent or not usable yet.
     try:
-        chat = aeon_sender(chat_config, aeon_key_file)
+        if not aeon_key_file:
+            raise FileNotFoundError
+        os.lstat(aeon_key_file)
+        enrolled = True
+    except (FileNotFoundError, NotADirectoryError):
+        enrolled = False
+    except OSError:
+        # Keep the channel so send() reports custody or access failures loudly.
+        enrolled = True
+    if not enrolled:
+        print("grok notification not enrolled: Aeon notifier key absent, chat channel skipped")
+        return {"email": mail}
+
+    try:
+        chat = aeon_sender(config.get("grok", {}), aeon_key_file)
     except (ValueError, TypeError, AttributeError):
         chat = unavailable("grok")
-    else:
-        try:
-            if not aeon_key_file:
-                raise FileNotFoundError
-            os.lstat(aeon_key_file)
-            enrolled = True
-        except (FileNotFoundError, NotADirectoryError):
-            enrolled = False
-        except OSError:
-            # Keep the channel so send() reports custody or access failures loudly.
-            enrolled = True
-        if not enrolled:
-            print("grok notification not enrolled: Aeon notifier key absent, chat channel skipped")
-            return {"email": mail}
     return {"email": mail, "grok": chat}

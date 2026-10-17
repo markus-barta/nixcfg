@@ -80,20 +80,27 @@ class DeliveryTests(unittest.TestCase):
         self.assertIsNone(delivery.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.invalid'))
 
     def test_declared_senders_skips_unenrolled_key_with_one_notice(self):
-        config = {
+        base = {
             'schema_version': 1,
             'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
-            'grok': dict(AEON_BINDING),
         }
         with tempfile.TemporaryDirectory() as directory:
-            for key in (Path(directory) / 'not-enrolled', Path(directory) / 'missing-parent' / 'key'):
-                with self.subTest(key=key.name), \
-                        mock.patch.object(delivery, 'private_config', return_value=config), \
-                        mock.patch('builtins.print') as notice:
-                    senders = delivery.declared_senders('config.json', '/bin/docker', str(key))
-                    self.assertEqual(set(senders), {'email'})
-                    notice.assert_called_once_with(
-                        'grok notification not enrolled: Aeon notifier key absent, chat channel skipped')
+            non_directory = Path(directory) / 'not-a-directory'
+            non_directory.touch()
+            for key in (None, '', str(Path(directory) / 'not-enrolled'),
+                        str(Path(directory) / 'missing-parent' / 'key'),
+                        str(non_directory / 'key')):
+                for chat in ({}, {'grok': {}}, {'grok': None}, {'grok': []},
+                             {'grok': {'backend': 'invalid'}}, {'grok': dict(AEON_BINDING)}):
+                    with self.subTest(key=key, chat=chat), \
+                            mock.patch.object(delivery, 'private_config', return_value={**base, **chat}), \
+                            mock.patch.object(delivery, 'aeon_sender') as aeon, \
+                            mock.patch('builtins.print') as notice:
+                        senders = delivery.declared_senders('config.json', '/bin/docker', key)
+                        self.assertEqual(set(senders), {'email'})
+                        aeon.assert_not_called()
+                        notice.assert_called_once_with(
+                            'grok notification not enrolled: Aeon notifier key absent, chat channel skipped')
 
     def test_declared_senders_keeps_channel_for_directory_and_symlink(self):
         config = {
@@ -159,13 +166,13 @@ class DeliveryTests(unittest.TestCase):
         with mock.patch.object(delivery, 'private_config', return_value=config), \
                 mock.patch.object(delivery.os, 'lstat') as metadata, \
                 mock.patch('builtins.print') as notice:
-            senders = delivery.declared_senders('config.json', '/bin/docker', '/not-enrolled')
+            senders = delivery.declared_senders('config.json', '/bin/docker', '/enrolled-fixture')
             self.assertEqual(set(senders), {'email', 'grok'})
             notice.assert_not_called()
             self.assertFalse(senders['grok']('Paper Gateway needs attention.', 'event123'))
             notice.assert_called_once_with(
                 'grok notification unavailable: configuration or receiver missing')
-            metadata.assert_not_called()
+            metadata.assert_called_once_with('/enrolled-fixture')
 
     def test_email_only_notifications_ignore_pending_unenrolled_chat(self):
         import test_ib_gateway_notification_state as fixture
