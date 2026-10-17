@@ -33,7 +33,6 @@
     "ledger_size_limit",
     "history_write_failed",
     "halt_on",
-    "executor_broker_disagreement",
-    "results_not_wired"
+    "executor_broker_disagreement"
   ]
 }

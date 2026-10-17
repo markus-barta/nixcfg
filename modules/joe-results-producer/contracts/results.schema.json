@@ -59,6 +59,12 @@
             "$ref": "urn:joedesk:common:v2#/$defs/date",
             "x-owner": "paper executor 8470"
           },
+          "coverage": {
+            "type": "string",
+            "enum": ["full", "partial"],
+            "description": "Defaults to full when omitted. Partial means trades[] covers only part of this Vienna day; skip day/trade reconciliation.",
+            "x-owner": "paper executor 8470"
+          },
           "desks": {
             "type": "object",
             "additionalProperties": false,

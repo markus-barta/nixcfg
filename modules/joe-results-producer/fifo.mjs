@@ -1,7 +1,7 @@
 import { decimalUnits, UNIT, unitsDecimal } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { hash } from './journal.mjs';
-import { viennaDate, dayCoverage, PARTIAL_COVERAGE_FIELD } from './results-validation.mjs';
+import { viennaDate, dayCoverage } from './results-validation.mjs';
 
 export const DESKS = ['j', 'joe', 'joel'];
 export const money = amount => ({ amount, currency: 'EUR' });
@@ -91,7 +91,7 @@ export function dayCloses(observations, trades, trackingStart, { from, through }
       if (typeof close.basisId !== 'string' || !close.basisId || close.equity.currency !== 'EUR') throw unavailable();
       decimalUnits(close.equity.amount);
       desks[desk] = { equityClose: money(close.equity.amount) };
-      // Results 9550f81 forbids a wire basis field. Preserve the exact evidence
+      // Results manifest revision 3 forbids a wire basis field. Preserve the exact evidence
       // internally until the owner approves a contract-set upgrade.
       bases[`${date}:${desk}`] = { basisId: close.basisId, at };
       days.set(date, desks);
@@ -113,7 +113,8 @@ export function dayCloses(observations, trades, trackingStart, { from, through }
     }
     coverage[date] = from && through ? dayCoverage(date, from, through) : 'full';
     const day = { date, desks };
-    if (coverage[date] === 'partial' && PARTIAL_COVERAGE_FIELD) day[PARTIAL_COVERAGE_FIELD] = 'partial';
+    // Full is the documented default; only partial days need a wire marker.
+    if (coverage[date] === 'partial') day.coverage = 'partial';
     return day;
   });
   return { days: result, bases, coverage };

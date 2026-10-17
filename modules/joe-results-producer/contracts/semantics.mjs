@@ -1,5 +1,6 @@
 import { decimalUnits } from './decimal.mjs';
 import { gatewayReason } from './gateway.mjs';
+import { viennaDay } from './vienna-date.mjs';
 
 const FIELDS = ['equity', 'dayPnl', 'openPnl', 'totalPnl'];
 const KEEP = ['SXR8', 'TSLA'];
@@ -109,8 +110,7 @@ export function checkSemantics(kind, payload, stage, errors) {
   }
   if (kind === 'results') {
     const seen = new Set();
-    payload.days.forEach((day, i) => Object.values(day.desks).forEach(d =>
-      ['equityClose', 'realisedNet', 'fees'].forEach(f => eur(d[f], `$.days[${i}].${f}`))));
+    const closed = new Map();
     payload.trades.forEach((t, i) => {
       const at = `$.trades[${i}]`;
       if (seen.has(t.id)) fail(`${at}.id`, 'uniqueTrade');
@@ -122,6 +122,33 @@ export function checkSemantics(kind, payload, stage, errors) {
       if (t.entryPrice.currency !== t.exitPrice.currency || t.fx.base !== t.entryPrice.currency) fail(at, 'fxCurrency');
       if (decimalUnits(t.feesEur.amount) < 0n) fail(`${at}.feesEur`, 'nonnegative');
       if (decimalUnits(t.grossEur.amount) - decimalUnits(t.feesEur.amount) !== decimalUnits(t.netEur.amount)) fail(at, 'netAfterFees');
+      const key = `${viennaDay(t.closedAt)}|${t.desk}`;
+      const sum = closed.get(key) ?? { trades: 0, realisedNet: 0n, fees: 0n };
+      sum.trades++;
+      sum.realisedNet += decimalUnits(t.netEur.amount);
+      sum.fees += decimalUnits(t.feesEur.amount);
+      closed.set(key, sum);
+    });
+    // A windowed trades[] can cover only part of a day. Full days cover every
+    // desk that closed trades, including desks missing from the summary.
+    // Dates absent from days[] are not yet reconciled. Never round the sums.
+    payload.days.forEach((day, i) => {
+      Object.entries(day.desks).forEach(([id, d]) => {
+        ['equityClose', 'realisedNet', 'fees'].forEach(f => eur(d[f], `$.days[${i}].desks.${id}.${f}`));
+      });
+      if (day.coverage === 'partial') return;
+      for (const id of DESKS) {
+        const at = `$.days[${i}].desks.${id}`;
+        const d = day.desks[id];
+        const sum = closed.get(`${day.date}|${id}`) ?? { trades: 0, realisedNet: 0n, fees: 0n };
+        if (!d) {
+          if (sum.trades) fail(at, 'dayDeskRequired');
+          continue;
+        }
+        if (d.trades !== sum.trades) fail(`${at}.trades`, 'dayTradeCount');
+        if (!d.realisedNet || decimalUnits(d.realisedNet.amount) !== sum.realisedNet) fail(`${at}.realisedNet`, 'dayNetSum');
+        if (!d.fees || decimalUnits(d.fees.amount) !== sum.fees) fail(`${at}.fees`, 'dayFeeSum');
+      }
     });
   }
   if (kind === 'healthz') {

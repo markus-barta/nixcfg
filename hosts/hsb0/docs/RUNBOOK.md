@@ -724,12 +724,13 @@ in validated household v2 input. The last observation on each Vienna date wins;
 dates without observations are omitted. Day realised net, fees and trade counts
 sum every included closed portion on that Vienna date across **all** desks,
 including trades later than an equity observation. A traded desk without an
-equity observation has `equityClose: null`, never invented equity. A local
-validator rejects missing traded desks, wrong counts and inexact net/fee sums
+equity observation has `equityClose: null`, never invented equity. The vendored
+revision-3 validator rejects missing traded desks, wrong counts and inexact net/fee sums
 on full-coverage days. Both legs' fees are charged to the closed portion.
 Basis IDs and original observation times remain in the accumulated journal.
 **Pinned Results at JoeDesk
-`9550f81b448110bfa8fb3ea8df0956430012d5e1` forbids a basis field in `days[]`.**
+`b323c0a57c1440690f85ae35e4e53ade25739b74` (manifest revision 3) forbids
+a basis field in `days[]`.**
 The board cannot compare those bases over Results until JoeDesk approves a
 contract-set revision; do not add an unversioned extension locally.
 
@@ -773,18 +774,28 @@ an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
 and network failures also back off with value-free diagnostics. The board is
 stale after 60 seconds without an accepted push; retries do not fake freshness.
 
-JOED-27 remains a release gate: the read-only source and vendored closure are
-still `9550f81b448110bfa8fb3ea8df0956430012d5e1` (manifest revision 2). Coverage
-is computed from the capture/window interval in Vienna civil dates, including
-23/25-hour DST days. A window beginning mid-day or ending before a day's end
-is partial. Until the approved schema arrives, `PARTIAL_COVERAGE_FIELD = null`
-in `results-validation.mjs` suppresses the unsupported wire marker; existing
-wire day totals still equal all included trades. **Do not enable this module
-with an unmarked partial window.** On receipt of LEAD's merged SHA and digest,
-vendor `contracts/` alone from manifest revision 3, verify its complete digest
-closure, update the lock/checker pin, set the single constant to the approved
-coverage field, and rerun the fixture/partial-day tests against the new schema.
-Do not manufacture a schema extension or a merged source pin locally.
+JOED-27 is merged at `b323c0a57c1440690f85ae35e4e53ade25739b74`.
+The complete self-contained `contracts/` directory (manifest revision 3,
+including `vienna-date.mjs`) is vendored byte-for-byte. `contracts.lock.json`
+pins its source revision, each file's byte count and SHA-256, and set digest
+`2c85a6efca259e352b879f4d6efd514755ab1d99a0b15149fb1a155b77c1aa7d`.
+`verify-contracts.mjs` checks the complete file set and reproduces JoeDesk's
+`scripts/check-release.mjs` set hash: SHA-256 of the UTF-8 compact JSON array
+of sorted `{path,size,sha256}` entries with `contracts/`-prefixed paths.
+Build/CI checks reject changed, missing, extra or symlinked contract files,
+including a changed closure with a rewritten per-file lock.
+
+Coverage is computed from the capture/window interval using the vendored
+Vienna date helper, including 23/25-hour DST days. A window beginning mid-day
+or ending before a day's end emits `"coverage":"partial"` on that day.
+Full days omit `coverage`, using the README's documented default of `"full"`.
+The producer and fixture ingress call the vendored validator directly: partial
+days skip day/trade reconciliation while schema and trade checks still apply;
+full days reconcile every trading desk with exact counts and decimal sums.
+KEEP contributes nothing to either array, including partial-day totals.
+The revision-3 closed reason enum no longer permits `results_not_wired`.
+The module remains disabled; paper rehearsal and coordinator sign-off are
+still required before a separately approved enablement/cutover.
 The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
 one writable state directory, empty capabilities, no added groups/Docker socket, and
 IP egress limited to loopback and the pinned ingress address. The private hosts
@@ -801,8 +812,8 @@ Paper proof, for the operator **after** separate enablement approval:
    board/pusher/executor pins plus private backups of both Results journals (if
    present). Record the rollback path on JOED-20/OPS. Configure the board
    endpoint, household v2 evidence path, complete KEEP policy and IP/TLS pin in
-   the reviewed Nix change. Resolve the JOED-27 coverage pin, basis wire gap,
-   exact decimal source evidence and household fragment consumption with
+   the reviewed Nix change. Verify the revision-3 contract pin and resolve the
+   basis wire gap, exact decimal source evidence and household fragment consumption with
    JoeDesk/Amy first. Follow the normal remote NixOS build and
    human-controlled switch procedure; no local NixOS build on macOS.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.

@@ -84,10 +84,10 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (seq >= Number.MAX_SAFE_INTEGER) throw new Error('sequence_exhausted');
     const trades = roundTrips([...fills.values()], start, keepSymbols);
     if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
-    const { days, coverage } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at });
+    const { days } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at });
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
-    const checked = validateResults(candidate, { coverage });
+    const checked = validateResults(candidate);
     if (!checked.ok) throw new Error(checked.reason);
     // Reserve durably BEFORE transmission. A failed/ambiguous send burns the
     // sequence; restart cannot replay it or reset it from a compacted ledger.

@@ -1,62 +1,76 @@
 {
   "repository": "https://github.com/markus-barta/joedesk",
-  "revision": "9550f81b448110bfa8fb3ea8df0956430012d5e1",
+  "revision": "b323c0a57c1440690f85ae35e4e53ade25739b74",
+  "manifest_revision": 3,
+  "contract_set_sha256": "2c85a6efca259e352b879f4d6efd514755ab1d99a0b15149fb1a155b77c1aa7d",
   "files": {
-    "index.mjs": {
-      "bytes": 2701,
-      "sha256": "9c206f0f97a572867c2727ae8216f625d0ba243027901589b4d75d5898032500"
-    },
-    "schema-validator.mjs": {
-      "bytes": 4007,
-      "sha256": "a251176cf1c815fb767a323bb740a76c954481d36c082b10981d07ba7de58bf8"
-    },
-    "decimal.mjs": {
-      "bytes": 2397,
-      "sha256": "fb105a853b2e3212b4cb699287b25dd708b7a47b9d62273d4c3692497c95a5a5"
-    },
     "accept.mjs": {
       "bytes": 1952,
       "sha256": "7fbcde9421d3bf4cadb4e9fa1ea5f20e65eaf5a61e5894f8108f509612894317"
-    },
-    "semantics.mjs": {
-      "bytes": 9200,
-      "sha256": "3eb559b4a8eecc8403b76550a1a88f50e8a87ac30b127853e023ad71a3ac0ba4"
-    },
-    "gateway.mjs": {
-      "bytes": 1040,
-      "sha256": "2021ebd9f9ca4ffce1236dfb7983f64bcd909edfbf5d7482354501fdf358700f"
-    },
-    "manifest.json": {
-      "bytes": 932,
-      "sha256": "ddf609cef44f67e4dd88aad356546718699e32af7239250629c65221a74b2556"
     },
     "common.schema.json": {
       "bytes": 1920,
       "sha256": "64f5e9187602d9b1d38b90210a90f51a4eda72df995acf2251cf0685731fe881"
     },
-    "reason.schema.json": {
-      "bytes": 991,
-      "sha256": "e9b1e39064dc375f067c724de78ed45d00b89fe5fd0637444f151d543a193e53"
-    },
-    "results.schema.json": {
-      "bytes": 11165,
-      "sha256": "fa710d3b8276c9bcafb5ab1d4336a61737290e3ea97b535c433d2cf3bfbf430b"
-    },
     "data.schema.json": {
       "bytes": 26108,
       "sha256": "bd0cb79755da94cb21261ef25d2c0d785b237f7a64d90797f754c27b09bb8267"
     },
-    "history.schema.json": {
-      "bytes": 16944,
-      "sha256": "9eb91eebe727a726439c44297708f7b7c2cb02122d2c40fc0fdad0aeb7620568"
+    "decimal.mjs": {
+      "bytes": 2397,
+      "sha256": "fb105a853b2e3212b4cb699287b25dd708b7a47b9d62273d4c3692497c95a5a5"
+    },
+    "fleet-config.schema.json": {
+      "bytes": 10186,
+      "sha256": "6405dd82726b5fd30913a6171c7cd0e648defb1aa7c0ce8ed6e30085a0ca4086"
+    },
+    "gateway.mjs": {
+      "bytes": 1040,
+      "sha256": "2021ebd9f9ca4ffce1236dfb7983f64bcd909edfbf5d7482354501fdf358700f"
     },
     "healthz.schema.json": {
       "bytes": 6419,
       "sha256": "ebf858e504535303096b8e10294af6017f758c3beb78a837ab9b81730e7dbd31"
     },
-    "fleet-config.schema.json": {
-      "bytes": 10186,
-      "sha256": "6405dd82726b5fd30913a6171c7cd0e648defb1aa7c0ce8ed6e30085a0ca4086"
+    "history.schema.json": {
+      "bytes": 16944,
+      "sha256": "9eb91eebe727a726439c44297708f7b7c2cb02122d2c40fc0fdad0aeb7620568"
+    },
+    "index.mjs": {
+      "bytes": 2701,
+      "sha256": "9c206f0f97a572867c2727ae8216f625d0ba243027901589b4d75d5898032500"
+    },
+    "manifest.json": {
+      "bytes": 932,
+      "sha256": "7f75bcf48e08cdc6af1969eb45fd66cf07f938e49b50ce3e37d9974573738517"
+    },
+    "panel-state.mjs": {
+      "bytes": 7950,
+      "sha256": "79ad320c5491b9c18fe8637199da85fccb804a3f4e2c90ad066aae46d08b0c8f"
+    },
+    "read.mjs": {
+      "bytes": 1423,
+      "sha256": "c1d8983dd20f5abb31f0fcb366a756bbe207a41bce2485f64dca0158b519a31b"
+    },
+    "reason.schema.json": {
+      "bytes": 966,
+      "sha256": "52e6515f7aef346937d01ce6827e2bfb71add9dbf57c7a2ab08f63ea2c8497fd"
+    },
+    "results.schema.json": {
+      "bytes": 11470,
+      "sha256": "3ff6fd8eaaa76d148a65574e415038354625c1b1f89b333898fde9b929ee4f00"
+    },
+    "schema-validator.mjs": {
+      "bytes": 4007,
+      "sha256": "a251176cf1c815fb767a323bb740a76c954481d36c082b10981d07ba7de58bf8"
+    },
+    "semantics.mjs": {
+      "bytes": 10512,
+      "sha256": "c8c4065ff71ffeea66b925d3f921a103b5999b8cdf9b37d0de1729ef6d45c067"
+    },
+    "vienna-date.mjs": {
+      "bytes": 551,
+      "sha256": "e0111b99141a4d29b21271d10638a6a07868d7542537f18a723c6139fdefa22f"
     }
   }
 }

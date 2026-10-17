@@ -6,10 +6,10 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { openProducer, createRunner, CADENCE_MS } from './producer.mjs';
 import { roundTrips, dayCloses } from './fifo.mjs';
-import { dayCoverage, validateResults, PARTIAL_COVERAGE_FIELD } from './results-validation.mjs';
+import { dayCoverage, validateResults } from './results-validation.mjs';
 import { httpTransport, credentialHeaders, IngressError, failureDiagnostic, RESULTS_PATH } from './transport.mjs';
 import { createFixtureIngressServer } from './fixture-ingress.mjs';
-import { CONTRACTS, validateContract } from './contracts/index.mjs';
+import { CONTRACTS, REASONS, validateContract } from './contracts/index.mjs';
 
 const at = '2026-10-17T12:00:00.000Z', start = '2026-10-15T22:00:00.000Z'; // Vienna midnight
 const fixture = name => JSON.parse(readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8'));
@@ -17,7 +17,7 @@ const fills = fixture('fills.json'), book = fixture('book.json'), health = fixtu
 const keep = ['SXR8', 'TSLA'];
 const headers = () => ({ authorization: 'Bearer synthetic-joed20-token' });
 const endpoint = `https://board.example.invalid${RESULTS_PATH}`;
-const temp = () => mkdtempSync(path.join(tmpdir(), 'joed20-r2-'));
+const temp = () => mkdtempSync(path.join(tmpdir(), 'joed20-r3-'));
 const source = () => [{ type: 'start', at: start }, ...fills.map(fill => ({ type: 'fill', fill })), { type: 'authority', at, authoritative: true, disagreement: false }];
 function ready({ directory = temp(), now = () => at } = {}) {
   const producer = openProducer(path.join(directory, 'results.jsonl'), { now });
@@ -176,7 +176,7 @@ test('health and transport time consume the retry budget instead of extending th
 });
 
 test('full Vienna day totals include later closes and every traded desk without inventing equity', () => {
-  const extra = fills.map(fill => ({ ...fill, desk: 'joel', key: `joel-${fill.key}` }));
+  const extra = ['joe', 'joel'].flatMap(desk => fills.map(fill => ({ ...fill, desk, key: `${desk}-${fill.key}` })));
   const trades = roundTrips([...fills, ...extra], start, keep);
   // Only an early j equity observation; later j trades and all joel trades
   // must still appear in totals for a day with a days[] row.
@@ -185,23 +185,29 @@ test('full Vienna day totals include later closes and every traded desk without 
   assert.equal(close.days[0].desks.j.trades, 3);
   assert.equal(close.days[0].desks.j.realisedNet.amount, '7.02');
   assert.equal(close.days[0].desks.j.fees.amount, '0.88');
+  assert.equal(Object.hasOwn(close.days[0], 'coverage'), false); // documented full default
+  assert.equal(close.days[0].desks.joe.trades, 3);
+  assert.equal(close.days[0].desks.joe.equityClose, null);
   assert.equal(close.days[0].desks.joel.trades, 3);
   assert.equal(close.days[0].desks.joel.equityClose, null);
   const producer = ready(), payload = { ...producer.snapshot(), days: close.days, trades };
   assert.equal(validateResults(payload).ok, true);
-  for (const [field, value, rule] of [['trades', 2, 'dayTradeCount'], ['realisedNet', { amount: '7.01', currency: 'EUR' }, 'dayRealisedNetSum'], ['fees', { amount: '0.87', currency: 'EUR' }, 'dayFeesSum']]) {
+  for (const [field, value, rule] of [['trades', 2, 'dayTradeCount'], ['realisedNet', { amount: '7.01', currency: 'EUR' }, 'dayNetSum'], ['fees', { amount: '0.87', currency: 'EUR' }, 'dayFeeSum']]) {
     const bad = structuredClone(payload); bad.days[0].desks.j[field] = value;
-    assert.equal(validateContract('results', bad, { stage: 'ingress' }).ok, true); // proves the pinned gap
-    assert.ok(validateResults(bad).errors.some(error => error.rule === rule));
+    const checked = validateContract('results', bad, { stage: 'ingress' });
+    assert.equal(checked.status, 422); assert.equal(checked.reason, 'contract_invalid');
+    assert.deepEqual(validateResults(bad), checked);
+    assert.ok(checked.errors.some(error => error.rule === rule));
   }
-  const missing = structuredClone(payload); delete missing.days[0].desks.joel;
-  assert.ok(validateResults(missing).errors.some(error => error.rule === 'missingTradedDesk'));
+  for (const desk of ['j', 'joe', 'joel']) {
+    const missing = structuredClone(payload); delete missing.days[0].desks[desk];
+    assert.ok(validateResults(missing).errors.some(error => error.path === `$.days[0].desks.${desk}` && error.rule === 'dayDeskRequired'));
+  }
   assert.equal(validateResults({ ...payload, days: [] }).ok, true);
   producer.close();
 });
 
-test('partial coverage is computed at window boundaries and Vienna DST; legacy schema stays valid', () => {
-  assert.equal(PARTIAL_COVERAGE_FIELD, null);
+test('partial coverage travels on the wire at window boundaries and Vienna DST', () => {
   assert.equal(dayCoverage('2026-10-16', '2026-10-16T11:00:00.000Z', at), 'partial');
   assert.equal(dayCoverage('2026-10-17', start, at), 'partial');
   assert.equal(dayCoverage('2026-10-16', start, at), 'full');
@@ -210,12 +216,24 @@ test('partial coverage is computed at window boundaries and Vienna DST; legacy s
   const trades = roundTrips(fills, start, keep);
   const partial = dayCloses(book, trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
   assert.equal(partial.coverage['2026-10-16'], 'partial');
-  assert.equal(Object.hasOwn(partial.days[0], 'coverage'), false);
+  assert.equal(partial.days[0].coverage, 'partial');
   const producer = ready(), payload = { ...producer.snapshot(), days: partial.days };
   assert.equal(validateContract('results', payload, { stage: 'ingress' }).ok, true);
-  const windowed = { ...payload, trades: [] };
-  assert.equal(validateResults(windowed).ok, false);
-  assert.equal(validateResults(windowed, { coverage: partial.coverage }).ok, true);
+  const windowed = { ...payload, trades: payload.trades.slice(1) };
+  assert.equal(validateContract('results', windowed, { stage: 'ingress' }).ok, true);
+  assert.equal(validateResults(windowed).ok, true);
+  for (const coverage of [undefined, 'full']) {
+    const full = structuredClone(windowed);
+    if (coverage) full.days[0].coverage = coverage;
+    else delete full.days[0].coverage;
+    const checked = validateResults(full);
+    assert.equal(checked.status, 422); assert.equal(checked.reason, 'contract_invalid');
+    assert.ok(checked.errors.some(error => error.rule === 'dayTradeCount'));
+  }
+  const invalid = structuredClone(windowed); invalid.trades[0].netEur.amount = '999';
+  assert.ok(validateResults(invalid).errors.some(error => error.rule === 'netAfterFees'));
+  const invalidCoverage = structuredClone(windowed); invalidCoverage.days[0].coverage = 'unknown';
+  assert.equal(validateResults(invalidCoverage).status, 422);
   producer.close();
 });
 
@@ -229,6 +247,14 @@ test('KEEP round trips are excluded from both arrays, leaving exact ordinary tra
   assert.equal(value.days[0].desks.j.realisedNet.amount, '7.02');
   assert.equal(value.days[0].desks.j.fees.amount, '0.88');
   assert.equal(validateResults(value).ok, true);
+  const partial = dayCloses(book, value.trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
+  assert.equal(partial.days[0].coverage, 'partial');
+  assert.deepEqual(partial.days[0].desks, value.days[0].desks);
+  assert.equal(validateContract('results', { ...value, days: partial.days }, { stage: 'ingress' }).ok, true);
+  for (const symbol of keep) {
+    const forbidden = structuredClone(value); forbidden.days = partial.days; forbidden.trades[0].symbol = symbol;
+    assert.ok(validateResults(forbidden).errors.some(error => error.rule === 'keepExcluded'));
+  }
   producer.close();
 });
 
@@ -243,4 +269,41 @@ test('commission allocation and FX never round; nonrepresentable exact fees hold
   input[1].quantity = '3'; input[1].commission.amount = '0.00000002';
   input.splice(1, 0, { ...input[0], key: 'pre-tracking-close', side: 'SELL', quantity: '2', at: '2026-10-15T13:00:00.000Z' });
   assert.equal(roundTrips(input, start, keep)[0].feesEur.amount, '0.00000001');
+});
+
+
+test('fixture accepts partial coverage and rejects full-day mismatches with vendored 422 rules', async () => {
+  const producer = ready(), server = createFixtureIngressServer({ now: () => at });
+  const full = producer.snapshot();
+  const partial = structuredClone(full);
+  partial.days[0].coverage = 'partial'; partial.trades = partial.trades.slice(1);
+  assert.equal((await request(server, partial)).status, 200);
+  const accepted = server.accepted;
+  for (const [field, value, rule] of [['trades', 0, 'dayTradeCount'], ['realisedNet', { amount: '0', currency: 'EUR' }, 'dayNetSum'], ['fees', { amount: '0', currency: 'EUR' }, 'dayFeeSum']]) {
+    const bad = structuredClone(full); bad.seq++;
+    bad.days[0].desks.j[field] = value;
+    const response = await request(server, bad);
+    assert.equal(response.status, 422); assert.equal(response.body.reason, 'contract_invalid');
+    assert.ok(response.body.errors.some(error => error.path === `$.days[0].desks.j.${field}` && error.rule === rule));
+    assert.equal(server.accepted, accepted);
+  }
+  const missing = structuredClone(full); missing.seq++; delete missing.days[0].desks.j;
+  const rejected = await request(server, missing);
+  assert.equal(rejected.status, 422);
+  assert.ok(rejected.body.errors.some(error => error.rule === 'dayDeskRequired'));
+  assert.equal(server.accepted, accepted);
+  producer.close();
+});
+
+test('producer emits partial coverage from its capture interval and removed reasons fail closed', () => {
+  const producer = openProducer(path.join(temp(), 'results.jsonl'), { now: () => at });
+  const rows = source(); rows[0].at = '2026-10-16T11:00:00.000Z';
+  producer.ingest(rows); book.forEach(producer.observe);
+  const value = producer.snapshot();
+  assert.equal(value.days[0].coverage, 'partial');
+  assert.equal(validateContract('results', value, { stage: 'ingress' }).ok, true);
+  assert.equal(CONTRACTS.revision, 3);
+  assert.equal(REASONS.includes('results_not_wired'), false);
+  assert.equal(validateResults({ ...value, reason: 'results_not_wired' }).status, 422);
+  producer.close();
 });
