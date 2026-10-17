@@ -97,7 +97,7 @@ in
       # OPS-355: nix/module.nix:166-197,240-244; UDP 1901 on mdnsInterfaces only.
       openFirewallSsdp = true;
       mdnsInterfaces = [ "enp2s0f0" ];
-      # OPS-355: Markus 2026-10-17 "go. passive listeners stay". ARP/DHCP listener
+      # OPS-355 (approved 2026-10-17, see the ticket): ARP/DHCP listener
       # between scans; passiveInterfaces defaults to mdnsInterfaces (LAN only,
       # asserted non-empty). Grants the unit CAP_NET_RAW and AF_PACKET only
       # (nix/module.nix:30,201-230,242-245,303-307); nothing is sent.
