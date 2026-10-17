@@ -144,17 +144,8 @@
         "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
       ];
       labels = [
-        "traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
-        "traefik.http.routers.traefik.entrypoints=web-secure"
-        "traefik.http.routers.traefik.service=api@internal"
-        "traefik.http.routers.traefik.tls.certresolver=default"
-        "traefik.http.routers.traefik.tls=true"
-        "traefik.http.routers.traefik.priority=100"
         "com.centurylinklabs.watchtower.enable=false"
       ];
-      # - traefik.http.routers.traefik.middlewares=authelia
-      # fixes error: middleware "authelia@docker" does not exist
-      # - traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/verify?rd=https://login.barta.cm/
       environment = [
         "TZ=Europe/Vienna"
       ];
@@ -180,7 +171,7 @@
         "--provider=oidc"
         "--oidc-issuer-url=https://auth.inspr.at"
         "--redirect-url=https://cs0.barta.cm/oauth2/callback"
-        "--email-domain=*"
+        "--email-domain=barta.com"
         "--cookie-domain=.barta.cm"
         "--whitelist-domain=.barta.cm"
         "--cookie-secure=true"
@@ -225,7 +216,7 @@
       ];
       labels = [
         "traefik.enable=true"
-        "traefik.http.routers.hostdash-csb0.rule=Host(`cs0.barta.cm`)"
+        "traefik.http.routers.hostdash-csb0.rule=Host(`cs0.barta.cm`) && !(PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
         "traefik.http.routers.hostdash-csb0.entrypoints=web-secure"
         "traefik.http.routers.hostdash-csb0.tls=true"
         "traefik.http.routers.hostdash-csb0.tls.certresolver=default"

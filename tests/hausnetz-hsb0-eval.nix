@@ -50,10 +50,36 @@ in
       !(has 5353 (ifaceUdp name)) && !(inRange 5353 (fw.interfaces.${name}.allowedUDPPortRanges or [ ]))
     )
   ) allInterfaces;
+  ssdpEnabled = cfg.discovery.openFirewallSsdp;
+  ssdpPort = cfg.discovery.ssdpPort == 1901;
+  ssdpLanOnly = cfg.discovery.ssdpInterfaces == [ "enp2s0f0" ];
+  ssdpReachable = has 1901 (ifaceUdp "enp2s0f0");
+  noGlobalSsdp = !(has 1901 fw.allowedUDPPorts) && !(inRange 1901 fw.allowedUDPPortRanges);
+  noOtherInterfaceSsdp = builtins.all (
+    name:
+    name == "enp2s0f0"
+    || (
+      !(has 1901 (ifaceUdp name)) && !(inRange 1901 (fw.interfaces.${name}.allowedUDPPortRanges or [ ]))
+    )
+  ) allInterfaces;
+  ssdpArgument = lib.hasInfix "\"--ssdp-port\" \"1901\"" unit.ExecStart;
+  netlinkAllowed = has "AF_NETLINK" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
   nice = unit.Nice == 10;
   proxySource = lib.hasSuffix "/hosts/hsb0/docker/hsb0-home-hausnetz.conf" (
     toString config.environment.etc."hsb0-home-hausnetz.conf".source
   );
+  proxyRestartTriggers =
+    builtins.all
+      (
+        snippet:
+        builtins.any (
+          trigger: lib.hasSuffix ("/hosts/hsb0/docker/" + snippet) (toString trigger)
+        ) config.nixcfg.composeStack.extraRestartTriggers
+      )
+      [
+        "hsb0-home-hausnetz.conf"
+        "hsb0-home-inflight.conf"
+      ];
 }
