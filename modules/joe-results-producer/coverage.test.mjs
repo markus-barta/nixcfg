@@ -28,11 +28,11 @@ test('position proof uses the complete broker snapshot, exact quantities and no 
   const state = { ownershipComplete: true, ownershipSnapshot: snapshot, executions: [] };
   const options = { account, attribute: () => ({ desk: 'j' }) };
   const proof = () => capturePositionProof(state, { executorClientId: 705 }, floor, options, [instrument], at);
-  assert.deepEqual(proof(), { at, foreign: [], positions: [{ instrument, quantity: '1' }] });
+  assert.deepEqual(proof(), { at, foreign: [], positions: [{ instrument, quantity: '1', src: 'sdk_number_roundtrip' }] });
   assert.deepEqual(capturePositionProof(state, { executorClientId: 705 }, floor, options, [], at), proof());
   snapshot.positions[0].position = '0.12345678';
   assert.equal(proof().positions[0].quantity, '0.12345678');
-  for (const invalid of [0.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, 'bad']) {
+  for (const invalid of [1e-7, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, 'bad']) {
     snapshot.positions[0].position = invalid;
     assert.equal(proof(), null);
   }

@@ -27,7 +27,11 @@ def evaluate(options):
 
 default = evaluate("{}")
 assert default.returncode == 0, default.stderr
-assert json.loads(default.stdout) == {"reconRetentionHours": 48, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"]}
+assert json.loads(default.stdout) == {"reconRetentionHours": 48, "resultsHealthPort": 8472, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"]}
+for port in ["8471", "8470", "8473"]:
+    result = evaluate("{ resultsHealthPort = " + port + "; }")
+    assert result.returncode != 0, port
+    assert "loopback port 8472" in result.stderr, result.stderr
 for hours in ["16.0 / 60.0", "0.33333333", "72", "336"]:
     result = evaluate("{ reconRetentionHours = " + hours + "; }")
     assert result.returncode == 0, result.stderr

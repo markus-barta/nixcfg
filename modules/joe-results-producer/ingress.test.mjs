@@ -79,7 +79,7 @@ test('fixture results inbox mirrors 200/422/401/413/400/503 and retains last goo
 
 test('HTTP transport posts exactly one snapshot with shared-token auth and contract size limit', async () => {
   const producer = ready(), server = createFixtureIngressServer({ now: () => at });
-  const transport = httpTransport(endpoint, { headers, fetchImpl: async (url, options) => {
+  const transport = httpTransport(endpoint, { origin: 'https://board.example.invalid', headers, fetchImpl: async (url, options) => {
     assert.equal(url.href, endpoint); assert.equal(options.method, 'POST'); assert.equal(options.redirect, 'error');
     assert.equal(options.headers.get('content-type'), 'application/json');
     assert.equal(options.headers.has('x-joe-received-at'), false);
@@ -93,10 +93,10 @@ test('HTTP transport posts exactly one snapshot with shared-token auth and contr
   await transport.send(producer.snapshot());
   assert.equal(server.accepted.value.seq, 2);
   await assert.rejects(transport.send({ ...first, unexpected: 'x'.repeat(CONTRACTS.limits.results) }), error => error.status === 413);
-  await assert.rejects(httpTransport(endpoint).send(first), /auth_required/);
-  for (const url of ['http://board.example.invalid/joe/inbox/results', 'https://board.example.invalid/joe/inbox', `${endpoint}?token=synthetic`, `${endpoint}#fragment`]) assert.throws(() => httpTransport(url), /invalid_ingress_endpoint/);
-  assert.doesNotThrow(() => httpTransport(`http://127.0.0.1:2345${RESULTS_PATH}`));
-  await assert.rejects(httpTransport(endpoint, { headers: () => new Headers({ ...headers(), 'x-joe-received-at': at }) }).send(first), /server_owned_header/);
+  await assert.rejects(httpTransport(endpoint, { origin: 'https://board.example.invalid' }).send(first), /auth_required/);
+  for (const url of ['http://board.example.invalid/joe/inbox/results', 'https://board.example.invalid/joe/inbox', `${endpoint}?token=synthetic`, `${endpoint}#fragment`]) assert.throws(() => httpTransport(url, { origin: 'https://board.example.invalid' }), /invalid_ingress_endpoint/);
+  assert.doesNotThrow(() => httpTransport(`http://127.0.0.1:2345${RESULTS_PATH}`, { origin: "http://127.0.0.1:2345" }));
+  await assert.rejects(httpTransport(endpoint, { origin: 'https://board.example.invalid', headers: () => new Headers({ ...headers(), 'x-joe-received-at': at }) }).send(first), /server_owned_header/);
   producer.close();
 });
 
@@ -120,7 +120,7 @@ test('transport refuses an ingress-valid payload whose server timestamp would ex
     assert.equal(validateResults(payload).ok, true);
     assert.ok(Buffer.byteLength(JSON.stringify({ ...payload, receivedAt: at })) > CONTRACTS.limits.results);
     let accessed = false;
-    const transport = httpTransport(endpoint, { headers: () => { accessed = true; return headers(); },
+    const transport = httpTransport(endpoint, { origin: 'https://board.example.invalid', headers: () => { accessed = true; return headers(); },
       fetchImpl: async () => { accessed = true; throw new Error('unexpected_send'); } });
     await assert.rejects(transport.send(payload), error => error.status === 413 && error.reason === 'too_large');
     assert.equal(accessed, false); assert.equal(transport.lastGood, null);
@@ -130,13 +130,13 @@ test('transport refuses an ingress-valid payload whose server timestamp would ex
 test('only the systemd credential copy is read; missing, empty and symlink tokens fail closed', () => {
   const directory = temp(), tokenFile = path.join(directory, 'joe-board-push-token');
   writeFileSync(tokenFile, 'synthetic-joed20-token\n', { mode: 0o600 });
-  assert.deepEqual(credentialHeaders(directory)(), headers());
+  assert.deepEqual(credentialHeaders(directory, directory)(), headers());
   assert.throws(() => credentialHeaders(undefined)(), /auth_required/);
   assert.throws(() => credentialHeaders(temp())(), /auth_required/);
-  writeFileSync(tokenFile, ''); assert.throws(() => credentialHeaders(directory)(), /auth_required/);
-  writeFileSync(tokenFile, 'synthetic\ninjected'); assert.throws(() => credentialHeaders(directory)(), /auth_required/);
+  writeFileSync(tokenFile, ''); assert.throws(() => credentialHeaders(directory, directory)(), /auth_required/);
+  writeFileSync(tokenFile, 'synthetic\ninjected'); assert.throws(() => credentialHeaders(directory, directory)(), /auth_required/);
   const linkDir = temp(); symlinkSync(tokenFile, path.join(linkDir, 'joe-board-push-token'));
-  assert.throws(() => credentialHeaders(linkDir)(), /auth_required/);
+  assert.throws(() => credentialHeaders(linkDir, linkDir)(), /auth_required/);
 });
 
 test('rejection diagnostics are bounded and value-free for each HTTP outcome', async () => {
@@ -144,7 +144,7 @@ test('rejection diagnostics are bounded and value-free for each HTTP outcome', a
   for (const [status, reason] of [[400, 'contract_invalid'], [401, 'auth_required'], [413, 'too_large'], [503, 'ingress_unavailable'], [422, 'clock_ahead']]) {
     const errors = Array.from({ length: 25 }, () => ({ path: '$.generatedAt', rule: 'clockAhead', value: 'synthetic-private-body' }));
     errors.unshift({ path: '$.synthetic-private-body', rule: 'clockAhead' });
-    const transport = httpTransport(endpoint, { headers, fetchImpl: async () => new Response(JSON.stringify({ reason: 'clock_ahead', errors, private: 'synthetic-private-body' }), { status }) });
+    const transport = httpTransport(endpoint, { origin: 'https://board.example.invalid', headers, fetchImpl: async () => new Response(JSON.stringify({ reason: 'clock_ahead', errors, private: 'synthetic-private-body' }), { status }) });
     await assert.rejects(transport.send(candidate), error => {
       const log = failureDiagnostic(error);
       assert.equal(log.reason, reason); assert.equal(log.httpStatus, status);
@@ -154,9 +154,9 @@ test('rejection diagnostics are bounded and value-free for each HTTP outcome', a
       return true;
     });
   }
-  const huge = httpTransport(endpoint, { headers, fetchImpl: async () => new Response('x'.repeat(16_385), { status: 422 }) });
+  const huge = httpTransport(endpoint, { origin: 'https://board.example.invalid', headers, fetchImpl: async () => new Response('x'.repeat(16_385), { status: 422 }) });
   await assert.rejects(huge.send(candidate), error => error.reason === 'ingress_rejected' && error.errors.length === 0);
-  const network = httpTransport(endpoint, { headers, fetchImpl: async () => { throw new Error('synthetic-private-body'); } });
+  const network = httpTransport(endpoint, { origin: 'https://board.example.invalid', headers, fetchImpl: async () => { throw new Error('synthetic-private-body'); } });
   await assert.rejects(network.send(candidate), /transport_failed/);
   producer.close();
 });

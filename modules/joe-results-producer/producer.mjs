@@ -1,6 +1,6 @@
 import { openJournal, readJournal, hash, createJournalReader } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
-import { validInstant } from './contracts/schema-validator.mjs';
+import { validInstant, validDate } from './contracts/schema-validator.mjs';
 import { validateResults, historyGaps, updateHistoryIntervals } from './results-validation.mjs';
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { dayFx, fxDayPartial } from './fx.mjs';
@@ -25,7 +25,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   const fills = new Map(), mismatches = new Set(), exclusions = new Set();
   let sourceReader, sourcePath;
   let authority = null, latestHealth = null, fxStatus = null;
-  const fxDays = new Map();
+  const fxDays = new Map(), captureIssues = new Map();
   let coverageIntervals = [];
   let historyStart = Infinity;
   const positionProofs = new PositionProofIndex();
@@ -38,9 +38,14 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       if (row.type === 'fill') fills.set(row.fill.key, row.fill);
       else if (row.type === 'authority') authority = row;
       else if (row.type === 'cut' || row.type === 'fx') {
+        for (const issue of row.captureIssues || []) {
+          if (!validDate(issue.day) || !/^[a-f0-9]{64}$/.test(issue.id) || !['capture_gap', 'broker_evidence_missing'].includes(issue.kind)) throw unavailable();
+          captureIssues.set(issue.id, issue);
+        }
         if (row.fxSampler) {
           fxStatus = { enabled: row.fxSampler.enabled, reason: row.fxSampler.reason };
           for (const [date, day] of Object.entries(row.fxSampler.days || {})) {
+            if (!validDate(date)) throw unavailable();
             const frozen = fxDays.get(date)?.samples?.find(sample => sample.kind === 'close');
             fxDays.set(date, frozen ? { ...day, samples: [...(day.samples || []).filter(sample => sample.kind !== 'close'), frozen] } : day);
           }
@@ -126,11 +131,14 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
         if (!days.some(day => day.date === date)) days.push({ date, desks: {}, coverage: 'partial' });
       }
     }
+    for (const issue of captureIssues.values()) {
+      if (!days.some(day => day.date === issue.day)) days.push({ date: issue.day, desks: {}, coverage: 'partial' });
+    }
     days.sort((a, b) => a.date.localeCompare(b.date));
     const usdDays = new Set(stage0.filter(fill => fill.currency === 'USD').map(fill => viennaDate(fill.at)));
     const excludedDays = new Set(excluded.map(record => record.day));
     const backstop = brokerMismatches(days, stage0, start, at);
-    const partial = new Set(backstop.map(record => record.day));
+    const partial = new Set([...backstop.map(record => record.day), ...[...captureIssues.values()].map(record => record.day)]);
     for (const day of days) {
       if (partial.has(day.date) || excludedDays.has(day.date) || fxStatus && usdDays.has(day.date) && fxDayPartial(fxDays.get(day.date), day.date, fxStatus, at)) day.coverage = 'partial';
     }
@@ -149,6 +157,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     ingest, ingestJournal, snapshot, close: () => journal.close(),
     health(health, at = now()) {
       const value = executorHealth(health, at, authority?.disagreement === true);
+      value.captureRefusals = [...captureIssues.values()].filter(row => row.refused).length;
       // Loopback executor health only; no household/account handoff in v1.
       const { checkedAt: _previousAt, ...previous } = latestHealth || {};
       const { checkedAt: _currentAt, ...current } = value;

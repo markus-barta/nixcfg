@@ -77,7 +77,7 @@ test('SDK undefined opening PnL survives ledger JSON save and capture to a full 
   assert.deepEqual(f.replay().days, first.days);
 });
 
-for (const pnl of [undefined, null, Number.MAX_VALUE, 0.011, 'NaN', '1.7976931348623157e+308']) {
+for (const pnl of [undefined, null, Number.MAX_VALUE, 1e-7, 'NaN', '1.7976931348623157e+308']) {
   test(`missing or unusable broker PnL (${String(pnl)}) fails closed`, t => {
     const f = setup(t); f.state.commissions[1].realizedPNL = pnl;
     const value = f.refresh();
@@ -106,7 +106,7 @@ test('existing close FX converts broker net once and numeric exact integers are 
   const value = f.refresh();
   assert.equal(value.days[0].coverage ?? 'full', 'full');
   assert.equal(value.days[0].desks.j.realisedNet.amount, '1.62');
-  assert.deepEqual(captureBrokerRealised({ realizedPNL: 2, currency: 'EUR' }), { amount: '2', currency: 'EUR' });
+  assert.deepEqual(captureBrokerRealised({ realizedPNL: 2, currency: 'EUR' }), { amount: '2', src: 'sdk_number_roundtrip', currency: 'EUR' });
 });
 
 test('a zero-PnL closing execution still counts, and compacted broker input preserves proof on replay', t => {

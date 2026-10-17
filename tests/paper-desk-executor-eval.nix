@@ -1,6 +1,7 @@
 # OPS-331: evaluate the real module with inert package paths; no builds or hosts.
 {
   reconRetentionHours ? null,
+  resultsHealthPort ? null,
   clientIds ? null,
   ownershipClientIds ? null,
   marketDataClientId ? null,
@@ -43,6 +44,7 @@ let
             enable = true;
           }
           // lib.optionalAttrs (reconRetentionHours != null) { inherit reconRetentionHours; }
+          // lib.optionalAttrs (resultsHealthPort != null) { inherit resultsHealthPort; }
           // lib.optionalAttrs (clientIds != null) { inherit clientIds; }
           // lib.optionalAttrs (ownershipClientIds != null) { inherit ownershipClientIds; }
           // lib.optionalAttrs (marketDataClientId != null) { inherit marketDataClientId; }
@@ -67,7 +69,7 @@ let
 in
 assert lib.assertMsg (failed == [ ]) (lib.concatMapStringsSep "; " (item: item.message) failed);
 {
-  inherit (cfg.nixcfg.paperDeskExecutor) reconRetentionHours;
+  inherit (cfg.nixcfg.paperDeskExecutor) reconRetentionHours resultsHealthPort;
   retentionEnvironment = builtins.filter (
     item: lib.hasPrefix "PAPER_DESK_RECON_RETENTION_HOURS=" item
   ) cfg.nixcfg.paperDeskExecutor.serviceSpec.environment;

@@ -1,4 +1,4 @@
-import { constants, openSync, closeSync, fstatSync, readFileSync } from 'node:fs';
+import { constants, openSync, closeSync, fstatSync, readFileSync, lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { CONTRACTS } from './contracts/index.mjs';
 import { acceptSnapshot } from './contracts/accept.mjs';
@@ -30,11 +30,14 @@ export function failureDiagnostic(error) {
 
 // Raw token is read only by the running service from systemd's private copy.
 // No token, header, path, endpoint or response body is included in diagnostics.
-export function credentialHeaders(directory) {
+export function credentialHeaders(directory, expectedDirectory = '/run/credentials/joe-results-producer.service') {
   return () => {
     let fd;
     try {
-      if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error();
+      // systemd sets this directory; env cannot select another tree or a symlink.
+      if (typeof directory !== 'string' || directory !== expectedDirectory || !path.isAbsolute(directory)
+        || directory.split(path.sep).includes('..') || lstatSync(directory).isSymbolicLink()
+        || realpathSync(directory) !== path.join(realpathSync(path.dirname(expectedDirectory)), path.basename(expectedDirectory))) throw new Error();
       fd = openSync(path.join(directory, 'joe-board-push-token'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const info = fstatSync(fd);
       if (!info.isFile() || info.size < 1 || info.size > 4096) throw new Error();
@@ -64,14 +67,20 @@ async function rejectionBody(response) {
   finally { await reader.cancel().catch(() => {}); }
 }
 
-export function endpointUrl(value) {
+export function endpointUrl(value, origin) {
+  if (typeof origin !== 'string') throw new Error('invalid_ingress_endpoint');
+  const pin = new URL(origin);
+  if (pin.origin !== origin || pin.username || pin.password || pin.pathname !== '/' || pin.search || pin.hash
+    || (pin.protocol !== 'https:' && !(pin.protocol === 'http:' && pin.hostname === '127.0.0.1'))) throw new Error('invalid_ingress_endpoint');
   const url = new URL(value);
+  if (url.origin !== pin.origin) throw new Error('invalid_ingress_endpoint');
   if (url.pathname !== RESULTS_PATH || url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === '127.0.0.1'))) throw new Error('invalid_ingress_endpoint');
-  return url;
+  // Origin comes from the Nix module's service environment, never a state file.
+  return new URL(RESULTS_PATH, pin.origin);
 }
 
-export function httpTransport(endpoint, { fetchImpl = fetch, headers = () => ({}), keepSymbols = ['SXR8', 'TSLA'] } = {}) {
-  const url = endpointUrl(endpoint);
+export function httpTransport(endpoint, { origin, fetchImpl = fetch, headers = () => ({}), keepSymbols = ['SXR8', 'TSLA'] } = {}) {
+  const url = endpointUrl(endpoint, origin);
   let lastGood = null;
   return {
     keepSymbols,

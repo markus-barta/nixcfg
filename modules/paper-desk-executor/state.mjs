@@ -275,6 +275,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   }
 
   function save(state) {
+    // Capture once, before compaction; pruneState below uses its no-op hook.
     beforePrune(state);
     compactRecons(state);
     pruneState(state, Date.now(), { reconRetentionMs });

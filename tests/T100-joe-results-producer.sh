@@ -19,6 +19,7 @@ value = json.loads(enabled.stdout)
 assert value["capture"] is True
 assert value["captureKeep"] == ["SXR8", "TSLA"]
 service = value["services"]["joe-results-producer"]["serviceConfig"]
+assert service["Environment"] == ["JOE_RESULTS_INGRESS_ORIGIN=https://ingress.example.invalid"]
 assert service["User"] == service["Group"] == "1000"
 assert service["ProtectSystem"] == "strict"
 assert service["NoNewPrivileges"] and service["PrivateDevices"] and service["ProtectHome"]

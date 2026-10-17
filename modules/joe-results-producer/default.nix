@@ -14,7 +14,7 @@ let
     builtins.toJSON {
       mode = "paper";
       inherit (cfg) endpoint keepSymbols;
-      executorHealth = "http://127.0.0.1:8471/v1/health";
+      executorHealth = "http://127.0.0.1:8472/v1/health";
       capturePath = "/var/lib/paper-desk-executor/results-input.jsonl";
       stateDir = "/var/lib/joe-results-producer";
     }
@@ -98,6 +98,7 @@ in
       ];
       serviceConfig = {
         Type = "simple";
+        Environment = [ "JOE_RESULTS_INGRESS_ORIGIN=https://${cfg.ingressHost}" ];
         # Same unprivileged identity as the executor container, with its state
         # mounted read-only here. No added groups, Docker socket or capabilities.
         User = "1000";

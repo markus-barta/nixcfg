@@ -115,17 +115,19 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
     if ((from && fill.at < from) || (through && fill.at > through)) continue;
     const date = viennaDate(fill.at);
     if (date < trackingStart) continue;
-    const desks = days.get(date) || {};
+    if (!DESKS.includes(fill.desk)) throw unavailable();
+    const desks = days.get(date) || Object.create(null);
     desks[fill.desk] = { equityClose: null };
     days.set(date, desks);
   }
-  const totals = new Map(), coverage = {};
+  const totals = new Map(), coverage = Object.create(null);
   for (const trade of trades) {
+    if (!DESKS.includes(trade.desk) || !validInstant(trade.closedAt)) throw unavailable();
     const date = viennaDate(trade.closedAt), key = `${date}:${trade.desk}`;
     const total = totals.get(key) || { count: 0, net: 0n, fees: 0n };
     total.count++; total.net += decimalUnits(trade.netEur.amount); total.fees += decimalUnits(trade.feesEur.amount);
     totals.set(key, total);
-    const desks = days.get(date) || {};
+    const desks = days.get(date) || Object.create(null);
     desks[trade.desk] ||= { equityClose: null };
     days.set(date, desks);
   }
@@ -135,10 +137,10 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
       Object.assign(value, { realisedNet: money(unitsDecimal(total.net)), fees: money(unitsDecimal(total.fees)), trades: total.count });
     }
     coverage[date] = earlierGaps.has(date) ? 'partial' : dayCoverage(date, from, through, intervals);
-    const day = { date, desks };
+    const day = { date, desks: { ...desks } };
     // Full is the documented default; only partial days need a wire marker.
     if (coverage[date] === 'partial') day.coverage = 'partial';
     return day;
   });
-  return { days: result, coverage };
+  return { days: result, coverage: { ...coverage } };
 }

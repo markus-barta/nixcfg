@@ -1,20 +1,17 @@
+import { sdkDecimal } from './sdk-decimal.mjs';
 import { decimalUnits, UNIT } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { isSampleFx } from './fx.mjs';
 import { hash } from './journal.mjs';
 import { viennaDate } from './results-validation.mjs';
 
-// commissionReport is already retained by the executor. Never manufacture
-// decimal precision from fractional JS Numbers or IB's unset-double sentinel.
+// commissionReport is retained by the executor; only its numeric projection
+// crosses the shared SDK boundary. Older replays ignore additive provenance.
 export function captureBrokerRealised(report) {
-  try {
-    if (!report || !/^[A-Z]{3}$/.test(report.currency)) return null;
-    let amount = report.realizedPNL;
-    if (amount === undefined || amount === null || amount === Number.MAX_VALUE || amount === String(Number.MAX_VALUE)) return { unset: true, currency: report.currency };
-    if (Number.isSafeInteger(amount)) amount = String(amount);
-    decimalUnits(amount);
-    return { amount, currency: report.currency };
-  } catch { return null; }
+  if (!report || !/^[A-Z]{3}$/.test(report.currency)) return null;
+  const value = sdkDecimal(report.realizedPNL);
+  if (value.refused) return null;
+  return { ...value, currency: report.currency };
 }
 
 // This quantity-only book counts closing EXECUTIONS, independently of FIFO's

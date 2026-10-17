@@ -6,6 +6,8 @@ import { httpTransport, credentialHeaders, failureDiagnostic } from './transport
 import { verifyContracts } from './verify-contracts.mjs';
 
 export function readJson(filename) {
+  // CLI supplies only an immutable Nix settings file, never a state-relative path.
+  if (typeof filename !== 'string' || !/^\/nix\/store\/[a-z0-9]{32}-joe-results-producer\.json$/.test(filename)) throw new Error('invalid_settings_path');
   const fd = openSync(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const info = fstatSync(fd);
@@ -18,15 +20,16 @@ async function main() {
   verifyContracts();
   const options = readJson(process.argv[2]);
   if (options.mode !== 'paper') throw new Error('paper_only');
-  const health = new URL(options.executorHealth);
-  if (health.origin !== 'http://127.0.0.1:8471' || health.pathname !== '/v1/health' || health.search || health.hash || health.username || health.password) throw new Error('executor_loopback_only');
-  const producer = openProducer(path.join(options.stateDir, 'results.jsonl'), { keepSymbols: options.keepSymbols });
+  const health = executorHealthUrl(options.executorHealth);
+  if (options.stateDir !== '/var/lib/joe-results-producer' || options.capturePath !== '/var/lib/paper-desk-executor/results-input.jsonl') throw new Error('invalid_state_path');
+  const producer = openProducer('/var/lib/joe-results-producer/results.jsonl', { keepSymbols: options.keepSymbols });
   const transport = httpTransport(options.endpoint, {
+    origin: process.env.JOE_RESULTS_INGRESS_ORIGIN,
     keepSymbols: options.keepSymbols,
     headers: credentialHeaders(process.env.CREDENTIALS_DIRECTORY),
   });
   const runner = createRunner({ producer, transport,
-    readSource: () => options.capturePath,
+    readSource: () => '/var/lib/paper-desk-executor/results-input.jsonl',
     readHealth: async () => {
       const response = await fetch(health, { redirect: 'error', signal: AbortSignal.timeout(3000) });
       if (!response.ok) { await response.body?.cancel(); throw new Error('executor_unavailable'); }
@@ -50,3 +53,9 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().catch(() => {
   console.error(JSON.stringify({ status: 'producer_start_failed' })); process.exitCode = 1;
 });
+
+export function executorHealthUrl(value) {
+  if (value !== 'http://127.0.0.1:8472/v1/health') throw new Error('executor_loopback_only');
+  // Fixed loopback URL: no network destination is taken from settings/state.
+  return new URL('http://127.0.0.1:8472/v1/health');
+}

@@ -1,3 +1,4 @@
+import { sdkDecimal } from './sdk-decimal.mjs';
 import { decimalUnits, unitsDecimal } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { hash } from './journal.mjs';
@@ -6,13 +7,14 @@ import { viennaDate } from './results-validation.mjs';
 
 const instrument = c => hash([c.conId, c.symbol, c.currency]);
 export function brokerQuantity(value) {
-  if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new TypeError('inexact_position');
-  return decimalUnits(typeof value === 'number' ? String(value) : value);
+  const result = sdkDecimal(value);
+  if (result.refused || result.unset) throw new TypeError('inexact_position');
+  return decimalUnits(result.amount);
 }
 
 // The executor's complete positionEnd snapshot is the evidence, never a poll's
 // timestamp or the absence of a mismatch diagnostic. Persist no broker IDs.
-export function capturePositionProof(state, config, keepSymbols, { account, attribute }, knownInstruments, at) {
+export function capturePositionProof(state, config, keepSymbols, { account, attribute, onIssue = () => {} }, knownInstruments, at) {
   const snapshot = state.ownershipSnapshot;
   if (state.ownershipComplete !== true || snapshot?.ownershipComplete !== true || snapshot.account !== account
     || !validInstant(snapshot.observedAt) || Date.parse(snapshot.observedAt) > Date.parse(at) || !Array.isArray(snapshot.positions)) return null;
@@ -25,21 +27,26 @@ export function capturePositionProof(state, config, keepSymbols, { account, attr
     if (!DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external'
       || (ownership.method !== 'admin' && Number(e.clientId) !== config.executorClientId)) foreign.add(key);
   }
+  const sources = new Map();
+  let unusable = false;
   for (const row of snapshot.positions) {
     if (keepSymbols.includes(row.symbol)) continue;
     if (!Number.isSafeInteger(row.conId) || row.conId <= 0 || typeof row.symbol !== 'string'
       || !/^[A-Z0-9][A-Z0-9._-]{0,15}$/.test(row.symbol) || !/^[A-Z]{3}$/.test(row.currency || '')) return null;
     const key = instrument(row), quantity = row.position ?? row.pos;
     instruments.add(key);
-    // The IB adapter currently supplies Numbers. Only exact safe integers may
-    // cross that boundary; decimal strings retain all eight fractional digits.
+    // The same SDK boundary policy applies to broker quantity evidence.
     try {
       if (broker.has(key)) return null;
+      const converted = sdkDecimal(quantity);
+      if (converted.refused || converted.unset) { onIssue(key, converted.refused === true); unusable = true; continue; }
+      if (converted.src) sources.set(key, converted.src);
       broker.set(key, brokerQuantity(quantity));
     } catch { return null; }
   }
+  if (unusable) return null;
   return { at: snapshot.observedAt, foreign: [...foreign].sort(), positions: [...instruments].sort()
-    .map(key => ({ instrument: key, quantity: unitsDecimal(broker.get(key) ?? 0n) })) };
+    .map(key => ({ instrument: key, quantity: unitsDecimal(broker.get(key) ?? 0n), ...(sources.has(key) ? { src: sources.get(key) } : {}) })) };
 }
 
 // First entry at or after epoch. Equal-time fills/proofs stay strictly outside
