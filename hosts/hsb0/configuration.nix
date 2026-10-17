@@ -67,6 +67,7 @@ in
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
+    ../../modules/joe-results-producer # JOED-20 — disabled pending ingress + paper proof
     ../../modules/agent-mailbox # OPS-272 — Amy/OPS tailnet text mailbox
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -135,6 +136,7 @@ in
 
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
+  nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
 
   # OPS-272 — caller identity comes from the tailnet source address.
   nixcfg.agentMailbox.enable = true;

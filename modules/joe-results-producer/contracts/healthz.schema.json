@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:joedesk:healthz:v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "versionScheme",
+    "schemaVersion",
+    "snapshotAgeSeconds",
+    "feeds",
+    "serverNow",
+    "gateway"
+  ],
+  "properties": {
+    "schema": {
+      "const": "inspr.joe.healthz.v2",
+      "x-owner": "server"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 18,
+      "pattern": "^(?:[1-9][0-9]{11}\\.0\\.0|[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}(?:\\.[0-9]{2}\\.[0-9]{2})?)$",
+      "x-owner": "server"
+    },
+    "versionScheme": {
+      "enum": [
+        "calendar",
+        "inspr-calendar-v2",
+        "inspr-calver-3"
+      ],
+      "x-owner": "server"
+    },
+    "schemaVersion": {
+      "const": "joedesk.contracts.v2",
+      "x-owner": "server"
+    },
+    "snapshotAgeSeconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "x-owner": "server"
+    },
+    "feeds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "history",
+        "results",
+        "fleet-config"
+      ],
+      "properties": {
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "ageSeconds",
+            "reason"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "fresh",
+                "stale",
+                "not reported",
+                "broken"
+              ],
+              "x-owner": "server"
+            },
+            "ageSeconds": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:reason:v2"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        },
+        "history": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "ageSeconds",
+            "reason"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "fresh",
+                "stale",
+                "not reported",
+                "broken"
+              ],
+              "x-owner": "server"
+            },
+            "ageSeconds": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:reason:v2"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        },
+        "results": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "ageSeconds",
+            "reason"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "fresh",
+                "stale",
+                "not reported",
+                "broken"
+              ],
+              "x-owner": "server"
+            },
+            "ageSeconds": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:reason:v2"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        },
+        "fleet-config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "ageSeconds",
+            "reason"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "fresh",
+                "stale",
+                "not reported",
+                "broken"
+              ],
+              "x-owner": "server"
+            },
+            "ageSeconds": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:reason:v2"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "serverNow": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "server"
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confirmed",
+        "checkAgeSeconds",
+        "reason"
+      ],
+      "x-owner": "server",
+      "properties": {
+        "confirmed": {
+          "type": "boolean"
+        },
+        "checkAgeSeconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:reason:v2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "x-owner": "server"
+}

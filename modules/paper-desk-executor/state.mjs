@@ -102,7 +102,8 @@ export function rememberFirstOrders(state) {
   }
 }
 
-export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention() } = {}) {
+export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention(), beforePrune = () => {} } = {}) {
+  beforePrune(state);
   pruneForeignAlerts(state, undefined, now);
   state.intents = dictionary(state.intents, "intentId");
   rememberFirstOrders(state);
@@ -144,7 +145,7 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
+export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune = () => {} } = {}) {
   reconRetentionMs = reconRetention(reconRetentionMs);
   const resolvedRoot = path.resolve(root);
   const statePath = confinedPath(resolvedRoot, path.join(resolvedRoot, "ledger.json"), "state path");
@@ -274,6 +275,8 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
   }
 
   function save(state) {
+    // Capture once, before compaction; pruneState below uses its no-op hook.
+    beforePrune(state);
     compactRecons(state);
     pruneState(state, Date.now(), { reconRetentionMs });
     persist(state);
@@ -286,13 +289,13 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     headroom(Buffer.byteLength(body));
   }
 
-  function load({ initialize = true } = {}) {
+  function load({ initialize = true, readOnly = false } = {}) {
     let handle;
     try {
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      if (!initialize) return initialState();
+      if (!initialize || readOnly) return initialState();
       const initial = initialState();
       try {
         writeAtomic(statePath, `${serializeState(initial)}\n`, { exclusive: true });
@@ -321,7 +324,8 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     delete value.attributionConfig;
     rememberFirstOrders(value);
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
-    if (value.reconStorageVersion !== 1 || legacyRecons) {
+    if (!readOnly && (value.reconStorageVersion !== 1 || legacyRecons)) {
+      beforePrune(value);
       try { writeAtomic(backupPath, original, { exclusive: true }); }
       catch (error) {
         if (error.code !== "EEXIST") throw error;
@@ -338,7 +342,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
       // Migration preserves every non-recon row, even if already expired.
       // Normal admission/save retention happens only after publication.
       persist(value);
-    } else headroom(loadedBytes);
+    } else if (!readOnly) headroom(loadedBytes);
     return value;
   }
 
@@ -374,5 +378,5 @@ export function openLedger(root, { reconRetentionMs = reconRetention() } = {}) {
     return planned.result;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, load, save, usage, audit, haltBody, setHalt, reattribute };
+  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute };
 }

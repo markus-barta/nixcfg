@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:inspr:joe:fleet-config:v1",
+  "title": "JoeDesk Fleet Config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema",
+    "rev",
+    "updatedAt",
+    "mode",
+    "quota",
+    "desks",
+    "cadence",
+    "amy",
+    "mac",
+    "tools",
+    "secretSlots"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "/joe/fleet-config.schema.json",
+      "x-owner": "server"
+    },
+    "schema": {
+      "const": "inspr.joe.fleet-config.v1",
+      "x-owner": "server"
+    },
+    "rev": {
+      "type": "string",
+      "pattern": "^fc-[0-9]{6}$",
+      "x-owner": "server"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+      "x-owner": "server"
+    },
+    "mode": {
+      "const": "paper",
+      "x-owner": "server"
+    },
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grok",
+        "codex",
+        "behavior"
+      ],
+      "properties": {
+        "grok": {
+          "$ref": "#/$defs/reserve",
+          "x-owner": "server"
+        },
+        "codex": {
+          "$ref": "#/$defs/reserve",
+          "x-owner": "server"
+        },
+        "behavior": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "green",
+            "amber",
+            "red"
+          ],
+          "properties": {
+            "green": {
+              "const": "run_normally",
+              "x-owner": "server"
+            },
+            "amber": {
+              "enum": [
+                "slow_nonessential",
+                "park_nonessential"
+              ],
+              "x-owner": "server"
+            },
+            "red": {
+              "const": "park_nonessential",
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "desks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxBusyDesks",
+        "stage0",
+        "keep"
+      ],
+      "properties": {
+        "maxBusyDesks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "x-owner": "server"
+        },
+        "stage0": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "capEur"
+          ],
+          "properties": {
+            "capEur": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000000,
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        },
+        "keep": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z0-9][A-Z0-9._-]{0,15}$"
+          },
+          "allOf": [
+            {
+              "contains": {
+                "const": "SXR8"
+              }
+            },
+            {
+              "contains": {
+                "const": "TSLA"
+              }
+            }
+          ],
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeZone",
+        "usOpenArm",
+        "deskWatch",
+        "darwin",
+        "quotaGovernor",
+        "wakeWindows"
+      ],
+      "properties": {
+        "timeZone": {
+          "const": "Europe/Vienna",
+          "x-owner": "server"
+        },
+        "usOpenArm": {
+          "$ref": "#/$defs/hhmm",
+          "x-owner": "server"
+        },
+        "deskWatch": {
+          "$ref": "#/$defs/routineId",
+          "x-owner": "server"
+        },
+        "darwin": {
+          "$ref": "#/$defs/routineId",
+          "x-owner": "server"
+        },
+        "quotaGovernor": {
+          "$ref": "#/$defs/routineId",
+          "x-owner": "server"
+        },
+        "wakeWindows": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "days",
+              "from",
+              "until",
+              "desks"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/routineId",
+                "x-owner": "server"
+              },
+              "days": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 7,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ]
+                },
+                "x-owner": "server"
+              },
+              "from": {
+                "$ref": "#/$defs/hhmm",
+                "x-owner": "server"
+              },
+              "until": {
+                "$ref": "#/$defs/hhmm",
+                "x-owner": "server"
+              },
+              "desks": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/routineId"
+                },
+                "x-owner": "server"
+              }
+            }
+          },
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "amy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "routines"
+      ],
+      "properties": {
+        "routines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "morning",
+            "review",
+            "close"
+          ],
+          "properties": {
+            "morning": {
+              "$ref": "#/$defs/label",
+              "x-owner": "server"
+            },
+            "review": {
+              "$ref": "#/$defs/label",
+              "x-owner": "server"
+            },
+            "close": {
+              "$ref": "#/$defs/label",
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "mac": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shared",
+        "knobs"
+      ],
+      "properties": {
+        "shared": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configPath",
+            "docsPath"
+          ],
+          "properties": {
+            "configPath": {
+              "$ref": "#/$defs/path",
+              "x-owner": "server"
+            },
+            "docsPath": {
+              "$ref": "#/$defs/path",
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        },
+        "knobs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "syncMode"
+          ],
+          "properties": {
+            "syncMode": {
+              "const": "read_on_revision",
+              "x-owner": "server"
+            }
+          },
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statusSource",
+        "entries"
+      ],
+      "properties": {
+        "statusSource": {
+          "const": "/joe/data.json",
+          "x-owner": "server"
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/routineId",
+                "x-owner": "server"
+              },
+              "label": {
+                "$ref": "#/$defs/label",
+                "x-owner": "server"
+              }
+            }
+          },
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    },
+    "secretSlots": {
+      "description": "agenix and Janus capability/path references only. Never plaintext credentials or AGE ciphertext.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agenix",
+        "janus"
+      ],
+      "properties": {
+        "agenix": {
+          "$ref": "#/$defs/secretRefs",
+          "x-owner": "server"
+        },
+        "janus": {
+          "$ref": "#/$defs/secretRefs",
+          "x-owner": "server"
+        }
+      },
+      "x-owner": "server"
+    }
+  },
+  "$defs": {
+    "reserve": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reservePct"
+      ],
+      "properties": {
+        "reservePct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "x-owner": "server"
+        }
+      }
+    },
+    "hhmm": {
+      "type": "string",
+      "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+    },
+    "routineId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[ -~]+$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^(?:~/|/)[ -~]+$"
+    },
+    "secretRefs": {
+      "description": "Capability or path reference names (for example joe-board-push-token). Secret values are forbidden.",
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 96,
+        "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$"
+      }
+    }
+  },
+  "x-owner": "server"
+}

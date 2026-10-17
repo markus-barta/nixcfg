@@ -1,0 +1,33 @@
+[
+  {
+    "at": "2026-10-16T13:00:00.000Z",
+    "desks": {
+      "j": {
+        "equity": {
+          "amount": "5006.3",
+          "currency": "EUR"
+        },
+        "basisId": "synthetic-close-1"
+      }
+    }
+  },
+  {
+    "at": "2026-10-16T14:00:00.000Z",
+    "desks": {
+      "j": {
+        "equity": {
+          "amount": "5007.54",
+          "currency": "EUR"
+        },
+        "basisId": "synthetic-close-2"
+      },
+      "joe": {
+        "equity": {
+          "amount": "5000",
+          "currency": "EUR"
+        },
+        "basisId": "synthetic-joe"
+      }
+    }
+  }
+]

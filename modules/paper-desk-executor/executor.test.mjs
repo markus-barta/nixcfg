@@ -119,7 +119,7 @@ function harness(options = {}) {
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: options.history || [], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(Date.now() - 40 * 86400000).toISOString(), toExclusive: new Date().toISOString() } } };
   if (options.coverage) history.coverage = options.coverage;
   const readHistory = (file, now = Date.now(), _readFile, historyOptions) => readPusherExecutions(file, now, () => { if (options.missingHistory) throw new Error("ENOENT"); return JSON.stringify(history); }, historyOptions);
-  const config = { clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
+  const config = { resultsCaptureEnabled: true, clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
@@ -311,9 +311,25 @@ test("place and recon refuse missing, stale, wrong-account and uncovered recon e
       assert.deepEqual(h.broker.connections, [700, 705]);
     }
     assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.equal(state.resultsHistoryCoverage, null);
     assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
     assert.equal(h.broker.live.size, 0);
   }
+});
+
+test("Results position proof time belongs to a complete snapshot, never a later streaming update", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const h = harness({ positions: [{ ...contract(), position: 2 }] });
+  const session = await h.connect(700);
+  try {
+    assert.equal(session.state.positionsObservedAt, new Date(now).toISOString());
+    t.mock.timers.tick(1000);
+    session.api.emit(events.position, ACCOUNT, contract(), 1, 100);
+    assert.equal(session.state.positionsObservedAt, null);
+    session.api.emit(events.positionEnd);
+    assert.equal(session.state.positionsObservedAt, new Date(now + 1000).toISOString());
+  } finally { session.close(); }
 });
 
 test("recon accepts today's ownership gap only after the same session's execution request completed", async (t) => {
@@ -329,8 +345,38 @@ test("recon accepts today's ownership gap only after the same session's executio
   const result = await h.run(intent("recon"), state);
   assert.deepEqual(result.ownershipHistory, { status: "complete" }); assert.equal(result.ownershipComplete, true);
   assert.equal(state.ownershipComplete, true); assert.equal(result.deskPositions[0].quantity, 2);
+  assert.equal(state.ownershipSnapshot.observedAt, new Date(now).toISOString());
+  assert.deepEqual(state.resultsHistoryCoverage, { status: coverage.status, target: coverage.target,
+    gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) });
   assert.equal(state.executions[0].execution.execId, bought.execution.execId);
   assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
+});
+
+test("results history persists only bounds and gaps, excluding receipt lists; legacy ledgers remain readable", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.completeIntervals = [{ ...coverage.target, receiptIds: ["synthetic-complete-receipt"] }];
+  coverage.knownIntervals = [{ ...coverage.target, receiptIds: ["synthetic-known-receipt"] }];
+  coverage.gaps[0].receiptIds = ["synthetic-gap-receipt"];
+  coverage.target.receiptIds = ["synthetic-target-receipt"];
+  const root = mkdtempSync(path.join(tmpdir(), "results-history-projection-"));
+  const store = openLedger(root), state = store.load();
+  assert.equal(state.resultsHistoryCoverage, undefined);
+  // Simulate an old round-4 ledger; reconciliation replaces the extra fields.
+  state.resultsHistoryCoverage = structuredClone(coverage); store.save(state);
+  const loaded = store.load();
+  const h = harness({ coverage });
+  await h.run(intent("recon"), loaded, { saveState: store.save });
+  const persisted = JSON.parse(readFileSync(path.join(root, "ledger.json"), "utf8")).resultsHistoryCoverage;
+  const expected = { status: coverage.status,
+    target: { fromInclusive: coverage.target.fromInclusive, toExclusive: coverage.target.toExclusive },
+    gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) };
+  assert.deepEqual(persisted, expected);
+  assert.deepEqual(store.load().resultsHistoryCoverage, expected);
+  assert.equal(store.load().ownershipSnapshot.observedAt, new Date(now).toISOString());
+  assert.deepEqual(coverage.completeIntervals[0].receiptIds, ["synthetic-complete-receipt"]);
+  assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
 });
 
 test("previous-day ownership gaps remain unavailable for place and recon despite fresh execution snapshots", async (t) => {
@@ -348,6 +394,7 @@ test("previous-day ownership gaps remain unavailable for place and recon despite
       assert.equal(result.ownershipComplete, false); assert.deepEqual(result.deskPositions, []);
     }
     assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.equal(state.resultsHistoryCoverage, null);
     assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
   }
 });
@@ -1662,5 +1709,23 @@ test("HTTP modify-stop validation explains missing selector, extra order fields 
     let result; let status;
     await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
     assert.equal(status, 400); assert.equal(result.code, "modify_stop_refused"); assert.match(result.reason, reason);
+  }
+});
+
+test('capture OFF reconciliation and placement save no capture-only executor state or ledger fields', async () => {
+  for (const action of ['recon', 'place']) {
+    const h = harness(); h.config.resultsCaptureEnabled = false;
+    const root = mkdtempSync(path.join(tmpdir(), 'joed20-capture-off-'));
+    const store = openLedger(root), state = store.load();
+    // Also remove prior additive capture metadata when capture is switched off.
+    Object.assign(state, { resultsFx: {}, resultsHistoryCoverage: null, resultsFxSampler: {} });
+    await h.run(intent(action), state, { saveState: store.save });
+    const disk = JSON.parse(readFileSync(path.join(root, 'ledger.json'), 'utf8'));
+    for (const value of [state, disk]) {
+      for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler']) assert.equal(Object.hasOwn(value, key), false, key);
+      assert.equal(Object.hasOwn(value.ownershipSnapshot, 'observedAt'), false);
+    }
+    const allKeys = JSON.stringify(disk);
+    for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler', 'positionsObservedAt']) assert.equal(allKeys.includes(`"${key}"`), false, key);
   }
 });

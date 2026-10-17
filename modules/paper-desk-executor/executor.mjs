@@ -10,6 +10,7 @@ function configFromHost() {
     clientIds: JSON.parse(process.env.IB_DESK_CLIENT_IDS || "{}"),
     ownership: JSON.parse(process.env.IB_DESK_OWNERSHIP_CLIENT_IDS || "{}"),
     ownershipLedger: process.env.IB_DESK_OWNERSHIP_LEDGER || "",
+    resultsCaptureEnabled: process.env.PAPER_DESK_RESULTS_CAPTURE === "true",
     blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true",
     maxDelayedMarkAgeSeconds: Number(process.env.IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS || LIMITS.maxDelayedMarkAgeSeconds),
   };
@@ -118,6 +119,10 @@ function keepAttribution(rows, ...sources) {
 
 export async function executeIntent(intent, state, context = {}, runtime = {}) {
   const config = runtime.config || configFromHost();
+  if (!config.resultsCaptureEnabled) {
+    delete state.resultsFx; delete state.resultsHistoryCoverage; delete state.resultsFxSampler;
+    if (state.ownershipSnapshot) delete state.ownershipSnapshot.observedAt;
+  }
   const connect = runtime.connect || ((id, options) => openSession(id, 20_000, options));
   const readHistory = runtime.readHistory || readPusherExecutions;
   validateConfig(config);
@@ -199,7 +204,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     try { if (!historyError) freshExecutionSnapshot(recon, history.coverage); }
     catch (error) { historyError = publicError(error); }
     syncExecutions(history, state.executions, recon.state.executions);
-    state.ownershipSnapshot = { account: recon.state.account, positions: recon.state.positions, ownershipComplete: !historyError };
+    state.ownershipSnapshot = { account: recon.state.account, positions: recon.state.positions.map(row => ({ ...row })), ...(config.resultsCaptureEnabled ? { observedAt: recon.state.positionsObservedAt } : {}), ownershipComplete: !historyError };
     state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, recon.state, attribution);
     state.commissions = [...new Map([...(state.commissions || []), ...(history.commissions || []), ...(recon.state.commissions || [])].map((row) => [row.execId, row])).values()];
     recon.state.commissions = state.commissions;
@@ -211,8 +216,16 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       if (!historyError) reconcileDeskPositions(state.executions, recon.state, config.ownership, clientId, { conId: resolved.contract.conId, attribution });
     }
     try { usdToEur = await freshUsdToEur(recon); } catch (error) { if (intent.action === "place") throw error; }
+    if (config.resultsCaptureEnabled) state.resultsFx = recon.state.resultsFx || {};
     snapshot = publicSnapshot(recon.state, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     state.ownershipComplete = !historyError;
+    // Results capture needs actual history bounds, independently of ownership
+    // authority. A cached successful reconciliation cannot prove continuity.
+    if (config.resultsCaptureEnabled) state.resultsHistoryCoverage = historyError || !history.coverage ? null : {
+      status: history.coverage.status,
+      target: { fromInclusive: history.coverage.target.fromInclusive, toExclusive: history.coverage.target.toExclusive },
+      gaps: history.coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })),
+    };
     state.accountActiveSymbols = [...new Set([...snapshot.positions.filter((row) => row.position !== 0 && !row.keep).map((row) => row.symbol), ...snapshot.openOrders.filter((row) => !row.keep && !["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())).map((row) => row.symbol)])];
     state.activeOrders = snapshot.openOrders;
     if (intent.action === "recon") reconcileAttribution(state, attribution, { ...context, saveState, openOrders: snapshot.openOrders });
@@ -244,7 +257,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       resolveUncertain(state, evidence.state, clientId, replayedClients);
     } finally { evidence.close(); }
     state.deskPositions = historyError ? [] : deskPositions(state.executions, config.ownership, clientId, ownershipSnapshot, attribution);
-    state.ownershipSnapshot = { account: ownershipSnapshot.account, positions: ownershipSnapshot.positions, ownershipComplete: !historyError };
+    state.ownershipSnapshot = { account: ownershipSnapshot.account, positions: ownershipSnapshot.positions.map(row => ({ ...row })), ...(config.resultsCaptureEnabled ? { observedAt: ownershipSnapshot.positionsObservedAt } : {}), ownershipComplete: !historyError };
     const observed = publicSnapshot({ ...evidence.state, openOrders: [...new Map([...snapshot.openOrders, ...evidence.state.openOrders].map((row) => [`${row.clientId}:${row.orderId}`, row])).values()], executions: state.executions, marks: state.marks, commissions: state.commissions }, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     state.activeOrders = observed.openOrders;
     reconcileAttribution(state, attribution, { ...context, saveState, openOrders: observed.openOrders });

@@ -1,0 +1,506 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:joedesk:history:v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "seq",
+    "generatedAt",
+    "points",
+    "sizeBytes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "inspr.joe.household.history.v2",
+      "x-owner": "server"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-owner": "server"
+    },
+    "generatedAt": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "server"
+    },
+    "receivedAt": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "server"
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "t",
+          "desks",
+          "totals"
+        ],
+        "properties": {
+          "t": {
+            "$ref": "urn:joedesk:common:v2#/$defs/instant",
+            "x-owner": "server"
+          },
+          "desks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "j": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "money"
+                ],
+                "properties": {
+                  "money": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {
+                      "equity": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "dayPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "openPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "totalPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "reasons": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [],
+                        "properties": {
+                          "equity": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "dayPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "openPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "totalPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          }
+                        },
+                        "x-owner": "server"
+                      }
+                    },
+                    "x-owner": "server"
+                  },
+                  "accounting": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "periodStart",
+                      "method",
+                      "detail"
+                    ],
+                    "properties": {
+                      "periodStart": {
+                        "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                        "x-owner": "server"
+                      },
+                      "method": {
+                        "const": "execution-fifo-net-current-fx",
+                        "x-owner": "server"
+                      },
+                      "detail": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 240,
+                        "x-owner": "server"
+                      }
+                    },
+                    "x-owner": "server"
+                  },
+                  "historyBasis": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "x-owner": "server"
+                  }
+                },
+                "x-owner": "server"
+              },
+              "joe": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "money"
+                ],
+                "properties": {
+                  "money": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {
+                      "equity": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "dayPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "openPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "totalPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "reasons": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [],
+                        "properties": {
+                          "equity": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "dayPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "openPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "totalPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          }
+                        },
+                        "x-owner": "server"
+                      }
+                    },
+                    "x-owner": "server"
+                  },
+                  "accounting": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "periodStart",
+                      "method",
+                      "detail"
+                    ],
+                    "properties": {
+                      "periodStart": {
+                        "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                        "x-owner": "server"
+                      },
+                      "method": {
+                        "const": "execution-fifo-net-current-fx",
+                        "x-owner": "server"
+                      },
+                      "detail": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 240,
+                        "x-owner": "server"
+                      }
+                    },
+                    "x-owner": "server"
+                  },
+                  "historyBasis": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "x-owner": "server"
+                  }
+                },
+                "x-owner": "server"
+              },
+              "joel": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "money"
+                ],
+                "properties": {
+                  "money": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {
+                      "equity": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "dayPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "openPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "totalPnl": {
+                        "anyOf": [
+                          {
+                            "$ref": "urn:joedesk:common:v2#/$defs/money"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "x-owner": "server"
+                      },
+                      "reasons": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [],
+                        "properties": {
+                          "equity": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "dayPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "openPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          },
+                          "totalPnl": {
+                            "$ref": "urn:joedesk:reason:v2",
+                            "x-owner": "server"
+                          }
+                        },
+                        "x-owner": "server"
+                      }
+                    },
+                    "x-owner": "server"
+                  },
+                  "accounting": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "periodStart",
+                      "method",
+                      "detail"
+                    ],
+                    "properties": {
+                      "periodStart": {
+                        "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                        "x-owner": "server"
+                      },
+                      "method": {
+                        "const": "execution-fifo-net-current-fx",
+                        "x-owner": "server"
+                      },
+                      "detail": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 240,
+                        "x-owner": "server"
+                      }
+                    },
+                    "x-owner": "server"
+                  },
+                  "historyBasis": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "x-owner": "server"
+                  }
+                },
+                "x-owner": "server"
+              }
+            },
+            "x-owner": "server"
+          },
+          "totals": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "equity": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "server"
+              },
+              "dayPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "server"
+              },
+              "openPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "server"
+              },
+              "totalPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "server"
+              },
+              "reasons": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {
+                  "equity": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "server"
+                  },
+                  "dayPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "server"
+                  },
+                  "openPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "server"
+                  },
+                  "totalPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "server"
+                  }
+                },
+                "x-owner": "server"
+              }
+            },
+            "x-owner": "server"
+          }
+        }
+      },
+      "maxItems": 10000,
+      "x-owner": "server"
+    },
+    "compactedThrough": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "server"
+    },
+    "sizeBytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8388608,
+      "x-owner": "server"
+    },
+    "reason": {
+      "$ref": "urn:joedesk:reason:v2",
+      "x-owner": "server"
+    }
+  },
+  "x-owner": "server"
+}

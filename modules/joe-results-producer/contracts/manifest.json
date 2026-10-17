@@ -1,0 +1,41 @@
+{
+  "schema": "joedesk.contracts.v2",
+  "revision": 6,
+  "status": "P2 integration candidate; producer, UI and release cutover require coordinator approval",
+  "contracts": {
+    "data": "inspr.joe.household.v2",
+    "history": "inspr.joe.household.history.v2",
+    "results": "inspr.joe.household.results.v2",
+    "fleet-config": "inspr.joe.fleet-config.v1",
+    "healthz": "inspr.joe.healthz.v2"
+  },
+  "compatibility": {
+    "data": [
+      "inspr.joe.household.v2"
+    ],
+    "history": [
+      "inspr.joe.household.history.v2"
+    ],
+    "results": [
+      "inspr.joe.household.results.v2"
+    ],
+    "fleet-config": [
+      "inspr.joe.fleet-config.v1"
+    ],
+    "healthz": [
+      "inspr.joe.healthz.v2"
+    ]
+  },
+  "owners": [
+    "pusher",
+    "paper executor 8470",
+    "server"
+  ],
+  "limits": {
+    "data": 262144,
+    "history": 8388608,
+    "results": 8388608,
+    "fleet-config": 262144,
+    "healthz": 16384
+  }
+}

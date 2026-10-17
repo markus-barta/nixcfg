@@ -157,6 +157,9 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   });
   api.on(EventName.position, (account, contract, position, averageCost) => {
     if (account !== ACCOUNT) return;
+    // A streaming update after positionEnd is no longer the completed cut.
+    // Results proof must wait for another complete position snapshot.
+    if (positionsEnd) state.positionsObservedAt = null;
     const row = {
       account,
       conId: Number(contract.conId) || 0,
@@ -171,7 +174,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
     const index = state.positions.findIndex((prior) => prior.conId === row.conId);
     if (index < 0) state.positions.push(row); else state.positions[index] = row;
   });
-  api.on(EventName.positionEnd, () => { positionsEnd = true; });
+  api.on(EventName.positionEnd, () => { positionsEnd = true; state.positionsObservedAt = new Date().toISOString(); });
   api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
     const row = {
       orderId: Number(orderId),
@@ -304,12 +307,16 @@ export async function resolveStock(session, symbol, requestId = 881001, { readOn
 export async function freshUsdToEur(session, requestId = 881101) {
   const EventName = session.events;
   const rates = new Map();
+  const exactRates = new Map();
   let ended = false;
   const onValue = (id, account, _model, key, value, currency) => {
     if (Number(id) !== requestId || account !== ACCOUNT || key !== "ExchangeRate") return;
     const rate = Number(value);
     const code = String(currency || "").toUpperCase();
-    if (/^[A-Z]{3}$/.test(code) && Number.isFinite(rate) && rate > 0) rates.set(code, rate);
+    if (/^[A-Z]{3}$/.test(code) && Number.isFinite(rate) && rate > 0) {
+      rates.set(code, rate);
+      if (typeof value === "string" && /^(?:0\.[0-9]{1,8}|[1-9][0-9]*(?:\.[0-9]{1,8})?)$/.test(value)) exactRates.set(code, value);
+    }
   };
   const onEnd = (id) => {
     if (Number(id) === requestId) ended = true;
@@ -327,6 +334,7 @@ export async function freshUsdToEur(session, requestId = 881101) {
   const usdToEur = rates.get("USD");
   if (!Number.isFinite(usdToEur) || usdToEur <= 0) throw new Error("IB USD/EUR exchange rate is unavailable");
   session.state.fxObservedAt = new Date().toISOString();
+  session.state.resultsFx = Object.fromEntries([...exactRates].map(([base, rate]) => [base, { base, quote: "EUR", rate, source: "ib-account-exchange-rate", observedAt: session.state.fxObservedAt }]));
   return usdToEur;
 }
 
