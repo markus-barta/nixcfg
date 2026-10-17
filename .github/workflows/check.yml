@@ -211,6 +211,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh
 
+      - name: Restrict SSO to the operator domain (OPS-366)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T104-oauth2-proxy-email-domain.py
+
       - name: Verify Pharos kernel posture
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T11-pharos-kernel-posture.sh
