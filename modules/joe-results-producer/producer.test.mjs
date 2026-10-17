@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { roundTrips, dayCloses, viennaDate } from './fifo.mjs';
-import { openProducer, createRunner, executorHealth, householdObservation, CADENCE_MS } from './producer.mjs';
+import { openProducer, createRunner, executorHealth, CADENCE_MS } from './producer.mjs';
 import { hash, openJournal, readJournal } from './journal.mjs';
 import { verifyContracts } from './verify-contracts.mjs';
 import { fixtureIngress, httpTransport } from './transport.mjs';
@@ -18,7 +18,7 @@ import { createHealthServer } from '../paper-desk-executor/server.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const fixture = name => JSON.parse(readFileSync(path.join(root, 'fixtures', name), 'utf8'));
-const fills = fixture('fills.json'), book = fixture('book.json'), health = fixture('health.json');
+const fills = fixture('fills.json'), health = fixture('health.json');
 const start = '2026-10-16T11:00:00.000Z', at = '2026-10-16T14:00:00.000Z';
 const floor = ['SXR8', 'TSLA'];
 const temp = () => mkdtempSync(path.join(tmpdir(), 'joed20-'));
@@ -74,32 +74,28 @@ test('every configured KEEP symbol is excluded from trades and day totals, inclu
   for (const symbol of [...floor, 'ACME']) {
     const producer = openProducer(path.join(temp(), 'results.jsonl'), { keepSymbols: [...floor, 'ACME'], now: () => at });
     producer.ingest(source().concat({ type: 'fill', fill: { ...fills[0], key: 'keep', symbol } }));
-    book.forEach(producer.observe);
     const value = producer.snapshot(at);
     assert.deepEqual(value.trades, []);
-    assert.equal(value.days[0].desks.j.trades, 0);
-    assert.equal(value.days[0].desks.j.realisedNet.amount, '0');
-    assert.equal(value.days[0].desks.j.fees.amount, '0');
+    assert.deepEqual(value.days, []);
     producer.close();
   }
 });
 
-test('last Vienna observation wins per desk, carries exact basis, and sessionless dates are omitted', () => {
+test('execution days carry null equity, exact totals and omit sessionless dates', () => {
   const trades = roundTrips(fills, start, floor);
-  const result = dayCloses([...book, { at: '2026-10-17T14:00:00.000Z', desks: {} }], trades, '2026-10-16');
+  const result = dayCloses(fills, trades, '2026-10-16');
   assert.equal(result.days.length, 1);
-  assert.equal(result.days[0].desks.j.equityClose.amount, '5007.54');
+  assert.equal(result.days[0].desks.j.equityClose, null);
   assert.equal(result.days[0].desks.j.realisedNet.amount, '7.02');
   assert.equal(result.days[0].desks.j.fees.amount, '0.88');
   assert.equal(result.days[0].desks.j.trades, 3);
-  assert.equal(result.bases['2026-10-16:j'].basisId, 'synthetic-close-2');
   assert.equal(viennaDate('2026-10-25T23:30:00.000Z'), '2026-10-26');
   assert.equal(viennaDate('2026-03-28T23:30:00.000Z'), '2026-03-29');
 });
 
 test('own append-only store survives source ledger compaction, restart and old History cuts', () => {
   const dir = temp(), producer = open(dir);
-  producer.ingest(source()); book.forEach(producer.observe);
+  producer.ingest(source());
   const first = producer.snapshot(at);
   const prefix = readFileSync(path.join(dir, 'results.jsonl'));
   producer.close();
@@ -117,7 +113,7 @@ test('own append-only store survives source ledger compaction, restart and old H
 });
 
 test('every record passes pinned validator; seq advances on re-send and receive time is server owned', async () => {
-  const producer = open(temp()); producer.ingest(source()); book.forEach(producer.observe);
+  const producer = open(temp()); producer.ingest(source());
   const ingress = fixtureIngress({ now: () => at });
   const first = producer.snapshot(at);
   assert.equal(validateContract('results', first, { stage: 'ingress' }).ok, true);
@@ -141,7 +137,7 @@ test('25-second re-sends advance generation without fabricating observations; fa
   clock += CADENCE_MS; fail = false; assert.equal(await runner.tick(), true);
   assert.deepEqual(received.map(r => r.seq), [1, 2, 3]);
   assert.deepEqual(received.map(r => r.generatedAt), [at, '2026-10-16T14:00:25.000Z', '2026-10-16T14:00:50.000Z']);
-  assert.equal(received.every(r => !r.days.length), true);
+  assert.equal(received.every(r => r.days.length === 1 && r.days[0].desks.j.equityClose === null), true);
   producer.close();
 });
 
@@ -356,19 +352,4 @@ test('loopback health listener has no write, admin or order routes', async () =>
   assert.equal((await request('/v1/health')).status, 200);
   for (const endpoint of ['/v1/intents', '/v1/halt', '/v1/admin/attribution', '/v1/health']) assert.equal((await request(endpoint, 'POST')).status, 404);
   assert.equal((await request('/v1/health?write=true')).status, 404);
-});
-
-test('household adapter preserves desk History basis and observation time, omitting sessionless desks', () => {
-  const payload = { schema: 'inspr.joe.household.v2', seq: 1, generatedAt: at, mode: 'PAPER', currency: 'EUR', source: { kind: 'live-ib-api', label: 'Synthetic fixture' },
-    safety: { halt: false, haltReason: null, gateway: { apiSessionReady: true, checkedAt: at } },
-    desks: ['j', 'joe', 'joel'].map(id => ({ id, label: id, state: 'sit-out', action: 'Synthetic fixture', money: {} })), totals: {} };
-  payload.desks[0].money = { equity: { amount: '5000', currency: 'EUR' } };
-  payload.desks[0].historyBasis = 'synthetic-basis'; payload.desks[0].moneyEvidence = { status: 'observed', observedAt: at };
-  assert.equal(validateContract('data', payload, { stage: 'ingress' }).ok, true);
-  const observation = householdObservation(payload, floor);
-  assert.deepEqual(Object.keys(observation.desks), ['j']);
-  assert.equal(observation.desks.j.basisId, 'synthetic-basis');
-  assert.equal(observation.desks.j.at, at);
-  payload.desks[0].moneyEvidence.observedAt = start;
-  assert.deepEqual(householdObservation(payload, floor).desks, {});
 });

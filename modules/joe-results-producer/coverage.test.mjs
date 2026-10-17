@@ -15,6 +15,12 @@ import { hash } from './journal.mjs';
 const floor = ['SXR8', 'TSLA'];
 const instant = epoch => new Date(epoch).toISOString();
 
+const activitySource = (entries, at) => [entries[0], { type: 'fill', fill: {
+  key: 'synthetic-activity', ordinal: 1, desk: 'j', scope: 'stage0', instrument: 'synthetic-activity',
+  symbol: 'ACME', currency: 'EUR', side: 'BUY', at, quantity: '1', price: '10',
+  commission: { amount: '0', currency: 'EUR' }, brokerRealised: { amount: '0', currency: 'EUR' },
+} }, ...entries.slice(1)];
+
 test('position proof uses the complete broker snapshot, exact quantities and no raw identifiers', () => {
   const at = '2026-10-16T12:00:00.000Z', account = 'synthetic-account';
   const c = { conId: 1, symbol: 'ACME', currency: 'EUR' }, instrument = hash([1, 'ACME', 'EUR']);
@@ -110,7 +116,7 @@ for (const [name, openingAt, proofAt, quantity, gapAfter, expected] of [
     execution: { execId: `${key}.01`, acctNumber: account, clientId: 705, orderRef: 'j|261015|synthetic', time, side, shares: '1', price } });
   const executions = [raw('synthetic-open', openingAt, 'BOT', '10'), raw('synthetic-close', closedAt, 'SLD', '12')];
   const state = { ownershipComplete: true, executions,
-    commissions: executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR' })),
+    commissions: executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' })),
     resultsHistoryCoverage: { status: 'known', target: { fromInclusive: start, toExclusive: at }, gaps: [{
       fromInclusive: gapAfter ? '2026-10-17T08:00:00.000Z' : '2026-10-15T08:00:00.000Z',
       toExclusive: gapAfter ? '2026-10-17T09:00:00.000Z' : '2026-10-15T09:00:00.000Z',
@@ -132,10 +138,9 @@ for (const [name, openingAt, proofAt, quantity, gapAfter, expected] of [
   assert.equal(serialized.includes('conId'), false);
   let producer = openProducer(output, { now: () => at });
   producer.ingest(readJournal(input));
-  producer.observe({ at: closedAt, desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic-earlier-gap' } } });
   const payload = producer.snapshot();
   assert.equal(payload.trades.length, 1);
-  assert.equal(payload.days[0].coverage ?? 'full', expected);
+  assert.equal(payload.days.find(day => day.date === '2026-10-16').coverage ?? 'full', expected);
   assert.equal(validateResults(payload).ok, true);
   producer.close();
   producer = openProducer(output, { now: () => at });
@@ -172,9 +177,10 @@ for (const [day, begin, end, hours] of [
     const dir = mkdtempSync(path.join(tmpdir(), 'joed20-coverage-'));
     const filename = path.join(dir, 'results.jsonl');
     let producer = openProducer(filename, { now: () => at });
-    const rows = [{ type: 'start', at: begin }, { type: 'cut', at, authoritative: true, disagreement: false, fills: [], historyCoverage }];
-    producer.ingest(rows);
-    producer.observe({ at: instant(a + 12 * 3600_000), desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic-coverage' } } });
+    const rows = [{ type: 'start', at: begin }, { type: 'cut', at, authoritative: true, disagreement: false, fills: [], historyCoverage, positionProof: { at: instant(a + 12 * 3600_000 - 1),
+      positions: [{ instrument: 'synthetic-activity', quantity: '0' }], foreign: [] } }];
+    const captured = activitySource(rows, instant(a + 12 * 3600_000));
+    producer.ingest(captured);
     const payload = producer.snapshot();
     assert.equal(payload.days[0].date, day);
     assert.equal(payload.days[0].coverage ?? 'full', expected);
@@ -185,7 +191,7 @@ for (const [day, begin, end, hours] of [
     }
     producer.close();
     producer = openProducer(filename, { now: () => at });
-    producer.ingest(rows);
+    producer.ingest(captured);
     assert.deepEqual(producer.snapshot().days, payload.days);
     producer.close();
   }
@@ -205,9 +211,8 @@ test('coverage-only cuts bridge adjacent proof intervals across capture and prod
   capture(state); capture(state); // identical proof must not add another cut
   assert.equal(readJournal(filename).length, 3);
   let producer = openProducer(output, { now: () => end });
-  producer.ingest(readJournal(filename));
-  producer.observe({ at: middle, desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic' } } });
-  assert.equal(producer.snapshot().days[0].coverage, 'partial');
+  producer.ingest(activitySource(readJournal(filename), middle));
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage, 'partial');
   producer.close(); capture.close();
   now = end;
   capture = createCapture(filename, {}, options);
@@ -216,13 +221,13 @@ test('coverage-only cuts bridge adjacent proof intervals across capture and prod
   capture(state); capture.close();
   assert.equal(readJournal(filename).length, 4);
   producer = openProducer(output, { now: () => end });
-  producer.ingest(readJournal(filename));
-  assert.equal(producer.snapshot().days[0].coverage, 'partial'); // 1 ms between cuts is still a gap
+  producer.ingest(activitySource(readJournal(filename), middle));
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage, 'partial'); // 1 ms between cuts is still a gap
   capture = createCapture(filename, {}, options);
   state.resultsHistoryCoverage.status = 'complete'; state.resultsHistoryCoverage.gaps = [];
   capture(state); capture.close();
-  producer.ingest(readJournal(filename));
-  assert.equal(producer.snapshot().days[0].coverage ?? 'full', 'full');
+  producer.ingest(activitySource(readJournal(filename), middle));
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage ?? 'full', 'full');
   producer.close();
 });
 
@@ -241,15 +246,14 @@ test('unattributed own executor fills make proven closed days partial until admi
   const opening = raw('synthetic-opening', instant(Date.parse(fillAt) - 60_000), { orderRef: 'j|261016|synthetic' });
   const unknown = raw('synthetic-unknown', fillAt, { side: 'SLD', price: '12' });
   const state = { executions: [opening], ownershipComplete: true,
-    commissions: [opening, unknown].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR' })),
+    commissions: [opening, unknown].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' })),
     resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: end }, gaps: [] } };
   let capture = createCapture(filename, config, options);
   capture({ ownershipComplete: true, executions: [] });
   now = at; capture(state);
   let producer = openProducer(output, { now: () => at });
   producer.ingest(readJournal(filename));
-  producer.observe({ at: fillAt, desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic' } } });
-  assert.equal(producer.snapshot().days[0].coverage ?? 'full', 'full');
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage ?? 'full', 'full');
   state.executions = [opening, unknown,
     raw('synthetic-foreign-account', fillAt, { acctNumber: 'synthetic-other' }),
     raw('synthetic-keep', fillAt, {}, 'TSLA'), raw('synthetic-keep-other', fillAt, {}, 'SXR8'),
@@ -260,10 +264,10 @@ test('unattributed own executor fills make proven closed days partial until admi
   assert.equal(coverage.status, 'known');
   assert.deepEqual(coverage.gaps, [{ fromInclusive: fillAt, toExclusive: instant(Date.parse(fillAt) + 1) }]);
   producer.ingest(readJournal(filename));
-  assert.equal(producer.snapshot().days[0].coverage, 'partial');
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage, 'partial');
   producer.close(); capture.close();
   producer = openProducer(output, { now: () => at });
-  assert.equal(producer.snapshot().days[0].coverage, 'partial');
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage, 'partial');
   capture = createCapture(filename, config, options);
   unknown.attribution = { method: 'admin', desk: 'j' };
   capture(state); capture.close();
@@ -275,7 +279,7 @@ test('unattributed own executor fills make proven closed days partial until admi
   assert.equal(attributed.days[0].desks.j.realisedNet.amount, '2');
   producer.close();
   producer = openProducer(output, { now: () => at });
-  assert.equal(producer.snapshot().days[0].coverage ?? 'full', 'full');
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage ?? 'full', 'full');
   producer.close();
 });
 
@@ -293,7 +297,7 @@ test('unattributed D0 opening and attributed D2 stop stay partial until admin at
   const opening = raw('synthetic-missed-opening', openingAt, 'BOT', '10', '');
   const stop = raw('synthetic-attributed-stop', stopAt, 'SLD', '12', 'j|261016|synthetic');
   const state = { ownershipComplete: true, executions: [opening, stop],
-    commissions: [opening, stop].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR' })),
+    commissions: [opening, stop].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' })),
     ownershipSnapshot: { account, ownershipComplete: true, observedAt: '2026-10-16T13:00:00.000Z', positions: [] },
     resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: at }, gaps: [] } };
   let capture = createCapture(filename, config, options);
@@ -302,10 +306,8 @@ test('unattributed D0 opening and attributed D2 stop stay partial until admin at
   assert.deepEqual(readJournal(filename).at(-1).positionProof.foreign, [instrument]);
   let producer = openProducer(output, { now: () => at });
   producer.ingest(readJournal(filename));
-  for (const observationAt of [openingAt, stopAt]) producer.observe({ at: observationAt,
-    desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: `synthetic-${observationAt}` } } });
   const partial = producer.snapshot();
-  assert.deepEqual(partial.days.map(day => [day.date, day.coverage]), [['2026-10-14', 'partial'], ['2026-10-16', 'partial']]);
+  assert.deepEqual(partial.days.map(day => [day.date, day.coverage]), [['2026-10-16', 'partial']]);
   assert.equal(partial.trades.length, 0);
   assert.equal(validateResults(partial).ok, true);
   producer.close();
@@ -350,33 +352,31 @@ for (const [begin, end] of [
     if (i === 125) { capture.close(); capture = createCapture(filename, {}, options); }
     now = instant(Date.parse(begin) + Math.floor((Date.parse(end) - Date.parse(begin)) * i / 250));
     state.resultsHistoryCoverage.target.toExclusive = now;
-    capture(state); producer.ingest(readJournal(filename));
+    capture(state); producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   }
   assert.equal(readJournal(filename).length, 3);
-  assert.equal(producer.entries.filter(row => row.type === 'source').length, 3);
+  assert.equal(producer.entries.filter(row => row.type === 'source').length, 4);
   now = end; state.resultsHistoryCoverage.target.toExclusive = now; capture(state);
-  producer.ingest(readJournal(filename));
+  producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   assert.equal(readJournal(filename).length, 4);
   // Explicit gap changes still record immediately without new fills or days.
   state.resultsHistoryCoverage.status = 'known';
   state.resultsHistoryCoverage.gaps = [{ fromInclusive: instant(Date.parse(begin) + 3600_000), toExclusive: instant(Date.parse(begin) + 3600_001) }];
-  capture(state); producer.ingest(readJournal(filename));
+  capture(state); producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   assert.equal(readJournal(filename).length, 5);
   state.resultsHistoryCoverage.status = 'complete'; state.resultsHistoryCoverage.gaps = [];
-  capture(state); producer.ingest(readJournal(filename));
+  capture(state); producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   assert.equal(readJournal(filename).length, 6);
   // Even proof with no remaining interval must revoke previously full days.
   state.resultsHistoryCoverage.status = 'known';
   state.resultsHistoryCoverage.gaps = [{ fromInclusive: begin, toExclusive: end }];
-  capture(state); producer.ingest(readJournal(filename));
+  capture(state); producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   assert.equal(readJournal(filename).length, 7);
-  producer.observe({ at: instant(Date.parse(begin) + 12 * 3600_000),
-    desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic-all-gap' } } });
   assert.equal(producer.snapshot().days[0].coverage, 'partial');
   capture(state); capture.close(); producer.close();
   const replay = openProducer(output, { now: () => end });
-  replay.ingest(readJournal(filename));
-  assert.equal(replay.entries.filter(row => row.type === 'source').length, 7);
+  replay.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
+  assert.equal(replay.entries.filter(row => row.type === 'source').length, 8);
   assert.equal(replay.snapshot().days[0].coverage, 'partial');
   replay.close();
 });
@@ -385,9 +385,8 @@ test('legacy cuts without bounds stay partial and malformed proof fails closed',
   assert.deepEqual(historyIntervals({ status: 'complete', target: { fromInclusive: 'bad', toExclusive: 'bad' }, gaps: [] }, '2026-10-17T00:00:00.000Z'), []);
   const dir = mkdtempSync(path.join(tmpdir(), 'joed20-legacy-'));
   const producer = openProducer(path.join(dir, 'results.jsonl'), { now: () => '2026-10-17T12:00:00.000Z' });
-  producer.ingest([{ type: 'start', at: '2026-10-15T22:00:00.000Z' }, { type: 'authority', at: '2026-10-17T12:00:00.000Z', authoritative: true }]);
-  producer.observe({ at: '2026-10-16T12:00:00.000Z', desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: 'synthetic' } } });
-  assert.equal(producer.snapshot().days[0].coverage, 'partial');
+  producer.ingest(activitySource([{ type: 'start', at: '2026-10-15T22:00:00.000Z' }, { type: 'authority', at: '2026-10-17T12:00:00.000Z', authoritative: true }], '2026-10-16T12:00:00.000Z'));
+  assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage, 'partial');
   producer.close();
 });
 

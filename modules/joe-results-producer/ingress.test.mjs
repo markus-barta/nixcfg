@@ -13,7 +13,7 @@ import { CONTRACTS, REASONS, validateContract } from './contracts/index.mjs';
 
 const at = '2026-10-17T12:00:00.000Z', start = '2026-10-15T22:00:00.000Z'; // Vienna midnight
 const fixture = name => JSON.parse(readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8'));
-const fills = fixture('fills.json'), book = fixture('book.json'), health = fixture('health.json');
+const fills = fixture('fills.json'), health = fixture('health.json');
 const keep = ['SXR8', 'TSLA'];
 const headers = () => ({ authorization: 'Bearer synthetic-joed20-token' });
 const endpoint = `https://board.example.invalid${RESULTS_PATH}`;
@@ -22,7 +22,7 @@ const intervals = [[Date.parse(start), Date.parse(at)]];
 const source = () => [{ type: 'start', at: start }, { type: 'cut', at, fills, authoritative: true, disagreement: false, historyCoverage: { status: 'complete', target: { fromInclusive: start, toExclusive: at }, gaps: [] } }];
 function ready({ directory = temp(), now = () => at } = {}) {
   const producer = openProducer(path.join(directory, 'results.jsonl'), { now });
-  producer.ingest(source()); book.forEach(producer.observe);
+  producer.ingest(source());
   return producer;
 }
 
@@ -64,6 +64,12 @@ test('fixture results inbox mirrors 200/422/401/413/400/503 and retains last goo
   assert.equal((await request(server, ' '.repeat(CONTRACTS.limits.results + 1))).status, 413);
   assert.equal((await request(server, [first])).status, 422);
   assert.equal((await request(server, { ...first, receivedAt: at })).status, 422);
+  assert.equal(Object.hasOwn(first, 'missingDays'), false);
+  const serverOwned = await request(server, { ...first, missingDays: ['2026-10-16'] });
+  assert.equal(serverOwned.status, 422);
+  assert.ok(serverOwned.body.errors.some(error => error.path === '$.missingDays' && error.rule === 'serverOwned'));
+  const duplicate = validateContract('results', { ...first, receivedAt: at, missingDays: ['2026-10-16', '2026-10-16'] }, { stage: 'served' });
+  assert.ok(duplicate.errors.some(error => error.path === '$.missingDays' && error.rule === 'uniqueItems'));
   assert.equal((await request(server, first, { url: '/joe/inbox' })).status, 404);
   assert.equal((await request(server, first, { method: 'GET' })).status, 405);
   clock += 59_999; assert.equal(server.stale, false);
@@ -206,9 +212,8 @@ test('health and transport time consume the retry budget instead of extending th
 test('full Vienna day totals include later closes and every traded desk without inventing equity', () => {
   const extra = ['joe', 'joel'].flatMap(desk => fills.map(fill => ({ ...fill, desk, key: `${desk}-${fill.key}` })));
   const trades = roundTrips([...fills, ...extra], start, keep);
-  // Only an early j equity observation; later j trades and all joel trades
-  // must still appear in totals for a day with a days[] row.
-  const close = dayCloses([book[0]], trades, '2026-10-16', { from: start, through: at, intervals });
+  // Every execution desk contributes totals without household equity.
+  const close = dayCloses([...fills, ...extra], trades, '2026-10-16', { from: start, through: at, intervals });
   assert.equal(close.coverage['2026-10-16'], 'full');
   assert.equal(close.days[0].desks.j.trades, 3);
   assert.equal(close.days[0].desks.j.realisedNet.amount, '7.02');
@@ -242,7 +247,7 @@ test('partial coverage travels on the wire at window boundaries and Vienna DST',
   assert.equal(dayCoverage('2026-10-25', '2026-10-24T22:00:00.000Z', '2026-10-25T23:00:00.000Z', [[Date.parse('2026-10-24T22:00:00.000Z'), Date.parse('2026-10-25T23:00:00.000Z')]]), 'full');
   assert.equal(dayCoverage('2026-03-29', '2026-03-28T23:00:00.000Z', '2026-03-29T22:00:00.000Z', [[Date.parse('2026-03-28T23:00:00.000Z'), Date.parse('2026-03-29T22:00:00.000Z')]]), 'full');
   const trades = roundTrips(fills, start, keep);
-  const partial = dayCloses(book, trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
+  const partial = dayCloses(fills, trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
   assert.equal(partial.coverage['2026-10-16'], 'partial');
   assert.equal(partial.days[0].coverage, 'partial');
   const producer = ready(), payload = { ...producer.snapshot(), days: partial.days };
@@ -275,7 +280,7 @@ test('KEEP round trips are excluded from both arrays, leaving exact ordinary tra
   assert.equal(value.days[0].desks.j.realisedNet.amount, '7.02');
   assert.equal(value.days[0].desks.j.fees.amount, '0.88');
   assert.equal(validateResults(value).ok, true);
-  const partial = dayCloses(book, value.trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
+  const partial = dayCloses(fills, value.trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
   assert.equal(partial.days[0].coverage, 'partial');
   assert.deepEqual(partial.days[0].desks, value.days[0].desks);
   assert.equal(validateContract('results', { ...value, days: partial.days }, { stage: 'ingress' }).ok, true);
@@ -303,6 +308,9 @@ test('commission allocation and FX never round; nonrepresentable exact fees hold
 test('fixture accepts partial coverage and rejects full-day mismatches with vendored 422 rules', async () => {
   const producer = ready(), server = createFixtureIngressServer({ now: () => at });
   const full = producer.snapshot();
+  // This test exercises ingress full-day reconciliation independently of the
+  // backstop: this fixture lacks broker reports and carries a partial marker.
+  delete full.days[0].coverage;
   const partial = structuredClone(full);
   partial.days[0].coverage = 'partial'; partial.trades = partial.trades.slice(1);
   assert.equal((await request(server, partial)).status, 200);
@@ -326,11 +334,11 @@ test('fixture accepts partial coverage and rejects full-day mismatches with vend
 test('producer emits partial coverage from its capture interval and removed reasons fail closed', () => {
   const producer = openProducer(path.join(temp(), 'results.jsonl'), { now: () => at });
   const rows = source(); rows[0].at = '2026-10-16T11:00:00.000Z';
-  producer.ingest(rows); book.forEach(producer.observe);
+  producer.ingest(rows);
   const value = producer.snapshot();
   assert.equal(value.days[0].coverage, 'partial');
   assert.equal(validateContract('results', value, { stage: 'ingress' }).ok, true);
-  assert.equal(CONTRACTS.revision, 3);
+  assert.equal(CONTRACTS.revision, 4);
   assert.equal(REASONS.includes('results_not_wired'), false);
   assert.equal(validateResults({ ...value, reason: 'results_not_wired' }).status, 422);
   producer.close();
