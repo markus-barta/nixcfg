@@ -7,15 +7,57 @@ const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Vienna', hour
 
 // A half-open observation interval covers a day only from Vienna midnight
 // through the following midnight. Local dates handle 23/25-hour DST days.
-export function dayCoverage(date, from, through) {
-  if (!validInstant(from) || !validInstant(through) || Date.parse(from) > Date.parse(through)) throw new Error('source_not_authoritative');
+export function dayCoverage(date, from, through, intervals = []) {
+  if (!validInstant(from) || !validInstant(through) || Date.parse(from) > Date.parse(through)) return 'partial';
   const first = viennaDay(from), last = viennaDay(through);
   const startsAtMidnight = clock.format(new Date(from)) === '00:00:00' && Date.parse(from) % 1000 === 0;
-  return (date > first || (date === first && startsAtMidnight)) && date < last ? 'full' : 'partial';
+  if (!(date > first || (date === first && startsAtMidnight)) || date >= last) return 'partial';
+  // Locate Vienna midnights without assuming a 24-hour civil day.
+  const noon = Date.parse(`${date}T12:00:00.000Z`);
+  let begin = noon - 14 * 3600_000;
+  while (viennaDay(new Date(begin).toISOString()) < date) begin += 3600_000;
+  let end = begin + 22 * 3600_000;
+  while (viennaDay(new Date(end).toISOString()) === date) end += 3600_000;
+  return intervals.some(([a, b]) => a <= begin && b >= end) ? 'full' : 'partial';
 }
 
 // The producer and ingress share revision 3's exact day/trade semantics.
 // Coverage travels on each day; no private override can bypass the wire check.
 export function validateResults(payload, { stage = 'ingress' } = {}) {
   return validateContract('results', payload, { stage });
+}
+
+// History bounds are evidence, never inferred from a successful poll. Exclude
+// explicit gaps and reject unknown, malformed or future bounds.
+export function historyIntervals(coverage, at) {
+  const target = coverage?.target;
+  if (!validInstant(at) || !['complete', 'known'].includes(coverage?.status) || !Array.isArray(coverage?.gaps)
+    || !validInstant(target?.fromInclusive) || !validInstant(target?.toExclusive)) return [];
+  const from = Date.parse(target.fromInclusive), to = Date.parse(target.toExclusive);
+  if (from >= to || to > Date.parse(at) || (coverage.status === 'complete' && coverage.gaps.length)) return [];
+  const gaps = [];
+  for (const gap of coverage.gaps) {
+    if (!validInstant(gap?.fromInclusive) || !validInstant(gap?.toExclusive)) return [];
+    const a = Date.parse(gap.fromInclusive), b = Date.parse(gap.toExclusive);
+    if (a >= b || a < from || b > to) return [];
+    gaps.push([a, b]);
+  }
+  let cursor = from;
+  const intervals = [];
+  for (const [a, b] of gaps.sort(([a], [b]) => a - b)) {
+    if (a > cursor) intervals.push([cursor, a]);
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < to) intervals.push([cursor, to]);
+  return intervals;
+}
+
+export function mergeIntervals(intervals) {
+  const result = [];
+  for (const [a, b] of [...intervals].sort(([a], [b]) => a - b)) {
+    const previous = result.at(-1);
+    if (previous && a <= previous[1]) previous[1] = Math.max(previous[1], b);
+    else result.push([a, b]);
+  }
+  return result;
 }

@@ -2,7 +2,7 @@ import { openJournal, readJournal, hash } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
 import { validateContract, SCHEMA_FILES } from './contracts/index.mjs';
 import { checkSchema, validInstant } from './contracts/schema-validator.mjs';
-import { validateResults } from './results-validation.mjs';
+import { validateResults, historyIntervals, mergeIntervals } from './results-validation.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
 
@@ -44,6 +44,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   let start, sourceCount = 0, seq = 0, generatedAt = null;
   const fills = new Map(), observations = new Map();
   let authority = null, latestHealth = null;
+  let coverageIntervals = [];
   function apply(event) {
     if (event.type === 'start') start = event.at;
     else if (event.type === 'source') {
@@ -51,7 +52,11 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       const row = event.entry;
       if (row.type === 'fill') fills.set(row.fill.key, row.fill);
       else if (row.type === 'authority') authority = row;
-      else if (row.type === 'cut') { for (const fill of row.fills) fills.set(fill.key, fill); authority = row; }
+      else if (row.type === 'cut') {
+        for (const fill of row.fills) fills.set(fill.key, fill);
+        authority = row;
+        if (row.authoritative) coverageIntervals = mergeIntervals([...coverageIntervals, ...historyIntervals(row.historyCoverage, row.at)]);
+      }
     } else if (event.type === 'observation') observations.set(event.key, event.value);
     else if (event.type === 'sequence') { seq = event.seq; generatedAt = event.at; }
     else if (event.type === 'health') latestHealth = event.value;
@@ -84,7 +89,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (seq >= Number.MAX_SAFE_INTEGER) throw new Error('sequence_exhausted');
     const trades = roundTrips([...fills.values()], start, keepSymbols);
     if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
-    const { days } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at });
+    const { days } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at, intervals: coverageIntervals });
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
     const checked = validateResults(candidate);

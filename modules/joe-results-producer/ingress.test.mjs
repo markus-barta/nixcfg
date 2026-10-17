@@ -18,7 +18,8 @@ const keep = ['SXR8', 'TSLA'];
 const headers = () => ({ authorization: 'Bearer synthetic-joed20-token' });
 const endpoint = `https://board.example.invalid${RESULTS_PATH}`;
 const temp = () => mkdtempSync(path.join(tmpdir(), 'joed20-r3-'));
-const source = () => [{ type: 'start', at: start }, ...fills.map(fill => ({ type: 'fill', fill })), { type: 'authority', at, authoritative: true, disagreement: false }];
+const intervals = [[Date.parse(start), Date.parse(at)]];
+const source = () => [{ type: 'start', at: start }, { type: 'cut', at, fills, authoritative: true, disagreement: false, historyCoverage: { status: 'complete', target: { fromInclusive: start, toExclusive: at }, gaps: [] } }];
 function ready({ directory = temp(), now = () => at } = {}) {
   const producer = openProducer(path.join(directory, 'results.jsonl'), { now });
   producer.ingest(source()); book.forEach(producer.observe);
@@ -180,7 +181,7 @@ test('full Vienna day totals include later closes and every traded desk without 
   const trades = roundTrips([...fills, ...extra], start, keep);
   // Only an early j equity observation; later j trades and all joel trades
   // must still appear in totals for a day with a days[] row.
-  const close = dayCloses([book[0]], trades, '2026-10-16', { from: start, through: at });
+  const close = dayCloses([book[0]], trades, '2026-10-16', { from: start, through: at, intervals });
   assert.equal(close.coverage['2026-10-16'], 'full');
   assert.equal(close.days[0].desks.j.trades, 3);
   assert.equal(close.days[0].desks.j.realisedNet.amount, '7.02');
@@ -210,9 +211,9 @@ test('full Vienna day totals include later closes and every traded desk without 
 test('partial coverage travels on the wire at window boundaries and Vienna DST', () => {
   assert.equal(dayCoverage('2026-10-16', '2026-10-16T11:00:00.000Z', at), 'partial');
   assert.equal(dayCoverage('2026-10-17', start, at), 'partial');
-  assert.equal(dayCoverage('2026-10-16', start, at), 'full');
-  assert.equal(dayCoverage('2026-10-25', '2026-10-24T22:00:00.000Z', '2026-10-25T23:00:00.000Z'), 'full');
-  assert.equal(dayCoverage('2026-03-29', '2026-03-28T23:00:00.000Z', '2026-03-29T22:00:00.000Z'), 'full');
+  assert.equal(dayCoverage('2026-10-16', start, at, intervals), 'full');
+  assert.equal(dayCoverage('2026-10-25', '2026-10-24T22:00:00.000Z', '2026-10-25T23:00:00.000Z', [[Date.parse('2026-10-24T22:00:00.000Z'), Date.parse('2026-10-25T23:00:00.000Z')]]), 'full');
+  assert.equal(dayCoverage('2026-03-29', '2026-03-28T23:00:00.000Z', '2026-03-29T22:00:00.000Z', [[Date.parse('2026-03-28T23:00:00.000Z'), Date.parse('2026-03-29T22:00:00.000Z')]]), 'full');
   const trades = roundTrips(fills, start, keep);
   const partial = dayCloses(book, trades, '2026-10-16', { from: '2026-10-16T11:00:00.000Z', through: at });
   assert.equal(partial.coverage['2026-10-16'], 'partial');

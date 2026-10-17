@@ -2,6 +2,7 @@ import { decimalUnits } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { DESKS, unavailable } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
+import { historyIntervals } from './results-validation.mjs';
 
 // Runs inside the executor, BEFORE retention/compaction; producer itself only
 // reads this file. No account, broker/order ID, orderRef or receipt is written.
@@ -19,7 +20,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (fill.ordinal) { ordinals.set(fill.key, fill.ordinal); nextOrdinal = Math.max(nextOrdinal, fill.ordinal); }
     }
     const previous = journal.entries.at(-1);
-    if (previous?.type === 'cut') lastAuthority = hash([previous.authoritative, previous.disagreement, previous.evidence]);
+    if (previous?.type === 'cut') lastAuthority = hash([previous.authoritative, previous.disagreement, previous.evidence, previous.historyCoverage ?? null]);
   }
   function capture(state) {
     initialize();
@@ -69,8 +70,15 @@ export function createCapture(filename, config, { account, attribute, executionT
     const evidence = reconciliationEvidence(state, config, keepSymbols, { account, attribute, executionTime });
     // One line is one committed cut: a concurrent reader cannot combine a
     // half-imported fill batch with the preceding cut's authority statement.
-    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence };
-    const authorityHash = hash([event.authoritative, event.disagreement, event.evidence]);
+    const coverage = state.resultsHistoryCoverage;
+    // Copy only value-free coverage metadata, never the history payload.
+    const historyCoverage = authority && historyIntervals(coverage, at).length ? {
+      status: coverage.status,
+      target: { fromInclusive: coverage.target.fromInclusive, toExclusive: coverage.target.toExclusive },
+      gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })),
+    } : null;
+    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage };
+    const authorityHash = hash([event.authoritative, event.disagreement, event.evidence, historyCoverage]);
     if (!changed.length && authorityHash === lastAuthority) return;
     journal.append(event);
     for (const fill of changed) known.set(fill.key, hash(fill));
