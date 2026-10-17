@@ -839,6 +839,9 @@ the rule. Served legacy data uses its persisted board receipt. Strict producer
 validation rejects the reserved code; only the open day without a real cause
 may omit reasons. The board's open-day note rule shows no generic note when
 that day has no reasons, and shows a real FX reason when present.
+A reasonless open day built just before Vienna midnight and received just after
+it gets one 422 `partialReasonsRequired`; the runner's 1 s retry builds a fresh
+snapshot under the new Vienna day and heals the race.
 New cuts journal reported `historyGaps` separately from value-free 1 ms
 `fillGaps`, tagged `unattributed_activity` or `capture_gap`. They revoke coverage and
 remain in earlier-gap position-proof maths; their own day carries its own reason
@@ -848,6 +851,15 @@ provenance keep their conservative `history_gap` label. The existing
 `historyCoverage.gaps` field retains the combined omissions for conservative
 older readers on rollback; the new producer uses the separate provenance for
 labelling, without removing omissions from coverage or earlier-gap proof.
+Fill-gap labels start at the tracking instant; pre-tracking fill gaps remain in
+the proof maths without creating earlier day rows. Combining fill gaps is
+idempotent across capture initialization, authority hashing and producer replay;
+the round-14 authority hash stays unchanged.
+Refused FX samples and close FX keep the journal kind `broker_evidence_missing`
+for round-12b/13 rollback readers. The new producer maps fields `sample.rate`
+and `closeFx.rate` to the Results reason `fx_missing`; other broker issues keep
+their existing reason. Round-14 journals that already use `fx_missing` remain
+readable by the new producer.
 There is no exact rev-6 code for an unexpected conversion failure: `history_gap`
 is used because containment creates that scoped gap. No provisional FX reason is emitted.
 
@@ -901,11 +913,13 @@ an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
 and network failures also back off with value-free diagnostics. The board is
 stale after 60 seconds without an accepted push; retries do not fake freshness.
 
-JOED-30 rev 5 is merged at `918f6af9399d65f0fb3b523d2a37739cfb9ee01e`.
-The complete self-contained `contracts/` directory (manifest revision 5,
+JOED-34 rev 6 is merged at `26a5d2ac04fad707ea63e49a91a348b2a49035cc`.
+The complete self-contained `contracts/` directory (manifest revision 6,
 including `vienna-date.mjs`) is vendored byte-for-byte. `contracts.lock.json`
 pins its source revision, each file's byte count and SHA-256, and set digest
-`14a4f6ce6b12a7025dbd692aef5c9f490f59dbc8babcb36e8bb00e8b4a8b2ec7`.
+`f092c0f1f6223f965486f6f1b072e6c305b3fafd2ce34b1b551fb6dbed0ddf80`.
+A round-12b producer against the rev-6 board gets 422s on closed reasonless
+days; the contract pin mismatch already blocks activation.
 `verify-contracts.mjs` checks the complete file set and reproduces JoeDesk's
 `scripts/check-release.mjs` set hash: SHA-256 of the UTF-8 compact JSON array
 of sorted `{path,size,sha256}` entries with `contracts/`-prefixed paths.
@@ -938,6 +952,11 @@ declared gaps from earlier proof too, using the vendored Vienna
 date helper for 23/25-hour DST days. Missing/unknown bounds, any uncovered part
 of a closed day, a mid-day window start, and the current day emit
 `"coverage":"partial"`; a stale capture never extends proof to generation time.
+For the open day, the reason check ends at the last proven interval end or
+the send time, whichever is earlier. The trailing unproven stretch is "so far",
+without a `history_gap` label. Explicit gaps and holes between Vienna midnight
+and that last proven instant still produce `history_gap`; closed-day checks
+continue to require proof through the next midnight.
 Full days omit `coverage`, using the README's documented default of `"full"`.
 An earlier gap also makes a closed day partial unless every captured Stage-0
 fill on that day has a post-gap baseline for its instrument before that fill

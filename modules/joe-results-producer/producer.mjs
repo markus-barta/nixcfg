@@ -174,7 +174,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       }
     }
     for (const gap of fillGaps) {
-      const date = viennaDate(gap.fromInclusive);
+      const a = Math.max(Date.parse(gap.fromInclusive), Date.parse(start));
+      if (a >= Math.min(Date.parse(gap.toExclusive), Date.parse(at))) continue;
+      const date = viennaDate(new Date(a).toISOString());
       let day = days.find(day => day.date === date);
       if (!day) { day = { date, desks: {} }; days.push(day); }
       markPartial(day, gap.kind);
@@ -182,7 +184,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     for (const issue of captureIssues.values()) {
       let day = days.find(day => day.date === issue.day);
       if (!day) { day = { date: issue.day, desks: {} }; days.push(day); }
-      markPartial(day, issue.kind);
+      const reason = issue.kind === 'broker_evidence_missing' && ['sample.rate', 'closeFx.rate'].includes(issue.field)
+        ? 'fx_missing' : issue.kind;
+      markPartial(day, reason);
     }
     for (const record of [...excluded, ...guarded.values()]) {
       let day = days.find(day => day.date === record.day);

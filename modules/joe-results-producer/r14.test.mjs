@@ -29,10 +29,10 @@ function fill(key, side, time, quantity = '1', fee = '0', rate = '1') {
     brokerRealised: side === 'BUY' ? { unset: true, currency: 'EUR' } : { amount: '0', currency: 'EUR' },
     closeFx: { base: 'EUR', quote: 'EUR', rate, source: 'identity', observedAt: time } };
 }
-function snapshot(t, { from = start, through = at, fills = [fill('open', 'BUY', instant('16'))], extra = {} } = {}) {
+function snapshot(t, { from = start, through = at, historyEnd = new Date(Date.parse(through) - 600_000).toISOString(), fills = [fill('open', 'BUY', instant('16'))], extra = {} } = {}) {
   const p = openProducer(path.join(directory(t), 'producer.jsonl'), { now: () => through });
   t.after(() => p.close());
-  p.ingest([{ type: 'start', at: from }, { type: 'cut', at: through, authoritative: true, fills, historyCoverage: history(through), ...extra }]);
+  p.ingest([{ type: 'start', at: from }, { type: 'cut', at: new Date(Date.parse(through) - 1).toISOString(), authoritative: true, fills, historyCoverage: history(historyEnd), ...extra }]);
   return p.snapshot();
 }
 
@@ -175,7 +175,7 @@ for (const field of ['sample.rate', 'closeFx.rate']) test(`refused ${field} maps
   else f.state.resultsFx = { USD: { rate: 1e-7, base: 'USD', quote: 'EUR', observedAt: instant('16'), source: 'synthetic' } };
   const value = f.refresh(), cut = readJournal(f.input).findLast(row => row.type === 'cut');
   const issue = cut.captureIssues.find(issue => issue.field === field);
-  assert.equal(issue.kind, 'fx_missing');
+  assert.equal(issue.kind, 'broker_evidence_missing', 'journal kind stays readable by round-12b/13 producers');
   assert.deepEqual(Object.keys(issue).sort(), ['day', 'deskHash', 'field', 'id', 'kind', 'refused']);
   assert.deepEqual(value.days[0].partialReasons, ['fx_missing']);
 });
