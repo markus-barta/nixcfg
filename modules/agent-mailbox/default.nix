@@ -57,7 +57,7 @@ in
     peers = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = {
-        "100.64.0.10" = "amy";
+        "100.64.0.15" = "amy";
         "100.64.0.14" = "ops";
       };
       description = "Tailnet source IPv4 address to caller identity.";
