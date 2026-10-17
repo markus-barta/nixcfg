@@ -108,11 +108,10 @@ in
       # asserted non-empty). Grants the unit CAP_NET_RAW and AF_PACKET only
       # (nix/module.nix:30,237-263,277-282,435-442,465-466); nothing is sent.
       passive = true;
-      # OPS-355 web-check trial (approved 2026-10-17, see OPS-355): the host allows
-      # the opt-in web source (HNET-238, module default, :163-174). It stays off
-      # until switched on under Settings → Site → Discovery sources; HNET runs one
-      # trial scan and switches it off again. The default follows the trial.
-      webCheck = true;
+      # OPS-355: the opt-in web source (HNET-238) is hard off on hsb0 again after
+      # the one-scan trial (see OPS-355); allowing it again needs the owner's go.
+      # The module default is true (:163-174); false adds --web-check=false to the unit.
+      webCheck = false;
     };
   };
   systemd.services.hausnetz.serviceConfig = {
