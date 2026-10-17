@@ -520,6 +520,8 @@ in
   # Web interface: http://192.168.1.99:3000
   services.adguardhome = {
     usersSecretFile = ../../secrets/hsb0-adguard-users.age;
+    # Existence guard only; hsb0 never decrypts the peer's ciphertext.
+    usersSecretPeers = [ (../../secrets + "/hsb8-adguard-users.age") ];
     enable = true;
     host = "0.0.0.0";
     port = 3000;
