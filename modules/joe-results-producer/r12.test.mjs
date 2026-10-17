@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCapture } from './capture.mjs';
-import { openProducer } from './producer.mjs';
+import { openProducer, createRunner } from './producer.mjs';
 import { hash, readJournal } from './journal.mjs';
 import { roundTrips } from './fifo.mjs';
 import { brokerDayTotals, brokerMismatches } from './broker-backstop.mjs';
@@ -14,10 +14,12 @@ import { validateResults } from './results-validation.mjs';
 const begin = '2026-10-15T22:00:00.000Z', end = '2026-10-20T22:00:00.000Z';
 const instant = (day, hour) => `2026-10-${day}T${hour}:00:00.000Z`;
 const health = { status: 'ok', halt: { active: false }, brakes: { newPerDay: 1, notionalEur: 1 }, gatewayReachable: true };
-function directory() {
+function directory(t) {
   const root = fileURLToPath(new URL('../../tests/.tmp/', import.meta.url));
   mkdirSync(root, { recursive: true });
-  return mkdtempSync(path.join(root, 'joed20-r12-'));
+  const directory = mkdtempSync(path.join(root, 'joed20-r12-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  return directory;
 }
 function fill(key, side, at, { desk = 'j', instrument = hash('synthetic-acme'), quantity = '1', price = '10', fee = '0', currency = 'EUR', pnl = '0', reportCurrency = currency } = {}) {
   return { key: hash(key), desk, instrument, scope: 'stage0', symbol: 'ACME', side, at, quantity, price, currency,
@@ -30,7 +32,7 @@ function pair(key, day, options = {}) {
   return [fill(`${key}-open`, 'BUY', instant(day, '10'), options), fill(`${key}-close`, 'SELL', instant(day, '12'), options)];
 }
 function setup(t, fills, extra = {}) {
-  const filename = path.join(directory(), 'results.jsonl');
+  const filename = path.join(directory(t), 'results.jsonl');
   let producer = openProducer(filename, { now: () => end });
   const rows = [{ type: 'start', at: begin }, { type: 'cut', at: end, authoritative: true, fills,
     historyCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: end }, gaps: [] }, ...extra }];
@@ -156,7 +158,7 @@ test('a representable portion after an excluded portion in the same close still 
 });
 
 test('refused opening / zero-PnL later close stays partial until matching position proof; correction retains issue day', t => {
-  const root = directory(), input = path.join(root, 'capture.jsonl'), account = 'synthetic-account';
+  const root = directory(t), input = path.join(root, 'capture.jsonl'), account = 'synthetic-account';
   let now = begin;
   const config = { executorClientId: 705, foreignAlertSince: begin };
   const options = { account, attribute: () => ({ desk: 'j', method: 'admin' }), executionTime: Date.parse, now: () => now };
@@ -178,7 +180,7 @@ test('refused opening / zero-PnL later close stays partial until matching positi
   const refresh = () => { capture(state); captured.ingest(readJournal(input)); return captured.snapshot(); };
   const first = refresh();
   assert.equal(coverage(first, '18'), 'partial'); assert.equal(first.trades.length, 0);
-  assert.deepEqual(brokerMismatches(first.days.filter(day => day.date === '2026-10-18'), readJournal(input).flatMap(row => row.fills || []), begin, end), []);
+  assert.deepEqual(brokerMismatches(first.days.filter(day => day.date === '2026-10-18'), readJournal(input).flatMap(row => row.fills || []).filter(fill => fill.scope === 'stage0'), begin, end), []);
   assert.equal(captured.health(health).captureRefusals, 1);
   capture.close(); capture = createCapture(input, config, options); capture(state);
   assert.deepEqual(readJournal(input).at(-1).historyCoverage.gaps, [gap]);
@@ -196,4 +198,146 @@ test('refused opening / zero-PnL later close stays partial until matching positi
   assert.equal(captured.health(health).captureRefusals, 1);
   assert.equal(readFileSync(input, 'utf8').includes(account), false);
   assert.equal(validateResults(corrected).ok, true);
+});
+
+function captureFixture(t) {
+  const root = directory(t), input = path.join(root, 'capture.jsonl'), account = 'synthetic-account';
+  let now = begin;
+  const options = {
+    account, attribute: row => ({ desk: row.testDesk || 'j', method: 'admin' }), executionTime: Date.parse, now: () => now,
+  };
+  const config = { executorClientId: 705, foreignAlertSince: begin };
+  let capture = createCapture(input, config, options);
+  capture({ ownershipComplete: true, executions: [] }); now = end;
+  const filename = path.join(root, 'results.jsonl');
+  let producer = openProducer(filename, { now: () => now });
+  const state = { ownershipComplete: true, executions: [], commissions: [],
+    resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: end }, gaps: [] } };
+  t.after(() => { capture.close(); producer.close(); });
+  const raw = (id, day, side, desk = 'j') => ({ testDesk: desk,
+    contract: { conId: 1, symbol: 'ACME', currency: 'EUR' },
+    execution: { execId: `synthetic-${id}.01`, acctNumber: account, clientId: 999, // admin attribution bypasses client ownership
+      time: instant(day, side === 'BUY' ? '10' : '12'), side, shares: '1', price: '10' } });
+  const addPair = (id, day, desk) => {
+    const rows = [raw(`${id}-open`, day, 'BUY', desk), raw(`${id}-close`, day, 'SELL', desk)];
+    state.executions.push(...rows);
+    state.commissions.push(...rows.map((row, i) => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: i ? '0' : Number.MAX_VALUE })));
+    return rows;
+  };
+  return { input, filename, state, raw, addPair, get capture() { return capture; }, get producer() { return producer; },
+    setCaptureTime(at) { now = at; },
+    restartCapture() { capture.close(); capture = createCapture(input, config, options); },
+    refresh() { capture(state); producer.ingest(readJournal(input)); return producer.snapshot(); },
+    replay() { producer.close(); producer = openProducer(filename, { now: () => now }); return producer.snapshot(); } };
+}
+
+for (const action of ['flatten', 'modify-stop']) for (const missingSide of ['opening', 'closing']) {
+  test(`${action} save shape with missing ${missingSide} commission recovers without durable guard or gap`, t => {
+    const f = captureFixture(t), rows = f.addPair(action, '16');
+    f.addPair('later-same-book', '18');
+    // Both executor action branches save their new executions before the next
+    // recon merges commission reports. Exercise that state at capture's input.
+    const missingId = rows[missingSide === 'opening' ? 0 : 1].execution.execId;
+    const report = f.state.commissions.find(row => row.execId === missingId);
+    f.state.commissions = f.state.commissions.filter(row => row.execId !== missingId);
+    const first = f.refresh();
+    assert.equal(coverage(first, '16'), 'partial');
+    assert.equal(coverage(first, '18'), 'full'); // no scoped gap into later days
+    assert.equal(first.trades.length, 1);
+    assert.equal(f.producer.health(health).portionExclusions, 0);
+    const records = () => readJournal(f.filename).filter(row => row.type === 'conversion-exclusion').map(row => row.record);
+    assert.deepEqual(records(), [{ day: '2026-10-16', deskHash: hash('j'), kind: 'broker_evidence_missing' }]);
+    assert.deepEqual(readJournal(f.input).at(-1).historyCoverage.gaps, []);
+    assert.deepEqual(f.replay().days, first.days);
+    assert.equal(f.producer.health(health).portionExclusions, 0);
+    f.state.commissions.push(report);
+    const corrected = f.refresh();
+    assert.equal(coverage(corrected, '16'), 'full');
+    assert.equal(coverage(corrected, '18'), 'full');
+    assert.equal(corrected.trades.length, 2);
+    assert.equal(f.producer.health(health).portionExclusions, 0);
+    assert.equal(records().length, 1); // historical diagnostic only, never a guard
+    assert.deepEqual(f.replay().days, corrected.days);
+    assert.equal(validateResults(corrected).ok, true);
+  });
+}
+
+for (const defect of ['third-currency fee', 'invalid rate']) test(`${defect} remains durable across correction and replay`, t => {
+  const fills = [...pair('durable', '16'), ...pair('later', '18')];
+  if (defect === 'third-currency fee') fills[1].commission.currency = 'GBP';
+  else fills[1].closeFx.rate = '0';
+  const f = setup(t, fills), first = f.producer.snapshot();
+  assert.equal(coverage(first, '16'), 'partial'); assert.equal(coverage(first, '18'), 'partial');
+  assert.equal(first.trades.length, 1); assert.equal(f.producer.health(health).portionExclusions, 1);
+  const records = readJournal(f.filename).filter(row => row.type === 'conversion-exclusion').map(row => row.record);
+  assert.equal(records[0].kind, 'source_not_authoritative'); assert.ok(records[0].portionHash); assert.ok(records[0].at);
+  f.rows.push({ ...f.rows[1], fills: [{ ...fills[1], commission: { amount: '0', currency: 'EUR' }, closeFx: { ...fills[1].closeFx, rate: '1' } }] });
+  f.producer.ingest(f.rows);
+  const corrected = f.producer.snapshot();
+  assert.equal(corrected.trades.length, 2);
+  assert.equal(coverage(corrected, '16'), 'partial'); assert.equal(coverage(corrected, '18'), 'partial');
+  assert.equal(f.producer.health(health).portionExclusions, 1);
+  assert.deepEqual(f.replay().days, corrected.days);
+});
+
+const defects = [
+  ['symbol', row => { row.contract.symbol = 'ACME A'; }],
+  ['price', row => { row.execution.price = '0'; }],
+  ['quantity', row => { row.execution.shares = '-1'; }],
+  ['side', row => { row.execution.side = 'UNKNOWN'; }],
+  ['at', row => { row.execution.time = 'invalid-instant'; }],
+];
+for (const [field, mutate] of defects) test(`admin capture refuses invalid ${field} with issue, tombstone and 1 ms gap; other Results continue`, t => {
+  const f = captureFixture(t), bad = f.raw('bad', '17', 'BUY');
+  f.addPair('good-before', '16', 'joe'); f.addPair('good-shared-day', '17', 'joe');
+  f.state.executions.push(bad); mutate(bad);
+  const affectedDay = field === 'at' ? '20' : '17';
+  const result = f.refresh();
+  assert.equal(coverage(result, affectedDay), 'partial'); assert.equal(coverage(result, '16'), 'full');
+  assert.equal(result.trades.length, 2);
+  assert.equal(result.days.find(day => day.date === '2026-10-17').desks.joe.trades, 1);
+  assert.equal(result.days.find(day => day.date === '2026-10-17').desks.joe.realisedNet.amount, '0');
+  const cut = readJournal(f.input).at(-1), issue = cut.captureIssues[0];
+  assert.deepEqual(Object.keys(issue).sort(), ['id', 'day', 'deskHash', 'kind', 'field', 'refused'].sort());
+  assert.equal(issue.field, field); assert.equal(issue.refused, true); assert.equal(issue.kind, 'capture_gap');
+  assert.equal(issue.deskHash, hash('j')); assert.equal(issue.day, `2026-10-${affectedDay}`);
+  assert.ok(cut.fills.some(fill => fill.scope === 'excluded' && fill.desk === null));
+  assert.equal(cut.historyCoverage.gaps.length, 1);
+  assert.equal(Date.parse(cut.historyCoverage.gaps[0].toExclusive) - Date.parse(cut.historyCoverage.gaps[0].fromInclusive), 1);
+  assert.equal(f.producer.health(health).captureRefusals, 1);
+  assert.equal(f.producer.health(health).portionExclusions, 0);
+  assert.deepEqual(f.replay().days, result.days);
+  f.capture(f.state); // same refused fill neither grows the journal nor loses its gap
+  assert.equal(readJournal(f.input).length, 3);
+  if (field === 'at') {
+    f.setCaptureTime('2026-10-21T22:00:00.000Z');
+    f.capture(f.state); f.restartCapture(); f.capture(f.state);
+    assert.equal(readJournal(f.input).length, 3); // invalid instants keep their first refusal anchor across polls/restart
+  }
+  assert.equal(validateResults(result).ok, true);
+});
+
+for (const [field, value] of [['symbol', 'ACME A'], ['side', 'UNKNOWN'], ['at', 'invalid'], ['quantity', 'bad'], ['price', '0']]) {
+  test(`old-journal invalid ${field} is contained per fill and downstream projections keep producing`, t => {
+    const bad = { ...fill('bad-old', 'BUY', instant('17', '10')), [field]: value };
+    const fills = [bad, ...pair('good', '18', { desk: 'joe' })], excluded = [];
+    assert.equal(roundTrips(fills, begin, [], () => {}, record => excluded.push(record)).length, 1);
+    assert.equal(excluded.length, 1); assert.equal(excluded[0].kind, 'source_not_authoritative');
+    const f = setup(t, fills), result = f.producer.snapshot();
+    assert.equal(result.trades.length, 1); assert.equal(coverage(result, '18'), 'full');
+    assert.equal(result.days.find(day => day.date === excluded[0].day).coverage, 'partial');
+    assert.equal(f.producer.health(health).portionExclusions, 1);
+    assert.deepEqual(f.replay().days, result.days);
+    assert.equal(validateResults(result).ok, true);
+  });
+}
+
+test('runner health counts portion exclusions from the snapshot sent in that same tick', async t => {
+  const f = setup(t, sevenShareFills()), sent = [];
+  const runner = createRunner({ producer: f.producer, readSource: () => f.rows, readHealth: () => health,
+    now: () => Date.parse(end), transport: { send: result => sent.push(result) } });
+  assert.equal(await runner.tick(), true);
+  assert.equal(sent.length, 1); assert.equal(f.producer.latestHealth.portionExclusions, 3);
+  const rows = readJournal(f.filename);
+  assert.ok(rows.findIndex(row => row.type === 'health') > rows.findLastIndex(row => row.type === 'conversion-exclusion'));
 });
