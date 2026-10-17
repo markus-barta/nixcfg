@@ -94,6 +94,33 @@ test('HTTP transport posts exactly one snapshot with shared-token auth and contr
   producer.close();
 });
 
+test('transport refuses an ingress-valid payload whose server timestamp would exceed the served limit', async () => {
+  const producer = ready();
+  try {
+    const payload = { ...producer.snapshot(), days: [], trades: [] };
+    const trade = { ...roundTrips(fills, start, keep)[0], id: 'rt-synthetic-00000000', company: 'x' };
+    const emptyBytes = Buffer.byteLength(JSON.stringify(payload));
+    const perTrade = Buffer.byteLength(JSON.stringify(trade)) + 1;
+    const count = Math.floor((CONTRACTS.limits.results - emptyBytes + 1) / perTrade);
+    payload.trades = Array.from({ length: count }, (_, i) => ({ ...trade, id: `rt-synthetic-${String(i).padStart(8, '0')}` }));
+    let remaining = CONTRACTS.limits.results - Buffer.byteLength(JSON.stringify(payload));
+    for (const row of payload.trades) {
+      const padding = Math.min(remaining, 99);
+      row.company += 'x'.repeat(padding); remaining -= padding;
+      if (!remaining) break;
+    }
+    assert.equal(remaining, 0);
+    assert.equal(Buffer.byteLength(JSON.stringify(payload)), CONTRACTS.limits.results);
+    assert.equal(validateResults(payload).ok, true);
+    assert.ok(Buffer.byteLength(JSON.stringify({ ...payload, receivedAt: at })) > CONTRACTS.limits.results);
+    let accessed = false;
+    const transport = httpTransport(endpoint, { headers: () => { accessed = true; return headers(); },
+      fetchImpl: async () => { accessed = true; throw new Error('unexpected_send'); } });
+    await assert.rejects(transport.send(payload), error => error.status === 413 && error.reason === 'too_large');
+    assert.equal(accessed, false); assert.equal(transport.lastGood, null);
+  } finally { producer.close(); }
+});
+
 test('only the systemd credential copy is read; missing, empty and symlink tokens fail closed', () => {
   const directory = temp(), tokenFile = path.join(directory, 'joe-board-push-token');
   writeFileSync(tokenFile, 'synthetic-joed20-token\n', { mode: 0o600 });

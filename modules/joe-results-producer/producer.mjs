@@ -2,7 +2,7 @@ import { openJournal, readJournal, hash } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
 import { validateContract, SCHEMA_FILES } from './contracts/index.mjs';
 import { checkSchema, validInstant } from './contracts/schema-validator.mjs';
-import { validateResults, historyIntervals, mergeIntervals } from './results-validation.mjs';
+import { validateResults, updateHistoryIntervals } from './results-validation.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
 
@@ -55,7 +55,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       else if (row.type === 'cut') {
         for (const fill of row.fills) fills.set(fill.key, fill);
         authority = row;
-        if (row.authoritative) coverageIntervals = mergeIntervals([...coverageIntervals, ...historyIntervals(row.historyCoverage, row.at)]);
+        if (row.authoritative) coverageIntervals = updateHistoryIntervals(coverageIntervals, row.historyCoverage, row.at);
       }
     } else if (event.type === 'observation') observations.set(event.key, event.value);
     else if (event.type === 'sequence') { seq = event.seq; generatedAt = event.at; }

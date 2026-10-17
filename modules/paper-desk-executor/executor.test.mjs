@@ -330,9 +330,36 @@ test("recon accepts today's ownership gap only after the same session's executio
   const result = await h.run(intent("recon"), state);
   assert.deepEqual(result.ownershipHistory, { status: "complete" }); assert.equal(result.ownershipComplete, true);
   assert.equal(state.ownershipComplete, true); assert.equal(result.deskPositions[0].quantity, 2);
-  assert.deepEqual(state.resultsHistoryCoverage, coverage);
+  assert.deepEqual(state.resultsHistoryCoverage, { status: coverage.status, target: coverage.target,
+    gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) });
   assert.equal(state.executions[0].execution.execId, bought.execution.execId);
   assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
+});
+
+test("results history persists only bounds and gaps, excluding receipt lists; legacy ledgers remain readable", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.completeIntervals = [{ ...coverage.target, receiptIds: ["synthetic-complete-receipt"] }];
+  coverage.knownIntervals = [{ ...coverage.target, receiptIds: ["synthetic-known-receipt"] }];
+  coverage.gaps[0].receiptIds = ["synthetic-gap-receipt"];
+  coverage.target.receiptIds = ["synthetic-target-receipt"];
+  const root = mkdtempSync(path.join(tmpdir(), "results-history-projection-"));
+  const store = openLedger(root), state = store.load();
+  assert.equal(state.resultsHistoryCoverage, undefined);
+  // Simulate an old round-4 ledger; reconciliation replaces the extra fields.
+  state.resultsHistoryCoverage = structuredClone(coverage); store.save(state);
+  const loaded = store.load();
+  const h = harness({ coverage });
+  await h.run(intent("recon"), loaded, { saveState: store.save });
+  const persisted = JSON.parse(readFileSync(path.join(root, "ledger.json"), "utf8")).resultsHistoryCoverage;
+  const expected = { status: coverage.status,
+    target: { fromInclusive: coverage.target.fromInclusive, toExclusive: coverage.target.toExclusive },
+    gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) };
+  assert.deepEqual(persisted, expected);
+  assert.deepEqual(store.load().resultsHistoryCoverage, expected);
+  assert.deepEqual(coverage.completeIntervals[0].receiptIds, ["synthetic-complete-receipt"]);
+  assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
 });
 
 test("previous-day ownership gaps remain unavailable for place and recon despite fresh execution snapshots", async (t) => {
