@@ -2,7 +2,8 @@ import { openJournal, readJournal, hash } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
 import { validateContract, SCHEMA_FILES } from './contracts/index.mjs';
 import { checkSchema, validInstant } from './contracts/schema-validator.mjs';
-import { validateResults, updateHistoryIntervals } from './results-validation.mjs';
+import { validateResults, historyGaps, updateHistoryIntervals } from './results-validation.mjs';
+import { earlierGapDays } from './position-proof.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
 
@@ -45,6 +46,8 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   const fills = new Map(), observations = new Map();
   let authority = null, latestHealth = null;
   let coverageIntervals = [];
+  let historyStart = Infinity;
+  const positionProofs = [];
   function apply(event) {
     if (event.type === 'start') start = event.at;
     else if (event.type === 'source') {
@@ -55,7 +58,11 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       else if (row.type === 'cut') {
         for (const fill of row.fills) fills.set(fill.key, fill);
         authority = row;
-        if (row.authoritative) coverageIntervals = updateHistoryIntervals(coverageIntervals, row.historyCoverage, row.at);
+        if (row.authoritative) {
+          coverageIntervals = updateHistoryIntervals(coverageIntervals, row.historyCoverage, row.at);
+          if (historyGaps(row.historyCoverage, row.at)) historyStart = Math.min(historyStart, Date.parse(row.historyCoverage.target.fromInclusive));
+        }
+        if (row.authoritative && row.positionProof) positionProofs.push(row.positionProof);
       }
     } else if (event.type === 'observation') observations.set(event.key, event.value);
     else if (event.type === 'sequence') { seq = event.seq; generatedAt = event.at; }
@@ -87,9 +94,12 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (generatedAt && Date.parse(at) < Date.parse(generatedAt)) throw new Error('clock_regressed');
     if (!start || !authority?.authoritative || !validInstant(authority.at) || Date.parse(authority.at) > Date.parse(at)) throw unavailable();
     if (seq >= Number.MAX_SAFE_INTEGER) throw new Error('sequence_exhausted');
-    const trades = roundTrips([...fills.values()], start, keepSymbols);
+    const closes = [], captured = [...fills.values()];
+    const trades = roundTrips(captured, start, keepSymbols, close => closes.push(close));
     if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
-    const { days } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at, intervals: coverageIntervals });
+    const proofFrom = new Date(Math.min(Date.parse(start), historyStart)).toISOString();
+    const earlierGaps = earlierGapDays(captured, closes, coverageIntervals, positionProofs, proofFrom);
+    const { days } = dayCloses([...observations.values()], trades, viennaDate(start), { from: start, through: at, intervals: coverageIntervals, earlierGaps });
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
     const checked = validateResults(candidate);

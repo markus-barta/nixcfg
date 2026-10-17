@@ -2,7 +2,16 @@ import { decimalUnits } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { DESKS, unavailable } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
-import { dayCoverage, historyGaps, mergeIntervals, updateHistoryIntervals, viennaDate } from './results-validation.mjs';
+import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHistoryIntervals, viennaDate } from './results-validation.mjs';
+import { brokerQuantity, capturePositionProof } from './position-proof.mjs';
+
+function authorityHash(event) {
+  const proof = event.positionProof, epoch = Date.parse(proof?.at);
+  const interval = historyIntervals(event.historyCoverage, event.at).find(([a, b]) => a <= epoch && epoch < b);
+  // New quantities or a post-gap baseline matter; moving snapshot timestamps
+  // alone must not restore the old one-cut-per-poll journal growth.
+  return hash([event.authoritative, event.disagreement, event.evidence, proof?.positions ?? null, interval?.[0] ?? null]);
+}
 
 function closedDays(intervals, at) {
   const result = new Set();
@@ -23,6 +32,7 @@ export function createCapture(filename, config, { account, attribute, executionT
   if (!account || typeof attribute !== 'function' || typeof executionTime !== 'function') throw unavailable();
   let journal, known, closeFx, lastAuthority, lastGaps, ordinals, nextOrdinal = 0;
   let proven = [], days = new Set();
+  const instruments = new Set();
   function initialize() {
     if (journal) return;
     journal = openJournal(filename);
@@ -31,6 +41,7 @@ export function createCapture(filename, config, { account, attribute, executionT
     for (const event of journal.entries) {
       if (event.authoritative) proven = updateHistoryIntervals(proven, event.historyCoverage, event.at);
       for (const fill of event.fills || []) {
+        if (fill.scope === 'stage0') instruments.add(fill.instrument);
         known.set(fill.key, hash(fill));
         if (fill.closeFx) closeFx.set(fill.key, fill.closeFx);
         if (fill.ordinal) { ordinals.set(fill.key, fill.ordinal); nextOrdinal = Math.max(nextOrdinal, fill.ordinal); }
@@ -38,7 +49,7 @@ export function createCapture(filename, config, { account, attribute, executionT
     }
     const previous = journal.entries.at(-1);
     if (previous?.type === 'cut') {
-      lastAuthority = hash([previous.authoritative, previous.disagreement, previous.evidence]);
+      lastAuthority = authorityHash(previous);
       lastGaps = hash(previous.historyCoverage?.gaps ?? null);
       days = closedDays(proven, previous.at);
     }
@@ -113,17 +124,19 @@ export function createCapture(filename, config, { account, attribute, executionT
       historyCoverage.gaps = mergeIntervals(historyCoverage.gaps.map(gap => [Date.parse(gap.fromInclusive), Date.parse(gap.toExclusive)]))
         .map(([from, to]) => ({ fromInclusive: new Date(from).toISOString(), toExclusive: new Date(to).toISOString() }));
     }
-    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage };
-    const authorityHash = hash([event.authoritative, event.disagreement, event.evidence]);
+    for (const fill of changed) if (fill.scope === 'stage0') instruments.add(fill.instrument);
+    const positionProof = capturePositionProof(state, config, keepSymbols, { account, attribute }, instruments, at);
+    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof };
+    const nextAuthority = authorityHash(event);
     const gapHash = hash(historyCoverage?.gaps ?? null);
     const nextProven = authority ? updateHistoryIntervals(proven, historyCoverage, at) : proven;
     const nextDays = closedDays(nextProven, at);
     // Moving intraday bounds alone do not justify another durable cut. Keep
     // authority/fill changes and changed gaps immediate, including on restart.
-    if (!changed.length && authorityHash === lastAuthority && gapHash === lastGaps && ![...nextDays].some(day => !days.has(day))) return;
+    if (!changed.length && nextAuthority === lastAuthority && gapHash === lastGaps && ![...nextDays].some(day => !days.has(day))) return;
     journal.append(event);
     for (const fill of changed) known.set(fill.key, hash(fill));
-    lastAuthority = authorityHash;
+    lastAuthority = nextAuthority;
     lastGaps = gapHash; proven = nextProven; days = nextDays;
   }
   capture.close = () => journal?.close();
@@ -150,6 +163,8 @@ export function reconciliationEvidence(state, config, keepSymbols, { account, at
     previous.fills.push(hash(String(e.execId)));
     owned.set(key, previous);
   }
-  const broker = new Map((state.ownershipSnapshot.positions || []).map(row => [String(row.conId), decimalUnits(row.position ?? row.pos)]));
+  let broker;
+  try { broker = new Map(state.ownershipSnapshot.positions.map(row => [String(row.conId), brokerQuantity(row.position ?? row.pos)])); }
+  catch { return []; } // unusable quantities cannot supply positive position proof
   return [...owned].filter(([key, row]) => !foreign.has(key) && row.quantity !== (broker.get(key) || 0n)).map(([key, row]) => ({ kind: 'fill_position_mismatch', instrument: hash(key), fills: row.fills }));
 }

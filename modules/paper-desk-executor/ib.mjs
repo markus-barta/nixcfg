@@ -157,6 +157,9 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   });
   api.on(EventName.position, (account, contract, position, averageCost) => {
     if (account !== ACCOUNT) return;
+    // A streaming update after positionEnd is no longer the completed cut.
+    // Results proof must wait for another complete position snapshot.
+    if (positionsEnd) state.positionsObservedAt = null;
     const row = {
       account,
       conId: Number(contract.conId) || 0,
@@ -171,7 +174,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
     const index = state.positions.findIndex((prior) => prior.conId === row.conId);
     if (index < 0) state.positions.push(row); else state.positions[index] = row;
   });
-  api.on(EventName.positionEnd, () => { positionsEnd = true; });
+  api.on(EventName.positionEnd, () => { positionsEnd = true; state.positionsObservedAt = new Date().toISOString(); });
   api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
     const row = {
       orderId: Number(orderId),
