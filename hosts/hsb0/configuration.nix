@@ -82,7 +82,7 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@e50b0c46 nix/module.nix:41-50,109-197.
+  # Options: hausnetz@680a1d4e nix/module.nix:41-50,109-230.
   # seed and discovery.leasesFile retain their null defaults (:52-60,128-136).
   # The module owns the initially empty StateDirectory (:252-282); no data import.
   services.hausnetz = {
@@ -97,6 +97,11 @@ in
       # OPS-355: nix/module.nix:166-197,240-244; UDP 1901 on mdnsInterfaces only.
       openFirewallSsdp = true;
       mdnsInterfaces = [ "enp2s0f0" ];
+      # OPS-355: Markus 2026-10-17 "go. passive listeners stay". ARP/DHCP listener
+      # between scans; passiveInterfaces defaults to mdnsInterfaces (LAN only,
+      # asserted non-empty). Grants the unit CAP_NET_RAW and AF_PACKET only
+      # (nix/module.nix:30,201-230,242-245,303-307); nothing is sent.
+      passive = true;
     };
   };
   systemd.services.hausnetz.serviceConfig = {
