@@ -27,7 +27,6 @@ async function main() {
   });
   const runner = createRunner({ producer, transport,
     readSource: () => readJournal(options.capturePath),
-    readHousehold: () => readJson(options.householdPath),
     readHealth: async () => {
       const response = await fetch(health, { redirect: 'error', signal: AbortSignal.timeout(3000) });
       if (!response.ok) { await response.body?.cancel(); throw new Error('executor_unavailable'); }

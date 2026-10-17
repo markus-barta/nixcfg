@@ -4,6 +4,7 @@ import { DESKS, unavailable } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
 import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHistoryIntervals, viennaDate } from './results-validation.mjs';
 import { brokerQuantity, capturePositionProof } from './position-proof.mjs';
+import { captureBrokerRealised } from './broker-backstop.mjs';
 
 function authorityHash(event) {
   const proof = event.positionProof, epoch = Date.parse(proof?.at);
@@ -97,6 +98,7 @@ export function createCapture(filename, config, { account, attribute, executionT
         symbol: c.symbol, currency: c.currency, side: { BOT: 'BUY', BUY: 'BUY', SLD: 'SELL', SELL: 'SELL' }[e.side],
         at: new Date(epoch).toISOString(), quantity: e.shares, price: e.price,
         commission: commission ? { amount: commission.commission, currency: commission.currency } : null,
+        brokerRealised: captureBrokerRealised(commission),
         closeFx: fx,
       };
       decimalUnits(fill.quantity); decimalUnits(fill.price);

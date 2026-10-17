@@ -1,4 +1,4 @@
-# JOED-20: disabled until the ingress contract, household evidence and paper
+# JOED-20: disabled until the ingress contract, broker evidence and paper
 # proof are approved. No live mode, IB client, order API or synthetic fallback.
 # Paper proof procedure: hosts/hsb0/docs/RUNBOOK.md, JoeDesk Results producer.
 {
@@ -13,7 +13,7 @@ let
   settings = pkgs.writeText "joe-results-producer.json" (
     builtins.toJSON {
       mode = "paper";
-      inherit (cfg) endpoint keepSymbols householdPath;
+      inherit (cfg) endpoint keepSymbols;
       executorHealth = "http://127.0.0.1:8471/v1/health";
       capturePath = "/var/lib/paper-desk-executor/results-input.jsonl";
       stateDir = "/var/lib/joe-results-producer";
@@ -41,11 +41,6 @@ in
       type = lib.types.str;
       default = "";
       description = "TLS hostname bound to ingressAddress in this service's private hosts file; no DNS egress.";
-    };
-    householdPath = lib.mkOption {
-      type = lib.types.str;
-      default = "/var/lib/joe-board-pusher/household-v2.json";
-      description = "Read-only authoritative v2 household ingress snapshot. Legacy snapshots are refused.";
     };
     keepSymbols = lib.mkOption {
       type = lib.types.listOf lib.types.str;
@@ -75,12 +70,6 @@ in
           builtins.match "(0|[1-9][0-9]{0,2})([.](0|[1-9][0-9]{0,2})){3}" cfg.ingressAddress != null
           && lib.all (part: builtins.fromJSON part <= 255) (lib.splitString "." cfg.ingressAddress);
         message = "joeResultsProducer requires a pinned ingress IPv4 address";
-      }
-      {
-        assertion =
-          lib.hasPrefix "/var/lib/joe-board-pusher/" cfg.householdPath
-          && !(lib.hasInfix ".." cfg.householdPath);
-        message = "joeResultsProducer household input must be in the pusher state directory";
       }
       {
         assertion =
@@ -154,7 +143,6 @@ in
         ];
         BindReadOnlyPaths = [
           "/var/lib/paper-desk-executor"
-          "/var/lib/joe-board-pusher"
           "${hostsFile}:/etc/hosts"
         ];
         InaccessiblePaths = [

@@ -4,6 +4,7 @@ import { hash } from './journal.mjs';
 import { viennaDate, dayCoverage } from './results-validation.mjs';
 
 export const DESKS = ['j', 'joe', 'joel'];
+export const CLOSE_BASIS = 'execution-fifo-net-current-fx';
 export const money = amount => ({ amount, currency: 'EUR' });
 export { viennaDate };
 const min = (a, b) => a < b ? a : b;
@@ -63,7 +64,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
           openedAt: lot.fill.at, closedAt: fill.at,
           entryPrice: { amount: lot.fill.price, currency: fill.currency }, exitPrice: { amount: fill.price, currency: fill.currency },
           grossEur: money(unitsDecimal(gross)), feesEur: money(unitsDecimal(fees)), netEur: money(unitsDecimal(gross - fees)),
-          fx: structuredClone(fx), method: 'execution-fifo-net-current-fx',
+          fx: structuredClone(fx), method: CLOSE_BASIS,
         });
       }
       lot.remaining -= quantity; lot.used += quantity; remaining -= quantity; used += quantity;
@@ -75,28 +76,18 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
   return trades.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.id.localeCompare(b.id));
 }
 
-export function dayCloses(observations, trades, trackingStart, { from, through, intervals, earlierGaps = new Set() } = {}) {
-  const days = new Map(), bases = {};
-  for (const observation of [...observations].sort((a, b) => a.at.localeCompare(b.at))) {
-    if (!validInstant(observation.at)) throw unavailable();
-    for (const desk of DESKS) {
-      const close = observation.desks?.[desk];
-      if (!close) continue; // sessionless desks/days are omitted
-      const at = close.at || observation.at;
-      if (!validInstant(at)) throw unavailable();
-      if (through && Date.parse(at) > Date.parse(through)) continue;
-      const date = viennaDate(at);
-      if (date < trackingStart) continue;
-      const desks = days.get(date) || {};
-      if (bases[`${date}:${desk}`]?.at > at) continue;
-      if (typeof close.basisId !== 'string' || !close.basisId || close.equity.currency !== 'EUR') throw unavailable();
-      decimalUnits(close.equity.amount);
-      desks[desk] = { equityClose: money(close.equity.amount) };
-      // Results manifest revision 3 forbids a wire basis field. Preserve the exact evidence
-      // internally until the owner approves a contract-set upgrade.
-      bases[`${date}:${desk}`] = { basisId: close.basisId, at };
-      days.set(date, desks);
-    }
+export function dayCloses(fills, trades, trackingStart, { from, through, intervals, earlierGaps = new Set() } = {}) {
+  const days = new Map();
+  // Executor captures are the only daily source. No household equity/account
+  // fragment is read; an active desk's unknown equity stays null.
+  for (const fill of fills) {
+    if (!validInstant(fill.at)) throw unavailable();
+    if ((from && fill.at < from) || (through && fill.at > through)) continue;
+    const date = viennaDate(fill.at);
+    if (date < trackingStart) continue;
+    const desks = days.get(date) || {};
+    desks[fill.desk] = { equityClose: null };
+    days.set(date, desks);
   }
   const totals = new Map(), coverage = {};
   for (const trade of trades) {
@@ -104,8 +95,9 @@ export function dayCloses(observations, trades, trackingStart, { from, through, 
     const total = totals.get(key) || { count: 0, net: 0n, fees: 0n };
     total.count++; total.net += decimalUnits(trade.netEur.amount); total.fees += decimalUnits(trade.feesEur.amount);
     totals.set(key, total);
-    // Never invent an equity value for a desk lacking a close observation.
-    if (days.has(date) && !days.get(date)[trade.desk]) days.get(date)[trade.desk] = { equityClose: null };
+    const desks = days.get(date) || {};
+    desks[trade.desk] ||= { equityClose: null };
+    days.set(date, desks);
   }
   const result = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, desks]) => {
     for (const [desk, value] of Object.entries(desks)) {
@@ -118,5 +110,5 @@ export function dayCloses(observations, trades, trackingStart, { from, through, 
     if (coverage[date] === 'partial') day.coverage = 'partial';
     return day;
   });
-  return { days: result, bases, coverage };
+  return { days: result, coverage };
 }

@@ -22,23 +22,20 @@ for (const [season, start, firstNoon, dstDay] of [
   ['spring', '2026-03-01T23:00:00.000Z', '2026-03-02T12:00:00.000Z', '2026-03-29'],
   ['autumn', '2026-09-27T22:00:00.000Z', '2026-09-28T12:00:00.000Z', '2026-10-25'],
 ]) test(`bounded CPU: 60 Vienna days, three desks, 4320 fills, KEEP and ${season} DST`, t => {
-  const fills = [], observations = [], cuts = [], base = Date.parse(firstNoon);
+  const fills = [], cuts = [], base = Date.parse(firstNoon);
   const historyFrom = iso(Date.parse(start) - 86400_000);
   const gaps = [{ fromInclusive: iso(Date.parse(start) - 7200_000), toExclusive: iso(Date.parse(start) - 3600_000) }];
   const at = iso(base + 60 * 86400_000);
   for (let day = 0; day < 60; day++) {
     const noon = base + day * 86400_000;
     const firstFill = fills.length;
-    observations.push({ at: iso(noon), desks: Object.fromEntries(DESKS.map(desk => [desk, {
-      equity: { amount: '5000', currency: 'EUR' }, basisId: `synthetic-${season}-${day}-${desk}`,
-    }])) });
     for (const desk of DESKS) for (let pair = 0; pair < 12; pair++) {
       const symbol = pair === 10 ? 'SXR8' : pair === 11 ? 'TSLA' : 'ACME';
       for (const [leg, side, price] of [[0, 'BUY', '100'], [1, 'SELL', '102']]) {
         const time = iso(noon - 3600_000 + pair * 60_000 + leg * 30_000);
         fills.push({ key: `synthetic-${season}-${day}-${desk}-${pair}-${leg}`, ordinal: fills.length + 1,
           desk, scope: 'stage0', instrument: `synthetic-${symbol}`, symbol, currency: 'EUR', side, at: time,
-          quantity: '1', price, commission: { amount: '0.1', currency: 'EUR' },
+          quantity: '1', price, brokerRealised: { amount: leg ? '1.8' : '0', currency: 'EUR' }, commission: { amount: '0.1', currency: 'EUR' },
           closeFx: { base: 'EUR', quote: 'EUR', rate: '1', source: 'identity', observedAt: time } });
       }
     }
@@ -59,7 +56,6 @@ for (const [season, start, firstNoon, dstDay] of [
   let producer = openProducer(filename, { now: () => at });
   try {
     producer.ingest(source);
-    observations.forEach(producer.observe);
     const payload = producer.snapshot(); // includes vendored validation
     assert.equal(validateContract('results', payload, { stage: 'ingress' }).ok, true);
     // The board adds this server-owned property before its served-size check.

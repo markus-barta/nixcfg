@@ -715,10 +715,10 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 
 `nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
 does not change the board deployment pin or enable a writer. The module requires
-a separately reviewed ingress endpoint, pinned ingress IP/TLS hostname, and an
-authoritative **v2** household producer snapshot at `householdPath`. It rejects
-legacy JSON. No fixtures are selected by the service. No LIVE mode or Gateway
-client exists in the producer.
+a separately reviewed ingress endpoint and pinned ingress IP/TLS hostname.
+Household v2 health/account and equity fragments are outside v1 scope: the
+service neither reads nor mounts the household producer directory. No fixtures
+are selected by the service. No LIVE mode or Gateway client exists in the producer.
 
 When separately enabled, the executor's optional capture writes
 `/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
@@ -748,33 +748,32 @@ book, but round trips closing before capture began are omitted. `trackingStart`
 is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
 
-Daily equity comes only from fresh per-desk `moneyEvidence` and `historyBasis`
-in validated household v2 input. The last observation on each Vienna date wins;
-dates without observations are omitted. Day realised net, fees and trade counts
-sum every included closed portion on that Vienna date across **all** desks,
-including trades later than an equity observation. A traded desk without an
-equity observation has `equityClose: null`, never invented equity. The vendored
-revision-3 validator rejects missing traded desks, wrong counts and inexact net/fee sums
-on full-coverage days. Both legs' fees are charged to the closed portion.
-Basis IDs and original observation times remain in the accumulated journal.
-**Pinned Results at JoeDesk
-`b323c0a57c1440690f85ae35e4e53ade25739b74` (manifest revision 3) forbids
-a basis field in `days[]`.**
-The board cannot compare those bases over Results until JoeDesk approves a
-contract-set revision; do not add an unversioned extension locally.
+Daily rows come only from captured executor activity on each Vienna day; days
+without captured activity are omitted. `equityClose` is always null: v1 does not
+consume household v2 health/account fragments, desk equity or History basis IDs,
+and old household observation journal events are ignored on replay. Day realised
+net, fees and trade counts sum every included closed FIFO portion across all
+active desks, including opening-only desks with zero realised totals. Both legs'
+fees are charged to each closed portion. Revision-4 validation still checks
+missing traded desks, exact counts and exact net/fee sums on full days.
+
+**P3 — per-desk close basis:** Amy approved the single `CLOSE_BASIS` constant
+`execution-fifo-net-current-fx`, versioned by `manifest_revision`, for v1.
+Changing that basis requires a manifest revision bump and matching contract
+review; `backstop.test.mjs` enforces the approved revision-4 baseline. A per-desk
+close-basis wire field remains P3, requiring a future JoeDesk contract revision.
+Pinned Results at `1fcf3b7d5fd084c5d5a7443264b88d20970a3feb` (revision 4)
+forbids adding an unversioned basis field to `days[]`.
 
 KEEP fills are excluded at capture and again at FIFO, including pre-existing
 captured fills. They contribute nothing to trades, day counts, realised net or
 fees. The protected SXR8/TSLA floor cannot be removed.
 Results never contains account/order IDs, receipts or broker account equity.
-The pre-masked hint `DU…0597` is recorded only in the local household handoff;
-raw health account values are discarded before any producer write.
-
-`safety.executor` in the **household** contract is the home of executor status,
-halt, brakes and gateway reachability. The producer validates that exact fragment
-and journals it for the household owner; it does not publish a second household
-snapshot. Concrete owned-fill quantity vs complete broker-position evidence can
-produce `executor_broker_disagreement` there and in Results' permitted `reason`.
+The runner reads only the executor's loopback health endpoint for local status,
+halt, brakes and Gateway diagnostics; account fields are discarded before any
+write. That status is never reconciliation evidence and no household handoff is
+produced. Concrete owned-fill quantity vs complete broker-position evidence can
+produce `executor_broker_disagreement` in Results' permitted `reason`.
 Foreign/netted residuals and incomplete broker cuts do not prove disagreement;
 gateway reachability changes alone never do. The optional executor listener on
 `127.0.0.1:8471` serves only `GET /v1/health`; no intent/admin/halt route is exposed.
@@ -796,18 +795,18 @@ after `time-sync.target`; verify hsb0 NTP is synchronized before enablement.
 Board receipt rejects generation more than 5 seconds ahead with `clock_ahead`.
 Retries use 1/2/4/8/16/25-second bounded backoff, capped by the original 25-second
 cycle deadline so request time does not extend the cadence. Every retry builds
-a new snapshot and sequence. It never sends `receivedAt` or `X-Joe-Received-At`;
-ingress stamps receipt time and uses `acceptSnapshot('results')`. HTTP redirects
+a new snapshot and sequence. It never sends `receivedAt`, `missingDays` or
+`X-Joe-Received-At`; ingress stamps receipt time and uses `acceptSnapshot('results')`. HTTP redirects
 are refused. A 200 updates the last-good snapshot; 422 retains it and logs only
 an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
 and network failures also back off with value-free diagnostics. The board is
 stale after 60 seconds without an accepted push; retries do not fake freshness.
 
-JOED-27 is merged at `b323c0a57c1440690f85ae35e4e53ade25739b74`.
-The complete self-contained `contracts/` directory (manifest revision 3,
+JOED-28 is merged at `1fcf3b7d5fd084c5d5a7443264b88d20970a3feb`.
+The complete self-contained `contracts/` directory (manifest revision 4,
 including `vienna-date.mjs`) is vendored byte-for-byte. `contracts.lock.json`
 pins its source revision, each file's byte count and SHA-256, and set digest
-`2c85a6efca259e352b879f4d6efd514755ab1d99a0b15149fb1a155b77c1aa7d`.
+`4c95441c7dabd6c050e275d85d2e853ea751213fde1b60a6fdefa34b98be5247`.
 `verify-contracts.mjs` checks the complete file set and reproduces JoeDesk's
 `scripts/check-release.mjs` set hash: SHA-256 of the UTF-8 compact JSON array
 of sorted `{path,size,sha256}` entries with `contracts/`-prefixed paths.
@@ -861,17 +860,37 @@ positions do not count as flat. A gap after the day does not change its coverage
 the current Vienna day remains partial. Proof and corrections replay from the
 same journals after either service restarts.
 
-Residual paper risk: an open+close pair missed inside an earlier gap nets to
-zero, so broker quantities can still match while the FIFO lot prices shift.
-Missed fills can also net to zero across desks. A day can consequently be
-`full` with wrong realised PnL. This is
-paper only; the hsb0 broker comparison is the backstop and remains required
-before enablement and during the paper rehearsal.
+The I1/I2 coverage rules above remain in force. Their residual risk is a missed
+open+close pair inside an earlier gap: quantities may net to zero while FIFO
+prices shift. The automated broker backstop now compares each closed Vienna day
+and desk before every push, using existing executor `executions` and
+`commissions` only. `execution.execId` joins `commissionReport.execId` privately;
+`time`, `shares`, `side`, contract currency and attributed desk establish the day
+and closing execution count. Only hashed fill/instrument keys and an allowlisted
+`brokerRealised: {amount,currency}` projection of `commissionReport.realizedPNL`
+and `currency` enter the capture. Broker realised PnL is net (fees are not
+subtracted again); the already captured close FX converts it to EUR exactly.
+No new IB request is added. Fractional numeric PnL, unset-double sentinels,
+missing reports, incompatible currency and nonrepresentable conversion supply
+no exact broker evidence; they keep D partial. Decimal strings and exact safe
+integer PnL are accepted, preserving the existing decimal-source safety gate.
+
+A per-desk absolute net difference **above EUR 0.01**, or any count mismatch,
+downgrades D to `partial` on the next push. Broker count is closing executions,
+independent of FIFO price lots: one execution closing multiple FIFO portions
+therefore conservatively remains partial even if amounts match. Missing broker
+evidence also downgrades D. Unknown capture bounds remain partial regardless of
+broker agreement; executor health and household fragments cannot restore full.
+A `broker-mismatch` journal record contains only `{day, deskHash, kind}` (no
+amounts or raw identifiers), deduplicated across heartbeats and replay. Late
+commission/correction updates trigger a new capture cut; corrected evidence is
+recompared without erasing old mismatch records. Capture/producer restarts retain
+the same result. Private broker rehearsal on hsb0 remains an enablement gate.
 The producer and fixture ingress call the vendored validator directly: partial
 days skip day/trade reconciliation while schema and trade checks still apply;
 full days reconcile every trading desk with exact counts and decimal sums.
 KEEP contributes nothing to either array, including partial-day totals.
-The revision-3 closed reason enum no longer permits `results_not_wired`.
+The revision-4 closed reason enum no longer permits `results_not_wired`.
 The module remains disabled; paper rehearsal and coordinator sign-off are
 still required before a separately approved enablement/cutover.
 The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
@@ -889,11 +908,10 @@ Paper proof, for the operator **after** separate enablement approval:
 2. Before the approved hsb0 switch, retain its previous generation and compatible
    board/pusher/executor pins plus private backups of both Results journals (if
    present). Record the rollback path on JOED-20/OPS. Configure the board
-   endpoint, household v2 evidence path, complete KEEP policy and IP/TLS pin in
-   the reviewed Nix change. Verify the revision-3 contract pin and resolve the
-   basis wire gap, exact decimal source evidence and household fragment consumption with
-   JoeDesk/Amy first. Follow the normal remote NixOS build and
-   human-controlled switch procedure; no local NixOS build on macOS.
+   endpoint, complete KEEP policy and IP/TLS pin in the reviewed Nix change.
+   Verify the revision-4 contract pin, exact decimal source evidence and broker
+   report backstop with JoeDesk/Amy first. Follow the normal remote NixOS build
+   and human-controlled switch procedure; no local NixOS build on macOS.
    csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
    Read `http://127.0.0.1:8471/v1/health` privately and verify paper Gateway
@@ -903,9 +921,9 @@ Paper proof, for the operator **after** separate enablement approval:
    intent to perform this check.
 4. Observe an **already authorized paper** desk open/partial close/full close
    through the normal desk workflow. Compare private broker fill/commission/FX
-   evidence to every Results portion and Vienna close; check original basis IDs
-   in the journal. Verify KEEP holdings are untouched. Observe two accepted
-   Results generations within 30 seconds, strictly increasing sequence and
+   evidence to every Results portion and Vienna close; check the constant close
+   basis and value-free broker mismatch journal records. Verify KEEP holdings
+   are untouched. Observe two accepted Results generations within 30 seconds, strictly increasing sequence and
    server-stamped receipt; board freshness must remain below 60 seconds. Do not
    create trades or force a gateway outage solely for this proof.
 5. Restart only the producer through the approved procedure and confirm its
@@ -917,7 +935,8 @@ Paper proof, for the operator **after** separate enablement approval:
    retain both journals and the prior pins, and keep Results explicitly unwired.
 
 Open ingress gates: exact route/auth and credential handoff; response receipt
-contract; household health/account fragment consumption; a versioned per-desk
-close-basis field; authoritative household evidence availability and close-FX
-sampling cadence; immutable deployment pins and Amy's paper reconciliation
-approval. Local fixture ingress is a test adapter, not an installed service.
+contract; exact broker source evidence; immutable deployment pins and Amy's
+paper reconciliation approval. Household fragments are excluded from v1; the
+per-desk close-basis field is P3. **Close-FX cadence (item 5) is ON HOLD:** do not
+add or wire IB FX requests until Amy's separate scope answer reaches JOED.
+Local fixture ingress is a test adapter, not an installed service.

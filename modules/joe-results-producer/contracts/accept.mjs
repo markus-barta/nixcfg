@@ -1,5 +1,6 @@
 import { validateContract } from './index.mjs';
 import { validInstant } from './schema-validator.mjs';
+import { missingResultsDays } from './vienna-date.mjs';
 
 // Preserve the ADR's small producer skew while rejecting clocks that could
 // poison durable generation progress. Receipt time remains server-owned.
@@ -25,9 +26,10 @@ export function acceptSnapshot(kind, candidate, previous = null, receivedAt) {
     if (Date.parse(receivedAt) < Date.parse(previous.value.receivedAt)) return reject('clock_regressed', [{ path: '$.receivedAt', rule: 'clockRegressed' }]);
   }
   const advancing = candidate.generatedAt !== previous?.value?.generatedAt;
+  const missingDays = kind === 'results' ? missingResultsDays(candidate, receivedAt) : [];
   return {
     status: 200, reason: null, errors: [],
-    value: { ...structuredClone(candidate), receivedAt },
+    value: { ...structuredClone(candidate), receivedAt, ...(missingDays.length ? { missingDays } : {}) },
     generatedAdvancedAt: advancing ? receivedAt : previous.generatedAdvancedAt,
   };
 }

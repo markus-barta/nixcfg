@@ -109,6 +109,7 @@ export function checkSemantics(kind, payload, stage, errors) {
     });
   }
   if (kind === 'results') {
+    if (stage === 'ingress' && Object.hasOwn(payload, 'missingDays')) fail('$.missingDays', 'serverOwned');
     const seen = new Set();
     const closed = new Map();
     payload.trades.forEach((t, i) => {

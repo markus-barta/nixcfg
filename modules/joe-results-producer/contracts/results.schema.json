@@ -33,6 +33,14 @@
       "$ref": "urn:joedesk:common:v2#/$defs/instant",
       "x-owner": "server"
     },
+    "missingDays": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 100000,
+      "items": { "$ref": "urn:joedesk:common:v2#/$defs/date" },
+      "description": "Server-owned sorted unique past Vienna dates with closed trades but no days[] entry, computed at acceptance. Omitted when empty.",
+      "x-owner": "server"
+    },
     "currency": {
       "const": "EUR",
       "x-owner": "paper executor 8470"
