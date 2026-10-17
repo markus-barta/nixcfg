@@ -739,24 +739,26 @@ rotate them as ordinary logs, truncate a damaged tail, or reset sequence state
 to satisfy the board. A damaged journal holds output for operator recovery.
 
 FIFO uses independent `j`, `joe`, `joel` books and emits each closed portion.
-M-2 (a), approved 2026-10-17, applies to every EUR and USD commission
-split. Allocate each opening and closing execution's commission in its recorded
-currency: each non-final share is `halfEvenUnits(fee * portionQuantity,
-executionQuantity)`, at eight decimals, using BigInt. The final portion consumes
-`originalFee - sharesAlreadyAllocated`, with no additional allocation rounding.
-For seven shares and EUR 3, closing three allocates `1.28571429`; closing four
-allocates `1.71428571`; the sum is exactly `3.00000000`. A closing execution
-spanning several entry lots has its own fee budget; a reversal carries that
-budget into the residual opening lot. Pre-tracking and excluded portions consume
-their quantities and allocated shares, so later portions cannot reuse either.
-Allocation is in commission currency, separate from FX: combine the allocated
-opening and closing shares using that close's FX exactly, then round the combined
-EUR fee once, half-even, to eight decimals. USD gross still uses the exact
-quantity × price move × close rate product and rounds once, half-even; EUR
-gross retains its exact conversion policy. Daily and range totals sum the
-emitted EUR portions exactly, without further rounding. The original-fee
-conservation invariant is in the commission's recorded currency; different close
-FX rates do not imply a fixed EUR total for a USD commission.
+M-2 (a) and L-6 (b), approved 2026-10-17: EUR-denominated commissions
+use an eight-decimal BigInt allocation budget. Each non-final share is
+`halfEvenUnits(fee * portionQuantity, executionQuantity)`; the final portion
+takes `originalFee - sharesAlreadyAllocated` without additional rounding.
+For seven shares and EUR 3, closing three allocates `1.28571429` and closing
+four allocates `1.71428571`, conserving exactly `3.00000000`.
+USD and other non-EUR commission shares stay rational (`fee * portionQuantity /
+executionQuantity`), with no allocation rounding or final remainder adjustment.
+Convert both opening and closing shares at that close's FX, combine them exactly,
+then round the combined EUR commission once, half-even, to eight decimals.
+A closing execution spanning several entry lots has its own allocation;
+a reversal carries the EUR budget or foreign rational shares into its residual
+opening lot. Pre-tracking and excluded portions consume their quantities and
+EUR allocation budgets, so later portions cannot reuse either.
+USD gross uses the exact quantity × price move × close rate product and rounds
+once, half-even; EUR gross retains its exact conversion policy. Daily and range
+totals sum emitted EUR portions exactly, without further rounding. The final
+remainder/conservation rule applies only to EUR commissions; independently
+rounded foreign portions need not always sum to a separately rounded total,
+and different close FX rates do not imply a fixed EUR total.
 The producer reads decimal strings only; the capture SDK boundary converts
 Numbers per I-2 (a), as detailed below. Missing or stale USD FX excludes its
 portion and marks its day partial with a value-free `conversion-exclusion`
@@ -767,12 +769,13 @@ rates) are excluded with the existing journal-only `source_not_authoritative`
 kind. An inexact fee split alone no longer excludes an EUR portion. Their journal
 records contain only day/time and hashed desk, instrument and portion identity.
 The quantity book advances even on exclusion; other portions keep producing.
+A rollback to round 12b and roll-forward keeps any durable `source_not_authoritative` guards that 12b wrote for EUR fee splits; harmless while capture is off.
 Coverage is per day across all desks: an affected desk makes the shared day partial while other desks retain their trades and totals.
 Each such exclusion adds a 1 ms history gap at the affected close, scoped to
 its desk and instrument. Its day stays partial, and later days with fills in
 that book stay partial until position evidence covers the gap under the existing
 proof rules. Producer health `portionExclusions` counts distinct exclusions
-of this kind across polls and restart. Rev-5 wire diagnostics map the guarded
+of this kind across polls and restart. Rev-6 wire diagnostics map the guarded
 portion and its scoped 1 ms gap to `history_gap`; the original value-free
 journal diagnostics remain replayable. Round-9b journals still
 replay without rewriting old exclusions
@@ -791,30 +794,33 @@ date**, never as a complete lifetime result.
 
 Daily rows come only from captured executor activity on each Vienna day; days
 without captured activity are omitted, except every Vienna day touching an
-explicit history gap (including unattributed own fills): those days emit a
+explicit history or fill gap (including unattributed own fills): those days emit a
 partial row with an empty desk map, whose total is unknown, not zero.
 `equityClose` is always null: v1 does not
 consume household v2 health/account fragments, desk equity or History basis IDs,
 and old household observation journal events are ignored on replay. Day realised
 net, fees and trade counts sum every included closed FIFO portion across all
 active desks, including opening-only desks with zero realised totals. Both legs'
-fees are charged to each closed portion. Revision-5 validation still checks
+fees are charged to each closed portion. Revision-6 validation still checks
 missing traded desks, exact counts and exact net/fee sums on full days.
 
-Every rev-5 partial day emits a nonempty, unique `partialReasons` array in
-this canonical order (omitting codes that do not apply):
+Under rev 6, every CLOSED partial Vienna day (date before the producer's send
+day) emits a nonempty, unique `partialReasons` array. The OPEN day stays partial
+("so far") and omits reasons when there is no real cause; it never gets
+`capture_gap` merely because it has not closed. Real causes use the same
+nonempty list on open and closed days, in this canonical order:
 
-| Code                           | Producer evidence                                                                                                                                    |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capture_gap`                  | Capture refusals/issues; tracking begins after midnight or the current day has not closed                                                            |
-| `history_gap`                  | Unknown/malformed/missing history bounds, explicit gaps including 1 ms gaps, earlier gaps lacking position proof, guarded conversion/fill exclusions |
-| `broker_trade_count_mismatch`  | Closed-day broker closing-execution count differs from FIFO portion count                                                                            |
-| `broker_realised_pnl_mismatch` | Exact broker net differs by more than EUR 0.01                                                                                                       |
-| `unattributed_activity`        | Current capture cut reports own unattributed fills; `unattributedCount` is included only when known and positive                                     |
-| `avg_cost_mismatch`            | Reserved by the board; producer never emits it                                                                                                       |
-| `fx_disabled`                  | Required USD day FX is incomplete while the sampler is disabled                                                                                      |
-| `fx_missing`                   | Missing/stale portion FX, stale/missing samples, sampler failures or missed fixed close                                                              |
-| `broker_evidence_missing`      | Missing broker reports or commissions, including transient missing commissions; refused broker evidence                                              |
+| Code                           | Producer evidence                                                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `capture_gap`                  | Capture refusals/issues or a real tracking start after Vienna midnight                                                                    |
+| `history_gap`                  | Unknown/malformed/missing history bounds, real history gaps, earlier fill gaps lacking position proof, guarded conversion/fill exclusions |
+| `broker_trade_count_mismatch`  | Closed-day broker closing-execution count differs from FIFO portion count                                                                 |
+| `broker_realised_pnl_mismatch` | Exact broker net differs by more than EUR 0.01                                                                                            |
+| `unattributed_activity`        | Current capture cut reports own unattributed fills; `unattributedCount` is included only when known and positive                          |
+| `avg_cost_mismatch`            | Reserved by the board; producer never emits it                                                                                            |
+| `fx_disabled`                  | Required USD day FX is incomplete while the sampler is disabled                                                                           |
+| `fx_missing`                   | Missing/stale portion FX, refused close FX or FX samples, stale/missing samples, sampler failures or missed fixed close                   |
+| `broker_evidence_missing`      | Missing broker reports or commissions, including transient missing commissions; refused broker evidence                                   |
 
 Full days carry neither reasons nor a count. Corrections may heal transient
 commission and unattributed-activity diagnostics; capture refusals and guarded
@@ -824,18 +830,33 @@ history gap: emit `history_gap` and omit the unknown count. Capture writes only
 value-free day/count metadata for current unattributed activity; it deduplicates
 logical fills, excludes KEEP/foreign/pre-tracking/out-of-window activity, and
 updates the cut when attribution changes even at the same timestamp.
-The board and local validator accept legacy partial days without reasons, but
-producer strict validation requires reasons and rejects the reserved code.
-There is no exact rev-5 code for an unexpected conversion failure: `history_gap`
-is used because containment creates that scoped gap; no rev-6 code is required
-for the current behavior. No provisional FX reason is emitted.
+At ingress, the board and local validator reject a closed partial day without
+reasons with 422 `partialReasonsRequired` at `$.days[i].partialReasons`. Local
+validation always supplies `receivedAt`: the producer's reserved send time
+(`generatedAt`), also used by snapshot validation and the push. Offline calls
+without an explicit option use that same payload send time, never silently skip
+the rule. Served legacy data uses its persisted board receipt. Strict producer
+validation rejects the reserved code; only the open day without a real cause
+may omit reasons. The board's open-day note rule shows no generic note when
+that day has no reasons, and shows a real FX reason when present.
+New cuts journal reported `historyGaps` separately from value-free 1 ms
+`fillGaps`, tagged `unattributed_activity` or `capture_gap`. They revoke coverage and
+remain in earlier-gap position-proof maths; their own day carries its own reason
+only, while later unproven days retain `history_gap`. A separate real history
+gap still adds `history_gap` on the fill day. Legacy cuts without fill-gap
+provenance keep their conservative `history_gap` label. The existing
+`historyCoverage.gaps` field retains the combined omissions for conservative
+older readers on rollback; the new producer uses the separate provenance for
+labelling, without removing omissions from coverage or earlier-gap proof.
+There is no exact rev-6 code for an unexpected conversion failure: `history_gap`
+is used because containment creates that scoped gap. No provisional FX reason is emitted.
 
 **P3 — per-desk close basis:** Amy approved the single `CLOSE_BASIS` constant
 `execution-fifo-net-current-fx`, versioned by `manifest_revision`, for v1.
 Changing that basis requires a manifest revision bump and matching contract
 review; `backstop.test.mjs` preserves the approved close-basis baseline. A per-desk
 close-basis wire field remains P3, requiring a future JoeDesk contract revision.
-Pinned Results at `918f6af9399d65f0fb3b523d2a37739cfb9ee01e` (revision 5)
+Pinned Results at `26a5d2ac04fad707ea63e49a91a348b2a49035cc` (revision 6)
 forbids adding an unversioned basis field to `days[]`.
 
 KEEP fills are excluded at capture and again at FIFO, including pre-existing

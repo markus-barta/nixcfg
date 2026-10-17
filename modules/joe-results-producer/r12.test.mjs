@@ -177,7 +177,7 @@ test('refused opening / zero-PnL later close stays partial until matching positi
     resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: end }, gaps: [] } };
   capture(state);
   const gap = { fromInclusive: opening.execution.time, toExclusive: new Date(Date.parse(opening.execution.time) + 1).toISOString() };
-  assert.deepEqual(readJournal(input).at(-1).historyCoverage.gaps, [gap]);
+  assert.deepEqual(readJournal(input).at(-1).fillGaps, [{ ...gap, kind: 'capture_gap' }]);
   // This producer consumes the real capture journal, including its persistent issue.
   const captured = openProducer(path.join(root, 'results.jsonl'), { now: () => end });
   t.after(() => captured.close());
@@ -187,7 +187,7 @@ test('refused opening / zero-PnL later close stays partial until matching positi
   assert.deepEqual(brokerMismatches(first.days.filter(day => day.date === '2026-10-18'), readJournal(input).flatMap(row => row.fills || []).filter(fill => fill.scope === 'stage0'), begin, end), []);
   assert.equal(captured.health(health).captureRefusals, 1);
   capture.close(); capture = createCapture(input, config, options); capture(state);
-  assert.deepEqual(readJournal(input).at(-1).historyCoverage.gaps, [gap]);
+  assert.deepEqual(readJournal(input).at(-1).fillGaps, [{ ...gap, kind: 'capture_gap' }]);
   // A proof must precede the apparent opening; a later matching short is insufficient.
   state.ownershipSnapshot = { account, ownershipComplete: true, observedAt: instant('19', '10'),
     positions: [{ conId: 1, symbol: 'ACME', currency: 'EUR', position: '-1' }] };
@@ -308,8 +308,8 @@ for (const [field, mutate] of defects) test(`admin capture refuses invalid ${fie
   assert.equal(issue.field, field); assert.equal(issue.refused, true); assert.equal(issue.kind, 'capture_gap');
   assert.equal(issue.deskHash, hash('j')); assert.equal(issue.day, `2026-10-${affectedDay}`);
   assert.ok(cut.fills.some(fill => fill.scope === 'excluded' && fill.desk === null));
-  assert.equal(cut.historyCoverage.gaps.length, 1);
-  assert.equal(Date.parse(cut.historyCoverage.gaps[0].toExclusive) - Date.parse(cut.historyCoverage.gaps[0].fromInclusive), 1);
+  assert.equal(cut.fillGaps.length, 1);
+  assert.equal(Date.parse(cut.fillGaps[0].toExclusive) - Date.parse(cut.fillGaps[0].fromInclusive), 1);
   assert.equal(f.producer.health(health).captureRefusals, 1);
   assert.equal(f.producer.health(health).portionExclusions, 0);
   assert.deepEqual(f.replay().days, result.days);

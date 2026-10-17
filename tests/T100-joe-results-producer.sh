@@ -3,7 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 node "$repo_root/modules/joe-results-producer/verify-contracts.mjs"
-node --test "$repo_root/modules/joe-results-producer/"*.test.mjs
+node --test --test-concurrency=2 "$repo_root/modules/joe-results-producer/"*.test.mjs
 python3 - "$repo_root" <<'PY'
 import json
 import subprocess

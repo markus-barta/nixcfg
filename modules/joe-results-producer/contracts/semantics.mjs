@@ -9,7 +9,7 @@ const FIELDS = ['equity', 'dayPnl', 'openPnl', 'totalPnl'];
 const KEEP = ['SXR8', 'TSLA'];
 const DESKS = ['j', 'joe', 'joel'];
 
-export function checkSemantics(kind, payload, stage, errors) {
+export function checkSemantics(kind, payload, stage, errors, receivedAt) {
   const fail = (path, rule) => { if (errors.length < 32) errors.push({ path, rule }); };
   const eur = (money, path) => {
     if (money && money.currency !== 'EUR') fail(path, 'EUR');
@@ -113,6 +113,10 @@ export function checkSemantics(kind, payload, stage, errors) {
   }
   if (kind === 'results') {
     if (stage === 'ingress' && Object.hasOwn(payload, 'missingDays')) fail('$.missingDays', 'serverOwned');
+    // Ingress gets the trusted server receipt from acceptSnapshot; served
+    // validation uses the persisted receipt, never a reader's current clock.
+    const receipt = stage === 'ingress' ? receivedAt : payload.receivedAt;
+    const today = receipt ? viennaDay(receipt) : null;
     const seen = new Set();
     const closed = new Map();
     payload.trades.forEach((t, i) => {
@@ -138,6 +142,8 @@ export function checkSemantics(kind, payload, stage, errors) {
     // Dates absent from days[] are not yet reconciled. Never round the sums.
     payload.days.forEach((day, i) => {
       const at = `$.days[${i}]`;
+      if (today && day.date < today && day.coverage === 'partial' && !day.partialReasons?.length)
+        fail(`${at}.partialReasons`, 'partialReasonsRequired');
       if (day.partialReasons) {
         if (day.coverage !== 'partial') fail(`${at}.partialReasons`, 'partialCoverageRequired');
         if (day.partialReasons.some((reason, j, reasons) => j && PARTIAL_REASONS.indexOf(reason) <= PARTIAL_REASONS.indexOf(reasons[j - 1])))

@@ -3,13 +3,13 @@ import { validDate, validInstant } from './contracts/schema-validator.mjs';
 import { decimalUnits } from './contracts/decimal.mjs';
 import { DESKS, unavailable, invalidFillField } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
-import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHistoryIntervals, viennaDate } from './results-validation.mjs';
+import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHistoryIntervals, viennaDate, withFillGaps } from './results-validation.mjs';
 import { brokerQuantity, capturePositionProof } from './position-proof.mjs';
 import { captureBrokerRealised } from './broker-backstop.mjs';
 
 function authorityHash(event) {
   const proof = event.positionProof, epoch = Date.parse(proof?.at);
-  const interval = historyIntervals(event.historyCoverage, event.at).find(([a, b]) => a <= epoch && epoch < b);
+  const interval = historyIntervals(withFillGaps(event.historyCoverage, event.fillGaps), event.at).find(([a, b]) => a <= epoch && epoch < b);
   // New quantities or a post-gap baseline matter; moving snapshot timestamps
   // alone must not restore the old one-cut-per-poll journal growth.
   return hash([event.authoritative, event.disagreement, event.evidence, proof?.positions ?? null, proof?.foreign ?? null, interval?.[0] ?? null, event.unattributedActivity ?? {}]);
@@ -45,7 +45,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (event.type === 'start') captureStart = event.at;
       for (const issue of event.captureIssues || []) issues.set(issue.id, issue);
       if (event.type === 'cut') lastCut = event;
-      if (event.authoritative) proven = updateHistoryIntervals(proven, event.historyCoverage, event.at);
+      if (event.authoritative) proven = updateHistoryIntervals(proven, withFillGaps(event.historyCoverage, event.fillGaps), event.at);
       for (const fill of event.fills || []) {
         if (fill.scope === 'excluded' && (event.captureIssues || []).some(issue => issue.field === 'at'
           && issue.id === hash([fill.key, 'at', 'capture_gap', issue.day, true]))) {
@@ -68,14 +68,14 @@ export function createCapture(filename, config, { account, attribute, executionT
     if (!previous) { captureStart = now(); journal.append({ type: 'start', at: captureStart }); }
     if (lastCut) {
       lastAuthority = authorityHash(lastCut);
-      lastGaps = hash(lastCut.historyCoverage?.gaps ?? null);
+      lastGaps = hash([lastCut.historyCoverage?.gaps ?? null, lastCut.fillGaps || []]);
       days = closedDays(proven, lastCut.at);
     }
   }
   function capture(state) {
     initialize();
     const at = now();
-    const changed = [], unattributed = new Set(), captureIssues = [], unattributedKeys = new Map();
+    const changed = [], unattributed = new Map(), captureIssues = [], unattributedKeys = new Map();
     function issue(day, desk, kind, key, field, refused = true) {
       const record = { id: hash([key, field, kind, day, refused]), day, deskHash: hash(desk), kind, field, refused };
       if (!issues.has(record.id) && !captureIssues.some(row => row.id === record.id)) captureIssues.push(record);
@@ -91,7 +91,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       const epoch = refusedInstants.get(key) ?? Math.max(Date.parse(captureStart), Date.parse(at) - 1);
       refusedInstants.set(key, epoch);
       issue(viennaDate(new Date(epoch).toISOString()), desk, 'capture_gap', key, 'at');
-      unattributed.add(epoch);
+      unattributed.set(epoch, 'capture_gap');
     }
     // Preserve broker ordering for same-instant fills WITHOUT retaining the
     // broker identifier as the sort key. Corrections retain the original rank.
@@ -113,7 +113,7 @@ export function createCapture(filename, config, { account, attribute, executionT
           refuseInstant(key, null); exclude(true); continue;
         }
         if (epoch >= Date.parse(config.foreignAlertSince)) {
-          unattributed.add(epoch);
+          unattributed.set(epoch, 'unattributed_activity');
           unattributedKeys.set(key, epoch);
         }
       }
@@ -142,7 +142,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (invalid || commission && amount === undefined) {
         // A refused opening must remain a history gap even when a later close
         // reports exactly zero PnL and therefore cannot reveal the missing lot.
-        unattributed.add(epoch);
+        unattributed.set(epoch, 'capture_gap');
         // Replace an earlier usable correction; never leave its old value live.
         exclude(true);
         continue;
@@ -155,7 +155,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (!fx && observed && validInstant(observed.observedAt) && Math.abs(Date.parse(observed.observedAt) - epoch) <= 60_000) fx = structuredClone(observed);
       if (fx) {
         if (sdkDecimal(fx.rate).src) closeFxSources.add(key);
-        const rate = convert(fx.rate, 'closeFx.rate', 'broker_evidence_missing');
+        const rate = convert(fx.rate, 'closeFx.rate', 'fx_missing');
         if (closeFxSources.has(key) && !provenance.some(row => row.field === 'closeFx.rate')) provenance.push({ field: 'closeFx.rate', src: 'sdk_number_roundtrip' });
         fx = rate === undefined ? null : { ...fx, rate };
       }
@@ -185,11 +185,11 @@ export function createCapture(filename, config, { account, attribute, executionT
       target: { fromInclusive: coverage.target.fromInclusive, toExclusive: coverage.target.toExclusive },
       gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })),
     } : null;
+    const fillGaps = [];
     if (historyCoverage) {
-      for (const epoch of [...unattributed].sort((a, b) => a - b)) {
+      for (const [epoch, kind] of [...unattributed].sort(([a], [b]) => a - b)) {
         if (epoch >= Date.parse(historyCoverage.target.fromInclusive) && epoch < Date.parse(historyCoverage.target.toExclusive)) {
-          historyCoverage.gaps.push({ fromInclusive: new Date(epoch).toISOString(), toExclusive: new Date(epoch + 1).toISOString() });
-          historyCoverage.status = 'known';
+          fillGaps.push({ fromInclusive: new Date(epoch).toISOString(), toExclusive: new Date(epoch + 1).toISOString(), kind });
         }
       }
       historyCoverage.gaps = mergeIntervals(historyCoverage.gaps.map(gap => [Date.parse(gap.fromInclusive), Date.parse(gap.toExclusive)]))
@@ -210,7 +210,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       const samples = (day.samples || []).flatMap(sample => {
         const converted = sdkDecimal(sample.rate);
         if (converted.refused || converted.unset) {
-          issue(date, null, 'broker_evidence_missing', date + sample.sampleAt, 'sample.rate', converted.refused === true);
+          issue(date, null, 'fx_missing', date + sample.sampleAt, 'sample.rate', converted.refused === true);
           return [];
         }
         return [{ ...sample, rate: converted.amount, ...(converted.src ? { src: converted.src } : {}) }];
@@ -231,11 +231,13 @@ export function createCapture(filename, config, { account, attribute, executionT
       const day = viennaDate(new Date(epoch).toISOString());
       unattributedActivity[day] = (unattributedActivity[day] || 0) + 1;
     }
-    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof, unattributedActivity, ...(captureIssues.length ? { captureIssues } : {}), ...(fxSampler ? { fxSampler } : {}) };
+    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence,
+      historyCoverage: withFillGaps(historyCoverage, fillGaps), historyGaps: historyCoverage?.gaps ?? null, fillGaps,
+      positionProof, unattributedActivity, ...(captureIssues.length ? { captureIssues } : {}), ...(fxSampler ? { fxSampler } : {}) };
     const nextAuthority = authorityHash(event);
-    const gapHash = hash(historyCoverage?.gaps ?? null);
+    const gapHash = hash([event.historyCoverage?.gaps ?? null, fillGaps]);
     const fxHash = fxSampler ? hash([fxSampler.enabled, fxSampler.reason]) : lastFx;
-    const nextProven = authority ? updateHistoryIntervals(proven, historyCoverage, at) : proven;
+    const nextProven = authority ? updateHistoryIntervals(proven, withFillGaps(historyCoverage, fillGaps), at) : proven;
     const nextDays = closedDays(nextProven, at);
     // Moving intraday bounds alone do not justify another durable cut. Keep
     // authority/fill changes and changed gaps immediate, including on restart.

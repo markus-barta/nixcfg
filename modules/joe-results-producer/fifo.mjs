@@ -1,7 +1,7 @@
 import { decimalUnits, UNIT, unitsDecimal } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { hash } from './journal.mjs';
-import { viennaDate, dayCoverage, markPartial } from './results-validation.mjs';
+import { viennaDate, dayCoverage, markPartial, startsAtViennaMidnight } from './results-validation.mjs';
 import { isSampleFx } from './fx.mjs';
 
 export const DESKS = ['j', 'joe', 'joel'];
@@ -34,20 +34,21 @@ function fxFor(fill) {
   return fx;
 }
 
-// M-2: allocate each commission in its recorded currency, once per portion.
-// Every execution has its own budget, including a close spanning several lots
-// and a reversal whose remainder becomes a new lot. The final share is exact.
+// EUR alone has a rounded allocation budget and final remainder. Foreign fees
+// stay rational through allocation and FX, until the combined EUR fee rounds.
 function feePortion(fill, quantity, used, allocated) {
   if (!fill.commission) throw Object.assign(unavailable(), { conversionReason: 'commission_missing' });
   if (!['EUR', fill.currency].includes(fill.commission.currency)) throw unavailable();
   const fee = decimalUnits(fill.commission.amount);
   if (fee < 0n) throw unavailable();
   const total = positive(fill.quantity);
-  return used + quantity === total ? fee - allocated : halfEvenUnits(fee * quantity, total);
+  return fill.commission.currency === 'EUR'
+    ? { n: used + quantity === total ? fee - allocated : halfEvenUnits(fee * quantity, total), d: 1n }
+    : { n: fee * quantity, d: total };
 }
 
 function convertedFee(fill, share, fx) {
-  return share * (fill.commission.currency === 'EUR' ? UNIT : decimalUnits(fx.rate));
+  return { n: share.n * (fill.commission.currency === 'EUR' ? UNIT : decimalUnits(fx.rate)), d: share.d };
 }
 
 // Rational units -> integer 10^-8 EUR units, ties to even, including losses.
@@ -72,7 +73,8 @@ function eurPortion(lot, fill, quantity, price, openingFee, closingFee) {
   const numerator = quantity * (price - lot.price) * lot.sign * rate;
   const convert = fill.currency === 'USD' ? halfEvenUnits : exactUnits;
   const gross = convert(numerator, UNIT * UNIT);
-  const fees = halfEvenUnits(convertedFee(lot.fill, openingFee, fx) + convertedFee(fill, closingFee, fx), UNIT);
+  const opening = convertedFee(lot.fill, openingFee, fx), closing = convertedFee(fill, closingFee, fx);
+  const fees = halfEvenUnits(opening.n * closing.d + closing.n * opening.d, opening.d * closing.d * UNIT);
   if (fees < 0n) throw unavailable();
   return { fx, gross, fees };
 }
@@ -105,11 +107,11 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
       let openingFee, closingFee, allocationError;
       try {
         openingFee = feePortion(lot.fill, quantity, lot.used, lot.allocated);
-        lot.allocated += openingFee;
+        if (lot.fill.commission.currency === 'EUR') lot.allocated += openingFee.n;
       } catch (error) { allocationError = error; }
       try {
         closingFee = feePortion(fill, quantity, used, allocated);
-        allocated += closingFee;
+        if (fill.commission.currency === 'EUR') allocated += closingFee.n;
       } catch (error) { allocationError ||= error; }
       if (fill.at >= trackingInstant) {
         onClose({ instrument: fill.instrument, at: fill.at });
@@ -180,10 +182,11 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
     const day = { date, desks: { ...desks } };
     // Full is the documented default; only partial days need a wire marker.
     if (coverage[date] === 'partial') {
+      day.coverage = 'partial';
       if (earlierGaps.has(date)) markPartial(day, 'history_gap');
-      if (dayCoverage(date, from, through, intervals) === 'partial') {
-        markPartial(day, dayCoverage(date, from, through, [[-Infinity, Infinity]]) === 'partial' ? 'capture_gap' : 'history_gap');
-      }
+      if (validInstant(from) && date === viennaDate(from) && !startsAtViennaMidnight(from)) markPartial(day, 'capture_gap');
+      if (dayCoverage(date, from, through, intervals, true) === 'partial'
+        && dayCoverage(date, from, through, [[-Infinity, Infinity]], true) === 'full') markPartial(day, 'history_gap');
     }
     return day;
   });

@@ -8,7 +8,7 @@ nix_module="$module/default.nix"
 host="$repo_root/hosts/hsb0/configuration.nix"
 docs="$repo_root/hosts/hsb0/docs/IB-GATEWAY.md"
 
-node --test "$module"/*.test.mjs
+node --test --test-concurrency=2 "$module"/*.test.mjs
 
 # Pure module evaluation with inert packages, never a NixOS build on macOS.
 python3 - "$repo_root" <<'PY'

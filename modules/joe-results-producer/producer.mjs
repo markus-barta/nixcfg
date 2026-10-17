@@ -1,7 +1,7 @@
 import { openJournal, readJournal, hash, createJournalReader } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS, invalidFillField } from './fifo.mjs';
 import { validInstant, validDate } from './contracts/schema-validator.mjs';
-import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals, mergeIntervals, markPartial } from './results-validation.mjs';
+import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals, mergeIntervals, markPartial, withFillGaps, reportedHistoryCoverage } from './results-validation.mjs';
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { dayFx, fxDayPartial } from './fx.mjs';
 import { brokerMismatches } from './broker-backstop.mjs';
@@ -28,6 +28,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   let authority = null, latestHealth = null, fxStatus = null;
   const fxDays = new Map(), captureIssues = new Map();
   let coverageIntervals = [];
+  let historyOnlyIntervals = [], fillGaps = [];
   let historyStart = Infinity;
   const positionProofs = new PositionProofIndex();
   function apply(event) {
@@ -40,7 +41,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       else if (row.type === 'authority') authority = row;
       else if (row.type === 'cut' || row.type === 'fx') {
         for (const issue of row.captureIssues || []) {
-          if (!validDate(issue.day) || !/^[a-f0-9]{64}$/.test(issue.id) || !['capture_gap', 'broker_evidence_missing'].includes(issue.kind)) throw unavailable();
+          if (!validDate(issue.day) || !/^[a-f0-9]{64}$/.test(issue.id) || !['capture_gap', 'broker_evidence_missing', 'fx_missing'].includes(issue.kind)) throw unavailable();
           captureIssues.set(issue.id, issue);
         }
         if (row.fxSampler) {
@@ -55,8 +56,17 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
         for (const fill of row.fills) fills.set(fill.key, fill);
         authority = row;
         if (row.authoritative) {
-          coverageIntervals = updateHistoryIntervals(coverageIntervals, row.historyCoverage, row.at);
-          if (historyGaps(row.historyCoverage, row.at)) historyStart = Math.min(historyStart, Date.parse(row.historyCoverage.target.fromInclusive));
+          const effective = withFillGaps(row.historyCoverage, row.fillGaps);
+          coverageIntervals = updateHistoryIntervals(coverageIntervals, effective, row.at);
+          historyOnlyIntervals = updateHistoryIntervals(historyOnlyIntervals, reportedHistoryCoverage(row), row.at);
+          if (historyGaps(effective, row.at)) {
+            const a = Date.parse(effective.target.fromInclusive), b = Date.parse(effective.target.toExclusive);
+            historyStart = Math.min(historyStart, a);
+            for (const gap of row.fillGaps || []) {
+              if (!['capture_gap', 'unattributed_activity'].includes(gap.kind) || Date.parse(gap.toExclusive) - Date.parse(gap.fromInclusive) !== 1) throw unavailable();
+            }
+            fillGaps = [...fillGaps.filter(gap => Date.parse(gap.toExclusive) <= a || Date.parse(gap.fromInclusive) >= b), ...(row.fillGaps || [])];
+          }
         }
         if (row.authoritative && row.positionProof) positionProofs.add(row.positionProof);
       }
@@ -124,6 +134,16 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     const stage0 = captured.filter(fill => DESKS.includes(fill.desk) && fill.scope === 'stage0' && !keepSymbols.includes(fill.symbol) && !invalidFillField(fill));
     const executions = stage0.filter(fill => fill.at >= start).map(({ desk, instrument, at }) => ({ desk, instrument, at }));
     const earlierGaps = earlierGapDays(stage0, executions, coverageIntervals, positionProofs, proofFrom);
+    // Keep fill gaps in proof maths; their own day is explained by the fill's
+    // reason. Earlier fill gaps and real history gaps can still taint that day.
+    const fillGapDays = new Set(fillGaps.map(gap => viennaDate(gap.fromInclusive)));
+    for (const date of fillGapDays) {
+      const priorGaps = fillGaps.filter(gap => viennaDate(gap.fromInclusive) !== date)
+        .map(gap => [Date.parse(gap.fromInclusive), Date.parse(gap.toExclusive)]);
+      const labelIntervals = subtractIntervals(historyOnlyIntervals, mergeIntervals(priorGaps));
+      const affected = executions.filter(fill => viennaDate(fill.at) === date);
+      if (!earlierGapDays(stage0, affected, labelIntervals, positionProofs, proofFrom).has(date)) earlierGaps.delete(date);
+    }
     // Containment gaps are scoped to the affected desk/instrument. Keep the
     // full quantity book for position proofs, without tainting other books.
     // Durable records preserve the gap across corrections and producer replay.
@@ -140,9 +160,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       const intervals = subtractIntervals(coverageIntervals, mergeIntervals(gaps));
       for (const day of earlierGapDays(stage0, affected, intervals, positionProofs, proofFrom)) earlierGaps.add(day);
     }
-    const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: coverageIntervals, earlierGaps });
+    const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals, earlierGaps });
     // Gaps without an attributed desk remain visible without inventing ownership.
-    for (const [a, b] of historyGaps(authority.historyCoverage, authority.at) || []) {
+    for (const [a, b] of historyGaps(reportedHistoryCoverage(authority), authority.at) || []) {
       const first = viennaDate(new Date(Math.max(a, Date.parse(start))).toISOString());
       const last = viennaDate(new Date(Math.min(b - 1, Date.parse(at))).toISOString());
       for (let noon = Date.parse(`${first}T12:00:00Z`); ; noon += 86400_000) {
@@ -152,6 +172,12 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
         if (!day) { day = { date, desks: {} }; days.push(day); }
         markPartial(day, 'history_gap');
       }
+    }
+    for (const gap of fillGaps) {
+      const date = viennaDate(gap.fromInclusive);
+      let day = days.find(day => day.date === date);
+      if (!day) { day = { date, desks: {} }; days.push(day); }
+      markPartial(day, gap.kind);
     }
     for (const issue of captureIssues.values()) {
       let day = days.find(day => day.date === issue.day);
@@ -182,7 +208,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     }
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
-    const checked = validateResults(candidate, { requirePartialReasons: true });
+    const checked = validateResults(candidate, { requirePartialReasons: true, receivedAt: at });
     if (!checked.ok) throw new Error(checked.reason);
     for (const record of excluded) if (!exclusions.has(hash(record))) append({ type: 'conversion-exclusion', record });
     for (const record of backstop) if (!mismatches.has(hash(record))) append({ type: 'broker-mismatch', record });
