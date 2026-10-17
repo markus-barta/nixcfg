@@ -155,7 +155,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (!fx && observed && validInstant(observed.observedAt) && Math.abs(Date.parse(observed.observedAt) - epoch) <= 60_000) fx = structuredClone(observed);
       if (fx) {
         if (sdkDecimal(fx.rate).src) closeFxSources.add(key);
-        const rate = convert(fx.rate, 'closeFx.rate', 'fx_missing');
+        const rate = convert(fx.rate, 'closeFx.rate', 'broker_evidence_missing');
         if (closeFxSources.has(key) && !provenance.some(row => row.field === 'closeFx.rate')) provenance.push({ field: 'closeFx.rate', src: 'sdk_number_roundtrip' });
         fx = rate === undefined ? null : { ...fx, rate };
       }
@@ -210,7 +210,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       const samples = (day.samples || []).flatMap(sample => {
         const converted = sdkDecimal(sample.rate);
         if (converted.refused || converted.unset) {
-          issue(date, null, 'fx_missing', date + sample.sampleAt, 'sample.rate', converted.refused === true);
+          issue(date, null, 'broker_evidence_missing', date + sample.sampleAt, 'sample.rate', converted.refused === true);
           return [];
         }
         return [{ ...sample, rate: converted.amount, ...(converted.src ? { src: converted.src } : {}) }];

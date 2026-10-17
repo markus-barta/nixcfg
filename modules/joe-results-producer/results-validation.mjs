@@ -26,7 +26,13 @@ export function dayCoverage(date, from, through, intervals = [], includeOpen = f
   while (viennaDay(new Date(begin).toISOString()) < date) begin += 3600_000;
   let end = begin + 22 * 3600_000;
   while (viennaDay(new Date(end).toISOString()) === date) end += 3600_000;
-  if (includeOpen) end = Math.min(end, Date.parse(through));
+  if (includeOpen) {
+    end = Math.min(end, Date.parse(through));
+    // The open day is "so far": capture history normally lags the send clock.
+    // Check only to the last proven instant, keeping holes before it visible.
+    const provenEnd = intervals.reduce((latest, [, b]) => Math.max(latest, b), -Infinity);
+    if (date === last && provenEnd >= begin) end = Math.min(end, provenEnd);
+  }
   return intervals.some(([a, b]) => a <= begin && b >= end) ? 'full' : 'partial';
 }
 
@@ -68,8 +74,14 @@ export function historyGaps(coverage, at) {
 export function withFillGaps(coverage, fillGaps = []) {
   if (!Array.isArray(coverage?.gaps) || !['complete', 'known'].includes(coverage.status)
     || coverage.status === 'complete' && coverage.gaps.length) return coverage;
-  return coverage ? { ...coverage, status: fillGaps.length ? 'known' : coverage.status,
-    gaps: [...coverage.gaps, ...fillGaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive }))] } : null;
+  // Stored cuts already include these omissions. Preserve order/bounds for
+  // round-14 authority hashes, without reapplying gaps at init/hash/replay.
+  const seen = new Set(), gaps = [];
+  for (const gap of [...coverage.gaps, ...fillGaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive }))]) {
+    const key = JSON.stringify([gap.fromInclusive, gap.toExclusive]);
+    if (!seen.has(key)) { seen.add(key); gaps.push(gap); }
+  }
+  return { ...coverage, status: fillGaps.length ? 'known' : coverage.status, gaps };
 }
 
 // New cuts keep the aggregate coverage field for conservative older readers,
