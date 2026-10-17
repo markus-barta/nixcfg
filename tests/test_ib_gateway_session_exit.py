@@ -29,6 +29,7 @@ class SessionExitTests(unittest.TestCase):
             sup.Config(), state_path=str(self.root / "supervisor.json"),
             alert_state_path=str(self.root / "alerts.json"),
             operator_clear_path=str(self.root / "operator-clear"),
+            compose_lock=str(self.root / "compose.lock"),
         )
         self.healthy = fixture.obs(
             api_listening=True, login_state=sup.LOGIN_LOGGED_IN,
@@ -108,7 +109,8 @@ class SessionExitTests(unittest.TestCase):
                         login_state=sup.LOGIN_LOGGED_IN,
                         login_generation=observation.container_generation,
                     ))
-                    with mock.patch.object(notification_delivery, "aeon_sender") as aeon:
+                    with mock.patch.object(notification_delivery, "aeon_sender",
+                                           wraps=notification_delivery.aeon_sender) as aeon:
                         code, warnings, summary = self.main(config, observation, relay)
                     self.assertEqual(code, 0)
                     self.assertEqual(warnings, [
@@ -186,6 +188,7 @@ class SessionExitTests(unittest.TestCase):
                 self.assertEqual(code, engine.EXIT_UNDELIVERED)
                 self.assertEqual(warnings, [
                     "grok notification not enrolled: Aeon notifier key absent, chat channel skipped",
+                    "email notification failed: relay exit status 1",
                 ])
                 self.assertEqual(summary["alert"], "undelivered")
                 original = json.loads(paths[0].read_text())["pending"]["event_id"]
@@ -234,7 +237,8 @@ class SessionExitTests(unittest.TestCase):
 
     def test_disabled_unhealthy_cases_remain_process_failures(self):
         cases = [
-            (fixture.obs(lock_available=False), sup.SupervisorState()),
+            (fixture.obs(lock_available=False),
+             sup.SupervisorState(unhealthy_since=fixture.NOW - 600)),
             (fixture.obs(manual_action="operator-auth", auth_failure_class="invalid_credentials"),
              sup.SupervisorState()),
             (fixture.obs(), sup.SupervisorState(restarts_this_outage=1, operator_clear_required=True)),
@@ -261,6 +265,85 @@ class SessionExitTests(unittest.TestCase):
         self.assertEqual(summary["phase"], sup.PHASE_UNKNOWN)
         self.assertEqual(len(warnings), 1)
         self.assertEqual([path.read_bytes() for path in paths], before)
+
+    def test_expected_waits_exit_clean_until_alert_threshold(self):
+        for enabled in (False, True):
+            config = replace(self.config, alert_enable=enabled, alert_transport="email-agent-bus")
+            for login, phase in ((sup.LOGIN_LOGGED_OUT, sup.PHASE_SLOWSTARTING),
+                                 (sup.LOGIN_AUTHENTICATING, sup.PHASE_AUTHENTICATING)):
+                for age in (0, 599, 600, 601):
+                    with self.subTest(enabled=enabled, login=login, age=age):
+                        # Slow startup is still inside 12-minute grace; auth is
+                        # outside startup grace but below its 15-minute timeout.
+                        observation = fixture.obs(
+                            login_state=login,
+                            container_started_at=fixture.NOW - (650 if phase == sup.PHASE_SLOWSTARTING else 1000),
+                        )
+                        sup.save_supervisor_state(config.state_path, sup.SupervisorState(
+                            unhealthy_since=fixture.NOW - age,
+                            authenticating_since=fixture.NOW - age,
+                        ))
+                        with mock.patch.object(notification_delivery, "declared_senders",
+                                               return_value={"email": mock.Mock(return_value=True)}):
+                            code, _, summary = self.main(config, observation)
+                        self.assertEqual(summary["phase"], phase)
+                        self.assertEqual(summary["action"], sup.ACTION_NONE)
+                        self.assertEqual(code, 0 if age < 600 else sup.EXIT_SESSION_PROBLEM)
+
+    def test_recent_restart_waits_for_recovery_alert_threshold(self):
+        sup.save_supervisor_state(self.config.state_path, sup.SupervisorState(
+            unhealthy_since=fixture.NOW - 3600, last_restart_at=fixture.NOW - 599,
+            restarts_this_outage=1,
+        ))
+        self.assertEqual(self.main(observation=fixture.obs())[0], 0)
+        later = fixture.obs(now=fixture.NOW + 1)
+        self.assertEqual(self.main(observation=later)[0], sup.EXIT_SESSION_PROBLEM)
+
+    def test_api_down_with_busy_lock_fails_at_alert_threshold(self):
+        for age in (599, 600):
+            with self.subTest(age=age):
+                sup.save_supervisor_state(self.config.state_path, sup.SupervisorState(
+                    unhealthy_since=fixture.NOW - age,
+                ))
+                code, _, summary = self.main(observation=fixture.obs(lock_available=False))
+                self.assertEqual(summary["action"], sup.ACTION_NONE)
+                self.assertEqual(code, 0 if age < 600 else sup.EXIT_SESSION_PROBLEM)
+
+    def test_restart_is_red_before_alert_threshold(self):
+        for relay_status in (0, 1):
+            with self.subTest(relay_status=relay_status):
+                sup.save_supervisor_state(self.config.state_path, sup.SupervisorState())
+                with mock.patch.object(sup, "apply_compose_restart", return_value=relay_status) as restart:
+                    code, _, summary = self.main(observation=fixture.obs())
+                restart.assert_called_once()
+                self.assertEqual(summary["action"], sup.ACTION_RESTART)
+                self.assertEqual(code, sup.EXIT_SESSION_PROBLEM)
+                self.assertEqual(sup.load_supervisor_state(self.config.state_path).restarts_this_outage, 1)
+
+    def test_session_failure_and_failed_delivery_exit_undelivered(self):
+        config = self.live_config({})
+        sup.save_supervisor_state(config.state_path, sup.SupervisorState(
+            unhealthy_since=fixture.NOW - 600,
+        ))
+        relay = mock.Mock(return_value=mock.Mock(returncode=75))
+        code, warnings, summary = self.main(
+            config, fixture.obs(manual_action="operator-auth"), relay,
+        )
+        self.assertEqual(summary["action"], sup.ACTION_HALT)
+        self.assertEqual(summary["alert"], "undelivered")
+        self.assertEqual(code, engine.EXIT_UNDELIVERED)
+        self.assertIn("email notification failed: relay exit status 75", warnings)
+
+    def test_unloadable_destinations_report_both_channels_unavailable(self):
+        config = replace(self.config, alert_enable=True, alert_transport="email-agent-bus",
+                         notification_config=str(self.root / "absent-destinations"))
+        self.seed_alerts()
+        code, warnings, _ = self.main(config)
+        self.assertEqual(code, engine.EXIT_UNDELIVERED)
+        self.assertEqual(warnings, [
+            "email notification unavailable: configuration or receiver missing",
+            "grok notification unavailable: configuration or receiver missing",
+        ])
 
     def test_enabled_failed_channel_retries_original_problem_before_recovery(self):
         paths = self.seed_alerts()
@@ -318,7 +401,7 @@ class SessionExitTests(unittest.TestCase):
     def test_enabled_ineligible_failure_is_not_hidden_by_clean_delivery(self):
         config = replace(self.config, alert_enable=True, alert_transport="email-agent-bus")
         with mock.patch.object(notification_delivery, "declared_senders", return_value={}):
-            code, _, _ = self.main(config, fixture.obs(lock_available=False))
+            code, _, _ = self.main(config, fixture.obs(manual_action="operator-auth"))
         self.assertEqual(code, sup.EXIT_SESSION_PROBLEM)
 
 

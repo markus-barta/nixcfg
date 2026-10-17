@@ -13,6 +13,8 @@ docs="${repo}/hosts/hsb0/docs/IB-GATEWAY.md"
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_ib_gateway*.py' -v
 nix-instantiate --parse "${module}" >/dev/null
+# Only clean runs succeed; an uncaught Python crash (exit 1) must be red.
+grep -Fq 'SuccessExitStatus = [ 0 ];' "${module}"
 
 grep -Fq '../../modules/ib-gateway-session' "${host}"
 grep -Fq 'nixcfg.ibGatewaySession' "${host}"

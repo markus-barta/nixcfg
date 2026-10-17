@@ -32,6 +32,16 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 delivery.email_sender(config, '/bin/docker')
 
+    def test_nonzero_relay_logs_only_exit_status(self):
+        send = delivery.email_sender({'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'}, '/bin/docker')
+        for code in (1, 75):
+            with self.subTest(code=code), \
+                    mock.patch.object(delivery.subprocess, 'run', return_value=mock.Mock(
+                        returncode=code, stdout=b'private relay output', stderr=b'private relay error')), \
+                    mock.patch('builtins.print') as notice:
+                self.assertFalse(send('Synthetic private message body.', 'event123'))
+                notice.assert_called_once_with(f'email notification failed: relay exit status {code}')
+
     def test_private_config_refuses_permissions_symlinks_and_hardlinks(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.json'

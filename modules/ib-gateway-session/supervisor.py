@@ -46,8 +46,8 @@ PROBLEM_KEY = "ib-gateway:session"
 LISTEN_STATE = "0A"
 PORT_API = 4002
 PORT_RELAY = 4004
-# EXIT_PROBLEMS (1) is accepted by the existing unit; real session failures
-# need a distinct process status outside SuccessExitStatus.
+# Map the shared engine's EXIT_PROBLEMS (1) to session status 3 at main().
+# This unit accepts only 0; an uncaught Python crash (1) must also fail.
 EXIT_SESSION_PROBLEM = 3
 
 LOGIN_LOGGED_OUT = "logged_out"
@@ -1540,9 +1540,20 @@ def run_cycle(
             if outcome == "failed_after_reserve":
                 decision.notes.append("restart-failed-budget-consumed")
 
+    # Expected startup/authentication waits become failures only once the
+    # outage is old enough to alert. Halts and restarts fail immediately.
+    # Keep this independent of whether an alert adapter is enabled.
+    health = True if decision.phase == PHASE_API_READY else (
+        None if decision.phase == PHASE_UNKNOWN else False
+    )
+    outage_start = persist.unhealthy_since if persist.unhealthy_since is not None else obs.now
+    recovery_start = persist.last_restart_at if persist.last_restart_at is not None else outage_start
+    outage_age = obs.now - outage_start
+    recovery_age = obs.now - recovery_start
+    eligible = health is False and outage_age >= 600 and recovery_age >= 600
     exit_code = (
-        engine.EXIT_CLEAN if decision.phase in (PHASE_API_READY, PHASE_UNKNOWN)
-        else engine.EXIT_PROBLEMS
+        engine.EXIT_PROBLEMS if decision.action in (ACTION_HALT, ACTION_RESTART) or eligible
+        else engine.EXIT_CLEAN
     )
     disabled_reason = disabled_alert_reason(cfg)
     if disabled_reason is not None:
@@ -1561,14 +1572,6 @@ def run_cycle(
 
         # Readiness, not the absence of an alert, proves recovery. Unknown
         # probes and post-restart grace must preserve an existing outage.
-        health = True if decision.phase == PHASE_API_READY else (
-            None if decision.phase == PHASE_UNKNOWN else False
-        )
-        outage_start = persist.unhealthy_since if persist.unhealthy_since is not None else obs.now
-        recovery_start = persist.last_restart_at if persist.last_restart_at is not None else outage_start
-        outage_age = obs.now - outage_start
-        recovery_age = obs.now - recovery_start
-        eligible = health is False and outage_age >= 600 and recovery_age >= 600
         if persist.operator_clear_required:
             manual = "Manual Gateway login or operator intervention is required; inspect the login session."
         else:
@@ -1598,7 +1601,9 @@ def run_cycle(
         )
         decision.persist = persist
         save_supervisor_state(cfg.state_path, persist)
-        return decision, max(exit_code, delivery)
+        # An announced outage is not itself a new session failure during an
+        # expected wait. Only failed delivery overrides the session policy.
+        return decision, engine.EXIT_UNDELIVERED if delivery == engine.EXIT_UNDELIVERED else exit_code
 
     blocker = resolve_alert_blocker(cfg)
     if blocker is None and sender is None:
