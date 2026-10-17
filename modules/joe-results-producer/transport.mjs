@@ -6,8 +6,8 @@ import { validateResults } from './results-validation.mjs';
 
 export const RESULTS_PATH = '/joe/inbox/results';
 const REASONS = new Set(['contract_invalid', 'schema_unsupported', 'sequence_replayed', 'clock_ahead', 'clock_regressed', 'auth_required', 'too_large', 'ingress_unavailable', 'transport_failed']);
-const RULES = new Set(['json', 'maxBytes', 'const', 'enum', 'type', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'date', 'date-time', 'minItems', 'maxItems', 'uniqueItems', 'contains', 'required', 'additionalProperties', 'anyOf', 'serverOwned', 'clockAhead', 'clockRegressed', 'sequenceReplayed', 'uniqueTrade', 'keepExcluded', 'tradeTimeOrder', 'positive', 'positiveFxRate', 'EUR', 'fxCurrency', 'nonnegative', 'netAfterFees', 'dayDeskRequired', 'dayTradeCount', 'dayNetSum', 'dayFeeSum']);
-const SAFE_PATH = /^\$(?:\.(?:schema|seq|generatedAt|receivedAt|currency|timeZone|trackingStart|missingDays|days|trades|benchmark|reason|date|coverage|desks|j|joe|joel|equityClose|realisedNet|fees|amount|id|desk|symbol|side|quantity|openedAt|closedAt|entryPrice|exitPrice|grossEur|feesEur|netEur|fx|base|quote|rate|source|observedAt|method)|\.\d{1,6}|\[\d{1,6}\])*$/;
+const RULES = new Set(['json', 'maxBytes', 'const', 'enum', 'type', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'date', 'date-time', 'minItems', 'maxItems', 'uniqueItems', 'contains', 'required', 'additionalProperties', 'anyOf', 'serverOwned', 'clockAhead', 'clockRegressed', 'sequenceReplayed', 'uniqueTrade', 'keepExcluded', 'tradeTimeOrder', 'positive', 'positiveFxRate', 'EUR', 'fxCurrency', 'nonnegative', 'netAfterFees', 'dayDeskRequired', 'dayTradeCount', 'dayNetSum', 'dayFeeSum', 'partialReasonsRequired', 'partialCoverageRequired', 'canonicalOrder', 'unattributedReasonRequired']);
+const SAFE_PATH = /^\$(?:\.(?:schema|seq|generatedAt|receivedAt|currency|timeZone|trackingStart|missingDays|days|trades|benchmark|reason|date|coverage|partialReasons|unattributedCount|desks|j|joe|joel|equityClose|realisedNet|fees|amount|id|desk|symbol|side|quantity|openedAt|closedAt|entryPrice|exitPrice|grossEur|feesEur|netEur|fx|base|quote|rate|source|observedAt|method)|\.\d{1,6}|\[\d{1,6}\])*$/;
 
 // Treat the server's error text as untrusted. Diagnostics may contain only
 // known protocol reasons/rules and paths made from schema-owned field names.
@@ -90,7 +90,7 @@ export function httpTransport(endpoint, { origin, fetchImpl = fetch, headers = (
       // the ingress bytes; a just-fitting ingress must fit when served too.
       const servedBytes = Buffer.byteLength(JSON.stringify({ ...payload, receivedAt: '2000-01-01T00:00:00.000Z' }));
       if (Buffer.byteLength(body) > CONTRACTS.limits.results || servedBytes > CONTRACTS.limits.results) throw new IngressError(413, 'too_large');
-      const checked = validateResults(payload);
+      const checked = validateResults(payload, { receivedAt: payload?.generatedAt });
       if (!checked.ok) throw new IngressError(422, checked.reason, checked.errors);
       const supplied = await headers();
       const requestHeaders = new Headers(supplied);
@@ -121,9 +121,10 @@ export function fixtureIngress({ now = () => new Date().toISOString() } = {}) {
   return {
     keepSymbols: ['SXR8', 'TSLA'],
     async send(payload) {
-      const checked = validateResults(payload);
+      const receivedAt = now();
+      const checked = validateResults(payload, { receivedAt });
       if (!checked.ok) throw new IngressError(422, checked.reason, checked.errors);
-      const accepted = acceptSnapshot('results', payload, previous, now());
+      const accepted = acceptSnapshot('results', payload, previous, receivedAt);
       if (accepted.status !== 200) throw new IngressError(422, accepted.reason, accepted.errors);
       previous = accepted;
       return { status: 200, headers: { 'X-Joe-Received-At': previous.value.receivedAt } };

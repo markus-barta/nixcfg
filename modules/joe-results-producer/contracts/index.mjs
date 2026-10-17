@@ -28,7 +28,9 @@ export const SCHEMA_FILES = freeze({ ...files, ...Object.fromEntries(Object.valu
 
 // Pure, offline, same entry point for browser, server and producer CI.
 // Ingress forbids server-owned receipt/diagnostics; served requires a receipt.
-export function validateContract(kind, payload, { stage = 'served' } = {}) {
+// The trusted receivedAt option enables receipt-dependent ingress semantics;
+// acceptSnapshot supplies it. Served semantics use the persisted receipt.
+export function validateContract(kind, payload, { stage = 'served', receivedAt } = {}) {
   if (!Object.hasOwn(SCHEMAS, kind)) throw new TypeError('Unknown contract kind');
   if (!['served', 'ingress'].includes(stage)) throw new TypeError('Unknown contract stage');
   const errors = [];
@@ -40,7 +42,7 @@ export function validateContract(kind, payload, { stage = 'served' } = {}) {
     return { ok: false, status: 422, reason: 'schema_unsupported', errors: [{ path: '$.schema', rule: 'const' }] };
   }
   if (!errors.length) checkSchema(SCHEMAS[kind], payload, SCHEMA_FILES, errors);
-  if (!errors.length) checkSemantics(kind, payload, stage, errors);
+  if (!errors.length) checkSemantics(kind, payload, stage, errors, receivedAt);
   return errors.length
     ? { ok: false, status: 422, reason: 'contract_invalid', errors }
     : { ok: true, status: 200, reason: null, errors: [] };

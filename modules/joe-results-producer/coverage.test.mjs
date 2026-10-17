@@ -263,6 +263,8 @@ test('unattributed own executor fills make proven closed days partial until admi
   const coverage = readJournal(filename).at(-1).historyCoverage;
   assert.equal(coverage.status, 'known');
   assert.deepEqual(coverage.gaps, [{ fromInclusive: fillAt, toExclusive: instant(Date.parse(fillAt) + 1) }]);
+  assert.deepEqual(readJournal(filename).at(-1).historyGaps, []);
+  assert.deepEqual(readJournal(filename).at(-1).fillGaps, [{ fromInclusive: fillAt, toExclusive: instant(Date.parse(fillAt) + 1), kind: 'unattributed_activity' }]);
   producer.ingest(readJournal(filename));
   assert.equal(producer.snapshot().days.find(day => day.date === '2026-10-16').coverage, 'partial');
   producer.close(); capture.close();

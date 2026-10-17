@@ -11,7 +11,7 @@ export const MAX_CLOCK_AHEAD_MS = 5000;
 export function acceptSnapshot(kind, candidate, previous = null, receivedAt) {
   if (!['data', 'history', 'results'].includes(kind)) throw new TypeError('Not a snapshot contract');
   if (!validInstant(receivedAt)) throw new TypeError('A server receive instant is required');
-  const checked = validateContract(kind, candidate, { stage: 'ingress' });
+  const checked = validateContract(kind, candidate, { stage: 'ingress', receivedAt });
   const reject = (reason, errors = checked.errors) => ({
     ...previous, status: 422, reason, value: previous?.value ?? null,
     errors, rejectedAt: receivedAt,

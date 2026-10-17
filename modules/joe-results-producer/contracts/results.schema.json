@@ -70,7 +70,7 @@
           "coverage": {
             "type": "string",
             "enum": ["full", "partial"],
-            "description": "Defaults to full when omitted. Partial means this day's numbers are incomplete; skip day/trade reconciliation.",
+            "description": "Defaults to full when omitted. Partial means this day's numbers are incomplete; skip day/trade reconciliation. Closed partial Vienna days require partialReasons; the open day at server receipt may omit them unless a real cause exists.",
             "x-owner": "paper executor 8470"
           },
           "partialReasons": {
@@ -82,7 +82,7 @@
               "description": "avg_cost_mismatch is reserved: accepted and rendered, not yet emitted by the producer.",
               "enum": ["capture_gap", "history_gap", "broker_trade_count_mismatch", "broker_realised_pnl_mismatch", "unattributed_activity", "avg_cost_mismatch", "fx_disabled", "fx_missing", "broker_evidence_missing"]
             },
-            "description": "Why this Vienna day's numbers are incomplete. Allowed only with coverage 'partial'. Rev-5 producers emit at least one, in canonical enum order.",
+            "description": "Why this Vienna day's numbers are incomplete. Allowed only with coverage 'partial', in canonical enum order. The open Vienna day (the server receipt's Vienna date) may omit partialReasons unless a real cause exists (e.g. fx_missing), in which case emit at least one. Closed partial days (date before the server receipt's Vienna date) require at least one reason. capture_gap is reserved for a real mid-day tracking start.",
             "x-owner": "paper executor 8470"
           },
           "unattributedCount": {

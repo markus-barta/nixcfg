@@ -292,7 +292,7 @@ test('KEEP round trips are excluded from both arrays, leaving exact ordinary tra
   producer.close();
 });
 
-test('USD fee allocation uses the pre-tracking shares and final remainder before EUR conversion', () => {
+test('EUR fee allocation uses the pre-tracking budget and final remainder', () => {
   const input = [
     { ...fills[0], quantity: '3', price: '10', commission: { amount: '0.00000001', currency: 'EUR' } },
     { ...fills[2], quantity: '1', price: '11', commission: { amount: '0', currency: 'EUR' }, closeFx: { ...fills[2].closeFx, rate: '1' } },
@@ -314,7 +314,7 @@ test('fixture accepts partial coverage and rejects full-day mismatches with vend
   // backstop: this fixture lacks broker reports and carries a partial marker.
   delete full.days[0].coverage; delete full.days[0].partialReasons;
   const partial = structuredClone(full);
-  partial.days[0].coverage = 'partial'; partial.trades = partial.trades.slice(1);
+  partial.days[0].coverage = 'partial'; partial.days[0].partialReasons = ['history_gap']; partial.trades = partial.trades.slice(1);
   assert.equal((await request(server, partial)).status, 200);
   const accepted = server.accepted;
   for (const [field, value, rule] of [['trades', 0, 'dayTradeCount'], ['realisedNet', { amount: '0', currency: 'EUR' }, 'dayNetSum'], ['fees', { amount: '0', currency: 'EUR' }, 'dayFeeSum']]) {
@@ -340,7 +340,7 @@ test('producer emits partial coverage from its capture interval and removed reas
   const value = producer.snapshot();
   assert.equal(value.days[0].coverage, 'partial');
   assert.equal(validateContract('results', value, { stage: 'ingress' }).ok, true);
-  assert.equal(CONTRACTS.revision, 5);
+  assert.equal(CONTRACTS.revision, 6);
   assert.equal(REASONS.includes('results_not_wired'), false);
   assert.equal(validateResults({ ...value, reason: 'results_not_wired' }).status, 422);
   producer.close();
