@@ -72,8 +72,9 @@ in
   passiveLanOnly = cfg.discovery.passiveInterfaces == [ "enp2s0f0" ];
   passiveArgument = lib.hasInfix "\"--passive\" \"--passive-interfaces\" \"enp2s0f0\"" unit.ExecStart;
   # OPS-355 pin 7 (LEAD): the web source stays hard off on hsb0 until the trial.
-  webCheckOff = !cfg.discovery.webCheck;
-  webCheckArgument = lib.hasInfix "\"--web-check=false\"" unit.ExecStart;
+  # OPS-355 web-check trial: the host allows the source (still off per site setting).
+  webCheckAllowed = cfg.discovery.webCheck;
+  noWebCheckFlag = !(lib.hasInfix "\"--web-check=false\"" unit.ExecStart);
   packetAllowed = has "AF_PACKET" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
