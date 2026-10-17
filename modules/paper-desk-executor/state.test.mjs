@@ -503,3 +503,19 @@ test("headroom reports disk bytes and emits one warning per 75-percent crossing"
   ledger.save(state);
   assert.equal(warn.mock.callCount(), 2);
 });
+
+test('save invokes capture exactly once before compaction and retention', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'joed20-once-'));
+  let calls = 0;
+  const ledger = openLedger(root, { beforePrune: state => {
+    calls++;
+    assert.equal(state.intents.get('expired-recon').result.resultCompacted, undefined);
+  } });
+  const state = ledger.load();
+  for (let i = 0; i < 2; i++) {
+    state.intents.set('expired-recon', { action: 'recon', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { status: 'ok', executions: [] } });
+    ledger.save(state);
+    assert.equal(calls, i + 1);
+    assert.equal(state.intents.has('expired-recon'), false);
+  }
+});

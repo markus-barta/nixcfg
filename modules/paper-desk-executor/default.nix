@@ -55,6 +55,7 @@ let
     "PAPER_DESK_RECON_RETENTION_HOURS=${toString cfg.reconRetentionHours}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
+    "PAPER_DESK_RESULTS_HEALTH_PORT=${toString cfg.resultsHealthPort}"
     "PAPER_DESK_RESULTS_CAPTURE=${lib.boolToString cfg.resultsCaptureEnabled}"
     "PAPER_DESK_RESULTS_KEEP=${builtins.toJSON cfg.resultsKeepSymbols}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
@@ -71,6 +72,12 @@ in
     enable = lib.mkEnableOption "tailnet paper desk executor on hsb0";
 
     resultsCaptureEnabled = lib.mkEnableOption "durable read-only Results capture before ledger compaction (JOED-20)";
+
+    resultsHealthPort = lib.mkOption {
+      type = lib.types.port;
+      default = 8472;
+      description = "Capture-only loopback health port; 8471 remains reserved for the mailbox.";
+    };
 
     resultsKeepSymbols = lib.mkOption {
       type = lib.types.listOf lib.types.str;
@@ -244,6 +251,10 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = cfg.resultsHealthPort == 8472;
+        message = "paperDeskExecutor Results health listens only on loopback port 8472";
+      }
       {
         assertion = cfg.reconRetentionHours >= 16.0 / 60.0 && cfg.reconRetentionHours <= 336;
         message = "paperDeskExecutor reconRetentionHours must be between 16/60 and 336 hours (16 minutes to 14 days)";

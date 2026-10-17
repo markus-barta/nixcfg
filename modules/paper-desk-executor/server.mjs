@@ -510,8 +510,8 @@ async function main() {
   if (capture) {
     // Separate loopback listener: only a read-only health route, never intents,
     // admin attribution, halt, cancel or any Gateway request API.
-    healthServer = createHealthServer(started.readHealth);
-    await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(8471, "127.0.0.1", resolve); });
+    healthServer = createHealthServer(async () => ({ ...await started.readHealth(), resultsCapture: capture.health() }));
+    await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(resultsHealthPort(process.env.PAPER_DESK_RESULTS_HEALTH_PORT), "127.0.0.1", resolve); });
     capture({ ...started.ledger.load(), resultsFxSampler: { enabled: true, reason: "missing_sample", days: {} } });
   }
   // An independent background task: never put quote waits on the intent queue,
@@ -551,4 +551,9 @@ if (entry) {
     console.error(error);
     process.exit(1);
   });
+}
+
+export function resultsHealthPort(value = '8472') {
+  if (String(value) !== '8472') throw new Error('results_health_loopback_only');
+  return 8472;
 }

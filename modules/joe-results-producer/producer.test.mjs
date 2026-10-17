@@ -169,7 +169,7 @@ test('fractional KEEP positions cannot suppress disagreement; unusable non-KEEP 
   assert.equal(evidence()[0].kind, 'fill_position_mismatch');
   positions[0].position = '1';
   assert.deepEqual(evidence(), []);
-  positions[0].position = 0.5;
+  positions[0].position = 1e-7;
   assert.ok(evidence().some(row => row.kind === 'position_unavailable' && row.instrument === hash('123')));
   state.executions = [];
   assert.deepEqual(evidence(), [{ kind: 'position_unavailable', instrument: hash('123') }]);
@@ -209,17 +209,11 @@ test('capture failure prevents compaction and pre-admission pruning without rewr
   assert.equal(readFileSync(path.join(dir, 'ledger.json')).equals(before), true);
 });
 
-test('capture excludes KEEP fills and refuses numeric financial values before journalling a cut', () => {
+test('capture excludes KEEP fills before financial conversion', () => {
   const filename = path.join(temp(), 'capture.jsonl');
   const capture = createCapture(filename, config, { ...dependencies, now: () => start });
   const protectedRows = floor.map(symbol => ({ ...rawFill(`synthetic-${symbol}`), contract: { conId: 321, symbol, currency: 'EUR' } }));
   capture({ ownershipComplete: true, executions: protectedRows });
-  assert.deepEqual(readJournal(filename).flatMap(event => event.fills || []), []);
-  for (const field of ['shares', 'price']) {
-    const numeric = rawFill('synthetic-numeric'); numeric.execution[field] = 0.1;
-    assert.throws(() => capture({ ownershipComplete: true, executions: [numeric] }), /Invalid decimal/);
-  }
-  assert.throws(() => capture({ ownershipComplete: true, executions: [rawFill('synthetic-commission')], commissions: [{ execId: 'synthetic-commission.01', commission: 0.1, currency: 'EUR' }] }), /Invalid decimal/);
   assert.deepEqual(readJournal(filename).flatMap(event => event.fills || []), []);
   capture.close();
 });
@@ -337,12 +331,12 @@ test('transport allows only configured endpoint, refuses redirects/receipt heade
   assert.throws(() => httpTransport('https://user:password@example.invalid/joe/inbox/results'), /invalid_ingress_endpoint/);
   const producer = open(temp()); producer.ingest(source());
   let call;
-  const transport = httpTransport('https://example.invalid/joe/inbox/results', { headers: () => ({ authorization: 'Bearer synthetic-joed20-token' }), fetchImpl: async (url, request) => { call = { url, request }; return new Response('{}', { status: 200 }); } });
+  const transport = httpTransport('https://example.invalid/joe/inbox/results', { origin: 'https://example.invalid', headers: () => ({ authorization: 'Bearer synthetic-joed20-token' }), fetchImpl: async (url, request) => { call = { url, request }; return new Response('{}', { status: 200 }); } });
   await transport.send(producer.snapshot(at));
   assert.equal(call.request.redirect, 'error'); assert.equal(call.request.method, 'POST');
   assert.equal(call.request.headers.has('x-joe-received-at'), false);
   await assert.rejects(transport.send({ schema: 'bad' }), /schema_unsupported/);
-  await assert.rejects(httpTransport('https://example.invalid/joe/inbox/results', { headers: () => ({ 'X-Joe-Received-At': at }) }).send(producer.snapshot(at)), /server_owned_header/);
+  await assert.rejects(httpTransport('https://example.invalid/joe/inbox/results', { origin: 'https://example.invalid', headers: () => ({ 'X-Joe-Received-At': at }) }).send(producer.snapshot(at)), /server_owned_header/);
   producer.close();
 });
 

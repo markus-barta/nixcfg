@@ -797,8 +797,13 @@ write. That status is never reconciliation evidence and no household handoff is
 produced. Concrete owned-fill quantity vs complete broker-position evidence can
 produce `executor_broker_disagreement` in Results' permitted `reason`.
 Foreign/netted residuals and incomplete broker cuts do not prove disagreement;
-gateway reachability changes alone never do. The optional executor listener on
-`127.0.0.1:8471` serves only `GET /v1/health`; no intent/admin/halt route is exposed.
+gateway reachability changes alone never do.
+
+Reserved ports: executor tailnet `8470`, mailbox tailnet `8471`, capture health
+loopback `8472`. Capture OFF writes no `resultsFx`, `resultsHistoryCoverage`,
+`resultsFxSampler` or `ownershipSnapshot.observedAt` into executor state/ledger.
+
+The optional executor listener on `127.0.0.1:8472` serves only `GET /v1/health`; no intent/admin/halt route is exposed.
 
 The Results runner posts one `results.v2` snapshot to the configurable board
 origin at **`POST /joe/inbox/results`**, with `Content-Type: application/json`
@@ -894,10 +899,23 @@ and `currency` enter the capture. Broker realised PnL is net (fees are not
 subtracted again); the already captured close FX converts it to EUR exactly.
 IB unset realised PnL (null or Double.MAX_VALUE) is accepted only on quantity-book
 openings with a commission report; closes require an exact amount.
-No new IB request is added. Fractional numeric PnL, unset PnL on book-closes,
-missing reports, incompatible currency and nonrepresentable conversion supply
-no exact broker evidence; they keep D partial. Decimal strings and exact safe
-integer PnL are accepted, preserving the existing decimal-source safety gate.
+No new IB request is added. At the SDK boundary, `Number.MAX_VALUE` (and its
+String form), `2147483647`, null and missing values map to unset before conversion.
+Unset PnL on closes still keeps D partial; unset opening PnL follows the quantity
+book rules above. Numbers are accepted only when `String(n)` is a finite plain
+decimal with at most 15 significant digits and fits the eight-decimal contract;
+`-0` normalises to `0`. Exponents, NaN, infinities and excess precision are refused.
+Decimal strings retain the existing exact policy. Converted fields carry additive
+`src: "sdk_number_roundtrip"` provenance (fill fields use a `provenance` list);
+older replays ignore it. A later string-source adapter can replace this boundary.
+Every refused field produces a value-free `captureIssues` journal record with
+`day`, hashed identity/desk, field name and kind: `capture_gap` for fill fields,
+`broker_evidence_missing` for broker evidence. Its day stays partial on replay;
+no refused numeric value or raw identifier is stored. Unset required fill fields
+also record a gap, without counting as a conversion refusal. The loopback health
+`resultsCapture.refusals` and producer `captureRefusals` count distinct refused
+field records, deduplicated across polls and restart. Missing reports,
+incompatible currency and nonrepresentable conversions also keep D partial.
 
 A per-desk absolute net difference **above EUR 0.01**, or any count mismatch,
 downgrades D to `partial` on the next push. Broker count is closing executions,
@@ -922,6 +940,11 @@ one writable state directory, empty capabilities, no added groups/Docker socket,
 IP egress limited to loopback and the pinned ingress address. The private hosts
 file resolves the TLS hostname without DNS egress. Endpoint and health paths
 are fixed by configuration/code; systemd's IP filter operates at address scope.
+The module independently pins `JOE_RESULTS_INGRESS_ORIGIN` (scheme, host, port);
+settings/state cannot redirect transport, and redirects are refused. Settings
+must be an immutable Nix-store file; state/input paths are fixed. The credential
+reader accepts only systemd's fixed service directory and fixed token basename,
+refusing traversal and directory/file symlinks.
 
 Paper proof, for the operator **after** separate enablement approval:
 
@@ -938,7 +961,7 @@ Paper proof, for the operator **after** separate enablement approval:
    and human-controlled switch procedure; no local NixOS build on macOS.
    csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
-   Read `http://127.0.0.1:8471/v1/health` privately and verify paper Gateway
+   Read `http://127.0.0.1:8472/v1/health` privately and verify paper Gateway
    configuration, halt and brakes. Do not copy its raw body/account into tickets,
    Git, public logs or fixtures. Verify non-GET/other paths return 404 and the
    optional listener is bound only to loopback. The producer never submits an

@@ -119,7 +119,7 @@ function harness(options = {}) {
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: options.history || [], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(Date.now() - 40 * 86400000).toISOString(), toExclusive: new Date().toISOString() } } };
   if (options.coverage) history.coverage = options.coverage;
   const readHistory = (file, now = Date.now(), _readFile, historyOptions) => readPusherExecutions(file, now, () => { if (options.missingHistory) throw new Error("ENOENT"); return JSON.stringify(history); }, historyOptions);
-  const config = { clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
+  const config = { resultsCaptureEnabled: true, clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
@@ -1709,5 +1709,23 @@ test("HTTP modify-stop validation explains missing selector, extra order fields 
     let result; let status;
     await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
     assert.equal(status, 400); assert.equal(result.code, "modify_stop_refused"); assert.match(result.reason, reason);
+  }
+});
+
+test('capture OFF reconciliation and placement save no capture-only executor state or ledger fields', async () => {
+  for (const action of ['recon', 'place']) {
+    const h = harness(); h.config.resultsCaptureEnabled = false;
+    const root = mkdtempSync(path.join(tmpdir(), 'joed20-capture-off-'));
+    const store = openLedger(root), state = store.load();
+    // Also remove prior additive capture metadata when capture is switched off.
+    Object.assign(state, { resultsFx: {}, resultsHistoryCoverage: null, resultsFxSampler: {} });
+    await h.run(intent(action), state, { saveState: store.save });
+    const disk = JSON.parse(readFileSync(path.join(root, 'ledger.json'), 'utf8'));
+    for (const value of [state, disk]) {
+      for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler']) assert.equal(Object.hasOwn(value, key), false, key);
+      assert.equal(Object.hasOwn(value.ownershipSnapshot, 'observedAt'), false);
+    }
+    const allKeys = JSON.stringify(disk);
+    for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler', 'positionsObservedAt']) assert.equal(allKeys.includes(`"${key}"`), false, key);
   }
 });

@@ -78,7 +78,7 @@ test('65 trading days with 30 instruments: growth stays below 50 KB/day in both 
 for (const opening of [undefined, null, Number.MAX_VALUE, String(Number.MAX_VALUE)]) test(`IB unset opening ${String(opening)} is distinct from unusable evidence`, () => {
   assert.deepEqual(captureBrokerRealised({ realizedPNL: opening, currency: 'USD' }), { unset: true, currency: 'USD' });
   assert.deepEqual(captureBrokerRealised({ currency: 'USD' }), { unset: true, currency: 'USD' });
-  assert.equal(captureBrokerRealised({ realizedPNL: 0.123, currency: 'USD' }), null);
+  assert.deepEqual(captureBrokerRealised({ realizedPNL: 0.123, currency: 'USD' }), { amount: '0.123', src: 'sdk_number_roundtrip', currency: 'USD' });
 });
 
 for (const mode of ['missing', 'disabled']) test(`USD ${mode} exclusion publishes other portions, stays partial and replays without duplicate reasons`, t => {

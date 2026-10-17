@@ -677,3 +677,10 @@ test('whole simulated paper day with FX and capture running leaves ledgerPercent
   assert.equal(calls, 27);
   assert.deepEqual(readFileSync(ledger.statePath), bytes);
 });
+
+test('capture-only health port reserves 8472 and refuses mailbox or arbitrary ports', async () => {
+  const { resultsHealthPort } = await import('./server.mjs');
+  assert.equal(resultsHealthPort(), 8472);
+  assert.equal(resultsHealthPort('8472'), 8472);
+  for (const port of ['8471', '8470', '0', '8472.0', '08472']) assert.throws(() => resultsHealthPort(port));
+});
