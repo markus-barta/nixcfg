@@ -160,6 +160,21 @@ test('true fill/broker mismatch emits exact disagreement code; gateway flaps do 
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).status, 'degraded');
 });
 
+test('fractional KEEP positions cannot suppress disagreement; unusable non-KEEP quantities emit evidence', () => {
+  const positions = [{ conId: 123, symbol: 'ACME', position: '0' }, { conId: 456, symbol: 'TSLA', position: 0.5 }];
+  const state = { ownershipComplete: true, executions: [rawFill('owned')],
+    ownershipSnapshot: { ownershipComplete: true, positions } };
+  const evidence = () => reconciliationEvidence(state, config, floor, dependencies);
+  assert.equal(evidence().length, 1);
+  assert.equal(evidence()[0].kind, 'fill_position_mismatch');
+  positions[0].position = '1';
+  assert.deepEqual(evidence(), []);
+  positions[0].position = 0.5;
+  assert.ok(evidence().some(row => row.kind === 'position_unavailable' && row.instrument === hash('123')));
+  state.executions = [];
+  assert.deepEqual(evidence(), [{ kind: 'position_unavailable', instrument: hash('123') }]);
+});
+
 test('foreign/netted broker residuals and incomplete snapshots do not manufacture disagreements', () => {
   const state = { ownershipComplete: true, executions: [rawFill('owned'), rawFill('foreign', { clientId: 999 })], ownershipSnapshot: { ownershipComplete: true, positions: [] } };
   assert.deepEqual(reconciliationEvidence(state, config, floor, dependencies), []);

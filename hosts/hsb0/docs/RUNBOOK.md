@@ -791,7 +791,8 @@ failure is fatal in GitHub Actions; unavailable local/offline sources explicitly
 print SKIP. `--source <checkout>` proves a clean local checkout at the exact pin.
 The deterministic CPU test covers 4,320 synthetic fills across three desks over
 60 Vienna days in each DST season, including KEEP, with a 2,500 ms CPU bound
-per operation: ingest of 1,920 cuts plus snapshot build/validation, and
+per operation: ingest of 1,920 cuts with per-cut position proofs and a persistent
+earlier gap plus snapshot build/validation, and
 separately restart replay plus prefix verification and snapshot build/validation.
 Both the test and runtime transport check the 8 MiB
 served-size limit including the board's `receivedAt` overhead; no broker or
@@ -811,15 +812,20 @@ date helper for 23/25-hour DST days. Missing/unknown bounds, any uncovered part
 of a closed day, a mid-day window start, and the current day emit
 `"coverage":"partial"`; a stale capture never extends proof to generation time.
 Full days omit `coverage`, using the README's documented default of `"full"`.
-An earlier gap also makes a closed day partial unless every instrument closed
-on that day has a post-gap baseline before each close: either a broker-flat
+An earlier gap also makes a closed day partial unless every captured Stage-0
+fill on that day has a post-gap baseline for its instrument before that fill
+(openings included): either a broker-flat
 snapshot with every desk flat, or exact captured quantities reconciled to the
 broker at the start of the proven interval containing the day. A later snapshot
 inside that interval can establish the start quantity by subtracting the same
 captured intervening fills from both books. The executor records the complete
 broker `positionEnd` time as `positionsObservedAt`, persists it with
 `ownershipSnapshot.observedAt`, positions and ownership completeness, and
-capture journals only hashed instruments, decimal quantities and that time.
+capture journals only hashed instruments, decimal quantities, the hashed foreign
+instrument set and that time. Every non-KEEP broker-position instrument and
+known instrument is listed; an absent instrument is proven broker-flat only
+in a complete receipt that does not mark it foreign, with every desk also flat.
+Legacy receipts lacking the foreign set prove only explicitly listed positions.
 Missing, future, mismatched, equal-time ambiguous or pre-gap proof fails closed;
 an activity timestamp never refreshes an old position snapshot. Opposing desk
 positions do not count as flat. A gap after the day does not change its coverage;
@@ -828,7 +834,8 @@ same journals after either service restarts.
 
 Residual paper risk: an open+close pair missed inside an earlier gap nets to
 zero, so broker quantities can still match while the FIFO lot prices shift.
-A day can consequently be `full` with slightly wrong realised PnL. This is
+Missed fills can also net to zero across desks. A day can consequently be
+`full` with wrong realised PnL. This is
 paper only; the hsb0 broker comparison is the backstop and remains required
 before enablement and during the paper rehearsal.
 The producer and fixture ingress call the vendored validator directly: partial

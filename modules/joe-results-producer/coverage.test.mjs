@@ -9,7 +9,7 @@ import { openProducer } from './producer.mjs';
 import { validateResults, historyIntervals } from './results-validation.mjs';
 import { IngressError, failureDiagnostic } from './transport.mjs';
 import { activityAttribution } from '../paper-desk-executor/policy.mjs';
-import { capturePositionProof, earlierGapDays } from './position-proof.mjs';
+import { capturePositionProof, earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { hash } from './journal.mjs';
 
 const floor = ['SXR8', 'TSLA'];
@@ -22,7 +22,8 @@ test('position proof uses the complete broker snapshot, exact quantities and no 
   const state = { ownershipComplete: true, ownershipSnapshot: snapshot, executions: [] };
   const options = { account, attribute: () => ({ desk: 'j' }) };
   const proof = () => capturePositionProof(state, { executorClientId: 705 }, floor, options, [instrument], at);
-  assert.deepEqual(proof(), { at, positions: [{ instrument, quantity: '1' }] });
+  assert.deepEqual(proof(), { at, foreign: [], positions: [{ instrument, quantity: '1' }] });
+  assert.deepEqual(capturePositionProof(state, { executorClientId: 705 }, floor, options, [], at), proof());
   snapshot.positions[0].position = '0.12345678';
   assert.equal(proof().positions[0].quantity, '0.12345678');
   for (const invalid of [0.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, 'bad']) {
@@ -38,10 +39,10 @@ test('position proof uses the complete broker snapshot, exact quantities and no 
   }
   state.ownershipSnapshot = snapshot;
   state.executions = [{ contract: c, execution: { acctNumber: account, clientId: 999 } }];
-  assert.deepEqual(proof().positions, []); // foreign/netted instruments supply no proof
+  assert.deepEqual(proof().foreign, [instrument]); // foreign/netted instruments supply no proof
 });
 
-test('earlier-gap proof is per instrument and every close; corrections and conflicting receipts fail closed', () => {
+test('earlier-gap proof is per instrument and every fill; corrections and conflicting receipts fail closed', () => {
   const start = '2026-10-14T22:00:00.000Z', begin = '2026-10-15T09:00:00.000Z';
   const at = '2026-10-15T10:00:00.000Z', closeAt = '2026-10-16T12:00:00.000Z';
   const intervals = [[Date.parse(begin), Date.parse('2026-10-17T22:00:00.000Z')]];
@@ -49,8 +50,11 @@ test('earlier-gap proof is per instrument and every close; corrections and confl
   const held = fill('synthetic-a', '2026-10-15T06:00:00.000Z', 'BUY');
   const close = { instrument: 'synthetic-a', at: closeAt };
   const proof = (quantity, time = at) => ({ at: time, positions: [{ instrument: 'synthetic-a', quantity }] });
-  const partial = (fills, proofs, closes = [close], origin = start) =>
-    [...earlierGapDays(fills, closes, intervals, proofs, origin)];
+  const partial = (fills, proofs, executions = [close], origin = start) => {
+    const index = new PositionProofIndex();
+    proofs.forEach(proof => index.add(proof));
+    return [...earlierGapDays(fills, executions, intervals, index, origin)];
+  };
   assert.deepEqual(partial([held], [proof('1')]), []);
   assert.deepEqual(partial([{ ...held, quantity: '2' }], [proof('1')]), ['2026-10-16']);
   assert.deepEqual(partial([held], [proof('1'), proof('2')]), ['2026-10-16']);
@@ -67,6 +71,23 @@ test('earlier-gap proof is per instrument and every close; corrections and confl
   assert.deepEqual(partial(flattened, [proof('0')], [{ instrument: 'synthetic-a', at: '2026-10-15T09:30:00.000Z' }, close]), ['2026-10-15']);
   // The nonzero start quantity is rolled back through a post-gap add.
   assert.deepEqual(partial([held, fill('synthetic-a', '2026-10-15T09:30:00.000Z', 'BUY')], [proof('2')]), []);
+  // Complete receipts distinguish a genuinely new/flat instrument from an
+  // omitted foreign one. Legacy omissions remain unproven.
+  const opening = fill('synthetic-new', closeAt, 'BUY');
+  const complete = { at, positions: [], foreign: [] };
+  assert.deepEqual(partial([opening], [complete], [opening]), []);
+  assert.deepEqual(partial([opening], [{ at, positions: [] }], [opening]), ['2026-10-16']);
+  assert.deepEqual(partial([opening], [{ ...complete, foreign: ['synthetic-new'] }], [opening]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [complete]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [{ ...proof('1'), foreign: ['synthetic-a'] }]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [{ at, positions: [...proof('1').positions, ...proof('1').positions] }]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [proof('bad')]), ['2026-10-16']);
+  // Out-of-order receipts are indexed chronologically. A later complete
+  // omission or foreign marker must supersede an earlier explicit match.
+  const later = { ...complete, at: '2026-10-15T11:00:00.000Z' };
+  assert.deepEqual(partial([held], [later, proof('1')]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [proof('2', at), proof('1', begin)]), ['2026-10-16']);
+  assert.deepEqual(partial([held], [proof('1'), { ...complete, foreign: ['synthetic-a'] }]), ['2026-10-16']);
 });
 
 for (const [name, openingAt, proofAt, quantity, gapAfter, expected] of [
@@ -255,6 +276,56 @@ test('unattributed own executor fills make proven closed days partial until admi
   producer.close();
   producer = openProducer(output, { now: () => at });
   assert.equal(producer.snapshot().days[0].coverage ?? 'full', 'full');
+  producer.close();
+});
+
+test('unattributed D0 opening and attributed D2 stop stay partial until admin attribution, across replay', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'joed20-missed-opening-'));
+  const filename = path.join(dir, 'capture.jsonl'), output = path.join(dir, 'results.jsonl');
+  const begin = '2026-10-13T22:00:00.000Z', at = '2026-10-16T22:00:00.000Z';
+  const openingAt = '2026-10-14T12:00:00.000Z', stopAt = '2026-10-16T12:00:00.000Z';
+  const account = 'synthetic-account', instrument = hash([1, 'ACME', 'EUR']);
+  let now = begin;
+  const config = { executorClientId: 705, ownClientIds: [705], foreignAlertSince: begin };
+  const options = { account, attribute: activityAttribution, executionTime: Date.parse, now: () => now };
+  const raw = (key, time, side, price, orderRef) => ({ contract: { conId: 1, symbol: 'ACME', currency: 'EUR' },
+    execution: { execId: `${key}.01`, acctNumber: account, clientId: 705, time, side, price, shares: '1', orderRef } });
+  const opening = raw('synthetic-missed-opening', openingAt, 'BOT', '10', '');
+  const stop = raw('synthetic-attributed-stop', stopAt, 'SLD', '12', 'j|261016|synthetic');
+  const state = { ownershipComplete: true, executions: [opening, stop],
+    commissions: [opening, stop].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR' })),
+    ownershipSnapshot: { account, ownershipComplete: true, observedAt: '2026-10-16T13:00:00.000Z', positions: [] },
+    resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: at }, gaps: [] } };
+  let capture = createCapture(filename, config, options);
+  capture({ ownershipComplete: true, executions: [] });
+  now = at; capture(state); capture.close();
+  assert.deepEqual(readJournal(filename).at(-1).positionProof.foreign, [instrument]);
+  let producer = openProducer(output, { now: () => at });
+  producer.ingest(readJournal(filename));
+  for (const observationAt of [openingAt, stopAt]) producer.observe({ at: observationAt,
+    desks: { j: { equity: { amount: '5000', currency: 'EUR' }, basisId: `synthetic-${observationAt}` } } });
+  const partial = producer.snapshot();
+  assert.deepEqual(partial.days.map(day => [day.date, day.coverage]), [['2026-10-14', 'partial'], ['2026-10-16', 'partial']]);
+  assert.equal(partial.trades.length, 0);
+  assert.equal(validateResults(partial).ok, true);
+  producer.close();
+  producer = openProducer(output, { now: () => at });
+  assert.deepEqual(producer.snapshot().days, partial.days);
+  capture = createCapture(filename, config, options);
+  opening.attribution = { method: 'admin', desk: 'j' };
+  capture(state); capture.close();
+  assert.deepEqual(readJournal(filename).at(-1).positionProof.foreign, []);
+  producer.ingest(readJournal(filename));
+  const attributed = producer.snapshot();
+  assert.ok(attributed.days.every(day => (day.coverage ?? 'full') === 'full'));
+  assert.equal(attributed.trades.length, 1);
+  assert.equal(attributed.days[1].desks.j.trades, 1);
+  assert.equal(attributed.days[1].desks.j.realisedNet.amount, '2');
+  assert.equal(validateResults(attributed).ok, true);
+  producer.close();
+  producer = openProducer(output, { now: () => at });
+  producer.ingest(readJournal(filename));
+  assert.deepEqual(producer.snapshot().days, attributed.days);
   producer.close();
 });
 

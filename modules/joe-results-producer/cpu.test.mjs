@@ -8,12 +8,13 @@ import { DESKS } from './fifo.mjs';
 import { CONTRACTS, validateContract } from './contracts/index.mjs';
 
 // 2,500 ms CPU per ingest/build or restart-replay/build operation, including
-// ingress/served validation; each processes 1,920 cuts (32 per day).
+// ingress/served validation; each processes 1,920 cuts (32 per day), per-cut
+// proofs and a persistent earlier gap, exercising indexed baseline lookups.
 // Workload calibrated on Apple silicon below; the fixed limit leaves >=5x
 // headroom for the often 2-3x slower ubuntu CI runners, including full replay.
 // macOS Node 24.20.0 calibration includes the complete T100 producer run.
-// Spring/autumn ingest: 427.409/272.711 ms; replay: 171.618/170.191 ms.
-// The worst measured operation leaves 5.84x headroom to the 2,500 ms bound.
+// Spring/autumn ingest: 492.682/386.657 ms; replay: 185.286/186.565 ms.
+// The worst T100 operation leaves 5.07x headroom to the 2,500 ms bound.
 const CPU_BOUND_MS = 2_500;
 const iso = value => new Date(value).toISOString();
 
@@ -22,6 +23,8 @@ for (const [season, start, firstNoon, dstDay] of [
   ['autumn', '2026-09-27T22:00:00.000Z', '2026-09-28T12:00:00.000Z', '2026-10-25'],
 ]) test(`bounded CPU: 60 Vienna days, three desks, 4320 fills, KEEP and ${season} DST`, t => {
   const fills = [], observations = [], cuts = [], base = Date.parse(firstNoon);
+  const historyFrom = iso(Date.parse(start) - 86400_000);
+  const gaps = [{ fromInclusive: iso(Date.parse(start) - 7200_000), toExclusive: iso(Date.parse(start) - 3600_000) }];
   const at = iso(base + 60 * 86400_000);
   for (let day = 0; day < 60; day++) {
     const noon = base + day * 86400_000;
@@ -43,7 +46,9 @@ for (const [season, start, firstNoon, dstDay] of [
       const capturedAt = iso(noon + (cut + 1) * 86400_000 / 32);
       cuts.push({ type: 'cut', at: capturedAt, authoritative: true, disagreement: false,
         fills: cut === 0 ? fills.slice(firstFill) : [],
-        historyCoverage: { status: 'complete', target: { fromInclusive: start, toExclusive: capturedAt }, gaps: [] } });
+        positionProof: { at: cut === 0 ? iso(noon - 7200_000) : capturedAt,
+          positions: [{ instrument: 'synthetic-ACME', quantity: '0' }], foreign: [] },
+        historyCoverage: { status: 'known', target: { fromInclusive: historyFrom, toExclusive: capturedAt }, gaps } });
     }
   }
   assert.equal(fills.length, 4320);
@@ -62,7 +67,7 @@ for (const [season, start, firstNoon, dstDay] of [
     assert.equal(validateContract('results', served, { stage: 'served' }).ok, true);
     const usage = process.cpuUsage(before), cpuMs = (usage.user + usage.system) / 1000;
     const bytes = Buffer.byteLength(JSON.stringify(served));
-    t.diagnostic(`ingest_cpu_ms=${cpuMs.toFixed(3)} bound_ms=${CPU_BOUND_MS} cuts=${cuts.length} served_bytes=${bytes} limit_bytes=${CONTRACTS.limits.results}`);
+    t.diagnostic(`ingest_cpu_ms=${cpuMs.toFixed(3)} bound_ms=${CPU_BOUND_MS} cuts=${cuts.length} proofs=${cuts.length} gaps=${gaps.length} served_bytes=${bytes} limit_bytes=${CONTRACTS.limits.results}`);
     assert.ok(cpuMs < CPU_BOUND_MS, `ingest CPU ${cpuMs} ms exceeds ${CPU_BOUND_MS} ms`);
     producer.close();
     const beforeReplay = process.cpuUsage();
