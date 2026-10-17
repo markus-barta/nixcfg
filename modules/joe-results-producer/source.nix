@@ -4,6 +4,7 @@ pkgs.runCommand "joe-results-producer-source" { } ''
   mkdir -p "$out"
   cp ${./main.mjs} "$out/main.mjs"
   cp ${./capture.mjs} "$out/capture.mjs"
+  cp ${./fx.mjs} "$out/fx.mjs"
   cp ${./fifo.mjs} "$out/fifo.mjs"
   cp ${./journal.mjs} "$out/journal.mjs"
   cp ${./producer.mjs} "$out/producer.mjs"

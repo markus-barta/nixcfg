@@ -3,6 +3,7 @@ import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mj
 import { validInstant } from './contracts/schema-validator.mjs';
 import { validateResults, historyGaps, updateHistoryIntervals } from './results-validation.mjs';
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
+import { dayFx, fxDayPartial } from './fx.mjs';
 import { brokerMismatches } from './broker-backstop.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
@@ -22,7 +23,8 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   if (!keepSymbols.includes('SXR8') || !keepSymbols.includes('TSLA')) throw unavailable();
   let start, sourceCount = 0, seq = 0, generatedAt = null;
   const fills = new Map(), mismatches = new Set();
-  let authority = null, latestHealth = null;
+  let authority = null, latestHealth = null, fxStatus = null;
+  const fxDays = new Map();
   let coverageIntervals = [];
   let historyStart = Infinity;
   const positionProofs = new PositionProofIndex();
@@ -36,6 +38,13 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       else if (row.type === 'cut') {
         for (const fill of row.fills) fills.set(fill.key, fill);
         authority = row;
+        if (row.fxSampler) {
+          fxStatus = { enabled: row.fxSampler.enabled, reason: row.fxSampler.reason };
+          for (const [date, day] of Object.entries(row.fxSampler.days || {})) {
+            const frozen = fxDays.get(date)?.samples?.find(sample => sample.kind === 'close');
+            fxDays.set(date, frozen ? { ...day, samples: [...(day.samples || []).filter(sample => sample.kind !== 'close'), frozen] } : day);
+          }
+        }
         if (row.authoritative) {
           coverageIntervals = updateHistoryIntervals(coverageIntervals, row.historyCoverage, row.at);
           if (historyGaps(row.historyCoverage, row.at)) historyStart = Math.min(historyStart, Date.parse(row.historyCoverage.target.fromInclusive));
@@ -67,7 +76,11 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (generatedAt && Date.parse(at) < Date.parse(generatedAt)) throw new Error('clock_regressed');
     if (!start || !authority?.authoritative || !validInstant(authority.at) || Date.parse(authority.at) > Date.parse(at)) throw unavailable();
     if (seq >= Number.MAX_SAFE_INTEGER) throw new Error('sequence_exhausted');
-    const captured = [...fills.values()];
+    const captured = [...fills.values()].map(fill => {
+      if (!fxStatus || fill.currency !== 'USD') return fill;
+      const fx = dayFx(fxDays.get(viennaDate(fill.at)), viennaDate(fill.at), at);
+      return fx ? { ...fill, closeFx: fx } : fill;
+    });
     const trades = roundTrips(captured, start, keepSymbols);
     if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
     const proofFrom = new Date(Math.min(Date.parse(start), historyStart)).toISOString();
@@ -77,7 +90,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: coverageIntervals, earlierGaps });
     const backstop = brokerMismatches(days, stage0, start, at);
     const partial = new Set(backstop.map(record => record.day));
-    for (const day of days) if (partial.has(day.date)) day.coverage = 'partial';
+    for (const day of days) {
+      if (partial.has(day.date) || fxStatus && fxDayPartial(fxDays.get(day.date), day.date, fxStatus, at)) day.coverage = 'partial';
+    }
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
     const checked = validateResults(candidate);

@@ -31,7 +31,7 @@ function closedDays(intervals, at) {
 // reads this file. No account, broker/order ID, orderRef or receipt is written.
 export function createCapture(filename, config, { account, attribute, executionTime, now = () => new Date().toISOString(), keepSymbols = ['SXR8', 'TSLA'] } = {}) {
   if (!account || typeof attribute !== 'function' || typeof executionTime !== 'function') throw unavailable();
-  let journal, known, closeFx, lastAuthority, lastGaps, ordinals, nextOrdinal = 0;
+  let journal, known, closeFx, lastAuthority, lastGaps, lastFx, ordinals, nextOrdinal = 0;
   let proven = [], days = new Set();
   const instruments = new Set();
   function initialize() {
@@ -52,6 +52,7 @@ export function createCapture(filename, config, { account, attribute, executionT
     if (previous?.type === 'cut') {
       lastAuthority = authorityHash(previous);
       lastGaps = hash(previous.historyCoverage?.gaps ?? null);
+      lastFx = hash(previous.fxSampler ?? null);
       days = closedDays(proven, previous.at);
     }
   }
@@ -128,18 +129,20 @@ export function createCapture(filename, config, { account, attribute, executionT
     }
     for (const fill of changed) if (fill.scope === 'stage0') instruments.add(fill.instrument);
     const positionProof = capturePositionProof(state, config, keepSymbols, { account, attribute }, instruments, at);
-    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof };
+    const fxSampler = state.resultsFxSampler ? structuredClone(state.resultsFxSampler) : null;
+    const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof, ...(fxSampler ? { fxSampler } : {}) };
     const nextAuthority = authorityHash(event);
     const gapHash = hash(historyCoverage?.gaps ?? null);
+    const fxHash = hash(fxSampler);
     const nextProven = authority ? updateHistoryIntervals(proven, historyCoverage, at) : proven;
     const nextDays = closedDays(nextProven, at);
     // Moving intraday bounds alone do not justify another durable cut. Keep
     // authority/fill changes and changed gaps immediate, including on restart.
-    if (!changed.length && nextAuthority === lastAuthority && gapHash === lastGaps && ![...nextDays].some(day => !days.has(day))) return;
+    if (!changed.length && nextAuthority === lastAuthority && gapHash === lastGaps && fxHash === lastFx && ![...nextDays].some(day => !days.has(day))) return;
     journal.append(event);
     for (const fill of changed) known.set(fill.key, hash(fill));
     lastAuthority = nextAuthority;
-    lastGaps = gapHash; proven = nextProven; days = nextDays;
+    lastGaps = gapHash; lastFx = fxHash; proven = nextProven; days = nextDays;
   }
   capture.close = () => journal?.close();
   return capture;

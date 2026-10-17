@@ -741,9 +741,11 @@ contract's eight fractional digits holds the whole snapshot; nothing rounds.
 Source quantities, prices, commissions and broker-position evidence must be
 decimal strings; numeric financial inputs are refused rather than stringifying
 an already rounded binary value. Missing fees/close FX also hold the entire
-snapshot. USD close FX
-must have been observed within 60 seconds of the execution; old fills never
-receive today's rate. EUR uses identity FX. Existing open lots can seed the
+snapshot. With the JOED-20 sampler, USD fills use their own day's latest RTH
+observation provisionally and the frozen 16:05 New York close when available.
+The rate and sample timestamp travel together; a later day's rate never fills
+historical holes. Legacy capture evidence keeps its execution-local 60-second
+rule. EUR uses identity FX. Existing open lots can seed the
 book, but round trips closing before capture began are omitted. `trackingStart`
 is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
@@ -937,6 +939,71 @@ Paper proof, for the operator **after** separate enablement approval:
 Open ingress gates: exact route/auth and credential handoff; response receipt
 contract; exact broker source evidence; immutable deployment pins and Amy's
 paper reconciliation approval. Household fragments are excluded from v1; the
-per-desk close-basis field is P3. **Close-FX cadence (item 5) is ON HOLD:** do not
-add or wire IB FX requests until Amy's separate scope answer reaches JOED.
-Local fixture ingress is a test adapter, not an installed service.
+per-desk close-basis field is P3. Amy's 2026-10-17 JOED-20 approval permits only
+the isolated USD/EUR sampler described below; it does not widen any other IB
+scope. Local fixture ingress is a test adapter, not an installed service.
+
+### Close-FX sampler (JOED-20, local candidate)
+
+The paper executor runs a separate background FX reader, default on, using
+client 709 and request IDs in 920000000..929999999. Reserve client 709 separately
+from order/recon, quote and book clients. It requests only EUR/USD CASH on
+IDEALPRO (`reqMktData`, snapshot=true, regulatorySnapshot=false), then inverts
+the bid/ask midpoint to a USD→EUR observation at eight decimal places. It uses
+`cancelMktData` on success, error or timeout and disconnects its dedicated
+client; it requests no account, order, execution or historical data.
+The snapshot/cancellation mechanics follow the [IB API documentation](https://interactivebrokers.github.io/tws-api/md_request.html).
+
+The one-second scheduler interprets America/New_York wall time: 09:30–16:00
+RTH in 15-minute buckets, plus the fixed 16:05 close minute. Each RTH attempt
+also requires a rolling 15-minute gap. A durable reservation precedes the IB
+request, including across restart; this implementation chooses **zero retries**
+(within the approved maximum of one). No catch-up request runs outside its
+slot. RTH holidays and 13:00 early closes use the reviewed
+[NYSE 2026–2028 calendar](https://ir.theice.com/press/news-details/2025/NYSE-Group-Announces-2026-2027-and-2028-Holiday-and-Early-Closings-Calendar/);
+unknown years make no requests until that calendar is reviewed. For an
+exceptional unscheduled market closure, OPS disables the sampler. The 16:05
+sample remains fixed even on a scheduled early-close trading day. During
+26–30 October 2026, 16:05 New York is **21:05 Vienna** (20:05 UTC), not 22:05.
+
+`/var/lib/paper-desk-executor/results-fx.json` stores up to 14 sampled days,
+each with bounded bucket reservations, attempt timestamp/reason and at most
+27 `{rate, sampleAt, kind}` observations; the file cap is 256 KiB. It is a
+separate executor state sidecar, never part of `ledger.json`. Capture copies
+only this FX metadata into its durable cuts, so the producer retains frozen
+historical closes after sidecar/ledger pruning. Preserve the two Results
+journals when rolling back. A missing close is never backfilled the next day.
+The open day is partial/yellow when disabled, sampling fails, or its latest
+RTH observation is more than 30 minutes old during RTH. A failed/missed close
+keeps that day partial. Missing all usable FX still holds USD round trips,
+consistent with the existing no-invented-rates gate.
+
+Runtime kill switch, no rebuild or restart: OPS creates the regular file
+`/var/lib/paper-desk-executor/FX-SAMPLER-OFF`, owned by 1000:1000, for example
+`sudo install -m 0600 -o 1000 -g 1000 /dev/null /var/lib/paper-desk-executor/FX-SAMPLER-OFF`.
+Contents are irrelevant. The next idle scheduler tick observes it; an already
+in-flight snapshot finishes or times out within ten seconds. No later request
+runs while it is present. An unreadable/invalid switch also disables requests.
+OPS can remove its own switch with `trash` to resume in the next eligible
+unreserved bucket. Disabling only affects Results completeness: it never
+changes order admission, ownership, brakes, recon, HALT or `/v1/health`.
+
+Live verification belongs to OPS after a separately reviewed deployment. Keep
+all broker/account payloads private. Inspect the sidecar with a local script
+that prints **only** day keys, sample counts, `sampleAt`, `kind`, attempt reasons
+and file byte count; never print rates or the whole JSON. Check one request
+per bucket and a single close, using timestamps rather than values. Confirm
+that the OFF file suppresses the next eligible bucket and capture records
+`enabled:false`; confirm producer day coverage is partial. Compare the
+loopback health projection's ledgerBytes/ledgerPercent, status, brakes and
+HALT before/after sampling, without printing its account field. Confirm the
+sampler's client disconnects and has no remaining market-data lines in the
+Gateway. Verify fills/recon through Amy's normal private paper workflow;
+record only counts, digests and pass/fail on JOED-20.
+
+Rollback starts by creating the OFF file and retaining it. Preserve the
+sidecar and both journals (do not reset bucket reservations or producer
+sequence). OPS then uses the normal reviewed rollback to the prior executor
+source pin; round-8 baseline is `697959a6`. Keep Results disabled unless its
+existing ingress and paper-reconciliation gates pass. This candidate neither
+deploys nor changes producer enablement or board pins.
