@@ -72,7 +72,7 @@ test('missing commission and USD FX exclude portions; legacy and unowned rows ar
   const missingFees = [];
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, commission: null })), start, floor, () => {}, row => missingFees.push(row)), []);
   assert.equal(missingFees.length, 3);
-  assert.ok(missingFees.every(row => row.kind === 'source_not_authoritative'));
+  assert.ok(missingFees.every(row => row.kind === 'broker_evidence_missing' && !('portionHash' in row) && !('at' in row)));
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, scope: 'legacy' })), start, floor), []);
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, desk: null })), start, floor), []);
 });

@@ -12,6 +12,18 @@ const min = (a, b) => a < b ? a : b;
 export const unavailable = () => new Error('source_not_authoritative');
 const positive = s => { const n = decimalUnits(s); if (n <= 0n) throw unavailable(); return n; };
 
+// Shared with capture and the downstream projections: a refused fill must
+// never reach a quantity book or prevent unrelated Results from being built.
+export function invalidFillField(fill) {
+  if (!validInstant(fill.at)) return 'at';
+  if (typeof fill.symbol !== 'string' || !/^[A-Z0-9][A-Z0-9._-]{0,15}$/.test(fill.symbol)) return 'symbol';
+  if (!['BUY', 'SELL'].includes(fill.side)) return 'side';
+  for (const field of ['quantity', 'price']) {
+    try { positive(fill[field]); } catch { return field; }
+  }
+  return null;
+}
+
 function fxFor(fill) {
   const fx = fill.closeFx;
   if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt) || !fx.source || fx.source.length > 80
@@ -25,7 +37,8 @@ function fxFor(fill) {
 // Keep each portion rational through allocation AND FX. Opening and closing
 // fees are combined before the one authorized rounding point per USD portion.
 function feePortion(fill, quantity, fx) {
-  if (!fill.commission || !['EUR', fill.currency].includes(fill.commission.currency)) throw unavailable();
+  if (!fill.commission) throw Object.assign(unavailable(), { conversionReason: 'commission_missing' });
+  if (!['EUR', fill.currency].includes(fill.commission.currency)) throw unavailable();
   const fee = decimalUnits(fill.commission.amount);
   if (fee < 0n) throw unavailable();
   const rate = fill.commission.currency === 'EUR' ? UNIT : decimalUnits(fx.rate);
@@ -67,11 +80,21 @@ function eurPortion(lot, fill, quantity, price) {
 
 export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => {}, onExcluded = () => {}) {
   const lots = new Map(), trades = [];
-  for (const fill of [...fills].sort((a, b) => (a.at || '').localeCompare(b.at || '') || (a.ordinal || 0) - (b.ordinal || 0) || a.key.localeCompare(b.key))) {
+  for (const fill of [...fills].sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')) || (a.ordinal || 0) - (b.ordinal || 0) || String(a.key).localeCompare(String(b.key)))) {
     if (!DESKS.includes(fill.desk) || fill.scope !== 'stage0') continue;
     if (keepSymbols.includes(fill.symbol)) continue;
-    if (!validInstant(fill.at) || !/^[A-Z0-9][A-Z0-9._-]{0,15}$/.test(fill.symbol) || !['BUY', 'SELL'].includes(fill.side)) throw unavailable();
-    const total = positive(fill.quantity), price = positive(fill.price);
+    let total, price;
+    try {
+      if (invalidFillField(fill)) throw unavailable();
+      total = positive(fill.quantity); price = positive(fill.price);
+    } catch {
+      // Old journals can predate capture validation. Keep a value-free guard
+      // for this fill and continue with the remaining books and days.
+      const at = validInstant(fill.at) && fill.at >= trackingInstant ? fill.at : trackingInstant;
+      onExcluded({ day: viennaDate(at), deskHash: hash(fill.desk), kind: 'source_not_authoritative',
+        portionHash: hash(['invalid-fill', fill.key]), instrumentHash: hash(fill.instrument), at });
+      continue;
+    }
     const sign = fill.side === 'BUY' ? 1n : -1n;
     const key = `${fill.desk}:${fill.instrument}:${fill.currency}`;
     const book = lots.get(key) || [];
@@ -94,9 +117,10 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
           // A failed portion must not stop other output or reuse its quantity.
           // EUR retains exactUnits: no rounding policy is introduced here.
           const missingFx = fill.currency === 'USD' && error.conversionReason === 'fx_missing';
+          const missingCommission = error.conversionReason === 'commission_missing';
           onExcluded({ day: viennaDate(fill.at), deskHash: hash(fill.desk),
-            kind: missingFx ? 'fx_missing' : 'source_not_authoritative',
-            ...(!missingFx ? {
+            kind: missingFx ? 'fx_missing' : missingCommission ? 'broker_evidence_missing' : 'source_not_authoritative',
+            ...(!missingFx && !missingCommission ? {
               portionHash: hash([lot.fill.key, fill.key, unitsDecimal(lot.used), unitsDecimal(used)]),
               instrumentHash: hash(fill.instrument), at: fill.at,
             } : {}),

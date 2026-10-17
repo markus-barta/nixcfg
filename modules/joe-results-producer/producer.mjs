@@ -1,5 +1,5 @@
 import { openJournal, readJournal, hash, createJournalReader } from './journal.mjs';
-import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
+import { roundTrips, dayCloses, viennaDate, unavailable, DESKS, invalidFillField } from './fifo.mjs';
 import { validInstant, validDate } from './contracts/schema-validator.mjs';
 import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals, mergeIntervals } from './results-validation.mjs';
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
@@ -113,7 +113,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (!start || !authority?.authoritative || !validInstant(authority.at) || Date.parse(authority.at) > Date.parse(at)) throw unavailable();
     if (seq >= Number.MAX_SAFE_INTEGER) throw new Error('sequence_exhausted');
     const captured = [...fills.values()].map(fill => {
-      if (!fxStatus || fill.currency !== 'USD') return fill;
+      if (!fxStatus || fill.currency !== 'USD' || invalidFillField(fill)) return fill;
       const fx = dayFx(fxDays.get(viennaDate(fill.at)), viennaDate(fill.at), at);
       return fx ? { ...fill, closeFx: fx } : fill;
     });
@@ -121,7 +121,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     const trades = roundTrips(captured, start, keepSymbols, () => {}, record => excluded.push(record));
     if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
     const proofFrom = new Date(Math.min(Date.parse(start), historyStart)).toISOString();
-    const stage0 = captured.filter(fill => DESKS.includes(fill.desk) && fill.scope === 'stage0' && !keepSymbols.includes(fill.symbol));
+    const stage0 = captured.filter(fill => DESKS.includes(fill.desk) && fill.scope === 'stage0' && !keepSymbols.includes(fill.symbol) && !invalidFillField(fill));
     const executions = stage0.filter(fill => fill.at >= start).map(({ desk, instrument, at }) => ({ desk, instrument, at }));
     const earlierGaps = earlierGapDays(stage0, executions, coverageIntervals, positionProofs, proofFrom);
     // Containment gaps are scoped to the affected desk/instrument. Keep the
@@ -153,6 +153,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     }
     for (const issue of captureIssues.values()) {
       if (!days.some(day => day.date === issue.day)) days.push({ date: issue.day, desks: {}, coverage: 'partial' });
+    }
+    for (const record of [...excluded, ...guarded.values()]) {
+      if (!days.some(day => day.date === record.day)) days.push({ date: record.day, desks: {}, coverage: 'partial' });
     }
     days.sort((a, b) => a.date.localeCompare(b.date));
     const usdDays = new Set(stage0.filter(fill => fill.currency === 'USD').map(fill => viennaDate(fill.at)));
@@ -202,8 +205,9 @@ export function createRunner({ producer, readSource, readHealth, transport, now 
         const source = await readSource();
         if (typeof source === 'string') producer.ingestJournal(source);
         else producer.ingest(source);
+        const snapshot = producer.snapshot(new Date(now()).toISOString());
         producer.health(await readHealth(), new Date(now()).toISOString());
-        await transport.send(producer.snapshot(new Date(now()).toISOString()));
+        await transport.send(snapshot);
         failures = 0;
         return true;
       } catch (error) {

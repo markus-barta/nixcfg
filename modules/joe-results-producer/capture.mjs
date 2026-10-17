@@ -1,7 +1,7 @@
 import { sdkDecimal } from './sdk-decimal.mjs';
 import { validDate, validInstant } from './contracts/schema-validator.mjs';
 import { decimalUnits } from './contracts/decimal.mjs';
-import { DESKS, unavailable } from './fifo.mjs';
+import { DESKS, unavailable, invalidFillField } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
 import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHistoryIntervals, viennaDate } from './results-validation.mjs';
 import { brokerQuantity, capturePositionProof } from './position-proof.mjs';
@@ -32,19 +32,25 @@ function closedDays(intervals, at) {
 // reads this file. No account, broker/order ID, orderRef or receipt is written.
 export function createCapture(filename, config, { account, attribute, executionTime, now = () => new Date().toISOString(), keepSymbols = ['SXR8', 'TSLA'] } = {}) {
   if (!account || typeof attribute !== 'function' || typeof executionTime !== 'function') throw unavailable();
-  let journal, known, closeFx, lastAuthority, lastGaps, lastFx, ordinals, nextOrdinal = 0;
+  let journal, known, closeFx, lastAuthority, lastGaps, lastFx, ordinals, captureStart, nextOrdinal = 0;
   let proven = [], days = new Set();
   const instruments = new Set(), fxHashes = new Map(), issues = new Map(), closeFxSources = new Set();
+  const refusedInstants = new Map();
   function initialize() {
     if (journal) return;
     known = new Map(); closeFx = new Map(); ordinals = new Map();
     let previous, lastCut;
     journal = openJournal(filename, { retain: () => false, onEntry: event => {
       previous = event;
+      if (event.type === 'start') captureStart = event.at;
       for (const issue of event.captureIssues || []) issues.set(issue.id, issue);
       if (event.type === 'cut') lastCut = event;
       if (event.authoritative) proven = updateHistoryIntervals(proven, event.historyCoverage, event.at);
       for (const fill of event.fills || []) {
+        if (fill.scope === 'excluded' && (event.captureIssues || []).some(issue => issue.field === 'at'
+          && issue.id === hash([fill.key, 'at', 'capture_gap', issue.day, true]))) {
+          refusedInstants.set(fill.key, Math.max(Date.parse(captureStart), Date.parse(event.at) - 1));
+        }
         if (fill.scope === 'stage0') instruments.add(fill.instrument);
         known.set(fill.key, hash(fill));
         if (fill.closeFx) closeFx.set(fill.key, fill.closeFx);
@@ -59,7 +65,7 @@ export function createCapture(filename, config, { account, attribute, executionT
         }
       }
     } });
-    if (!previous) journal.append({ type: 'start', at: now() });
+    if (!previous) { captureStart = now(); journal.append({ type: 'start', at: captureStart }); }
     if (lastCut) {
       lastAuthority = authorityHash(lastCut);
       lastGaps = hash(lastCut.historyCoverage?.gaps ?? null);
@@ -75,28 +81,44 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (!issues.has(record.id) && !captureIssues.some(row => row.id === record.id)) captureIssues.push(record);
     }
     const commissions = new Map((state.commissions || []).map(row => [row.execId, row]));
+    const epochFor = row => {
+      try { return executionTime(row.execution?.time); } catch { return NaN; }
+    };
+    // An unusable execution instant cannot be assigned a historical day.
+    // Refuse it at the last millisecond before this capture instead of stopping
+    // every fill; never publish a fabricated execution timestamp.
+    function refuseInstant(key, desk) {
+      const epoch = refusedInstants.get(key) ?? Math.max(Date.parse(captureStart), Date.parse(at) - 1);
+      refusedInstants.set(key, epoch);
+      issue(viennaDate(new Date(epoch).toISOString()), desk, 'capture_gap', key, 'at');
+      unattributed.add(epoch);
+    }
     // Preserve broker ordering for same-instant fills WITHOUT retaining the
     // broker identifier as the sort key. Corrections retain the original rank.
-    const ordered = [...(state.executions || [])].sort((a, b) => executionTime(a.execution?.time) - executionTime(b.execution?.time) || String(a.execution?.execId).localeCompare(String(b.execution?.execId)));
+    const ordered = [...(state.executions || [])].sort((a, b) => epochFor(a) - epochFor(b) || String(a.execution?.execId).localeCompare(String(b.execution?.execId)));
     for (const row of ordered) {
       const e = row.execution, c = row.contract;
       if (!e?.execId || !c) throw unavailable();
       // Corrections replace one logical fill in the accumulated projection.
       const key = hash(String(e.execId).replace(/\.\d+$/, '.'));
-      const exclude = () => {
+      const exclude = (refused = false) => {
         const tombstone = { key, desk: null, scope: 'excluded' };
-        if (known.has(key) && known.get(key) !== hash(tombstone)) changed.push(tombstone);
+        if ((refused || known.has(key)) && known.get(key) !== hash(tombstone)) changed.push(tombstone);
       };
       const ownership = attribute(row, config);
+      const epoch = epochFor(row);
+      const fillAt = Number.isFinite(epoch) && Math.abs(epoch) <= 8640000000000000 ? new Date(epoch).toISOString() : null;
       if (e.acctNumber === account && !keepSymbols.includes(c.symbol) && ownership.needsAttribution) {
-        const epoch = executionTime(e.time);
-        if (!Number.isFinite(epoch)) throw unavailable();
+        if (!validInstant(fillAt)) {
+          refuseInstant(key, null); exclude(true); continue;
+        }
         if (epoch >= Date.parse(config.foreignAlertSince)) unattributed.add(epoch);
       }
       if (e.acctNumber !== account || !DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external') { exclude(); continue; }
       if (keepSymbols.includes(c.symbol)) { exclude(); continue; }
-      const epoch = executionTime(e.time);
-      if (!Number.isFinite(epoch)) throw unavailable();
+      if (!validInstant(fillAt)) {
+        refuseInstant(key, ownership.desk); exclude(true); continue;
+      }
       // Legacy scope and retired client ownership are not Stage-0 results.
       if (epoch < Date.parse(config.foreignAlertSince) || (ownership.method !== 'admin' && Number(e.clientId) !== config.executorClientId)) { exclude(); continue; }
       const day = viennaDate(new Date(epoch).toISOString()), provenance = [];
@@ -107,17 +129,19 @@ export function createCapture(filename, config, { account, attribute, executionT
         return result.amount;
       };
       const quantity = convert(e.shares, 'quantity'), price = convert(e.price, 'price');
+      const fields = { symbol: c.symbol, side: { BOT: 'BUY', BUY: 'BUY', SLD: 'SELL', SELL: 'SELL' }[e.side], at: fillAt, quantity, price };
+      const invalid = invalidFillField(fields);
+      if (invalid && (!['quantity', 'price'].includes(invalid) || fields[invalid] !== undefined)) issue(day, ownership.desk, 'capture_gap', key, invalid);
       const commission = commissions.get(e.execId);
       const amount = commission ? convert(commission.commission, 'commission.amount') : undefined;
       const brokerRealised = captureBrokerRealised(commission);
       if (commission && sdkDecimal(commission.realizedPNL).refused) issue(day, ownership.desk, 'broker_evidence_missing', key, 'brokerRealised.amount');
-      if (quantity === undefined || price === undefined || commission && amount === undefined) {
+      if (invalid || commission && amount === undefined) {
         // A refused opening must remain a history gap even when a later close
         // reports exactly zero PnL and therefore cannot reveal the missing lot.
         unattributed.add(epoch);
         // Replace an earlier usable correction; never leave its old value live.
-        const tombstone = { key, desk: null, scope: 'excluded' };
-        if (known.has(key) && known.get(key) !== hash(tombstone)) changed.push(tombstone);
+        exclude(true);
         continue;
       }
       let fx = closeFx.get(key) || null;
@@ -136,8 +160,8 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (!ordinals.has(key)) ordinals.set(key, ++nextOrdinal);
       const fill = {
         key, ordinal: ordinals.get(key), desk: ownership.desk, scope: 'stage0', instrument: hash([c.conId, c.symbol, c.currency]),
-        symbol: c.symbol, currency: c.currency, side: { BOT: 'BUY', BUY: 'BUY', SLD: 'SELL', SELL: 'SELL' }[e.side],
-        at: new Date(epoch).toISOString(), quantity, price,
+        symbol: fields.symbol, currency: c.currency, side: fields.side,
+        at: fields.at, quantity, price,
         commission: commission ? { amount, currency: commission.currency } : null,
         brokerRealised,
         ...(provenance.length ? { provenance } : {}),

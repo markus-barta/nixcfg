@@ -750,11 +750,14 @@ cross-check stays exact. EUR portions retain their exact conversion policy.
 The producer reads decimal strings only; the capture SDK boundary converts
 Numbers per I-2 (a), as detailed below. Missing or stale USD FX excludes its
 portion and marks its day partial with a value-free `conversion-exclusion`
-journal record whose `kind` is `fx_missing`. Other failed portions, including
+journal record whose `kind` is `fx_missing`.
+A missing opening or closing commission temporarily excludes its portion and marks its day partial with journal-only `broker_evidence_missing`, without a durable portion guard, scoped gap or `portionExclusions` count; the next snapshot can emit the trade and restore full coverage when the commission arrives.
+Other failed portions, including
 EUR allocations that cannot be represented exactly at eight decimals, are
 excluded with the existing `source_not_authoritative` reason. Their journal
 records contain only day/time and hashed desk, instrument and portion identity.
 The quantity book advances even on exclusion; other portions keep producing.
+Coverage is per day across all desks: an affected desk makes the shared day partial while other desks retain their trades and totals.
 Each such exclusion adds a 1 ms history gap at the affected close, scoped to
 its desk and instrument. Its day stays partial, and later days with fills in
 that book stay partial until position evidence covers the gap under the existing
