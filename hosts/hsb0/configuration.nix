@@ -83,9 +83,13 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@577c1590 nix/module.nix:41-50,109-230.
-  # seed and discovery.leasesFile retain their null defaults (:52-60,128-136).
-  # The module owns the initially empty StateDirectory (:252-282); no data import.
+  # Options: hausnetz@a3941487 nix/module.nix:44-252.
+  # seed keeps its null default (:65-73). discovery.leasesFile defaults to
+  # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,141-161).
+  # HNET-228 (Markus's go 2026-10-17): a root hausnetz-leases unit copies it to
+  # /run/hausnetz-leases (0640, group hausnetz-leases); hausnetz reads only the
+  # copy (:307-359,434-435). Leases are optional enrichment, not a dependency.
+  # The module owns the initially empty StateDirectory (:400); no data import.
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";

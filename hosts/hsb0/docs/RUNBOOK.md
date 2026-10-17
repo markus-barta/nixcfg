@@ -263,12 +263,17 @@ replies only on that same interface (`ssdpInterfaces` defaults to
 remote SSDP query destination, not an additional inbound opening. The module
 also allows AF_NETLINK for Go interface enumeration. State starts empty in
 `/var/lib/private/hausnetz` (DynamicUser, exposed as `/var/lib/hausnetz`), with no
-seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
+seed. Since `v261017120723.0.0` (HNET-228) the DHCP leases are optional
+enrichment: because AdGuard runs DHCP here, `discovery.leasesFile` defaults to
+`/var/lib/AdGuardHome/data/leases.json`; the root `hausnetz-leases` service
+(path unit on change plus a 5-minute timer) copies it to
+`/run/hausnetz-leases/leases.json` (0640 root:hausnetz-leases, 8 MiB bound) and
+hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50% CPU quota, nice 10.
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `577c1590b43dea87e43f101b8e9e8bfa130ecfcf`
-(`v261017075838.0.0`, OPS-355), with `discovery.passive = true` (ARP/DHCP
+The private flake input is pinned to `a39414875b577c81c10c13dbe32a3741f36ddfe3`
+(`v261017120723.0.0`, OPS-355), with `discovery.passive = true` (ARP/DHCP
 listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
@@ -300,8 +305,11 @@ run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
 and build), then `just switch`. Roll back this bump by reverting its reviewed
 commit(s), restoring the previous pin
-`680a1d4eebf0050158eab4c73ead818cbddba32b` (`v261016221544.0.0`), its lock
-node and the T99 pin; the options are unchanged between the two releases.
+`577c1590b43dea87e43f101b8e9e8bfa130ecfcf` (`v261017075838.0.0`), its lock
+node and the T99 pin. That release has no leases copy: rolling back removes the
+`hausnetz-leases` units and hausnetz runs without leases (no other option
+changed). The tmpfiles directory `/run/hausnetz-leases` and its copy stay on
+tmpfs until the next reboot; nothing reads them after the rollback.
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /ops/api/export` on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets

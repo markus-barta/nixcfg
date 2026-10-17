@@ -56,9 +56,9 @@
       url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # OPS-355: v261017075838.0.0 (device web pages HNET-235, map labels HNET-221, touch drags HNET-179); explicitly reviewed revision; automated updates skip this input.
+    # OPS-355: v261017120723.0.0 (optional DHCP leases copy HNET-228); explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=577c1590b43dea87e43f101b8e9e8bfa130ecfcf";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=a39414875b577c81c10c13dbe32a3741f36ddfe3";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
