@@ -29,7 +29,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   const fxDays = new Map(), captureIssues = new Map();
   let coverageIntervals = [];
   let historyOnlyIntervals = [], fillGaps = [];
-  let historyStart = Infinity;
+  let historyStart = Infinity, historyEnd = -Infinity;
   const positionProofs = new PositionProofIndex();
   function apply(event) {
     if (event.type === 'start') start = event.at;
@@ -58,7 +58,9 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
         if (row.authoritative) {
           const effective = withFillGaps(row.historyCoverage, row.fillGaps);
           coverageIntervals = updateHistoryIntervals(coverageIntervals, effective, row.at);
-          historyOnlyIntervals = updateHistoryIntervals(historyOnlyIntervals, reportedHistoryCoverage(row), row.at);
+          const reported = reportedHistoryCoverage(row);
+          historyOnlyIntervals = updateHistoryIntervals(historyOnlyIntervals, reported, row.at);
+          if (historyGaps(reported, row.at)) historyEnd = Math.max(historyEnd, Date.parse(reported.target.toExclusive));
           if (historyGaps(effective, row.at)) {
             const a = Date.parse(effective.target.fromInclusive), b = Date.parse(effective.target.toExclusive);
             historyStart = Math.min(historyStart, a);
@@ -160,7 +162,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       const intervals = subtractIntervals(coverageIntervals, mergeIntervals(gaps));
       for (const day of earlierGapDays(stage0, affected, intervals, positionProofs, proofFrom)) earlierGaps.add(day);
     }
-    const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals, earlierGaps });
+    const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals, historyEnd, earlierGaps });
     // Gaps without an attributed desk remain visible without inventing ownership.
     for (const [a, b] of historyGaps(reportedHistoryCoverage(authority), authority.at) || []) {
       const first = viennaDate(new Date(Math.max(a, Date.parse(start))).toISOString());
