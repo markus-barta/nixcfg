@@ -2,6 +2,7 @@
 {
   enable ? true,
   endpoint ? "https://ingress.example.invalid/joe/inbox/results",
+  ingressHost ? "ingress.example.invalid",
   ingressAddress ? "192.0.2.10",
   keepSymbols ? [
     "SXR8"
@@ -54,10 +55,10 @@ let
           inherit
             enable
             endpoint
+            ingressHost
             ingressAddress
             keepSymbols
             ;
-          ingressHost = "ingress.example.invalid";
         };
       }
     ];

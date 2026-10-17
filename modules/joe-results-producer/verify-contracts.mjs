@@ -36,5 +36,6 @@ export function verifyContracts(root = path.dirname(fileURLToPath(import.meta.ur
   return true;
 }
 
-// argv gates CLI invocation only; main.mjs and Nix call verifyContracts directly.
+// source.nix, paper-desk-executor/default.nix and T100 run this via the CLI.
+// The argv check is safe for imports: main.mjs always calls verifyContracts.
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) verifyContracts();

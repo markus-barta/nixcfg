@@ -45,6 +45,9 @@ for options in ['{ endpoint = "http://ingress.example.invalid/joe/inbox/results"
     rejected = evaluate(options)
     assert rejected.returncode != 0, options
 host = (repo / "hosts/hsb0/configuration.nix").read_text()
+mixed_case = evaluate('{ ingressHost = "Ingress.example.invalid"; endpoint = "https://Ingress.example.invalid/joe/inbox/results"; }')
+assert mixed_case.returncode != 0, "mixed-case ingressHost must fail evaluation"
+assert "ingressHost" in mixed_case.stderr, mixed_case.stderr
 assert 'nixcfg.joeResultsProducer.enable = false;' in host
 assert '../../modules/joe-results-producer' in host
 print("JOED-20 enabled/disabled Nix evaluation and sandbox assertions passed (no build)")

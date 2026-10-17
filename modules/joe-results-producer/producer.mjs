@@ -1,7 +1,7 @@
 import { openJournal, readJournal, hash, createJournalReader } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS } from './fifo.mjs';
 import { validInstant, validDate } from './contracts/schema-validator.mjs';
-import { validateResults, historyGaps, updateHistoryIntervals } from './results-validation.mjs';
+import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals, mergeIntervals } from './results-validation.mjs';
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { dayFx, fxDayPartial } from './fx.mjs';
 import { brokerMismatches } from './broker-backstop.mjs';
@@ -23,6 +23,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   if (!keepSymbols.includes('SXR8') || !keepSymbols.includes('TSLA')) throw unavailable();
   let start, sourceCount = 0, sourceDigest = '0'.repeat(64), seq = 0, generatedAt = null;
   const fills = new Map(), mismatches = new Set(), exclusions = new Set();
+  const portionExclusions = new Map();
   let sourceReader, sourcePath;
   let authority = null, latestHealth = null, fxStatus = null;
   const fxDays = new Map(), captureIssues = new Map();
@@ -59,7 +60,10 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
         }
         if (row.authoritative && row.positionProof) positionProofs.add(row.positionProof);
       }
-    } else if (event.type === 'conversion-exclusion') exclusions.add(hash(event.record));
+    } else if (event.type === 'conversion-exclusion') {
+      exclusions.add(hash(event.record));
+      if (event.record.kind === 'source_not_authoritative') portionExclusions.set(hash(event.record), event.record);
+    }
     else if (event.type === 'broker-mismatch') mismatches.add(hash(event.record));
     else if (event.type === 'sequence') { seq = event.seq; generatedAt = event.at; }
     else if (event.type === 'health') latestHealth = event.value;
@@ -118,8 +122,24 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     if (trades.some(trade => Date.parse(trade.closedAt) > Date.parse(at))) throw unavailable();
     const proofFrom = new Date(Math.min(Date.parse(start), historyStart)).toISOString();
     const stage0 = captured.filter(fill => DESKS.includes(fill.desk) && fill.scope === 'stage0' && !keepSymbols.includes(fill.symbol));
-    const executions = stage0.filter(fill => fill.at >= start).map(({ instrument, at }) => ({ instrument, at }));
+    const executions = stage0.filter(fill => fill.at >= start).map(({ desk, instrument, at }) => ({ desk, instrument, at }));
     const earlierGaps = earlierGapDays(stage0, executions, coverageIntervals, positionProofs, proofFrom);
+    // Containment gaps are scoped to the affected desk/instrument. Keep the
+    // full quantity book for position proofs, without tainting other books.
+    // Durable records preserve the gap across corrections and producer replay.
+    const guarded = new Map(portionExclusions);
+    for (const record of excluded) if (record.kind === 'source_not_authoritative') guarded.set(hash(record), record);
+    const gapsByBook = new Map();
+    for (const record of guarded.values()) {
+      const key = `${record.deskHash}:${record.instrumentHash}`, gaps = gapsByBook.get(key) || [];
+      const epoch = Date.parse(record.at);
+      gaps.push([epoch, epoch + 1]); gapsByBook.set(key, gaps);
+    }
+    for (const [key, gaps] of gapsByBook) {
+      const affected = executions.filter(fill => `${hash(fill.desk)}:${hash(fill.instrument)}` === key);
+      const intervals = subtractIntervals(coverageIntervals, mergeIntervals(gaps));
+      for (const day of earlierGapDays(stage0, affected, intervals, positionProofs, proofFrom)) earlierGaps.add(day);
+    }
     const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: coverageIntervals, earlierGaps });
     // Gaps without an attributed desk remain visible without inventing ownership.
     for (const [a, b] of historyGaps(authority.historyCoverage, authority.at) || []) {
@@ -136,7 +156,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     }
     days.sort((a, b) => a.date.localeCompare(b.date));
     const usdDays = new Set(stage0.filter(fill => fill.currency === 'USD').map(fill => viennaDate(fill.at)));
-    const excludedDays = new Set(excluded.map(record => record.day));
+    const excludedDays = new Set([...excluded, ...guarded.values()].map(record => record.day));
     const backstop = brokerMismatches(days, stage0, start, at);
     const partial = new Set([...backstop.map(record => record.day), ...[...captureIssues.values()].map(record => record.day)]);
     for (const day of days) {
@@ -158,6 +178,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     health(health, at = now()) {
       const value = executorHealth(health, at, authority?.disagreement === true);
       value.captureRefusals = [...captureIssues.values()].filter(row => row.refused).length;
+      value.portionExclusions = portionExclusions.size;
       // Loopback executor health only; no household/account handoff in v1.
       const { checkedAt: _previousAt, ...previous } = latestHealth || {};
       const { checkedAt: _currentAt, ...current } = value;
