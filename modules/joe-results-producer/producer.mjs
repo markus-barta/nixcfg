@@ -5,8 +5,10 @@ import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { dayFx, fxDayPartial } from './fx.mjs';
 import { brokerMismatches } from './broker-backstop.mjs';
+import { IngressError } from './transport.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
+export const MIDNIGHT_RETRIES = 1;
 
 // Local executor loopback diagnostics, never a household health/account input
 // and never proof for the broker Results comparison.
@@ -249,12 +251,19 @@ export function createRunner({ producer, readSource, readHealth, transport, now 
       if (busy || now() < next) return false;
       busy = true; next = now() + CADENCE_MS;
       try {
-        const source = await readSource();
-        if (typeof source === 'string') producer.ingestJournal(source);
-        else producer.ingest(source);
-        const snapshot = producer.snapshot(new Date(now()).toISOString());
-        producer.health(await readHealth(), new Date(now()).toISOString());
-        await transport.send(snapshot);
+        for (let retries = 0; ; retries++) {
+          const source = await readSource();
+          if (typeof source === 'string') producer.ingestJournal(source);
+          else producer.ingest(source);
+          const snapshot = producer.snapshot(new Date(now()).toISOString());
+          producer.health(await readHealth(), new Date(now()).toISOString());
+          try { await transport.send(snapshot); break; }
+          catch (error) {
+            // Recompute once, silently, with a newly reserved sequence. This
+            // benign race never reaches the failure counter or main's log.
+            if (!(error instanceof IngressError && error.midnightStraddle === true && retries < MIDNIGHT_RETRIES)) throw error;
+          }
+        }
         failures = 0;
         return true;
       } catch (error) {

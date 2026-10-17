@@ -42,6 +42,7 @@ function feePortion(fill, quantity, used, allocated) {
   const fee = decimalUnits(fill.commission.amount);
   if (fee < 0n) throw unavailable();
   const total = positive(fill.quantity);
+  // Tiny EUR budgets can overallocate earlier rounded shares; a negative final fee fails closed in eurPortion.
   return fill.commission.currency === 'EUR'
     ? { n: used + quantity === total ? fee - allocated : halfEvenUnits(fee * quantity, total), d: 1n }
     : { n: fee * quantity, d: total };

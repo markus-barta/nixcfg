@@ -6,6 +6,8 @@ import resultsSchema from './contracts/results.schema.json' with { type: 'json' 
 export { viennaDay as viennaDate };
 export const PARTIAL_REASONS = Object.freeze(resultsSchema.properties.days.items.properties.partialReasons.items.enum);
 export function markPartial(day, reason) {
+  // In particular, every broker backstop record must name an existing day.
+  if (!day || typeof day !== 'object') throw new Error('partial_day_missing');
   if (!PARTIAL_REASONS.includes(reason) || reason === 'avg_cost_mismatch') throw new Error('invalid_partial_reason');
   day.coverage = 'partial';
   const reasons = new Set([...(day.partialReasons || []), reason]);
