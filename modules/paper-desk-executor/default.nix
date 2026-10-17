@@ -303,6 +303,7 @@ in
         assertion =
           cfg.marketDataClientId != cfg.bookClientId
           && cfg.marketDataClientId != 708
+          && cfg.marketDataClientId != 709
           && !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.marketDataClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.marketDataClientId [
@@ -321,6 +322,7 @@ in
       {
         assertion =
           cfg.bookClientId != cfg.marketDataClientId
+          && cfg.bookClientId != 709
           && !(lib.elem cfg.bookClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.bookClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.bookClientId [
@@ -340,7 +342,9 @@ in
       }
       {
         assertion =
-          cfg.clientIds.recon > 0
+          !(lib.elem 709 (lib.attrValues cfg.clientIds))
+          && !(lib.elem 709 (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          && cfg.clientIds.recon > 0
           && cfg.clientIds.executor > 0
           && cfg.clientIds.recon != cfg.clientIds.executor
           && !(lib.elem cfg.clientIds.executor (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
