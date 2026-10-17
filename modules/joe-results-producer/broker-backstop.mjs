@@ -8,10 +8,11 @@ import { viennaDate } from './results-validation.mjs';
 // decimal precision from fractional JS Numbers or IB's unset-double sentinel.
 export function captureBrokerRealised(report) {
   try {
-    let amount = report?.realizedPNL;
+    if (!report || !/^[A-Z]{3}$/.test(report.currency)) return null;
+    let amount = report.realizedPNL;
+    if (amount === null || amount === Number.MAX_VALUE || amount === String(Number.MAX_VALUE)) return { unset: true, currency: report.currency };
     if (Number.isSafeInteger(amount)) amount = String(amount);
     decimalUnits(amount);
-    if (!/^[A-Z]{3}$/.test(report.currency)) return null;
     return { amount, currency: report.currency };
   } catch { return null; }
 }
@@ -34,8 +35,10 @@ export function brokerDayTotals(fills, trackingInstant) {
     totals.set(dayKey, total);
     try {
       const report = fill.brokerRealised;
-      const pnl = report ? decimalUnits(report.amount) : null;
-      if (pnl === null || !fill.commission) throw new Error('missing');
+      if (!fill.commission) throw new Error('missing');
+      if (report?.unset === true && !closes && report.currency === fill.currency) continue;
+      const pnl = report && !report.unset ? decimalUnits(report.amount) : null;
+      if (pnl === null) throw new Error('missing');
       if (!closes && pnl === 0n) continue;
       total.count++;
       const fx = fill.closeFx;

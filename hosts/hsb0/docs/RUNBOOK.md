@@ -737,11 +737,14 @@ Recorded opening and closing commissions remain rational through allocation
 and conversion using that close's FX, then their sum must be exactly
 representable at contract precision. Gross uses the exact quantity × price move
 × close rate product. A gross or fee that cannot be represented in the
-contract's eight fractional digits holds the whole snapshot; nothing rounds.
+contract's eight fractional digits excludes that USD portion and marks its
+Vienna day partial; nothing rounds. Other representable portions still publish.
 Source quantities, prices, commissions and broker-position evidence must be
 decimal strings; numeric financial inputs are refused rather than stringifying
 an already rounded binary value. Missing fees/close FX also hold the entire
-snapshot. With the JOED-20 sampler, USD fills use their own day's latest RTH
+snapshot, except missing USD FX: that portion is excluded and its day is
+partial. Exclusions are recorded with value-free reason codes. With the JOED-20
+sampler, USD fills use their own day's latest RTH
 observation provisionally and the frozen 16:05 New York close when available.
 The rate and sample timestamp travel together; a later day's rate never fills
 historical holes. Legacy capture evidence keeps its execution-local 60-second
@@ -751,7 +754,9 @@ is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
 
 Daily rows come only from captured executor activity on each Vienna day; days
-without captured activity are omitted. `equityClose` is always null: v1 does not
+without captured activity are omitted, except coverage gaps from unattributed
+own fills: those days emit a partial row with an empty desk map, whose aggregate
+total is zero until attribution. `equityClose` is always null: v1 does not
 consume household v2 health/account fragments, desk equity or History basis IDs,
 and old household observation journal events are ignored on replay. Day realised
 net, fees and trade counts sum every included closed FIFO portion across all
@@ -869,10 +874,12 @@ and desk before every push, using existing executor `executions` and
 `commissions` only. `execution.execId` joins `commissionReport.execId` privately;
 `time`, `shares`, `side`, contract currency and attributed desk establish the day
 and closing execution count. Only hashed fill/instrument keys and an allowlisted
-`brokerRealised: {amount,currency}` projection of `commissionReport.realizedPNL`
+`brokerRealised: {amount,currency}` or `{unset:true,currency}` projection of `commissionReport.realizedPNL`
 and `currency` enter the capture. Broker realised PnL is net (fees are not
 subtracted again); the already captured close FX converts it to EUR exactly.
-No new IB request is added. Fractional numeric PnL, unset-double sentinels,
+IB unset realised PnL (null or Double.MAX_VALUE) is accepted only on quantity-book
+openings with a commission report; closes require an exact amount.
+No new IB request is added. Fractional numeric PnL, unset PnL on book-closes,
 missing reports, incompatible currency and nonrepresentable conversion supply
 no exact broker evidence; they keep D partial. Decimal strings and exact safe
 integer PnL are accepted, preserving the existing decimal-source safety gate.
@@ -945,11 +952,15 @@ scope. Local fixture ingress is a test adapter, not an installed service.
 
 ### Close-FX sampler (JOED-20, local candidate)
 
-The paper executor runs a separate background FX reader, default on, using
+When Results capture is enabled, the paper executor runs a separate background
+FX reader using
 client 709 and request IDs in 920000000..929999999. Reserve client 709 separately
 from order/recon, quote and book clients. It requests only EUR/USD CASH on
 IDEALPRO (`reqMktData`, snapshot=true, regulatorySnapshot=false), then inverts
-the bid/ask midpoint to a USD→EUR observation at eight decimal places. It uses
+the bid/ask midpoint to a USD→EUR observation at eight decimal places. This rate
+is a float-derived observation, unlike the exact decimal financial inputs.
+Sampler client-ID conflicts or invalid client-ID JSON disable the sampler with
+a value-free reason. It uses
 `cancelMktData` on success, error or timeout and disconnects its dedicated
 client; it requests no account, order, execution or historical data.
 The snapshot/cancellation mechanics follow the [IB API documentation](https://interactivebrokers.github.io/tws-api/md_request.html).
@@ -970,13 +981,19 @@ sample remains fixed even on a scheduled early-close trading day. During
 each with bounded bucket reservations, attempt timestamp/reason and at most
 27 `{rate, sampleAt, kind}` observations; the file cap is 256 KiB. It is a
 separate executor state sidecar, never part of `ledger.json`. Capture copies
-only this FX metadata into its durable cuts, so the producer retains frozen
+only changed dates’ samples and enabled/reason metadata into its durable cuts;
+attempts and pending reservations remain private to the sidecar. Capture and
+producer stream replay without retaining journal entries, and normal producer
+polls verify the appended suffix plus a bounded tail anchor. The full source
+prefix is checked again on restart. The producer retains frozen
 historical closes after sidecar/ledger pruning. Preserve the two Results
 journals when rolling back. A missing close is never backfilled the next day.
-The open day is partial/yellow when disabled, sampling fails, or its latest
+A day with USD activity is partial/yellow when disabled, sampling fails, or its
+latest
 RTH observation is more than 30 minutes old during RTH. A failed/missed close
-keeps that day partial. Missing all usable FX still holds USD round trips,
-consistent with the existing no-invented-rates gate.
+keeps that USD day partial. Missing all usable FX excludes USD portions and
+marks the day partial; EUR-only days are unaffected. Pending requests do not
+publish a transient partial state.
 
 Runtime kill switch, no rebuild or restart: OPS creates the regular file
 `/var/lib/paper-desk-executor/FX-SAMPLER-OFF`, owned by 1000:1000, for example

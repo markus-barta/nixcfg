@@ -35,7 +35,7 @@ for (const [season, start, firstNoon, dstDay] of [
         const time = iso(noon - 3600_000 + pair * 60_000 + leg * 30_000);
         fills.push({ key: `synthetic-${season}-${day}-${desk}-${pair}-${leg}`, ordinal: fills.length + 1,
           desk, scope: 'stage0', instrument: `synthetic-${symbol}`, symbol, currency: 'EUR', side, at: time,
-          quantity: '1', price, brokerRealised: { amount: leg ? '1.8' : '0', currency: 'EUR' }, commission: { amount: '0.1', currency: 'EUR' },
+          quantity: '1', price, brokerRealised: leg ? { amount: '1.8', currency: 'EUR' } : { unset: true, currency: 'EUR' }, commission: { amount: '0.1', currency: 'EUR' },
           closeFx: { base: 'EUR', quote: 'EUR', rate: '1', source: 'identity', observedAt: time } });
       }
     }
@@ -43,6 +43,11 @@ for (const [season, start, firstNoon, dstDay] of [
       const capturedAt = iso(noon + (cut + 1) * 86400_000 / 32);
       cuts.push({ type: 'cut', at: capturedAt, authoritative: true, disagreement: false,
         fills: cut === 0 ? fills.slice(firstFill) : [],
+        fxSampler: { enabled: true, reason: null, days: {
+          [iso(noon).slice(0, 10)]: { samples: Array.from({ length: Math.min(cut + 1, 27) }, (_, i) => ({
+            rate: '0.86123457', sampleAt: iso(noon + i * 900_000), kind: i === 26 ? 'close' : 'rth',
+          })) },
+        } },
         positionProof: { at: cut === 0 ? iso(noon - 7200_000) : capturedAt,
           positions: [{ instrument: 'synthetic-ACME', quantity: '0' }], foreign: [] },
         historyCoverage: { status: 'known', target: { fromInclusive: historyFrom, toExclusive: capturedAt }, gaps } });

@@ -23,7 +23,7 @@ function setup(t, { pnl = '1.8', multiLot = false, currency = 'EUR' } = {}) {
   if (multiLot) executions.splice(1, 0, raw('open2', '2026-10-16T11:00:00.000Z', 'BUY', '11'));
   const state = { ownershipComplete: true, executions, commissions: executions.map(row => ({
     execId: row.execution.execId, commission: multiLot ? '0' : '0.1', currency,
-    realizedPNL: row.execution.side === 'SELL' ? pnl : '0',
+    realizedPNL: row.execution.side === 'SELL' ? pnl : Number.MAX_VALUE,
   })), resultsFx: { [currency]: { base: currency, quote: 'EUR', rate: '0.9', source: 'synthetic-existing-rate', observedAt: closeAt } },
   resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: end }, gaps: [] } };
   const config = { foreignAlertSince: begin, executorClientId: 705 };

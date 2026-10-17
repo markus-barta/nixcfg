@@ -6,9 +6,9 @@ export const hash = value => createHash('sha256').update(typeof value === 'strin
 
 // Single writer per journal (executor capture / producer service respectively).
 // A damaged or torn tail is evidence: refuse to overwrite, truncate or rebuild.
-function* rows(fd, { strictTail = true } = {}) {
+function* rows(fd, { strictTail = true, offset = 0, previous: initialHash = '0'.repeat(64), count = 0 } = {}) {
   const size = fstatSync(fd).size, chunk = Buffer.alloc(65536);
-  let position = 0, pending = Buffer.alloc(0), previous = '0'.repeat(64), n = 0;
+  let position = offset, pending = Buffer.alloc(0), previous = initialHash, n = count;
   while (position < size) {
     const count = readSync(fd, chunk, 0, Math.min(chunk.length, size - position), position);
     if (!count) throw new Error('journal_short_read');
@@ -20,7 +20,7 @@ function* rows(fd, { strictTail = true } = {}) {
       pending = pending.subarray(end + 1);
       if (row.n !== ++n || row.previous !== previous || row.hash !== hash({ n: row.n, previous: row.previous, entry: row.entry })) throw new Error('journal_corrupt');
       previous = row.hash;
-      yield row;
+      yield { ...row, end: position - pending.length };
     }
     if (pending.length > 32 * 1024 * 1024) throw new Error('journal_entry_too_large');
   }
@@ -72,4 +72,33 @@ export function readJournal(filename) {
     // Ignore a writer's in-flight final line; it becomes visible next poll.
     return [...rows(fd, { strictTail: false })].map(row => row.entry);
   } finally { closeSync(fd); }
+}
+
+
+// A poll reads only the newly appended suffix. Startup verifies the full chain
+// once; later polls recheck the last committed line as a bounded anchor.
+export function createJournalReader(filename) {
+  let offset = 0, count = 0, previous = '0'.repeat(64), identity, anchor, failed = false;
+  return onRow => {
+    if (failed) throw new Error('capture_history_rewritten');
+    const fd = openSync(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const info = fstatSync(fd), nextIdentity = `${info.dev}:${info.ino}`;
+      if (!info.isFile()) throw new Error('journal_not_regular');
+      if (identity && (identity !== nextIdentity || info.size < offset)) throw new Error('capture_history_regressed');
+      if (anchor) {
+        const bytes = Buffer.alloc(anchor.bytes.length);
+        if (readSync(fd, bytes, 0, bytes.length, anchor.offset) !== bytes.length || !bytes.equals(anchor.bytes)) throw new Error('capture_history_rewritten');
+      }
+      identity = nextIdentity;
+      for (const row of rows(fd, { strictTail: false, offset, count, previous })) {
+        onRow(row.entry, row.n);
+        const bytes = Buffer.alloc(row.end - offset);
+        if (readSync(fd, bytes, 0, bytes.length, offset) !== bytes.length) throw new Error('journal_short_read');
+        anchor = { offset, bytes };
+        offset = row.end; count = row.n; previous = row.hash;
+      }
+      return count;
+    } catch (error) { failed = true; throw error; } finally { closeSync(fd); }
+  };
 }
