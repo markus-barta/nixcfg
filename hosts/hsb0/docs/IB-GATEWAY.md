@@ -136,7 +136,7 @@ trade, restart, or account change.
 Aeon binding (`grok.backend = "aeon"`). Chat requires a dedicated Aeon inbox
 sender key (`inbox.send` + `inbox.receipt` only) pointed at
 `alert.aeonNotifierKeyFile`. Until then `aeonNotifierKeyFile = null` keeps chat
-unavailable without blocking email. Do not reuse a classic PPM notifier key.
+skipped without blocking email. Do not reuse a classic PPM notifier key.
 systemd `LoadCredential` supplies private copies; no destination or API key enters
 the Nix store, command logs, or alert-state files. No existing secret is rekeyed.
 
