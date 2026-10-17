@@ -86,5 +86,6 @@ in
       [
         "hsb0-home-hausnetz.conf"
         "hsb0-home-inflight.conf"
+        "hsb0-home-videos.conf"
       ];
 }
