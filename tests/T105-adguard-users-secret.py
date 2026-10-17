@@ -204,6 +204,12 @@ class Runtime(unittest.TestCase):
         for payload in ("not json", "[", '[{"name":"a","name":"b","password":"invalid"}]'):
             self.assert_admin_locked(self.run_helper(payload, raw=True))
 
+    def test_locked_mode_random_input_is_reliable(self):
+        for iteration in range(64):
+            with self.subTest(iteration=iteration):
+                self.config.write_text(self.original)
+                self.assert_admin_locked(self.run_helper([]))
+
     def test_missing_secret_locks_only_admin(self):
         result = subprocess.run(
             [sys.executable, str(HELPER), str(self.config), str(self.secret), YQ, str(self.marker), "3000"],

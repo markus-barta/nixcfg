@@ -8,7 +8,7 @@
 
 ## AdGuard admin rotation (OPS-372)
 
-OPS runs this procedure only after the pending Desk decision is approved. Keep
+Desk decision `aafbeaa2` is answered (option 1). OPS runs this procedure under that decision. Keep
 both hosts in one reviewed PR; merge only with all three ciphertexts provisioned,
 T105/T47 green, and independent approval recorded. Missing either host's users
 ciphertext fails evaluation on both hosts. Never switch a preparation branch,
@@ -21,7 +21,7 @@ cutover. DNS names may stop resolving if AdGuard fails. On each host, from the
 repo root, run as root:
 
 ```bash
-sudo python3 - <<'PYBACKUP'
+sudo nix-shell -p python3 --run 'python3 -' <<'PYBACKUP'
 import datetime, os, pathlib, shutil, subprocess, sys
 os.umask(0o077)
 try:
@@ -46,6 +46,7 @@ PYBACKUP
 Do not display backup contents: they include runtime verifiers and lease data.
 Keep the previous three encrypted files and their reviewed Git revision for
 later rotations. Record backup paths and generation references on OPS-372.
+`/var/backups/ops372` holds lease data and the old verifier (root 0700); trash it after the cutover is verified and one clean day has passed, and record that on OPS-372.
 
 ### Generate once on hsb0, encrypt three times
 
@@ -102,6 +103,7 @@ persistent Trash.
 Clean failed candidate directories only through the operator's trash procedure.
 Do not reuse a partial set. Candidate ciphertexts may leave hsb0; credentials,
 verifiers, private keys, and runtime YAML may not.
+Copy ciphertexts off hsb0 with `scp`/`install`/`rsync`, never `cat`.
 
 OPS installs only these three ciphertexts into `secrets/` in its review branch
 and stages them before flake evaluation. Do not declare the Markus-only
@@ -129,8 +131,8 @@ are disabled. It prints HTTP status codes only, never bodies, cookies or headers
 and removes the plaintext in `finally`, including on failure.
 
 ```bash
-sudo python3 - <<'PYLOGIN'
-import ipaddress, json, pathlib, secrets, subprocess, sys, urllib.error, urllib.request
+sudo nix-shell -p python3 --run 'python3 -' <<'PYLOGIN'
+import ipaddress, json, pathlib, secrets, subprocess, sys, time, urllib.error, urllib.request
 admin = pathlib.Path('/run/ops372/admin')
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
@@ -140,11 +142,16 @@ def status(base, path, payload=None):
     request = urllib.request.Request(base + path, data=payload,
         headers={'Content-Type': 'application/json'} if payload is not None else {},
         method='POST' if payload is not None else 'GET')
-    try:
-        with opener.open(request, timeout=10) as response:
-            return response.status
-    except urllib.error.HTTPError as error:
-        return error.code
+    for attempt in range(4):  # Initial request plus up to three connection-error retries.
+        try:
+            with opener.open(request, timeout=10) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code  # Never retry HTTP results, including a positive-login 403.
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 3:
+                raise
+            time.sleep(10)
 try:
     password = admin.read_text()
     state = json.loads(subprocess.run(['tailscale', 'status', '--json'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout)
@@ -176,13 +183,18 @@ recovery flow; OPS never decrypts the Markus-only file.
 
 ### Immediate first-cutover rollback
 
-If service, DNS/DHCP, or login checks fail, immediately run
+If the `adguardhome` unit, DNS, or DHCP fails, immediately run
 `nixos-rebuild switch --rollback` in the live root session on the affected host,
 using its IP connection. This restores the previous generation, including its
 old compromised verifier, to recover availability. Record that exposure and the
 rollback generation on OPS-372, verify DNS/DHCP recovery, and fix forward with a
 reviewed candidate. Keep the dated YAML/leases backup for controlled recovery;
 never dump it to a terminal. Remove `/run/ops372/admin` immediately on abort.
+If the unit and DNS/DHCP are healthy and only the login probe fails, stay forward:
+the UI is locked or carries an unknown verifier, which is the safe state.
+Investigate `adguardhome-users-health.service` and `/run/AdGuardHome/admin-locked`,
+record the findings on OPS-372, and fix forward. Never roll back for a login-only failure.
+
 For subsequent rotations, revert all three ciphertexts together to the recorded
 known-good revision via PR and CI, then switch both hosts.
 

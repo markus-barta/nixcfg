@@ -51,7 +51,7 @@ def inject(config_path, secret_path, yq, marker_path, port):
         # Never allow an empty users list (AdGuard treats it as no auth).
         # The random password exists only in memory and cannot be recovered.
         import bcrypt
-        users = [{"name": "admin", "password": bcrypt.hashpw(os.urandom(32), bcrypt.gensalt(rounds=12)).decode()}]
+        users = [{"name": "admin", "password": bcrypt.hashpw(os.urandom(32).hex().encode(), bcrypt.gensalt(rounds=12)).decode()}]
         locked = True
 
     target = Path(config_path)
