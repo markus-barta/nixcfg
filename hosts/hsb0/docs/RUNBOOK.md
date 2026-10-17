@@ -263,12 +263,17 @@ replies only on that same interface (`ssdpInterfaces` defaults to
 remote SSDP query destination, not an additional inbound opening. The module
 also allows AF_NETLINK for Go interface enumeration. State starts empty in
 `/var/lib/private/hausnetz` (DynamicUser, exposed as `/var/lib/hausnetz`), with no
-seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
+seed. Since `v261017120723.0.0` (HNET-228) the DHCP leases are optional
+enrichment: because AdGuard runs DHCP here, `discovery.leasesFile` defaults to
+`/var/lib/AdGuardHome/data/leases.json`; the root `hausnetz-leases` service
+(path unit on change plus a 5-minute timer) copies it to
+`/run/hausnetz-leases/leases.json` (0640 root:hausnetz-leases, 8 MiB bound) and
+hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50% CPU quota, nice 10.
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `577c1590b43dea87e43f101b8e9e8bfa130ecfcf`
-(`v261017075838.0.0`, OPS-355), with `discovery.passive = true` (ARP/DHCP
+The private flake input is pinned to `a39414875b577c81c10c13dbe32a3741f36ddfe3`
+(`v261017120723.0.0`, OPS-355), with `discovery.passive = true` (ARP/DHCP
 listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
@@ -300,13 +305,16 @@ run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
 and build), then `just switch`. Roll back this bump by reverting its reviewed
 commit(s), restoring the previous pin
-`680a1d4eebf0050158eab4c73ead818cbddba32b` (`v261016221544.0.0`), its lock
-node and the T99 pin; the options are unchanged between the two releases.
+`577c1590b43dea87e43f101b8e9e8bfa130ecfcf` (`v261017075838.0.0`), its lock
+node and the T99 pin. That release has no leases copy: rolling back removes the
+`hausnetz-leases` units and hausnetz runs without leases (no other option
+changed). The tmpfiles directory `/run/hausnetz-leases` and its copy stay on
+tmpfs until the next reboot; nothing reads them after the rollback.
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /ops/api/export` on the LAN before activation;
-reverting a source pin does not undo imported data. Both nginx snippets
-(`hsb0-home-hausnetz.conf` and `hsb0-home-inflight.conf`) are compose restart
-triggers, so a normal switch recreates `hsb0-home` when either changes.
+reverting a source pin does not undo imported data. The nginx snippets
+(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
+triggers, so a normal switch recreates `hsb0-home` when any of them changes.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
 checkout on **hsb0**, with the root deploy key present (0600). The first root
@@ -390,6 +398,20 @@ Push atomically (the temp dotfile is never served):
 
 ```bash
 scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/inflight/.index.html.tmp /var/lib/inflight/index.html'
+```
+
+### Video overview page (OPS-380)
+
+**URL**: http://100.64.0.6/videos/ (tailnet) or http://hsb0.lan/videos/ (home). Never public: hsb0 has no port forward.
+
+VID's scored overview of the planned videos (AEON-1480): one self-contained `index.html`
+(inline CSS and JS, no external requests, no private or client content). Same pattern as the
+In-flight page: `/var/lib/videos` (mba, 0755, tmpfiles), mounted read-only at `/srv/videos`,
+location from `docker/hsb0-home-videos.conf` through the HostDash include point, same headers,
+dotfiles return 404. Push atomically:
+
+```bash
+scp -q index.html mba@100.64.0.6:/var/lib/videos/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/videos/.index.html.tmp /var/lib/videos/index.html'
 ```
 
 ---
