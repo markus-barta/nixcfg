@@ -194,6 +194,9 @@ If the unit and DNS/DHCP are healthy and only the login probe fails, stay forwar
 the UI is locked or carries an unknown verifier, which is the safe state.
 Investigate `adguardhome-users-health.service` and `/run/AdGuardHome/admin-locked`,
 record the findings on OPS-372, and fix forward. Never roll back for a login-only failure.
+If the negative login or the unauthenticated GET returns 2xx, the UI is open, not
+locked: treat it as an incident (stop the UI or roll back) and record it on
+OPS-372; this is never a stay-forward case.
 
 For subsequent rotations, revert all three ciphertexts together to the recorded
 known-good revision via PR and CI, then switch both hosts.
