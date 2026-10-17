@@ -257,6 +257,7 @@ test('partial coverage travels on the wire at window boundaries and Vienna DST',
   assert.equal(validateResults(windowed).ok, true);
   for (const coverage of [undefined, 'full']) {
     const full = structuredClone(windowed);
+    delete full.days[0].partialReasons;
     if (coverage) full.days[0].coverage = coverage;
     else delete full.days[0].coverage;
     const checked = validateResults(full);
@@ -291,13 +292,14 @@ test('KEEP round trips are excluded from both arrays, leaving exact ordinary tra
   producer.close();
 });
 
-test('USD commission allocation stays rational until the combined fee rounds once at the portion', () => {
+test('USD fee allocation uses the pre-tracking shares and final remainder before EUR conversion', () => {
   const input = [
     { ...fills[0], quantity: '3', price: '10', commission: { amount: '0.00000001', currency: 'EUR' } },
     { ...fills[2], quantity: '1', price: '11', commission: { amount: '0', currency: 'EUR' }, closeFx: { ...fills[2].closeFx, rate: '1' } },
   ];
   assert.equal(roundTrips(input, start, keep)[0].feesEur.amount, '0');
-  // Exact fractional opening + closing portions can add to one wire unit.
+  // Pre-tracking allocation rounded the opening share up; its final remainder
+  // is zero. The closing allocation rounds to one source-currency unit.
   input[0].at = '2026-10-15T12:00:00.000Z';
   input[1].quantity = '3'; input[1].commission.amount = '0.00000002';
   input.splice(1, 0, { ...input[0], key: 'pre-tracking-close', side: 'SELL', quantity: '2', at: '2026-10-15T13:00:00.000Z' });
@@ -310,7 +312,7 @@ test('fixture accepts partial coverage and rejects full-day mismatches with vend
   const full = producer.snapshot();
   // This test exercises ingress full-day reconciliation independently of the
   // backstop: this fixture lacks broker reports and carries a partial marker.
-  delete full.days[0].coverage;
+  delete full.days[0].coverage; delete full.days[0].partialReasons;
   const partial = structuredClone(full);
   partial.days[0].coverage = 'partial'; partial.trades = partial.trades.slice(1);
   assert.equal((await request(server, partial)).status, 200);
@@ -338,7 +340,7 @@ test('producer emits partial coverage from its capture interval and removed reas
   const value = producer.snapshot();
   assert.equal(value.days[0].coverage, 'partial');
   assert.equal(validateContract('results', value, { stage: 'ingress' }).ok, true);
-  assert.equal(CONTRACTS.revision, 4);
+  assert.equal(CONTRACTS.revision, 5);
   assert.equal(REASONS.includes('results_not_wired'), false);
   assert.equal(validateResults({ ...value, reason: 'results_not_wired' }).status, 422);
   producer.close();

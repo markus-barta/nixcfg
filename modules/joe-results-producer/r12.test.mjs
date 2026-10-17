@@ -86,14 +86,16 @@ test('multi-fill USD day sums exact broker products and preserves the EUR-report
   assert.equal(validateResults(result).ok, true);
 });
 
-function sevenShareFills() {
-  return [fill('seven-open', 'BUY', instant('16', '10'), { quantity: '7', fee: '3' }),
+function guardedSevenShareFills() {
+  const opening = fill('seven-open', 'BUY', instant('16', '10'), { quantity: '7', fee: '3' });
+  opening.commission.currency = 'GBP'; // unexpected source defect, not a fee split
+  return [opening,
     fill('seven-close3', 'SELL', instant('16', '12'), { quantity: '3' }),
     fill('seven-close3-again', 'SELL', instant('17', '10'), { quantity: '3' }),
     fill('seven-close1', 'SELL', instant('17', '12'))];
 }
-test('7 shares / EUR 3 fee / closes 3 then 3+1 contain every inexact portion and preserve other output', t => {
-  const fills = [...sevenShareFills(), ...pair('other-desk', '16', { desk: 'joe' }),
+test('third-currency opening fee contains every failed portion and preserves other output', t => {
+  const fills = [...guardedSevenShareFills(), ...pair('other-desk', '16', { desk: 'joe' }),
     ...pair('other-instrument', '18', { instrument: hash('synthetic-other') }),
     ...pair('later-other-desk', '18', { desk: 'joe' }),
     ...pair('later-affected', '19')];
@@ -135,11 +137,12 @@ test('7 shares / EUR 3 fee / closes 3 then 3+1 contain every inexact portion and
   assert.deepEqual(f.replay().days, proven.days);
 });
 
-test('3+4 entries / single 7-share close excludes both unrepresentable closing-fee portions', t => {
+test('3+4 entries / single close with third-currency fee contains both failed portions', t => {
   const fills = [fill('entry3', 'BUY', instant('16', '09'), { quantity: '3' }),
     fill('entry4', 'BUY', instant('16', '10'), { quantity: '4' }),
     fill('close7', 'SELL', instant('16', '12'), { quantity: '7', fee: '3', pnl: '-3' }),
     ...pair('fresh-after-consumed', '17')];
+  fills[2].commission.currency = 'GBP';
   const excluded = [], trades = roundTrips(fills, begin, [], () => {}, record => excluded.push(record));
   assert.equal(excluded.length, 2); assert.notEqual(excluded[0].portionHash, excluded[1].portionHash);
   assert.equal(trades.length, 1); assert.equal(trades[0].quantity, '1'); // no reuse of either failed lot
@@ -153,6 +156,7 @@ test('a representable portion after an excluded portion in the same close still 
   const fills = [fill('bad7', 'BUY', instant('16', '09'), { quantity: '7', fee: '3' }),
     fill('good1', 'BUY', instant('16', '10')), fill('partial-close', 'SELL', instant('16', '11'), { quantity: '3' }),
     fill('mixed-close', 'SELL', instant('16', '12'), { quantity: '5' })];
+  fills[0].commission.currency = 'GBP';
   const excluded = [], trades = roundTrips(fills, begin, [], () => {}, record => excluded.push(record));
   assert.equal(excluded.length, 2); assert.equal(trades.length, 1); assert.equal(trades[0].quantity, '1');
 });
@@ -242,6 +246,7 @@ for (const action of ['flatten', 'modify-stop']) for (const missingSide of ['ope
     f.state.commissions = f.state.commissions.filter(row => row.execId !== missingId);
     const first = f.refresh();
     assert.equal(coverage(first, '16'), 'partial');
+    assert.ok(first.days.find(day => day.date === '2026-10-16').partialReasons.includes('broker_evidence_missing'));
     assert.equal(coverage(first, '18'), 'full'); // no scoped gap into later days
     assert.equal(first.trades.length, 1);
     assert.equal(f.producer.health(health).portionExclusions, 0);
@@ -297,6 +302,7 @@ for (const [field, mutate] of defects) test(`admin capture refuses invalid ${fie
   assert.equal(result.trades.length, 2);
   assert.equal(result.days.find(day => day.date === '2026-10-17').desks.joe.trades, 1);
   assert.equal(result.days.find(day => day.date === '2026-10-17').desks.joe.realisedNet.amount, '0');
+  assert.ok(result.days.find(day => day.date === `2026-10-${affectedDay}`).partialReasons.includes('capture_gap'));
   const cut = readJournal(f.input).at(-1), issue = cut.captureIssues[0];
   assert.deepEqual(Object.keys(issue).sort(), ['id', 'day', 'deskHash', 'kind', 'field', 'refused'].sort());
   assert.equal(issue.field, field); assert.equal(issue.refused, true); assert.equal(issue.kind, 'capture_gap');
@@ -333,7 +339,7 @@ for (const [field, value] of [['symbol', 'ACME A'], ['side', 'UNKNOWN'], ['at', 
 }
 
 test('runner health counts portion exclusions from the snapshot sent in that same tick', async t => {
-  const f = setup(t, sevenShareFills()), sent = [];
+  const f = setup(t, guardedSevenShareFills()), sent = [];
   const runner = createRunner({ producer: f.producer, readSource: () => f.rows, readHealth: () => health,
     now: () => Date.parse(end), transport: { send: result => sent.push(result) } });
   assert.equal(await runner.tick(), true);

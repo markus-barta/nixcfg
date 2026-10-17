@@ -1,6 +1,9 @@
 import { decimalUnits } from './decimal.mjs';
 import { gatewayReason } from './gateway.mjs';
 import { viennaDay } from './vienna-date.mjs';
+import resultsSchema from './results.schema.json' with { type: 'json' };
+
+const PARTIAL_REASONS = resultsSchema.properties.days.items.properties.partialReasons.items.enum;
 
 const FIELDS = ['equity', 'dayPnl', 'openPnl', 'totalPnl'];
 const KEEP = ['SXR8', 'TSLA'];
@@ -130,10 +133,18 @@ export function checkSemantics(kind, payload, stage, errors) {
       sum.fees += decimalUnits(t.feesEur.amount);
       closed.set(key, sum);
     });
-    // A windowed trades[] can cover only part of a day. Full days cover every
+    // Partial days have incomplete numbers. Full days cover every
     // desk that closed trades, including desks missing from the summary.
     // Dates absent from days[] are not yet reconciled. Never round the sums.
     payload.days.forEach((day, i) => {
+      const at = `$.days[${i}]`;
+      if (day.partialReasons) {
+        if (day.coverage !== 'partial') fail(`${at}.partialReasons`, 'partialCoverageRequired');
+        if (day.partialReasons.some((reason, j, reasons) => j && PARTIAL_REASONS.indexOf(reason) <= PARTIAL_REASONS.indexOf(reasons[j - 1])))
+          fail(`${at}.partialReasons`, 'canonicalOrder');
+      }
+      if (Object.hasOwn(day, 'unattributedCount') && !day.partialReasons?.includes('unattributed_activity'))
+        fail(`${at}.unattributedCount`, 'unattributedReasonRequired');
       Object.entries(day.desks).forEach(([id, d]) => {
         ['equityClose', 'realisedNet', 'fees'].forEach(f => eur(d[f], `$.days[${i}].desks.${id}.${f}`));
       });

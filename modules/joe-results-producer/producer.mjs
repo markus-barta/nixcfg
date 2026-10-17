@@ -1,7 +1,7 @@
 import { openJournal, readJournal, hash, createJournalReader } from './journal.mjs';
 import { roundTrips, dayCloses, viennaDate, unavailable, DESKS, invalidFillField } from './fifo.mjs';
 import { validInstant, validDate } from './contracts/schema-validator.mjs';
-import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals, mergeIntervals } from './results-validation.mjs';
+import { validateResults, historyGaps, updateHistoryIntervals, subtractIntervals, mergeIntervals, markPartial } from './results-validation.mjs';
 import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { dayFx, fxDayPartial } from './fx.mjs';
 import { brokerMismatches } from './broker-backstop.mjs';
@@ -148,26 +148,41 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       for (let noon = Date.parse(`${first}T12:00:00Z`); ; noon += 86400_000) {
         const date = new Date(noon).toISOString().slice(0, 10);
         if (date > last) break;
-        if (!days.some(day => day.date === date)) days.push({ date, desks: {}, coverage: 'partial' });
+        let day = days.find(day => day.date === date);
+        if (!day) { day = { date, desks: {} }; days.push(day); }
+        markPartial(day, 'history_gap');
       }
     }
     for (const issue of captureIssues.values()) {
-      if (!days.some(day => day.date === issue.day)) days.push({ date: issue.day, desks: {}, coverage: 'partial' });
+      let day = days.find(day => day.date === issue.day);
+      if (!day) { day = { date: issue.day, desks: {} }; days.push(day); }
+      markPartial(day, issue.kind);
     }
     for (const record of [...excluded, ...guarded.values()]) {
-      if (!days.some(day => day.date === record.day)) days.push({ date: record.day, desks: {}, coverage: 'partial' });
+      let day = days.find(day => day.date === record.day);
+      if (!day) { day = { date: record.day, desks: {} }; days.push(day); }
+      // A guarded conversion or old-journal fill creates a scoped history gap.
+      markPartial(day, record.kind === 'source_not_authoritative' ? 'history_gap' : record.kind);
+    }
+    for (const [date, count] of Object.entries(authority.unattributedActivity || {})) {
+      if (!validDate(date) || !Number.isSafeInteger(count) || count < 1) throw unavailable();
+      let day = days.find(day => day.date === date);
+      if (!day) { day = { date, desks: {} }; days.push(day); }
+      markPartial(day, 'unattributed_activity');
+      day.unattributedCount = count;
     }
     days.sort((a, b) => a.date.localeCompare(b.date));
     const usdDays = new Set(stage0.filter(fill => fill.currency === 'USD').map(fill => viennaDate(fill.at)));
-    const excludedDays = new Set([...excluded, ...guarded.values()].map(record => record.day));
     const backstop = brokerMismatches(days, stage0, start, at);
-    const partial = new Set([...backstop.map(record => record.day), ...[...captureIssues.values()].map(record => record.day)]);
+    for (const record of backstop) markPartial(days.find(day => day.date === record.day), record.kind);
     for (const day of days) {
-      if (partial.has(day.date) || excludedDays.has(day.date) || fxStatus && usdDays.has(day.date) && fxDayPartial(fxDays.get(day.date), day.date, fxStatus, at)) day.coverage = 'partial';
+      if (fxStatus && usdDays.has(day.date) && fxDayPartial(fxDays.get(day.date), day.date, fxStatus, at)) {
+        markPartial(day, fxStatus.enabled ? 'fx_missing' : 'fx_disabled');
+      }
     }
     const candidate = { schema: 'inspr.joe.household.results.v2', seq: seq + 1, generatedAt: at, currency: 'EUR', timeZone: 'Europe/Vienna', trackingStart: viennaDate(start), days, trades, benchmark: null };
     if (authority.disagreement) candidate.reason = 'executor_broker_disagreement';
-    const checked = validateResults(candidate);
+    const checked = validateResults(candidate, { requirePartialReasons: true });
     if (!checked.ok) throw new Error(checked.reason);
     for (const record of excluded) if (!exclusions.has(hash(record))) append({ type: 'conversion-exclusion', record });
     for (const record of backstop) if (!mismatches.has(hash(record))) append({ type: 'broker-mismatch', record });

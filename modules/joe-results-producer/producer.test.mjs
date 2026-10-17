@@ -111,7 +111,12 @@ test('own append-only store survives source ledger compaction, restart and old H
   const restarted = open(dir);
   restarted.ingest([...source(), { type: 'authority', at: '2026-11-16T14:00:00.000Z', authoritative: true, disagreement: false }]);
   const next = restarted.snapshot('2026-11-16T14:00:00.000Z');
-  assert.deepEqual(next.days, first.days); assert.deepEqual(next.trades, first.trades);
+  // Numeric history survives; closing this day enables the broker backstop,
+  // which can now explain its missing reports in rev-5 diagnostics.
+  assert.deepEqual(next.days.map(({ partialReasons, ...day }) => day), first.days.map(({ partialReasons, ...day }) => day));
+  assert.deepEqual(first.days[0].partialReasons, ['capture_gap']);
+  assert.deepEqual(next.days[0].partialReasons, ['capture_gap', 'broker_evidence_missing']);
+  assert.deepEqual(next.trades, first.trades);
   assert.equal(next.seq, first.seq + 1); assert.equal(next.trackingStart, '2026-10-16');
   assert.equal(readFileSync(path.join(dir, 'results.jsonl')).subarray(0, prefix.length).equals(prefix), true);
   assert.throws(() => restarted.ingest(source().slice(0, 1)), /regressed/);
