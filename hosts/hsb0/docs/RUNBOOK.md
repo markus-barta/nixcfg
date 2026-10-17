@@ -88,9 +88,9 @@ run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
 and build), then `just switch`. Roll back this bump by reverting its reviewed
 commit(s), restoring the previous pin
-`1f876f1d28d74d5931f4f3628a90de112a43506c`, its lock node and compatible
-configuration/tests (`openFirewallSsdp` is absent in that module). Repeat the
-same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
+`680a1d4eebf0050158eab4c73ead818cbddba32b` (`v261016221544.0.0`), its lock
+node and the T99 pin; the options are unchanged between the two releases.
+Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /ops/api/export` on the LAN before activation;
 reverting a source pin does not undo imported data. Both nginx snippets
 (`hsb0-home-hausnetz.conf` and `hsb0-home-inflight.conf`) are compose restart
