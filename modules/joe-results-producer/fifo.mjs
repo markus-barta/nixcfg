@@ -74,7 +74,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols) {
   return trades.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.id.localeCompare(b.id));
 }
 
-export function dayCloses(observations, trades, trackingStart, { from, through } = {}) {
+export function dayCloses(observations, trades, trackingStart, { from, through, intervals } = {}) {
   const days = new Map(), bases = {};
   for (const observation of [...observations].sort((a, b) => a.at.localeCompare(b.at))) {
     if (!validInstant(observation.at)) throw unavailable();
@@ -111,7 +111,7 @@ export function dayCloses(observations, trades, trackingStart, { from, through }
       const total = totals.get(`${date}:${desk}`) || { count: 0, net: 0n, fees: 0n };
       Object.assign(value, { realisedNet: money(unitsDecimal(total.net)), fees: money(unitsDecimal(total.fees)), trades: total.count });
     }
-    coverage[date] = from && through ? dayCoverage(date, from, through) : 'full';
+    coverage[date] = dayCoverage(date, from, through, intervals);
     const day = { date, desks };
     // Full is the documented default; only partial days need a wire marker.
     if (coverage[date] === 'partial') day.coverage = 'partial';

@@ -6,8 +6,8 @@ import { validateResults } from './results-validation.mjs';
 
 export const RESULTS_PATH = '/joe/inbox/results';
 const REASONS = new Set(['contract_invalid', 'schema_unsupported', 'sequence_replayed', 'clock_ahead', 'clock_regressed', 'auth_required', 'too_large', 'ingress_unavailable', 'transport_failed']);
-const RULES = new Set(['json', 'maxBytes', 'const', 'enum', 'type', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'date', 'date-time', 'minItems', 'maxItems', 'uniqueItems', 'contains', 'required', 'additionalProperties', 'anyOf', 'serverOwned', 'clockAhead', 'clockRegressed', 'sequenceReplayed', 'uniqueTrade', 'keepExcluded', 'tradeTimeOrder', 'positive', 'EUR', 'fxCurrency', 'nonnegative', 'netAfterFees', 'dayDeskRequired', 'dayTradeCount', 'dayNetSum', 'dayFeeSum']);
-const SAFE_PATH = /^\$(?:\.(?:schema|seq|generatedAt|receivedAt|currency|timeZone|trackingStart|days|trades|benchmark|reason|date|coverage|desks|j|joe|joel|equityClose|realisedNet|fees|amount|id|desk|symbol|side|quantity|openedAt|closedAt|entryPrice|exitPrice|grossEur|feesEur|netEur|fx|base|quote|rate|source|observedAt|method)|\[\d{1,6}\])*$/;
+const RULES = new Set(['json', 'maxBytes', 'const', 'enum', 'type', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'date', 'date-time', 'minItems', 'maxItems', 'uniqueItems', 'contains', 'required', 'additionalProperties', 'anyOf', 'serverOwned', 'clockAhead', 'clockRegressed', 'sequenceReplayed', 'uniqueTrade', 'keepExcluded', 'tradeTimeOrder', 'positive', 'positiveFxRate', 'EUR', 'fxCurrency', 'nonnegative', 'netAfterFees', 'dayDeskRequired', 'dayTradeCount', 'dayNetSum', 'dayFeeSum']);
+const SAFE_PATH = /^\$(?:\.(?:schema|seq|generatedAt|receivedAt|currency|timeZone|trackingStart|days|trades|benchmark|reason|date|coverage|desks|j|joe|joel|equityClose|realisedNet|fees|amount|id|desk|symbol|side|quantity|openedAt|closedAt|entryPrice|exitPrice|grossEur|feesEur|netEur|fx|base|quote|rate|source|observedAt|method)|\.\d{1,6}|\[\d{1,6}\])*$/;
 
 // Treat the server's error text as untrusted. Diagnostics may contain only
 // known protocol reasons/rules and paths made from schema-owned field names.

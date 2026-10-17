@@ -214,6 +214,9 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     state.resultsFx = recon.state.resultsFx || {};
     snapshot = publicSnapshot(recon.state, { ...attribution, executions: state.executions, ownershipComplete: !historyError });
     state.ownershipComplete = !historyError;
+    // Results capture needs actual history bounds, independently of ownership
+    // authority. A cached successful reconciliation cannot prove continuity.
+    state.resultsHistoryCoverage = historyError ? null : structuredClone(history.coverage ?? null);
     state.accountActiveSymbols = [...new Set([...snapshot.positions.filter((row) => row.position !== 0 && !row.keep).map((row) => row.symbol), ...snapshot.openOrders.filter((row) => !row.keep && !["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())).map((row) => row.symbol)])];
     state.activeOrders = snapshot.openOrders;
     if (intent.action === "recon") reconcileAttribution(state, attribution, { ...context, saveState, openOrders: snapshot.openOrders });

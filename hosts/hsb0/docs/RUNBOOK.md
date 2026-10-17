@@ -784,10 +784,22 @@ pins its source revision, each file's byte count and SHA-256, and set digest
 of sorted `{path,size,sha256}` entries with `contracts/`-prefixed paths.
 Build/CI checks reject changed, missing, extra or symlinked contract files,
 including a changed closure with a rewritten per-file lock.
+CI also runs `scripts/test-joe-results-contracts-pin.py`: it fetches the exact
+lock revision via the existing private Nix GitHub transport and recreates the
+closure in a temporary directory, checking bytes and both digest layers. Fetch
+failure is fatal in GitHub Actions; unavailable local/offline sources explicitly
+print SKIP. `--source <checkout>` proves a clean local checkout at the exact pin.
+The deterministic CPU test covers 4,320 synthetic fills across three desks over
+60 Vienna days in each DST season, including KEEP, with a 10,000 ms CPU bound
+for snapshot build plus shared validation. It checks the 8 MiB served-size limit
+including the board's `receivedAt` overhead; no broker or account data is used.
 
-Coverage is computed from the capture/window interval using the vendored
-Vienna date helper, including 23/25-hour DST days. A window beginning mid-day
-or ending before a day's end emits `"coverage":"partial"` on that day.
+Coverage uses the executor history's explicit `fromInclusive`/`toExclusive`
+bounds minus gaps, persisted with capture cuts even when fills do not change.
+The producer unions proven intervals across restart, using the vendored Vienna
+date helper for 23/25-hour DST days. Missing/unknown bounds, any uncovered part
+of a closed day, a mid-day window start, and the current day emit
+`"coverage":"partial"`; a stale capture never extends proof to generation time.
 Full days omit `coverage`, using the README's documented default of `"full"`.
 The producer and fixture ingress call the vendored validator directly: partial
 days skip day/trade reconciliation while schema and trade checks still apply;
@@ -816,6 +828,7 @@ Paper proof, for the operator **after** separate enablement approval:
    basis wire gap, exact decimal source evidence and household fragment consumption with
    JoeDesk/Amy first. Follow the normal remote NixOS build and
    human-controlled switch procedure; no local NixOS build on macOS.
+   csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
    Read `http://127.0.0.1:8471/v1/health` privately and verify paper Gateway
    configuration, halt and brakes. Do not copy its raw body/account into tickets,

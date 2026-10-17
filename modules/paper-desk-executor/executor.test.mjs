@@ -311,6 +311,7 @@ test("place and recon refuse missing, stale, wrong-account and uncovered recon e
       assert.deepEqual(h.broker.connections, [700, 705]);
     }
     assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.equal(state.resultsHistoryCoverage, null);
     assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
     assert.equal(h.broker.live.size, 0);
   }
@@ -329,6 +330,7 @@ test("recon accepts today's ownership gap only after the same session's executio
   const result = await h.run(intent("recon"), state);
   assert.deepEqual(result.ownershipHistory, { status: "complete" }); assert.equal(result.ownershipComplete, true);
   assert.equal(state.ownershipComplete, true); assert.equal(result.deskPositions[0].quantity, 2);
+  assert.deepEqual(state.resultsHistoryCoverage, coverage);
   assert.equal(state.executions[0].execution.execId, bought.execution.execId);
   assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
 });
@@ -348,6 +350,7 @@ test("previous-day ownership gaps remain unavailable for place and recon despite
       assert.equal(result.ownershipComplete, false); assert.deepEqual(result.deskPositions, []);
     }
     assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.equal(state.resultsHistoryCoverage, null);
     assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
   }
 });
