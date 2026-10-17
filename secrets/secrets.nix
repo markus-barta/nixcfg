@@ -725,4 +725,10 @@ in
   "agents/archive/imac0/imac0-personal-userkey.age".publicKeys = markus;
   "agents/archive/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
 
+  # OPS-372: plain declarations keep T47 red until all three ciphertexts exist.
+  # Markus-only recovery password; no host may declare or decrypt this file.
+  "adguard-admin-password.age".publicKeys = markus;
+  "hsb0-adguard-users.age".publicKeys = markus ++ hsb0;
+  # Deliberately excludes gb: hsb8 receives only its own verifier, never plaintext.
+  "hsb8-adguard-users.age".publicKeys = markus ++ hsb8;
 }

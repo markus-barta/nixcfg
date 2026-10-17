@@ -296,6 +296,12 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T39-static-id-gate.sh
 
+      - name: Verify AdGuard runtime admin secret boundary (OPS-372)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: |
+          export NIXPKGS_LIB="$(nix eval --impure --no-update-lock-file --raw --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.outPath + "/lib"')"
+          nix-shell -I nixpkgs="${NIXPKGS_LIB%/lib}" -p 'python3.withPackages (p: [ p.bcrypt ])' yq-go --run "python3 tests/T105-adguard-users-secret.py"
+
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T47-agenix-recipient-integrity.sh
@@ -597,6 +603,13 @@ jobs:
           nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0.config \
             --apply 'config: import ./tests/lg-devmode-renew-eval.nix { inherit config; }' \
             | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-309 full hsb0 evaluation: OK")'
+
+      - name: Verify AdGuard users in both full host configurations (OPS-372)
+        if: matrix.host == 'hsb0' || matrix.host == 'hsb8'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.${{ matrix.host }} \
+            --apply 'system: import ./tests/adguard-users-full-host-eval.nix { inherit (system) config lib; }' \
+            | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-372 full host evaluation: OK")'
 
       - name: Verify hausnetz in the full hsb0 configuration (OPS-207)
         if: matrix.host == 'hsb0'
