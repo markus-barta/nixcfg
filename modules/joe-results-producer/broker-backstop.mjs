@@ -10,7 +10,7 @@ export function captureBrokerRealised(report) {
   try {
     if (!report || !/^[A-Z]{3}$/.test(report.currency)) return null;
     let amount = report.realizedPNL;
-    if (amount === null || amount === Number.MAX_VALUE || amount === String(Number.MAX_VALUE)) return { unset: true, currency: report.currency };
+    if (amount === undefined || amount === null || amount === Number.MAX_VALUE || amount === String(Number.MAX_VALUE)) return { unset: true, currency: report.currency };
     if (Number.isSafeInteger(amount)) amount = String(amount);
     decimalUnits(amount);
     return { amount, currency: report.currency };

@@ -145,7 +145,12 @@ export function createFxSampler({ root, now = Date.now, request = requestFxSnaps
   }
   async function tick() {
     if (busy || closed) return;
-    if (configurationReason) { notify(); return; }
+    if (configurationReason) {
+      // This configuration cannot recover during this process. Even a failed
+      // capture must not cause a ledger read and notification every second.
+      if (lastNotification === undefined) { notify(); lastNotification = JSON.stringify(snapshot()); }
+      return;
+    }
     busy = true;
     try {
       let restored = false;

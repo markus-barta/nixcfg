@@ -8,7 +8,7 @@ import test from "node:test";
 import { runClient } from "./client/paper-intent.mjs";
 
 import { digest, parseIntent } from "./policy.mjs";
-import { createServer } from "./server.mjs";
+import { createServer, createResultsSampler } from "./server.mjs";
 import { createCapture } from "../joe-results-producer/capture.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { MAX_STATE_BYTES, openLedger } from "./state.mjs";
@@ -666,7 +666,8 @@ test('whole simulated paper day with FX and capture running leaves ledgerPercent
   const before = await (await fetch(`${ctx.url}/v1/health`)).text();
   const ledger = openLedger(ctx.stateDir), bytes = readFileSync(ledger.statePath);
   let now = Date.parse('2026-10-26T13:30:00Z'), calls = 0;
-  const sampler = createFxSampler({ root: ctx.stateDir, now: () => now, request: async () => { calls++; return '0.90000000'; }, onUpdate: value => { fx = value; capture({ ...ledger.load({ initialize: false }), resultsFxSampler: fx }); } });
+  const sampler = createResultsSampler({ root: ctx.stateDir, now: () => now, request: async () => { calls++; return '0.90000000'; }, ledger,
+    capture: state => { fx = state.resultsFxSampler; capture(state); } });
   t.after(() => sampler.close());
   for (let minute = 0; minute <= 395; minute++) {
     now = Date.parse('2026-10-26T13:30:00Z') + minute * 60_000;

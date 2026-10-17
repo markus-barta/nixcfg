@@ -55,6 +55,23 @@ test('a pending quote does not publish attempts or transient partial status', as
   } finally { sampler.close(); }
 });
 
+test('invalid configuration notifies only once even when ledger capture throws', async () => {
+  const prior = process.env.IB_DESK_CLIENT_IDS;
+  process.env.IB_DESK_CLIENT_IDS = '{';
+  let reads = 0, captures = 0;
+  const sampler = createResultsSampler({ root: root(), request: () => assert.fail('invalid config requested FX'),
+    ledger: { load(options) { reads++; assert.equal(options.readOnly, true); return {}; } },
+    capture: () => { captures++; throw new Error('synthetic capture failure'); } });
+  try {
+    for (let i = 0; i < 10; i++) await sampler.tick();
+    assert.equal(reads, 1); assert.equal(captures, 1);
+    assert.equal(sampler.snapshot().reason, 'fx_config_invalid');
+  } finally {
+    sampler.close();
+    if (prior === undefined) delete process.env.IB_DESK_CLIENT_IDS; else process.env.IB_DESK_CLIENT_IDS = prior;
+  }
+});
+
 test('fake clock: one request per 15-min RTH bucket plus fixed 16:05, across EDT/CET week and restart', async () => {
   for (const date of ['2026-10-23', '2026-10-26', '2026-10-30', '2026-11-02']) {
     const dir = root(), calls = [];
