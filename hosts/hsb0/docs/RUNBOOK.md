@@ -6,6 +6,120 @@
 
 ---
 
+## AdGuard admin rotation (OPS-372)
+
+**Preparation only:** this revision removes the public verifier. It is not
+safe to switch until the encrypted users file is provisioned and CI passes.
+The agenix declaration is guarded by `builtins.pathExists`; the startup check
+is deliberately unconditional while AdGuard is enabled. A missing, empty, or
+malformed secret stops AdGuard (including DNS/DHCP), rather than opening the
+admin interface. Removing a verifier changes the derivation: guard-off drvPath
+identity with the old main is incompatible with that removal. OPS must resolve
+that rollout criterion before approving a switch. No existing host is changed
+by preparing this branch.
+
+1. Markus chooses a **new** admin password in 1Password; do not reuse the
+   exposed credential. Keep its value out of chat, shell history, command
+   arguments, logs, and clipboard diagnostics. Preserve the previous encrypted
+   secret and its matching 1Password revision for rollback when rotating later.
+2. On **hsb0**, OPS prepares `/run/ops372-recipients` as root, mode 0600,
+   containing only the public keys in `markus ++ hsb0` from
+   `secrets/secrets.nix` (one key per line, all Markus identities, this host,
+   no other users/hosts). Confirm this set against the declarations during
+   review. Use the host's normal access path; do not move private keys or
+   plaintext secrets onto a workstation.
+3. On the host, generate the verifier and encrypt it directly. This command
+   prompts through the terminal without displaying the password; the verifier
+   travels only through private process memory and pipes. It creates a new
+   encrypted candidate in `/run`, not a plaintext temporary file:
+
+   ```bash
+   sudo nix-shell -p apacheHttpd age python3 --run 'python3 -' <<'PYROTATE'
+   import json, os, subprocess, sys
+   os.umask(0o077)
+   try:
+       generated = subprocess.run(
+           ['htpasswd', '-nBC', '12', 'admin'], check=True,
+           stdout=subprocess.PIPE,
+       ).stdout.decode().strip()
+       name, separator, verifier = generated.partition(':')
+       if name != 'admin' or not separator or len(verifier) != 60:
+           raise ValueError()
+       subprocess.run(
+           ['age', '--encrypt', '-R', '/run/ops372-recipients',
+            '--output', '/run/hsb0-adguard-users.age.next'],
+           input=json.dumps([{'name': name, 'password': verifier}]).encode(),
+           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+       )
+   except Exception:
+       sys.exit('Encryption failed; no credential output is permitted.')
+   print('Encrypted candidate written.')
+   PYROTATE
+   ```
+
+   The decrypted format is a nonempty JSON array of objects with exactly
+   `name` and `password` fields. Names must be nonblank and unique; verifiers
+   must have bcrypt syntax and cost 04–31. Do not display the candidate's
+   plaintext or decrypt it for review. Remove any failed encrypted candidate
+   through the operator's normal trash procedure before retrying.
+
+4. After Markus's decision, OPS installs **only the ciphertext** at
+   `secrets/hsb0-adguard-users.age` in its host-side review branch, opens a PR,
+   and runs CI, including T105 and T47. Do not globally rekey. Adding the tracked
+   file automatically enables both guarded recipient and agenix declarations;
+   there is no extra flag. The runtime secret is
+   `/run/agenix/hsb0-adguard-users` (`root:root`, 0400). Review both host
+   candidates together before fleet rollout; switch each host only after its
+   own file exists. Complete the independent approval gates, merge, then on
+   this host use `gitpl && just switch`. A service restart alone does not run
+   agenix activation. Never switch the preparation-only branch.
+5. Verify unit state and DNS/DHCP with the existing host tests. Verify admin
+   authentication by **status only**. In a host-local terminal, the following
+   prints only the HTTP status, and sends no password in argv:
+
+   ```bash
+   python3 - <<'PYLOGIN'
+   import getpass, json, urllib.request, urllib.error
+   payload = json.dumps({'name': 'admin', 'password': getpass.getpass()}).encode()
+   request = urllib.request.Request(
+       'http://127.0.0.1:3000/control/login', data=payload,
+       headers={'Content-Type': 'application/json'}, method='POST',
+   )
+   try:
+       with urllib.request.urlopen(request, timeout=10) as response:
+           print(response.status)
+   except urllib.error.HTTPError as error:
+       print(error.code)
+   except Exception:
+       print('login check failed')
+   PYLOGIN
+   ```
+
+   Expect successful login status 200; an intentionally incorrect login must
+   fail. Also check that unauthenticated `/control/status` is denied. Do not
+   print bodies, cookies, headers, runtime YAML, or the users secret. Record
+   statuses only on OPS-372, then close the local verification session.
+
+6. **Rollback:** keep the users-secret hook active. Revert to the last known
+   good encrypted users revision through a reviewed PR and CI, then
+   `gitpl && just switch`; use its matching 1Password revision. For unrelated
+   configuration regressions, select a recorded generation that already uses
+   runtime secret users. The first cutover has no prior safe generation:
+   repair the candidate or have Markus decide emergency recovery. Never
+   silently restore the published verifier or remove the startup check.
+
+The pinned upstream module is `nixos/modules/services/networking/adguardhome.nix`
+at nixpkgs `f5c082a40f7571c266e74e80ae2e68aadd8a9fc7`: YAML is generated into
+an immutable store template at lines 37–39; `mutableSettings = false` copies
+it to `$STATE_DIRECTORY/AdGuardHome.yaml` at lines 178–204. systemd loads the
+root-only secret via `LoadCredential`; the additional `ExecStartPre` runs as
+DynamicUser after the upstream copy and existing DHCP hook. It reads JSON from
+the private credentials directory, merges users via pinned `yq-go`, and
+atomically replaces runtime YAML with mode 0600 and the same ownership. The
+upstream sandbox remains active; no root merge step or privileged chown is needed. Parser diagnostics are
+suppressed; errors produce a fixed message and prevent `ExecStart`. Password
+changes in the UI are overwritten at the next restart; rotate through agenix.
+
 ## Quick Connect
 
 ```bash

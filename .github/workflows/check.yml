@@ -296,6 +296,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T39-static-id-gate.sh
 
+      - name: Verify AdGuard runtime admin secret boundary (OPS-372)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 yq-go --run "python3 tests/T105-adguard-users-secret.py"
+
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T47-agenix-recipient-integrity.sh

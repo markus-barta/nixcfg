@@ -95,9 +95,10 @@ journalctl -u adguardhome -f
 
 ### Can't Login
 
-- Default admin credentials are in configuration.nix
-- Password is bcrypt hashed: `$2y$05$6tWeTokm6nLLq7nTIpeQn.J9ln.4CWK9HDyhJzY.w6qAk4CmEpUNy`
-- This hashes to: `admin`
+- The admin users list comes from `/run/agenix/hsb0-adguard-users`, encrypted
+  in `secrets/hsb0-adguard-users.age`; credentials are held in 1Password.
+- Never display the runtime secret, verifier, login request body, or YAML.
+- Follow the rotation procedure in [RUNBOOK](../docs/RUNBOOK.md#adguard-admin-rotation-ops-372).
 
 ## Test Log
 

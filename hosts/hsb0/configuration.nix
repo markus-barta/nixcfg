@@ -61,6 +61,7 @@ let
 in
 {
   imports = [
+    ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
     ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -518,6 +519,7 @@ in
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
   services.adguardhome = {
+    usersSecretFile = ../../secrets/hsb0-adguard-users.age;
     enable = true;
     host = "0.0.0.0";
     port = 3000;
@@ -547,15 +549,7 @@ in
       # Custom filtering rules: allowlist + DNS rewrites
       user_rules = dnsAllowlist ++ dnsRewrites;
 
-      users = [
-        {
-          name = "admin";
-          # NOTE: Bcrypt hash intentionally inline - AdGuard Home requires password in config.
-          # This is an accepted tradeoff since bcrypt is resistant to reversal and
-          # the hash is already in git history. The actual password is in 1Password.
-          password = "$2y$05$6tWeTokm6nLLq7nTIpeQn.J9ln.4CWK9HDyhJzY.w6qAk4CmEpUNy";
-        }
-      ];
+      # Admin users are injected from the root-only agenix secret at startup.
 
       dhcp = {
         enabled = true;
