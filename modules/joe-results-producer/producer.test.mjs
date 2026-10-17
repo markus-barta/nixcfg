@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, cpSync, mkdirSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, cpSync, mkdirSync, symlinkSync, renameSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -281,12 +282,39 @@ test('journal tampering and torn tails fail closed, and source symlinks are refu
 
 test('byte-exact closure check rejects altered, missing and extra vendored contract bytes', () => {
   assert.equal(verifyContracts(), true);
-  const dir = temp(); cpSync(path.join(root, 'contracts'), path.join(dir, 'contracts'), { recursive: true });
-  cpSync(path.join(root, 'contracts.lock.json'), path.join(dir, 'contracts.lock.json'));
+  function copy() {
+    const dir = temp(); cpSync(path.join(root, 'contracts'), path.join(dir, 'contracts'), { recursive: true });
+    cpSync(path.join(root, 'contracts.lock.json'), path.join(dir, 'contracts.lock.json'));
+    return dir;
+  }
+  const dir = copy();
   appendFileSync(path.join(dir, 'contracts/results.schema.json'), '\n');
   assert.throws(() => verifyContracts(dir), /contract_bytes_drift/);
+  // Rehashing candidate bytes in the lock must not move the independent pin.
+  const lock = JSON.parse(readFileSync(path.join(dir, 'contracts.lock.json'), 'utf8'));
+  const altered = readFileSync(path.join(dir, 'contracts/results.schema.json'));
+  lock.files['results.schema.json'] = { bytes: altered.length, sha256: createHash('sha256').update(altered).digest('hex') };
+  writeFileSync(path.join(dir, 'contracts.lock.json'), JSON.stringify(lock));
+  assert.throws(() => verifyContracts(dir), /contract_set_drift/);
   writeFileSync(path.join(dir, 'contracts/unexpected.json'), '{}');
   assert.throws(() => verifyContracts(dir), /contract_closure_drift/);
+  const missing = copy();
+  renameSync(path.join(missing, 'contracts/vienna-date.mjs'), path.join(missing, 'saved-vienna-date.mjs'));
+  assert.throws(() => verifyContracts(missing), /contract_closure_drift/);
+  const incomplete = JSON.parse(readFileSync(path.join(missing, 'contracts.lock.json'), 'utf8'));
+  delete incomplete.files['vienna-date.mjs'];
+  writeFileSync(path.join(missing, 'contracts.lock.json'), JSON.stringify(incomplete));
+  assert.throws(() => verifyContracts(missing), /contract_set_drift/);
+  for (const [key, value, error] of [['revision', '0'.repeat(40), 'contract_pin_drift'], ['manifest_revision', 2, 'contract_pin_drift'], ['contract_set_sha256', '0'.repeat(64), 'contract_set_drift']]) {
+    const drift = copy(), pinned = JSON.parse(readFileSync(path.join(drift, 'contracts.lock.json'), 'utf8'));
+    pinned[key] = value;
+    writeFileSync(path.join(drift, 'contracts.lock.json'), JSON.stringify(pinned));
+    assert.throws(() => verifyContracts(drift), new RegExp(error));
+  }
+  const linked = copy();
+  renameSync(path.join(linked, 'contracts/vienna-date.mjs'), path.join(linked, 'saved-vienna-date.mjs'));
+  symlinkSync('../saved-vienna-date.mjs', path.join(linked, 'contracts/vienna-date.mjs'));
+  assert.throws(() => verifyContracts(linked), /contract_regular_files_required/);
 });
 
 test('transport allows only configured endpoint, refuses redirects/receipt headers and validates before send', async () => {
