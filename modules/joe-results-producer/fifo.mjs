@@ -13,7 +13,7 @@ const positive = s => { const n = decimalUnits(s); if (n <= 0n) throw unavailabl
 
 function fxFor(fill) {
   const fx = fill.closeFx;
-  if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt) || !fx.source || fx.source.length > 80) throw unavailable();
+  if (!fx || fx.base !== fill.currency || fx.quote !== 'EUR' || !validInstant(fx.observedAt) || !fx.source || fx.source.length > 80) throw Object.assign(unavailable(), { conversionReason: 'fx_unavailable' });
   positive(fx.rate);
   return fx;
 }
@@ -32,11 +32,21 @@ function feePortion(fill, quantity, fx) {
 function exactFees(opening, closing) {
   const numerator = opening.numerator * closing.denominator + closing.numerator * opening.denominator;
   const denominator = opening.denominator * closing.denominator;
-  if (numerator % denominator) throw unavailable();
+  if (numerator % denominator) throw Object.assign(unavailable(), { conversionReason: 'eur_fee_precision' });
   return numerator / denominator;
 }
 
-export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => {}) {
+// One replaceable conversion boundary per portion. No rounding is authorized.
+function eurPortion(lot, fill, quantity, price) {
+  const fx = fxFor(fill), rate = decimalUnits(fx.rate);
+  const numerator = quantity * (price - lot.price) * lot.sign * rate;
+  if (numerator % (UNIT * UNIT)) throw Object.assign(unavailable(), { conversionReason: 'eur_gross_precision' });
+  const gross = numerator / (UNIT * UNIT);
+  const fees = exactFees(feePortion(lot.fill, quantity, fx), feePortion(fill, quantity, fx));
+  return { fx, gross, fees };
+}
+
+export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => {}, onExcluded = () => {}) {
   const lots = new Map(), trades = [];
   for (const fill of [...fills].sort((a, b) => (a.at || '').localeCompare(b.at || '') || (a.ordinal || 0) - (b.ordinal || 0) || a.key.localeCompare(b.key))) {
     if (!DESKS.includes(fill.desk) || fill.scope !== 'stage0') continue;
@@ -51,21 +61,22 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
       const lot = book[0], quantity = min(remaining, lot.remaining);
       if (fill.at >= trackingInstant) {
         onClose({ instrument: fill.instrument, at: fill.at });
-        const fx = fxFor(fill), rate = decimalUnits(fx.rate);
-        // Exact product, ONE conversion boundary. The contract has only eight
-        // fractional digits: hold a nonrepresentable exact gross, never round it.
-        const numerator = quantity * (price - lot.price) * lot.sign * rate;
-        if (numerator % (UNIT * UNIT)) throw unavailable();
-        const gross = numerator / (UNIT * UNIT);
-        const fees = exactFees(feePortion(lot.fill, quantity, fx), feePortion(fill, quantity, fx));
-        trades.push({
-          id: `rt-${hash([lot.fill.key, fill.key, unitsDecimal(lot.used), unitsDecimal(used)]).slice(0, 40)}`,
-          desk: fill.desk, symbol: fill.symbol, side: lot.sign === 1n ? 'long' : 'short', quantity: unitsDecimal(quantity),
-          openedAt: lot.fill.at, closedAt: fill.at,
-          entryPrice: { amount: lot.fill.price, currency: fill.currency }, exitPrice: { amount: fill.price, currency: fill.currency },
-          grossEur: money(unitsDecimal(gross)), feesEur: money(unitsDecimal(fees)), netEur: money(unitsDecimal(gross - fees)),
-          fx: structuredClone(fx), method: CLOSE_BASIS,
-        });
+        try {
+          const { fx, gross, fees } = eurPortion(lot, fill, quantity, price);
+          trades.push({
+            id: `rt-${hash([lot.fill.key, fill.key, unitsDecimal(lot.used), unitsDecimal(used)]).slice(0, 40)}`,
+            desk: fill.desk, symbol: fill.symbol, side: lot.sign === 1n ? 'long' : 'short', quantity: unitsDecimal(quantity),
+            openedAt: lot.fill.at, closedAt: fill.at,
+            entryPrice: { amount: lot.fill.price, currency: fill.currency }, exitPrice: { amount: fill.price, currency: fill.currency },
+            grossEur: money(unitsDecimal(gross)), feesEur: money(unitsDecimal(fees)), netEur: money(unitsDecimal(gross - fees)),
+            fx: structuredClone(fx), method: CLOSE_BASIS,
+          });
+        } catch (error) {
+          // Safe default until a single rounding boundary is approved. Keep the
+          // quantity book advancing so later portions cannot reuse this lot.
+          if (fill.currency !== 'USD' || !error.conversionReason) throw error;
+          onExcluded({ day: viennaDate(fill.at), deskHash: hash(fill.desk), kind: error.conversionReason });
+        }
       }
       lot.remaining -= quantity; lot.used += quantity; remaining -= quantity; used += quantity;
       if (!lot.remaining) book.shift();

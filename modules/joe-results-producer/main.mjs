@@ -1,7 +1,7 @@
 import { constants, openSync, fstatSync, readFileSync, closeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { openProducer, createRunner, readJournal } from './producer.mjs';
+import { openProducer, createRunner } from './producer.mjs';
 import { httpTransport, credentialHeaders, failureDiagnostic } from './transport.mjs';
 import { verifyContracts } from './verify-contracts.mjs';
 
@@ -26,7 +26,7 @@ async function main() {
     headers: credentialHeaders(process.env.CREDENTIALS_DIRECTORY),
   });
   const runner = createRunner({ producer, transport,
-    readSource: () => readJournal(options.capturePath),
+    readSource: () => options.capturePath,
     readHealth: async () => {
       const response = await fetch(health, { redirect: 'error', signal: AbortSignal.timeout(3000) });
       if (!response.ok) { await response.body?.cancel(); throw new Error('executor_unavailable'); }

@@ -33,13 +33,13 @@ export function createCapture(filename, config, { account, attribute, executionT
   if (!account || typeof attribute !== 'function' || typeof executionTime !== 'function') throw unavailable();
   let journal, known, closeFx, lastAuthority, lastGaps, lastFx, ordinals, nextOrdinal = 0;
   let proven = [], days = new Set();
-  const instruments = new Set();
+  const instruments = new Set(), fxHashes = new Map();
   function initialize() {
     if (journal) return;
-    journal = openJournal(filename);
-    if (!journal.entries.length) journal.append({ type: 'start', at: now() });
     known = new Map(); closeFx = new Map(); ordinals = new Map();
-    for (const event of journal.entries) {
+    let previous;
+    journal = openJournal(filename, { retain: () => false, onEntry: event => {
+      previous = event;
       if (event.authoritative) proven = updateHistoryIntervals(proven, event.historyCoverage, event.at);
       for (const fill of event.fills || []) {
         if (fill.scope === 'stage0') instruments.add(fill.instrument);
@@ -47,12 +47,15 @@ export function createCapture(filename, config, { account, attribute, executionT
         if (fill.closeFx) closeFx.set(fill.key, fill.closeFx);
         if (fill.ordinal) { ordinals.set(fill.key, fill.ordinal); nextOrdinal = Math.max(nextOrdinal, fill.ordinal); }
       }
-    }
-    const previous = journal.entries.at(-1);
+      if (event.fxSampler) {
+        lastFx = hash([event.fxSampler.enabled, event.fxSampler.reason]);
+        for (const [date, day] of Object.entries(event.fxSampler.days || {})) fxHashes.set(date, hash(day.samples || []));
+      }
+    } });
+    if (!previous) journal.append({ type: 'start', at: now() });
     if (previous?.type === 'cut') {
       lastAuthority = authorityHash(previous);
       lastGaps = hash(previous.historyCoverage?.gaps ?? null);
-      lastFx = hash(previous.fxSampler ?? null);
       days = closedDays(proven, previous.at);
     }
   }
@@ -129,19 +132,37 @@ export function createCapture(filename, config, { account, attribute, executionT
     }
     for (const fill of changed) if (fill.scope === 'stage0') instruments.add(fill.instrument);
     const positionProof = capturePositionProof(state, config, keepSymbols, { account, attribute }, instruments, at);
-    const fxSampler = state.resultsFxSampler ? structuredClone(state.resultsFxSampler) : null;
+    const fxSampler = state.resultsFxSampler ? {
+      enabled: state.resultsFxSampler.enabled,
+      reason: state.resultsFxSampler.reason === 'pending' ? null : state.resultsFxSampler.reason,
+      days: {},
+    } : null;
+    const changedFx = new Map();
+    for (const [date, day] of Object.entries(state.resultsFxSampler?.days || {})) {
+      const digest = hash(day.samples || []);
+      if (fxHashes.get(date) !== digest) {
+        fxSampler.days[date] = { samples: structuredClone(day.samples || []) };
+        changedFx.set(date, digest);
+      }
+    }
     const event = { type: 'cut', at, fills: changed, authoritative: authority, disagreement: evidence.length > 0, evidence, historyCoverage, positionProof, ...(fxSampler ? { fxSampler } : {}) };
     const nextAuthority = authorityHash(event);
     const gapHash = hash(historyCoverage?.gaps ?? null);
-    const fxHash = hash(fxSampler);
+    const fxHash = fxSampler ? hash([fxSampler.enabled, fxSampler.reason]) : lastFx;
     const nextProven = authority ? updateHistoryIntervals(proven, historyCoverage, at) : proven;
     const nextDays = closedDays(nextProven, at);
     // Moving intraday bounds alone do not justify another durable cut. Keep
     // authority/fill changes and changed gaps immediate, including on restart.
-    if (!changed.length && nextAuthority === lastAuthority && gapHash === lastGaps && fxHash === lastFx && ![...nextDays].some(day => !days.has(day))) return;
-    journal.append(event);
+    if (!changed.length && nextAuthority === lastAuthority && gapHash === lastGaps && fxHash === lastFx && !changedFx.size && ![...nextDays].some(day => !days.has(day))) return;
+    const fxDates = Object.keys(fxSampler?.days || {});
+    if (fxDates.length <= 1) journal.append(event);
+    else for (const [index, date] of fxDates.entries()) journal.append({
+      ...event, fills: index === 0 ? changed : [],
+      fxSampler: { ...fxSampler, days: { [date]: fxSampler.days[date] } },
+    });
     for (const fill of changed) known.set(fill.key, hash(fill));
     lastAuthority = nextAuthority;
+    for (const [date, digest] of changedFx) fxHashes.set(date, digest);
     lastGaps = gapHash; lastFx = fxHash; proven = nextProven; days = nextDays;
   }
   capture.close = () => journal?.close();

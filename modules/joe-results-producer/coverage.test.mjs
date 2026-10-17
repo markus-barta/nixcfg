@@ -18,7 +18,7 @@ const instant = epoch => new Date(epoch).toISOString();
 const activitySource = (entries, at) => [entries[0], { type: 'fill', fill: {
   key: 'synthetic-activity', ordinal: 1, desk: 'j', scope: 'stage0', instrument: 'synthetic-activity',
   symbol: 'ACME', currency: 'EUR', side: 'BUY', at, quantity: '1', price: '10',
-  commission: { amount: '0', currency: 'EUR' }, brokerRealised: { amount: '0', currency: 'EUR' },
+  commission: { amount: '0', currency: 'EUR' }, brokerRealised: { unset: true, currency: 'EUR' },
 } }, ...entries.slice(1)];
 
 test('position proof uses the complete broker snapshot, exact quantities and no raw identifiers', () => {
@@ -116,7 +116,7 @@ for (const [name, openingAt, proofAt, quantity, gapAfter, expected] of [
     execution: { execId: `${key}.01`, acctNumber: account, clientId: 705, orderRef: 'j|261015|synthetic', time, side, shares: '1', price } });
   const executions = [raw('synthetic-open', openingAt, 'BOT', '10'), raw('synthetic-close', closedAt, 'SLD', '12')];
   const state = { ownershipComplete: true, executions,
-    commissions: executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' })),
+    commissions: executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : Number.MAX_VALUE })),
     resultsHistoryCoverage: { status: 'known', target: { fromInclusive: start, toExclusive: at }, gaps: [{
       fromInclusive: gapAfter ? '2026-10-17T08:00:00.000Z' : '2026-10-15T08:00:00.000Z',
       toExclusive: gapAfter ? '2026-10-17T09:00:00.000Z' : '2026-10-15T09:00:00.000Z',
@@ -246,7 +246,7 @@ test('unattributed own executor fills make proven closed days partial until admi
   const opening = raw('synthetic-opening', instant(Date.parse(fillAt) - 60_000), { orderRef: 'j|261016|synthetic' });
   const unknown = raw('synthetic-unknown', fillAt, { side: 'SLD', price: '12' });
   const state = { executions: [opening], ownershipComplete: true,
-    commissions: [opening, unknown].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' })),
+    commissions: [opening, unknown].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : Number.MAX_VALUE })),
     resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: end }, gaps: [] } };
   let capture = createCapture(filename, config, options);
   capture({ ownershipComplete: true, executions: [] });
@@ -297,7 +297,7 @@ test('unattributed D0 opening and attributed D2 stop stay partial until admin at
   const opening = raw('synthetic-missed-opening', openingAt, 'BOT', '10', '');
   const stop = raw('synthetic-attributed-stop', stopAt, 'SLD', '12', 'j|261016|synthetic');
   const state = { ownershipComplete: true, executions: [opening, stop],
-    commissions: [opening, stop].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' })),
+    commissions: [opening, stop].map(row => ({ execId: row.execution.execId, commission: '0', currency: 'EUR', realizedPNL: row.execution.side === 'SLD' ? '2' : Number.MAX_VALUE })),
     ownershipSnapshot: { account, ownershipComplete: true, observedAt: '2026-10-16T13:00:00.000Z', positions: [] },
     resultsHistoryCoverage: { status: 'complete', target: { fromInclusive: begin, toExclusive: at }, gaps: [] } };
   let capture = createCapture(filename, config, options);
@@ -307,7 +307,7 @@ test('unattributed D0 opening and attributed D2 stop stay partial until admin at
   let producer = openProducer(output, { now: () => at });
   producer.ingest(readJournal(filename));
   const partial = producer.snapshot();
-  assert.deepEqual(partial.days.map(day => [day.date, day.coverage]), [['2026-10-16', 'partial']]);
+  assert.deepEqual(partial.days.map(day => [day.date, day.coverage]), [['2026-10-14', 'partial'], ['2026-10-16', 'partial']]);
   assert.equal(partial.trades.length, 0);
   assert.equal(validateResults(partial).ok, true);
   producer.close();
@@ -355,7 +355,7 @@ for (const [begin, end] of [
     capture(state); producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   }
   assert.equal(readJournal(filename).length, 3);
-  assert.equal(producer.entries.filter(row => row.type === 'source').length, 4);
+  assert.equal(producer.sourceCount, 4);
   now = end; state.resultsHistoryCoverage.target.toExclusive = now; capture(state);
   producer.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
   assert.equal(readJournal(filename).length, 4);
@@ -376,7 +376,7 @@ for (const [begin, end] of [
   capture(state); capture.close(); producer.close();
   const replay = openProducer(output, { now: () => end });
   replay.ingest(activitySource(readJournal(filename), instant(Date.parse(begin) + 12 * 3600_000)));
-  assert.equal(replay.entries.filter(row => row.type === 'source').length, 8);
+  assert.equal(replay.sourceCount, 8);
   assert.equal(replay.snapshot().days[0].coverage, 'partial');
   replay.close();
 });

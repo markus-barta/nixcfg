@@ -42,7 +42,7 @@ test('capture exposes samples and failures without raw IDs; producer uses frozen
   capture(state);
   at = '2026-10-26T14:00:00.000Z';
   state.executions = [fill('synthetic-open', 'BOT', '2026-10-26T13:35:00.000Z', '10'), fill('synthetic-close', 'SLD', '2026-10-26T14:00:00.000Z', '12')];
-  state.commissions = state.executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'USD', realizedPNL: row.execution.side === 'SLD' ? '2' : '0' }));
+  state.commissions = state.executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'USD', realizedPNL: row.execution.side === 'SLD' ? '2' : Number.MAX_VALUE }));
   capture(state);
   let producer = openProducer(output, { now: () => at });
   producer.ingest(readJournal(input));
