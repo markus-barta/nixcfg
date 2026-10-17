@@ -17,6 +17,9 @@ test('open day becomes partial after 30 RTH minutes, when off or failing; only s
   const day = { samples: [rth] };
   assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-26T14:00:00.000Z'), false);
   assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-26T14:00:00.001Z'), true);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-26T14:00:00.000Z').rate, rth.rate);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-26T14:00:00.001Z'), null);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-27T13:30:00.000Z'), null);
   assert.equal(fxDayPartial(day, '2026-10-26', { enabled: false }, rth.sampleAt), true);
   assert.equal(fxDayPartial(day, '2026-10-26', { enabled: true, reason: 'pacing_rejected' }, rth.sampleAt), true);
   assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-26T20:06:00.000Z'), true);

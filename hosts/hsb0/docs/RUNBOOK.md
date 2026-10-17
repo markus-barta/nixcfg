@@ -726,7 +726,9 @@ recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
 fills, commissions, close FX and reconciliation evidence with hashed identifiers.
 FX-only events update samples/status without repeating position or history
-proofs; older producers ignore that event type on rollback. Health rows in the
+proofs; older producers ignore that event type on rollback; samples carried only
+by FX-only events are then unseen, so USD days fail closed as partial until
+roll-forward. Health rows in the
 producer journal record changed health values; every transmission still reserves
 a sequence durably, even when health is unchanged. Legacy, unowned and external
 activity and policy KEEP symbols do not enter FIFO. The producer opens that
@@ -738,18 +740,26 @@ to satisfy the board. A damaged journal holds output for operator recovery.
 
 FIFO uses independent `j`, `joe`, `joel` books and emits each closed portion.
 Recorded opening and closing commissions remain rational through allocation
-and conversion using that close's FX, then their sum must be exactly
-representable at contract precision. Gross uses the exact quantity × price move
-× close rate product. A gross or fee that cannot be represented in the
-contract's eight fractional digits excludes that USD portion and marks its
-Vienna day partial; nothing rounds. Other representable portions still publish.
+and conversion using that close's FX. For each USD portion, EUR gross and the
+combined EUR fee each round once to eight fractional digits, half-even, using
+exact decimal arithmetic. Gross uses the exact quantity × price move × close
+rate product before that rounding. Amy's 2026-10-17 amendment of JOED-27 is:
+“never round more than once, and only at the portion.” Days and ranges sum
+these rounded portions exactly, with no further rounding; the per-day
+cross-check stays exact. EUR portions retain their exact conversion policy.
 Source quantities, prices, commissions and broker-position evidence must be
 decimal strings; numeric financial inputs are refused rather than stringifying
 an already rounded binary value. Missing fees/close FX also hold the entire
-snapshot, except missing USD FX: that portion is excluded and its day is
-partial. Exclusions are recorded with value-free reason codes. With the JOED-20
+snapshot, except missing or stale USD FX: that portion is excluded and its day
+is partial, with a value-free `conversion-exclusion` journal record whose
+`kind` is `fx_missing`. These reasons stay journal-only; the revision-4 contracts
+are unchanged. Round-9b journals still replay without rewriting old exclusions
+or resetting sequence state. Days previously excluded only for precision now
+include their rounded USD portions on the next snapshot and can become full
+when the existing coverage and broker-evidence gates pass. With the JOED-20
 sampler, USD fills use their own day's latest RTH
-observation provisionally and the frozen 16:05 New York close when available.
+observation provisionally (same day, at most 30 minutes old) and the frozen
+16:05 New York close when available.
 The rate and sample timestamp travel together; a later day's rate never fills
 historical holes. Legacy capture evidence keeps its execution-local 60-second
 rule. EUR uses identity FX. Existing open lots can seed the

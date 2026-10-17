@@ -291,14 +291,12 @@ test('KEEP round trips are excluded from both arrays, leaving exact ordinary tra
   producer.close();
 });
 
-test('commission allocation and FX never round; nonrepresentable exact USD fees exclude the portion', () => {
+test('USD commission allocation stays rational until the combined fee rounds once at the portion', () => {
   const input = [
     { ...fills[0], quantity: '3', price: '10', commission: { amount: '0.00000001', currency: 'EUR' } },
     { ...fills[2], quantity: '1', price: '11', commission: { amount: '0', currency: 'EUR' }, closeFx: { ...fills[2].closeFx, rate: '1' } },
   ];
-  const excluded = [];
-  assert.deepEqual(roundTrips(input, start, keep, () => {}, row => excluded.push(row)), []);
-  assert.equal(excluded[0].kind, 'eur_fee_precision');
+  assert.equal(roundTrips(input, start, keep)[0].feesEur.amount, '0');
   // Exact fractional opening + closing portions can add to one wire unit.
   input[0].at = '2026-10-15T12:00:00.000Z';
   input[1].quantity = '3'; input[1].commission.amount = '0.00000002';
