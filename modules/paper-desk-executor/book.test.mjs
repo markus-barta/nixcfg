@@ -301,13 +301,13 @@ test("IB account-summary limit refuses the optional account read with cleanup", 
 });
 
 test("an order-allowlisted desk peer is refused before parsing the admin body; OPS journals its peer", async () => {
-  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.10"], adminAllowlist: undefined, execute: async () => ({ status: "ok" }) });
+  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.15"], adminAllowlist: undefined, execute: async () => ({ status: "ok" }) });
   assert.deepEqual(app.adminAllowlist, ["100.64.0.14"]);
   const state = app.ledger.load(); state.executions = [{ ...fill, execution: { ...fill.execution, clientId: 28, orderRef: "" } }]; app.ledger.save(state);
   const before = readFileSync(app.ledger.statePath, "utf8");
   let bodyReads = 0, status;
   const req = Readable.from([Buffer.from("invalid admin JSON")]);
-  req.method = "POST"; req.url = "/v1/admin/attribution"; req.socket = { remoteAddress: "::ffff:100.64.0.10" };
+  req.method = "POST"; req.url = "/v1/admin/attribution"; req.socket = { remoteAddress: "::ffff:100.64.0.15" };
   req[Symbol.asyncIterator] = () => { bodyReads++; throw new Error("admin body must not be parsed"); };
   await app.handle(req, { writeHead(code) { status = code; }, end() {} });
   assert.equal(status, 403); assert.equal(bodyReads, 0);
@@ -316,18 +316,18 @@ test("an order-allowlisted desk peer is refused before parsing the admin body; O
   assert.equal((await request(app, "POST", "/v1/admin/attribution", change, "::ffff:100.64.0.14")).status, 200);
   const journal = app.ledger.load().attributionJournal[0];
   assert.equal(journal.actor, "ops-test"); assert.equal(journal.peer, "100.64.0.14");
-  assert.equal((await request(app, "POST", "/v1/intents", { schema: "barta.paper-desk-intent.v2", intentId: "desk-still-allowed", desk: "j", action: "recon", createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() }, "100.64.0.10")).status, 200);
+  assert.equal((await request(app, "POST", "/v1/intents", { schema: "barta.paper-desk-intent.v2", intentId: "desk-still-allowed", desk: "j", action: "recon", createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() }, "100.64.0.15")).status, 200);
   assert.deepEqual(h.calls, []);
 });
 
 test("external disposition uses the same OPS-only admin route for dry run and apply without IB effects", async () => {
-  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.10"], adminAllowlist: undefined });
+  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.15"], adminAllowlist: undefined });
   const state = app.ledger.load();
   state.executions = [{ ...fill, execution: { ...fill.execution, clientId: 28, orderRef: "" } }];
   app.ledger.save(state);
   const before = readFileSync(app.ledger.statePath, "utf8");
   const change = { execId: fill.execution.execId, disposition: "external", actor: "ops-test", reason: "Acknowledge external activity" };
-  for (const dryRun of [true, false]) assert.equal((await request(app, "POST", "/v1/admin/attribution", { ...change, dryRun }, "100.64.0.10")).status, 403);
+  for (const dryRun of [true, false]) assert.equal((await request(app, "POST", "/v1/admin/attribution", { ...change, dryRun }, "100.64.0.15")).status, 403);
   const preview = await request(app, "POST", "/v1/admin/attribution", change, "100.64.0.14");
   assert.equal(preview.status, 200); assert.equal(preview.body.dryRun, true);
   assert.equal(readFileSync(app.ledger.statePath, "utf8"), before);
