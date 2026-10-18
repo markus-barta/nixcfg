@@ -84,7 +84,7 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@f62d4229 nix/module.nix:44-278.
+  # Options: hausnetz@e2ebe3d4 nix/module.nix:44-278.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
   # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
   # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
