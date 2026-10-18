@@ -125,6 +125,34 @@ main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
 including tightenings and merge-queue tuning. CI falls back to hosted runners
 automatically while the pool is unavailable.
 
+OPS-329 quarantines mismatching reads only when ruleset history is unchanged:
+availability clears, minting stops, running jobs finish and queued jobs wait.
+Two consecutive exact reads at the normal cadence, with no new history version
+ids, recover automatically. The baseline retains every id seen, so a dropped id
+does not pause. History is read before content, and a new id before a mismatch
+or between exact reads pauses; `on` and controller start reset that baseline.
+Queued pool runs created from the last exact read through recovery are cancelled
+and remain ineligible after restart, while earlier runs are preserved. If history
+lags, a new id widens the rejected window to the earlier of that last exact read
+and the new ids' earliest `updated_at`. Missing or unreadable new timestamps fall
+back to the baseline's creation time, retained across exact reads and recovery.
+Changed, empty or unreadable history at entry pauses immediately; errors in quarantine
+reset clean reads without extending grace. Defaults: 600 seconds, two clean
+reads, three quarantines per rolling 24 h (`rulesetQuarantineGraceSeconds`,
+`rulesetQuarantineCleanReads`, `rulesetQuarantineMaxPerDay`). Expiry or the next
+anomaly beyond that limit pauses with cancellation and requires `on --resume`.
+Pause and stop also close and reject the uncertain window, including a pause
+between exact reads or at the daily limit. A drain during quarantine goes off
+once no queued pool jobs, slots or workers remain. Queued jobs wait for recovery
+and continue draining, or grace expiry pauses and cancels them. Failed cancels
+retry only in the pre-mint sweep, which also cancels re-runs of earlier-cancelled
+runs, because a re-run keeps its run id and queues new pool jobs.
+Outside quarantine, content read errors skip that publish/mint; exact-read history
+errors keep the old baseline without pausing. Persistent read errors log at most
+once a minute.
+`status` shows progress;
+`rulesetQuarantineEnable = false` skips history and pauses on confirmed drift.
+
 After an intentional ruleset change, regenerate the five pinned keys from the
 live ruleset, from the nixcfg checkout (Bash):
 
