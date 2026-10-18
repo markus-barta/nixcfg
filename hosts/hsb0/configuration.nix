@@ -178,15 +178,22 @@ in
     # source-3594180a. Keep the filtered source in the closure (and as a
     # restart trigger) for intentional rebuilds; bump the concrete tag when
     # promoting a new paper image. pull_policy=never skips registry + rebuild.
-    spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
-      services.paper-desk-executor = config.nixcfg.paperDeskExecutor.serviceSpec;
-      services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec;
-      services.joe-board-pusher = {
-        build = "${joeBoardPusherSource}";
-        image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
-        pull_policy = "never";
-      };
-    };
+    spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) (
+      lib.recursiveUpdate
+        {
+          services.paper-desk-executor = config.nixcfg.paperDeskExecutor.serviceSpec;
+          services.joe-board-pusher = {
+            build = "${joeBoardPusherSource}";
+            image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+            pull_policy = "never";
+          };
+        }
+        (
+          lib.optionalAttrs config.nixcfg.agentMailbox.enable {
+            services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec;
+          }
+        )
+    );
   };
 
   # OPS-128: hsb0 was the one host with the prune SERVICE but no TIMER — docker

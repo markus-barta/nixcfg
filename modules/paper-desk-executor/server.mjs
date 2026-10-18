@@ -30,7 +30,8 @@ import {
   normalizePeer,
   peerAllowed,
 } from "./security.mjs";
-import { admitIntent, openLedger, CAPTURE_DEGRADED_ADMISSION_BYTES } from "./state.mjs";
+import { admitIntent, openLedger, CAPTURE_DEGRADED_ADMISSION_BYTES, MAX_STATE_BYTES } from "./state.mjs";
+import { createAlertDelivery, deliveryHealth } from "./mailbox-alerts.mjs";
 import { createMarketData, validMarketSymbol } from "./market-data.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { createBook } from "./book.mjs";
@@ -201,6 +202,9 @@ export function createServer(options) {
   const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false })) });
   const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
+  const mailboxSocket = options.mailboxSocket ?? process.env.PAPER_DESK_MAILBOX_SOCKET;
+  const alertDelivery = createAlertDelivery({ socketPath: mailboxSocket, ledger, exclusive, ...options.alertDelivery });
+  alertDelivery.start();
 
   function logError(error) {
     console.error(error);
@@ -223,14 +227,18 @@ export function createServer(options) {
         const state = ledger.load({ migrate: !ledger.beforePrune });
         const usage = ledger.usage();
         const degraded = !!ledger.beforePrune && state.resultsCapture?.ok === false;
+        const newAdmissionsBlocked = degraded && usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES;
         return {
           status: degraded ? "degraded" : "ok", gatewayReachable: false, gatewayHost, gatewayPort,
           account: ACCOUNT, ...usage, halt: activeHalt(ledger.haltBody()),
           brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
-          ...(state.resultsCapture ? { resultsCapture: {
+          ...(state.resultsCapture || ledger.beforePrune ? { resultsCapture: {
             ...state.resultsCapture, degraded,
+            state: degraded ? "degraded" : "ok",
+            ...(degraded ? { reason: newAdmissionsBlocked ? "ledger_size_limit" : "results_capture_failed" } : {}),
             ...usage, admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES,
-            newAdmissionsBlocked: degraded && usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES,
+            ledgerCapBytes: MAX_STATE_BYTES, newAdmissionsBlocked,
+            ...deliveryHealth(state, !!mailboxSocket && !!ledger.beforePrune),
           } } : {}),
         };
       }),
@@ -498,6 +506,7 @@ export function createServer(options) {
       });
     },
     close() {
+      alertDelivery.close();
       if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
       return new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

@@ -7,6 +7,7 @@
   marketDataClientId ? null,
   bookClientId ? null,
   tailnetContract ? false,
+  mailboxEnabled ? true,
 }:
 let
   lib = import <nixpkgs/lib>;
@@ -75,7 +76,7 @@ let
           };
         };
         config = {
-          nixcfg.agentMailbox.enable = true;
+          nixcfg.agentMailbox.enable = mailboxEnabled;
           nixcfg.paperDeskExecutor = {
             enable = true;
           }
@@ -113,7 +114,7 @@ assert lib.assertMsg (failed == [ ]) (lib.concatMapStringsSep "; " (item: item.m
 if tailnetContract then
   {
     executor = cfg.nixcfg.paperDeskExecutor.serviceSpec;
-    mailbox = cfg.nixcfg.agentMailbox.serviceSpec;
+    mailbox = if mailboxEnabled then cfg.nixcfg.agentMailbox.serviceSpec else null;
     sync = cfg.systemd.services.tailnet-peer-sync;
     timer = cfg.systemd.timers.tailnet-peer-sync;
     tmpfiles = cfg.systemd.tmpfiles.rules;
