@@ -13,11 +13,17 @@ let
     runtimeInputs = [
       pkgs.coreutils
       pkgs.gawk
+      pkgs.perl
     ];
     text = ''
       unset AEON_REMOTE_GUARD_LOAD
+      readonly guard_home=${lib.escapeShellArg home}
       readonly guard_hold_file=${lib.escapeShellArg cfg.holdFile}
       readonly guard_policy_file=${lib.escapeShellArg cfg.policyFile}
+      readonly guard_max_runs_file=${lib.escapeShellArg cfg.maxRunsFile}
+      readonly guard_lease_dir=${lib.escapeShellArg cfg.leaseDir}
+      readonly guard_default_max_runs=${toString cfg.defaultMaxRuns}
+      readonly guard_reservation_ttl_seconds=${toString cfg.reservationTtlSeconds}
       readonly guard_default_max_load=${lib.escapeShellArg (toString cfg.defaultMaxLoad)}
       readonly guard_stale_seconds=${toString cfg.staleSeconds}
       ${builtins.readFile ./guard.sh}
@@ -52,6 +58,26 @@ in
       default = 12;
       description = "Maximum 1-minute load when no valid fresh policy is available.";
     };
+    maxRunsFile = lib.mkOption {
+      type = lib.types.nonEmptyStr;
+      default = "${home}/.aeon-remote-maxruns";
+      description = "OPS run budget: maxruns=<0-9> epoch=<unix>; stale or invalid input uses defaultMaxRuns.";
+    };
+    defaultMaxRuns = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 1;
+      description = "Run budget when no valid fresh OPS budget is available.";
+    };
+    leaseDir = lib.mkOption {
+      type = lib.types.nonEmptyStr;
+      default = "${home}/.aeon-remote-leases";
+      description = "Run reservations and adopted pid leases; the persistent kernel lock is adjacent at <leaseDir>.lock.";
+    };
+    reservationTtlSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 120;
+      description = "Lifetime of reservations without a client pid; also the start window during which a run directory counts.";
+    };
     staleSeconds = lib.mkOption {
       type = lib.types.ints.unsigned;
       default = 900;
@@ -80,6 +106,14 @@ in
       {
         assertion = lib.hasPrefix "/" cfg.policyFile;
         message = "services.aeonRemoteGuard.policyFile must be an absolute path.";
+      }
+      {
+        assertion = lib.hasPrefix "/" cfg.maxRunsFile;
+        message = "services.aeonRemoteGuard.maxRunsFile must be an absolute path.";
+      }
+      {
+        assertion = lib.hasPrefix "/" cfg.leaseDir;
+        message = "services.aeonRemoteGuard.leaseDir must be an absolute path.";
       }
       {
         assertion = lib.hasPrefix "${home}/" cfg.repo;
