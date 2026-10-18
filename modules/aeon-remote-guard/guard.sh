@@ -80,7 +80,7 @@ budget_locked=false
 leases_readable=false
 lease_parent=$(dirname -- "$guard_lease_dir")
 if [[ -d $lease_parent && -x $lease_parent ]] && mkdir -p -- "$guard_lease_dir"; then
-  if [[ -d $guard_lease_dir && ! -L $guard_lease_dir && -r $guard_lease_dir && -w $guard_lease_dir && -x $guard_lease_dir ]]; then
+  if [[ -d $guard_lease_dir && ! -L $guard_lease_dir && -O $guard_lease_dir && -r $guard_lease_dir && -w $guard_lease_dir && -x $guard_lease_dir ]]; then
     leases_readable=true
   else
     reasons+=("cannot read run leases")
@@ -88,8 +88,11 @@ if [[ -d $lease_parent && -x $lease_parent ]] && mkdir -p -- "$guard_lease_dir";
 else
   reasons+=("cannot read run leases")
 fi
+budget_lock_file="${guard_lease_dir%/}.lock"
 if $leases_readable && {
-  { exec 9>>"${guard_lease_dir%/}.lock"; } &&
+  { [[ ! -e $budget_lock_file && ! -L $budget_lock_file ]] ||
+    [[ -f $budget_lock_file && ! -L $budget_lock_file && -O $budget_lock_file ]]; } &&
+    { exec 9>>"$budget_lock_file"; } && [[ -O $budget_lock_file ]] &&
     perl -e '$SIG{ALRM} = sub { exit 1 }; alarm 30; flock(STDIN, 2) or exit 1; alarm 0' <&9
 }; then
   budget_locked=true
@@ -102,9 +105,12 @@ fi
 if [[ $action == adopt ]]; then
   if ! $budget_locked; then
     reason=${reasons[0]}
-  elif ! pid_alive "$adopt_pid" || ! owner=$(ps -o uid= -p "$adopt_pid"); then
+  elif ! pid_alive "$adopt_pid"; then
     reason='cannot adopt run pid'
-  elif [[ ${owner//[[:space:]]/} != "$EUID" ]]; then
+  # Non-root kill -0 already proves same-user ownership. Root needs an
+  # explicit uid check because it can signal processes belonging to any user.
+  elif ((EUID == 0)) &&
+    { ! owner=$(/bin/ps -o uid= -p "$adopt_pid") || [[ ${owner//[[:space:]]/} != "$EUID" ]]; }; then
     reason='cannot adopt run pid'
   else
     budget_now=$(date +%s)
@@ -229,7 +235,10 @@ if $budget_locked && [[ -n $budget_now ]]; then
     # Never read through links or count non-regular entries. Their names must
     # not stop traversal of other leases.
     [[ -f $entry && ! -L $entry ]] || continue
-    mtime=$(stat -c %Y -- "$entry") || guard_error
+    mtime=$(stat -c %Y -- "$entry") || {
+      [[ -e $entry || -L $entry ]] && guard_error
+      continue
+    }
     [[ $mtime =~ ^[0-9]{1,12}$ ]] || guard_error
     lease_age=$((10#$budget_now - 10#$mtime))
     if [[ $id == .reservation.* ]]; then
@@ -281,7 +290,11 @@ if $budget_locked && [[ -n $budget_now ]]; then
   if $markers_readable; then
     for entry in "$guard_home/.aeon-remote-test/"*.pid; do
       id=${entry##*/}
-      [[ -f $entry && ! -L $entry && -r $entry ]] || continue
+      [[ -f $entry && ! -L $entry ]] || continue
+      if [[ ! -r $entry ]]; then
+        reasons+=("cannot read run markers")
+        continue
+      fi
       pid=$(<"$entry") 2>/dev/null || continue
       if pid_alive "$pid"; then add_run "${id%.pid}"; fi
     done
