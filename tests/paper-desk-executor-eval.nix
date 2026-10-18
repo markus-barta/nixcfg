@@ -116,6 +116,7 @@ if tailnetContract then
     mailbox = cfg.nixcfg.agentMailbox.serviceSpec;
     sync = cfg.systemd.services.tailnet-peer-sync;
     timer = cfg.systemd.timers.tailnet-peer-sync;
+    tmpfiles = cfg.systemd.tmpfiles.rules;
     serviceNames = builtins.attrNames cfg.systemd.services;
     firewallStop = cfg.networking.firewall.extraStopCommands;
     firewall = cfg.networking.firewall.extraCommands;

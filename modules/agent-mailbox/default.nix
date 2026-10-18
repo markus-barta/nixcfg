@@ -137,7 +137,7 @@ in
       mem_limit = "256m";
       tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ];
       volumes = [
-        "/run/tailnet-peers:/tailnet-peers:ro"
+        "/run/tailnet-peers:/run/tailnet-peers:ro"
         "${source}:/mailbox:ro"
         "${cfg.stateDir}:/state:rw"
       ];
@@ -145,7 +145,7 @@ in
         "AGENT_MAILBOX_BIND=${cfg.listenAddress}"
         "AGENT_MAILBOX_PORT=${toString cfg.listenPort}"
         "AGENT_MAILBOX_PEERS=${builtins.toJSON cfg.peers}"
-        "AGENT_MAILBOX_PEERS_FILE=/tailnet-peers/peers.json"
+        "AGENT_MAILBOX_PEERS_FILE=/run/tailnet-peers/peers.json"
         "AGENT_MAILBOX_DYNAMIC_IDENTITIES=${builtins.toJSON dynamicIdentities}"
         "AGENT_MAILBOX_IDENTITIES=${builtins.toJSON identities}"
         "AGENT_MAILBOX_STATE_DIR=/state"

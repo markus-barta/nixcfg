@@ -21,6 +21,8 @@ assert cfg["rules"] == [{"tag": "tag:paper-desk", "host": "grok-amy-box", "ident
 assert cfg["timer"]["timerConfig"]["OnUnitActiveSec"] == "30s"
 assert cfg["sync"]["after"] == ["tailscaled.service", "firewall.service"]
 assert cfg["sync"]["serviceConfig"]["User"] == "root"
+assert cfg["sync"]["serviceConfig"]["UMask"] == "0077"
+assert "d /run/tailnet-peers 0750 root 1000 - -" in cfg["tmpfiles"]
 assert "--notification-config /fixture/notification-config" in cfg["sync"]["serviceConfig"]["ExecStart"]
 assert "LoadCredential" not in cfg["sync"]["serviceConfig"]
 assert cfg["sync"]["wantedBy"] == ["tailscaled.service"]
@@ -28,7 +30,7 @@ assert cfg["serviceNames"] == ["tailnet-peer-sync"]
 assert all(key not in cfg["sync"] for key in ["wants", "requires", "bindsTo", "partOf"])
 for name, port in [("executor", 8470), ("mailbox", 8471)]:
     service = cfg[name]
-    assert "/run/tailnet-peers:/tailnet-peers:ro" in service["volumes"]
+    assert "/run/tailnet-peers:/run/tailnet-peers:ro" in service["volumes"]
     assert service["user"] == "1000:1000"
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
@@ -37,7 +39,7 @@ for name, port in [("executor", 8470), ("mailbox", 8471)]:
     assert service["pids_limit"] == 64
     assert "ports" not in service
     assert all("docker.sock" not in mount and "tailscale" not in mount for mount in service["volumes"])
-    assert any("PEERS_FILE=/tailnet-peers/peers.json" in item for item in service["environment"])
+    assert any("PEERS_FILE=/run/tailnet-peers/peers.json" in item for item in service["environment"])
     assert any(f"_PORT={port}" in item for item in service["environment"])
 assert "PAPER_DESK_ADMIN_ALLOW=[\"100.64.0.14\"]" in cfg["executor"]["environment"]
 assert "PAPER_DESK_RESULTS_CAPTURE=false" in cfg["executor"]["environment"]

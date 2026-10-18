@@ -1,4 +1,4 @@
-import { readPeers } from "../tailnet-peers/peers.mjs";
+import { readPeers, SNAPSHOT_PATH } from "../tailnet-peers/peers.mjs";
 import { createServer as createHttpServer } from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -181,7 +181,7 @@ export function createServer(options) {
     options.adminAllowlist ?? (process.env.PAPER_DESK_ADMIN_ALLOW ? JSON.parse(process.env.PAPER_DESK_ADMIN_ALLOW) : DEFAULT_ADMIN_PEERS),
     { testMode, orderAllowlist: allowlist },
   );
-  const peersFile = options.peersFile ?? process.env.PAPER_DESK_PEERS_FILE ?? "/tailnet-peers/peers.json";
+  const peersFile = options.peersFile ?? process.env.PAPER_DESK_PEERS_FILE ?? SNAPSHOT_PATH;
   const peerIdentities = options.peerIdentities ?? (process.env.PAPER_DESK_IDENTITIES ? JSON.parse(process.env.PAPER_DESK_IDENTITIES) : ["amy"]);
   const staticPeers = Object.fromEntries(allowlist.map((ip) => [ip, "ops"]));
   const currentAllowlist = () => [...readPeers(peersFile, staticPeers, peerIdentities, adminAllowlist).keys()];

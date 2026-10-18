@@ -15,6 +15,23 @@ import time
 
 CHAINS = (("paper-desk", 8470), ("agent-mailbox", 8471))
 NETWORK = ipaddress.ip_network("100.64.0.0/10")
+SNAPSHOT_OWNER = (0, 1000)  # Both unprivileged containers run as 1000:1000.
+TEST_ROOT = Path(__file__).resolve().parents[2] / "tests/.tmp"
+
+
+def config_path(value, allow_test=False):
+    """Only immutable Nix settings, or an explicit checkout-local test fixture."""
+    path = Path(value)
+    if not path.is_absolute() or ".." in path.parts:
+        raise ValueError("config path rejected")
+    resolved = path.resolve(strict=True)
+    if path.is_relative_to("/nix/store") and resolved.is_relative_to("/nix/store"):
+        relative = resolved.relative_to("/nix/store")
+        if relative.parts and re.fullmatch(r"[0-9a-df-np-sv-z]{32}-[A-Za-z0-9+._?=-]+", relative.parts[0]):
+            return resolved
+    if allow_test and path.is_relative_to(TEST_ROOT) and resolved.is_relative_to(TEST_ROOT):
+        return resolved
+    raise ValueError("config path rejected")
 
 
 def tailnet(ip):
@@ -143,10 +160,12 @@ def restore_rules(rows, address):
     return "\n".join(raw + ["COMMIT"] + filt + ["COMMIT", ""])
 
 
-def atomic_json(path, value, mode):
+def atomic_json(path, value, mode, *, owner=None):
     temporary = path.with_suffix(".new")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
     with os.fdopen(descriptor, "w") as handle:
+        if owner is not None:
+            os.fchown(handle.fileno(), *owner)
         os.fchmod(handle.fileno(), mode)
         json.dump(value, handle, sort_keys=True)
         handle.write("\n")
@@ -220,7 +239,7 @@ def _synchronize(cfg, root, lock_path, now, deliver):
             rules = restore_rules(rows, cfg["address"])
             run([cfg["restore"], "--wait", "5", "--noflush", "--test"], rules)
             run([cfg["restore"], "--wait", "5", "--noflush"], rules)
-            atomic_json(root / "peers.json", snapshot(rows), 0o644)
+            atomic_json(root / "peers.json", snapshot(rows), 0o640, owner=SNAPSHOT_OWNER)
             state["rows"] = rows
             if admitted_nodes(rows) != admitted_nodes(previous):
                 notice_fingerprint = json.dumps([admitted_nodes(previous), admitted_nodes(rows)], sort_keys=True)
@@ -291,8 +310,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--notification-config", required=True)
+    parser.add_argument("--test-config", action="store_true",
+                        help="Allow --config under this source checkout's tests/.tmp only")
     args = parser.parse_args()
-    cfg = json.loads(Path(args.config).read_text())
+    cfg = json.loads(config_path(args.config, args.test_config).read_text())
 
     def deliver(message, identifier):
         try:

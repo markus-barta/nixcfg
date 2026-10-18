@@ -1,4 +1,4 @@
-import { readPeers } from "../tailnet-peers/peers.mjs";
+import { readPeers, SNAPSHOT_PATH } from "../tailnet-peers/peers.mjs";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -67,7 +67,7 @@ export function createServer(options = {}) {
   const listen = assertListen(options.listenHost ?? LISTEN_HOST, options.listenPort ?? LISTEN_PORT);
   const staticPeers = assertPeers(options.peers ?? DEFAULT_PEERS);
   const identities = options.identities ?? [...new Set([...staticPeers.values(), "amy"])];
-  const peersFile = options.peersFile ?? process.env.AGENT_MAILBOX_PEERS_FILE ?? "/tailnet-peers/peers.json";
+  const peersFile = options.peersFile ?? process.env.AGENT_MAILBOX_PEERS_FILE ?? SNAPSHOT_PATH;
   const dynamicIdentities = options.dynamicIdentities ?? ["amy"];
   const peers = () => readPeers(peersFile, Object.fromEntries(staticPeers), dynamicIdentities);
   const mailbox = openMailbox(options.stateDir ?? "/var/lib/agent-mailbox", identities, options.now ?? Date.now);

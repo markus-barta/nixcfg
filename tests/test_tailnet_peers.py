@@ -3,6 +3,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -22,7 +23,7 @@ class Admission(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.status = (ROOT / "tests/fixtures/tailnet-peers/joined.json").read_text()
-        self.calls, self.alerts = [], []
+        self.calls, self.alerts, self.owners = [], [], []
         self.reject_restore = self.reject_probe = self.relay_down = False
         self.count = 0
         self.installed = ""
@@ -58,7 +59,13 @@ class Admission(unittest.TestCase):
         def deliver(message, identifier):
             self.alerts.append(message)
             return not self.relay_down
-        with patch.object(sync, "run", command), contextlib.redirect_stdout(io.StringIO()):
+        # macOS tests cannot chown root:1000; verify that exact ownership request
+        # on the real open descriptor before the atomic rename instead.
+        def ownership(fd, uid, gid):
+            self.assertEqual((uid, gid), (0, 1000))
+            self.assertGreater(os.fstat(fd).st_nlink, 0)
+            self.owners.append((uid, gid))
+        with patch.object(sync, "run", command), patch.object(sync.os, "fchown", ownership), contextlib.redirect_stdout(io.StringIO()):
             sync.synchronize(self.cfg, self.root, self.root / "lock", now, deliver)
 
     def peers(self):
@@ -79,8 +86,9 @@ class Admission(unittest.TestCase):
         for args, _ in self.calls:
             if args[0] == "restore":
                 self.assertIn("--noflush", args)
-        self.assertEqual((self.root / "peers.json").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((self.root / "peers.json").stat().st_mode & 0o777, 0o640)
         self.assertEqual((self.root / "state.json").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.owners, [(0, 1000), (0, 1000)])
 
     def test_tag_removed_is_dropped_immediately(self):
         self.step()
@@ -206,10 +214,10 @@ class Admission(unittest.TestCase):
     def test_state_write_failure_and_snapshot_keyerror_alert(self):
         self.step()
         original = sync.atomic_json
-        def fail_state(path, value, mode):
+        def fail_state(path, value, mode, **kwargs):
             if path.name == "state.json":
                 raise OSError("private test detail must not reach alerts")
-            original(path, value, mode)
+            original(path, value, mode, **kwargs)
         with patch.object(sync, "atomic_json", fail_state):
             self.step(1030)
         self.assertTrue(any("crashed" in m for m in self.alerts))
@@ -274,6 +282,56 @@ class Admission(unittest.TestCase):
         self.alerts.clear()
         self.step(1090)
         self.assertEqual(self.alerts, [])
+
+    def test_snapshot_ownership_is_set_before_publish_and_failure_keeps_previous(self):
+        self.step()
+        good = (self.root / "peers.json").read_bytes()
+        def reject_owner(fd, uid, gid):
+            self.assertEqual((self.root / "peers.json").read_bytes(), good)
+            self.assertEqual((uid, gid), (0, 1000))
+            raise PermissionError("chown failed")
+        with patch.object(sync.os, "fchown", reject_owner):
+            with self.assertRaises(PermissionError):
+                sync.atomic_json(self.root / "peers.json", {}, 0o640, owner=sync.SNAPSHOT_OWNER)
+        self.assertEqual((self.root / "peers.json").read_bytes(), good)
+
+    def test_config_paths_require_store_or_explicit_bounded_test_override(self):
+        file = self.root / "settings.json"
+        file.write_text("{}")
+        self.assertEqual(sync.config_path(str(file), allow_test=True), file)
+        escaped = self.root / "escape.json"
+        escaped.symlink_to(ROOT / "tests/fixtures/tailnet-peers/joined.json")
+        for value, override in [
+            (str(file), False), (str(escaped), True),
+            (str(self.root / ".." / self.root.name / "settings.json"), True),
+            (str(ROOT / "tests/fixtures/tailnet-peers/joined.json"), True),
+            ("settings.json", True), ("/nix/store-evil/settings.json", False),
+        ]:
+            with self.subTest(value=value), self.assertRaises((ValueError, OSError)):
+                sync.config_path(value, override)
+        store = Path("/nix/store/" + "0" * 32 + "-tailnet-peer-sync.json")
+        with patch.object(Path, "resolve", return_value=store) as resolve:
+            self.assertEqual(sync.config_path(str(store)), store)
+            resolve.assert_called_once_with(strict=True)
+        with patch.object(Path, "resolve", return_value=file):
+            with self.assertRaises(ValueError):
+                sync.config_path(str(store))
+        with patch.object(Path, "resolve", return_value=Path("/nix/store/not-a-store-object")):
+            with self.assertRaises(ValueError):
+                sync.config_path("/nix/store/not-a-store-object")
+
+    def test_cli_rejects_config_before_any_read_or_sync(self):
+        file = self.root / "settings.json"
+        file.write_text("{}")
+        argv = ["sync.py", "--config", str(file), "--notification-config", "/unused"]
+        with patch("sys.argv", argv), patch.object(Path, "read_text") as read, patch.object(sync, "synchronize") as synchronize:
+            with self.assertRaises(ValueError):
+                sync.main()
+            read.assert_not_called()
+            synchronize.assert_not_called()
+        with patch("sys.argv", argv + ["--test-config"]), patch.object(sync, "synchronize", return_value=True) as synchronize:
+            sync.main()
+            self.assertEqual(synchronize.call_args.args[0], {})
 
 
 if __name__ == "__main__":

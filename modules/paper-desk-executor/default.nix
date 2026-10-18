@@ -51,7 +51,7 @@ let
     "PAPER_DESK_BIND=${cfg.listenAddress}"
     "PAPER_DESK_PORT=${toString cfg.listenPort}"
     "PAPER_DESK_ALLOW=${builtins.toJSON cfg.peerAllowlist}"
-    "PAPER_DESK_PEERS_FILE=/tailnet-peers/peers.json"
+    "PAPER_DESK_PEERS_FILE=/run/tailnet-peers/peers.json"
     "PAPER_DESK_IDENTITIES=${
       builtins.toJSON (lib.unique (map (rule: rule.identity) config.nixcfg.tailnetPeers.rules))
     }"
@@ -424,7 +424,7 @@ in
       mem_limit = "384m";
       tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ];
       volumes = [
-        "/run/tailnet-peers:/tailnet-peers:ro"
+        "/run/tailnet-peers:/run/tailnet-peers:ro"
         "${source}:/executor:ro"
         "/var/lib/paper-desk-executor:/state:rw"
         "${ledgerDir}:/pusher-state:ro"

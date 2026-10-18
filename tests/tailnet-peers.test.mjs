@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import "./paper-desk-account-fixture.mjs"; // OPS-317: the executor requires a configured (synthetic) paper account at import
@@ -18,7 +19,7 @@ function fixture(t) {
   t.after(() => rmSync(directory, { recursive: true }));
   const file = path.join(directory, "peers.json");
   const write = (peers) => {
-    writeFileSync(file + ".new", JSON.stringify({ schema: 1, peers }), { mode: 0o644 });
+    writeFileSync(file + ".new", JSON.stringify({ schema: 1, peers }), { mode: 0o640 });
     renameSync(file + ".new", file);
   };
   return { directory, file, write };
@@ -83,6 +84,33 @@ test("snapshot reader never admits a dynamic admin source or unsafe file", (t) =
   renameSync(f.file + ".new", f.file);
   chmodSync(f.file, 0o666);
   assert.deepEqual([...readPeers(f.file, { "100.64.0.14": "ops" }, ["amy"])], [["100.64.0.14", "ops"]]);
+});
+
+test("snapshot paths reject traversal, symlinks, arbitrary paths and production overrides", (t) => {
+  const f = fixture(t);
+  f.write({ "100.64.0.25": "amy" });
+  const link = path.join(f.directory, "link.json");
+  symlinkSync(f.file, link);
+  const directoryLink = path.join(f.directory, "directory-link");
+  symlinkSync(f.directory, directoryLink);
+  const escape = path.join(f.directory, "escape.json");
+  symlinkSync(fileURLToPath(new URL("./fixtures/tailnet-peers/joined.json", import.meta.url)), escape);
+  const staticPeers = { "100.64.0.14": "ops" };
+  for (const file of [link, escape, path.join(directoryLink, "peers.json"),
+    `${f.directory}/../${path.basename(f.directory)}/peers.json`,
+    path.relative(process.cwd(), f.file), "/etc/passwd", "/run/tailnet-peers-evil/peers.json",
+    "/tailnet-peers/peers.json", undefined, "", 42]) {
+    assert.deepEqual([...readPeers(file, staticPeers, ["amy"])], Object.entries(staticPeers), String(file));
+  }
+  assert.equal(readPeers(f.file, staticPeers, ["amy"]).get("100.64.0.25"), "amy");
+  // A normal process (without node --test) cannot opt into a fixture via env.
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { readPeers, SNAPSHOT_PATH } from ${JSON.stringify(new URL("../modules/tailnet-peers/peers.mjs", import.meta.url).href)};
+    assert.equal(SNAPSHOT_PATH, "/run/tailnet-peers/peers.json");
+    assert.deepEqual([...readPeers(process.env.PAPER_DESK_PEERS_FILE, ${JSON.stringify(staticPeers)}, ["amy"])], ${JSON.stringify(Object.entries(staticPeers))});
+  `], { env: { PAPER_DESK_PEERS_FILE: f.file }, encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
 });
 
 test("mailbox revokes active SSE and long polls within 15 seconds of snapshot removal", async (t) => {

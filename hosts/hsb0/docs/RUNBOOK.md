@@ -448,12 +448,17 @@ A refused tailnet packet increments the final DROP counter; LOG is limited to
 two packets per minute with a burst of two. Refusal alerts contain only the
 host and port; kernel packet logs remain in the local journal.
 
-The root-owned, world-readable `/run/tailnet-peers/peers.json` is atomically
-replaced and mounted through its directory read-only into both containers.
+The `root:1000`, mode `0640` `/run/tailnet-peers/peers.json` is atomically
+replaced inside a `root:1000`, mode `0750` directory. Both containers run as
+`1000:1000` and mount that directory read-only at `/run/tailnet-peers`.
 Mounting the directory lets atomic file replacements become visible.
 Neither container receives the tailscaled socket or new privileges. The
 executor reads the snapshot on each request; missing, unsafe or malformed
 snapshots allow only static peers. Tagged peers never gain admin permissions.
+The reader accepts only this fixed production path; test overrides require
+Node's test runner and a canonical file under the source checkout's
+`tests/.tmp`. The sync accepts only resolved `/nix/store` settings paths,
+with an explicit `--test-config` override restricted to `tests/.tmp`.
 No trading brakes, HALT, ledger, Gateway ports or Results enablement change.
 
 A daemon/status/parse error retains the last good admission and alerts.

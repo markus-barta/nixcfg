@@ -87,7 +87,8 @@ in
       }
     ];
     networking.firewall.extraCommands = lib.mkAfter "${trigger} || true";
-    systemd.tmpfiles.rules = [ "d /run/tailnet-peers 0755 root root - -" ];
+    # Both consumers use gid 1000; keep state private and the snapshot group-readable.
+    systemd.tmpfiles.rules = [ "d /run/tailnet-peers 0750 root 1000 - -" ];
     systemd.services = {
       tailnet-peer-sync = {
         description = "Synchronize paper desk admission from tailnet tags (OPS-384)";
@@ -99,7 +100,7 @@ in
         serviceConfig = {
           Type = "oneshot";
           User = "root";
-          UMask = "0022";
+          UMask = "0077";
           ExecStart = "${pkgs.python3}/bin/python3 ${source}/sync.py --config ${settings} --notification-config ${
             toString (notifier.destinationFile or "/missing")
           }";
