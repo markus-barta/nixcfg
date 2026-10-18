@@ -35,7 +35,10 @@ in
     )
   ) allInterfaces;
   noSeed = cfg.seed == null;
-  noLeases = cfg.discovery.leasesFile == null;
+  # HNET-228 (approved 2026-10-17, see the ticket): leases come from AdGuard's DHCP file through the
+  # root copy unit; hausnetz itself reads only the copy via its supplementary group.
+  leasesFromAdguard = toString cfg.discovery.leasesFile == "/var/lib/AdGuardHome/data/leases.json";
+  leasesCopyGroupOnly = (unit.SupplementaryGroups or [ ]) == [ "hausnetz-leases" ];
   noExtraArguments = cfg.extraArgs == [ ];
   noLeasesBind = (unit.BindReadOnlyPaths or [ ]) == [ ];
   durableEmptyState = unit.StateDirectory == "hausnetz";
@@ -64,6 +67,16 @@ in
   ) allInterfaces;
   ssdpArgument = lib.hasInfix "\"--ssdp-port\" \"1901\"" unit.ExecStart;
   netlinkAllowed = has "AF_NETLINK" unit.RestrictAddressFamilies;
+  # OPS-355 2026-10-17: passive ARP/DHCP listener, LAN interface only.
+  passiveEnabled = cfg.discovery.passive;
+  passiveLanOnly = cfg.discovery.passiveInterfaces == [ "enp2s0f0" ];
+  passiveArgument = lib.hasInfix "\"--passive\" \"--passive-interfaces\" \"enp2s0f0\"" unit.ExecStart;
+  # OPS-355: the web source and the Starlink dish status keep their module defaults (on).
+  webCheckAllowed = cfg.discovery.webCheck;
+  noWebCheckFlag = !(lib.hasInfix "\"--web-check=false\"" unit.ExecStart);
+  starlinkAllowed = cfg.starlink;
+  noStarlinkFlag = !(lib.hasInfix "\"--starlink=false\"" unit.ExecStart);
+  packetAllowed = has "AF_PACKET" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
   nice = unit.Nice == 10;
@@ -81,5 +94,6 @@ in
       [
         "hsb0-home-hausnetz.conf"
         "hsb0-home-inflight.conf"
+        "hsb0-home-videos.conf"
       ];
 }

@@ -33,7 +33,9 @@ open http://192.168.1.99:3000
 
 ### Step 3: Login to Interface
 
-Use admin credentials (username: `admin`, password from configuration)
+Use username `admin`; Markus holds the password in the Markus-only
+`secrets/adguard-admin-password.age`. OPS uses the temporary status-only probe
+in the RUNBOOK during cutover.
 
 **Expected**: Successfully logs in to dashboard
 
@@ -95,9 +97,11 @@ journalctl -u adguardhome -f
 
 ### Can't Login
 
-- Default admin credentials are in configuration.nix
-- Password is bcrypt hashed: `$2y$05$6tWeTokm6nLLq7nTIpeQn.J9ln.4CWK9HDyhJzY.w6qAk4CmEpUNy`
-- This hashes to: `admin`
+- The admin users list comes from `/run/agenix/hsb0-adguard-users`, encrypted
+  in `secrets/hsb0-adguard-users.age`; the password is encrypted separately
+  in the Markus-only `secrets/adguard-admin-password.age`.
+- Never display the runtime secret, verifier, login request body, or YAML.
+- Follow the rotation procedure in [RUNBOOK](../docs/RUNBOOK.md#adguard-admin-rotation-ops-372).
 
 ## Test Log
 
@@ -111,4 +115,6 @@ journalctl -u adguardhome -f
 - Admin username: `admin`
 - Declarative configuration (`mutableSettings = false`) prevents UI changes from persisting
 - All configuration must be done via NixOS configuration.nix
-- Accessible from any device on the network
+- With a valid users secret, accessible from devices on the network
+- Missing or invalid users locks admin login and binds the UI to loopback;
+  DNS/DHCP remain configured. Check `adguardhome-users-health.service`.

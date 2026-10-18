@@ -61,6 +61,7 @@ let
 in
 {
   imports = [
+    ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
     ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -83,9 +84,14 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@e50b0c46 nix/module.nix:41-50,109-197.
-  # seed and discovery.leasesFile retain their null defaults (:52-60,128-136).
-  # The module owns the initially empty StateDirectory (:252-282); no data import.
+  # Options: hausnetz@8f71be50 nix/module.nix:44-278.
+  # seed keeps its null default (:65-73). discovery.leasesFile defaults to
+  # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
+  # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
+  # copies it to /run/hausnetz-leases (0640, group hausnetz-leases); hausnetz
+  # reads only the copy (:333-385,462-463). Leases are optional enrichment, not
+  # a dependency.
+  # The module owns the initially empty StateDirectory (:428); no data import.
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
@@ -95,9 +101,19 @@ in
     ];
     discovery = {
       openFirewallMdns = true;
-      # OPS-355: nix/module.nix:166-197,240-244; UDP 1901 on mdnsInterfaces only.
+      # OPS-355: nix/module.nix:217-248,326-330; UDP 1901 on mdnsInterfaces only.
       openFirewallSsdp = true;
       mdnsInterfaces = [ "enp2s0f0" ];
+      # OPS-355 (approved 2026-10-17, see the ticket): ARP/DHCP listener
+      # between scans; passiveInterfaces defaults to mdnsInterfaces (LAN only,
+      # asserted non-empty). Grants the unit CAP_NET_RAW and AF_PACKET only
+      # (nix/module.nix:30,250-276,290-295,449-456,479-480); nothing is sent.
+      passive = true;
+      # OPS-355 (approved 2026-10-17, see the ticket): the web source (HNET-238,
+      # discovery.webCheck, :176-187) and the Starlink dish status (HNET-48,
+      # top-level starlink, :81-92) keep their module defaults (on). Both are
+      # outgoing only, with no firewall or capability change; false adds
+      # --web-check=false or --starlink=false to the unit (:406-407).
     };
   };
   systemd.services.hausnetz.serviceConfig = {
@@ -146,6 +162,7 @@ in
       # Bind-mounted nginx snippets need container recreation after a switch.
       ./docker/hsb0-home-hausnetz.conf
       ./docker/hsb0-home-inflight.conf
+      ./docker/hsb0-home-videos.conf
     ];
     # ncps must not start on an empty /var/lib/ncps — the old docker-ncps
     # ordering unit was a phantom (QA-2). Wants+After, not Requires: the stack
@@ -515,6 +532,9 @@ in
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
   services.adguardhome = {
+    usersSecretFile = ../../secrets/hsb0-adguard-users.age;
+    # Existence guard only; hsb0 never decrypts the peer's ciphertext.
+    usersSecretPeers = [ (../../secrets + "/hsb8-adguard-users.age") ];
     enable = true;
     host = "0.0.0.0";
     port = 3000;
@@ -544,15 +564,7 @@ in
       # Custom filtering rules: allowlist + DNS rewrites
       user_rules = dnsAllowlist ++ dnsRewrites;
 
-      users = [
-        {
-          name = "admin";
-          # NOTE: Bcrypt hash intentionally inline - AdGuard Home requires password in config.
-          # This is an accepted tradeoff since bcrypt is resistant to reversal and
-          # the hash is already in git history. The actual password is in 1Password.
-          password = "$2y$05$6tWeTokm6nLLq7nTIpeQn.J9ln.4CWK9HDyhJzY.w6qAk4CmEpUNy";
-        }
-      ];
+      # Admin users are injected from the root-only agenix secret at startup.
 
       dhcp = {
         enabled = true;
@@ -1060,6 +1072,8 @@ in
   environment.etc."hostdash/hsb0".source = hostdashHsb0;
   # OPS-353: /inflight/ location for hsb0-home (mounted into the HostDash include point).
   environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
+  # OPS-380: /videos/ location (VID's video overview, AEON-1480), same pattern as /inflight/.
+  environment.etc."hsb0-home-videos.conf".source = ./docker/hsb0-home-videos.conf;
   environment.etc."hsb0-home-hausnetz.conf".source = ./docker/hsb0-home-hausnetz.conf;
 
   # ============================================================================
@@ -1092,6 +1106,8 @@ in
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
     # OPS-353: In-flight page content; mba pushes index.html, hsb0-home reads it (ro mount).
     "d /var/lib/inflight 0755 mba users - -"
+    # OPS-380: video overview page content; mba pushes index.html, hsb0-home reads it (ro mount).
+    "d /var/lib/videos 0755 mba users - -"
   ];
 
   # Fix: P6400 / P5012 - Remove evaluation warning by forcing null on initialHashedPassword

@@ -243,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261016060843.0.0@sha256:d558d3e937e249f4d7b66f3704ae55a8292fd91a1489eca81a6ada1dc4a42497"; # release 135 Teal Timer (AEON-1437): project checklists, Desk step-up fix, model catalog with Opus 5.5, faster ticket creation, isolated Codex reviews, merge-queue admission groundwork (default off); migrations 1355-1359
+      image = "ghcr.io/inspr-at/aeon:261017115202.0.0@sha256:b3f5b782787d5cda2c2f4832c1ae4c2f0c5b630992bd35738cec2da8f1c84c88"; # release 136 Aglow Apsis (AEON-1475): Goals API and CLI, Desk answers stay queued, safer administration saves, clearer session delivery; migrations 1360-1361
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
