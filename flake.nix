@@ -52,8 +52,9 @@
       url = "github:markus-barta/joedesk/db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
       flake = false;
     };
+    # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
     hostdash = {
-      url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
+      url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # OPS-355: v261017204833.0.0 (web check on by default for answering devices HNET-238, Starlink dish status HNET-48); explicitly reviewed revision; automated updates skip this input.
