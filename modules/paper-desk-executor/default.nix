@@ -13,7 +13,7 @@ let
   ledgerName = baseNameOf cfg.ownershipLedgerFile;
   ledgerDir = dirOf cfg.ownershipLedgerFile;
   allPeers = lib.unique (cfg.peerAllowlist ++ cfg.adminPeerAllowlist);
-  deskPeers = lib.unique ([ "100.64.0.10" ] ++ lib.subtractLists [ "100.64.0.14" ] cfg.peerAllowlist);
+  deskPeers = lib.unique ([ "100.64.0.15" ] ++ lib.subtractLists [ "100.64.0.14" ] cfg.peerAllowlist);
   tailnetPeer =
     peer:
     lib.match "100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])" peer
@@ -109,7 +109,7 @@ in
     peerAllowlist = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [
-        "100.64.0.10" # grok-amy-box (node 21 after the 2026-10-07 rebuild; was .9)
+        "100.64.0.15" # grok-amy-box (node 24 after the 2026-10-17 reset; was .10, .9)
         "100.64.0.14" # mbp2607, OPS tests
       ];
       description = "Tailnet source addresses allowed to call the executor. Any other source receives 403.";

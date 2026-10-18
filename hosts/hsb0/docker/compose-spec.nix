@@ -416,6 +416,9 @@
         # as /status/ above); the location snippet goes into the shared conf's include point.
         "/var/lib/inflight:/srv/inflight:ro"
         "/etc/hsb0-home-inflight.conf:/etc/nginx/hostdash-extra/inflight.conf:ro"
+        # OPS-380: the video overview page, same pattern as /inflight/.
+        "/var/lib/videos:/srv/videos:ro"
+        "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro"
         "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro"
       ];
       labels = [

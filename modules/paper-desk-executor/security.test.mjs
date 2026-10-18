@@ -32,7 +32,7 @@ test("paper port 4002 is required and live port 4001 is a hard error", () => {
 });
 
 test("peer allowlist accepts only tailnet sources and the default desks", () => {
-  assert.deepEqual(assertPeerAllowlist(DEFAULT_PEERS), ["100.64.0.10", "100.64.0.14"]);
+  assert.deepEqual(assertPeerAllowlist(DEFAULT_PEERS), ["100.64.0.15", "100.64.0.14"]);
   assert.equal(normalizePeer("::ffff:100.64.0.9"), "100.64.0.9");
   assert.equal(peerAllowed("::ffff:100.64.0.14", DEFAULT_PEERS), true);
   assert.equal(peerAllowed("100.64.0.8", DEFAULT_PEERS), false);
@@ -57,7 +57,7 @@ test("production listen stays on the hsb0 tailnet address and port 8470", () => 
 
 test("admin peers default to OPS and cannot include the desk peer or another order-only peer", () => {
   assert.deepEqual(assertAdminPeerAllowlist(DEFAULT_ADMIN_PEERS), ["100.64.0.14"]);
-  for (const peer of ["100.64.0.10", "::ffff:100.64.0.10"]) assert.throws(() => assertAdminPeerAllowlist([peer]), /desk peer/);
-  assert.throws(() => assertAdminPeerAllowlist(["100.64.0.15"], { orderAllowlist: ["100.64.0.10", "100.64.0.14", "100.64.0.15"] }), /desk peer/);
-  assert.deepEqual(assertAdminPeerAllowlist(["100.64.0.15"]), ["100.64.0.15"]);
+  for (const peer of ["100.64.0.15", "::ffff:100.64.0.15"]) assert.throws(() => assertAdminPeerAllowlist([peer]), /desk peer/);
+  assert.throws(() => assertAdminPeerAllowlist(["100.64.0.16"], { orderAllowlist: ["100.64.0.15", "100.64.0.14", "100.64.0.16"] }), /desk peer/);
+  assert.deepEqual(assertAdminPeerAllowlist(["100.64.0.16"]), ["100.64.0.16"]);
 });
