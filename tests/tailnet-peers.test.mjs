@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import "./paper-desk-account-fixture.mjs"; // OPS-317: the executor requires a configured (synthetic) paper account at import
 import { createServer as executor } from "../modules/paper-desk-executor/server.mjs";
 import { createServer as mailbox } from "../modules/agent-mailbox/server.mjs";
 import { readPeers } from "../modules/tailnet-peers/peers.mjs";
