@@ -54,5 +54,5 @@ for folder in ["modules/paper-desk-executor", "modules/agent-mailbox"]:
         if path.is_file():
             text = path.read_text()
             assert all(pin not in text for pin in ["100.64.0.15", "100.64.0.10", "100.64.0.9"]), path
-print("T106 passed: dynamic identity, read-only snapshots, timers/triggers, refusal alerts and unchanged container hardening")
+print("T108 passed: dynamic identity, read-only snapshots, timers/triggers, refusal alerts and unchanged container hardening")
 PY
