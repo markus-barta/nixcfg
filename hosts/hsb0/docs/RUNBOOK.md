@@ -1055,6 +1055,24 @@ When separately enabled, the executor's optional capture writes
 recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
 fills, commissions, close FX and reconciliation evidence with hashed identifiers.
+Capture exceptions never fail an intent: that admission/save retains the full
+ledger without pruning or recon compaction and still persists normally. Legacy
+migration remains pending with its complete evidence until capture succeeds.
+Executor `/v1/health` and the loopback Results health expose `resultsCapture`
+after a failure: `ok: false`, `since`, `lastErrorAt`, a fixed value-free `code`
+and cumulative failure `count`. Persisted `resultsCaptureAlerts` receipts are
+deduplicated by class, bounded to the fixed class set, and expire from their
+last observation using the foreign-alert retention period. Logs emit only on a
+failure class transition; no exception messages or broker values are included.
+A successful capture sets `ok: true` and `lastRecoveredAt`; the next successful
+save immediately catches up compaction and pruning after capturing retained
+evidence. Persistent failure grows the ledger until fixed: monitor these health
+fields, alert receipts and `ledgerPercent`. Existing admission and ledger size
+limits remain enforced; fix the capture source or journal storage before those
+limits are exhausted. Journal write/fsync failures latch the writer: restore
+storage, retain both journals and the ledger, then restart the executor. Never
+truncate or rebuild a damaged journal to clear the failure. Capture disabled
+adds no fields and follows the existing retention and admission paths.
 FX-only events update samples/status without repeating position or history
 proofs; older producers ignore that event type on rollback; samples carried only
 by FX-only events are then unseen, so USD days fail closed as partial until

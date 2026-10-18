@@ -102,8 +102,51 @@ export function rememberFirstOrders(state) {
   }
 }
 
-export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention(), beforePrune = () => {} } = {}) {
-  beforePrune(state);
+// Only fixed classes cross the diagnostic boundary; exception messages and
+// arbitrary error codes can contain broker evidence or filesystem paths.
+const CAPTURE_ERROR_CODES = new Set(["ENOSPC", "EIO", "EDQUOT", "EACCES", "EPERM", "EROFS", "ENOENT", "EMFILE", "ENFILE", "EFBIG"]);
+
+function captureBeforePrune(state, beforePrune, now = Date.now()) {
+  if (!beforePrune) return true;
+  const at = new Date(now).toISOString();
+  try {
+    beforePrune(state);
+  } catch (error) {
+    const code = CAPTURE_ERROR_CODES.has(error?.code) ? error.code : "unavailable";
+    const previous = state.resultsCapture;
+    const transition = previous?.ok !== false || previous.code !== code;
+    state.resultsCapture = {
+      ok: false, since: previous?.ok === false ? previous.since : at,
+      lastErrorAt: at, code, count: (previous?.count || 0) + 1,
+      ...(previous?.lastRecoveredAt ? { lastRecoveredAt: previous.lastRecoveredAt } : {}),
+    };
+    const retentionDays = Number(process.env.PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS || 14);
+    const alerts = (state.resultsCaptureAlerts || []).filter(row => now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
+    let receipt = alerts.find(row => row.code === code);
+    if (!receipt) {
+      receipt = { key: `results_capture:${code}`, event: "results_capture_failed", ticket: "JOED-43", at, code, count: 0 };
+      alerts.push(receipt);
+    }
+    receipt.lastSeenAt = at;
+    receipt.count++;
+    // One receipt per allowlisted class, independently of evidence retention.
+    state.resultsCaptureAlerts = alerts.slice(-(CAPTURE_ERROR_CODES.size + 1));
+    if (transition) {
+      try { console.error(JSON.stringify({ event: "results_capture_failed", code })); }
+      catch { /* Diagnostics must also fail open. */ }
+    }
+    return false;
+  }
+  if (state.resultsCapture?.ok === false) state.resultsCapture = { ...state.resultsCapture, ok: true, lastRecoveredAt: at };
+  return true;
+}
+
+export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention(), beforePrune } = {}) {
+  if (!captureBeforePrune(state, beforePrune, now)) return;
+  if (state.resultsCaptureAlerts) {
+    const retentionDays = Number(process.env.PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS || 14);
+    state.resultsCaptureAlerts = state.resultsCaptureAlerts.filter(row => now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
+  }
   pruneForeignAlerts(state, undefined, now);
   state.intents = dictionary(state.intents, "intentId");
   rememberFirstOrders(state);
@@ -116,6 +159,9 @@ export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRe
 
 export function admitIntent(state, action, options) {
   pruneState(state, Date.now(), options);
+  // A failed capture skips retention, but admission still accepts the same
+  // plain dictionaries as the normal pruning path without dropping any rows.
+  if (!(state.intents instanceof Map)) state.intents = dictionary(state.intents, "intentId");
   // A full recon receipt budget must not consume the state-changing claim
   // budget. Both remain bounded; only another recon is refused at its cap.
   const claims = [...state.intents.values()].filter((row) => (row.action === "recon") === (action === "recon")).length;
@@ -145,7 +191,7 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune = () => {} } = {}) {
+export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune } = {}) {
   reconRetentionMs = reconRetention(reconRetentionMs);
   const resolvedRoot = path.resolve(root);
   const statePath = confinedPath(resolvedRoot, path.join(resolvedRoot, "ledger.json"), "state path");
@@ -276,9 +322,10 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
 
   function save(state) {
     // Capture once, before compaction; pruneState below uses its no-op hook.
-    beforePrune(state);
-    compactRecons(state);
-    pruneState(state, Date.now(), { reconRetentionMs });
+    if (captureBeforePrune(state, beforePrune)) {
+      compactRecons(state);
+      pruneState(state, Date.now(), { reconRetentionMs });
+    }
     persist(state);
   }
 
@@ -325,7 +372,12 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     rememberFirstOrders(value);
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
     if (!readOnly && (value.reconStorageVersion !== 1 || legacyRecons)) {
-      beforePrune(value);
+      if (!captureBeforePrune(value, beforePrune)) {
+        // Leave the migration pending: its next attempt must see the complete
+        // legacy results, including after a restart during a capture outage.
+        persist(value);
+        return value;
+      }
       try { writeAtomic(backupPath, original, { exclusive: true }); }
       catch (error) {
         if (error.code !== "EEXIST") throw error;

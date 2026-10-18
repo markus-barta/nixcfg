@@ -210,12 +210,17 @@ test('capture is durable before pruning, never writes raw identifiers, and persi
   capture.close();
 });
 
-test('capture failure prevents compaction and pre-admission pruning without rewriting ledger', () => {
+test('capture failure preserves evidence and persists the ledger without blocking a save', t => {
+  t.mock.method(console, 'error', () => {});
   const dir = temp(), ledger = openLedger(dir), initial = ledger.load();
-  const before = readFileSync(path.join(dir, 'ledger.json'));
+  initial.intents.set('expired-recon', { action: 'recon', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { executions: ['synthetic-evidence'] } });
   const failing = openLedger(dir, { beforePrune: () => { throw new Error('capture_disk_full'); } });
-  assert.throws(() => failing.save(initial), /capture_disk_full/);
-  assert.equal(readFileSync(path.join(dir, 'ledger.json')).equals(before), true);
+  failing.save(initial);
+  const disk = JSON.parse(readFileSync(path.join(dir, 'ledger.json')));
+  assert.deepEqual(disk.intents, Object.fromEntries(initial.intents));
+  assert.equal(disk.intents['expired-recon'].result.resultCompacted, undefined);
+  assert.equal(disk.resultsCapture.ok, false);
+  assert.equal(disk.resultsCapture.code, 'unavailable');
 });
 
 test('capture excludes KEEP fills before financial conversion', () => {
