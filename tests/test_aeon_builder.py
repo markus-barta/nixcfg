@@ -1003,7 +1003,7 @@ class FakeGitHub:
         return LIVE_RULESET
 
     def ruleset_versions(self):
-        return {1}
+        return {1: None}
 
     def publish(self, record):
         self.published.append(record)
@@ -2719,14 +2719,15 @@ class RulesetHistoryTests(unittest.TestCase):
 
     def test_history_uses_uncached_admin_read_and_all_version_ids(self):
         gh = self.client()
-        gh.call = Mock(return_value=[{"version_id": 4}, {"version_id": 9}, {"version_id": 2}])
-        self.assertEqual(gh.ruleset_versions(), {2, 4, 9})
+        gh.call = Mock(return_value=[{"version_id": 4, "updated_at": "1970-01-01T00:16:41Z"},
+                                     {"version_id": 9, "updated_at": "bad"}, {"version_id": 2}])
+        self.assertEqual(gh.ruleset_versions(), {2: None, 4: "1970-01-01T00:16:41Z", 9: "bad"})
         gh.call.assert_called_once_with("GET", "/repos/inspr-at/paimos/rulesets/24240960/history?per_page=100&page=1", ab.ADMIN_READ)
 
     def test_history_paginates_and_refuses_partial_evidence(self):
         gh = self.client()
         gh.call = Mock(side_effect=[[{"version_id": i + 1} for i in range(100)], [{"version_id": 101}]])
-        self.assertEqual(gh.ruleset_versions(), set(range(1, 102)))
+        self.assertEqual(gh.ruleset_versions(), dict.fromkeys(range(1, 102)))
         self.assertIn("page=2", gh.call.call_args.args[1])
         gh.call = Mock(return_value=[{"version_id": 1}] * 100)
         with self.assertRaises(ab.BuilderError):
@@ -2755,10 +2756,10 @@ class RulesetQuarantineTests(unittest.TestCase):
         job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
         gh = FakeGitHub([r], {9: [job]})
         gh.ruleset = Mock(return_value=copy.deepcopy(LIVE_RULESET))
-        gh.ruleset_versions = Mock(return_value={1})
+        gh.ruleset_versions = Mock(return_value={1: None})
         ctl = self.controller(gh)
         self.assertTrue(ctl.check_ruleset())
-        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1], "at": 1000})
+        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1], "at": 1000, "since": 1000})
         return ctl, gh, r, job
 
     def anomaly(self, ctl, gh):
@@ -2778,7 +2779,7 @@ class RulesetQuarantineTests(unittest.TestCase):
     def test_real_change_pauses_and_cancels_immediately(self):
         ctl, gh, _, _ = self.pool()
         gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
-        gh.ruleset_versions.return_value = {1, 2}
+        gh.ruleset_versions.return_value = {1: None, 2: None}
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
         self.assertEqual(gh.cancelled, [9])
@@ -2816,11 +2817,11 @@ class RulesetQuarantineTests(unittest.TestCase):
         def history():
             entered.set()
             self.assertTrue(release.wait(2))
-            return {1}
+            return {1: None}
         calls = []
         def probe():
             calls.append(True)
-            return {1} if len(calls) == 1 else history()
+            return {1: None} if len(calls) == 1 else history()
         gh.ruleset_versions.side_effect = probe
         gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
         checker = threading.Thread(target=ctl.check_ruleset)
@@ -2953,7 +2954,7 @@ class RulesetQuarantineTests(unittest.TestCase):
         ctl, gh, _, _ = self.pool()
         self.anomaly(ctl, gh)
         gh.ruleset.return_value = copy.deepcopy(LIVE_RULESET)
-        gh.ruleset_versions.return_value = {1, 2, 3}  # weakened, then restored
+        gh.ruleset_versions.return_value = {1: None, 2: None, 3: None}  # weakened, then restored
         self.clock.return_value += 5
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
@@ -3142,7 +3143,7 @@ class RulesetQuarantineTests(unittest.TestCase):
         self.clock.return_value = 1596
         def history():
             self.clock.return_value = 1601
-            return {1}
+            return {1: None}
         gh.ruleset_versions.side_effect = history
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
@@ -3202,7 +3203,7 @@ class RulesetRoundTwoRegressionTests(unittest.TestCase):
         # Keep both client surfaces in these regressions so they can be replayed
         # against df565b40 without failing in fixture setup after the API rename.
         gh.ruleset_version = Mock(return_value=max(versions), side_effect=error)
-        gh.ruleset_versions = Mock(return_value=set(versions), side_effect=error)
+        gh.ruleset_versions = Mock(return_value=dict.fromkeys(versions), side_effect=error)
 
     def pool(self, versions=(1,)):
         r = run(id=9, created_at="1970-01-01T00:15:00Z")
@@ -3353,7 +3354,7 @@ class RulesetRoundTwoRegressionTests(unittest.TestCase):
         order = []
         gh.ruleset.side_effect = lambda: (order.append("content"), LIVE_RULESET)[1]
         gh.ruleset_version.side_effect = lambda: (order.append("history"), 1)[1]
-        gh.ruleset_versions.side_effect = lambda: (order.append("history"), {1})[1]
+        gh.ruleset_versions.side_effect = lambda: (order.append("history"), {1: None})[1]
         self.assertTrue(ctl.check_ruleset())
         self.assertEqual(order, ["history", "content"])
 
@@ -3554,7 +3555,7 @@ class RulesetRoundThreeRegressionTests(unittest.TestCase):
         self.history(gh, (9,))
         self.clock.return_value = 1005
         self.assertTrue(ctl.check_ruleset())
-        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1, 9], "at": 1005})
+        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1, 9], "at": 1005, "since": 1000})
         self.history(gh, (1, 9))
         self.assertTrue(ctl.check_ruleset(), "reappearing known ids must not look new")
         self.assertEqual(gh.cancelled, [])
@@ -3567,7 +3568,7 @@ class RulesetRoundThreeRegressionTests(unittest.TestCase):
         for at, recovered in ((1006, False), (1011, True)):
             self.clock.return_value = at
             self.assertEqual(ctl.check_ruleset(), recovered)
-        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1, 9], "at": 1011})
+        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1, 9], "at": 1011, "since": 1000})
         self.history(gh, (1, 9))
         self.assertTrue(ctl.check_ruleset())
         self.assertEqual(gh.cancelled, [])
@@ -3613,7 +3614,7 @@ class RulesetRoundThreeRegressionTests(unittest.TestCase):
 
     def test_new_pre_content_history_id_cannot_be_hidden_by_lagging_entry_read(self):
         ctl, gh, _, _ = self.pool(versions=(1, 9))
-        gh.ruleset_versions.side_effect = [{1, 8, 9}, {1, 9}]
+        gh.ruleset_versions.side_effect = [dict.fromkeys((1, 8, 9)), dict.fromkeys((1, 9))]
         gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
         self.clock.return_value = 1006
         self.assertFalse(ctl.check_ruleset())
@@ -3628,6 +3629,7 @@ class RulesetRoundThreeRegressionTests(unittest.TestCase):
                 self.state.save({"mode": "on"})
                 self.clock.return_value = 1000
                 ctl, gh, _, _ = self.pool()
+                gh._runs = []
                 self.anomaly(ctl, gh)
                 real_init = ab.State.__init__
                 with patch.object(ab.State, "__init__", lambda state: real_init(state, self.tmp)), \
@@ -3698,6 +3700,137 @@ class RulesetRoundThreeRegressionTests(unittest.TestCase):
         self.assertEqual(self.state.load()["rulesetQuarantine"]["cleanReads"], 0)
         self.assertEqual(ctl.mode(), "on")
         self.assertEqual(gh.cancelled, [])
+
+
+class RulesetRoundFourRegressionTests(unittest.TestCase):
+    setUp = ControllerTests.setUp
+    controller = ControllerTests.controller
+
+    def pool(self):
+        r = run(id=9, created_at="1970-01-01T00:15:00Z")
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = Mock(return_value=copy.deepcopy(LIVE_RULESET))
+        client = RulesetHistoryTests.client(self)
+        client.call = Mock(return_value=[{"version_id": i, "updated_at": "1970-01-01T00:15:00Z"}
+                                         for i in range(1, 6)])
+        # Exercise the real history parser, including when replayed on round 3.
+        gh.ruleset_versions = client.ruleset_versions
+        ctl = self.controller(gh)
+        self.assertTrue(ctl.check_ruleset())
+        baseline = copy.deepcopy(client.call.return_value)
+        self.clock.return_value = 1005  # T3: exact content, history still lags.
+        self.assertTrue(ctl.check_ruleset())
+        return ctl, gh, job, client.call, baseline
+
+    def changed_history(self, baseline):
+        return baseline + [{"version_id": 6, "updated_at": "1970-01-01T00:16:41Z"},
+                           {"version_id": 7, "updated_at": "1970-01-01T00:16:43Z"}]
+
+    def assert_delayed_run_rejected(self, ctl, gh, job):
+        self.state.update(lambda d: (d.update(mode="on"), d.pop("rulesetExact", None)))
+        gh._runs = [run(id=10, created_at="1970-01-01T00:16:42Z")]  # Between T1 and T2.
+        gh._jobs = {10: [{**job, "id": 100}]}
+        ctl.tick()
+        self.assertIn(10, gh.cancelled)
+        self.assertEqual(self.served, [])
+
+    def test_lagging_history_covers_weaken_restore_interval_after_resume(self):
+        ctl, gh, job, history, baseline = self.pool()
+        history.return_value = self.changed_history(baseline)
+        self.clock.return_value = 1010  # T4: v6 (T1) and v7 (T2) finally appear.
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(ctl.mode(), "paused")
+        self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1001, "until": 1010}])
+        self.assert_delayed_run_rejected(ctl, gh, job)
+
+    def test_unreadable_new_version_timestamp_uses_baseline_creation(self):
+        for stamp in (None, "bad", "1970-01-01T00:16:41", 1001, {}):
+            with self.subTest(stamp=stamp):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, job, history, baseline = self.pool()
+                changed = self.changed_history(baseline)
+                changed[-2]["updated_at"] = stamp
+                history.return_value = changed
+                self.clock.return_value = 1010
+                self.assertFalse(ctl.check_ruleset())
+                self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1000, "until": 1010}])
+                self.assert_delayed_run_rejected(ctl, gh, job)
+
+    def test_new_history_ids_widen_each_quarantine_pause_path(self):
+        for stage in ("before-content", "entry", "quarantined"):
+            with self.subTest(stage=stage):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, job, history, baseline = self.pool()
+                changed = self.changed_history(baseline)
+                gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+                self.clock.return_value = 1006
+                if stage == "before-content":
+                    history.return_value = changed
+                elif stage == "entry":
+                    history.side_effect = [baseline, changed]
+                else:
+                    self.assertFalse(ctl.check_ruleset())
+                    history.return_value = changed
+                    self.clock.return_value = 1011
+                self.assertFalse(ctl.check_ruleset())
+                self.assertEqual(ctl.mode(), "paused")
+                self.assertEqual(self.state.load()["rulesetRejectedWindows"],
+                                 [{"since": 1001, "until": self.clock.return_value}])
+                self.assert_delayed_run_rejected(ctl, gh, job)
+
+    def test_baseline_creation_survives_quarantine_recovery(self):
+        ctl, gh, job, history, baseline = self.pool()
+        self.clock.return_value = 1006
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.assertFalse(ctl.check_ruleset())
+        gh.ruleset.return_value = LIVE_RULESET
+        for at, recovered in ((1011, False), (1016, True)):
+            self.clock.return_value = at
+            self.assertEqual(ctl.check_ruleset(), recovered)
+        changed = self.changed_history(baseline)
+        changed[-2].pop("updated_at")
+        history.return_value = changed
+        self.clock.return_value = 1020
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(self.state.load()["rulesetRejectedWindows"][-1], {"since": 1000, "until": 1020})
+        self.assert_delayed_run_rejected(ctl, gh, job)
+
+    def test_quarantine_drain_keeps_queued_job_until_recovery(self):
+        ctl, gh, _, _, _ = self.pool()
+        self.clock.return_value = 1006
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.assertFalse(ctl.check_ruleset())
+        self.state.update(lambda d: d.update(mode="draining"))
+        self.assertEqual(ctl.tick(), "draining")
+        self.assertEqual(gh.cancelled, [])
+        self.assertEqual(self.served, [])
+        gh.ruleset.return_value = LIVE_RULESET
+        for at, recovered in ((1011, False), (1016, True)):
+            self.clock.return_value = at
+            self.assertEqual(ctl.check_ruleset(), recovered)
+        self.assertEqual(ctl.tick(), "draining")
+        self.assertEqual(self.served, [(0, 9, 90)])
+        gh._runs = []
+        for worker in ctl.workers.values():
+            worker.join(3)
+        self.state.update(lambda d: d.update(slots={}))
+        self.assertEqual(ctl.tick(), "off")
+        self.assertEqual(gh.cancelled, [])
+
+    def test_quarantine_drain_pauses_and_cancels_queued_job_at_expiry(self):
+        ctl, gh, _, _, _ = self.pool()
+        self.clock.return_value = 1006
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.assertFalse(ctl.check_ruleset())
+        self.state.update(lambda d: d.update(mode="draining"))
+        self.clock.return_value = 1606
+        self.assertEqual(ctl.tick(), "paused")
+        self.assertEqual(gh.cancelled, [9])
+        self.assertIn("grace expired", self.state.load()["alert"])
+        self.assertEqual(self.served, [])
 
 
 if __name__ == "__main__":

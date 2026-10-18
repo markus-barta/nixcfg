@@ -462,7 +462,7 @@ class GitHub:
         ruleset content. The history endpoint needs administration:read, already
         granted to this App. Refuse empty, malformed or truncated histories."""
         path = self.repo_path(f"/rulesets/{self.cfg['ruleset']['id']}/history")
-        versions = set()
+        versions = {}
         for page in range(1, MAX_PAGES + 1):
             batch = self.call("GET", f"{path}?per_page=100&page={page}", ADMIN_READ)
             if not isinstance(batch, list):
@@ -471,7 +471,7 @@ class GitHub:
                 version = item.get("version_id") if isinstance(item, dict) else None
                 if type(version) is not int or version < 1:
                     raise BuilderError("ruleset history has an invalid version_id")
-                versions.add(version)
+                versions[version] = item.get("updated_at")
             if len(batch) < 100:
                 if not versions:
                     raise BuilderError("ruleset history is empty")
@@ -844,7 +844,7 @@ class Controller:
                         hostGated=self.host_gated, hostGateReason=reason)
         return self.state.update(sample)
 
-    def pause(self, reason, *, reject_exact_window=False):
+    def pause(self, reason, *, reject_exact_window=False, history_versions=None):
         """A failed protection check: refuse availability, stop minting and
         cancel queued mbp2606 runs so nothing waits on a pool that is off."""
         log(f"PAUSE: {reason}")
@@ -857,9 +857,15 @@ class Controller:
                 log(f"clear availability failed: {err}")
         def paused(data):
             baseline = data.get("rulesetExact")
-            if reject_exact_window and baseline and not data.get("rulesetQuarantine"):
+            cutoff = baseline["at"] if baseline else None
+            if history_versions is not None and baseline:
+                cutoff = self.history_window_start(baseline, history_versions)
+                quarantine = data.get("rulesetQuarantine")
+                if quarantine:
+                    quarantine["cutoff"] = min(quarantine["cutoff"], cutoff)
+            if (reject_exact_window or history_versions is not None) and baseline and not data.get("rulesetQuarantine"):
                 data.setdefault("rulesetRejectedWindows", []).append({
-                    "since": baseline["at"], "until": time.time(),
+                    "since": cutoff, "until": time.time(),
                 })
             reject_quarantine_window(data)
             if data.get("mode") not in ("stopping", "off"):
@@ -994,7 +1000,8 @@ class Controller:
             # A lagging second history read must never erase a change already
             # observed before the content mismatch closed the interlock.
             if history_error is None and set(versions) - set(quarantine["versions"]):
-                self.pause(f"main ruleset history changed: {quarantine['versions']} -> {versions}")
+                self.pause(f"main ruleset history changed: {quarantine['versions']} -> {sorted(versions)}",
+                           history_versions=versions)
                 self.log_ruleset_drift(live)
                 return False
             # The entry decision uses a fresh independent signal AFTER the
@@ -1016,7 +1023,8 @@ class Controller:
 
         if quarantine:
             if set(versions) - set(quarantine["versions"]):
-                self.pause(f"main ruleset history changed: {quarantine['versions']} -> {versions}")
+                self.pause(f"main ruleset history changed: {quarantine['versions']} -> {sorted(versions)}",
+                           history_versions=versions)
                 return False
             if self.expire_quarantine():
                 return False
@@ -1035,7 +1043,11 @@ class Controller:
                     # Keep closed intervals permanently, including across restarts:
                     # delayed/retried jobs from this uncertain window stay denied.
                     reject_quarantine_window(current)
-                    current["rulesetExact"] = {"versions": sorted(set(q["versions"]) | set(versions)), "at": int(started)}
+                    baseline = current["rulesetExact"]
+                    current["rulesetExact"] = {
+                        "versions": sorted(set(q["versions"]) | set(versions)), "at": int(started),
+                        "since": baseline.get("since", baseline["at"]),
+                    }
                     recovered.append(True)
             self.state.update(observe)
             if recovered:
@@ -1045,6 +1057,8 @@ class Controller:
 
         # Use the start of this exact read at the API's created_at precision;
         # never subtract an arbitrary safety margin from the observed boundary.
+        # An unchanged history may lag, so preserve its creation time separately
+        # and widen history-change windows using the new versions' timestamps.
         changed = []
 
         def exact(current):
@@ -1057,19 +1071,34 @@ class Controller:
             current["rulesetExact"] = {
                 "versions": sorted(set(baseline["versions"] if baseline else []) | set(versions)),
                 "at": int(started),
+                "since": baseline.get("since", baseline["at"]) if baseline else int(started),
             }
         self.state.update(exact)
         if changed:
-            self.pause("main ruleset history changed between exact reads", reject_exact_window=True)
+            self.pause("main ruleset history changed between exact reads", history_versions=versions)
             return False
         return self.minting_allowed()
 
     def read_ruleset_versions(self):
         versions = self.gh.ruleset_versions()
-        if not isinstance(versions, (set, list, tuple)) or not versions \
+        if not isinstance(versions, dict) or not versions \
                 or any(type(version) is not int or version < 1 for version in versions):
             raise BuilderError("ruleset history has no usable version ids")
-        return sorted(set(versions))
+        return versions
+
+    def history_window_start(self, baseline, versions):
+        """Late history can only widen a rejection, never move its start on.
+        Any unreadable new timestamp falls back to the baseline's creation."""
+        cutoff = baseline["at"]
+        for version in set(versions) - set(baseline["versions"]):
+            try:
+                updated = dt.datetime.fromisoformat(versions[version].replace("Z", "+00:00"))
+                if updated.tzinfo is None:
+                    raise ValueError("updated_at has no timezone")
+                cutoff = min(cutoff, updated.timestamp())
+            except (ValueError, TypeError, AttributeError, OverflowError):
+                cutoff = min(cutoff, baseline.get("since", baseline["at"]))
+        return cutoff
 
     def log_ruleset_read_error(self, message):
         """Keep persistent read failures visible without logging every poll."""
@@ -1145,9 +1174,10 @@ class Controller:
         if mode not in ("on", "draining"):
             return mode
         if self.state.load().get("rulesetQuarantine"):
+            candidates = self.queued_pool_jobs() if mode == "draining" else []
             def drained(current):
-                if current.get("mode") == "draining" and current.get("rulesetQuarantine") \
-                        and not current["slots"] and not self.workers:
+                if mode == "draining" and current.get("mode") == "draining" and current.get("rulesetQuarantine") \
+                        and not candidates and not current["slots"] and not self.workers:
                     stop_pool(current)
             data = self.state.update(drained, then=lambda d: write_busy_file(self.cfg, d))
             if data.get("mode") == "off":
@@ -1155,11 +1185,7 @@ class Controller:
                 return "off"
             self.expire_quarantine()
             return self.mode()
-        candidates = []
-        for run in self.gh.active_runs():
-            for job in self.gh.jobs(run["id"]):
-                if job.get("status") == "queued" and wants_label(job, self.cfg["label"]):
-                    candidates.append((run, job))
+        candidates = self.queued_pool_jobs()
         pending = 0
         attempted = False
         for run, job in candidates:
@@ -1212,6 +1238,10 @@ class Controller:
             if len(data[key]) > 500:
                 self.state.update(lambda d, k=key: d.__setitem__(k, d[k][-300:]))
         return self.mode()
+
+    def queued_pool_jobs(self):
+        return [(run, job) for run in self.gh.active_runs() for job in self.gh.jobs(run["id"])
+                if job.get("status") == "queued" and wants_label(job, self.cfg["label"])]
 
     def maybe_prove(self):
         """Re-prove the network block in the background while the pool idles;
