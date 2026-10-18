@@ -1068,14 +1068,24 @@ the pinned board contract belong to JoeDesk. The executor endpoints expose
 the following fields for that consumer; size diagnostics are not added to the
 pinned Results wire contract here:
 
-| Field                                                  | Meaning                                                                                                          |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                      |
-| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                             |
-| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture` |
-| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                   |
-| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                        |
-| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                 |
+| Field                                                  | Meaning                                                                                                                               |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                           |
+| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked       |
+| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                  |
+| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                      |
+| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                  |
+| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                        |
+| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                             |
+| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                      |
+| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present |
+
+The allowed-peer `GET /v1/health` on port 8470 exposes these names, as does
+loopback Results health. The producer keeps the vendored rev-6 board shape:
+capture failure maps to `safety.executor.status: "degraded"` without a reason;
+the admission cap maps to `degraded` with `reason: "ledger_size_limit"`.
+`executor_broker_disagreement` takes priority over that cap reason. No ledger
+byte fields or `results_capture_failed` reason enter `safety.executor`.
 
 At the threshold, NEW placement intents fail closed with HTTP 422 and both
 `code` and `reason` equal to `results_capture_degraded_ledger_cap`. They receive
@@ -1088,8 +1098,8 @@ enforced for those actions. The 10% margin reserves headroom for in-flight work
 and safety actions; it cannot promise unlimited reconciliation growth or writes
 on an already full filesystem. Restore capture/storage before exhausting it.
 
-Persisted `resultsCaptureAlerts` receipts have one row per fixed error class,
-bounded to that class set. Each class alerts/logs once per unresolved outage,
+Persisted `resultsCaptureAlerts` receipts have one active row per fixed error
+class, plus at most 128 resolved outage receipts. Each class alerts/logs once per unresolved outage,
 including across alternating errors, repeated saves and executor restarts; no
 exception messages or broker values are included. Active receipts remain until
 recovery; resolved receipts expire from their last observation using the
@@ -1100,6 +1110,43 @@ ledger before setting `ok: true`, `lastRecoveredAt`, and each active receipt's
 `resolvedAt`. Capture success followed by catch-up failure retains full evidence
 and degraded health for retry. The same class can alert again after recovery.
 Health polling does not retry a pending capture migration.
+
+When both executor and mailbox modules are enabled, capture alerts also go to
+Amy's existing mailbox inbox. A separate Unix listener at
+`/run/agent-mailbox-local/sender/mailbox.sock` constructs the
+`paper-desk-executor` sender identity. The host parent is 0750 root:1000;
+its socket directory is 0700 1000:1000 and the socket is 0660. Only the mailbox
+and executor containers mount it; the executor mount is read-only. The socket
+accepts only `POST /v1/messages`, recipient `amy`, JSON ticket `JOED-43` and
+`X-Ticket: JOED-43`. Every read, health, ack and events route is 403. TCP peers
+cannot claim this identity. Existing TCP source identity, firewall rules and
+message UTF-8/control/bidi checks still apply.
+
+The background sender sends one value-free message per class outage and one
+resolution, containing only event, fixed class code, since/at timestamps,
+ledger bytes/cap and admission-block flag. It never waits on the intent path.
+Each attempt has a one-second absolute deadline; five attempts use bounded
+backoff of 250 ms, 1 s, 4 s and 15 s. Attempts and delivered markers persist on
+the outage receipt, so restart does not reset the retry budget or repeat a
+delivered message. The mailbox deduplicates a stable local delivery key against
+its durable inbox and 30-day archive, covering lost replies and acknowledgement.
+Resolved receipt retention still applies. `failed` requires operator attention;
+restoring delivery does not automatically reset an exhausted receipt's budget.
+With the mailbox disabled, only the existing receipt/log remains and delivery
+health is `unconfigured`.
+
+After a separately reviewed deployment, OPS can verify the live path without
+causing a capture failure:
+
+```sh
+sudo docker exec paper-desk-executor node /executor/send-test-alert.mjs
+```
+
+This sends exactly one `[TEST] JOED-43 capture alert path check` message to
+`amy` over the same socket, exits zero on delivery or nonzero on failure and
+prints one value-free line. It never reads or changes the ledger, receipts or
+health. Verify receipt in Amy's existing watcher/inbox; do not infer receipt
+from a log line alone. The builder does not run this command against production.
 
 Persistent failure grows the ledger: monitor these health fields, alert receipts
 and `ledgerPercent`. Journal write/fsync failures latch the writer: restore

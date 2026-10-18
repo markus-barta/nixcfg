@@ -118,17 +118,18 @@ function captureFailure(state, error, now = Date.now()) {
   };
   const retentionDays = Number(process.env.PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS || 14);
   const alerts = (state.resultsCaptureAlerts || []).filter(row => !row.resolvedAt || now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
-  let receipt = alerts.find(row => row.code === code);
+  let receipt = alerts.find(row => row.code === code && !row.resolvedAt);
   const transition = !receipt || !!receipt.resolvedAt;
   if (!receipt) {
-    receipt = { key: `results_capture:${code}`, event: "results_capture_failed", ticket: "JOED-43", at, code, count: 0 };
+    receipt = { key: `results_capture:${code}`, outageId: randomUUID(), event: "results_capture_failed", ticket: "JOED-43", at, code, count: 0 };
     alerts.push(receipt);
   }
   receipt.lastSeenAt = at;
   delete receipt.resolvedAt;
   receipt.count++;
   // One receipt per allowlisted class, independently of evidence retention.
-  state.resultsCaptureAlerts = alerts.slice(-(CAPTURE_ERROR_CODES.size + 1));
+  // Keep all unresolved classes plus a bounded history of resolved outages.
+  state.resultsCaptureAlerts = [...alerts.filter(row => !row.resolvedAt), ...alerts.filter(row => row.resolvedAt).slice(-128)];
   if (transition) {
     try { console.error(JSON.stringify({ event: "results_capture_failed", code })); }
     catch { /* Diagnostics must also fail open. */ }
@@ -146,7 +147,9 @@ function captureRecovered(state, now = Date.now()) {
   if (state.resultsCapture?.ok !== false) return;
   const at = new Date(now).toISOString();
   state.resultsCapture = { ...state.resultsCapture, ok: true, lastRecoveredAt: at };
-  if (state.resultsCaptureAlerts) state.resultsCaptureAlerts = state.resultsCaptureAlerts.map(receipt => receipt.resolvedAt ? receipt : { ...receipt, resolvedAt: at });
+  if (state.resultsCaptureAlerts) state.resultsCaptureAlerts = state.resultsCaptureAlerts
+    .map(receipt => receipt.resolvedAt ? receipt : { ...receipt, resolvedAt: at })
+    .sort((a, b) => Date.parse(a.resolvedAt) - Date.parse(b.resolvedAt)).slice(-128);
 }
 
 function pruneRetainedState(state, now, reconRetentionMs) {
@@ -380,6 +383,18 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     headroom(Buffer.byteLength(body));
   }
 
+  function updateCaptureDelivery(outageId, event, update) {
+    // Called only by the background sender under the server's exclusive queue.
+    // Publish diagnostics without invoking capture, retention or recovery.
+    const state = load({ initialize: false, readOnly: true });
+    const receipt = state.resultsCaptureAlerts?.find(row => (row.outageId ?? `${row.code}:${row.at}`) === outageId);
+    if (!receipt) return;
+    receipt.delivery ??= {};
+    receipt.delivery[event] = update(receipt.delivery[event], receipt);
+    persist(state);
+    return receipt.delivery[event];
+  }
+
   function load({ initialize = true, readOnly = false, migrate = true } = {}) {
     let handle;
     try {
@@ -474,5 +489,5 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     return planned.result;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute };
+  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute, updateCaptureDelivery };
 }
