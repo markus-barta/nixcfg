@@ -125,6 +125,18 @@ main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
 including tightenings and merge-queue tuning. CI falls back to hosted runners
 automatically while the pool is unavailable.
 
+OPS-329 quarantines mismatching reads only when ruleset history is unchanged:
+availability clears, minting stops, running jobs finish and queued jobs wait.
+Two consecutive exact reads at the normal cadence recover automatically;
+queued pool runs created from the last exact read through recovery are cancelled
+and remain ineligible after restart, while earlier runs are preserved. Changed,
+empty or unreadable history at entry pauses immediately; errors in quarantine
+reset clean reads without extending grace. Defaults: 600 seconds, two clean
+reads, three quarantines per rolling 24 h (`rulesetQuarantineGraceSeconds`,
+`rulesetQuarantineCleanReads`, `rulesetQuarantineMaxPerDay`). Expiry or the next
+anomaly beyond that limit pauses with cancellation and requires `on --resume`.
+`status` shows progress; `rulesetQuarantineEnable = false` restores instant pause.
+
 After an intentional ruleset change, regenerate the five pinned keys from the
 live ruleset, from the nixcfg checkout (Bash):
 
