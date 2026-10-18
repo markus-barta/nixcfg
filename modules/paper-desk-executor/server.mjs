@@ -1,3 +1,4 @@
+import { readPeers } from "../tailnet-peers/peers.mjs";
 import { createServer as createHttpServer } from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -180,6 +181,10 @@ export function createServer(options) {
     options.adminAllowlist ?? (process.env.PAPER_DESK_ADMIN_ALLOW ? JSON.parse(process.env.PAPER_DESK_ADMIN_ALLOW) : DEFAULT_ADMIN_PEERS),
     { testMode, orderAllowlist: allowlist },
   );
+  const peersFile = options.peersFile ?? process.env.PAPER_DESK_PEERS_FILE ?? "/tailnet-peers/peers.json";
+  const peerIdentities = options.peerIdentities ?? (process.env.PAPER_DESK_IDENTITIES ? JSON.parse(process.env.PAPER_DESK_IDENTITIES) : ["amy"]);
+  const staticPeers = Object.fromEntries(allowlist.map((ip) => [ip, "ops"]));
+  const currentAllowlist = () => [...readPeers(peersFile, staticPeers, peerIdentities, adminAllowlist).keys()];
   const attribution = attributionConfig(options.attributionConfig);
   const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state", { reconRetentionMs: options.reconRetentionMs, beforePrune: options.beforePrune });
   const execute = options.execute ?? null;
@@ -244,7 +249,7 @@ export function createServer(options) {
     }
     const peer = normalizePeer(request.socket?.remoteAddress);
     const adminRoute = request.method === "POST" && routeUrl?.pathname === "/v1/admin/attribution";
-    if (!peerAllowed(peer, adminRoute ? adminAllowlist : allowlist)) {
+    if (!peerAllowed(peer, adminRoute ? adminAllowlist : currentAllowlist())) {
       request.resume();
       send(response, 403, { status: "rejected", reason: "source is not allowed" });
       auditData(false, "forbidden");

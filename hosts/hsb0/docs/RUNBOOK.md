@@ -426,6 +426,79 @@ Alerts on this host are enabled with transport `email-agent-bus`: email uses the
 
 A healthy `api_ready` run exits 0 once email succeeds. Expected startup and authentication waits also exit 0 until both the outage and any restart recovery have lasted at least ten minutes. Halts and restarts exit 3 immediately; otherwise a known unhealthy session exits 3 once that alert threshold is reached. An enrolled but unusable chat configuration, an unreadable enrolled key, or failed email delivery retains the configured channel's retries and exits 2 while its event is undelivered, including when a session problem occurs in the same run. A nonzero mail relay result logs only `email notification failed: relay exit status N`. This unit accepts only exit 0, so an uncaught Python crash (exit 1) is red. Other fleet units retain their own exit conventions. Intentionally disabled adapters still log one `warning: alert adapter disabled; reason=...` line and retire stale alerts only on confirmed recovery.
 
+## Paper desk executor admission (OPS-384)
+
+The executor still binds only hsb0's tailnet address on TCP 8470. The host's
+`tailnet-peer-sync.service` reads `tailscale status --json` every 30 seconds,
+and after tailscaled or firewall starts/reloads. The configured rule requires
+both `tag:paper-desk` and exact Tailscale `HostName=grok-amy-box`, mapping
+the current IPv4 address to `amy`. Additional desks require explicit identity
+rules; a rule can omit the hostname when the tag alone is the intended identity.
+OPS remains static at `100.64.0.14`; the executor admin allowlist is unchanged.
+
+Static rules remain in `paper-desk-peers` and `agent-mailbox-peers` in raw
+PREROUTING, before Tailscale's input acceptance. Each jumps to its own dynamic
+sub-chain. The sync replaces only the dynamic chains using
+`iptables-restore --noflush`, with matching source-specific filter rules.
+A shared lock serializes these updates with the modules' firewall hooks.
+A refused tailnet packet increments the final DROP counter; LOG is limited to
+two packets per minute with a burst of two. Refusal alerts contain only the
+host and port; kernel packet logs remain in the local journal.
+
+The root-owned, world-readable `/run/tailnet-peers/peers.json` is atomically
+replaced and mounted through its directory read-only into both containers.
+Mounting the directory lets atomic file replacements become visible.
+Neither container receives the tailscaled socket or new privileges. The
+executor reads the snapshot on each request; missing, unsafe or malformed
+snapshots allow only static peers. Tagged peers never gain admin permissions.
+No trading brakes, HALT, ledger, Gateway ports or Results enablement change.
+
+A daemon/status/parse error retains the last good admission and alerts.
+An explicitly removed tag or changed hostname revokes immediately. A node
+absent from an otherwise valid status (including a transient empty map) keeps
+its last good admission for `nixcfg.tailnetPeers.staleSeconds` (default 300
+seconds), then expires. Status errors never age out the last good list.
+After reboot, /run starts empty and admission is static-only until a valid
+status is read. Headscale has no static-IP reservation feature; re-joins can
+receive new addresses, so identity rules replace manual pin updates.
+
+Admission alerts reuse the existing Gateway notifier's managed email adapter
+(`notification_delivery.email_sender`, `docker-smtp-1`, destinations loaded
+as a systemd credential from the existing Gateway notification declaration).
+No new receiver, credential or channel is introduced. Alerts cover an online
+configured peer missing from the installed admission rules, status/sync failures
+(including escalation after two minutes), and increments of either refusal
+counter. Pending notices are batched into one bounded relay call per tick,
+survive relay failure and retry on the next sync;
+identical delivered notices are bounded to once per five minutes. Relay
+acceptance means queued mail, not proof of inbox delivery.
+
+On hsb0, inspect without opening private state or credentials:
+
+```bash
+systemctl status tailnet-peer-sync.service tailnet-peer-sync.timer
+journalctl -u tailnet-peer-sync.service -n 40 --no-pager
+cat /run/tailnet-peers/peers.json
+sudo iptables -t raw -L paper-desk-peers -nvx
+sudo iptables -t raw -L agent-mailbox-peers -nvx
+```
+
+The stage-2 Headscale policy grants `amy@` and `tag:paper-desk` TCP access
+only to `paper-desk:8470` and `paper-desk:8471`, where `paper-desk` is
+hsb0's /32. That file labels itself staged; verify its activation through the
+owning operations workflow. No broader ACL or csb0 change is required here.
+
+## Agent mailbox admission (OPS-384)
+
+The mailbox still binds only the tailnet address on TCP 8471. It resolves the
+socket source to a caller identity from the same snapshot on every request;
+forwarded headers and message bodies cannot claim an identity. Missing or
+invalid data allows static OPS only, while the configured Amy inbox remains
+available as a recipient. Existing SSE/long-poll connections check admission
+every 15 seconds and close if their source is revoked. Use the sync status,
+public JSON and mailbox refusal counter checks above. Private message storage
+and all existing container hardening stay in force.
+
 ## OpenClaw Gateway (Merlin + Nimue)
 
 **Status (2026-09-09)**: gateway parked behind inactive Compose profile `openclaw` (default `compose up` does not start it). Data remains under `/var/lib/openclaw-gateway`. Reactivate by removing the `profiles` line (or activating profile `openclaw`) in `compose-spec.nix` and switching.

@@ -1,3 +1,4 @@
+import { readPeers } from "../tailnet-peers/peers.mjs";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -64,8 +65,10 @@ function jsonBody(raw) {
 
 export function createServer(options = {}) {
   const listen = assertListen(options.listenHost ?? LISTEN_HOST, options.listenPort ?? LISTEN_PORT);
-  const peers = assertPeers(options.peers ?? DEFAULT_PEERS);
-  const identities = [...new Set(peers.values())];
+  const staticPeers = assertPeers(options.peers ?? DEFAULT_PEERS);
+  const identities = options.identities ?? [...new Set([...staticPeers.values(), "amy"])];
+  const peersFile = options.peersFile ?? process.env.AGENT_MAILBOX_PEERS_FILE ?? "/tailnet-peers/peers.json";
+  const peers = () => readPeers(peersFile, Object.fromEntries(staticPeers), identities);
   const mailbox = openMailbox(options.stateDir ?? "/var/lib/agent-mailbox", identities, options.now ?? Date.now);
   const log = options.log ?? ((line) => console.log(line));
   // Count SSE and long polls together: neither can exhaust the peer's slots.
@@ -78,7 +81,7 @@ export function createServer(options = {}) {
     active.values().next().value.evict();
   }
 
-  function reserve(identity, response, end = () => response.end()) {
+  function reserve(identity, peer, response, end = () => response.end()) {
     const active = connections.get(identity);
     const timers = [];
     const cleanups = [];
@@ -97,6 +100,11 @@ export function createServer(options = {}) {
     };
     finish.evict = () => { finish(); response.destroy?.(); };
     active.add(finish);
+    const admissionTimer = setInterval(() => {
+      if (peers().get(peer) !== identity) finish.evict();
+    }, 15000);
+    admissionTimer.unref();
+    timers.push(admissionTimer);
     response.once("close", finish);
     response.once("error", finish);
     return {
@@ -107,13 +115,13 @@ export function createServer(options = {}) {
     };
   }
 
-  function streamEvents(identity, response) {
+  function streamEvents(identity, peer, response) {
     // Evict stale slots before paying the inbox replay cost.
     admitConnection(identity, true);
     // Read/validate before headers. Registration and replay are synchronous,
     // so a committed send cannot fall between the snapshot and subscription.
     const replay = mailbox.messages(identity, UNREAD_LIMIT);
-    const connection = reserve(identity, response);
+    const connection = reserve(identity, peer, response);
     response.socket?.setKeepAlive?.(true, 30000);
     response.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
@@ -170,10 +178,10 @@ export function createServer(options = {}) {
     pump();
   }
 
-  function longPoll(identity, response, seconds) {
+  function longPoll(identity, peer, response, seconds) {
     let result = { messages: [] };
     let status = 200;
-    const connection = reserve(identity, response, () => send(response, status, result));
+    const connection = reserve(identity, peer, response, () => send(response, status, result));
     const deliver = () => {
       try { result = { messages: mailbox.messages(identity) }; }
       catch { status = 500; result = { error: "mailbox operation failed" }; }
@@ -184,7 +192,8 @@ export function createServer(options = {}) {
   }
 
   async function handle(request, response) {
-    const identity = peers.get(normalizePeer(request.socket?.remoteAddress)) ?? null;
+    const peer = normalizePeer(request.socket?.remoteAddress);
+    const identity = peers().get(peer) ?? null;
     const method = request.method;
     // Log only canonical routes, excluding arbitrary paths and query strings
     // that could contain message text. JSON encoding keeps each event one line.
@@ -210,7 +219,7 @@ export function createServer(options = {}) {
           // Always replay ALL unread, including IDs at/before the cursor. IDs
           // are random within each millisecond and clocks can move backwards.
           // The explicit ack is the only authority for removing unread data.
-          streamEvents(identity, response);
+          streamEvents(identity, peer, response);
           status = 200;
           return;
         }
@@ -221,7 +230,7 @@ export function createServer(options = {}) {
           if (Number(wait)) admitConnection(identity);
           const messages = mailbox.messages(identity);
           if (messages.length || !Number(wait)) reply(200, { messages });
-          else { longPoll(identity, response, Number(wait)); status = 200; }
+          else { longPoll(identity, peer, response, Number(wait)); status = 200; }
         }
         return;
       }
@@ -267,7 +276,7 @@ export function createServer(options = {}) {
     if (!socket.writable) return;
     const body = JSON.stringify({ error: "invalid HTTP request" });
     socket.end(`HTTP/1.1 ${status} ${status === 408 ? "Request Timeout" : "Bad Request"}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\nX-Mailbox-Policy: ${POLICY}\r\n\r\n${body}`);
-    log(JSON.stringify({ method: "UNKNOWN", path: "[invalid]", identity: peers.get(normalizePeer(socket.remoteAddress)) ?? null, status }));
+    log(JSON.stringify({ method: "UNKNOWN", path: "[invalid]", identity: peers().get(normalizePeer(socket.remoteAddress)) ?? null, status }));
   });
   // The same synchronous store operations serialize pruning with sends/acks.
   const pruneTimer = setInterval(() => {
@@ -300,6 +309,7 @@ async function main() {
   const app = createServer({
     listenHost: process.env.AGENT_MAILBOX_BIND ?? LISTEN_HOST,
     listenPort: Number(process.env.AGENT_MAILBOX_PORT ?? LISTEN_PORT),
+    identities: process.env.AGENT_MAILBOX_IDENTITIES ? JSON.parse(process.env.AGENT_MAILBOX_IDENTITIES) : undefined,
     peers: process.env.AGENT_MAILBOX_PEERS ? JSON.parse(process.env.AGENT_MAILBOX_PEERS) : DEFAULT_PEERS,
     stateDir: process.env.AGENT_MAILBOX_STATE_DIR ?? "/var/lib/agent-mailbox",
   });

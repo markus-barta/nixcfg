@@ -422,6 +422,16 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify hsb0 dynamic tailnet admission (OPS-384)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: |
+          mkdir -p tests/.tmp
+          nix-shell -p python3 nodejs --run '
+            python3 -B -m unittest discover -s tests -p test_tailnet_peers.py -v &&
+            node --test --test-concurrency=1 tests/tailnet-peers.test.mjs &&
+            bash tests/T108-tailnet-peers.sh
+          '
+
       - name: Verify JoeDesk Results v2 producer and pinned contracts (JOED-20)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs python3 --run "bash tests/T100-joe-results-producer.sh"

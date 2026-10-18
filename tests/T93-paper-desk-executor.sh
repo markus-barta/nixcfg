@@ -8,7 +8,7 @@ nix_module="$module/default.nix"
 host="$repo_root/hosts/hsb0/configuration.nix"
 docs="$repo_root/hosts/hsb0/docs/IB-GATEWAY.md"
 
-node --test --test-concurrency=2 "$module"/*.test.mjs
+node --test --test-concurrency=1 "$module"/*.test.mjs
 
 # Pure module evaluation with inert packages, never a NixOS build on macOS.
 python3 - "$repo_root" <<'PY'
@@ -66,9 +66,7 @@ grep -Fq 'peerRules "-I"' "$nix_module"
 grep -Fq -- '-i tailscale0 -s ${peer}' "$nix_module"
 grep -Fq '100.64.0.6' "$nix_module"
 grep -Fq '8470' "$nix_module"
-grep -Fq '"100.64.0.15"' "$nix_module"
-# OPS-266 2026-10-07: the pre-rebuild Amy-box address is no longer admitted.
-if grep -Fq '"100.64.0.9"' "$nix_module"; then exit 1; fi
+grep -Fq 'PAPER_DESK_PEERS_FILE=/tailnet-peers/peers.json' "$nix_module"
 grep -Fq '100.64.0.14' "$nix_module"
 grep -Fq 'user = "1000:1000"' "$nix_module"
 grep -Fq 'read_only = true' "$nix_module"

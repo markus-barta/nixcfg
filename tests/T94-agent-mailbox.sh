@@ -9,14 +9,14 @@ host="$repo_root/hosts/hsb0/configuration.nix"
 docs="$repo_root/hosts/hsb0/docs/IB-GATEWAY.md"
 workflow="$repo_root/.github/workflows/check.yml"
 
-node --test "$module"/*.test.mjs
+node --test --test-concurrency=1 "$module"/*.test.mjs
 
 grep -Fq '../../modules/agent-mailbox' "$host"
 grep -Fq 'nixcfg.agentMailbox.enable = true' "$host"
 grep -Fq 'services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec' "$host"
 grep -Fq 'default = "100.64.0.6"' "$nix_module"
 grep -Fq 'default = 8471' "$nix_module"
-grep -Fq '"100.64.0.15" = "amy"' "$nix_module"
+grep -Fq 'AGENT_MAILBOX_PEERS_FILE=/tailnet-peers/peers.json' "$nix_module"
 grep -Fq '"100.64.0.14" = "ops"' "$nix_module"
 grep -Fq 'lib.all tailnetAddress peerAddresses' "$nix_module"
 grep -Fq 'portOpen config.networking.firewall' "$nix_module"

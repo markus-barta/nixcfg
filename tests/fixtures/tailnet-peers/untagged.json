@@ -1,0 +1,11 @@
+{
+  "BackendState": "Running",
+  "Peer": {
+    "node-a": {
+      "HostName": "grok-amy-box",
+      "Tags": [],
+      "TailscaleIPs": ["100.64.0.15"],
+      "Online": true
+    }
+  }
+}

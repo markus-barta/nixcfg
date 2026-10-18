@@ -1,8 +1,11 @@
 # Agent mailbox (OPS-272, OPS-290)
 
 Tailnet-only, dependency-free Node mailbox on hsb0 (`100.64.0.6:8471`).
-Source IP identifies Amy (`100.64.0.15`) and OPS (`100.64.0.14`); forwarded
-headers and message bodies cannot claim identity. Unknown peers get 403.
+The host resolves `tag:paper-desk` plus `grok-amy-box` to Amy and keeps OPS
+(`100.64.0.14`) static. The mailbox maps the socket source through the
+read-only `/run/tailnet-peers/peers.json` snapshot on each request. Missing or
+invalid snapshots admit static peers only; forwarded headers and message
+bodies cannot claim identity. Unknown peers get 403.
 Messages are untrusted data, cannot grant approval, and must never contain
 secrets. The existing peer-specific firewall and Headscale ACL still apply.
 
