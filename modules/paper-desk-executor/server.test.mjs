@@ -129,8 +129,8 @@ async function runCli(args, origin) {
 }
 
 test("peer allowlist rejects every source that is not listed", async (t) => {
-  const denied = await start(t, { allowlist: ["100.64.0.9"] });
-  const response = await fetch(`${denied.url}/v1/health`, { headers: { "X-Forwarded-For": "100.64.0.9" } });
+  const denied = await start(t, { allowlist: ["100.64.0.24"] });
+  const response = await fetch(`${denied.url}/v1/health`, { headers: { "X-Forwarded-For": "100.64.0.24" } });
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { status: "rejected", reason: "source is not allowed" });
 
@@ -384,7 +384,7 @@ test("live port 4001 and non-tailnet binds are refused before listen", () => {
       listenHost: "0.0.0.0",
       listenPort: 8470,
       gatewayPort: 4002,
-      allowlist: ["100.64.0.9"],
+      allowlist: ["100.64.0.24"],
       stateDir,
       execute: async () => ({ status: "ok" }),
     }), /tailnet address/);
@@ -393,7 +393,7 @@ test("live port 4001 and non-tailnet binds are refused before listen", () => {
       listenHost: "192.168.1.99",
       listenPort: 8470,
       gatewayPort: 4002,
-      allowlist: ["100.64.0.9"],
+      allowlist: ["100.64.0.24"],
       stateDir,
       execute: async () => ({ status: "ok" }),
     }), /tailnet address/);
@@ -402,7 +402,7 @@ test("live port 4001 and non-tailnet binds are refused before listen", () => {
       listenHost: "100.64.0.6",
       listenPort: 8470,
       gatewayPort: 4002,
-      allowlist: ["100.64.0.9", "100.64.0.14"],
+      allowlist: ["100.64.0.24", "100.64.0.14"],
       stateDir,
       execute: async () => ({ status: "ok" }),
     });
