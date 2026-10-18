@@ -659,7 +659,14 @@ export async function modifyStopOwned(options) {
     const evidence = ownershipEvidence(session, history, checkedOptions);
     return { modification: { ...modification, statuses }, executions: evidence.executions, ownershipExecutions: evidence.attributed, ownershipSnapshot: session.state, openOrders: publicSnapshot(session.state, { ...options.attribution, executions: evidence.attributed, ownership: options.ownership, executorClientId: clientId }).openOrders };
   } catch (error) { if (sent) throw uncertain(error); throw error; }
-  finally { if (onOrder) session.api.off(session.events.openOrder, onOrder); session.close(); }
+  finally {
+    try { if (onOrder) session.api.off(session.events.openOrder, onOrder); }
+    catch (error) {
+      // Once sent, preserve success or the original uncertain outcome.
+      if (!sent) throw error;
+      try { console.error(JSON.stringify({ event: "modify_stop_listener_cleanup_failed" })); } catch {}
+    } finally { session.close(); }
+  }
 }
 
 // Absence is evidence only after both broker streams complete in this session.

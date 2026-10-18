@@ -430,14 +430,10 @@ export function createServer(options) {
             return result;
           }
           const runner = execute || (await import("./executor.mjs")).executeIntent;
+          let result;
           try {
             assertSideEffect(intent, { getHalt: () => activeHalt(ledger.haltBody()) });
-            const result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign });
-            const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
-            finish(state, intent, status, result);
-            ledger.save(state);
-            ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
-            return result;
+            result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign });
           } catch (error) {
             // The visible claim/result is authoritative even when its crash
             // durability is uncertain. Never replace it with an execution failure.
@@ -457,6 +453,13 @@ export function createServer(options) {
             ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
             return result;
           }
+          const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
+          finish(state, intent, status, result);
+          ledger.save(state);
+          // A failed audit reports 500 through the outer handler. The returned
+          // result save is authoritative and must never enter the failure save.
+          ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
+          return result;
         });
         send(response, httpStatus(outcome), outcome);
         return;
@@ -504,6 +507,7 @@ export function createServer(options) {
       return exclusive(() => {
         try { ledger.save(ledger.load()); }
         catch (error) {
+          if (error?.published === true) return;
           // Journal initialization, migration publication and the initial save
           // may fail. Keep listening, retain the hook, and expose value-free
           // diagnostics even when their ledger publication must wait.

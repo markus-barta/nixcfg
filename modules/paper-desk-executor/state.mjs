@@ -469,11 +469,11 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       if (durabilityRevision === warningSince) durabilityWarning = undefined;
       captureRevision++;
       if (outcome.durability === "uncertain") {
-        publishedLedgerErrors.add(outcome.error);
         throw outcome.error;
       }
       headroom(Buffer.byteLength(body));
     } catch (error) {
+      if (published) throw publishedLedgerError(error);
       if (!published && retainOnFailure) retainCaptureFailure(target);
       // Claims still fail closed on any I/O error. Only pre-publication
       // failures may retain diagnostics over the ledger other readers open.
@@ -481,10 +481,19 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     }
   }
 
+  function publishedLedgerError(error) {
+    // The receipt covers all bookkeeping after this generation became visible,
+    // including diagnostics that throw after an otherwise durable write.
+    if (!error || (typeof error !== "object" && typeof error !== "function")) error = new Error("ledger post-publication failure");
+    error.published = true;
+    publishedLedgerErrors.add(error);
+    return error;
+  }
+
   function noteCaptureFailure(error) {
     // Startup catches ledger I/O too. A visible ledger with uncertain fsync
     // must never become a fresh capture failure in that outer handler.
-    if (publishedLedgerErrors.has(error)) return;
+    if (error?.published === true || publishedLedgerErrors.has(error)) return;
     // Startup's caller holds the exclusive queue. Never publish a possibly
     // stale snapshot while storage itself is unavailable.
     const state = load({ initialize: false, readOnly: true, migrate: false });
@@ -531,10 +540,13 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       if (error.code !== "ENOENT") throw error;
       if (!initialize || readOnly) return initialState();
       const initial = initialState();
+      let initialized = false;
       try {
         persist(initial, { exclusive: true });
+        initialized = true;
         audit({ event: "ledger_initialized", initializedAt: initial.initializedAt });
       } catch (error) {
+        if (initialized) throw publishedLedgerError(error);
         if (error.code !== "EEXIST") throw error;
       }
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -591,7 +603,10 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       // Migration preserves every non-recon row, even if already expired.
       // Normal admission/save retention happens only after publication.
       persist(value, { warningSince });
-    } else if (!readOnly) headroom(loadedBytes);
+    } else if (!readOnly) {
+      try { headroom(loadedBytes); }
+      catch (error) { throw publishedLedgerError(error); }
+    }
     return value;
   }
 
