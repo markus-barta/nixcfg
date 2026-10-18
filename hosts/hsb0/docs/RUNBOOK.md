@@ -1231,8 +1231,16 @@ Idempotency-Key. It does not capture, compact, prune, clear degradation or
 change evidence, claims, resolved receipts, pending deliveries or delivered
 markers. The background sender retries; verify `alertDelivery` and Amy's
 inbox. A lost reply can safely re-use the same key. If ledger publication
-still fails, the endpoint returns HTTP 500 and does not reset the budget;
-restore storage before re-arming. Do not edit the ledger or evidence files.
+fails before rename, the endpoint returns HTTP 500 without resetting the budget;
+restore storage before re-arming. A post-publication HTTP 500 leaves the reset
+budget on disk, and the background sender retries that published receipt.
+Verify health and Amy's inbox before re-arming again. Do not edit the ledger or
+evidence files.
+
+A post-publication intent-save error also returns HTTP 500 without replacing
+the visible claim or result. Retrying the same intent replays its stored `done`
+result, or returns HTTP 409 `uncertain` if only the claim was published; it never
+re-executes that intent automatically.
 
 Mailbox recovery alone does not re-arm an exhausted receipt. Capture
 degradation clears by itself only after a successful capture, catch-up and
@@ -1653,6 +1661,10 @@ RTH observation is more than 30 minutes old during RTH. A failed/missed close
 keeps that USD day partial. Missing all usable FX excludes USD portions and
 marks the day partial; EUR-only days are unaffected. Pending requests do not
 publish a transient partial state.
+Known limitation: a directory-sync error after sidecar rename can report
+`state_unavailable` despite visible bytes; that bucket is not retried in the
+same process. This affects only the FX sidecar, never the trading ledger,
+capture-outage state or admission cap (unchanged in JOED-43).
 
 Runtime kill switch, no rebuild or restart: OPS creates the regular file
 `/var/lib/paper-desk-executor/FX-SAMPLER-OFF`, owned by 1000:1000, for example

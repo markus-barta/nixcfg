@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -1773,4 +1773,116 @@ test('capture OFF reconciliation and placement save no capture-only executor sta
     const allKeys = JSON.stringify(disk);
     for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler', 'positionsObservedAt']) assert.equal(allKeys.includes(`"${key}"`), false, key);
   }
+});
+
+// A one-shot directory fault leaves the real ledger visible and makes any
+// mistaken recovery save succeed. Inspect both disk and live runner state.
+function publishedSaveFault(t, store, when) {
+  const directories = new Set(), open = fs.openSync, close = fs.closeSync, sync = fs.fsyncSync;
+  let fired = 0, publishedBody, failure;
+  t.mock.method(fs, "openSync", (file, flags, ...args) => {
+    const fd = open(file, flags, ...args);
+    if (file === store.root && (flags & fs.constants.O_DIRECTORY)) directories.add(fd);
+    return fd;
+  });
+  t.mock.method(fs, "closeSync", fd => { directories.delete(fd); return close(fd); });
+  t.mock.method(fs, "fsyncSync", fd => {
+    if (!fired && directories.has(fd) && when()) {
+      fired++;
+      publishedBody = readFileSync(store.statePath, "utf8");
+      failure = Object.assign(new Error("synthetic directory fsync failure"), { code: "EIO" });
+      throw failure;
+    }
+    return sync(fd);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  return { get fired() { return fired; }, get body() { return publishedBody; }, get error() { return failure; } };
+}
+
+for (const action of ["place", "modify-stop", "cancel", "flatten"]) {
+  for (const phase of ["reservation", "acknowledgement"]) test(`real runner publication: ${action} / ${phase} never saves a failure over visible state`, async t => {
+    t.mock.method(console, "error", () => {});
+    const h = action === "modify-stop" ? modifyFixture() : harness({
+      ...(action === "place" ? {} : { history: [fill()], executions: [fill()], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })] }),
+    });
+    const value = h.value || intent(action, action === "cancel" ? { orderId: 30 } : {});
+    const root = mkdtempSync(path.join(tmpdir(), "joed43-runner-publication-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const app = createServer({ testMode: true, listenHost: "127.0.0.1", listenPort: 0,
+      allowlist: ["127.0.0.1"], stateDir: root, mailboxSocket: "", beforePrune() {},
+      execute: (value, state, context) => executeIntent(value, state, context, h.runtime) });
+    t.after(() => app.close().catch(() => {}));
+    const store = app.ledger, state = store.load();
+    if (h.state) state.placements = h.state.placements;
+    store.save(state);
+    const effects = () => h.broker.placed.length + h.broker.cancelled.length;
+    const faults = publishedSaveFault(t, store, () => {
+      const disk = JSON.parse(readFileSync(store.statePath));
+      if (phase === "acknowledgement") return effects() > 0;
+      if (action === "place") return disk.placements.some(row => row.status === "reserved");
+      return !!disk.intents[value.intentId]?.brokerPlan;
+    });
+    async function post() {
+      const req = Readable.from([Buffer.from(JSON.stringify(value))]);
+      Object.assign(req, { method: "POST", url: "/v1/intents", socket: { remoteAddress: "127.0.0.1" } });
+      let status, body;
+      await app.handle(req, { writeHead(code) { status = code; }, end(raw) { body = JSON.parse(raw); } });
+      return { status, body };
+    }
+    const first = await post();
+    assert.equal(faults.fired, 1, "the real intermediate save must hit the directory fault");
+    assert.equal(first.status, 500);
+    assert.equal(faults.error.code, "EIO", "publication error must retain its type");
+    assert.equal(readFileSync(store.statePath, "utf8"), faults.body, "no catch may re-save the published body as failed");
+    const disk = JSON.parse(faults.body);
+    assert.equal(disk.intents[value.intentId].status, "claimed");
+    const count = effects();
+    if (phase === "reservation") assert.equal(count, 0, "reservation durability uncertainty must fail closed");
+    else assert.ok(count > 0);
+    const replay = await post();
+    assert.equal(replay.status, 409);
+    assert.equal(replay.body.idempotentReplay, true);
+    assert.equal(effects(), count);
+    assert.equal(readFileSync(store.statePath, "utf8"), faults.body);
+    assert.equal(h.broker.live.size, 0);
+  });
+}
+
+test("real runner publication: flatten preserves the error from a closing plan after cancellation", async t => {
+  const h = harness({ history: [fill()], executions: [fill()], positions: [{ ...contract(), position: 2 }], orders: [order({ action: "SELL", orderType: "STP" })] });
+  const root = mkdtempSync(path.join(tmpdir(), "joed43-closing-plan-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = openLedger(root), state = store.load(), value = intent("flatten");
+  state.intents.set(value.intentId, { action: "flatten", status: "claimed", claimedAt: new Date().toISOString() });
+  store.save(state);
+  const faults = publishedSaveFault(t, store, () => h.broker.cancelled.length > 0 && h.broker.placed.length === 0);
+  await assert.rejects(h.run(value, state, { saveState: store.save }), error => {
+    assert.equal(error, faults.error, "broker uncertainty wrappers must preserve a published ledger error");
+    assert.equal(error.published, true);
+    assert.equal(error.code, "EIO");
+    return true;
+  });
+  assert.equal(faults.fired, 1);
+  assert.equal(readFileSync(store.statePath, "utf8"), faults.body);
+  assert.equal(h.broker.cancelled.length, 1);
+  assert.equal(h.broker.placed.length, 0);
+  assert.equal(h.broker.live.size, 0);
+});
+
+test("real runner publication: legacy recon replay propagates a published attribution save", async t => {
+  const foreign = { contract: contract("AMD", 2), execution: fill({ execId: "legacy-replay-foreign.01", clientId: 28, orderRef: "" }).execution };
+  const h = harness({ onSnapshot(session) { if (session.api.clientId === 28) session.state.executions.push(foreign); } });
+  const root = mkdtempSync(path.join(tmpdir(), "joed43-legacy-replay-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = openLedger(root), state = store.load();
+  state.intents.set("pending-legacy-cancel", { action: "cancel", status: "uncertain", claimedAt: new Date().toISOString(),
+    brokerPlan: { cancellationTargets: [{ clientId: 28, orderId: 30, quantity: 2 }] } });
+  store.save(state);
+  const faults = publishedSaveFault(t, store, () => JSON.parse(readFileSync(store.statePath)).foreignAlerts?.length > 0);
+  await assert.rejects(h.run(intent("recon"), state, { saveState: store.save, alertForeign() {} }), error => error === faults.error && error.published === true);
+  assert.equal(faults.fired, 1);
+  assert.equal(readFileSync(store.statePath, "utf8"), faults.body);
+  assert.deepEqual(state.foreignAlerts, JSON.parse(faults.body).foreignAlerts);
+  assert.equal(h.broker.live.size, 0);
 });

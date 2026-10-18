@@ -439,6 +439,9 @@ export function createServer(options) {
             ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
             return result;
           } catch (error) {
+            // The visible claim/result is authoritative even when its crash
+            // durability is uncertain. Never replace it with an execution failure.
+            if (error?.published === true) throw error;
             logError(error);
             const status = error?.code === "uncertain" ? "uncertain" : "rejected";
             const result = {
