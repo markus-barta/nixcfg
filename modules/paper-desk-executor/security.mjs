@@ -4,9 +4,8 @@ export const PAPER_PORT = 4002;
 export const LIVE_PORT = 4001;
 export const LISTEN_HOST = "100.64.0.6";
 export const LISTEN_PORT = 8470;
-export const DEFAULT_PEERS = Object.freeze(["100.64.0.15", "100.64.0.14"]);
+export const DEFAULT_PEERS = Object.freeze(["100.64.0.14"]);
 export const DEFAULT_ADMIN_PEERS = Object.freeze(["100.64.0.14"]);
-const DESK_PEERS = Object.freeze(["100.64.0.15"]);
 
 export function confinedPath(root, candidate, label = "path") {
   if (typeof candidate !== "string" || candidate.length === 0 || candidate.includes("\0")) {
@@ -75,7 +74,7 @@ export function peerAllowed(address, allowlist) {
 
 export function assertAdminPeerAllowlist(candidates, { testMode = false, orderAllowlist = DEFAULT_PEERS } = {}) {
   const peers = assertPeerAllowlist(candidates, { testMode });
-  const deskPeers = [...DESK_PEERS, ...orderAllowlist.filter((peer) => !DEFAULT_ADMIN_PEERS.includes(peer) && !(testMode && peer === "127.0.0.1"))];
+  const deskPeers = [...orderAllowlist.filter((peer) => !DEFAULT_ADMIN_PEERS.includes(peer) && !(testMode && peer === "127.0.0.1"))];
   if (peers.some((peer) => deskPeers.includes(peer))) throw new Error("admin peers must not include any desk peer");
   return peers;
 }

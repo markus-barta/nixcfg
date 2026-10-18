@@ -426,6 +426,16 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify hsb0 dynamic tailnet admission (OPS-384)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: |
+          mkdir -p tests/.tmp
+          nix-shell -p python3 nodejs --run '
+            python3 -B -m unittest discover -s tests -p test_tailnet_peers.py -v &&
+            node --test --test-concurrency=1 tests/tailnet-peers.test.mjs &&
+            bash tests/T108-tailnet-peers.sh
+          '
+
       - name: Keep IB identifiers out of the public tree (OPS-317, OPS-369)
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 tests/T107-ib-identifier-guard.py
