@@ -229,12 +229,13 @@ export function createServer(options) {
         const usage = ledger.usage();
         const degraded = !!ledger.beforePrune && state.resultsCapture?.ok === false;
         const newAdmissionsBlocked = degraded && usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES;
+        const { revision: _revision, ...captureDiagnostics } = ledger.captureDiagnostics();
         return {
           status: degraded ? "degraded" : "ok", gatewayReachable: false, gatewayHost, gatewayPort,
           account: ACCOUNT, ...usage, halt: activeHalt(ledger.haltBody()),
           brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
           ...(state.resultsCapture || ledger.beforePrune ? { resultsCapture: {
-            ...state.resultsCapture, degraded, persisted: ledger.captureDiagnostics().persisted,
+            ...state.resultsCapture, degraded, ...captureDiagnostics,
             state: degraded ? "degraded" : "ok",
             ...(degraded ? { reason: newAdmissionsBlocked ? "ledger_size_limit" : "results_capture_failed" } : {}),
             ...usage, admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES,

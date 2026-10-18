@@ -1090,18 +1090,19 @@ the pinned board contract belong to JoeDesk. The executor endpoints expose
 the following fields for that consumer; size diagnostics are not added to the
 pinned Results wire contract here:
 
-| Field                                                  | Meaning                                                                                                                               |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                           |
-| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                            |
-| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked       |
-| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                  |
-| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                      |
-| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                  |
-| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                        |
-| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                             |
-| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                      |
-| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present |
+| Field                                                  | Meaning                                                                                                                                                   |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                                               |
+| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                                                |
+| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked                           |
+| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                                      |
+| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                                          |
+| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                                      |
+| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                                            |
+| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                                                 |
+| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                                          |
+| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present                     |
+| `resultsCapture.durability`, `durabilityCode`          | `uncertain` plus a fixed error class after publication succeeds but directory fsync, cleanup or close fails; cleared by a complete successful publication |
 
 The allowed-peer `GET /v1/health` on port 8470 exposes these names, as does
 loopback Results health. The producer keeps the vendored rev-6 board shape:
@@ -1167,14 +1168,21 @@ unchanged. The first
 successful publication adopts that receipt's identity, body and attempt state.
 Persisted receipts keep their original identity, so restart does not reset
 their retry budget or repeat a delivered message.
-Once a ledger rename or initial hard link succeeds, its bytes and modification
-time become the diagnostic anchor immediately, even if directory fsync or
-cleanup subsequently fails. Pending diagnostics adopt an unresolved on-disk
-receipt of the same class, including its outage ID, timestamp and delivery
-record; they cannot replace it with a new outage identity. Same-generation
-memory retains newer unsaved attempt results. This preserves one mailbox key
-through partial publication, restart and storage recovery, while the save
-still reports failure until the entire write completes.
+Once a ledger rename or initial hard link succeeds, the published body becomes
+the in-memory state immediately, including capture recovery, resolved receipts
+and delivery records. This applies to initialization, migration, compaction,
+normal saves, delivery updates and OPS re-arm. A later directory fsync, cleanup
+or close error sets the separate, value-free `durability: "uncertain"` warning;
+it cannot hide a published recovery or turn `persisted` false. The write still
+throws so a claim fails closed without a broker call. Only an error before
+publication may preserve the old state or pending capture diagnostics.
+Pending diagnostics reconcile by outage ID, adopting the published resolution
+and delivery record when another generation appears. An unresolved on-disk
+receipt also supplies the canonical identity for a never-persisted outage of
+that class. Same-generation memory retains newer unsaved attempt results.
+Each resolved outage keeps one resolution; a later failure of the same class
+gets a new outage ID and mailbox key. Recovery reopens the 90% admission cap
+as soon as the recovered body is published, including during a durability warning.
 The mailbox deduplicates a stable local delivery key against
 its durable inbox and 30-day archive, covering lost replies and acknowledgement.
 Resolved receipt retention still applies. `failed` requires operator attention;
