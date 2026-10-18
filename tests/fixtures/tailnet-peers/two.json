@@ -1,0 +1,17 @@
+{
+  "BackendState": "Running",
+  "Peer": {
+    "node-a": {
+      "HostName": "grok-amy-box",
+      "Tags": ["tag:paper-desk"],
+      "TailscaleIPs": ["100.64.0.23"],
+      "Online": true
+    },
+    "node-c": {
+      "HostName": "desk-two",
+      "Tags": ["tag:paper-desk"],
+      "TailscaleIPs": ["100.64.0.25"],
+      "Online": true
+    }
+  }
+}

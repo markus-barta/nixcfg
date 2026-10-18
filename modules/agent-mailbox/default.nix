@@ -9,7 +9,8 @@ let
   cfg = config.nixcfg.agentMailbox;
   stack = config.nixcfg.composeStack;
   peerAddresses = lib.attrNames cfg.peers;
-  identities = lib.unique (lib.attrValues cfg.peers);
+  dynamicIdentities = lib.unique (map (rule: rule.identity) config.nixcfg.tailnetPeers.rules);
+  identities = lib.unique (lib.attrValues cfg.peers ++ dynamicIdentities);
   tailnetAddress =
     address:
     lib.match "100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])" address
@@ -32,6 +33,8 @@ let
     mkdir -p "$out"
     cp ${./server.mjs} "$out/server.mjs"
     cp ${./security.mjs} "$out/security.mjs"
+    cp ${../tailnet-peers/peers.mjs} "$out/peers.mjs"
+    substituteInPlace "$out/server.mjs" --replace-fail '"../tailnet-peers/peers.mjs"' '"./peers.mjs"'
     cp ${./state.mjs} "$out/state.mjs"
   '';
   peerRules =
@@ -57,7 +60,6 @@ in
     peers = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = {
-        "100.64.0.15" = "amy";
         "100.64.0.14" = "ops";
       };
       description = "Tailnet source IPv4 address to caller identity.";
@@ -135,6 +137,7 @@ in
       mem_limit = "256m";
       tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ];
       volumes = [
+        "/run/tailnet-peers:/run/tailnet-peers:ro"
         "${source}:/mailbox:ro"
         "${cfg.stateDir}:/state:rw"
       ];
@@ -142,6 +145,9 @@ in
         "AGENT_MAILBOX_BIND=${cfg.listenAddress}"
         "AGENT_MAILBOX_PORT=${toString cfg.listenPort}"
         "AGENT_MAILBOX_PEERS=${builtins.toJSON cfg.peers}"
+        "AGENT_MAILBOX_PEERS_FILE=/run/tailnet-peers/peers.json"
+        "AGENT_MAILBOX_DYNAMIC_IDENTITIES=${builtins.toJSON dynamicIdentities}"
+        "AGENT_MAILBOX_IDENTITIES=${builtins.toJSON identities}"
         "AGENT_MAILBOX_STATE_DIR=/state"
       ];
       entrypoint = [ "node" ];
@@ -154,20 +160,35 @@ in
     networking.firewall = {
       # Match the executor: raw PREROUTING runs before Tailscale's ts-input.
       extraCommands = ''
+        ${pkgs.coreutils}/bin/mkdir -p /run/lock || true
+        (
+        ${pkgs.util-linux}/bin/flock -w 30 -x 9 || echo "tailnet admission lock unavailable; continuing unlocked" >&2
         iptables -t raw -N agent-mailbox-peers 2>/dev/null || true
+        iptables -t raw -N agent-mailbox-dyn 2>/dev/null || true
+        iptables -N agent-mailbox-dyn-fw 2>/dev/null || true
         iptables -t raw -F agent-mailbox-peers
         ${lib.concatMapStringsSep "\n" (
           peer: "iptables -t raw -A agent-mailbox-peers -s ${peer} -j RETURN"
         ) peerAddresses}
+        iptables -t raw -A agent-mailbox-peers -j agent-mailbox-dyn
+        iptables -t raw -A agent-mailbox-peers -s 100.64.0.0/10 -m limit --limit 2/min --limit-burst 2 -j LOG --log-prefix "tailnet-refused-${toString cfg.listenPort} "
+        iptables -t raw -A agent-mailbox-peers -s 100.64.0.0/10 -m comment --comment "tailnet-refused-${toString cfg.listenPort}" -j DROP
         iptables -t raw -A agent-mailbox-peers -j DROP
         iptables -t raw -C PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j agent-mailbox-peers 2>/dev/null || \
           iptables -t raw -I PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j agent-mailbox-peers
         ${peerRules "-I"}
+        iptables -C nixos-fw -j agent-mailbox-dyn-fw 2>/dev/null || iptables -I nixos-fw -j agent-mailbox-dyn-fw
+        ) 9>/run/lock/tailnet-peer-sync.lock || echo "tailnet admission firewall hook failed" >&2
       '';
       extraStopCommands = ''
+        ${pkgs.coreutils}/bin/mkdir -p /run/lock || true
+        (
+        ${pkgs.util-linux}/bin/flock -w 30 -x 9 || echo "tailnet admission lock unavailable; continuing unlocked" >&2
         iptables -t raw -D PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j agent-mailbox-peers 2>/dev/null || true
         iptables -t raw -F agent-mailbox-peers 2>/dev/null || true
         iptables -t raw -X agent-mailbox-peers 2>/dev/null || true
+        iptables -D nixos-fw -j agent-mailbox-dyn-fw 2>/dev/null || true
+        ) 9>/run/lock/tailnet-peer-sync.lock || echo "tailnet admission firewall hook failed" >&2
       '';
     };
     systemd.tmpfiles.rules = [
