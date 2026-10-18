@@ -234,7 +234,7 @@ export function createServer(options) {
           account: ACCOUNT, ...usage, halt: activeHalt(ledger.haltBody()),
           brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
           ...(state.resultsCapture || ledger.beforePrune ? { resultsCapture: {
-            ...state.resultsCapture, degraded,
+            ...state.resultsCapture, degraded, persisted: ledger.captureDiagnostics().persisted,
             state: degraded ? "degraded" : "ok",
             ...(degraded ? { reason: newAdmissionsBlocked ? "ledger_size_limit" : "results_capture_failed" } : {}),
             ...usage, admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES,
@@ -273,7 +273,7 @@ export function createServer(options) {
       } catch { /* A journal failure must not reach the order/ledger error path. */ }
     }
     const peer = normalizePeer(request.socket?.remoteAddress);
-    const adminRoute = request.method === "POST" && routeUrl?.pathname === "/v1/admin/attribution";
+    const adminRoute = request.method === "POST" && ["/v1/admin/attribution", "/v1/admin/capture-alerts/rearm"].includes(routeUrl?.pathname);
     if (!peerAllowed(peer, adminRoute ? adminAllowlist : currentAllowlist())) {
       request.resume();
       send(response, 403, { status: "rejected", reason: "source is not allowed" });
@@ -283,6 +283,11 @@ export function createServer(options) {
     try {
       const url = new URL(request.url || "/", "http://paper-desk.local");
       const pathname = url.pathname;
+      if (request.method === "POST" && pathname === "/v1/admin/capture-alerts/rearm") {
+        await readBody(request);
+        send(response, 200, await exclusive(() => ledger.rearmCaptureDelivery()));
+        return;
+      }
       if (dataUrl) {
         let cached = false;
         let outcome = "unavailable";

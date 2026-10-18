@@ -9,13 +9,14 @@ import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { createServer } from "./server.mjs";
+import { createServer, createHealthServer } from "./server.mjs";
 import { createServer as createMailbox } from "../agent-mailbox/server.mjs";
 import { createAlertDelivery, deliveryHealth, MAX_DELIVERY_ATTEMPTS, postLocalMessage } from "./mailbox-alerts.mjs";
 import { openLedger, MAX_STATE_BYTES, CAPTURE_DEGRADED_ADMISSION_BYTES } from "./state.mjs";
 import { sendTestAlert } from "./send-test-alert.mjs";
 import { mailboxHttpRequest } from "../../tests/local-mailbox-fixture.mjs";
 import { MAILBOX_SOCKET_PATH } from "./local-mailbox-client.mjs";
+import { createCapture } from "../joe-results-producer/capture.mjs";
 
 function temporary(t) {
   const root = mkdtempSync(path.join(tmpdir(), "joed43-delivery-"));
@@ -165,6 +166,312 @@ function executor(t, overrides) {
   t.after(() => { app.close().catch(() => {}); });
   return app;
 }
+
+// Fail the actual journal append AND publication on the same state volume;
+// the independent mailbox volume must remain writable.
+function sharedVolumeFailure(t, ledgerPath, journalPath, code, operation) {
+  let ledgerFailed = true, journalFailed = true;
+  const journalInode = fs.statSync(journalPath).ino, ledgerHandles = new Set();
+  const originals = Object.fromEntries(["openSync", "closeSync", "writeSync", "writeFileSync", "renameSync"].map(name => [name, fs[name]]));
+  const failure = () => Object.assign(new Error("synthetic-private-value /synthetic/path"), { code });
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    const fd = originals.openSync(file, ...args);
+    if (String(file).startsWith(`${ledgerPath}.`) && String(file).endsWith(".new")) ledgerHandles.add(fd);
+    return fd;
+  });
+  t.mock.method(fs, "closeSync", fd => { ledgerHandles.delete(fd); return originals.closeSync(fd); });
+  t.mock.method(fs, "writeSync", (fd, ...args) => {
+    if (journalFailed && fs.fstatSync(fd).ino === journalInode) throw failure();
+    return originals.writeSync(fd, ...args);
+  });
+  t.mock.method(fs, "writeFileSync", (fd, ...args) => {
+    if (ledgerFailed && operation === "write" && ledgerHandles.has(fd)) throw failure();
+    return originals.writeFileSync(fd, ...args);
+  });
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (ledgerFailed && operation === "rename" && to === ledgerPath) throw failure();
+    return originals.renameSync(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  return { restoreLedger() { ledgerFailed = false; }, restoreStorage() { ledgerFailed = journalFailed = false; } };
+}
+
+for (const code of ["ENOSPC", "EROFS", "EIO"]) for (const operation of ["write", "rename"]) {
+  test(`shared-volume ${code} ledger ${operation}: rejects undurable intent, degrades both health routes and dedupes across full-disk restart`, async t => {
+    const logs = t.mock.method(console, "error", () => {});
+    const root = temporary(t), mailboxRoot = temporary(t), journalPath = path.join(root, "results-input.jsonl");
+    const captureOptions = { account: "synthetic-account", attribute: () => ({ desk: "j" }), executionTime: Date.parse,
+      now: () => "2026-10-18T10:00:00.000Z" };
+    let capture = createCapture(journalPath, { executorClientId: 705 }, captureOptions);
+    capture({ executions: [] });
+    t.after(() => capture.close());
+    const seed = openLedger(root), initial = seed.load();
+    initial.executions.push({ contract: { conId: 123, symbol: "ACME", currency: "EUR" }, execution: {
+      execId: "synthetic-full-disk.01", acctNumber: "synthetic-account", clientId: 705,
+      time: "2026-10-18T09:00:00.000Z", side: "BOT", shares: "1", price: "10" } });
+    seed.save(initial);
+    const before = readFileSync(seed.statePath), journalBefore = readFileSync(journalPath);
+    const mailbox = createMailbox({ stateDir: mailboxRoot, localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
+    t.after(() => mailbox.close());
+    const posts = [];
+    const post = async (socket, body, key) => {
+      posts.push({ body, key });
+      await postLocalMessage(socket, body, key, { request: mailboxHttpRequest(mailbox) });
+    };
+    let executed = 0;
+    const options = { stateDir: root, beforePrune: state => {
+      // The real journal latches a write fault. Reopen to exercise the same
+      // storage class on every capture instead of the generic latch error.
+      capture.close();
+      capture = createCapture(journalPath, { executorClientId: 705 }, captureOptions);
+      capture(state);
+    }, mailboxSocket: MAILBOX_SOCKET_PATH,
+      execute: async () => { executed++; return { status: "ok" }; }, alertDelivery: { pollMs: 5, post } };
+    const app = executor(t, options);
+    // Warm the healthy sender cache before changing only the in-memory state.
+    await delay(25);
+    const storage = sharedVolumeFailure(t, seed.statePath, journalPath, code, operation);
+    const intent = { schema: "barta.paper-desk-intent.v2", intentId: "synthetic-full-disk-intent", desk: "j", action: "recon",
+      createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() };
+    const response = await executorRequest(app, "POST", "/v1/intents", intent);
+    assert.equal(response.status, 500);
+    assert.equal(response.body.status, "rejected");
+    assert.equal(executed, 0, "no broker call without a durable claim");
+    assert.deepEqual(readFileSync(seed.statePath), before);
+    assert.equal(readState(app.ledger).intents.has(intent.intentId), false, "pending diagnostics must not retain an undurable claim");
+    const health = await executorRequest(app, "GET", "/v1/health");
+    assert.equal(health.body.status, "degraded");
+    assert.equal(health.body.resultsCapture.persisted, false);
+    assert.equal(health.body.resultsCapture.code, code);
+    const loopback = createHealthServer(() => app.readHealth());
+    const loopbackHealth = await new Promise(resolve => loopback.emit("request", { method: "GET", url: "/v1/health", resume() {} },
+      { writeHead(status) { assert.equal(status, 200); }, end(body) { resolve(JSON.parse(body)); } }));
+    assert.equal(loopbackHealth.status, "degraded");
+    assert.equal(loopbackHealth.resultsCapture.persisted, false);
+    await until(() => deliveryHealth(readState(app.ledger), true).alertDelivery === "delivered");
+    assert.equal(mailbox.mailbox.messages("amy").length, 1);
+    const receipt = structuredClone(readState(app.ledger).resultsCaptureAlerts[0]);
+    for (let i = 0; i < 15; i++) assert.throws(() => app.ledger.save(readState(app.ledger)), error => error.code === code);
+    assert.equal(readState(app.ledger).resultsCaptureAlerts.length, 1);
+    assert.equal(posts.length, 1);
+    await app.close().catch(() => {});
+    capture.close();
+    capture = createCapture(journalPath, { executorClientId: 705 }, captureOptions);
+    const restarted = executor(t, options);
+    await restarted.initializeCapture();
+    await until(() => deliveryHealth(readState(restarted.ledger), true).alertDelivery === "delivered");
+    assert.equal(readState(restarted.ledger).resultsCaptureAlerts[0].outageId, receipt.outageId);
+    assert.deepEqual(posts[1], posts[0], "restart must reconstruct the same key AND body for mailbox dedupe");
+    assert.equal(mailbox.mailbox.messages("amy").length, 1);
+    assert.equal((await restarted.readHealth()).resultsCapture.persisted, false);
+    storage.restoreLedger();
+    // Capture is still unavailable: publish diagnostics and the delivered
+    // marker first, without creating a resolution message yet.
+    restarted.ledger.save(readState(restarted.ledger));
+    const disk = JSON.parse(readFileSync(seed.statePath));
+    assert.equal(disk.resultsCaptureAlerts[0].outageId, receipt.outageId);
+    assert.equal(disk.resultsCaptureAlerts[0].delivery.failure.status, "delivered");
+    assert.equal((await restarted.readHealth()).resultsCapture.persisted, true);
+    await delay(25);
+    assert.equal(mailbox.mailbox.messages("amy").length, 1);
+    assert.deepEqual(readFileSync(journalPath), journalBefore);
+    assert.deepEqual(disk.executions, initial.executions);
+    assert.equal(Object.hasOwn(disk.intents, intent.intentId), false);
+    assert.doesNotMatch(JSON.stringify([health.body.resultsCapture, posts]), /synthetic-private-value|synthetic\/path/);
+    // Recovery still requires capture, catch-up AND durable publication.
+    storage.restoreStorage();
+    restarted.ledger.save(readState(restarted.ledger));
+    assert.equal((await restarted.readHealth()).resultsCapture.state, "ok");
+    assert.ok(readState(restarted.ledger).resultsCaptureAlerts[0].resolvedAt);
+    assert.ok(logs.mock.callCount() >= 1);
+  });
+}
+
+test("unpersisted delivery keeps one post per class in flight and bounded backoff after a lost reply", async t => {
+  t.mock.method(console, "error", () => {});
+  const ledger = openLedger(temporary(t), { beforePrune() { throw { code: "ENOSPC" }; } });
+  ledger.load();
+  const rename = fs.renameSync;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (to === ledger.statePath) throw Object.assign(new Error("synthetic-private-value"), { code: "ENOSPC" });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  assert.throws(() => ledger.save(readState(ledger)), error => error.code === "ENOSPC");
+  let attempts = 0, epoch = Date.now(), release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  sender(t, ledger, async () => { attempts++; await blocked; throw new Error("synthetic lost reply"); }, { now: () => epoch });
+  await until(() => attempts === 1);
+  await delay(35);
+  assert.equal(attempts, 1);
+  release();
+  await until(() => readState(ledger).resultsCaptureAlerts[0].delivery?.failure?.nextAttemptAt > epoch);
+  await delay(35);
+  assert.equal(attempts, 1);
+  for (let i = 2; i <= MAX_DELIVERY_ATTEMPTS; i++) {
+    epoch += 20000;
+    await until(() => readState(ledger).resultsCaptureAlerts[0].delivery?.failure?.attempts === i);
+    await until(() => readState(ledger).resultsCaptureAlerts[0].delivery.failure.nextAttemptAt > epoch);
+  }
+  assert.equal(deliveryHealth(readState(ledger), true).alertDelivery, "failed");
+  epoch += 100000;
+  await delay(35);
+  assert.equal(attempts, MAX_DELIVERY_ATTEMPTS);
+});
+
+test("persisted outage still reaches amy when attempt-marker rename fails, including a lost reply and full-disk restart", async t => {
+  t.mock.method(console, "error", () => {});
+  const root = temporary(t), mailboxRoot = temporary(t);
+  const options = { beforePrune() { throw { code: "ENOSPC" }; } };
+  const ledger = openLedger(root, options);
+  ledger.save(ledger.load());
+  const before = readFileSync(ledger.statePath);
+  let failing = true, loseReply = true;
+  const rename = fs.renameSync;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (failing && to === ledger.statePath) throw Object.assign(new Error("synthetic-private-value"), { code: "ENOSPC" });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const mailbox = createMailbox({ stateDir: mailboxRoot, localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
+  t.after(() => mailbox.close());
+  const posts = [];
+  const post = async (socket, body, key) => {
+    posts.push({ body, key });
+    await postLocalMessage(socket, body, key, { request: mailboxHttpRequest(mailbox, {
+      loseReply() { const lost = loseReply; loseReply = false; return lost; },
+    }) });
+  };
+  const delivery = sender(t, ledger, post);
+  await until(() => readState(ledger).resultsCaptureAlerts[0].delivery?.failure?.nextAttemptAt);
+  assert.equal(mailbox.mailbox.messages("amy").length, 1);
+  assert.equal(ledger.captureDiagnostics().persisted, false);
+  assert.deepEqual(readFileSync(ledger.statePath), before);
+  delivery.close();
+  const restarted = openLedger(root, options);
+  sender(t, restarted, post);
+  await until(() => deliveryHealth(readState(restarted), true).alertDelivery === "delivered");
+  assert.equal(mailbox.mailbox.messages("amy").length, 1);
+  assert.deepEqual(posts[1], posts[0]);
+  failing = false;
+  restarted.save(readState(restarted));
+  assert.equal(JSON.parse(readFileSync(ledger.statePath)).resultsCaptureAlerts[0].delivery.failure.status, "delivered");
+  assert.equal(restarted.captureDiagnostics().persisted, true);
+});
+
+test("a byte-identical healthy publication after restart gives the next unpersisted outage a fresh delivery key", async t => {
+  t.mock.method(console, "error", () => {});
+  const root = temporary(t), mailboxRoot = temporary(t);
+  let failing = true;
+  const options = { beforePrune() { if (failing) throw { code: "ENOSPC" }; } };
+  const ledger = openLedger(root, options);
+  const state = ledger.load(), before = readFileSync(ledger.statePath);
+  const rename = fs.renameSync;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (failing && to === ledger.statePath) throw Object.assign(new Error("synthetic-private-value"), { code: "ENOSPC" });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const mailbox = createMailbox({ stateDir: mailboxRoot, localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
+  t.after(() => mailbox.close());
+  const posts = [];
+  const post = async (socket, body, key) => {
+    posts.push({ body, key });
+    await postLocalMessage(socket, body, key, { request: mailboxHttpRequest(mailbox) });
+  };
+  assert.throws(() => ledger.save(state), error => error.code === "ENOSPC");
+  const delivery = sender(t, ledger, post);
+  await until(() => deliveryHealth(readState(ledger), true).alertDelivery === "delivered");
+  delivery.close();
+  // Simulate restart after the disk healed: the unsaved diagnostic is gone,
+  // and a clean capture may republish exactly the previous ledger bytes.
+  failing = false;
+  await delay(25);
+  const restarted = openLedger(root, options), healthy = readState(restarted);
+  restarted.save(healthy);
+  assert.deepEqual(readFileSync(ledger.statePath), before);
+  failing = true;
+  assert.throws(() => restarted.save(healthy), error => error.code === "ENOSPC");
+  sender(t, restarted, post);
+  await until(() => posts.length === 2);
+  assert.notEqual(posts[1].key, posts[0].key, "a new healthy publication must start a fresh outage identity");
+  await until(() => deliveryHealth(readState(restarted), true).alertDelivery === "delivered");
+  assert.equal(mailbox.mailbox.messages("amy").length, 2);
+});
+
+test("OPS re-arms only unresolved failed capture deliveries under the exclusive queue without changing evidence", async t => {
+  t.mock.method(console, "error", () => {});
+  let captures = 0;
+  const app = executor(t, { allowlist: ["127.0.0.1", "100.64.0.23"], adminAllowlist: ["127.0.0.1"],
+    beforePrune() { captures++; throw { code: "EIO" }; } });
+  const state = app.ledger.load();
+  state.executions.push({ evidence: "synthetic-retained-evidence" });
+  app.ledger.save(state);
+  const id = readState(app.ledger).resultsCaptureAlerts[0].outageId;
+  const body = JSON.stringify({ event: "results_capture_failed", code: "EIO" });
+  app.ledger.updateCaptureDelivery(id, "failure", () => ({ status: "failed", attempts: 5, body, nextAttemptAt: 9999999999999 }));
+  const seeded = JSON.parse(readFileSync(app.ledger.statePath));
+  seeded.resultsCaptureAlerts.push({ ...seeded.resultsCaptureAlerts[0], code: "ENOSPC", outageId: "synthetic-resolved-outage", resolvedAt: new Date().toISOString() });
+  fs.writeFileSync(app.ledger.statePath, JSON.stringify(seeded));
+  const evidence = value => ({ ...value, resultsCaptureAlerts: value.resultsCaptureAlerts.map(({ delivery, ...receipt }) => receipt) });
+  assert.equal((await executorRequest(app, "POST", "/v1/admin/capture-alerts/rearm", {}, "100.64.0.23")).status, 403);
+  const rename = fs.renameSync;
+  let storageFailed = true;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (storageFailed && to === app.ledger.statePath) throw Object.assign(new Error("synthetic-private-value"), { code: "EROFS" });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  assert.equal((await executorRequest(app, "POST", "/v1/admin/capture-alerts/rearm", {})).status, 500);
+  assert.deepEqual(JSON.parse(readFileSync(app.ledger.statePath)), seeded);
+  assert.equal(readState(app.ledger).resultsCaptureAlerts[0].delivery.failure.status, "failed");
+  storageFailed = false;
+  const response = await executorRequest(app, "POST", "/v1/admin/capture-alerts/rearm", {});
+  assert.deepEqual(response, { status: 200, body: { status: "ok", rearmed: 1 } });
+  const after = JSON.parse(readFileSync(app.ledger.statePath));
+  assert.deepEqual(evidence(after), evidence(seeded));
+  assert.deepEqual(after.resultsCaptureAlerts[1], seeded.resultsCaptureAlerts[1]);
+  assert.equal(after.resultsCaptureAlerts[0].delivery.failure.attempts, 0);
+  assert.equal(after.resultsCaptureAlerts[0].delivery.failure.status, "pending");
+  assert.equal(after.resultsCaptureAlerts[0].delivery.failure.body, body);
+  assert.equal(after.resultsCaptureAlerts[0].delivery.failure.nextAttemptAt, 0);
+  assert.equal(captures, 1, "re-arm must never capture, prune or compact");
+  const delivered = [];
+  sender(t, app.ledger, async (_socket, payload) => { delivered.push(payload); });
+  await until(() => readState(app.ledger).resultsCaptureAlerts[0].delivery.failure.status === "delivered");
+  assert.equal(delivered.filter(payload => payload === body).length, 1);
+  assert.equal((await executorRequest(app, "POST", "/v1/admin/capture-alerts/rearm", {})).body.rearmed, 0);
+});
+
+test("capture delivery re-arm waits for the active intent queue and preserves its newly committed evidence", async t => {
+  t.mock.method(console, "error", () => {});
+  let entered, release;
+  const active = new Promise(resolve => { entered = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  const app = executor(t, { adminAllowlist: ["127.0.0.1"], beforePrune() { throw { code: "EIO" }; },
+    execute: async (_intent, state) => { entered(); await blocked; state.executions.push({ evidence: "synthetic-newly-committed-evidence" }); return { status: "ok" }; } });
+  app.ledger.save(app.ledger.load());
+  const id = readState(app.ledger).resultsCaptureAlerts[0].outageId;
+  app.ledger.updateCaptureDelivery(id, "failure", () => ({ status: "failed", attempts: 5 }));
+  const intent = executorRequest(app, "POST", "/v1/intents", { schema: "barta.paper-desk-intent.v2", intentId: "synthetic-concurrent-rearm",
+    desk: "j", action: "recon", createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() });
+  await active;
+  let settled = false;
+  const rearm = executorRequest(app, "POST", "/v1/admin/capture-alerts/rearm", {}).then(response => { settled = true; return response; });
+  await delay(25);
+  assert.equal(settled, false);
+  release();
+  assert.equal((await intent).status, 200);
+  assert.equal((await rearm).body.rearmed, 1);
+  const state = readState(app.ledger);
+  assert.deepEqual(state.executions, [{ evidence: "synthetic-newly-committed-evidence" }]);
+  assert.equal(state.intents.get("synthetic-concurrent-rearm").status, "done");
+});
 
 test("allowed peer health exposes agreed names, cap reason and recovery; disabled mailbox is unconfigured", async t => {
   t.mock.method(console, "error", () => {});

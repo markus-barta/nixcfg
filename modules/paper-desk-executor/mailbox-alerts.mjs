@@ -33,7 +33,7 @@ export function createAlertDelivery({ socketPath, ledger, exclusive, post = post
         // Atomic ledger publication changes the inode. Idle/backoff polls do
         // only a stat instead of repeatedly parsing a degraded 16 MiB ledger.
         const info = statSync(ledger.statePath, { bigint: true });
-        const revision = `${info.ino}:${info.mtimeNs}:${info.size}`;
+        const revision = `${info.ino}:${info.mtimeNs}:${info.size}:${ledger.captureDiagnostics().revision}`;
         if (cached?.revision === revision) return cached;
         cached = { revision, state: ledger.load({ initialize: false, readOnly: true }), bytes: Number(info.size) };
         return cached;
