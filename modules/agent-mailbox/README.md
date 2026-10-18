@@ -50,6 +50,8 @@ The root-owned parent directory is 0750 root:1000, its socket directory is
 (read-only) containers bind-mount this directory. Both run as 1000:1000; this
 is a host/container filesystem boundary, not isolation from trusted host root
 or other host processes running with that UID. No network credential is added.
+The restrictive socket-creation umask remains active until asynchronous listen
+and the final chmod finish; success and failure both restore the prior mask.
 
 Capture sends run in the background with a one-second absolute timeout and
 at most five attempts with backoff. Each class outage and its resolution has

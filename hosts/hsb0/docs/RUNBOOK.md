@@ -1059,6 +1059,16 @@ Capture exceptions retain the full ledger without pruning or recon compaction;
 admission/save proceeds within the capacity limits below. Legacy migration
 remains pending with its complete evidence until capture succeeds.
 
+Book polls load read-only snapshots without initialization or migration. Failed
+capture during a migration never publishes that reader's snapshot; the exclusive
+save publishes its diagnostics alongside the current claim and delivery receipts.
+Startup capture also runs on that exclusive queue. Journal initialization,
+append/fsync or migration-publication failures leave the executor listening with
+its capture hook installed and evidence retained. If diagnostics cannot be saved,
+health retains them in memory until a later exclusive publication succeeds;
+an unsaved diagnostic cannot survive process termination. Exception text and
+filesystem paths are excluded from these capture diagnostics.
+
 Executor `/v1/health` and loopback Results health (`127.0.0.1:8472`) report
 `status: "degraded"` after a capture/catch-up failure. This is executor health:
 it does not set HALT or change trading brakes. The Results producer projects it
@@ -1117,6 +1127,8 @@ Amy's existing mailbox inbox. A separate Unix listener at
 `paper-desk-executor` sender identity. The host parent is 0750 root:1000;
 its socket directory is 0700 1000:1000 and the socket is 0660. Only the mailbox
 and executor containers mount it; the executor mount is read-only. The socket
+creation umask stays restrictive through asynchronous listen and final chmod,
+and is restored after success or failure. The socket
 accepts only `POST /v1/messages`, recipient `amy`, JSON ticket `JOED-43` and
 `X-Ticket: JOED-43`. Every read, health, ack and events route is 403. TCP peers
 cannot claim this identity. Existing TCP source identity, firewall rules and

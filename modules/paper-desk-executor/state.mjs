@@ -229,6 +229,9 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   const reconEvidencePath = confinedPath(resolvedRoot, path.join(resolvedRoot, "recon-evidence.jsonl"), "recon evidence path");
   const backupPath = confinedPath(resolvedRoot, path.join(resolvedRoot, "ledger.pre-ops331.json"), "ledger backup path");
   let headroomWarning = false;
+  // If startup cannot publish diagnostics, retain only those diagnostics in
+  // memory. The next exclusive save carries them forward with fresh evidence.
+  let pendingCaptureFailure;
 
   function headroom(bytes) {
     const ledgerPercent = bytes / MAX_STATE_BYTES * 100;
@@ -319,6 +322,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       intents: new Map(),
       placements: [],
       executions: [],
+      ...pendingCaptureFailure,
     };
   }
 
@@ -380,7 +384,16 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     const body = `${serializeState(state)}\n`;
     if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("ledger size limit reached; evidence retained");
     writeAtomic(statePath, body);
+    pendingCaptureFailure = undefined;
     headroom(Buffer.byteLength(body));
+  }
+
+  function noteCaptureFailure(error) {
+    // Startup's caller holds the exclusive queue. Never publish a possibly
+    // stale snapshot while storage itself is unavailable.
+    const state = load({ initialize: false, readOnly: true, migrate: false });
+    captureFailure(state, error);
+    pendingCaptureFailure = { resultsCapture: state.resultsCapture, resultsCaptureAlerts: state.resultsCaptureAlerts };
   }
 
   function updateCaptureDelivery(outageId, event, update) {
@@ -429,12 +442,12 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     value.intents = dictionary(value.intents, "intentId");
     delete value.attributionConfig;
     rememberFirstOrders(value);
+    Object.assign(value, pendingCaptureFailure);
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
     if (!readOnly && migrate && (value.reconStorageVersion !== 1 || legacyRecons)) {
       if (!captureBeforePrune(value, beforePrune)) {
-        // Leave the migration pending: its next attempt must see the complete
-        // legacy results, including after a restart during a capture outage.
-        persist(value);
+        // A reader never publishes a failed migration snapshot. Leave complete
+        // evidence on disk; only the exclusive save publishes the diagnostic.
         return value;
       }
       try { writeAtomic(backupPath, original, { exclusive: true }); }
@@ -489,5 +502,5 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     return planned.result;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute, updateCaptureDelivery };
+  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute, updateCaptureDelivery, noteCaptureFailure };
 }

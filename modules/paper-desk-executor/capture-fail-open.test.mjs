@@ -140,13 +140,14 @@ test("failure class transitions are value-free, deduplicated, bounded and retain
   assert.equal(logs.mock.callCount(), 5);
 });
 
-test("legacy migration persists full evidence on capture failure and retries after recovery", t => {
+test("legacy migration leaves disk byte-identical on capture failure; exclusive save publishes diagnostics", t => {
   const logs = t.mock.method(console, "error", () => {});
   const root = mkdtempSync(path.join(tmpdir(), "joed43-migration-"));
   const initial = openLedger(root), state = initial.load();
   evidence(state);
   const legacy = { ...state, intents: Object.fromEntries(state.intents), firstOrders: {}, reconStorageVersion: undefined };
   writeFileSync(initial.statePath, JSON.stringify(legacy));
+  const original = readFileSync(initial.statePath);
   let failing = true, captured;
   const ledger = openLedger(root, { beforePrune: value => {
     if (failing) throw Object.assign(new Error("synthetic-private-value"), { code: "EIO" });
@@ -157,11 +158,17 @@ test("legacy migration persists full evidence on capture failure and retries aft
     assert.equal(loaded.reconStorageVersion, undefined);
     assert.deepEqual(loaded.intents.get("expired-recon"), state.intents.get("expired-recon"));
     assert.deepEqual(JSON.parse(readFileSync(ledger.statePath)).intents, legacy.intents);
-    assert.equal(loaded.resultsCapture.count, attempt + 1);
+    assert.equal(loaded.resultsCapture.count, 1);
+    assert.deepEqual(readFileSync(ledger.statePath), original);
     assert.equal(existsSync(ledger.backupPath), false);
     assert.equal(existsSync(ledger.reconEvidencePath), false);
   }
-  assert.equal(logs.mock.callCount(), 1);
+  // Until an exclusive save publishes the receipt, independent reads cannot
+  // share a durable outage. The trading path owns diagnostic publication.
+  const failed = ledger.load();
+  ledger.save(failed);
+  const receipt = failed.resultsCaptureAlerts[0];
+  assert.equal(ledger.load({ readOnly: true }).resultsCaptureAlerts[0].outageId, receipt.outageId);
   failing = false;
   const loaded = ledger.load();
   assert.deepEqual(captured, state.intents.get("expired-recon").result);

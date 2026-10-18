@@ -199,7 +199,7 @@ export function createServer(options) {
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
   const marketData = createMarketData({ ...options.marketData, bookClientId: options.book?.clientId });
-  const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false })) });
+  const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false, readOnly: true, migrate: false })) });
   const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
   const mailboxSocket = options.mailboxSocket ?? process.env.PAPER_DESK_MAILBOX_SOCKET;
@@ -490,6 +490,17 @@ export function createServer(options) {
     server,
     handle,
     readHealth,
+    initializeCapture() {
+      return exclusive(() => {
+        try { ledger.save(ledger.load()); }
+        catch (error) {
+          // Journal initialization, migration publication and the initial save
+          // may fail. Keep listening, retain the hook, and expose value-free
+          // diagnostics even when their ledger publication must wait.
+          ledger.noteCaptureFailure(error);
+        }
+      });
+    },
     listen() {
       return new Promise((resolve, reject) => {
         const onError = (error) => {
@@ -549,7 +560,7 @@ async function main() {
       return { ...health, resultsCapture: { ...capture.health(), ...health.resultsCapture } };
     });
     await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(resultsHealthPort(process.env.PAPER_DESK_RESULTS_HEALTH_PORT), "127.0.0.1", resolve); });
-    capture({ ...started.ledger.load(), resultsFxSampler: { enabled: true, reason: "missing_sample", days: {} } });
+    await started.initializeCapture();
   }
   // An independent background task: never put quote waits on the intent queue,
   // mutate the trading ledger, or route FX failures through executor_error.

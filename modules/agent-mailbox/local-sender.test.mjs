@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,38 @@ function fixture(t, options = {}) {
   return app;
 }
 const message = { to: "amy", ticket: "JOED-43", body: "synthetic capture alert" };
+
+test("local socket remains restricted from asynchronous creation until listen resolves", async t => {
+  const app = fixture(t);
+  const originalMask = process.umask(0o022);
+  t.after(() => process.umask(originalMask));
+  let createdMode;
+  // Emulate Node deferring the bind until after listen() returns. A regular
+  // fixture file exercises the same creation umask without opening a socket.
+  t.mock.method(app.localServer, "listen", (filename, callback) => {
+    setImmediate(() => {
+      writeFileSync(filename, "", { mode: 0o777 });
+      createdMode = statSync(filename).mode & 0o777;
+      callback();
+    });
+    return app.localServer;
+  });
+  await app.listenLocal();
+  assert.equal(createdMode, 0o660);
+  assert.equal(process.umask(), 0o022);
+});
+
+test("failed asynchronous local listen restores the process umask", async t => {
+  const app = fixture(t);
+  const originalMask = process.umask(0o022);
+  t.after(() => process.umask(originalMask));
+  t.mock.method(app.localServer, "listen", () => {
+    setImmediate(() => app.localServer.emit("error", new Error("synthetic listen failure")));
+    return app.localServer;
+  });
+  await assert.rejects(app.listenLocal(), /synthetic listen failure/);
+  assert.equal(process.umask(), 0o022);
+});
 
 test("local listener constructs safe executor identity and only sends JOED-43 to amy", async t => {
   const app = fixture(t);
