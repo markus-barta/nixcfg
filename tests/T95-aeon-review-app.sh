@@ -127,7 +127,7 @@ for name, _, _ in pairs:
     assert f"config.age.secrets.{name}.file" in triggers, "Compose must restart on rotation"
 recreate = configuration.split("postRecreate = [", 1)[1].split("];", 1)[0]
 assert '"aeon"' not in recreate, "unrelated reconciles must not force-recreate AEON"
-assert shlex.split(recreate) == ["hostdash-auth", "hostdash", "traefik"]
+assert shlex.split(recreate) == ["hostdash-auth", "hostdash"], "OPS-338: Traefik is recreated by its own config-hash labels, not postRecreate"
 
 script = service["script"]
 assert 'install -d -m 0700 -o root -g root "$d"' in script

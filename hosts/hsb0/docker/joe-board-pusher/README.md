@@ -6,6 +6,20 @@ Read-only paper IB client (`clientId` 92 → `100.64.0.6:4002`) projecting
 
 Never connects to live 4001. Never places orders. Uses shared agenix push token.
 
+The pusher and official Node/Python reader require `IB_DESK_ACCOUNT` from the
+root-owned agenix env file `hsb0-ib-desk-env`, injected through Compose `env_file`.
+Missing or malformed paper-account configuration fails closed. Identity values
+live in the private PPM runbook `host-hsb0`; no public default or fingerprint
+is shipped.
+
+A switch keeps the pinned pusher image (`pull_policy = "never"`); the env-reading
+pusher source takes effect only after an image promotion. Promote it with a new
+image tag, bumped in one follow-up PR across `hosts/hsb0/configuration.nix`,
+`modules/paper-desk-executor/default.nix` and `tests/paper-desk-executor-eval.nix`.
+OPS tracks that follow-up; this PR leaves the tag unchanged. Never run
+`docker compose build` over the pinned tag: it would destroy the validated
+rollback image and replace the executor's runtime image too.
+
 ## Board health
 
 Every complete household snapshot includes the optional consumer-compatible

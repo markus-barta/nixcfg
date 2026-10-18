@@ -1,6 +1,7 @@
 # Host-local paper desk executor for hsb0 (OPS-266).
 # Desks submit intents over the tailnet. The host enforces Stage-0 brakes and
-# talks to the paper Gateway. No GitHub queue, no token, no agenix secret.
+# talks to the paper Gateway. No GitHub queue or token; the paper-account pin
+# comes from agenix.
 {
   config,
   pkgs,
@@ -39,7 +40,6 @@ let
     ''}
   '';
   environment = [
-    "IB_DESK_ACCOUNT=DUR970597"
     "IB_DESK_GATEWAY_HOST=100.64.0.6"
     "IB_DESK_GATEWAY_PORT=${toString cfg.gatewayPort}"
     "IB_DESK_OWNERSHIP_LEDGER=/pusher-state/${ledgerName}"
@@ -429,6 +429,7 @@ in
         "/var/lib/paper-desk-executor:/state:rw"
         "${ledgerDir}:/pusher-state:ro"
       ];
+      env_file = [ config.age.secrets.hsb0-ib-desk-env.path ];
       inherit environment;
       entrypoint = [ "node" ];
       command = [ "/executor/server.mjs" ];
