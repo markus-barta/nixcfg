@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET-154: v261018165018.0.0 (a Fluid diagram glide is capped at 800 ms; UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
+    # HNET-103/244: v261018192047.0.0 (diagram layout after unfold; UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=8df6c92b836daaefb14467a65693e4a91237cf80";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=1b23de0f3a9c1e9005753469bf24ee23e3e1fff9";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
