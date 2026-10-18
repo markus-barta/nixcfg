@@ -1168,14 +1168,24 @@ unchanged. The first
 successful publication adopts that receipt's identity, body and attempt state.
 Persisted receipts keep their original identity, so restart does not reset
 their retry budget or repeat a delivered message.
-Once a ledger rename or initial hard link succeeds, the published body becomes
-the in-memory state immediately, including capture recovery, resolved receipts
-and delivery records. This applies to initialization, migration, compaction,
-normal saves, delivery updates and OPS re-arm. A later directory fsync, cleanup
-or close error sets the separate, value-free `durability: "uncertain"` warning;
-it cannot hide a published recovery or turn `persisted` false. The write still
-throws so a claim fails closed without a broker call. Only an error before
-publication may preserve the old state or pending capture diagnostics.
+Every ledger-store atomic write shares one publication outcome: an error before rename/link
+throws with `published: false`; a successful publication returns
+`published: true` and `durability: "ok"` or `"uncertain"`, plus an allowlisted
+error class when uncertain. A later directory open/fsync/close or temporary
+cleanup error cannot turn visible bytes into a failed capture. Published recon
+evidence (including its rotated generation) permits the receipt swap and recovery;
+a published exclusive migration backup permits migration. An existing regular
+backup is validated and kept immutable on `EEXIST`. HALT and both audit
+generations use the same writer; audit rotation copies the complete old generation
+before publishing the new one. The attribution journal publishes in the ledger.
+Once a ledger rename or initial hard link succeeds, its published body becomes
+the in-memory state, including capture recovery, resolved receipts and delivery
+records. Initialization, migration, normal saves, delivery updates and OPS re-arm
+all adopt it before a separate, value-free `durability: "uncertain"` warning is
+propagated. Ledger persistence still throws on that warning so a claim fails
+closed without a broker call. It cannot hide a published recovery or turn
+`persisted` false. Only an error before publication may preserve the old state or
+pending capture diagnostics.
 Pending diagnostics reconcile by outage ID, adopting the published resolution
 and delivery record when another generation appears. An unresolved on-disk
 receipt also supplies the canonical identity for a never-persisted outage of

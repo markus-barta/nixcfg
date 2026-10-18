@@ -1,5 +1,4 @@
 import {
-  appendFileSync,
   closeSync,
   constants,
   fstatSync,
@@ -199,37 +198,42 @@ export function admitIntent(state, action, options) {
 
 const STATE_SCHEMA = "barta.paper-desk-executor-state.v1";
 
-function writeAtomic(filePath, body, { exclusive = false, onPublished, onDurabilityWarning } = {}) {
+// Every caller gets the same publication contract. A pre-publication error
+// throws with published=false; visible bytes always return an
+// outcome, even if their crash durability could not be confirmed afterward.
+function writeAtomic(filePath, body, { exclusive = false } = {}) {
   const temporary = `${filePath}.${randomUUID()}.new`;
-  const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  let publishedAt, published = false;
+  let publishedAt, error, created = false, published = false;
   try {
+    const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    created = true;
     try {
-      try {
-        writeFileSync(handle, body);
-        fsyncSync(handle);
-        publishedAt = new Date(fstatSync(handle).mtimeMs).toISOString();
-      } finally {
-        closeSync(handle);
-      }
-      // A hard link publishes a fully written initial ledger without replacing
-      // a ledger concurrently created by another process.
-      if (exclusive) linkSync(temporary, filePath);
-      else renameSync(temporary, filePath);
-      published = true;
-      // This is the publication boundary for every caller. Cleanup, directory
-      // fsync and close cannot make bytes already visible become unpublished.
-      onPublished?.(publishedAt);
-    } finally {
-      try { unlinkSync(temporary); } catch (error) { if (error.code !== "ENOENT") throw error; }
-    }
-    const directory = openSync(path.dirname(filePath), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    try { fsyncSync(directory); } finally { closeSync(directory); }
-  } catch (error) {
-    if (published) onDurabilityWarning?.(error);
-    throw error;
+      writeFileSync(handle, body);
+      fsyncSync(handle);
+      publishedAt = new Date(fstatSync(handle).mtimeMs).toISOString();
+    } finally { closeSync(handle); }
+    // The exclusive link never replaces a concurrently published winner.
+    if (exclusive) linkSync(temporary, filePath);
+    else renameSync(temporary, filePath);
+    published = true;
+  } catch (caught) { error = caught; }
+  if (created) {
+    try { unlinkSync(temporary); }
+    catch (caught) { if (caught.code !== "ENOENT") error ??= caught; }
   }
-  return publishedAt;
+  if (published && !error) {
+    try {
+      const directory = openSync(path.dirname(filePath), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try { fsyncSync(directory); } finally { closeSync(directory); }
+    } catch (caught) { error = caught; }
+  }
+  const errorClass = error ? (CAPTURE_ERROR_CODES.has(error.code) || error.code === "EEXIST" ? error.code : "unavailable") : undefined;
+  if (!published) {
+    throw Object.assign(error, { published: false, errorClass });
+  }
+  const outcome = { published: true, durability: error ? "uncertain" : "ok", errorClass, publishedAt };
+  if (error) Object.assign(error, { published: true, durability: "uncertain", errorClass });
+  return { ...outcome, error };
 }
 
 export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune } = {}) {
@@ -248,6 +252,16 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   let durableCaptureOutages = new Set();
   let durableCaptureAlerts = [];
   const publishedLedgerErrors = new WeakSet();
+  let durabilityRevision = 0;
+
+  function publish(file, body, options) {
+    const outcome = writeAtomic(file, body, options);
+    if (outcome.durability === "uncertain") {
+      durabilityWarning = { durability: "uncertain", durabilityCode: outcome.errorClass };
+      durabilityRevision++;
+    }
+    return outcome;
+  }
 
   function rememberDurableCapture(body, state, at) {
     if (!beforePrune) return;
@@ -335,14 +349,14 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       if (bytes + size > MAX_RECON_EVIDENCE_BYTES) {
         // Publish the previous complete generation first. A crash between the
         // two atomic writes can duplicate evidence, never truncate a JSON line.
-        writeAtomic(`${reconEvidencePath}.1`, current);
+        publish(`${reconEvidencePath}.1`, current);
         current = "";
         bytes = 0;
       }
       current += line;
       bytes += size;
     }
-    writeAtomic(reconEvidencePath, current);
+    publish(reconEvidencePath, current);
   }
 
   function compactRecons(state, { backedUp = false } = {}) {
@@ -374,7 +388,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
         if (record.action === "recon" && record.result && record.result.resultCompacted !== true) changes.push([intentId, { ...record, result: reconReceipt(JSON.parse(JSON.stringify(record.result))) }]);
       }
     }
-    // The archive (or migration backup) is durable before replacing results.
+    // The archive (or migration backup) is published before replacing results.
     for (const [intentId, record] of changes) state.intents.set(intentId, record);
   }
 
@@ -404,39 +418,26 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   function audit(event) {
     let row = `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`;
     if (Buffer.byteLength(row) > 65536) row = `${JSON.stringify({ at: new Date().toISOString(), event: event.event, intentId: event.intentId, status: event.status, resultOmitted: "large result retained in ledger" })}\n`;
-    function openAudit() {
-      const handle = openSync(auditPath, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
-      if (!fstatSync(handle).isFile()) {
-        closeSync(handle);
-        throw new Error("executor audit is not a regular file");
-      }
-      return handle;
+    let current = "";
+    try { current = readBounded(auditPath, MAX_AUDIT_BYTES); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (Buffer.byteLength(current) + Buffer.byteLength(row) > MAX_AUDIT_BYTES) {
+      publish(`${auditPath}.1`, current);
+      current = "";
     }
-    let handle = openAudit();
-    try {
-      const info = fstatSync(handle);
-      if (info.size + Buffer.byteLength(row) > MAX_AUDIT_BYTES) {
-        renameSync(auditPath, `${auditPath}.1`);
-        closeSync(handle);
-        handle = undefined;
-        handle = openAudit();
-      }
-      appendFileSync(handle, row);
-      fsyncSync(handle);
-    } finally {
-      if (handle !== undefined) closeSync(handle);
-    }
+    publish(auditPath, current + row);
   }
 
   function save(state) {
+    const warningSince = durabilityRevision;
     // Preserve capture-off's exact serialization and retention path.
     if (!beforePrune) {
       compactRecons(state);
       pruneState(state, Date.now(), { reconRetentionMs });
-      persist(state);
+      persist(state, { warningSince });
       return;
     }
-    if (!captureBeforePrune(state, beforePrune)) { persist(state, { retainOnFailure: true }); return; }
+    if (!captureBeforePrune(state, beforePrune)) { persist(state, { retainOnFailure: true, warningSince }); return; }
     let next;
     try {
       // Keep live placement/stop-change identity across catch-up: the
@@ -447,30 +448,30 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       captureRecovered(next);
     } catch (error) {
       captureFailure(state, error);
-      persist(state, { retainOnFailure: true });
+      persist(state, { retainOnFailure: true, warningSince });
       return;
     }
-    persist(next, { target: state, retainOnFailure: state.resultsCapture?.ok === false });
+    persist(next, { target: state, retainOnFailure: state.resultsCapture?.ok === false, warningSince });
   }
 
-  function persist(state, { target = state, exclusive = false, retainOnFailure = false } = {}) {
+  function persist(state, { target = state, exclusive = false, retainOnFailure = false, warningSince = durabilityRevision } = {}) {
     let published = false;
     try {
       const body = `${serializeState(state)}\n`;
       if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("ledger size limit reached; evidence retained");
-      writeAtomic(statePath, body, { exclusive, onPublished: at => {
-        published = true;
-        // The renamed/linked body becomes the caller's state and the only
-        // capture snapshot immediately, including recovery and delivery data.
-        Object.assign(target, state);
-        rememberDurableCapture(body, state, at);
-        pendingCaptureFailure = pendingCaptureAnchor = undefined;
-        durabilityWarning = undefined;
-        captureRevision++;
-      }, onDurabilityWarning: error => {
-        durabilityWarning = { durability: "uncertain", durabilityCode: CAPTURE_ERROR_CODES.has(error?.code) ? error.code : "unavailable" };
-        if (error && typeof error === "object") publishedLedgerErrors.add(error);
-      } });
+      const outcome = publish(statePath, body, { exclusive });
+      published = outcome.published;
+      // Adopt visible bytes before propagating a ledger durability warning.
+      // In particular, a claim stays visible but cannot reach the broker.
+      Object.assign(target, state);
+      rememberDurableCapture(body, state, outcome.publishedAt);
+      pendingCaptureFailure = pendingCaptureAnchor = undefined;
+      if (durabilityRevision === warningSince) durabilityWarning = undefined;
+      captureRevision++;
+      if (outcome.durability === "uncertain") {
+        publishedLedgerErrors.add(outcome.error);
+        throw outcome.error;
+      }
       headroom(Buffer.byteLength(body));
     } catch (error) {
       if (!published && retainOnFailure) retainCaptureFailure(target);
@@ -568,12 +569,13 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     }
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
     if (!readOnly && migrate && (value.reconStorageVersion !== 1 || legacyRecons)) {
+      const warningSince = durabilityRevision;
       if (!captureBeforePrune(value, beforePrune)) {
         // A reader never publishes a failed migration snapshot. Leave complete
         // evidence on disk; only the exclusive save publishes the diagnostic.
         return value;
       }
-      try { writeAtomic(backupPath, original, { exclusive: true }); }
+      try { publish(backupPath, original, { exclusive: true }); }
       catch (error) {
         if (error.code !== "EEXIST") throw error;
         // An existing regular backup is immutable; a symlink/directory is not
@@ -588,7 +590,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       value.reconStorageVersion = 1;
       // Migration preserves every non-recon row, even if already expired.
       // Normal admission/save retention happens only after publication.
-      persist(value);
+      persist(value, { warningSince });
     } else if (!readOnly) headroom(loadedBytes);
     return value;
   }
@@ -610,7 +612,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     const text = String(reason || "halt").trim() || "halt";
     if (text.length > 240) throw new Error("halt reason is too long");
     const body = `${JSON.stringify({ at: new Date().toISOString(), reason: text })}\n`;
-    writeAtomic(haltPath, body);
+    publish(haltPath, body);
     audit({ event: "halt_set", reason: text });
     return body;
   }
