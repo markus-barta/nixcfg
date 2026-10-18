@@ -319,10 +319,10 @@
         "/var/lib/ib-gateway/tws_settings:/home/ibgateway/tws_settings"
         "/run/agenix/hsb0-ib-gateway-password:/run/secrets/ib-gateway-password:ro"
       ];
+      env_file = [ "/run/agenix/hsb0-ib-desk-env" ];
       environment = [
         # One IBKR login for paper + live; TRADING_MODE picks the session.
-        # Paper account DU0000001 / live account — live port stays unpublished.
-        "TWS_USERID=ib-user-redacted"
+        # Login identity: see the private PPM runbook `host-hsb0`.
         "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
         # Permit paper API writes; client policy still controls order authority.
@@ -364,6 +364,7 @@
       container_name = "joe-board-pusher";
       restart = "unless-stopped";
       network_mode = "host";
+      env_file = [ "/run/agenix/hsb0-ib-desk-env" ];
       environment = [
         "TZ=Europe/Vienna"
         "JOE_PUSH_INTERVAL_SEC=30"

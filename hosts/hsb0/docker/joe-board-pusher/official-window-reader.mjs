@@ -7,11 +7,11 @@
  */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { configuredPaperAccount } from "./paper-account.mjs";
 
 const REQUEST_SCHEMA = "inspr.ib.official-window-request.v1";
 const PAPER_PORT = 4002;
 const READER_CLIENT_ID = 94;
-const PAPER_ACCOUNT = "DU0000001";
 const SDK_VERSION = "10.45.1";
 const MIN_PROTOBUF_SERVER_VERSION = 201;
 const MAX_DATES = 7;
@@ -125,7 +125,7 @@ function filterTime(isoTimestamp) {
   return isoTimestamp.slice(0, 19).replaceAll("-", "").replace("T", "-");
 }
 
-function actualWindows(fromInclusive, toExclusive) {
+function actualWindows(fromInclusive, toExclusive, account) {
   const fromMs = Date.parse(fromInclusive);
   const toMs = Date.parse(toExclusive);
   const first = newYorkDateCode(new Date(fromMs));
@@ -147,7 +147,7 @@ function actualWindows(fromInclusive, toExclusive) {
         fromInclusive: from,
         toExclusive: new Date(windowTo).toISOString(),
         filter: {
-          acctCode: PAPER_ACCOUNT,
+          acctCode: account,
           time: filterTime(from),
           specificDates: [code],
         },
@@ -169,10 +169,11 @@ function preparePlan(input, now) {
   const port = input.port ?? PAPER_PORT;
   const clientId = input.clientId ?? READER_CLIENT_ID;
   const account = input.targetAccount;
+  const configuredAccount = configuredPaperAccount();
   if (typeof host !== "string" || !HOST_RE.test(host)) throw new TypeError("host must be a bounded name or address");
   if (port !== PAPER_PORT) throw new RangeError("official execution reader permits paper Gateway port 4002 only");
   if (clientId !== READER_CLIENT_ID) throw new RangeError("official execution reader requires dedicated client ID 94");
-  if (typeof account !== "string" || !ACCOUNT_RE.test(account) || account !== PAPER_ACCOUNT) {
+  if (typeof account !== "string" || !ACCOUNT_RE.test(account) || account !== configuredAccount) {
     throw new RangeError("official execution reader requires the configured paper account");
   }
   if (input.signal !== undefined && !(input.signal instanceof AbortSignal)) {
@@ -195,7 +196,7 @@ function preparePlan(input, now) {
     fromInclusive: requestedFrom,
     toExclusive: new Date(effectiveTo).toISOString(),
   };
-  const windows = actualWindows(requestedCoverage.fromInclusive, requestedCoverage.toExclusive);
+  const windows = actualWindows(requestedCoverage.fromInclusive, requestedCoverage.toExclusive, configuredAccount);
   return {
     plan: {
       schema: REQUEST_SCHEMA,
@@ -462,7 +463,7 @@ export async function readOfficialExecutionWindow(options) {
 export const OFFICIAL_WINDOW_READER_LIMITS = Object.freeze({
   paperPort: PAPER_PORT,
   clientId: READER_CLIENT_ID,
-  paperAccount: PAPER_ACCOUNT,
+  get paperAccount() { return configuredPaperAccount(); },
   maxDates: MAX_DATES,
   maxStdoutBytes: MAX_STDOUT_BYTES,
 });
