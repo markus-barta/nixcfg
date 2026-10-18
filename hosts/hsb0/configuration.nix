@@ -1031,6 +1031,16 @@ in
     mode = "444";
   };
 
+  # Docker reads the account pin and Gateway login identity as root. Required
+  # env_file wiring makes a missing file fail compose startup (OPS-317/369).
+  age.secrets.hsb0-ib-desk-env = {
+    file = ../../secrets/hsb0-ib-desk-env.age;
+    path = "/run/agenix/hsb0-ib-desk-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
   # Shared with csb0 joe-board inbox (machine-token). Raw token only.
   age.secrets.joe-board-push-token = {
     file = ../../secrets/joe-board-push-token.age;

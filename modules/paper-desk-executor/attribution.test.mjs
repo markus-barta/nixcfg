@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -126,7 +127,7 @@ test("the existing journal alert channel emits one structured account-free event
   assert.equal(event.event, "foreign_execution");
   assert.equal(event.execId, outside().execution.execId);
   assert.equal(event.needsAttribution, true);
-  assert.doesNotMatch(JSON.stringify(event), /acctNumber|account|DU0000000/);
+  assert.doesNotMatch(JSON.stringify(event), /acctNumber|account|DU0000001/);
 });
 
 test("an unknown execution dry run does not initialize a missing ledger", () => {
@@ -196,7 +197,7 @@ test("admin refuses unknown, owned, invalid, non-paper and KEEP executions witho
     assert.equal(readFileSync(ledger.statePath, "utf8"), before);
   }
   for (const modification of [
-    (row) => { row.execution.acctNumber = "U0000000"; },
+    (row) => { row.execution.acctNumber = "U0000001"; },
     (row) => { row.contract = { ...row.contract, symbol: "TSLA" }; },
     (row) => { row.execution.shares = -4; },
   ]) {

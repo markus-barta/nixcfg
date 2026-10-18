@@ -422,6 +422,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Keep IB identifiers out of the public tree (OPS-317, OPS-369)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T107-ib-identifier-guard.py
+
       - name: Verify JoeDesk Results v2 producer and pinned contracts (JOED-20)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs python3 --run "bash tests/T100-joe-results-producer.sh"

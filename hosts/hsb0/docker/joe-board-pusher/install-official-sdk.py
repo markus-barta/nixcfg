@@ -135,13 +135,13 @@ for module in modules:
 
 request = ExecutionRequest(
     reqId=9400,
-    executionFilter=ExecutionFilter(acctCode="DU000000", specificDates=[20260910]),
+    executionFilter=ExecutionFilter(acctCode="DU0000001", specificDates=[20260910]),
 )
 encoded = request.SerializeToString()
 decoded = ExecutionRequest()
 decoded.ParseFromString(encoded)
 assert decoded.reqId == 9400
-assert decoded.executionFilter.acctCode == "DU000000"
+assert decoded.executionFilter.acctCode == "DU0000001"
 assert list(decoded.executionFilter.specificDates) == [20260910]
 """
 

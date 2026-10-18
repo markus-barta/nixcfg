@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sys
 import threading
@@ -20,7 +21,6 @@ REQUEST_SCHEMA = "inspr.ib.official-window-request.v1"
 SDK_VERSION = "10.45.1"
 PAPER_PORT = 4002
 READER_CLIENT_ID = 94
-PAPER_ACCOUNT = "DU0000001"
 MIN_PROTOBUF_SERVER_VERSION = 201
 MAX_INPUT_BYTES = 64 * 1024
 MAX_OUTPUT_BYTES = 16 * 1024 * 1024
@@ -184,6 +184,9 @@ class RequestState:
 
 
 def validate_plan(value: Any) -> tuple[ReaderConfig, dict[str, Any]]:
+    paper_account = os.environ.get("IB_DESK_ACCOUNT", "")
+    if not re.fullmatch(r"DU[A-Z0-9]+", paper_account):
+        raise ProtocolError("IB_DESK_ACCOUNT must configure a paper account")
     expected = {"schema", "schemaVersion", "endpoint", "startedAt", "requestedCoverage", "actualWindows"}
     if not isinstance(value, dict) or set(value) != expected:
         raise ProtocolError("request has an invalid shape")
@@ -199,7 +202,7 @@ def validate_plan(value: Any) -> tuple[ReaderConfig, dict[str, Any]]:
         raise ProtocolError("official reader permits paper Gateway port 4002 only")
     if endpoint["clientId"] != READER_CLIENT_ID:
         raise ProtocolError("official reader requires dedicated client ID 94")
-    if endpoint["account"] != PAPER_ACCOUNT:
+    if endpoint["account"] != paper_account:
         raise ProtocolError("official reader requires the configured paper account")
     started_at = _iso(value["startedAt"], "startedAt")
     coverage = value["requestedCoverage"]
@@ -234,7 +237,7 @@ def validate_plan(value: Any) -> tuple[ReaderConfig, dict[str, Any]]:
         execution_filter = item["filter"]
         if not isinstance(execution_filter, dict) or set(execution_filter) != {"acctCode", "time", "specificDates"}:
             raise ProtocolError("execution filter has an invalid shape")
-        if execution_filter["acctCode"] != PAPER_ACCOUNT:
+        if execution_filter["acctCode"] != paper_account:
             raise ProtocolError("execution filter account is invalid")
         if not isinstance(execution_filter["time"], str) or not FILTER_TIME_RE.fullmatch(execution_filter["time"]):
             raise ProtocolError("execution filter time is invalid")
@@ -250,7 +253,7 @@ def validate_plan(value: Any) -> tuple[ReaderConfig, dict[str, Any]]:
         cursor = window_to
     if cursor != coverage_to:
         raise ProtocolError("actual windows do not reach requestedCoverage end")
-    return ReaderConfig(host, PAPER_PORT, READER_CLIENT_ID, PAPER_ACCOUNT), {
+    return ReaderConfig(host, PAPER_PORT, READER_CLIENT_ID, paper_account), {
         "startedAt": started_at,
         "requestedCoverage": {"fromInclusive": coverage_from, "toExclusive": coverage_to},
         "actualWindows": normalized_windows,

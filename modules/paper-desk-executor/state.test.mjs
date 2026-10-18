@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -183,7 +184,7 @@ test("unresolved stop modifications retain their bracket beyond normal placement
 function reconRow(intentId, payload = "evidence", at = new Date().toISOString()) {
   return { action: "recon", desk: "j", hash: `hash-${intentId}`, status: "done", claimedAt: at, finishedAt: at, result: {
     status: "ok", intentId, desk: "j", action: "recon", observedAt: at,
-    account: "DU0000000", gateway: true, ownershipComplete: true,
+    account: "DU0000001", gateway: true, ownershipComplete: true,
     ownershipHistory: { status: "complete" },
     positions: [], openOrders: [], executions: [{ payload }], pnlPerDesk: { j: { realized: 10 } },
   } };
@@ -309,7 +310,7 @@ test("OPS-331 incident regression: a ledger above admission headroom migrates an
   legacy.placements = [{ desk: "j", symbol: "AAPL", status: "filled", reservedAt: new Date().toISOString(), orderIds: [1, 2], stopHistory: [{ status: "uncertain" }] }];
   legacy.firstOrders = { j: { AAPL: "2026-10-01" } };
   legacy.attributionJournal = [{ evidence: "assignment retained" }];
-  legacy.ownershipSnapshot = { account: "DU0000000", positions: [{ symbol: "AAPL", position: 2 }], ownershipComplete: true };
+  legacy.ownershipSnapshot = { account: "DU0000001", positions: [{ symbol: "AAPL", position: 2 }], ownershipComplete: true };
   legacy.ownershipComplete = true;
   const body = `${JSON.stringify(legacy)}\n`;
   assert.ok(Buffer.byteLength(body) > MAX_STATE_BYTES - 262144);
