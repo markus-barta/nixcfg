@@ -143,7 +143,7 @@ The regression tests require the five checks (`go`, `web`, `release-check`,
 The supplied live policy retains the existing role-5 PR-only bypass; tests
 permit its removal but reject additional actors or broader bypass permissions.
 
-## Remote-test admission (OPS-300)
+## Remote-test admission (OPS-300, OPS-385)
 
 The `mba` profile supplies `aeon-remote-guard` and manages the executable
 pre-receive hook in `~/aeon-remote.git/hooks/`. It rejects pushes that create
@@ -161,6 +161,51 @@ guidance and exit 3. Clients should also call
 `bash -s` scripts to check again before running tests and get a clean exit 3.
 Non-login `ssh mba@mbp2606 bash -s` sessions run via `fish -c` and do not have
 `~/.nix-profile/bin` on PATH, so clients must use the absolute guard path.
+
+OPS also writes `~/.aeon-remote-maxruns`, exactly one line
+`maxruns=<0-9> epoch=<unix>`. The guard never sources either input. A missing,
+malformed or stale budget uses `services.aeonRemoteGuard.defaultMaxRuns`
+(default 1); freshness uses the same `staleSeconds` (default 900) and at most
+60 seconds of future skew as the unchanged four-field policy. The writer
+must replace the budget atomically too. `maxRunsFile` and `leaseDir` are
+configurable absolute paths; the lease directory defaults to
+`~/.aeon-remote-leases`. `reservationTtlSeconds` defaults to 120 and must be
+positive, as must `defaultMaxRuns`.
+
+For a push updating exactly one `refs/runs/<RUN>` ref, the hook calls
+`aeon-remote-guard reserve <RUN>`. IDs use 1–64 ASCII letters, digits, dots,
+underscores or hyphens; `.` and `..` are excluded. Under one exclusive kernel
+lock, the guard checks hold, policy, load and budget, counts other run IDs,
+and writes a mode-0600 reservation `~/.aeon-remote-leases/<RUN>` containing
+`reserved=<unix>`. A re-push refreshes that ID's reservation and preserves an
+already-adopted live pid. The persistent
+lock file is adjacent at `~/.aeon-remote-leases.lock`; never remove it while
+guards may run. The kernel releases the lock when the guard process dies.
+Other ref shapes and multi-ref pushes run the ordinary check without reserving;
+deletion-only pushes still bypass admission for cleanup.
+
+Live run IDs are deduplicated across leases with live pids, reservations
+younger than the TTL, live `~/.aeon-remote-test/<RUN>.pid` markers, existing
+`~/ci.noindex/aeon-runs/<RUN>` directories, and live
+`~/aeon-ui-runs/<RUN>/supervisor.pid` markers. Legacy `ci.noindex/slots/s*`
+directories do not count. Only dead-pid leases and expired reservations are
+garbage-collected under the lock; client markers and run directories stay
+client-owned. Bare guard calls make no reservation and refuse only when the
+count is **greater than** the budget, so a previously admitted run passes
+its second check at the limit. A reservation refuses when the count of other
+IDs is **at least** the budget. Refusals print
+`remote busy: <N>/<M> runs active (OPS budget)` with retry guidance and exit 3.
+A zero budget refuses both call forms with
+`remote paused: OPS budget is 0 (level <L>)`; the level comes from a fresh
+policy, or is `UNKNOWN` without one. Existing refusal reasons stay combined.
+
+Clients may adopt their reservation at run start by appending one line
+`pid=<pid>` to `~/.aeon-remote-leases/<RUN>` and remove that file in their EXIT
+trap. An adopted lease counts for as long as its pid lives, regardless of the
+reservation TTL. Adoption and removal are optional: existing client markers
+and run directories keep runs counted after the reservation expires. Clients
+must use their own shell pid, adopt before the TTL expires, and keep the
+`reserved=` line intact. No client changes are required for the bare call.
 
 ## Inbound SSH (declarative)
 
