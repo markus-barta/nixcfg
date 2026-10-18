@@ -312,17 +312,25 @@ export function createServer(options = {}) {
         if (!lstatSync(localSocketPath).isSocket()) throw new Error("local mailbox path is not a socket");
         unlinkSync(localSocketPath);
       } catch (error) { if (error.code !== "ENOENT") throw error; }
-      // Restrict the socket from its creation, before listen's callback chmod.
+      // Node may defer binding until after listen() returns. Keep the creation
+      // mask through its callback and final chmod, then restore it on all exits.
       const mask = process.umask(0o117);
-      let listening;
       try {
-        listening = new Promise((resolve, reject) => {
-          localServer.once("error", reject);
-          localServer.listen(localSocketPath, resolve);
+        await new Promise((resolve, reject) => {
+          const onError = error => reject(error);
+          localServer.once("error", onError);
+          try {
+            localServer.listen(localSocketPath, () => {
+              localServer.off("error", onError);
+              resolve();
+            });
+          } catch (error) {
+            localServer.off("error", onError);
+            reject(error);
+          }
         });
+        chmodSync(localSocketPath, 0o660);
       } finally { process.umask(mask); }
-      await listening;
-      chmodSync(localSocketPath, 0o660);
     },
     listen() {
       return new Promise((resolve, reject) => {
