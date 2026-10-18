@@ -69,7 +69,7 @@ function intradayCoverage() {
   return { status: "known", gaps: [{ fromInclusive: new Date(midnight).toISOString(), toExclusive: new Date(now).toISOString(), reason: "no authoritative completeness receipt" }], target: { fromInclusive: new Date(midnight - 86400000).toISOString(), toExclusive: new Date(now).toISOString() } };
 }
 function harness(options = {}) {
-  const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], marketDataTypes: [], markRequests: [], live: new Set(), ...options };
+  const broker = { managedAccounts: ACCOUNT, positionRequests: [], positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], marketDataTypes: [], markRequests: [], live: new Set(), ...options };
   class FakeIB extends EventEmitter {
     constructor({ clientId }) { super(); this.clientId = clientId; this.autoCancelled = new Set(); }
     connect() {
@@ -78,8 +78,8 @@ function harness(options = {}) {
       this.emit(events.connected);
     }
     disconnect() { broker.live.delete(this.clientId); this.emit(events.disconnected); }
-    reqManagedAccts() { this.emit(events.managedAccounts, ACCOUNT); }
-    reqPositions() { for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
+    reqManagedAccts() { this.emit(events.managedAccounts, broker.managedAccounts); }
+    reqPositions() { broker.positionRequests.push(this.clientId); for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
     reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0, 0, row.parentId, 0, row.clientId); } if (!broker.noCancelOrdersEnd || !broker.cancelled.length) this.emit(events.openOrderEnd); }
     reqExecutions(id, filter) {
       broker.executionRequests.push({ id, filter });
@@ -142,6 +142,32 @@ function harness(options = {}) {
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
+
+test("recon and placement refuse any managed-account list other than the configured paper account", async (t) => {
+  const cases = [
+    ["different paper account", "DU0000002"],
+    ["paper and live accounts", `${ACCOUNT},U0000001`],
+    ["empty account list", ""],
+    ["live account only", "U0000001"],
+  ];
+  for (const [label, managedAccounts] of cases) for (const action of ["recon", "place"]) {
+    await t.test(`${action}: ${label}`, async () => {
+      const h = harness({ managedAccounts }), state = ledger();
+      const before = structuredClone(state);
+      let saves = 0;
+      await assert.rejects(h.run(intent(action), state, { saveState: () => { saves += 1; } }), /managed account is not exactly the paper account/);
+      assert.deepEqual(h.broker.connections, [h.config.clientIds.recon]);
+      assert.deepEqual(h.broker.positionRequests, [], "refusal must precede reqPositions");
+      assert.deepEqual(h.broker.executionRequests, []);
+      assert.deepEqual(h.broker.placed, [], "refusal must precede placeOrder");
+      assert.deepEqual(state.placements, [], "refusal must not reserve a placement");
+      assert.equal(state.intents.size, 0, "refusal must not reserve an intent");
+      assert.deepEqual(state, before, "refusal must leave the ledger unchanged");
+      assert.equal(saves, 0, "refusal must not persist a ledger reservation");
+      assert.equal(h.broker.live.size, 0, "refused sessions must disconnect");
+    });
+  }
+});
 
 test("pusher history accepts files up to 32 MiB (the pusher writer cap) and refuses larger files before reading", (t) => {
   const now = Date.now();
