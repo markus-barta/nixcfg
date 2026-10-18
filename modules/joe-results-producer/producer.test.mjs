@@ -169,6 +169,25 @@ test('true fill/broker mismatch emits exact disagreement code; gateway flaps do 
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).status, 'degraded');
 });
 
+test('capture degradation projects executor health without changing trading brakes or the pinned board contract', () => {
+  const running = executorHealth(health, at);
+  assert.equal(running.status, 'running');
+  for (const status of ['ok', 'degraded']) {
+    const degraded = executorHealth({ ...health, status, resultsCapture: { ok: false,
+      ledgerBytes: 15099494, ledgerMaxBytes: 16777216, admissionThresholdBytes: 15099494,
+    } }, at);
+    assert.deepEqual(degraded, { ...running, status: 'degraded' });
+    assert.equal(degraded.halt, running.halt);
+    assert.equal(degraded.brakes, running.brakes);
+    assert.equal(degraded.reason, undefined);
+    const producer = open(temp());
+    producer.ingest(source());
+    assert.equal(producer.health({ ...health, status, resultsCapture: { ok: false } }, at).status, 'degraded');
+    producer.close();
+  }
+  assert.deepEqual(executorHealth({ ...health, resultsCapture: { ok: true } }, at), running);
+});
+
 test('fractional KEEP positions cannot suppress disagreement; unusable non-KEEP quantities emit evidence', () => {
   const positions = [{ conId: 123, symbol: 'ACME', position: '0' }, { conId: 456, symbol: 'TSLA', position: 0.5 }];
   const state = { ownershipComplete: true, executions: [rawFill('owned')],

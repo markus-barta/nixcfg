@@ -22,6 +22,7 @@ export const RETENTION_MS = 14 * 24 * 60 * 60_000;
 export const RECON_RETENTION_MS = 48 * 60 * 60_000;
 const MAX_INTENTS = 5000;
 export const MAX_STATE_BYTES = 16 * 1024 * 1024;
+export const CAPTURE_DEGRADED_ADMISSION_BYTES = Math.floor(MAX_STATE_BYTES * 0.9);
 export const MAX_RECON_EVIDENCE_BYTES = 8 * 1024 * 1024;
 const MAX_AUDIT_BYTES = 1024 * 1024;
 
@@ -106,46 +107,52 @@ export function rememberFirstOrders(state) {
 // arbitrary error codes can contain broker evidence or filesystem paths.
 const CAPTURE_ERROR_CODES = new Set(["ENOSPC", "EIO", "EDQUOT", "EACCES", "EPERM", "EROFS", "ENOENT", "EMFILE", "ENFILE", "EFBIG"]);
 
+function captureFailure(state, error, now = Date.now()) {
+  const at = new Date(now).toISOString();
+  const code = CAPTURE_ERROR_CODES.has(error?.code) ? error.code : "unavailable";
+  const previous = state.resultsCapture;
+  state.resultsCapture = {
+    ok: false, since: previous?.ok === false ? previous.since : at,
+    lastErrorAt: at, code, count: (previous?.count || 0) + 1,
+    ...(previous?.lastRecoveredAt ? { lastRecoveredAt: previous.lastRecoveredAt } : {}),
+  };
+  const retentionDays = Number(process.env.PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS || 14);
+  const alerts = (state.resultsCaptureAlerts || []).filter(row => !row.resolvedAt || now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
+  let receipt = alerts.find(row => row.code === code);
+  const transition = !receipt || !!receipt.resolvedAt;
+  if (!receipt) {
+    receipt = { key: `results_capture:${code}`, event: "results_capture_failed", ticket: "JOED-43", at, code, count: 0 };
+    alerts.push(receipt);
+  }
+  receipt.lastSeenAt = at;
+  delete receipt.resolvedAt;
+  receipt.count++;
+  // One receipt per allowlisted class, independently of evidence retention.
+  state.resultsCaptureAlerts = alerts.slice(-(CAPTURE_ERROR_CODES.size + 1));
+  if (transition) {
+    try { console.error(JSON.stringify({ event: "results_capture_failed", code })); }
+    catch { /* Diagnostics must also fail open. */ }
+  }
+}
+
 function captureBeforePrune(state, beforePrune, now = Date.now()) {
   if (!beforePrune) return true;
-  const at = new Date(now).toISOString();
-  try {
-    beforePrune(state);
-  } catch (error) {
-    const code = CAPTURE_ERROR_CODES.has(error?.code) ? error.code : "unavailable";
-    const previous = state.resultsCapture;
-    const transition = previous?.ok !== false || previous.code !== code;
-    state.resultsCapture = {
-      ok: false, since: previous?.ok === false ? previous.since : at,
-      lastErrorAt: at, code, count: (previous?.count || 0) + 1,
-      ...(previous?.lastRecoveredAt ? { lastRecoveredAt: previous.lastRecoveredAt } : {}),
-    };
-    const retentionDays = Number(process.env.PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS || 14);
-    const alerts = (state.resultsCaptureAlerts || []).filter(row => now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
-    let receipt = alerts.find(row => row.code === code);
-    if (!receipt) {
-      receipt = { key: `results_capture:${code}`, event: "results_capture_failed", ticket: "JOED-43", at, code, count: 0 };
-      alerts.push(receipt);
-    }
-    receipt.lastSeenAt = at;
-    receipt.count++;
-    // One receipt per allowlisted class, independently of evidence retention.
-    state.resultsCaptureAlerts = alerts.slice(-(CAPTURE_ERROR_CODES.size + 1));
-    if (transition) {
-      try { console.error(JSON.stringify({ event: "results_capture_failed", code })); }
-      catch { /* Diagnostics must also fail open. */ }
-    }
-    return false;
-  }
-  if (state.resultsCapture?.ok === false) state.resultsCapture = { ...state.resultsCapture, ok: true, lastRecoveredAt: at };
+  try { beforePrune(state); }
+  catch (error) { captureFailure(state, error, now); return false; }
   return true;
 }
 
-export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention(), beforePrune } = {}) {
-  if (!captureBeforePrune(state, beforePrune, now)) return;
+function captureRecovered(state, now = Date.now()) {
+  if (state.resultsCapture?.ok !== false) return;
+  const at = new Date(now).toISOString();
+  state.resultsCapture = { ...state.resultsCapture, ok: true, lastRecoveredAt: at };
+  if (state.resultsCaptureAlerts) state.resultsCaptureAlerts = state.resultsCaptureAlerts.map(receipt => receipt.resolvedAt ? receipt : { ...receipt, resolvedAt: at });
+}
+
+function pruneRetainedState(state, now, reconRetentionMs) {
   if (state.resultsCaptureAlerts) {
     const retentionDays = Number(process.env.PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS || 14);
-    state.resultsCaptureAlerts = state.resultsCaptureAlerts.filter(row => now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
+    state.resultsCaptureAlerts = state.resultsCaptureAlerts.filter(row => !row.resolvedAt || now - Date.parse(row.lastSeenAt || row.at) <= retentionDays * 86400000);
   }
   pruneForeignAlerts(state, undefined, now);
   state.intents = dictionary(state.intents, "intentId");
@@ -157,11 +164,30 @@ export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRe
   state.placements = state.placements.filter((row) => ["reserved", "uncertain", "partial"].includes(row.status) || row.stopHistory?.some((change) => ["reserved", "uncertain"].includes(change.status)) || now - Date.parse(row.reservedAt || `${row.day}T00:00:00Z`) <= RETENTION_MS);
 }
 
+export function pruneState(state, now = Date.now(), { reconRetentionMs = reconRetention(), beforePrune } = {}) {
+  if (!beforePrune) return pruneRetainedState(state, now, reconRetentionMs);
+  if (!captureBeforePrune(state, beforePrune, now)) return;
+  // Admission does retention only. Recovery waits for save's full compaction,
+  // catch-up prune and durable publication, even if this capture succeeds.
+  try {
+    const next = { ...state };
+    pruneRetainedState(next, now, reconRetentionMs);
+    Object.assign(state, next);
+  } catch (error) { captureFailure(state, error, now); }
+}
+
 export function admitIntent(state, action, options) {
   pruneState(state, Date.now(), options);
   // A failed capture skips retention, but admission still accepts the same
   // plain dictionaries as the normal pruning path without dropping any rows.
   if (!(state.intents instanceof Map)) state.intents = dictionary(state.intents, "intentId");
+  if (options?.beforePrune && state.resultsCapture?.ok === false
+      && Buffer.byteLength(serializeState(state)) + 1 >= CAPTURE_DEGRADED_ADMISSION_BYTES
+      && !["recon", "cancel", "flatten", "modify-stop"].includes(action)) {
+    throw Object.assign(new Error("results_capture_degraded_ledger_cap"), {
+      publicCode: "results_capture_degraded_ledger_cap", statusCode: 422,
+    });
+  }
   // A full recon receipt budget must not consume the state-changing claim
   // budget. Both remain bounded; only another recon is refused at its cap.
   const claims = [...state.intents.values()].filter((row) => (row.action === "recon") === (action === "recon")).length;
@@ -321,12 +347,30 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   }
 
   function save(state) {
-    // Capture once, before compaction; pruneState below uses its no-op hook.
-    if (captureBeforePrune(state, beforePrune)) {
+    // Preserve capture-off's exact serialization and retention path.
+    if (!beforePrune) {
       compactRecons(state);
       pruneState(state, Date.now(), { reconRetentionMs });
+      persist(state);
+      return;
     }
-    persist(state);
+    if (!captureBeforePrune(state, beforePrune)) { persist(state); return; }
+    let next;
+    try {
+      // These operations replace maps/arrays and recon receipts, leaving their
+      // original rows intact. Keep live placement/stop-change object identity:
+      // the executor updates those same objects after broker acknowledgement.
+      next = { ...state };
+      compactRecons(next);
+      pruneState(next, Date.now(), { reconRetentionMs });
+      captureRecovered(next);
+    } catch (error) {
+      captureFailure(state, error);
+      persist(state);
+      return;
+    }
+    persist(next);
+    Object.assign(state, next);
   }
 
   function persist(state) {
@@ -336,7 +380,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     headroom(Buffer.byteLength(body));
   }
 
-  function load({ initialize = true, readOnly = false } = {}) {
+  function load({ initialize = true, readOnly = false, migrate = true } = {}) {
     let handle;
     try {
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -371,7 +415,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     delete value.attributionConfig;
     rememberFirstOrders(value);
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
-    if (!readOnly && (value.reconStorageVersion !== 1 || legacyRecons)) {
+    if (!readOnly && migrate && (value.reconStorageVersion !== 1 || legacyRecons)) {
       if (!captureBeforePrune(value, beforePrune)) {
         // Leave the migration pending: its next attempt must see the complete
         // legacy results, including after a restart during a capture outage.
