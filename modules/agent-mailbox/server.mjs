@@ -5,7 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { TextDecoder } from "node:util";
 import {
-  assertListen, assertPeers, BODY_LIMIT, DEFAULT_PEERS, failure, ID_PATTERN,
+  assertListen, assertPeers, assertLocalSocketPath, configuredLocalSocketPath, BODY_LIMIT, DEFAULT_PEERS, failure, ID_PATTERN,
   LISTEN_HOST, LISTEN_PORT, normalizePeer, parseMessage, POLICY,
 } from "./security.mjs";
 import { HOUR_MS, openMailbox, UNREAD_LIMIT } from "./state.mjs";
@@ -68,7 +68,9 @@ function jsonBody(raw) {
 export function createServer(options = {}) {
   const listen = assertListen(options.listenHost ?? LISTEN_HOST, options.listenPort ?? LISTEN_PORT);
   const staticPeers = assertPeers(options.peers ?? DEFAULT_PEERS);
-  const localSocketPath = options.localSocketPath;
+  const localSocketPath = options.localSocketPath === undefined
+    ? configuredLocalSocketPath(process.env.AGENT_MAILBOX_LOCAL_SOCKET)
+    : assertLocalSocketPath(options.localSocketPath, options.testSocketDir);
   const identities = [...new Set([...(options.identities ?? [...staticPeers.values(), "amy"]), LOCAL_SENDER])];
   const peersFile = options.peersFile ?? process.env.AGENT_MAILBOX_PEERS_FILE ?? SNAPSHOT_PATH;
   const dynamicIdentities = options.dynamicIdentities ?? ["amy"];
@@ -362,7 +364,6 @@ async function main() {
     identities: process.env.AGENT_MAILBOX_IDENTITIES ? JSON.parse(process.env.AGENT_MAILBOX_IDENTITIES) : undefined,
     peers: process.env.AGENT_MAILBOX_PEERS ? JSON.parse(process.env.AGENT_MAILBOX_PEERS) : DEFAULT_PEERS,
     stateDir: process.env.AGENT_MAILBOX_STATE_DIR ?? "/var/lib/agent-mailbox",
-    localSocketPath: process.env.AGENT_MAILBOX_LOCAL_SOCKET,
   });
   try {
     await app.listenLocal();

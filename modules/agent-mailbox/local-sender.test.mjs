@@ -1,19 +1,51 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createServer, LOCAL_SENDER } from "./server.mjs";
-import { validIdentity } from "./security.mjs";
+import { LOCAL_SOCKET_PATH, validIdentity } from "./security.mjs";
 import { mailboxRequest } from "../../tests/local-mailbox-fixture.mjs";
 
 function fixture(t, options = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "joed43-mailbox-"));
-  const app = createServer({ stateDir: root, localSocketPath: path.join(root, "mailbox.sock"), log() {}, ...options });
+  const app = createServer({ stateDir: root, testSocketDir: root, localSocketPath: path.join(root, "mailbox.sock"), log() {}, ...options });
   t.after(async () => { await app.close(); rmSync(root, { recursive: true, force: true }); });
   return app;
 }
 const message = { to: "amy", ticket: "JOED-43", body: "synthetic capture alert" };
+
+test("foreign socket paths are rejected before filesystem access, including environment test paths", t => {
+  const prior = process.env.AGENT_MAILBOX_LOCAL_SOCKET;
+  t.after(() => {
+    if (prior === undefined) delete process.env.AGENT_MAILBOX_LOCAL_SOCKET;
+    else process.env.AGENT_MAILBOX_LOCAL_SOCKET = prior;
+  });
+  const calls = [];
+  for (const name of ["mkdirSync", "openSync", "lstatSync", "unlinkSync", "chmodSync", "readFileSync", "writeFileSync", "statSync", "realpathSync"]) {
+    t.mock.method(fs, name, () => { calls.push(name); throw new Error("unexpected filesystem access"); });
+  }
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const root = path.join(tmpdir(), "joed43-path-test");
+  for (const value of ["/etc/x.sock", "../x.sock", path.join(root, "..", "x.sock"), `${root}/../joed43-path-test/x.sock`, root, `${root}-other/x.sock`]) {
+    assert.throws(() => createServer({ localSocketPath: value, testSocketDir: root }), /socket path is invalid/);
+  }
+  for (const testSocketDir of [undefined, tmpdir(), "/etc", `${root}/../other`]) {
+    assert.throws(() => createServer({ localSocketPath: `${root}/x.sock`, testSocketDir }), /socket path is invalid/);
+  }
+  for (const value of ["/etc/x.sock", "../x.sock", `${root}/x.sock`]) {
+    process.env.AGENT_MAILBOX_LOCAL_SOCKET = value;
+    assert.throws(() => createServer({ testSocketDir: root }), /socket path is invalid/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("the production socket constant is accepted", async t => {
+  const app = fixture(t, { localSocketPath: LOCAL_SOCKET_PATH, testSocketDir: undefined });
+  assert.ok(app.localServer);
+});
 
 test("local socket remains restricted from asynchronous creation until listen resolves", async t => {
   const app = fixture(t);
@@ -100,7 +132,7 @@ test("local idempotency survives lost replies, acknowledgement and mailbox resta
   assert.equal(first.status, 201);
   assert.deepEqual((await mailboxRequest(app, { body: message, headers })).body, first.body);
   app.mailbox.ack("amy", first.body.id);
-  const reopened = createServer({ stateDir: app.mailbox.root, localSocketPath: "/unused/local.sock", log() {} });
+  const reopened = createServer({ stateDir: app.mailbox.root, localSocketPath: LOCAL_SOCKET_PATH, log() {} });
   t.after(() => reopened.close());
   assert.deepEqual((await mailboxRequest(reopened, { body: message, headers })).body, first.body);
   assert.equal(reopened.mailbox.unread("amy"), 0);

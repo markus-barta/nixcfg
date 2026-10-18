@@ -1,11 +1,23 @@
 import { request as httpRequest } from "node:http";
 
 export const DELIVERY_TIMEOUT_MS = 1000;
+export const MAILBOX_SOCKET_PATH = "/run/agent-mailbox-local/sender/mailbox.sock";
+
+export function configuredMailboxSocket(value) {
+  if (value === undefined || value === "") return undefined;
+  if (value !== MAILBOX_SOCKET_PATH) throw new Error("mailbox socket path is invalid");
+  return MAILBOX_SOCKET_PATH;
+}
 
 // An absolute timer bounds connection, headers and response together, including
 // a peer that trickles bytes. Never expose response data or exception messages.
 export function postLocalMessage(socketPath, body, key, { request = httpRequest, timeoutMs = DELIVERY_TIMEOUT_MS } = {}) {
-  if (!socketPath || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2000) return Promise.reject(new Error("mailbox_unavailable"));
+  // Return the fixed constant to the transport; no environment string reaches
+  // a connect path, including calls made by the standalone test-alert command.
+  let socket;
+  try { socket = configuredMailboxSocket(socketPath); }
+  catch { return Promise.reject(new Error("mailbox_unavailable")); }
+  if (!socket || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2000) return Promise.reject(new Error("mailbox_unavailable"));
   const payload = JSON.stringify({ to: "amy", ticket: "JOED-43", body });
   return new Promise((resolve, reject) => {
     let req, timer, settled = false;
@@ -18,7 +30,7 @@ export function postLocalMessage(socketPath, body, key, { request = httpRequest,
     };
     timer = setTimeout(() => finish(false), timeoutMs);
     try {
-      req = request({ socketPath, path: "/v1/messages", method: "POST", agent: false,
+      req = request({ socketPath: socket, path: "/v1/messages", method: "POST", agent: false,
         headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload),
           "X-Ticket": "JOED-43", ...(key ? { "Idempotency-Key": key } : {}) } }, response => {
         response.on("error", () => finish(false));
