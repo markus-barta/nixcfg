@@ -1,25 +1,70 @@
 #!/usr/bin/env bash
 # Also runnable directly for tests; the Nix wrapper pins all settings.
-set -euo pipefail
+set -Eeuo pipefail
+# Keep command diagnostics out of the client protocol. Unexpected failures use
+# one stable busy response; inherited ERR traps print only in the main shell.
+exec 3>&2 2>/dev/null
+guard_pid=$BASHPID
+reservation=''
+guard_error() {
+  if [[ $BASHPID == "$guard_pid" ]]; then
+    printf 'remote busy: guard error; retry in a few minutes or rely on PR CI\n' >&3
+  fi
+  exit 3
+}
+# shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap.
+guard_exit() {
+  local rc=$?
+  if [[ -n $reservation ]]; then unlink -- "$reservation" 2>/dev/null || true; fi
+  if ((rc != 0 && rc != 2 && rc != 3)); then guard_error; fi
+}
+trap guard_error ERR
+trap 'guard_exit' EXIT
 export LC_ALL=C
 
-: "${guard_hold_file:=${HOME}/.hold-mbp2606}"
-: "${guard_policy_file:=${HOME}/.aeon-remote-policy}"
+: "${guard_home:=${HOME}}"
+
+: "${guard_hold_file:=${guard_home}/.hold-mbp2606}"
+: "${guard_policy_file:=${guard_home}/.aeon-remote-policy}"
 : "${guard_default_max_load:=12}"
 : "${guard_stale_seconds:=900}"
-: "${guard_max_runs_file:=${HOME}/.aeon-remote-maxruns}"
-: "${guard_lease_dir:=${HOME}/.aeon-remote-leases}"
+: "${guard_max_runs_file:=${guard_home}/.aeon-remote-maxruns}"
+: "${guard_lease_dir:=${guard_home}/.aeon-remote-leases}"
 : "${guard_default_max_runs:=1}"
 : "${guard_reservation_ttl_seconds:=120}"
 run_id=''
-valid_id() { [[ $1 =~ ^[A-Za-z0-9._-]{1,64}$ && $1 != . && $1 != .. ]]; }
+action=check
+adopt_pid=''
+valid_id() {
+  [[ $1 =~ ^[A-Za-z0-9._-]{1,64}$ && $1 != . && $1 != .. && $1 != .reservation.* ]]
+}
 if (($#)); then
-  if [[ $# != 2 || $1 != reserve ]] || ! valid_id "${2:-}"; then
-    printf 'usage: aeon-remote-guard [reserve <run-id>]\n' >&2
+  if { [[ $# == 2 && $1 == reserve ]] || [[ $# == 3 && $1 == adopt ]]; } && valid_id "${2:-}"; then
+    action=$1
+    run_id=$2
+    adopt_pid=${3:-}
+  else
+    printf 'usage: aeon-remote-guard [reserve <run-id> | adopt <run-id> <pid>]\n' >&3
     exit 2
   fi
-  run_id=$2
 fi
+pid_alive() {
+  [[ $1 =~ ^[1-9][0-9]{0,9}$ ]] && ((10#$1 <= 2147483647)) && kill -0 -- "$1" 2>/dev/null
+}
+# Atomic replacement never follows a symlink or writes inside a directory.
+write_lease() {
+  [[ ! -e $guard_lease_dir/$run_id && ! -L $guard_lease_dir/$run_id ]] ||
+    [[ -f $guard_lease_dir/$run_id && ! -L $guard_lease_dir/$run_id ]] || return 1
+  reservation=$(mktemp "$guard_lease_dir/.reservation.XXXXXXXXXX") || return 1
+  printf 'reserved=%s\n' "$budget_now" >"$reservation" || return 1
+  local pid
+  for pid in "${adopted_pids[@]}"; do
+    printf 'pid=%s\n' "$pid" >>"$reservation" || return 1
+  done
+  chmod 600 "$reservation" || return 1
+  mv -fT -- "$reservation" "$guard_lease_dir/$run_id" || return 1
+  reservation=''
+}
 reasons=()
 malformed_policy=false
 number='[0-9]+([.][0-9]+)?'
@@ -32,16 +77,56 @@ level=UNKNOWN
 # never replace it. Never unlink this persistent file (including on cleanup).
 umask 077
 budget_locked=false
+leases_readable=false
 lease_parent=$(dirname -- "$guard_lease_dir")
-if {
-  [[ -d $lease_parent && -x $lease_parent ]] &&
-    mkdir -p -- "$guard_lease_dir" &&
-    { exec 9>>"${guard_lease_dir%/}.lock"; } &&
-    perl -e 'flock(STDIN, 2) or exit 1' <&9
-} 2>/dev/null; then
+if [[ -d $lease_parent && -x $lease_parent ]] && mkdir -p -- "$guard_lease_dir"; then
+  if [[ -d $guard_lease_dir && ! -L $guard_lease_dir && -r $guard_lease_dir && -w $guard_lease_dir && -x $guard_lease_dir ]]; then
+    leases_readable=true
+  else
+    reasons+=("cannot read run leases")
+  fi
+else
+  reasons+=("cannot read run leases")
+fi
+if $leases_readable && {
+  { exec 9>>"${guard_lease_dir%/}.lock"; } &&
+    perl -e '$SIG{ALRM} = sub { exit 1 }; alarm 30; flock(STDIN, 2) or exit 1; alarm 0' <&9
+}; then
   budget_locked=true
 else
   reasons+=("cannot lock run budget")
+fi
+
+# Adoption records an already admitted client, even if admission is now paused.
+# Both adoption and collection hold the same lock, including lease recreation.
+if [[ $action == adopt ]]; then
+  if ! $budget_locked; then
+    reason=${reasons[0]}
+  elif ! pid_alive "$adopt_pid" || ! owner=$(ps -o uid= -p "$adopt_pid"); then
+    reason='cannot adopt run pid'
+  elif [[ ${owner//[[:space:]]/} != "$EUID" ]]; then
+    reason='cannot adopt run pid'
+  else
+    budget_now=$(date +%s)
+    [[ $budget_now =~ ^[0-9]{1,12}$ ]] || guard_error
+    adopted_pids=("$adopt_pid")
+    if [[ -f $guard_lease_dir/$run_id && ! -L $guard_lease_dir/$run_id ]]; then
+      lines=()
+      if mapfile -t lines <"$guard_lease_dir/$run_id"; then
+        for line in "${lines[@]}"; do
+          if [[ $line =~ ^pid=([1-9][0-9]{0,9})$ && ${line#pid=} != "$adopt_pid" ]] && pid_alive "${BASH_REMATCH[1]}"; then
+            adopted_pids+=("${line#pid=}")
+          fi
+        done
+      else
+        guard_error
+      fi
+    fi
+    write_lease || guard_error
+    exit 0
+  fi
+  printf 'remote busy: %s; retry in a few minutes or rely on PR CI\n' "$reason" >&3
+  exit 3
 fi
 
 # -L also catches a dangling hold symlink. An inaccessible/missing parent is
@@ -130,11 +215,8 @@ else
   budget_now=''
 fi
 
-pid_alive() {
-  [[ $1 =~ ^[1-9][0-9]{0,9}$ ]] && ((10#$1 <= 2147483647)) && kill -0 -- "$1" 2>/dev/null
-}
 declare -A active_runs=()
-adopted_pid=''
+adopted_pids=()
 add_run() {
   if valid_id "$1" && [[ $1 != "$run_id" ]]; then
     active_runs["$1"]=1
@@ -144,42 +226,78 @@ if $budget_locked && [[ -n $budget_now ]]; then
   shopt -s nullglob dotglob
   for entry in "$guard_lease_dir"/*; do
     id=${entry##*/}
+    # Never read through links or count non-regular entries. Their names must
+    # not stop traversal of other leases.
+    [[ -f $entry && ! -L $entry ]] || continue
+    mtime=$(stat -c %Y -- "$entry") || guard_error
+    [[ $mtime =~ ^[0-9]{1,12}$ ]] || guard_error
+    lease_age=$((10#$budget_now - 10#$mtime))
+    if [[ $id == .reservation.* ]]; then
+      if ((lease_age >= guard_reservation_ttl_seconds)); then unlink -- "$entry" || true; fi
+      continue
+    fi
     valid_id "$id" || continue
-    [[ -f $entry && ! -L $entry && -r $entry ]] || continue
     lease_lines=()
-    mapfile -t lease_lines <"$entry" || continue
-    [[ ${#lease_lines[@]} -ge 1 && ${lease_lines[0]} =~ ^reserved=([0-9]{1,12})$ ]] || continue
-    reserved=${BASH_REMATCH[1]}
-    if [[ ${#lease_lines[@]} == 2 && ${lease_lines[1]} =~ ^pid=([1-9][0-9]{0,9})$ ]]; then
-      lease_pid=${BASH_REMATCH[1]}
-      if pid_alive "$lease_pid"; then
-        add_run "$id"
-        if [[ $id == "$run_id" ]]; then adopted_pid=$lease_pid; fi
-      else
-        unlink -- "$entry"
+    parsed=false
+    live=false
+    reserved=''
+    if [[ -r $entry ]] && mapfile -t lease_lines <"$entry"; then
+      if ((${#lease_lines[@]} >= 1)) && [[ ${lease_lines[0]} =~ ^reserved=([0-9]{1,12})$ ]]; then
+        reserved=${BASH_REMATCH[1]}
+        if ((10#$reserved <= 10#$budget_now + 60)); then parsed=true; fi
       fi
-    elif [[ ${#lease_lines[@]} == 1 ]]; then
-      if ((10#$budget_now - 10#$reserved < guard_reservation_ttl_seconds)); then
-        add_run "$id"
-      else
-        unlink -- "$entry"
+      for ((i = 0; i < ${#lease_lines[@]}; i++)); do
+        line=${lease_lines[i]}
+        if [[ $line =~ ^pid=([1-9][0-9]{0,9})$ ]] && ((10#${BASH_REMATCH[1]} <= 2147483647)); then
+          lease_pid=${line#pid=}
+          if pid_alive "$lease_pid"; then
+            live=true
+            if [[ $id == "$run_id" ]]; then adopted_pids+=("$lease_pid"); fi
+          fi
+          if ((i == 0)); then parsed=false; fi
+        elif ((i != 0)); then
+          parsed=false
+        fi
+      done
+    fi
+    # Even malformed/unreadable leases reserve budget while fresh; only fully
+    # parsed, dead and expired entries are safe to collect. Future mtimes do
+    # not extend the TTL beyond the same 60-second skew used by policy input.
+    if $live || ((lease_age >= -60 && lease_age < guard_reservation_ttl_seconds)); then
+      add_run "$id"
+    elif $parsed; then
+      unlink -- "$entry" || true
+    fi
+  done
+  markers_readable=true
+  for marker_dir in "$guard_home/.aeon-remote-test" "$guard_home/ci.noindex/aeon-runs" "$guard_home/aeon-ui-runs"; do
+    if [[ -e $marker_dir || -L $marker_dir ]]; then
+      if [[ ! -d $marker_dir || -L $marker_dir || ! -r $marker_dir || ! -x $marker_dir ]]; then
+        reasons+=("cannot read run markers")
+        markers_readable=false
       fi
     fi
   done
-  for entry in "$HOME/.aeon-remote-test/"*.pid; do
-    id=${entry##*/}
-    [[ -f $entry && -r $entry ]] || continue
-    pid=$(<"$entry")
-    if pid_alive "$pid"; then add_run "${id%.pid}"; fi
-  done
-  for entry in "$HOME/ci.noindex/aeon-runs/"*; do
-    if [[ -d $entry ]]; then add_run "${entry##*/}"; fi
-  done
-  for entry in "$HOME/aeon-ui-runs/"*; do
-    [[ -f $entry/supervisor.pid && -r $entry/supervisor.pid ]] || continue
-    pid=$(<"$entry/supervisor.pid")
-    if pid_alive "$pid"; then add_run "${entry##*/}"; fi
-  done
+  if $markers_readable; then
+    for entry in "$guard_home/.aeon-remote-test/"*.pid; do
+      id=${entry##*/}
+      [[ -f $entry && ! -L $entry && -r $entry ]] || continue
+      pid=$(<"$entry") 2>/dev/null || continue
+      if pid_alive "$pid"; then add_run "${id%.pid}"; fi
+    done
+    for entry in "$guard_home/ci.noindex/aeon-runs/"*; do
+      if [[ -d $entry && ! -L $entry ]]; then add_run "${entry##*/}"; fi
+    done
+    for entry in "$guard_home/aeon-ui-runs/"*; do
+      if [[ -d $entry && ! -L $entry ]] && [[ ! -r $entry || ! -x $entry ]]; then
+        reasons+=("cannot read run markers")
+        continue
+      fi
+      [[ -d $entry && ! -L $entry && -f $entry/supervisor.pid && ! -L $entry/supervisor.pid && -r $entry/supervisor.pid ]] || continue
+      pid=$(<"$entry/supervisor.pid") 2>/dev/null || continue
+      if pid_alive "$pid"; then add_run "${entry##*/}"; fi
+    done
+  fi
 fi
 active_count=${#active_runs[@]}
 budget_full=false
@@ -197,7 +315,7 @@ if ((maxruns == 0)); then
   detail=''
   if $malformed_policy; then reasons+=("malformed policy ignored; using default maxload"); fi
   for item in "${reasons[@]}"; do detail+="; $item"; done
-  printf 'remote paused: OPS budget is 0 (level %s)%s; retry later or rely on PR CI\n' "$level" "$detail" >&2
+  printf 'remote paused: OPS budget is 0 (level %s)%s; retry later or rely on PR CI\n' "$level" "$detail" >&3
   exit 3
 fi
 
@@ -209,22 +327,15 @@ if ((${#reasons[@]})); then
   for item in "${reasons[@]:1}"; do
     reason+="; $item"
   done
-  printf 'remote busy: %s; retry in a few minutes or rely on PR CI\n' "$reason" >&2
+  printf 'remote busy: %s; retry in a few minutes or rely on PR CI\n' "$reason" >&3
   exit 3
 fi
 if [[ -n $run_id ]]; then
   # mv would otherwise put the reservation *inside* an unexpected directory.
   if [[ -d $guard_lease_dir/$run_id ]]; then
-    printf 'remote busy: cannot write run reservation; retry in a few minutes or rely on PR CI\n' >&2
+    printf 'remote busy: cannot write run reservation; retry in a few minutes or rely on PR CI\n' >&3
     exit 3
   fi
-  reservation=$(mktemp "$guard_lease_dir/.reservation.XXXXXXXXXX")
-  trap 'unlink -- "$reservation"' EXIT
-  printf 'reserved=%s\n' "$budget_now" >"$reservation"
-  # Re-pushing an adopted run must not turn its live lease back into a timer.
-  if [[ -n $adopted_pid ]]; then printf 'pid=%s\n' "$adopted_pid" >>"$reservation"; fi
-  chmod 600 "$reservation"
-  mv -f -- "$reservation" "$guard_lease_dir/$run_id"
-  trap - EXIT
+  write_lease || guard_error
 fi
 exit 0

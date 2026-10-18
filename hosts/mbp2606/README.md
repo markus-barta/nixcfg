@@ -155,8 +155,8 @@ policies older than 900 seconds, more than 60 seconds in the future, or
 malformed policies use the default load limit. The policy writer must replace
 the file atomically (write a temporary file in the same directory, then `mv`
 it into place); OPS's writer already does. Pushes that only delete refs are
-allowed while busy so cleanup can run. Refusals print `remote busy` with retry
-guidance and exit 3. Clients should also call
+allowed while busy so cleanup can run. Clients must match both `remote busy`
+and `remote paused`; refusals include retry guidance and exit 3. Clients should also call
 `/Users/mba/.nix-profile/bin/aeon-remote-guard || exit 3` first in their
 `bash -s` scripts to check again before running tests and get a clean exit 3.
 Non-login `ssh mba@mbp2606 bash -s` sessions run via `fish -c` and do not have
@@ -172,40 +172,52 @@ configurable absolute paths; the lease directory defaults to
 `~/.aeon-remote-leases`. `reservationTtlSeconds` defaults to 120 and must be
 positive, as must `defaultMaxRuns`.
 
-For a push updating exactly one `refs/runs/<RUN>` ref, the hook calls
-`aeon-remote-guard reserve <RUN>`. IDs use 1–64 ASCII letters, digits, dots,
-underscores or hyphens; `.` and `..` are excluded. Under one exclusive kernel
-lock, the guard checks hold, policy, load and budget, counts other run IDs,
-and writes a mode-0600 reservation `~/.aeon-remote-leases/<RUN>` containing
-`reserved=<unix>`. A re-push refreshes that ID's reservation and preserves an
-already-adopted live pid. The persistent
-lock file is adjacent at `~/.aeon-remote-leases.lock`; never remove it while
-guards may run. The kernel releases the lock when the guard process dies.
-Other ref shapes and multi-ref pushes run the ordinary check without reserving;
-deletion-only pushes still bypass admission for cleanup.
+For a push with exactly one non-deletion update under `refs/runs/<RUN>`,
+the hook calls `aeon-remote-guard reserve <RUN>`, including pushes that also
+update main or tags. More than one run update or an invalid run ID refuses
+with exit 3. IDs use 1–64 ASCII letters, digits, dots, underscores or hyphens;
+`.` and `..` and the internal `.reservation.*` prefix are excluded. Under one
+exclusive kernel lock, the guard checks hold, policy, load and budget, counts
+other run IDs, and atomically writes a mode-0600 reservation containing
+`reserved=<unix>`. A re-push refreshes that ID and preserves its live pids.
+The persistent lock file is adjacent at `~/.aeon-remote-leases.lock`; never
+remove it while guards may run. Lock acquisition times out after 30 seconds;
+the kernel releases the lock when the guard dies. Pushes without run updates
+use the ordinary check; deletion-only pushes bypass admission for cleanup.
 
-Live run IDs are deduplicated across leases with live pids, reservations
-younger than the TTL, live `~/.aeon-remote-test/<RUN>.pid` markers, existing
+Live run IDs are deduplicated across leases with any live `pid=` line, leases
+whose file mtime is younger than the TTL, live
+`~/.aeon-remote-test/<RUN>.pid` markers, existing
 `~/ci.noindex/aeon-runs/<RUN>` directories, and live
-`~/aeon-ui-runs/<RUN>/supervisor.pid` markers. Legacy `ci.noindex/slots/s*`
-directories do not count. Only dead-pid leases and expired reservations are
-garbage-collected under the lock; client markers and run directories stay
-client-owned. Bare guard calls make no reservation and refuse only when the
-count is **greater than** the budget, so a previously admitted run passes
-its second check at the limit. A reservation refuses when the count of other
-IDs is **at least** the budget. Refusals print
-`remote busy: <N>/<M> runs active (OPS budget)` with retry guidance and exit 3.
-A zero budget refuses both call forms with
+`~/aeon-ui-runs/<RUN>/supervisor.pid` markers. Marker paths use the configured
+Home Manager home, independently of the caller's `HOME`. Legacy
+`ci.noindex/slots/s*` directories do not count. Symlinks and non-regular lease
+entries are ignored. Malformed regular leases still count while fresh or
+while any pid lives; only fully parsed dead and expired leases are collected.
+Internal `.reservation.*` temporary files never count and are collected once
+stale. Lease timestamps allow at most 60 seconds of future skew. Unreadable
+lease or marker directories refuse admission. Client markers and run
+directories stay client-owned.
+
+Bare guard calls make no reservation and refuse only when the count is
+**greater than** the budget, so an admitted run passes its second check at the
+limit. A reservation refuses when other IDs are **at least** the budget.
+Refusals print `remote busy: <N>/<M> runs active (OPS budget)` and exit 3.
+A zero budget refuses admission with
 `remote paused: OPS budget is 0 (level <L>)`; the level comes from a fresh
 policy, or is `UNKNOWN` without one. Existing refusal reasons stay combined.
+Unexpected failures print `remote busy: guard error` with retry guidance and
+exit 3.
 
-Clients may adopt their reservation at run start by appending one line
-`pid=<pid>` to `~/.aeon-remote-leases/<RUN>` and remove that file in their EXIT
-trap. An adopted lease counts for as long as its pid lives, regardless of the
-reservation TTL. Adoption and removal are optional: existing client markers
-and run directories keep runs counted after the reservation expires. Clients
-must use their own shell pid, adopt before the TTL expires, and keep the
-`reserved=` line intact. No client changes are required for the bare call.
+At run start, clients call `aeon-remote-guard adopt <RUN> <pid>` with their
+own live shell pid. Adoption validates same-user ownership and atomically
+records the pid under the same lock as collection, recreating the lease if
+its reservation was already collected. It records an admitted run even when
+new admission is paused. A live pid keeps the lease counted regardless of
+TTL. Clients may remove `~/.aeon-remote-leases/<RUN>` in their EXIT trap with
+a plain `rm`, or let GC collect it once dead and expired. Existing client
+markers and run directories also keep runs counted after the TTL. The bare
+check remains compatible with existing clients.
 
 ## Inbound SSH (declarative)
 
