@@ -30,7 +30,7 @@ import {
   normalizePeer,
   peerAllowed,
 } from "./security.mjs";
-import { admitIntent, openLedger } from "./state.mjs";
+import { admitIntent, openLedger, CAPTURE_DEGRADED_ADMISSION_BYTES } from "./state.mjs";
 import { createMarketData, validMarketSymbol } from "./market-data.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { createBook } from "./book.mjs";
@@ -51,6 +51,7 @@ const PUBLIC_ERRORS = new Map([
   ["modify_stop_refused", "modify-stop preflight refused"],
   ["attribution_refused", "execution attribution refused"],
   ["placement_refused", "placement preflight refused"],
+  ["results_capture_degraded_ledger_cap", "results_capture_degraded_ledger_cap"],
 ]);
 function publicFailure(error) {
   const code = error?.code === "uncertain" ? "uncertain"
@@ -141,7 +142,14 @@ function claimRecord(state, intent, ledger) {
     }
     return { replay: { ...storedResult(prior), idempotentReplay: true } };
   }
-  admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs, beforePrune: ledger.beforePrune });
+  try {
+    admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs, beforePrune: ledger.beforePrune });
+  } catch (error) {
+    // Publish capture diagnostics even when this first failed capture discovers
+    // the admission bound. No claim or broker operation has happened yet.
+    if (error.publicCode === "results_capture_degraded_ledger_cap") ledger.save(state);
+    throw error;
+  }
   state.intents.set(intent.intentId, {
     hash,
     action: intent.action,
@@ -211,12 +219,19 @@ export function createServer(options) {
     const [reachable, body] = await Promise.all([
       Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
       exclusive(() => {
-        const state = ledger.load();
+        // Health polling must not retry failed capture/compaction or resolve it.
+        const state = ledger.load({ migrate: !ledger.beforePrune });
+        const usage = ledger.usage();
+        const degraded = !!ledger.beforePrune && state.resultsCapture?.ok === false;
         return {
-          status: "ok", gatewayReachable: false, gatewayHost, gatewayPort,
-          account: ACCOUNT, ...ledger.usage(), halt: activeHalt(ledger.haltBody()),
+          status: degraded ? "degraded" : "ok", gatewayReachable: false, gatewayHost, gatewayPort,
+          account: ACCOUNT, ...usage, halt: activeHalt(ledger.haltBody()),
           brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
-          ...(state.resultsCapture ? { resultsCapture: state.resultsCapture } : {}),
+          ...(state.resultsCapture ? { resultsCapture: {
+            ...state.resultsCapture, degraded,
+            ...usage, admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES,
+            newAdmissionsBlocked: degraded && usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES,
+          } } : {}),
         };
       }),
     ]);
@@ -432,6 +447,10 @@ export function createServer(options) {
       send(response, 404, { status: "not_found", reason: "unknown route" });
     } catch (error) {
       const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+      if (error.publicCode === "results_capture_degraded_ledger_cap") {
+        send(response, status, { status: "rejected", ...publicFailure(error) });
+        return;
+      }
       if (error.publicCode === "attribution_refused") {
         ledger.audit({ event: "attribution_refused", peer, status, ...publicFailure(error) });
         send(response, status, { status: "rejected", ...publicFailure(error) });

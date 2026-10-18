@@ -12,7 +12,7 @@ import { digest, parseIntent } from "./policy.mjs";
 import { createServer, createResultsSampler } from "./server.mjs";
 import { createCapture } from "../joe-results-producer/capture.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
-import { MAX_STATE_BYTES, openLedger } from "./state.mjs";
+import { MAX_STATE_BYTES, CAPTURE_DEGRADED_ADMISSION_BYTES, openLedger } from "./state.mjs";
 
 // Exercise the real HTTP handler without requiring a listening socket. The
 // separate security tests check production bind constraints; live transport
@@ -720,18 +720,113 @@ for (const stage of ['admission', 'save']) for (const code of ['unavailable', 'E
     assert.equal(retained.resultsCaptureAlerts.length, 1);
     assert.equal(retained.resultsCaptureAlerts[0].code, code);
     const health = await (await fetch(`${ctx.url}/v1/health`)).json();
+    assert.equal(health.status, 'degraded');
     assert.equal(health.resultsCapture.ok, false);
+    assert.equal(health.resultsCapture.degraded, true);
+    assert.equal(health.resultsCapture.ledgerBytes, statSync(ledger.statePath).size);
+    assert.equal(health.resultsCapture.ledgerMaxBytes, MAX_STATE_BYTES);
+    assert.equal(health.resultsCapture.admissionThresholdBytes, CAPTURE_DEGRADED_ADMISSION_BYTES);
+    assert.equal(health.resultsCapture.newAdmissionsBlocked, false);
+    assert.equal(health.halt.active, false);
     assert.equal(health.resultsCapture.code, code);
     assert.equal(JSON.stringify([health.resultsCapture, retained.resultsCaptureAlerts, logs.mock.calls]).includes('synthetic-private-value'), false);
-    // The save-only scenario successfully captures at each admission, hence
-    // one transition log per recovery/new outage, not per failed save.
-    assert.equal(logs.mock.callCount(), stage === 'admission' ? 1 : 4);
+    // Admission capture alone cannot resolve an outage before full catch-up.
+    assert.equal(logs.mock.callCount(), 1);
     failure = false;
     const recovered = await post(ctx.url, valid({ intentId: `synthetic-recovered-${stage}-${code}` }));
     assert.equal(recovered.status, 200);
     const after = await (await fetch(`${ctx.url}/v1/health`)).json();
     assert.equal(after.resultsCapture.ok, true);
+    assert.equal(after.status, 'ok');
+    assert.equal(after.resultsCapture.degraded, false);
     assert.ok(after.resultsCapture.lastRecoveredAt);
     assert.equal(JSON.parse(readFileSync(ledger.statePath)).intents['expired-capture-evidence'], undefined);
   });
 }
+
+test('capture cap publishes degraded health and refuses new placements while replay, cancel, flatten and recon stay available', async t => {
+  const logs = t.mock.method(console, 'error', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const ctx = await start(t, { beforePrune: () => { throw Object.assign(new Error('synthetic-private-value'), { code: 'ENOSPC' }); } });
+  const replayIntent = valid({ intentId: 'synthetic-replay-at-cap' });
+  assert.equal((await post(ctx.url, replayIntent)).status, 200);
+  const ledger = openLedger(ctx.stateDir);
+  const disk = JSON.parse(readFileSync(ledger.statePath));
+  disk.intents['synthetic-expired-evidence'] = { action: 'place', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { padding: 'x'.repeat(CAPTURE_DEGRADED_ADMISSION_BYTES + 1024) } };
+  // Simulate the FIRST capture failure at the cap as well as sustained failures.
+  delete disk.resultsCapture;
+  delete disk.resultsCaptureAlerts;
+  writeFileSync(ledger.statePath, JSON.stringify(disk));
+  for (let i = 0; i < 3; i++) {
+    const refused = valid({ intentId: `synthetic-new-at-cap-${i}` });
+    assert.deepEqual(await post(ctx.url, refused), { status: 422, body: {
+      status: 'rejected', code: 'results_capture_degraded_ledger_cap', reason: 'results_capture_degraded_ledger_cap',
+    } });
+    assert.equal(JSON.parse(readFileSync(ledger.statePath)).intents[refused.intentId], undefined);
+  }
+  assert.equal(ctx.calls(), 1);
+  const health = await (await fetch(`${ctx.url}/v1/health`)).json();
+  assert.equal(health.status, 'degraded');
+  assert.equal(health.resultsCapture.newAdmissionsBlocked, true);
+  assert.equal(health.resultsCapture.ledgerBytes, statSync(ledger.statePath).size);
+  assert.equal(health.resultsCapture.ledgerMaxBytes, MAX_STATE_BYTES);
+  assert.equal(health.resultsCapture.admissionThresholdBytes, CAPTURE_DEGRADED_ADMISSION_BYTES);
+  assert.equal(health.halt.active, false);
+  assert.equal(health.brakes.placementBlockedOnInitDay, false);
+  const replay = await post(ctx.url, replayIntent);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.idempotentReplay, true);
+  assert.equal(ctx.calls(), 1);
+  for (const action of ['cancel', 'flatten', 'recon']) {
+    const intent = valid({ intentId: `synthetic-safety-at-cap-${action}`, action, order: undefined,
+      ...(action === 'cancel' ? { orderId: 123 } : {}) });
+    assert.deepEqual(await post(ctx.url, intent), { status: 200, body: okResult(intent) });
+  }
+  assert.equal(ctx.calls(), 4);
+  const retained = JSON.parse(readFileSync(ledger.statePath));
+  assert.ok(retained.intents['synthetic-expired-evidence']);
+  assert.equal(fs.existsSync(ledger.reconEvidencePath), false);
+  assert.equal(logs.mock.calls.filter(call => JSON.parse(call.arguments[0]).event === 'results_capture_failed').length, 2);
+  assert.equal(JSON.stringify([health, retained.resultsCaptureAlerts, logs.mock.calls]).includes('synthetic-private-value'), false);
+});
+
+test('board health stays degraded when capture succeeds but catch-up fails and clears only after durable recovery', async t => {
+  const logs = t.mock.method(console, 'error', () => {});
+  const ctx = await start(t, { beforePrune: () => {} });
+  let failing = true;
+  const ledger = openLedger(ctx.stateDir, { beforePrune: () => {
+    if (failing) throw Object.assign(new Error('synthetic-private-value'), { code: 'ENOSPC' });
+  } });
+  const state = ledger.load();
+  state.intents.set('synthetic-expired-recon', { action: 'recon', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { executions: [{ padding: 'x'.repeat(10000) }] } });
+  ledger.save(state);
+  const failedBytes = statSync(ledger.statePath).size;
+  failing = false;
+  const rename = fs.renameSync;
+  let pruneFails = true;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (pruneFails && to === ledger.reconEvidencePath) throw Object.assign(new Error('synthetic-private-value'), { code: 'EIO' });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  ledger.save(state);
+  const beforeHealth = readFileSync(ledger.statePath);
+  const health = await (await fetch(`${ctx.url}/v1/health`)).json();
+  assert.equal(health.status, 'degraded');
+  assert.equal(health.resultsCapture.ok, false);
+  assert.equal(health.resultsCapture.code, 'EIO');
+  assert.equal(health.resultsCapture.lastRecoveredAt, undefined);
+  assert.deepEqual(readFileSync(ledger.statePath), beforeHealth);
+  assert.ok(state.resultsCaptureAlerts.every(row => !row.resolvedAt));
+  pruneFails = false;
+  ledger.save(state);
+  const recovered = await (await fetch(`${ctx.url}/v1/health`)).json();
+  assert.equal(recovered.status, 'ok');
+  assert.equal(recovered.resultsCapture.ok, true);
+  assert.equal(recovered.resultsCapture.degraded, false);
+  assert.ok(recovered.resultsCapture.lastRecoveredAt);
+  assert.ok(recovered.ledgerBytes < failedBytes);
+  assert.ok(state.resultsCaptureAlerts.every(row => row.resolvedAt));
+  assert.equal(logs.mock.callCount(), 2);
+});

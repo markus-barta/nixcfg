@@ -1055,21 +1055,54 @@ When separately enabled, the executor's optional capture writes
 recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
 fills, commissions, close FX and reconciliation evidence with hashed identifiers.
-Capture exceptions never fail an intent: that admission/save retains the full
-ledger without pruning or recon compaction and still persists normally. Legacy
-migration remains pending with its complete evidence until capture succeeds.
-Executor `/v1/health` and the loopback Results health expose `resultsCapture`
-after a failure: `ok: false`, `since`, `lastErrorAt`, a fixed value-free `code`
-and cumulative failure `count`. Persisted `resultsCaptureAlerts` receipts are
-deduplicated by class, bounded to the fixed class set, and expire from their
-last observation using the foreign-alert retention period. Logs emit only on a
-failure class transition; no exception messages or broker values are included.
-A successful capture sets `ok: true` and `lastRecoveredAt`; the next successful
-save immediately catches up compaction and pruning after capturing retained
-evidence. Persistent failure grows the ledger until fixed: monitor these health
-fields, alert receipts and `ledgerPercent`. Existing admission and ledger size
-limits remain enforced; fix the capture source or journal storage before those
-limits are exhausted. Journal write/fsync failures latch the writer: restore
+Capture exceptions retain the full ledger without pruning or recon compaction;
+admission/save proceeds within the capacity limits below. Legacy migration
+remains pending with its complete evidence until capture succeeds.
+
+Executor `/v1/health` and loopback Results health (`127.0.0.1:8472`) report
+`status: "degraded"` after a capture/catch-up failure. This is executor health:
+it does not set HALT or change trading brakes. The Results producer projects it
+to the board contract's existing executor `status: "degraded"`, keeping its
+`halt`, `brakes` and gateway fields independent. Board rendering and changes to
+the pinned board contract belong to JoeDesk. The executor endpoints expose
+the following fields for that consumer; size diagnostics are not added to the
+pinned Results wire contract here:
+
+| Field                                                  | Meaning                                                                                                          |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                      |
+| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                             |
+| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture` |
+| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                   |
+| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                        |
+| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                 |
+
+At the threshold, NEW placement intents fail closed with HTTP 422 and both
+`code` and `reason` equal to `results_capture_degraded_ledger_cap`. They receive
+no claim and make no broker call. Failed capture still skips all pruning: never
+destroy uncaptured evidence to make space. Idempotent replay remains available.
+Recon, cancel, flatten and modify-stop remain allowed at this new threshold so
+existing positions can be reconciled or made safer. Existing ownership, KEEP,
+HALT, order checks, claim/execution budgets and the hard persistence cap remain
+enforced for those actions. The 10% margin reserves headroom for in-flight work
+and safety actions; it cannot promise unlimited reconciliation growth or writes
+on an already full filesystem. Restore capture/storage before exhausting it.
+
+Persisted `resultsCaptureAlerts` receipts have one row per fixed error class,
+bounded to that class set. Each class alerts/logs once per unresolved outage,
+including across alternating errors, repeated saves and executor restarts; no
+exception messages or broker values are included. Active receipts remain until
+recovery; resolved receipts expire from their last observation using the
+foreign-alert retention period. A successful capture alone, admission pruning,
+legacy migration or health polling cannot clear degradation. A save must capture,
+successfully catch up recon compaction and retention pruning, and publish the
+ledger before setting `ok: true`, `lastRecoveredAt`, and each active receipt's
+`resolvedAt`. Capture success followed by catch-up failure retains full evidence
+and degraded health for retry. The same class can alert again after recovery.
+Health polling does not retry a pending capture migration.
+
+Persistent failure grows the ledger: monitor these health fields, alert receipts
+and `ledgerPercent`. Journal write/fsync failures latch the writer: restore
 storage, retain both journals and the ledger, then restart the executor. Never
 truncate or rebuild a damaged journal to clear the failure. Capture disabled
 adds no fields and follows the existing retention and admission paths.
