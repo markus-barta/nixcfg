@@ -22,6 +22,7 @@ let
     mkdir -p "$out/client"
     cp ${./policy.mjs} "$out/policy.mjs"
     cp ${./security.mjs} "$out/security.mjs"
+    cp ${./fx-sampler.mjs} "$out/fx-sampler.mjs"
     cp ${./ib.mjs} "$out/ib.mjs"
     cp ${./market-data.mjs} "$out/market-data.mjs"
     cp ${./book.mjs} "$out/book.mjs"
@@ -30,6 +31,10 @@ let
     cp ${./executor.mjs} "$out/executor.mjs"
     cp ${./server.mjs} "$out/server.mjs"
     cp ${./client/paper-intent.mjs} "$out/client/paper-intent.mjs"
+    ${lib.optionalString cfg.resultsCaptureEnabled ''
+      cp -r ${import ../joe-results-producer/source.nix { inherit pkgs; }} "$out/results"
+      ${pkgs.nodejs}/bin/node "$out/results/verify-contracts.mjs"
+    ''}
   '';
   environment = [
     "IB_DESK_ACCOUNT=DUR970597"
@@ -50,6 +55,9 @@ let
     "PAPER_DESK_RECON_RETENTION_HOURS=${toString cfg.reconRetentionHours}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
+    "PAPER_DESK_RESULTS_HEALTH_PORT=${toString cfg.resultsHealthPort}"
+    "PAPER_DESK_RESULTS_CAPTURE=${lib.boolToString cfg.resultsCaptureEnabled}"
+    "PAPER_DESK_RESULTS_KEEP=${builtins.toJSON cfg.resultsKeepSymbols}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
   ];
   peerRules =
@@ -62,6 +70,23 @@ in
 {
   options.nixcfg.paperDeskExecutor = {
     enable = lib.mkEnableOption "tailnet paper desk executor on hsb0";
+
+    resultsCaptureEnabled = lib.mkEnableOption "durable read-only Results capture before ledger compaction (JOED-20)";
+
+    resultsHealthPort = lib.mkOption {
+      type = lib.types.port;
+      default = 8472;
+      description = "Capture-only loopback health port; 8471 remains reserved for the mailbox.";
+    };
+
+    resultsKeepSymbols = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "SXR8"
+        "TSLA"
+      ];
+      description = "Full Results exclusion policy; independent of the executor's trading KEEP floor.";
+    };
 
     listenAddress = lib.mkOption {
       type = lib.types.str;
@@ -227,6 +252,10 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
+        assertion = cfg.resultsHealthPort == 8472;
+        message = "paperDeskExecutor Results health listens only on loopback port 8472";
+      }
+      {
         assertion = cfg.reconRetentionHours >= 16.0 / 60.0 && cfg.reconRetentionHours <= 336;
         message = "paperDeskExecutor reconRetentionHours must be between 16/60 and 336 hours (16 minutes to 14 days)";
       }
@@ -285,6 +314,7 @@ in
         assertion =
           cfg.marketDataClientId != cfg.bookClientId
           && cfg.marketDataClientId != 708
+          && cfg.marketDataClientId != 709
           && !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.marketDataClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.marketDataClientId [
@@ -303,6 +333,7 @@ in
       {
         assertion =
           cfg.bookClientId != cfg.marketDataClientId
+          && cfg.bookClientId != 709
           && !(lib.elem cfg.bookClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.bookClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.bookClientId [
@@ -322,7 +353,9 @@ in
       }
       {
         assertion =
-          cfg.clientIds.recon > 0
+          !(lib.elem 709 (lib.attrValues cfg.clientIds))
+          && !(lib.elem 709 (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          && cfg.clientIds.recon > 0
           && cfg.clientIds.executor > 0
           && cfg.clientIds.recon != cfg.clientIds.executor
           && !(lib.elem cfg.clientIds.executor (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))

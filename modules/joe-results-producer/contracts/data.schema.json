@@ -1,0 +1,969 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:joedesk:data:v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "seq",
+    "generatedAt",
+    "mode",
+    "currency",
+    "source",
+    "safety",
+    "desks",
+    "totals"
+  ],
+  "properties": {
+    "schema": {
+      "const": "inspr.joe.household.v2",
+      "x-owner": "pusher"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-owner": "pusher"
+    },
+    "generatedAt": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "pusher"
+    },
+    "receivedAt": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "server"
+    },
+    "mode": {
+      "const": "PAPER",
+      "x-owner": "pusher"
+    },
+    "currency": {
+      "const": "EUR",
+      "x-owner": "pusher"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "label"
+      ],
+      "properties": {
+        "kind": {
+          "const": "live-ib-api",
+          "x-owner": "pusher"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "halt",
+        "haltReason"
+      ],
+      "properties": {
+        "halt": {
+          "type": "boolean",
+          "x-owner": "pusher"
+        },
+        "haltReason": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:reason:v2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "gateway": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "apiSessionReady",
+            "checkedAt"
+          ],
+          "properties": {
+            "apiSessionReady": {
+              "type": "boolean",
+              "x-owner": "pusher"
+            },
+            "checkedAt": {
+              "$ref": "urn:joedesk:common:v2#/$defs/instant",
+              "x-owner": "pusher"
+            },
+            "reason": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            }
+          },
+          "x-owner": "pusher"
+        },
+        "executor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "halt",
+            "brakes",
+            "gatewayReachable",
+            "checkedAt"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "running",
+                "degraded",
+                "down"
+              ],
+              "x-owner": "paper executor 8470"
+            },
+            "halt": {
+              "type": "boolean",
+              "x-owner": "paper executor 8470"
+            },
+            "brakes": {
+              "type": "boolean",
+              "x-owner": "paper executor 8470"
+            },
+            "gatewayReachable": {
+              "type": "boolean",
+              "x-owner": "paper executor 8470"
+            },
+            "checkedAt": {
+              "$ref": "urn:joedesk:common:v2#/$defs/instant",
+              "x-owner": "paper executor 8470"
+            },
+            "reason": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "paper executor 8470"
+            }
+          },
+          "x-owner": "paper executor 8470"
+        }
+      },
+      "x-owner": "pusher"
+    },
+    "desks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "state",
+          "action",
+          "money"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "j",
+              "joe",
+              "joel"
+            ],
+            "x-owner": "pusher"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "x-owner": "pusher"
+          },
+          "state": {
+            "enum": [
+              "working",
+              "sit-out",
+              "stuck"
+            ],
+            "x-owner": "pusher"
+          },
+          "stateSince": {
+            "anyOf": [
+              {
+                "$ref": "urn:joedesk:common:v2#/$defs/instant"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "x-owner": "pusher"
+          },
+          "heartbeatAt": {
+            "$ref": "urn:joedesk:common:v2#/$defs/instant",
+            "x-owner": "pusher"
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "x-owner": "pusher"
+          },
+          "learning": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "headline",
+              "detail",
+              "iteration"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "learning",
+                  "iterating",
+                  "steady",
+                  "blocked"
+                ],
+                "x-owner": "pusher"
+              },
+              "headline": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240,
+                "x-owner": "pusher"
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "x-owner": "pusher"
+              },
+              "iteration": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000,
+                "x-owner": "pusher"
+              }
+            },
+            "x-owner": "pusher"
+          },
+          "money": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "equity": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "dayPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "openPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "totalPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "reasons": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {
+                  "equity": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "dayPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "openPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "totalPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  }
+                },
+                "x-owner": "pusher"
+              }
+            },
+            "x-owner": "pusher"
+          },
+          "accounting": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "periodStart",
+              "method",
+              "detail"
+            ],
+            "properties": {
+              "periodStart": {
+                "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                "x-owner": "pusher"
+              },
+              "method": {
+                "const": "execution-fifo-net-current-fx",
+                "x-owner": "pusher"
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240,
+                "x-owner": "pusher"
+              }
+            },
+            "x-owner": "pusher"
+          },
+          "historyBasis": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96,
+            "pattern": "^[a-z][a-z0-9.-]*$",
+            "x-owner": "pusher"
+          },
+          "backfill": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "fullTotalAvailable",
+              "capturedSubtotal",
+              "coverage",
+              "missingOpeningLotCount",
+              "orphanCommissionCount"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "BEST_AVAILABLE",
+                  "COMPLETE"
+                ],
+                "x-owner": "pusher"
+              },
+              "fullTotalAvailable": {
+                "type": "boolean",
+                "x-owner": "pusher"
+              },
+              "capturedSubtotal": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "realizedPnl",
+                  "method",
+                  "fromInclusive",
+                  "throughInclusive",
+                  "points",
+                  "pointsTruncated",
+                  "executionCount",
+                  "commissionCount"
+                ],
+                "properties": {
+                  "realizedPnl": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "pusher"
+                  },
+                  "method": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "captured-fifo-matched-roundtrips"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "pusher"
+                  },
+                  "fromInclusive": {
+                    "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                    "x-owner": "pusher"
+                  },
+                  "throughInclusive": {
+                    "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                    "x-owner": "pusher"
+                  },
+                  "points": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "at",
+                        "realizedPnl"
+                      ],
+                      "properties": {
+                        "at": {
+                          "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                          "x-owner": "pusher"
+                        },
+                        "realizedPnl": {
+                          "$ref": "urn:joedesk:common:v2#/$defs/money",
+                          "x-owner": "pusher"
+                        }
+                      }
+                    },
+                    "maxItems": 2048,
+                    "x-owner": "pusher"
+                  },
+                  "pointsTruncated": {
+                    "type": "boolean",
+                    "x-owner": "pusher"
+                  },
+                  "executionCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "x-owner": "pusher"
+                  },
+                  "commissionCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "x-owner": "pusher"
+                  }
+                },
+                "x-owner": "pusher"
+              },
+              "coverage": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "fromInclusive",
+                  "toExclusive",
+                  "gapCount"
+                ],
+                "properties": {
+                  "fromInclusive": {
+                    "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                    "x-owner": "pusher"
+                  },
+                  "toExclusive": {
+                    "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                    "x-owner": "pusher"
+                  },
+                  "gapCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "x-owner": "pusher"
+                  }
+                },
+                "x-owner": "pusher"
+              },
+              "missingOpeningLotCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000,
+                "x-owner": "pusher"
+              },
+              "orphanCommissionCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000,
+                "x-owner": "pusher"
+              }
+            },
+            "x-owner": "pusher"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "urn:joedesk:reason:v2"
+            },
+            "maxItems": 32,
+            "x-owner": "pusher"
+          },
+          "moneyEvidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "observedAt"
+            ],
+            "properties": {
+              "status": {
+                "const": "observed",
+                "x-owner": "pusher"
+              },
+              "observedAt": {
+                "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                "x-owner": "pusher"
+              }
+            },
+            "x-owner": "pusher"
+          }
+        }
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "x-owner": "pusher"
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "equity": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "dayPnl": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "openPnl": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "totalPnl": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "equity": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            },
+            "dayPnl": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            },
+            "openPnl": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            },
+            "totalPnl": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            }
+          },
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    },
+    "pnlSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "day": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "method",
+            "currency",
+            "scope",
+            "observedAt"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "available",
+                "unavailable"
+              ],
+              "x-owner": "pusher"
+            },
+            "method": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "ib-daily-pnl",
+                    "sod-virtual-equity",
+                    "ib-unrealized-pnl",
+                    "owned-lots-current-mark-fx",
+                    "session-open-estimate"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "pusher"
+            },
+            "currency": {
+              "const": "EUR",
+              "x-owner": "pusher"
+            },
+            "scope": {
+              "const": "virtual-desks",
+              "x-owner": "pusher"
+            },
+            "observedAt": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:common:v2#/$defs/instant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "pusher"
+            },
+            "periodStart": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:common:v2#/$defs/instant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "pusher"
+            },
+            "detail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240,
+              "x-owner": "pusher"
+            },
+            "reason": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            }
+          },
+          "x-owner": "pusher"
+        },
+        "open": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "method",
+            "currency",
+            "scope",
+            "observedAt"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "available",
+                "unavailable"
+              ],
+              "x-owner": "pusher"
+            },
+            "method": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "ib-daily-pnl",
+                    "sod-virtual-equity",
+                    "ib-unrealized-pnl",
+                    "owned-lots-current-mark-fx"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "pusher"
+            },
+            "currency": {
+              "const": "EUR",
+              "x-owner": "pusher"
+            },
+            "scope": {
+              "const": "virtual-desks",
+              "x-owner": "pusher"
+            },
+            "observedAt": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:common:v2#/$defs/instant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "pusher"
+            },
+            "periodStart": {
+              "anyOf": [
+                {
+                  "$ref": "urn:joedesk:common:v2#/$defs/instant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-owner": "pusher"
+            },
+            "detail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240,
+              "x-owner": "pusher"
+            },
+            "reason": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            }
+          },
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    },
+    "brokerAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "observedAt"
+      ],
+      "properties": {
+        "equity": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "accountHint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8,
+          "pattern": "^DU\u2026[0-9]{4}$",
+          "x-owner": "pusher"
+        },
+        "scope": {
+          "const": "paper-account-including-keep",
+          "x-owner": "pusher"
+        },
+        "observedAt": {
+          "$ref": "urn:joedesk:common:v2#/$defs/instant",
+          "x-owner": "pusher"
+        },
+        "reason": {
+          "$ref": "urn:joedesk:reason:v2",
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    },
+    "positions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "observedAt",
+        "rows"
+      ],
+      "properties": {
+        "source": {
+          "const": "live-ib-api",
+          "x-owner": "pusher"
+        },
+        "observedAt": {
+          "$ref": "urn:joedesk:common:v2#/$defs/instant",
+          "x-owner": "pusher"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "desk",
+              "symbol",
+              "side",
+              "quantity",
+              "scope"
+            ],
+            "properties": {
+              "desk": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "j",
+                      "joe",
+                      "joel"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "symbol": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16,
+                "pattern": "^[A-Z0-9][A-Z0-9._-]{0,15}$",
+                "x-owner": "pusher"
+              },
+              "company": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "x-owner": "pusher"
+              },
+              "side": {
+                "enum": [
+                  "long",
+                  "short"
+                ],
+                "x-owner": "pusher"
+              },
+              "quantity": {
+                "$ref": "urn:joedesk:common:v2#/$defs/decimal",
+                "x-owner": "pusher"
+              },
+              "mark": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "marketValue": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "dayPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "openPnl": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/money"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "openedAt": {
+                "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                "x-owner": "pusher"
+              },
+              "updatedAt": {
+                "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                "x-owner": "pusher"
+              },
+              "scope": {
+                "enum": [
+                  "stage0",
+                  "keep",
+                  "legacy"
+                ],
+                "x-owner": "pusher"
+              }
+            }
+          },
+          "maxItems": 256,
+          "x-owner": "pusher"
+        },
+        "reason": {
+          "$ref": "urn:joedesk:reason:v2",
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    }
+  },
+  "x-owner": "pusher"
+}

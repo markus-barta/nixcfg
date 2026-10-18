@@ -1,0 +1,82 @@
+[
+  {
+    "key": "open-a",
+    "desk": "j",
+    "scope": "stage0",
+    "instrument": "synthetic-a",
+    "symbol": "ACME",
+    "currency": "USD",
+    "side": "BUY",
+    "at": "2026-10-16T12:00:00.000Z",
+    "quantity": "3",
+    "price": "10.12345678",
+    "commission": {
+      "amount": "0.3",
+      "currency": "USD"
+    },
+    "closeFx": null
+  },
+  {
+    "key": "open-b",
+    "desk": "j",
+    "scope": "stage0",
+    "instrument": "synthetic-a",
+    "symbol": "ACME",
+    "currency": "USD",
+    "side": "BUY",
+    "at": "2026-10-16T12:01:00.000Z",
+    "quantity": "2",
+    "price": "11.12345678",
+    "commission": {
+      "amount": "0.2",
+      "currency": "USD"
+    },
+    "closeFx": null
+  },
+  {
+    "key": "close-a",
+    "desk": "j",
+    "scope": "stage0",
+    "instrument": "synthetic-a",
+    "symbol": "ACME",
+    "currency": "USD",
+    "side": "SELL",
+    "at": "2026-10-16T13:00:00.000Z",
+    "quantity": "4",
+    "price": "12.12345678",
+    "commission": {
+      "amount": "0.4",
+      "currency": "USD"
+    },
+    "closeFx": {
+      "base": "USD",
+      "quote": "EUR",
+      "rate": "0.9",
+      "source": "synthetic-close",
+      "observedAt": "2026-10-16T13:00:00.000Z"
+    }
+  },
+  {
+    "key": "close-b",
+    "desk": "j",
+    "scope": "stage0",
+    "instrument": "synthetic-a",
+    "symbol": "ACME",
+    "currency": "USD",
+    "side": "SELL",
+    "at": "2026-10-16T14:00:00.000Z",
+    "quantity": "1",
+    "price": "13.12345678",
+    "commission": {
+      "amount": "0.1",
+      "currency": "USD"
+    },
+    "closeFx": {
+      "base": "USD",
+      "quote": "EUR",
+      "rate": "0.8",
+      "source": "synthetic-close",
+      "observedAt": "2026-10-16T14:00:00.000Z"
+    }
+  }
+]
