@@ -17,6 +17,10 @@ let
       ../modules/paper-desk-executor/default.nix
       {
         options = {
+          age.secrets = lib.mkOption {
+            type = lib.types.attrs;
+            default.hsb0-ib-desk-env.path = "/run/agenix/hsb0-ib-desk-env";
+          };
           assertions = lib.mkOption { type = lib.types.listOf lib.types.attrs; };
           networking.firewall = {
             allowedTCPPorts = lib.mkOption {
@@ -70,6 +74,10 @@ in
 assert lib.assertMsg (failed == [ ]) (lib.concatMapStringsSep "; " (item: item.message) failed);
 {
   inherit (cfg.nixcfg.paperDeskExecutor) reconRetentionHours resultsHealthPort;
+  envFile = cfg.nixcfg.paperDeskExecutor.serviceSpec.env_file;
+  accountEnvironment = builtins.filter (
+    item: lib.hasPrefix "IB_DESK_ACCOUNT=" item
+  ) cfg.nixcfg.paperDeskExecutor.serviceSpec.environment;
   retentionEnvironment = builtins.filter (
     item: lib.hasPrefix "PAPER_DESK_RECON_RETENTION_HOURS=" item
   ) cfg.nixcfg.paperDeskExecutor.serviceSpec.environment;

@@ -317,7 +317,6 @@ in
     postRecreate = [
       "hostdash-auth"
       "hostdash"
-      "traefik"
     ];
     # 🔴 removeOrphans stays FALSE on csb1, permanently-until-audited: project
     # csb1 contains Janus-managed containers driven from a second compose file
@@ -359,6 +358,7 @@ in
     extraAfter = [ "inspr-edge-config.service" ];
     extraRestartTriggers = [
       hostdashCsb1
+      config.age.secrets.traefik-variables.file
       config.age.secrets.csb1-inspr-auth-env.file
       config.age.secrets.csb1-aeon-review-app-key.file
       config.age.secrets.csb1-aeon-review-webhook-secret.file
@@ -374,7 +374,44 @@ in
     ++ lib.optionals janusFlowHost.active [
       config.age.secrets.csb1-janus-flow-api-key.file
     ];
-    spec = import ./docker/compose-spec.nix;
+    spec =
+      let
+        spec = import ./docker/compose-spec.nix;
+      in
+      spec
+      // {
+        services = spec.services // {
+          traefik = spec.services.traefik // {
+            # OPS-338: single-file binds retain old inodes after mv -f or a
+            # RuntimeDirectory replacement. Mirror both renderers' restartTriggers
+            # so Compose rebinds their outputs when the inputs change. Hash only
+            # public ciphertext and source; derivation paths avoid IFD.
+            labels =
+              spec.services.traefik.labels
+              ++ [
+                "ops.inspr-edge-inputs-sha256=${
+                  builtins.hashString "sha256" (
+                    builtins.toJSON [
+                      (builtins.hashFile "sha256" config.age.secrets.csb1-inspr-auth-env.file)
+                      (builtins.hashFile "sha256" ./scripts/render-inspr-edge-config.sh)
+                    ]
+                  )
+                }"
+              ]
+              ++ lib.optionals sharedFlow.active [
+                "ops.shared-flow-inputs-sha256=${
+                  builtins.hashString "sha256" (
+                    builtins.toJSON [
+                      (builtins.unsafeDiscardStringContext "${config.services.inspr.routingEdge.generatedFragmentFile}")
+                      (builtins.unsafeDiscardStringContext "${legacyFlowFragmentFile}")
+                      (builtins.hashFile "sha256" ./scripts/render-shared-flow-config.sh)
+                    ]
+                  )
+                }"
+              ];
+          };
+        };
+      };
   };
 
   # The token never enters the Nix store, Docker labels, argv, or logs.

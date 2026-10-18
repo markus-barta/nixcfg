@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 
 export const SCHEMA = "barta.paper-desk-intent.v2";
-// Production supplies the existing paper-account setting; fixtures use a fake ID.
-export const ACCOUNT = process.env.IB_DESK_ACCOUNT || "DU0000000";
+// The root-owned runtime env file is the single paper-account pin. No fallback.
+export const ACCOUNT = process.env.IB_DESK_ACCOUNT;
+if (typeof ACCOUNT !== "string" || ACCOUNT !== ACCOUNT.trim() || !/^DU[A-Z0-9]+$/.test(ACCOUNT)) {
+  throw new Error("IB_DESK_ACCOUNT must configure a paper account");
+}
 export const PAPER_PORT = 4002;
 export const KEEP = Object.freeze(["SXR8", "TSLA"]);
 export const DESKS = Object.freeze(["j", "j2", "j3", "j4", "j5", "joe", "joel"]);

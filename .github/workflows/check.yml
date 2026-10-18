@@ -255,6 +255,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
 
+      - name: Verify csb1 Traefik config and renderer recreation boundary (OPS-338)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 yq-go --run "python3 tests/T106-csb1-traefik-recreate.py"
+
       - name: Verify aeon upstream transport disables connection reuse (OPS-308)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p bash python3 yq-go --run "bash tests/T97-aeon-upstream-transport.sh"
@@ -421,6 +425,10 @@ jobs:
       - name: Verify hsb0 paper desk executor (OPS-266)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
+
+      - name: Keep IB identifiers out of the public tree (OPS-317, OPS-369)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T107-ib-identifier-guard.py
 
       - name: Verify JoeDesk Results v2 producer and pinned contracts (JOED-20)
         if: steps.pin.outputs.pin_only != 'true'

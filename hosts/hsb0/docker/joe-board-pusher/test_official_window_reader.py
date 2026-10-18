@@ -1,6 +1,7 @@
 import ast
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -11,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+
+os.environ["IB_DESK_ACCOUNT"] = "DU0000001"
 
 HERE = Path(__file__).resolve().parent
 READER_SPEC = importlib.util.spec_from_file_location(
@@ -28,7 +31,7 @@ assert INSTALLER_SPEC is not None and INSTALLER_SPEC.loader is not None
 INSTALLER = importlib.util.module_from_spec(INSTALLER_SPEC)
 INSTALLER_SPEC.loader.exec_module(INSTALLER)
 
-ACCOUNT = "DUR970597"
+ACCOUNT = "DU0000001"
 
 
 class Clock:
@@ -364,7 +367,7 @@ class OfficialWindowReaderTests(unittest.TestCase):
         }, "actualWindows": plan()["actualWindows"][:1]}
 
         def foreign(sink, request_id):
-            sink.on_execution(request_id, contract(), execution(acctNumber="DU999999"))
+            sink.on_execution(request_id, contract(), execution(acctNumber="DU0000002"))
             sink.on_execution_end(request_id)
 
         reader, _ = make_reader(foreign)
@@ -376,7 +379,7 @@ class OfficialWindowReaderTests(unittest.TestCase):
             sink.on_execution(
                 request_id,
                 contract(currency="bad"),
-                execution(acctNumber="DU999999", pendingPriceRevision=None),
+                execution(acctNumber="DU0000002", pendingPriceRevision=None),
             )
             sink.on_execution_end(request_id)
 
@@ -409,7 +412,7 @@ class OfficialWindowReaderTests(unittest.TestCase):
         for endpoint in [
             {"host": "gateway", "port": 4001, "clientId": 94, "account": ACCOUNT},
             {"host": "gateway", "port": 4002, "clientId": 93, "account": ACCOUNT},
-            {"host": "gateway", "port": 4002, "clientId": 94, "account": "DU999999"},
+            {"host": "gateway", "port": 4002, "clientId": 94, "account": "DU0000002"},
         ]:
             with self.assertRaises(READER.ProtocolError):
                 READER.validate_plan({**wire_request(), "endpoint": endpoint})
@@ -417,6 +420,19 @@ class OfficialWindowReaderTests(unittest.TestCase):
         broken["actualWindows"][0]["filter"]["specificDates"] = [20260909]
         with self.assertRaises(READER.ProtocolError):
             READER.validate_plan(broken)
+
+    def test_missing_or_malformed_runtime_account_fails_closed(self):
+        for account in [None, "", "U0000001", "invalid", "DU0000001\n"]:
+            with patch.dict(os.environ):
+                if account is None:
+                    os.environ.pop("IB_DESK_ACCOUNT", None)
+                else:
+                    os.environ["IB_DESK_ACCOUNT"] = account
+                with self.assertRaisesRegex(READER.ProtocolError, "IB_DESK_ACCOUNT"):
+                    READER.validate_plan(wire_request())
+        with patch.dict(os.environ, {"IB_DESK_ACCOUNT": "DU0000002"}):
+            with self.assertRaisesRegex(READER.ProtocolError, "configured paper account"):
+                READER.validate_plan(wire_request())
 
     def test_official_adapter_call_surface_is_read_only_allowlisted(self):
         source = (HERE / "official-window-reader.py").read_text(encoding="utf-8")

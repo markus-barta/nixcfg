@@ -27,7 +27,7 @@ def evaluate(options):
 
 default = evaluate("{}")
 assert default.returncode == 0, default.stderr
-assert json.loads(default.stdout) == {"reconRetentionHours": 48, "resultsHealthPort": 8472, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"]}
+assert json.loads(default.stdout) == {"reconRetentionHours": 48, "resultsHealthPort": 8472, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"], "envFile": ["/run/agenix/hsb0-ib-desk-env"], "accountEnvironment": []}
 for port in ["8471", "8470", "8473"]:
     result = evaluate("{ resultsHealthPort = " + port + "; }")
     assert result.returncode != 0, port
@@ -101,8 +101,9 @@ if grep -Fq 'oc-workspace-shared' "$module"/*.mjs "$nix_module"; then
   printf 'T93 failed: GitHub control plane must stay out of the executor\n' >&2
   exit 1
 fi
-if grep -Eq 'age[.]secrets|githubToken|IB_DESK_GITHUB' "$nix_module"; then
-  printf 'T93 failed: executor must not take a token or agenix secret\n' >&2
+grep -Fq 'env_file = [ config.age.secrets.hsb0-ib-desk-env.path ]' "$nix_module"
+if grep -Eq 'githubToken|IB_DESK_GITHUB|IB_DESK_ACCOUNT=' "$nix_module"; then
+  printf 'T93 failed: executor must not take a GitHub token or public account pin\n' >&2
   exit 1
 fi
 if grep -Fq 'ConditionPathExists' "$nix_module"; then
