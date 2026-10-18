@@ -66,8 +66,12 @@ The required root-owned (0400) agenix env file `hsb0-ib-desk-env` supplies
 to the Gateway through Compose `env_file`. These are the only two keys; see
 the private PPM runbook `host-hsb0` for their values. OPS creates
 `secrets/hsb0-ib-desk-env.age` with the same recipients as the hsb0 env secrets
-before evaluation/activation. Missing env files stop Compose startup, and a
-missing or malformed paper-account pin stops the clients without a default.
+before evaluation/activation. A missing env file makes Compose refuse to load
+the whole `docker` project, blocking reconcile for every hsb0 service and the
+HOSTD-58 `compose restart`; running containers keep their old configuration.
+Restore the file through agenix / a NixOS switch, then run
+`systemctl reset-failed compose-hsb0` and `systemctl restart compose-hsb0`.
+A missing or malformed paper-account pin stops the clients without a default.
 
 Verify decrypt (should print only `***` length, not the secret):
 

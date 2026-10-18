@@ -10,8 +10,15 @@ The pusher and official Node/Python reader require `IB_DESK_ACCOUNT` from the
 root-owned agenix env file `hsb0-ib-desk-env`, injected through Compose `env_file`.
 Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
-is shipped. Rebuild the pusher image to include the runtime configuration helper
-before recreating the service.
+is shipped.
+
+A switch keeps the pinned pusher image (`pull_policy = "never"`); the env-reading
+pusher source takes effect only after an image promotion. Promote it with a new
+image tag, bumped in one follow-up PR across `hosts/hsb0/configuration.nix`,
+`modules/paper-desk-executor/default.nix` and `tests/paper-desk-executor-eval.nix`.
+OPS tracks that follow-up; this PR leaves the tag unchanged. Never run
+`docker compose build` over the pinned tag: it would destroy the validated
+rollback image and replace the executor's runtime image too.
 
 ## Board health
 
