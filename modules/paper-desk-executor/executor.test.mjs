@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
@@ -16,20 +17,38 @@ import { runClient } from "./client/paper-intent.mjs";
 import { openLedger } from "./state.mjs";
 import { attributionConfig } from "./attribution.mjs";
 
-const ACCOUNT = "DU0000000";
+const ACCOUNT = "DU0000001";
 
-test("runtime account identity must match the pinned paper account fingerprint at startup", () => {
-  const script = 'import { assertTargetAccount, marketDataRuntime } from "./ib.mjs"; let allowed = false; try { assertTargetAccount(); allowed = true; } catch {} let connectionRefused = false; try { marketDataRuntime(); } catch (error) { connectionRefused = /pinned paper account/.test(error.message); } process.stdout.write(JSON.stringify({ allowed, connectionRefused }));';
-  const configured = readFileSync(new URL("./default.nix", import.meta.url), "utf8").match(/IB_DESK_ACCOUNT=([A-Z0-9]+)/)[1];
-  for (const [account, allowed] of [[configured, true], ["DU0000001", false], ["U0000000", false], ["", false]]) {
-    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+test("startup requires an explicit paper account and pins requests to that account", () => {
+  const script = `
+    import { assertTargetAccount } from "./ib.mjs";
+    assertTargetAccount();
+    let refused = false;
+    try { assertTargetAccount("DU0000002"); } catch { refused = true; }
+    if (!refused) throw new Error("foreign paper account was accepted");
+    process.env.IB_DESK_ACCOUNT = "DU0000002";
+    refused = false;
+    try { assertTargetAccount(); } catch { refused = true; }
+    if (!refused) throw new Error("runtime account pin changed");
+  `;
+  const valid = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: new URL(".", import.meta.url), encoding: "utf8",
+    env: { ...process.env, IB_DESK_ACCOUNT: ACCOUNT },
+  });
+  assert.equal(valid.status, 0, valid.stderr);
+
+  for (const account of [undefined, "", "U0000001", "not-an-account", " DU0000001", "DU0000001\n"]) {
+    const childEnv = { ...process.env };
+    delete childEnv.IB_DESK_ACCOUNT;
+    if (account !== undefined) childEnv.IB_DESK_ACCOUNT = account;
+    const child = spawnSync(process.execPath, ["server.mjs"], {
       cwd: new URL(".", import.meta.url), encoding: "utf8",
-      env: { ...process.env, IB_DESK_ACCOUNT: account, IB_DESK_GATEWAY_HOST: "100.64.0.6", IB_DESK_GATEWAY_PORT: "4002" },
+      env: childEnv,
+      timeout: 5000,
     });
-    assert.equal(child.status, 0, child.stderr);
-    const result = JSON.parse(child.stdout);
-    assert.equal(result.allowed, allowed);
-    if (account.startsWith("DU") && !allowed || account === "") assert.equal(result.connectionRefused, true);
+    assert.equal(child.status, 1, child.stderr);
+    assert.match(child.stderr, /IB_DESK_ACCOUNT must configure a paper account/);
+    assert.doesNotMatch(child.stderr, /listening/);
   }
 });
 const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickString", "tickSnapshotEnd"].map((key) => [key, key]));

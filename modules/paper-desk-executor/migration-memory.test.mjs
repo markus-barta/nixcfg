@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -7,14 +8,14 @@ import test from "node:test";
 import { MAX_STATE_BYTES, openLedger } from "./state.mjs";
 
 function snapshot(intentId, at) {
-  const positions = Array.from({ length: 8 }, (_, index) => ({ account: "DU0000000", conId: 265598 + index, symbol: "AAPL", secType: "STK", currency: "USD", exchange: "SMART", primaryExch: "NASDAQ", position: index + 1, averageCost: 100.25, keep: false, desks: [{ desk: "j", quantity: index + 1 }] }));
-  const openOrders = Array.from({ length: 12 }, (_, index) => ({ orderId: index + 100, permId: index + 70000, conId: 265598, symbol: "AAPL", secType: "STK", currency: "USD", clientId: 705, action: "SELL", orderType: "STP", quantity: 2, parentId: 99, orderRef: "j|261014|memory", auxPrice: 99.5, account: "DU0000000", tif: "DAY", status: "Submitted", attribution: { desk: "j", source: "orderRef" } }));
+  const positions = Array.from({ length: 8 }, (_, index) => ({ account: "DU0000001", conId: 265598 + index, symbol: "AAPL", secType: "STK", currency: "USD", exchange: "SMART", primaryExch: "NASDAQ", position: index + 1, averageCost: 100.25, keep: false, desks: [{ desk: "j", quantity: index + 1 }] }));
+  const openOrders = Array.from({ length: 12 }, (_, index) => ({ orderId: index + 100, permId: index + 70000, conId: 265598, symbol: "AAPL", secType: "STK", currency: "USD", clientId: 705, action: "SELL", orderType: "STP", quantity: 2, parentId: 99, orderRef: "j|261014|memory", auxPrice: 99.5, account: "DU0000001", tif: "DAY", status: "Submitted", attribution: { desk: "j", source: "orderRef" } }));
   const executions = Array.from({ length: 160 }, (_, index) => ({
     contract: { conId: 265598, symbol: "AAPL", secType: "STK", exchange: "SMART", primaryExch: "NASDAQ", currency: "USD", localSymbol: "AAPL", tradingClass: "NMS" },
-    execution: { execId: `${intentId}-fill-${index}`, time: "20261014 14:00:00", acctNumber: "DU0000000", exchange: "NASDAQ", side: "BOT", shares: 2, price: 100.25, permId: index + 70000, clientId: 705, orderId: index + 100, liquidation: 0, cumQty: 2, avgPrice: 100.25, orderRef: "j|261014|memory", evRule: "", evMultiplier: 0 },
+    execution: { execId: `${intentId}-fill-${index}`, time: "20261014 14:00:00", acctNumber: "DU0000001", exchange: "NASDAQ", side: "BOT", shares: 2, price: 100.25, permId: index + 70000, clientId: 705, orderId: index + 100, liquidation: 0, cumQty: 2, avgPrice: 100.25, orderRef: "j|261014|memory", evRule: "", evMultiplier: 0 },
     attribution: { desk: "j", source: "orderRef", needsAttribution: false }, orderRef: "j|261014|memory",
   }));
-  return { action: "recon", desk: "j", hash: `hash-${intentId}`, status: "done", claimedAt: at, finishedAt: at, result: { status: "ok", action: "recon", intentId, desk: "j", observedAt: at, account: "DU0000000", gateway: true, paperPort: 4002, ownershipComplete: true, ownershipHistory: { status: "complete" }, positions, openOrders, executions } };
+  return { action: "recon", desk: "j", hash: `hash-${intentId}`, status: "done", claimedAt: at, finishedAt: at, result: { status: "ok", action: "recon", intentId, desk: "j", observedAt: at, account: "DU0000001", gateway: true, paperPort: 4002, ownershipComplete: true, ownershipHistory: { status: "complete" }, positions, openOrders, executions } };
 }
 
 // Fresh child isolates fixture construction and earlier tests from migration

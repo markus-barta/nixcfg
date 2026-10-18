@@ -8,24 +8,24 @@ paper session. Desks connect **directly over Tailscale** to `100.64.0.6:4002`
 SSH `-L` tunnel on the Mac. Do **not** bind `0.0.0.0` or the LAN IP
 `192.168.1.99` (plaintext IB API).
 
-| Item                | Value                                                                               |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j)  |
-| Mode                | paper only (`TRADING_MODE=paper`)                                                   |
-| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                       |
-| API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                      |
-| Live API            | **not published** (no `4001`/`4003`)                                                |
-| IBKR login          | username `markusbarta` (one login for paper + live); password via agenix            |
-| Paper account (ref) | `DUR970597` — selected by `TRADING_MODE=paper`                                      |
-| Live account (ref)  | not recorded here — only if `TRADING_MODE=live`/`both`; **port 4001 not published** |
-| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)   |
-| Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                     |
-| Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                         |
+| Item                | Value                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j) |
+| Mode                | paper only (`TRADING_MODE=paper`)                                                  |
+| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                      |
+| API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                     |
+| Live API            | **not published** (no `4001`/`4003`)                                               |
+| IBKR login          | see the private PPM runbook `host-hsb0`; password via agenix                       |
+| Paper account (ref) | see the private PPM runbook `host-hsb0`; selected by `TRADING_MODE=paper`          |
+| Live account (ref)  | see the private PPM runbook `host-hsb0`; **port 4001 not published**               |
+| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)  |
+| Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                    |
+| Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                        |
 
 ## One IBKR login
 
-Interactive Brokers uses **one username/password** (`markusbarta`) for both the
-paper account (`DUR970597`) and the live account. Which book you
+Interactive Brokers uses **one username/password** for both the paper account
+and the live account; see the private PPM runbook `host-hsb0`. Which book you
 get is selected at Gateway start via `TRADING_MODE` (`paper` / `live` / `both`),
 not via separate credentials. This host stays **`paper` only** and does **not**
 publish live API port `4001` until Markus explicitly keys a live cut.
@@ -58,8 +58,16 @@ Gateway capability used by separately authorized paper clients.
 
 Password secret: `secrets/hsb0-ib-gateway-password.age` (decryptable by Markus +
 hsb0). Body must be the **raw paper password only** (no `KEY=`, no quotes,
-preferably no trailing newline). Username in compose: `TWS_USERID=markusbarta`.
+preferably no trailing newline). Login identity: see the private PPM runbook `host-hsb0`.
 Volume mount + `TWS_PASSWORD_FILE` are active.
+
+The required root-owned (0400) agenix env file `hsb0-ib-desk-env` supplies
+`IB_DESK_ACCOUNT` to the executor, pusher and official reader, and `TWS_USERID`
+to the Gateway through Compose `env_file`. These are the only two keys; see
+the private PPM runbook `host-hsb0` for their values. OPS creates
+`secrets/hsb0-ib-desk-env.age` with the same recipients as the hsb0 env secrets
+before evaluation/activation. Missing env files stop Compose startup, and a
+missing or malformed paper-account pin stops the clients without a default.
 
 Verify decrypt (should print only `***` length, not the secret):
 
@@ -604,9 +612,9 @@ account-wide book. All three routes have the quote peer allowlist, work under
 HALT and for KEEP holdings, and never create or modify intents, the ledger,
 HALT or the persistent audit log. Read audit goes to the existing journal.
 Broker reads are paper-only and require the single configured managed account;
-startup also checks the configured account against a pinned SHA-256 and the
-paper-account prefix. Mixed/live accounts, incomplete callbacks and broker
-errors return 503; a disabled account route returns 503 before IB calls or
+startup requires the paper-account prefix and pins all requests to the one
+account configured by the root-owned encrypted env file. Mixed/live accounts,
+incomplete callbacks and broker errors return 503; a disabled account route returns 503 before IB calls or
 cache access. IB 2100 is informational. Invalid queries return 400, and pacing
 or queue limits return 429 with `retry_after_s`.
 

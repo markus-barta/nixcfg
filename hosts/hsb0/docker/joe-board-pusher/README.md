@@ -6,6 +6,13 @@ Read-only paper IB client (`clientId` 92 → `100.64.0.6:4002`) projecting
 
 Never connects to live 4001. Never places orders. Uses shared agenix push token.
 
+The pusher and official Node/Python reader require `IB_DESK_ACCOUNT` from the
+root-owned agenix env file `hsb0-ib-desk-env`, injected through Compose `env_file`.
+Missing or malformed paper-account configuration fails closed. Identity values
+live in the private PPM runbook `host-hsb0`; no public default or fingerprint
+is shipped. Rebuild the pusher image to include the runtime configuration helper
+before recreating the service.
+
 ## Board health
 
 Every complete household snapshot includes the optional consumer-compatible
