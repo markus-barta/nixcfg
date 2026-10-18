@@ -32,6 +32,7 @@ import {
 } from "./security.mjs";
 import { admitIntent, openLedger, CAPTURE_DEGRADED_ADMISSION_BYTES, MAX_STATE_BYTES } from "./state.mjs";
 import { createAlertDelivery, deliveryHealth } from "./mailbox-alerts.mjs";
+import { configuredMailboxSocket } from "./local-mailbox-client.mjs";
 import { createMarketData, validMarketSymbol } from "./market-data.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { createBook } from "./book.mjs";
@@ -174,6 +175,7 @@ function finish(state, intent, status, result) {
 }
 
 export function createServer(options) {
+  const mailboxSocket = configuredMailboxSocket(options.mailboxSocket ?? process.env.PAPER_DESK_MAILBOX_SOCKET);
   const testMode = options.testMode === true;
   const gatewayPort = assertPaperPort(options.gatewayPort ?? process.env.IB_DESK_GATEWAY_PORT ?? PAPER_PORT);
   const gatewayHost = assertGatewayHost(options.gatewayHost ?? process.env.IB_DESK_GATEWAY_HOST ?? LISTEN_HOST);
@@ -202,7 +204,6 @@ export function createServer(options) {
   const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false, readOnly: true, migrate: false })) });
   const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
-  const mailboxSocket = options.mailboxSocket ?? process.env.PAPER_DESK_MAILBOX_SOCKET;
   const alertDelivery = createAlertDelivery({ socketPath: mailboxSocket, ledger, exclusive, ...options.alertDelivery });
   alertDelivery.start();
 

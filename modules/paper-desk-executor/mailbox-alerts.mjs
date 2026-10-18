@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
-import { postLocalMessage } from "./local-mailbox-client.mjs";
+import { configuredMailboxSocket, postLocalMessage } from "./local-mailbox-client.mjs";
 export { postLocalMessage, DELIVERY_TIMEOUT_MS } from "./local-mailbox-client.mjs";
 import { MAX_STATE_BYTES, CAPTURE_DEGRADED_ADMISSION_BYTES } from "./state.mjs";
 
@@ -20,6 +20,7 @@ export function deliveryHealth(state, configured) {
 }
 
 export function createAlertDelivery({ socketPath, ledger, exclusive, post = postLocalMessage, now = Date.now, pollMs = 250 }) {
+  socketPath = configuredMailboxSocket(socketPath);
   if (!socketPath || !ledger.beforePrune) return { start() {}, close() {} };
   let closed = false, running = false, timer, cached;
   async function tick() {

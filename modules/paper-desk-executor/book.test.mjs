@@ -114,9 +114,18 @@ test("book polls overlapping recon then claim cannot overwrite the claim or orig
     order: { symbol: "AAPL", side: "BUY", quantity: 2, limitPrice: 100, stopPrice: 99, currency: "USD" } });
   await executing;
   try {
-    const claimed = readFileSync(app.ledger.statePath);
-    const inode = fs.statSync(app.ledger.statePath).ino;
+    const fd = fs.openSync(app.ledger.statePath, "r");
+    let claimed, inode;
+    try {
+      claimed = readFileSync(fd);
+      inode = fs.fstatSync(fd).ino;
+    } finally { fs.closeSync(fd); }
     const read = fs.readFileSync;
+    const readCurrent = () => {
+      const current = fs.openSync(app.ledger.statePath, "r");
+      try { return read(current); }
+      finally { fs.closeSync(current); }
+    };
     let replaySnapshot = true;
     // Model a reader's pre-rename file descriptor: it parsed the earlier
     // recon snapshot while the exclusive writer published claim + delivery.
@@ -132,11 +141,12 @@ test("book polls overlapping recon then claim cannot overwrite the claim or orig
     for (const endpoint of ["positions", "open-orders", "account"]) {
       assert.equal((await request(app, "GET", `/v1/book/${endpoint}`)).status, 200);
     }
-    const disk = JSON.parse(read(app.ledger.statePath));
+    assert.equal(replaySnapshot, false, "book reader consumed the stale recon snapshot");
+    const disk = JSON.parse(readCurrent());
     assert.equal(disk.intents["synthetic-place-book"]?.status, "claimed");
     assert.equal(disk.resultsCaptureAlerts[0].outageId, receipt.outageId);
     assert.deepEqual(disk.resultsCaptureAlerts[0].delivery.failure, delivered);
-    assert.deepEqual(read(app.ledger.statePath), claimed, "book polls never publish a ledger snapshot");
+    assert.deepEqual(readCurrent(), claimed, "book polls never publish a ledger snapshot");
   } finally { release(); await place; }
 });
 

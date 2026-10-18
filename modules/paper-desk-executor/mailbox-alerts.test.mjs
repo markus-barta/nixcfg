@@ -1,7 +1,8 @@
 import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -14,6 +15,7 @@ import { createAlertDelivery, deliveryHealth, MAX_DELIVERY_ATTEMPTS, postLocalMe
 import { openLedger, MAX_STATE_BYTES, CAPTURE_DEGRADED_ADMISSION_BYTES } from "./state.mjs";
 import { sendTestAlert } from "./send-test-alert.mjs";
 import { mailboxHttpRequest } from "../../tests/local-mailbox-fixture.mjs";
+import { MAILBOX_SOCKET_PATH } from "./local-mailbox-client.mjs";
 
 function temporary(t) {
   const root = mkdtempSync(path.join(tmpdir(), "joed43-delivery-"));
@@ -30,12 +32,36 @@ async function until(check, timeout = 3000) {
 const readState = ledger => ledger.load({ initialize: false, readOnly: true });
 function sender(t, ledger, post, extras = {}) {
   let chain = Promise.resolve();
-  const delivery = createAlertDelivery({ socketPath: "/synthetic/mailbox.sock", ledger, post, pollMs: 5,
+  const delivery = createAlertDelivery({ socketPath: MAILBOX_SOCKET_PATH, ledger, post, pollMs: 5,
     exclusive(work) { const result = chain.then(work); chain = result.catch(() => {}); return result; }, ...extras });
   t.after(() => delivery.close());
   delivery.start();
   return delivery;
 }
+
+test("foreign mailbox paths fail before filesystem access or a transport request", async t => {
+  const prior = process.env.PAPER_DESK_MAILBOX_SOCKET;
+  t.after(() => {
+    if (prior === undefined) delete process.env.PAPER_DESK_MAILBOX_SOCKET;
+    else process.env.PAPER_DESK_MAILBOX_SOCKET = prior;
+  });
+  const calls = [];
+  for (const name of ["mkdirSync", "openSync", "lstatSync", "unlinkSync", "chmodSync", "readFileSync", "writeFileSync", "statSync", "realpathSync"]) {
+    t.mock.method(fs, name, () => { calls.push(name); throw new Error("unexpected filesystem access"); });
+  }
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  for (const socketPath of ["/etc/x.sock", "../x.sock", `${path.dirname(MAILBOX_SOCKET_PATH)}/../x.sock`, path.join(tmpdir(), "joed43-client/x.sock")]) {
+    assert.throws(() => createServer({ mailboxSocket: socketPath }), /socket path is invalid/);
+    assert.throws(() => createAlertDelivery({ socketPath }), /socket path is invalid/);
+    process.env.PAPER_DESK_MAILBOX_SOCKET = socketPath;
+    assert.throws(() => createServer({}), /socket path is invalid/);
+    await assert.rejects(postLocalMessage(socketPath, "synthetic", undefined, {
+      request() { calls.push("request"); throw new Error("unexpected transport request"); },
+    }), /mailbox_unavailable/);
+  }
+  assert.deepEqual(calls, []);
+});
 
 test("once-per-class failures and resolutions reach amy, with durable dedupe after restart and a lost reply", async t => {
   t.mock.method(console, "error", () => {});
@@ -46,7 +72,7 @@ test("once-per-class failures and resolutions reach amy, with durable dedupe aft
   for (let i = 0; i < 20; i++) ledger.save(state);
   code = "ENOSPC";
   for (let i = 0; i < 20; i++) ledger.save(state);
-  const app = createMailbox({ stateDir: mailboxRoot, localSocketPath: "/unused/mailbox.sock", log() {} });
+  const app = createMailbox({ stateDir: mailboxRoot, localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
   t.after(() => app.close());
   const post = (socket, body, key) => postLocalMessage(socket, body, key, { request: mailboxHttpRequest(app, {
     loseReply() { const lost = loseReply; loseReply = false; return lost; },
@@ -172,7 +198,7 @@ test("allowed peer health exposes agreed names, cap reason and recovery; disable
 test("a stalled mailbox never holds an intent, save or health poll; timeout leaves pending health", async t => {
   t.mock.method(console, "error", () => {});
   let destroyed = false, attempted = false;
-  const app = executor(t, { beforePrune() { throw { code: "EIO" }; }, mailboxSocket: "/synthetic/mailbox.sock",
+  const app = executor(t, { beforePrune() { throw { code: "EIO" }; }, mailboxSocket: MAILBOX_SOCKET_PATH,
     execute: async intent => ({ status: "ok", intentId: intent.intentId }),
     alertDelivery: { pollMs: 5, post: (socket, body, key) => postLocalMessage(socket, body, key, { timeoutMs: 150,
       request() { attempted = true; const request = new EventEmitter(); request.end = () => {}; request.destroy = () => { destroyed = true; }; return request; } }) } });
@@ -200,7 +226,7 @@ test("capture off with mailbox wiring preserves ledger bytes and produces no mes
   ledger.save(state);
   const before = readFileSync(ledger.statePath);
   const delivery = sender(t, ledger, async () => { attempts++; });
-  const app = executor(t, { stateDir: root, mailboxSocket: "/synthetic/mailbox.sock" });
+  const app = executor(t, { stateDir: root, mailboxSocket: MAILBOX_SOCKET_PATH });
   const health = await executorRequest(app, "GET", "/v1/health");
   assert.equal(health.status, 200);
   assert.equal(health.body.resultsCapture, undefined);

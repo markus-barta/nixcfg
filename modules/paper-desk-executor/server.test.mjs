@@ -14,6 +14,14 @@ import { createCapture } from "../joe-results-producer/capture.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { MAX_STATE_BYTES, CAPTURE_DEGRADED_ADMISSION_BYTES, openLedger } from "./state.mjs";
 
+// Capture bytes through one descriptor so a concurrent atomic publication
+// cannot replace the file between a metadata check and its read.
+function readLedgerSnapshot(filename) {
+  const fd = fs.openSync(filename, "r");
+  try { return readFileSync(fd); }
+  finally { fs.closeSync(fd); }
+}
+
 // Exercise the real HTTP handler without requiring a listening socket. The
 // separate security tests check production bind constraints; live transport
 // verification belongs on the host, outside the restricted builder sandbox.
@@ -696,7 +704,7 @@ for (const stage of ['admission', 'save']) for (const code of ['unavailable', 'E
     const ledger = openLedger(ctx.stateDir), state = ledger.load();
     state.intents.set('expired-capture-evidence', { action: 'place', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { evidence: 'synthetic-evidence' } });
     // Seed without retention so admission itself can prove fail-open retention.
-    const disk = JSON.parse(readFileSync(ledger.statePath));
+    const disk = JSON.parse(readLedgerSnapshot(ledger.statePath));
     disk.intents = Object.fromEntries(state.intents);
     writeFileSync(ledger.statePath, JSON.stringify(disk));
     for (const action of ['place', 'flatten', 'recon', 'cancel']) {
@@ -713,7 +721,7 @@ for (const stage of ['admission', 'save']) for (const code of ['unavailable', 'E
       assert.equal(ctx.calls(), beforeReplay);
     }
     assert.equal(ctx.calls(), 4);
-    const retained = JSON.parse(readFileSync(ledger.statePath));
+    const retained = JSON.parse(readLedgerSnapshot(ledger.statePath));
     if (stage === 'admission') assert.equal(retained.intents['expired-capture-evidence'].result.evidence, 'synthetic-evidence');
     assert.equal(retained.resultsCapture.ok, false);
     assert.equal(retained.resultsCapture.code, code);
@@ -723,7 +731,7 @@ for (const stage of ['admission', 'save']) for (const code of ['unavailable', 'E
     assert.equal(health.status, 'degraded');
     assert.equal(health.resultsCapture.ok, false);
     assert.equal(health.resultsCapture.degraded, true);
-    assert.equal(health.resultsCapture.ledgerBytes, statSync(ledger.statePath).size);
+    assert.equal(health.resultsCapture.ledgerBytes, readLedgerSnapshot(ledger.statePath).length);
     assert.equal(health.resultsCapture.ledgerMaxBytes, MAX_STATE_BYTES);
     assert.equal(health.resultsCapture.admissionThresholdBytes, CAPTURE_DEGRADED_ADMISSION_BYTES);
     assert.equal(health.resultsCapture.newAdmissionsBlocked, false);
@@ -740,7 +748,7 @@ for (const stage of ['admission', 'save']) for (const code of ['unavailable', 'E
     assert.equal(after.status, 'ok');
     assert.equal(after.resultsCapture.degraded, false);
     assert.ok(after.resultsCapture.lastRecoveredAt);
-    assert.equal(JSON.parse(readFileSync(ledger.statePath)).intents['expired-capture-evidence'], undefined);
+    assert.equal(JSON.parse(readLedgerSnapshot(ledger.statePath)).intents['expired-capture-evidence'], undefined);
   });
 }
 
@@ -751,7 +759,7 @@ test('capture cap publishes degraded health and refuses new placements while rep
   const replayIntent = valid({ intentId: 'synthetic-replay-at-cap' });
   assert.equal((await post(ctx.url, replayIntent)).status, 200);
   const ledger = openLedger(ctx.stateDir);
-  const disk = JSON.parse(readFileSync(ledger.statePath));
+  const disk = JSON.parse(readLedgerSnapshot(ledger.statePath));
   disk.intents['synthetic-expired-evidence'] = { action: 'place', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { padding: 'x'.repeat(CAPTURE_DEGRADED_ADMISSION_BYTES + 1024) } };
   // Simulate the FIRST capture failure at the cap as well as sustained failures.
   delete disk.resultsCapture;
@@ -762,13 +770,13 @@ test('capture cap publishes degraded health and refuses new placements while rep
     assert.deepEqual(await post(ctx.url, refused), { status: 422, body: {
       status: 'rejected', code: 'results_capture_degraded_ledger_cap', reason: 'results_capture_degraded_ledger_cap',
     } });
-    assert.equal(JSON.parse(readFileSync(ledger.statePath)).intents[refused.intentId], undefined);
+    assert.equal(JSON.parse(readLedgerSnapshot(ledger.statePath)).intents[refused.intentId], undefined);
   }
   assert.equal(ctx.calls(), 1);
   const health = await (await fetch(`${ctx.url}/v1/health`)).json();
   assert.equal(health.status, 'degraded');
   assert.equal(health.resultsCapture.newAdmissionsBlocked, true);
-  assert.equal(health.resultsCapture.ledgerBytes, statSync(ledger.statePath).size);
+  assert.equal(health.resultsCapture.ledgerBytes, readLedgerSnapshot(ledger.statePath).length);
   assert.equal(health.resultsCapture.ledgerMaxBytes, MAX_STATE_BYTES);
   assert.equal(health.resultsCapture.admissionThresholdBytes, CAPTURE_DEGRADED_ADMISSION_BYTES);
   assert.equal(health.halt.active, false);
@@ -783,7 +791,7 @@ test('capture cap publishes degraded health and refuses new placements while rep
     assert.deepEqual(await post(ctx.url, intent), { status: 200, body: okResult(intent) });
   }
   assert.equal(ctx.calls(), 4);
-  const retained = JSON.parse(readFileSync(ledger.statePath));
+  const retained = JSON.parse(readLedgerSnapshot(ledger.statePath));
   assert.ok(retained.intents['synthetic-expired-evidence']);
   assert.equal(fs.existsSync(ledger.reconEvidencePath), false);
   assert.equal(logs.mock.calls.filter(call => JSON.parse(call.arguments[0]).event === 'results_capture_failed').length, 2);
@@ -800,7 +808,7 @@ test('board health stays degraded when capture succeeds but catch-up fails and c
   const state = ledger.load();
   state.intents.set('synthetic-expired-recon', { action: 'recon', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { executions: [{ padding: 'x'.repeat(10000) }] } });
   ledger.save(state);
-  const failedBytes = statSync(ledger.statePath).size;
+  const failedBytes = readLedgerSnapshot(ledger.statePath).length;
   failing = false;
   const rename = fs.renameSync;
   let pruneFails = true;
@@ -811,13 +819,13 @@ test('board health stays degraded when capture succeeds but catch-up fails and c
   syncBuiltinESMExports();
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
   ledger.save(state);
-  const beforeHealth = readFileSync(ledger.statePath);
+  const beforeHealth = readLedgerSnapshot(ledger.statePath);
   const health = await (await fetch(`${ctx.url}/v1/health`)).json();
   assert.equal(health.status, 'degraded');
   assert.equal(health.resultsCapture.ok, false);
   assert.equal(health.resultsCapture.code, 'EIO');
   assert.equal(health.resultsCapture.lastRecoveredAt, undefined);
-  assert.deepEqual(readFileSync(ledger.statePath), beforeHealth);
+  assert.deepEqual(readLedgerSnapshot(ledger.statePath), beforeHealth);
   assert.ok(state.resultsCaptureAlerts.every(row => !row.resolvedAt));
   pruneFails = false;
   ledger.save(state);
