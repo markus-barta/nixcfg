@@ -174,7 +174,7 @@ for location in (app, archive):
         assert directive in location, directive
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = 'd824eb9b28033bd80bf842d70e449855dfa3c495'
+pin = '8df6c92b836daaefb14467a65693e4a91237cf80'
 assert f'git+ssh://git@github.com/markus-barta/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -183,8 +183,8 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/markus-barta/hausnetz'
-assert node['locked']['narHash'] == 'sha256-Skytn6X54UhxV6VD+YcPks+M0gjTC/lDA1alg93eB1s='
-assert node['locked']['lastModified'] == 1792336446
+assert node['locked']['narHash'] == 'sha256-Vk1qDG4kd5CawbcvFrTXYe6wGZOQUqU6eAudlJZV3x0='
+assert node['locked']['lastModified'] == 1792343336
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
