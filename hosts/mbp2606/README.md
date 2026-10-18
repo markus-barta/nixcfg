@@ -195,8 +195,10 @@ Home Manager home, independently of the caller's `HOME`. Legacy
 entries are ignored. Malformed regular leases still count while fresh or
 while any pid lives; only fully parsed dead and expired leases are collected.
 Internal `.reservation.*` temporary files never count and are collected once
-stale. Lease timestamps allow at most 60 seconds of future skew. Unreadable
-lease or marker directories refuse admission. Client markers and run
+stale. Lease timestamps allow at most 60 seconds of future skew. The lease
+directory and persistent lock file must belong to the guard's user. Unreadable
+lease or marker directories and unreadable `.aeon-remote-test/*.pid` files
+refuse admission. Client markers and run
 directories stay client-owned.
 
 Bare guard calls make no reservation and refuse only when the count is
@@ -212,9 +214,12 @@ exit 3.
 At run start, clients call `aeon-remote-guard adopt <RUN> <pid>` with their
 own live shell pid. Adoption validates same-user ownership and atomically
 records the pid under the same lock as collection, recreating the lease if
-its reservation was already collected. It records an admitted run even when
-new admission is paused. A live pid keeps the lease counted regardless of
-TTL. Clients may remove `~/.aeon-remote-leases/<RUN>` in their EXIT trap with
+its reservation was already collected. Exit 0 means the pid was recorded;
+adoption also succeeds while admission is paused or held and grants no new
+admission. Clients should treat adoption failure as non-fatal: the admitted
+run still counts through `ci.noindex/aeon-runs/<RUN>`. A live pid keeps the
+lease counted regardless of TTL. Clients may remove
+`~/.aeon-remote-leases/<RUN>` in their EXIT trap with
 a plain `rm`, or let GC collect it once dead and expired. Existing client
 markers and run directories also keep runs counted after the TTL. The bare
 check remains compatible with existing clients.

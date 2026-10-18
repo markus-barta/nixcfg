@@ -364,6 +364,28 @@ for marker in .aeon-remote-test ci.noindex/aeon-runs aeon-ui-runs; do
     chmod 700 "$guard_home/$marker"
   done
 done
+# Round 3: individual unreadable markers refuse just like their parent dirs.
+new_home
+mkdir -p "$guard_home/aeon-ui-runs/unreadable"
+printf '%s\n' "$$" >"$guard_home/aeon-ui-runs/unreadable/supervisor.pid"
+for mode in 000 100 400; do
+  chmod "$mode" "$guard_home/aeon-ui-runs/unreadable"
+  if [[ ! -r $guard_home/aeon-ui-runs/unreadable || ! -x $guard_home/aeon-ui-runs/unreadable ]]; then
+    check 3 0 "unreadable UI run mode $mode refuses bare" 'cannot read run markers'
+    check 3 0 "unreadable UI run mode $mode refuses reserve" 'cannot read run markers' reserve denied
+  fi
+  chmod 700 "$guard_home/aeon-ui-runs/unreadable"
+done
+new_home
+mkdir "$guard_home/.aeon-remote-test"
+printf '%s\n' "$$" >"$guard_home/.aeon-remote-test/unreadable.pid"
+chmod 000 "$guard_home/.aeon-remote-test/unreadable.pid"
+if ((EUID != 0)); then
+  check 3 0 'unreadable legacy pid refuses bare' 'cannot read run markers'
+  check 3 0 'unreadable legacy pid refuses reserve' 'cannot read run markers' reserve denied
+fi
+chmod 600 "$guard_home/.aeon-remote-test/unreadable.pid"
+[[ $(<"$guard_home/.aeon-remote-test/unreadable.pid") == "$$" ]] || fail 'guard changed unreadable client marker'
 new_home
 mkdir "$guard_home/actual-leases"
 ln -s "$guard_home/actual-leases" "$guard_home/.aeon-remote-leases"
@@ -372,6 +394,18 @@ new_home
 mkdir "$guard_home/actual-markers"
 ln -s "$guard_home/actual-markers" "$guard_home/.aeon-remote-test"
 check 3 0 'marker directory symlink refused' 'cannot read run markers'
+for target in present absent; do
+  new_home
+  if [[ $target == present ]]; then printf 'untouched\n' >"$guard_home/lock-target"; fi
+  ln -s "$guard_home/lock-target" "$guard_home/.aeon-remote-leases.lock"
+  check 3 0 "lock $target symlink refused" 'cannot lock run budget' reserve denied
+  [[ ! -e $guard_home/.aeon-remote-leases/denied ]] || fail 'reservation written through lock symlink'
+  if [[ $target == present ]]; then
+    [[ $(<"$guard_home/lock-target") == untouched ]] || fail 'lock target changed'
+  else
+    [[ ! -e $guard_home/lock-target ]] || fail 'lock target created'
+  fi
+done
 
 for contents in "reserved=$now"$'\npid=0' "pid=$$" "reserved=$now"$'\npid=0\npid=0' '' "reserved=$((now + 61))"; do
   new_home
@@ -460,6 +494,23 @@ for source in legacy ui; do
   [[ ! -e $race_marker ]] || fail 'marker race fixture did not remove marker'
 done
 
+# Remove a lease after its regular-file check but before stat. A genuine stat
+# failure on an entry that still exists is covered by fault injection below.
+cat >"$scratch/lease-race.bash" <<'SH'
+trap 'if [[ $BASH_COMMAND == mtime=\$\(* && ${entry:-} == */vanishing ]]; then unlink -- "$entry"; fi' DEBUG
+SH
+for action in check reserve; do
+  new_home
+  lease vanishing "reserved=$now"
+  if [[ $action == check ]]; then
+    BASH_ENV="$scratch/lease-race.bash" check 0 0 'vanishing lease stat tolerated by bare check'
+  else
+    BASH_ENV="$scratch/lease-race.bash" check 0 0 'vanishing lease stat tolerated by reserve' '' reserve own
+    [[ -f $guard_home/.aeon-remote-leases/own ]] || fail 'vanished lease prevented reservation'
+  fi
+  [[ ! -e $guard_home/.aeon-remote-leases/vanishing ]] || fail 'lease race fixture did not remove lease'
+done
+
 # Fault injection checks the one-line protocol, including raw stderr suppression.
 mkdir "$scratch/fault-bin"
 for tool in mktemp mv chmod stat dirname; do
@@ -473,7 +524,12 @@ done
 printf '#!%s\nprintf "%%s\\n" "%s"\n' "$BASH" "$((EUID + 1))" >"$scratch/fault-bin/ps"
 chmod +x "$scratch/fault-bin/ps"
 new_home
-PATH="$scratch/fault-bin:$PATH" check 3 0 'adopt rejects another uid' 'cannot adopt run pid' adopt foreign "$$"
+if ((EUID != 0)); then
+  PATH="$scratch/fault-bin:$PATH" check 0 0 'non-root adoption ignores unpinned ps' '' adopt own "$$"
+  if ! kill -0 1 2>/dev/null; then
+    check 3 0 'adopt rejects a pid not signalable by this user' 'cannot adopt run pid' adopt foreign 1
+  fi
+fi
 unlink "$scratch/fault-bin/ps"
 printf '#!%s\nprintf "raw unlink failure\\n" >&2\nexit 1\n' "$BASH" >"$scratch/fault-bin/unlink"
 chmod +x "$scratch/fault-bin/unlink"
