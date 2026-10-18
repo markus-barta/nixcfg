@@ -457,12 +457,12 @@ class GitHub:
         # them), which the exact comparison rightly rejects; write sees them.
         return self.call("GET", self.repo_path(f"/rulesets/{self.cfg['ruleset']['id']}"), ADMIN_WRITE)
 
-    def ruleset_version(self):
+    def ruleset_versions(self):
         """Independent, uncached history signal; never infer a version from the
         ruleset content. The history endpoint needs administration:read, already
         granted to this App. Refuse empty, malformed or truncated histories."""
         path = self.repo_path(f"/rulesets/{self.cfg['ruleset']['id']}/history")
-        versions = []
+        versions = set()
         for page in range(1, MAX_PAGES + 1):
             batch = self.call("GET", f"{path}?per_page=100&page={page}", ADMIN_READ)
             if not isinstance(batch, list):
@@ -471,11 +471,11 @@ class GitHub:
                 version = item.get("version_id") if isinstance(item, dict) else None
                 if type(version) is not int or version < 1:
                     raise BuilderError("ruleset history has an invalid version_id")
-                versions.append(version)
+                versions.add(version)
             if len(batch) < 100:
                 if not versions:
                     raise BuilderError("ruleset history is empty")
-                return max(versions)
+                return versions
         raise BuilderError("ruleset history exceeds the page limit")
 
     def jit(self, name, labels):
@@ -681,6 +681,20 @@ class State:
             return data
 
 
+def reject_quarantine_window(data):
+    """Close an uncertain window on recovery, pause or stop, under State's lock."""
+    quarantine = data.pop("rulesetQuarantine", None)
+    if quarantine:
+        data.setdefault("rulesetRejectedWindows", []).append({
+            "since": quarantine["cutoff"], "until": time.time(),
+        })
+
+
+def stop_pool(data, mode="off"):
+    reject_quarantine_window(data)
+    data.update(mode=mode)
+
+
 def log(message):
     STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     line = f"{now_utc().strftime('%Y-%m-%dT%H:%M:%SZ')} {message}"
@@ -841,9 +855,9 @@ class Controller:
             except BuilderError as err:
                 log(f"clear availability failed: {err}")
         def paused(data):
+            reject_quarantine_window(data)
             if data.get("mode") not in ("stopping", "off"):
                 data.update(mode="paused", alert=f"{now_utc().isoformat()} {reason}")
-                data.pop("rulesetQuarantine", None)
         self.state.update(paused, then=clear)
         try:
             cancelled = cancel_label_runs(self.gh, self.cfg, statuses=("queued",))
@@ -869,8 +883,26 @@ class Controller:
     def check_ruleset(self, force=True):
         """Fresh reads before mint/publish, without a confirmation sleep. While
         quarantined only one observation per normal publisher cadence counts.
-        Serialize checks without blocking another thread behind an API read."""
-        if not self.ruleset_lock.acquire(blocking=False):
+        Ordinary contention waits rather than throwing away a booted worker."""
+        if not self.cfg["rulesetQuarantineEnable"]:
+            # Main's content-only policy: a read failure skips this operation,
+            # while a confirmed mismatch pauses. History is never consulted.
+            try:
+                live = self.gh.ruleset()
+                problems = ruleset_problems(live, self.cfg["ruleset"]["expected"])
+            except (BuilderError, ValueError, TypeError, AttributeError) as err:
+                log(f"main ruleset unreadable; skipping check: {err}")
+                return False
+            if problems:
+                self.log_ruleset_drift(live)
+                self.pause("main ruleset changed: " + "; ".join(problems))
+            return not problems
+        if self.state.load().get("rulesetQuarantine"):
+            # The persisted cadence reservation serializes quarantine reads,
+            # including reads made by another controller instance.
+            return self._check_ruleset()
+        if not self.ruleset_lock.acquire(timeout=35):
+            log("main ruleset check timed out waiting for an in-flight check")
             return False
         try:
             return self._check_ruleset()
@@ -878,22 +910,35 @@ class Controller:
             self.ruleset_lock.release()
 
     def _check_ruleset(self):
-        if self.expire_quarantine():
-            return False
         data = self.state.load()
         quarantine = data.get("rulesetQuarantine")
         if data.get("mode") not in ("on", "draining"):
             return False
-        if quarantine and not self.cfg["rulesetQuarantineEnable"]:
-            self.pause("main ruleset quarantine disabled")
+        if self.expire_quarantine():
             return False
         started = time.time()
+        entering = False
         if quarantine:
             cadence = min(5, self.cfg.get("pollSeconds", 5))
-            if started - quarantine["checkedAt"] < cadence:
+            checked = []
+
+            def claim_observation(current):
+                q = current.get("rulesetQuarantine")
+                if q and current.get("mode") in ("on", "draining") and started - q["checkedAt"] >= cadence:
+                    q["checkedAt"] = started
+                    checked.append(q.copy())
+            self.state.update(claim_observation)
+            if not checked:
                 return False
-            self.state.update(lambda d: d["rulesetQuarantine"].update(checkedAt=started)
-                              if d.get("rulesetQuarantine") else None)
+            quarantine = checked[0]
+
+        # History must precede content: a change during the content read must
+        # remain visible to the next check, never be absorbed into its baseline.
+        history_error = None
+        try:
+            versions = self.read_ruleset_versions()
+        except (BuilderError, ValueError, TypeError, AttributeError) as err:
+            history_error = err
         try:
             live = self.gh.ruleset()
             problems = ruleset_problems(live, self.cfg["ruleset"]["expected"])
@@ -902,13 +947,14 @@ class Controller:
 
         if problems and not quarantine:
             # The shared interlock is saved BEFORE the history request or drift
-            # diagnostic. A simultaneous JIT/publish holds this same State lock.
+            # diagnostic. JIT responses re-check this same State lock.
             baseline = data.get("rulesetExact")
-            if not self.cfg["rulesetQuarantineEnable"] or not baseline:
+            if not baseline:
                 self.pause("main ruleset changed: " + "; ".join(problems))
                 self.log_ruleset_drift(live)
                 return False
             limited = []
+            entered = []
 
             def enter(current):
                 if not self.minting_allowed(current):
@@ -920,8 +966,9 @@ class Controller:
                     return
                 current["rulesetQuarantine"] = {
                     "since": time.time(), "checkedAt": started, "cleanReads": 0,
-                    "version": baseline["version"], "cutoff": baseline["at"], "confirmed": False,
+                    "versions": baseline["versions"], "cutoff": baseline["at"], "confirmed": False,
                 }
+                entered.append(True)
 
             def clear(current):
                 if current.get("rulesetQuarantine"):
@@ -935,24 +982,29 @@ class Controller:
                 self.log_ruleset_drift(live)
                 return False
             quarantine = data.get("rulesetQuarantine")
-            if not quarantine:
+            if not quarantine or not entered:
                 return False
+            entering = True
+            # The entry decision uses a fresh independent signal AFTER the
+            # mismatch has closed the shared interlock, including on read error.
+            try:
+                versions = self.read_ruleset_versions()
+                history_error = None
+            except (BuilderError, ValueError, TypeError, AttributeError) as err:
+                history_error = err
 
         if problems:
             self.log_ruleset_drift(live)
 
-        if not self.cfg["rulesetQuarantineEnable"] and not quarantine:
-            return True
-        try:
-            version = self.gh.ruleset_version()
-            if type(version) is not int or version < 1:
-                raise BuilderError("ruleset history has no usable version")
-        except (BuilderError, ValueError, TypeError, AttributeError) as err:
-            return self.ruleset_read_failed(err)
+        if history_error:
+            if quarantine:
+                return self.ruleset_read_failed(history_error, entry=entering)
+            log(f"main ruleset history unreadable on exact read; keeping baseline: {history_error}")
+            return self.minting_allowed()
 
         if quarantine:
-            if version != quarantine["version"]:
-                self.pause(f"main ruleset history changed: {quarantine['version']} -> {version}")
+            if versions != quarantine["versions"]:
+                self.pause(f"main ruleset history changed: {quarantine['versions']} -> {versions}")
                 return False
             if self.expire_quarantine():
                 return False
@@ -960,7 +1012,8 @@ class Controller:
 
             def observe(current):
                 q = current.get("rulesetQuarantine")
-                if not q or current.get("mode") not in ("on", "draining"):
+                if not q or q["since"] != quarantine["since"] or q["checkedAt"] != started \
+                        or current.get("mode") not in ("on", "draining"):
                     return
                 if not q["confirmed"]:
                     current.setdefault("rulesetQuarantineEntries", []).append(q["since"])
@@ -969,9 +1022,8 @@ class Controller:
                 if q["cleanReads"] >= self.cfg["rulesetQuarantineCleanReads"]:
                     # Keep closed intervals permanently, including across restarts:
                     # delayed/retried jobs from this uncertain window stay denied.
-                    current.setdefault("rulesetRejectedWindows", []).append({"since": q["cutoff"], "until": time.time()})
-                    current["rulesetExact"] = {"version": version, "at": int(started)}
-                    current.pop("rulesetQuarantine")
+                    reject_quarantine_window(current)
+                    current["rulesetExact"] = {"versions": versions, "at": int(started)}
                     recovered.append(True)
             self.state.update(observe)
             if recovered:
@@ -981,19 +1033,40 @@ class Controller:
 
         # Use the start of this exact read at the API's created_at precision;
         # never subtract an arbitrary safety margin from the observed boundary.
-        self.state.update(lambda d: d.update(rulesetExact={"version": version, "at": int(started)})
-                          if self.minting_allowed(d) else None)
+        changed = []
+
+        def exact(current):
+            if not self.minting_allowed(current):
+                return
+            baseline = current.get("rulesetExact")
+            if baseline and baseline["versions"] != versions:
+                changed.append(True)
+                return
+            current["rulesetExact"] = {"versions": versions, "at": int(started)}
+        self.state.update(exact)
+        if changed:
+            self.pause("main ruleset history changed between exact reads")
+            return False
         return self.minting_allowed()
 
-    def ruleset_read_failed(self, err):
+    def read_ruleset_versions(self):
+        versions = self.gh.ruleset_versions()
+        if not isinstance(versions, (set, list, tuple)) or not versions \
+                or any(type(version) is not int or version < 1 for version in versions):
+            raise BuilderError("ruleset history has no usable version ids")
+        return sorted(set(versions))
+
+    def ruleset_read_failed(self, err, entry=False):
         quarantine = self.state.load().get("rulesetQuarantine")
-        if quarantine and quarantine["confirmed"]:
+        if quarantine and entry:
+            self.pause(f"main ruleset history unreadable after mismatch: {err}")
+        elif quarantine:
             self.state.update(lambda d: d["rulesetQuarantine"].update(cleanReads=0)
                               if d.get("rulesetQuarantine") else None)
             if not self.expire_quarantine():
                 log(f"main ruleset quarantine read not clean: {err}")
         else:
-            self.pause(f"main ruleset or history unreadable: {err}")
+            log(f"main ruleset unreadable; skipping check: {err}")
         return False
 
     def weak_window_reason(self, run, data=None):
@@ -1013,20 +1086,26 @@ class Controller:
         return None
 
     def cancel_rejected_run(self, run_id, reason):
-        """Order queued-job cancellations with quarantine entry too. An API
-        read already in flight may not cancel after the interlock is saved."""
-        def cancel(data):
-            if not self.minting_allowed(data):
+        """Reserve one attempt under the interlock; never hold it across a POST.
+        Failed attempts stay recorded, as on main, rather than retrying per tick."""
+        attempted = []
+
+        def reserve(data):
+            if not self.minting_allowed(data) or run_id in data["cancelledRuns"]:
                 return
-            log(f"reject run {run_id}: {reason}; cancelling")
-            try:
-                self.gh.cancel(run_id)
-            except BuilderError as err:
-                log(f"cancel {run_id} failed: {err}")
-                return
-            if run_id not in data["cancelledRuns"]:
-                data["cancelledRuns"].append(run_id)
-        self.state.update(cancel)
+            data["cancelledRuns"].append(run_id)
+            attempted.append(True)
+        self.state.update(reserve)
+        if not attempted:
+            return
+        log(f"reject run {run_id}: {reason}; cancelling")
+        try:
+            self.gh.cancel(run_id)
+        except BuilderError as err:
+            log(f"cancel {run_id} failed: {err}")
+        with self.state.locked():
+            if not self.minting_allowed(self.state.load()):
+                log(f"cancel {run_id} was already in flight when the pool stopped minting")
 
     def cancel_weak_window_runs(self):
         for run in self.gh.active_runs():
@@ -1068,14 +1147,11 @@ class Controller:
                 continue
             ok, reason = (True, "ok") if run["id"] in data["verifiedRuns"] else verify_run(run, self.cfg, self.gh.sha_on_branch)
             if not ok:
-                log(f"reject run {run['id']} ({run.get('event')} {(run.get('head_repository') or {}).get('full_name')}): {reason}; cancelling")
                 self.cancel_rejected_run(run["id"], reason)
                 continue
             if run["id"] not in data["verifiedRuns"]:
                 self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
             if not class_ok(job, run, self.cfg):
-                log(f"reject run {run['id']} job {job['id']}: labels {job.get('labels')} do not carry exactly the "
-                    f"{expected_class(run, self.cfg)} class for a {run.get('event')}; cancelling")
                 self.cancel_rejected_run(run["id"], "job lacks its exact class label")
                 continue
             if attempted:
@@ -1097,7 +1173,7 @@ class Controller:
             self.sweep_stale_runners()
         data = self.state.load()
         if data.get("mode") == "draining" and not data.get("rulesetQuarantine") and not candidates and not data["slots"] and not self.workers:
-            self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "draining" and not d.get("rulesetQuarantine") else None,
+            self.state.update(lambda d: stop_pool(d) if d.get("mode") == "draining" and not d.get("rulesetQuarantine") else None,
                               then=lambda d: write_busy_file(self.cfg, d))
             log("drained; pool is off")
             return "off"
@@ -1247,8 +1323,8 @@ class Controller:
         self.state.update(lambda d: d["slots"].pop(str(slot), None))
 
     def mint_runner(self, slot, run, name, labels, checked_windows):
-        """The final check and JIT request share the quarantine/mode lock. No
-        worker can use a stale successful ruleset check to mint after entry."""
+        """Check both sides of the POST without holding up quarantine entry.
+        A response spanning a quarantine is discarded and its runner retired."""
         with self.state.locked():
             data = self.state.load()
             if not self.minting_allowed(data) or self.weak_window_reason(run, data) \
@@ -1259,10 +1335,23 @@ class Controller:
                 return None
             info.update(phase="minting", runner=name)
             self.state.save(data)
-            jit = self.gh.jit(name, labels)
-            info.update(phase="waiting", runnerId=jit["runner"]["id"])
-            self.state.save(data)
-            return jit
+            entries = list(data.get("rulesetQuarantineEntries", []))
+        jit = self.gh.jit(name, labels)
+        with self.state.locked():
+            data = self.state.load()
+            info = data["slots"].get(str(slot))
+            allowed = info is not None and self.minting_allowed(data) and not self.weak_window_reason(run, data) \
+                and len(data.get("rulesetRejectedWindows", [])) == checked_windows \
+                and data.get("rulesetQuarantineEntries", []) == entries
+            if allowed:
+                info.update(phase="waiting", runnerId=jit["runner"]["id"])
+                self.state.save(data)
+                return jit
+        try:
+            self.gh.delete_runner(jit["runner"]["id"])
+        except BuilderError as err:
+            log(f"discarded JIT runner cleanup deferred to the sweep: {err}")
+        return None
 
     # -- one job VM
     def serve(self, slot, run, job):
@@ -1343,6 +1432,9 @@ class Controller:
             takers = [j for j in self.gh.jobs(run["id"]) if j.get("status") == "queued" and could_take(j, labels)]
             if not takers:
                 continue
+            if run["id"] in data["cancelledRuns"]:
+                found.append(run["id"])
+                continue
             reason = self.weak_window_reason(run)
             if reason:
                 self.cancel_rejected_run(run["id"], reason)
@@ -1358,7 +1450,6 @@ class Controller:
                 continue
             if ok:
                 reason = "a queued job lacks its exact class label"
-            log(f"reject run {run['id']} ({run.get('event')}): {reason}; cancelling")
             self.cancel_rejected_run(run["id"], reason)
             found.append(run["id"])
         return found
@@ -1591,6 +1682,7 @@ class Controller:
         if lock is None:
             log("another controller holds the lock; exiting")
             return
+        self.state.update(lambda d: d.pop("rulesetExact", None))
         atomic_write(STATE_DIR / "controller.pid", str(os.getpid()))
 
         def terminate(*_):
@@ -1611,14 +1703,14 @@ class Controller:
                     mode = self.mode()
                 self.reap_finished_workers()
                 if self.terminate_requested:
-                    self.state.update(lambda d: d.update(mode="stopping") if d.get("mode") in ("on", "draining", "paused") else None,
+                    self.state.update(lambda d: stop_pool(d, "stopping") if d.get("mode") in ("on", "draining", "paused") else None,
                                       then=lambda d: write_busy_file(self.cfg, d))
                     mode = self.mode()
                 busy = bool(self.workers) or bool(self.proof and self.proof.is_alive())
                 if mode in ("off", "paused") and not busy:
                     break
                 if mode == "stopping" and not busy:
-                    self.state.update(lambda d: d.update(mode="off") if d.get("mode") == "stopping" else None,
+                    self.state.update(lambda d: stop_pool(d) if d.get("mode") == "stopping" else None,
                                       then=lambda d: write_busy_file(self.cfg, d))
                     break
                 time.sleep(self.cfg["pollSeconds"])
@@ -1735,7 +1827,8 @@ def cmd_on(cfg, args):
         if not ok:
             raise BuilderError(f"network block missing ({detail}); install it: sudo aeon-builder pf-install")
         state.update(lambda d: d.update(networkProof=now_utc().isoformat()))
-    state.update(lambda d: (d.update(mode="on"), d.pop("alert", None)), then=lambda d: write_busy_file(cfg, d))
+    state.update(lambda d: (d.update(mode="on"), d.pop("alert", None), d.pop("rulesetExact", None)),
+                 then=lambda d: write_busy_file(cfg, d))
     if controller_pid():
         print("aeon-builder: on (controller already running)")
         return
@@ -1771,10 +1864,14 @@ def cmd_off(cfg, args):
         except BuilderError as err:
             print(f"aeon-builder: warning, availability not cleared ({err}); it expires in 30 s", file=sys.stderr)
     if args.now:
-        state.update(lambda d: d.update(mode="stopping" if running else "off"), then=clear)
+        state.update(lambda d: stop_pool(d, "stopping" if running else "off"), then=clear)
     else:
-        state.update(lambda d: d.update(mode="draining" if running else "off")
-                     if d.get("mode") in ("on", "paused") else None, then=clear)
+        def drain(data):
+            if not running:
+                stop_pool(data)
+            elif data.get("mode") in ("on", "paused"):
+                data.update(mode="draining")
+        state.update(drain, then=clear)
     if args.now and gh is not None:
         try:
             cancelled = cancel_label_runs(gh, cfg)
@@ -1802,7 +1899,7 @@ def cmd_off(cfg, args):
         print(f"aeon-builder: could not delete {', '.join(stuck)}; the machine is NOT free", file=sys.stderr)
         return 3
     if gh is None:
-        state.update(lambda d: d.update(mode="off"), then=lambda d: write_busy_file(cfg, d))
+        state.update(lambda d: stop_pool(d), then=lambda d: write_busy_file(cfg, d))
         print("aeon-builder: off locally — no job VMs; GitHub cleanup skipped")
         return 0
     try:
@@ -1814,7 +1911,7 @@ def cmd_off(cfg, args):
                     print(f"aeon-builder: runner {runner['name']} not deleted yet ({err})", file=sys.stderr)
     except BuilderError as err:
         print(f"aeon-builder: warning, runner cleanup failed ({err})", file=sys.stderr)
-    state.update(lambda d: d.update(mode="off"), then=lambda d: write_busy_file(cfg, d))
+    state.update(lambda d: stop_pool(d), then=lambda d: write_busy_file(cfg, d))
     print("aeon-builder: off — no job VMs")
     return 0
 
@@ -1829,7 +1926,7 @@ def cmd_status(cfg, args):
     if BASE_VM in vms:
         base = "ready" if marker.exists() and marker.read_text().strip() == cfg["baseId"] else "outdated (rebuilt on next on)"
     print(f"mode:        {data.get('mode')}{'  ⚠ ' + data['alert'] if data.get('alert') else ''}")
-    quarantine = data.get("rulesetQuarantine")
+    quarantine = data.get("rulesetQuarantine") if data.get("mode") in ("on", "draining") else None
     count = sum(1 for at in data.get("rulesetQuarantineEntries", []) if time.time() - at < 86400)
     limit = cfg.get("rulesetQuarantineMaxPerDay", 3)
     if quarantine:

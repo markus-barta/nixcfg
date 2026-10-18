@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -1001,8 +1002,8 @@ class FakeGitHub:
     def ruleset(self):
         return LIVE_RULESET
 
-    def ruleset_version(self):
-        return 1
+    def ruleset_versions(self):
+        return {1}
 
     def publish(self, record):
         self.published.append(record)
@@ -2716,20 +2717,20 @@ class RulesetHistoryTests(unittest.TestCase):
         gh.cfg = CFG
         return gh
 
-    def test_history_uses_uncached_admin_read_and_the_greatest_version(self):
+    def test_history_uses_uncached_admin_read_and_all_version_ids(self):
         gh = self.client()
         gh.call = Mock(return_value=[{"version_id": 4}, {"version_id": 9}, {"version_id": 2}])
-        self.assertEqual(gh.ruleset_version(), 9)
+        self.assertEqual(gh.ruleset_versions(), {2, 4, 9})
         gh.call.assert_called_once_with("GET", "/repos/inspr-at/paimos/rulesets/24240960/history?per_page=100&page=1", ab.ADMIN_READ)
 
     def test_history_paginates_and_refuses_partial_evidence(self):
         gh = self.client()
         gh.call = Mock(side_effect=[[{"version_id": i + 1} for i in range(100)], [{"version_id": 101}]])
-        self.assertEqual(gh.ruleset_version(), 101)
+        self.assertEqual(gh.ruleset_versions(), set(range(1, 102)))
         self.assertIn("page=2", gh.call.call_args.args[1])
         gh.call = Mock(return_value=[{"version_id": 1}] * 100)
         with self.assertRaises(ab.BuilderError):
-            gh.ruleset_version()
+            gh.ruleset_versions()
         self.assertEqual(gh.call.call_count, ab.MAX_PAGES)
 
     def test_empty_malformed_and_unreadable_history_fail_closed(self):
@@ -2738,10 +2739,10 @@ class RulesetHistoryTests(unittest.TestCase):
             with self.subTest(value=value):
                 gh.call = Mock(return_value=value)
                 with self.assertRaises(ab.BuilderError):
-                    gh.ruleset_version()
+                    gh.ruleset_versions()
         gh.call = Mock(side_effect=ab.BuilderError("HTTP 403"))
         with self.assertRaises(ab.BuilderError):
-            gh.ruleset_version()
+            gh.ruleset_versions()
 
 
 class RulesetQuarantineTests(unittest.TestCase):
@@ -2754,10 +2755,10 @@ class RulesetQuarantineTests(unittest.TestCase):
         job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
         gh = FakeGitHub([r], {9: [job]})
         gh.ruleset = Mock(return_value=copy.deepcopy(LIVE_RULESET))
-        gh.ruleset_version = Mock(return_value=1)
+        gh.ruleset_versions = Mock(return_value={1})
         ctl = self.controller(gh)
         self.assertTrue(ctl.check_ruleset())
-        self.assertEqual(self.state.load()["rulesetExact"], {"version": 1, "at": 1000})
+        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1], "at": 1000})
         return ctl, gh, r, job
 
     def anomaly(self, ctl, gh):
@@ -2777,7 +2778,7 @@ class RulesetQuarantineTests(unittest.TestCase):
     def test_real_change_pauses_and_cancels_immediately(self):
         ctl, gh, _, _ = self.pool()
         gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
-        gh.ruleset_version.return_value = 2
+        gh.ruleset_versions.return_value = {1, 2}
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
         self.assertEqual(gh.cancelled, [9])
@@ -2815,8 +2816,12 @@ class RulesetQuarantineTests(unittest.TestCase):
         def history():
             entered.set()
             self.assertTrue(release.wait(2))
-            return 1
-        gh.ruleset_version.side_effect = history
+            return {1}
+        calls = []
+        def probe():
+            calls.append(True)
+            return {1} if len(calls) == 1 else history()
+        gh.ruleset_versions.side_effect = probe
         gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
         checker = threading.Thread(target=ctl.check_ruleset)
         checker.start()
@@ -2890,27 +2895,27 @@ class RulesetQuarantineTests(unittest.TestCase):
         self.assertEqual(ctl.mode(), "paused")
         self.assertEqual(gh.cancelled, [9])
 
-    def test_entry_read_errors_pause_instead_of_quarantining(self):
-        for source in ("ruleset", "ruleset_version"):
+    def test_only_history_read_errors_after_a_mismatch_pause_at_entry(self):
+        for source in ("ruleset", "ruleset_versions"):
             with self.subTest(source=source):
                 self.state.save({"mode": "on"})
                 ctl, gh, _, _ = self.pool()
                 gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
                 getattr(gh, source).side_effect = ab.BuilderError("HTTP 403")
                 self.assertFalse(ctl.check_ruleset())
-                self.assertEqual(ctl.mode(), "paused")
-                self.assertEqual(gh.cancelled, [9])
+                self.assertEqual(ctl.mode(), "paused" if source == "ruleset_versions" else "on")
+                self.assertEqual(gh.cancelled, [9] if source == "ruleset_versions" else [])
 
     def test_empty_history_at_entry_pauses(self):
         ctl, gh, _, _ = self.pool()
         gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
-        gh.ruleset_version.side_effect = ab.BuilderError("ruleset history is empty")
+        gh.ruleset_versions.side_effect = ab.BuilderError("ruleset history is empty")
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
         self.assertEqual(gh.cancelled, [9])
 
     def test_errors_during_quarantine_reset_clean_reads_without_shortening_grace(self):
-        for source in ("ruleset", "ruleset_version"):
+        for source in ("ruleset", "ruleset_versions"):
             with self.subTest(source=source):
                 self.state.save({"mode": "on"})
                 self.clock.return_value = 1000
@@ -2947,7 +2952,7 @@ class RulesetQuarantineTests(unittest.TestCase):
         ctl, gh, _, _ = self.pool()
         self.anomaly(ctl, gh)
         gh.ruleset.return_value = copy.deepcopy(LIVE_RULESET)
-        gh.ruleset_version.return_value = 3  # weakened, then restored
+        gh.ruleset_versions.return_value = {1, 2, 3}  # weakened, then restored
         self.clock.return_value += 5
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
@@ -3009,7 +3014,7 @@ class RulesetQuarantineTests(unittest.TestCase):
                 gh._runs = [unknown]
                 gh._jobs[11] = [{**job, "id": 110}]
                 self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, unknown)), [11])
-        self.assertEqual(gh.cancelled, [11, 11, 11])
+        self.assertEqual(gh.cancelled, [11])
 
     def test_base_label_takers_in_the_window_are_cancelled_but_hosted_jobs_are_not(self):
         ctl, gh, _, job = self.pool()
@@ -3029,7 +3034,7 @@ class RulesetQuarantineTests(unittest.TestCase):
         gh._jobs[10] = [{**job, "id": 100}]
         gh.cancel = Mock(side_effect=ab.BuilderError("cancel unavailable"))
         self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, r)), [10])
-        self.assertNotIn(10, self.state.load()["cancelledRuns"])
+        self.assertIn(10, self.state.load()["cancelledRuns"])
 
     def test_quarantine_budget_persists_and_the_fourth_anomaly_pauses(self):
         ctl, gh, _, _ = self.pool()
@@ -3057,12 +3062,12 @@ class RulesetQuarantineTests(unittest.TestCase):
         ctl, gh, _, _ = self.pool()
         ctl.cfg["rulesetQuarantineEnable"] = False
         gh.ruleset.return_value = dict(LIVE_RULESET, target="tag")
-        gh.ruleset_version.reset_mock()
+        gh.ruleset_versions.reset_mock()
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
         self.assertNotIn("rulesetQuarantine", self.state.load())
         self.assertEqual(gh.cancelled, [9])
-        gh.ruleset_version.assert_not_called()
+        gh.ruleset_versions.assert_not_called()
 
     def test_quarantine_progress_survives_a_controller_restart(self):
         ctl, gh, _, _ = self.pool()
@@ -3092,11 +3097,11 @@ class RulesetQuarantineTests(unittest.TestCase):
         ctl.retire_slot.assert_called_once()
         self.assertEqual(gh.cancelled, [])
 
-    def test_jit_request_holds_the_same_lock_as_quarantine_entry(self):
+    def test_jit_request_releases_the_lock_for_quarantine_entry(self):
         ctl, gh, r, job = self.pool()
         slot = ctl.claim_slot(job, r)
         def jit(*_):
-            self.assertEqual(ab.State._local.depth, 1)
+            self.assertEqual(ab.State._local.depth, 0)
             self.assertEqual(self.state.load()["slots"]["0"]["phase"], "minting")
             return {"runner": {"id": 123}, "encoded_jit_config": "test-jit"}
         gh.jit = Mock(side_effect=jit)
@@ -3136,8 +3141,8 @@ class RulesetQuarantineTests(unittest.TestCase):
         self.clock.return_value = 1596
         def history():
             self.clock.return_value = 1601
-            return 1
-        gh.ruleset_version.side_effect = history
+            return {1}
+        gh.ruleset_versions.side_effect = history
         self.assertFalse(ctl.check_ruleset())
         self.assertEqual(ctl.mode(), "paused")
         self.assertEqual(gh.cancelled, [9])
@@ -3186,6 +3191,326 @@ class RulesetQuarantineTests(unittest.TestCase):
         proc = subprocess.run(["nix-instantiate", "--eval", "--strict", "--json", "--expr", expr], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"defaults": [True, 600, 2, 3], "cleanBounds": [False, False, True, True]})
+
+
+class RulesetRoundTwoRegressionTests(unittest.TestCase):
+    setUp = ControllerTests.setUp
+    controller = ControllerTests.controller
+
+    def history(self, gh, versions=(1,), error=None):
+        # Keep both client surfaces in these regressions so they can be replayed
+        # against df565b40 without failing in fixture setup after the API rename.
+        gh.ruleset_version = Mock(return_value=max(versions), side_effect=error)
+        gh.ruleset_versions = Mock(return_value=set(versions), side_effect=error)
+
+    def pool(self, versions=(1,)):
+        r = run(id=9, created_at="1970-01-01T00:15:00Z")
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.ruleset = Mock(return_value=copy.deepcopy(LIVE_RULESET))
+        self.history(gh, versions)
+        ctl = self.controller(gh)
+        self.assertTrue(ctl.check_ruleset())
+        return ctl, gh, r, job
+
+    def anomaly(self, ctl, gh):
+        self.clock.return_value = 1001
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.assertFalse(ctl.check_ruleset())
+        self.assertIn("rulesetQuarantine", self.state.load())
+
+    def run_controller(self, ctl, tick):
+        ctl.lima = Mock()
+        with patch.object(ab, "acquire_controller_lock", return_value=Mock()), \
+                patch.object(ab.signal, "signal") as install, \
+                patch.object(ab.threading, "Thread"), patch.object(ctl, "reconcile"), \
+                patch.object(ctl, "tick", side_effect=lambda: tick(install.call_args.args[1])):
+            ctl.run_forever()
+
+    def test_ruleset_read_error_skips_publish_without_pausing_or_cancelling(self):
+        ctl, gh, _, _ = self.pool()
+        baseline = self.state.load()["rulesetExact"]
+        gh.ruleset.side_effect = ab.BuilderError("HTTP 503")
+        with patch.object(ab, "log") as logged:
+            self.assertFalse(ctl.publish_once())
+        self.assertEqual(ctl.mode(), "on")
+        self.assertEqual(gh.cancelled, [])
+        self.assertEqual(self.state.load()["rulesetExact"], baseline)
+        self.assertTrue(any("unreadable" in call.args[0] for call in logged.call_args_list))
+
+    def test_exact_history_error_preserves_the_baseline_and_allows_publish(self):
+        ctl, gh, _, _ = self.pool()
+        baseline = self.state.load()["rulesetExact"]
+        self.history(gh, error=ab.BuilderError("HTTP 403"))
+        self.clock.return_value = 1005
+        self.assertTrue(ctl.publish_once())
+        self.assertEqual(ctl.mode(), "on")
+        self.assertEqual(gh.cancelled, [])
+        self.assertEqual(self.state.load()["rulesetExact"], baseline)
+
+    def test_read_error_during_pending_entry_does_not_pause_another_check(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        self.state.update(lambda d: d["rulesetQuarantine"].update(confirmed=False))
+        gh.ruleset.side_effect = ab.BuilderError("HTTP 503")
+        self.clock.return_value = 1006
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(ctl.mode(), "on")
+        self.assertIn("rulesetQuarantine", self.state.load())
+        self.assertEqual(gh.cancelled, [])
+
+    def test_disabled_policy_matches_origin_main_including_read_failures(self):
+        # Freeze origin/main at e503d991544c30bd993f4a44e3ddf69ad645295c: this differential
+        # must survive merges, shallow checkouts and later remote-ref changes.
+        source = '''class Controller:
+    def check_ruleset(self, force=True):
+        """Always a fresh read (before every mint and every publish); `force`
+        stays for call-site clarity."""
+        live = self.gh.ruleset()
+        problems = ruleset_problems(live, self.cfg["ruleset"]["expected"])
+        if problems:
+            # OPS-329: record exactly what differed (twice on 2026-10-14 the
+            # ruleset had not changed); the fail-closed pause stays as it is.
+            try:  # a diagnostic, computed or written, must never skip the pause below
+                detail = ruleset_drift(live, self.cfg["ruleset"]["expected"])
+                log("ruleset drift detail: " + detail.encode("ascii", "backslashreplace").decode("ascii"))
+            except Exception:  # noqa: BLE001
+                pass
+            self.pause("main ruleset changed: " + "; ".join(problems))
+        return not problems
+'''
+        main = types.ModuleType("aeon_builder_origin_main")
+        main.ruleset_problems = ab.ruleset_problems
+        main.ruleset_drift = ab.ruleset_drift
+        main.BuilderError = ab.BuilderError
+        exec(compile(source, "origin/main:aeon_builder.py", "exec"), main.__dict__)
+        main.log = Mock()
+        ctl, gh, _, _ = self.pool()
+        ctl.cfg["rulesetQuarantineEnable"] = False
+        for live in (LIVE_RULESET, None, dict(LIVE_RULESET, enforcement="evaluate"), ab.BuilderError("HTTP 503")):
+            with self.subTest(live=type(live).__name__):
+                gh.ruleset = Mock(return_value=live, side_effect=live if isinstance(live, Exception) else None)
+                gh.ruleset_version.reset_mock()
+                gh.ruleset_versions.reset_mock()
+                reference = types.SimpleNamespace(gh=gh, cfg=self.cfg, pause=Mock())
+                try:
+                    expected = main.Controller.check_ruleset(reference)
+                except main.BuilderError:
+                    expected = False  # main's caller skips the failed publish/mint
+                with patch.object(ctl, "pause") as paused:
+                    self.assertEqual(ctl.check_ruleset(), expected)
+                self.assertEqual(paused.call_args_list, reference.pause.call_args_list)
+                gh.ruleset_version.assert_not_called()
+                gh.ruleset_versions.assert_not_called()
+
+    def test_disabled_policy_does_not_fail_on_ruleset_lock_contention(self):
+        ctl, gh, _, _ = self.pool()
+        ctl.cfg["rulesetQuarantineEnable"] = False
+        ctl.ruleset_lock.acquire()
+        try:
+            self.assertTrue(ctl.check_ruleset())
+        finally:
+            ctl.ruleset_lock.release()
+
+    def test_concurrent_exact_check_waits_for_the_first_checker(self):
+        ctl, _, _, _ = self.pool()
+        started, finished = threading.Event(), threading.Event()
+        results = []
+        def check():
+            started.set()
+            results.append(ctl.check_ruleset())
+            finished.set()
+        ctl.ruleset_lock.acquire()
+        worker = threading.Thread(target=check)
+        worker.start()
+        try:
+            self.assertTrue(started.wait(2))
+            self.assertFalse(finished.wait(0.05), "contention must wait, not retire the worker")
+        finally:
+            ctl.ruleset_lock.release()
+            worker.join(2)
+        self.assertEqual(results, [True])
+
+    def test_quarantine_cadence_checks_and_reserves_in_one_state_update(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        gh.ruleset.return_value = LIVE_RULESET
+        self.clock.return_value = 1006
+        update = self.state.update
+        raced = []
+        def reserve(fn, then=None):
+            if not raced:
+                raced.append(True)
+                update(lambda d: d["rulesetQuarantine"].update(checkedAt=1006))
+            return update(fn, then=then)
+        with patch.object(self.state, "update", side_effect=reserve):
+            self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(self.state.load()["rulesetQuarantine"]["cleanReads"], 0)
+
+    def test_exact_reads_request_history_before_content(self):
+        ctl, gh, _, _ = self.pool()
+        order = []
+        gh.ruleset.side_effect = lambda: (order.append("content"), LIVE_RULESET)[1]
+        gh.ruleset_version.side_effect = lambda: (order.append("history"), 1)[1]
+        gh.ruleset_versions.side_effect = lambda: (order.append("history"), {1})[1]
+        self.assertTrue(ctl.check_ruleset())
+        self.assertEqual(order, ["history", "content"])
+
+    def test_new_nonmonotonic_history_id_between_exact_reads_pauses(self):
+        ctl, gh, _, _ = self.pool(versions=(1, 9))
+        self.history(gh, (1, 8, 9))
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(ctl.mode(), "paused")
+        self.assertEqual(gh.cancelled, [9])
+
+    def test_change_during_exact_content_read_is_not_absorbed_into_baseline(self):
+        ctl, gh, _, _ = self.pool()
+        self.state.update(lambda d: d.pop("rulesetExact"))
+        def content():
+            self.history(gh, (1, 2))
+            return LIVE_RULESET
+        gh.ruleset.side_effect = content
+        self.assertTrue(ctl.check_ruleset())
+        gh.ruleset.side_effect = None
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(ctl.mode(), "paused")
+
+    def test_on_resets_the_exact_baseline_before_the_first_controller_read(self):
+        ctl, gh, _, _ = self.pool()
+        real_init = ab.State.__init__
+        with patch.object(ab.State, "__init__", lambda state: real_init(state, self.tmp)), \
+                patch.object(ab, "lab_vms", return_value=[]), \
+                patch.object(ab, "Lima"), patch.object(ab, "GitHub", return_value=gh), \
+                patch.object(ab, "prepare_base"), patch.object(ab, "controller_pid", return_value=42), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            ab.cmd_on(self.cfg, Mock(force=False, resume=True))
+        self.assertNotIn("rulesetExact", self.state.load())
+        self.history(gh, (2,))
+        self.assertTrue(ctl.check_ruleset())
+
+    def test_controller_start_resets_the_exact_baseline(self):
+        ctl, gh, _, _ = self.pool()
+        self.run_controller(ctl, lambda _: "off")
+        self.assertNotIn("rulesetExact", self.state.load())
+        self.history(gh, (2,))
+        self.assertTrue(ctl.check_ruleset())
+
+    def test_off_closes_and_rejects_the_quarantine_window(self):
+        for running, now in ((None, True), (42, True), (None, False)):
+            with self.subTest(running=running, now=now):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, _, _ = self.pool()
+                self.anomaly(ctl, gh)
+                self.clock.return_value = 1005
+                real_init = ab.State.__init__
+                with patch.object(ab.State, "__init__", lambda state: real_init(state, self.tmp)), \
+                        patch.object(ab, "controller_pid", return_value=running), \
+                        patch.object(ab, "GitHub", return_value=gh), patch.object(ab, "Lima") as lima, \
+                        patch("sys.stdout", new_callable=io.StringIO):
+                    lima.return_value.instances.return_value = {}
+                    ab.cmd_off(self.cfg, Mock(now=now, wait=0))
+                self.assertNotIn("rulesetQuarantine", self.state.load())
+                self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1000, "until": 1005}])
+
+    def test_sigterm_closes_and_rejects_the_quarantine_window(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        self.clock.return_value = 1005
+        self.run_controller(ctl, lambda terminate: (terminate(), "on")[1])
+        self.assertEqual(ctl.mode(), "off")
+        self.assertNotIn("rulesetQuarantine", self.state.load())
+        self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1000, "until": 1005}])
+
+    def test_stopping_to_off_closes_and_rejects_the_quarantine_window(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        self.state.update(lambda d: d.update(mode="stopping"))
+        self.clock.return_value = 1005
+        self.run_controller(ctl, lambda _: "stopping")
+        self.assertEqual(ctl.mode(), "off")
+        self.assertNotIn("rulesetQuarantine", self.state.load())
+        self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1000, "until": 1005}])
+
+    def test_status_never_shows_an_active_quarantine_while_off(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        self.state.update(lambda d: d.update(mode="off"))  # stale state from an older controller
+        with patch.object(ab, "State", return_value=self.state), patch.object(ab, "controller_pid", return_value=None), \
+                patch.object(ab, "Lima") as lima, patch.object(ab, "lab_vms", return_value=[]), \
+                patch.object(ab.subprocess, "run", return_value=Mock(stdout="")), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            lima.return_value.instances.return_value = {}
+            ab.cmd_status(self.cfg, None)
+        self.assertIn("quarantine:  inactive", output.getvalue())
+        self.assertNotIn("quarantine:  since", output.getvalue())
+
+    def test_quarantine_pause_preserves_window_for_delayed_jobs_after_resume(self):
+        for cause in ("expiry", "history", "read-error"):
+            with self.subTest(cause=cause):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, _, _ = self.pool()
+                if cause != "read-error":
+                    self.anomaly(ctl, gh)
+                self.clock.return_value = 1601 if cause == "expiry" else 1006
+                if cause == "history":
+                    self.history(gh, (1, 2))
+                if cause == "read-error":
+                    gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+                    self.history(gh, error=ab.BuilderError("HTTP 403"))
+                self.assertFalse(ctl.check_ruleset())
+                self.assertEqual(ctl.mode(), "paused")
+                self.assertEqual(self.state.load().get("rulesetRejectedWindows"),
+                                 [{"since": 1000, "until": self.clock.return_value}])
+                self.state.update(lambda d: d.update(mode="on"))
+                delayed = run(created_at="1970-01-01T00:16:41Z")
+                self.assertIsNotNone(ctl.weak_window_reason(delayed))
+
+    def test_jit_in_flight_allows_quarantine_entry_and_discards_its_response(self):
+        ctl, gh, r, job = self.pool()
+        slot = ctl.claim_slot(job, r)
+        def jit(*_):
+            self.assertEqual(ab.State._local.depth, 0)
+            self.anomaly(ctl, gh)
+            return {"runner": {"id": 123}, "encoded_jit_config": "test-jit"}
+        gh.jit = Mock(side_effect=jit)
+        gh.delete_runner = Mock()
+        self.assertIsNone(ctl.mint_runner(slot, r, "test", ab.mint_labels(CFG, r), 0))
+        gh.delete_runner.assert_called_once_with(123)
+        self.assertNotEqual(self.state.load()["slots"]["0"]["phase"], "waiting")
+
+    def test_cancel_post_does_not_hold_up_quarantine_entry(self):
+        ctl, gh, _, _ = self.pool()
+        def cancel(_):
+            self.assertEqual(ab.State._local.depth, 0)
+            self.anomaly(ctl, gh)
+        gh.cancel = Mock(side_effect=cancel)
+        ctl.cancel_rejected_run(10, "unverified")
+        self.assertIn("rulesetQuarantine", self.state.load())
+        self.assertIn(10, self.state.load()["cancelledRuns"])
+
+    def test_failed_cancel_is_recorded_without_repeated_posts_or_verification(self):
+        ctl, gh, _, _ = self.pool()
+        gh._runs = [run(id=9, head_repository={"full_name": "other/repo"})]
+        gh.cancel = Mock(side_effect=ab.BuilderError("cancel unavailable"))
+        with patch.object(ab, "verify_run", wraps=ab.verify_run) as verify:
+            ctl.tick()
+            self.assertEqual(ctl.unverified_label_runs(ab.pool_labels(CFG)), [9])
+            ctl.tick()
+        gh.cancel.assert_called_once_with(9)
+        verify.assert_called_once()
+        self.assertIn(9, self.state.load()["cancelledRuns"])
+
+    def test_reject_logging_is_not_duplicated_by_callers(self):
+        ctl, gh, _, _ = self.pool()
+        gh._runs = [run(id=9, head_repository={"full_name": "other/repo"})]
+        with patch.object(ab, "log") as logged:
+            ctl.tick()
+            ctl.unverified_label_runs(ab.pool_labels(CFG))
+        rejects = [call.args[0] for call in logged.call_args_list if call.args[0].startswith("reject run 9")]
+        self.assertEqual(len(rejects), 1)
 
 
 if __name__ == "__main__":
