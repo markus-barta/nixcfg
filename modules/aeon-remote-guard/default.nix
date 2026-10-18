@@ -17,6 +17,7 @@ let
     ];
     text = ''
       unset AEON_REMOTE_GUARD_LOAD
+      readonly guard_home=${lib.escapeShellArg home}
       readonly guard_hold_file=${lib.escapeShellArg cfg.holdFile}
       readonly guard_policy_file=${lib.escapeShellArg cfg.policyFile}
       readonly guard_max_runs_file=${lib.escapeShellArg cfg.maxRunsFile}

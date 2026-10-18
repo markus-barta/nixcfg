@@ -41,7 +41,8 @@ count=0
 check() {
   local expected=$1 sample=$2 label=$3 needle=${4:-} rc=0
   if (($# >= 4)); then shift 4; else shift 3; fi
-  HOME="$guard_home" AEON_REMOTE_GUARD_LOAD="$sample" "$BASH" "$guard" "$@" \
+  local caller_home=${test_caller_home:-$guard_home}
+  HOME="$caller_home" guard_home="$guard_home" AEON_REMOTE_GUARD_LOAD="$sample" "$BASH" "$guard" "$@" \
     >"$scratch/stdout" 2>"$scratch/stderr" || rc=$?
   [[ $rc == "$expected" ]] || fail "$label: exit $rc, expected $expected"
   [[ ! -s "$scratch/stdout" ]] || fail "$label: unexpected stdout"
@@ -284,6 +285,11 @@ dead_pid=2147483647
 if kill -0 "$dead_pid" 2>/dev/null; then fail 'dead pid fixture is alive'; fi
 lease dead "reserved=$now"$'\n'"pid=$dead_pid"
 lease expired "reserved=$((now - 120))"
+python3 - "$guard_home/.aeon-remote-leases" "$((now - 120))" <<'PYTIME'
+import os, sys
+for name in ('dead', 'expired'):
+    os.utime(os.path.join(sys.argv[1], name), (int(sys.argv[2]), int(sys.argv[2])))
+PYTIME
 lease boundary "reserved=$((now - 119))"
 lease 'bad id' "reserved=$now"
 lease $'invalid-\xc3\xa9' "reserved=$now"
@@ -299,20 +305,20 @@ mkdir -p "$guard_home/ci.noindex/aeon-runs/bad id" \
   "$guard_home/aeon-ui-runs/bad id" "$guard_home/aeon-ui-runs/dead"
 printf '%s\n' "$$" >"$guard_home/aeon-ui-runs/bad id/supervisor.pid"
 printf '%s\n' "$dead_pid" >"$guard_home/aeon-ui-runs/dead/supervisor.pid"
-budget "maxruns=6 epoch=$now"
+budget "maxruns=8 epoch=$now"
 PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
-  check 0 0 'GC and invalid entries leave six live runs'
+  check 0 0 'fresh malformed leases also count; eight deduplicated runs'
 [[ ! -e $guard_home/.aeon-remote-leases/dead && ! -e $guard_home/.aeon-remote-leases/expired ]] || fail 'dead/expired leases not collected'
 [[ -f $guard_home/.aeon-remote-leases/boundary && -f $guard_home/.aeon-remote-leases/'bad id' && -f $guard_home/.aeon-remote-leases/$long_id && -f $guard_home/.aeon-remote-leases/malformed && -f $guard_home/.aeon-remote-leases/malformed_pid ]] || fail 'GC touched non-expired or malformed leases'
 [[ -f $guard_home/.aeon-remote-test/dead.pid && -d $guard_home/ci.noindex/aeon-runs/'bad id' && -f $guard_home/aeon-ui-runs/dead/supervisor.pid ]] || fail 'GC touched client state'
 PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
-  check 3 0 'GC count remains deduplicated' '6/6 runs active (OPS budget)' reserve seventh
+  check 3 0 'GC count remains deduplicated' '8/8 runs active (OPS budget)' reserve ninth
 
 new_home
 check 0 0 'dot-prefixed id allowed' '' reserve .hidden
 check 3 0 'hidden lease counted' '1/1 runs active (OPS budget)' reserve other
 check 0 0 'hidden id reservation can refresh' '' reserve .hidden
-for invalid in '' . .. '../escape' 'bad/id' 'bad id' $'invalid-\xc3\xa9' "$long_id"; do
+for invalid in '' . .. .reservation.internal '../escape' 'bad/id' 'bad id' $'invalid-\xc3\xa9' "$long_id"; do
   rc=0
   HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 "$BASH" "$guard" reserve "$invalid" \
     >"$scratch/stdout" 2>"$scratch/stderr" || rc=$?
@@ -335,6 +341,168 @@ new_home
 mkdir "$guard_home/.aeon-remote-leases.lock"
 check 3 0 'lock failure refuses safely' 'cannot lock run budget' reserve denied
 [[ ! -e $guard_home/.aeon-remote-leases/denied ]] || fail 'unlocked reservation written'
+
+# Round 2: permissions, malformed leases, adoption, path pinning and failures.
+new_home
+lease hidden "reserved=$now"
+for mode in 000 100 300 500; do
+  chmod "$mode" "$guard_home/.aeon-remote-leases"
+  if [[ ! -r $guard_home/.aeon-remote-leases || ! -w $guard_home/.aeon-remote-leases || ! -x $guard_home/.aeon-remote-leases ]]; then
+    check 3 0 "lease directory mode $mode refuses bare" 'cannot read run leases'
+    check 3 0 "lease directory mode $mode refuses reserve" 'cannot read run leases' reserve denied
+  fi
+  chmod 700 "$guard_home/.aeon-remote-leases"
+done
+for marker in .aeon-remote-test ci.noindex/aeon-runs aeon-ui-runs; do
+  new_home
+  mkdir -p "$guard_home/$marker"
+  for mode in 000 100 300 400; do
+    chmod "$mode" "$guard_home/$marker"
+    if [[ ! -r $guard_home/$marker || ! -x $guard_home/$marker ]]; then
+      check 3 0 "marker $marker mode $mode refuses" 'cannot read run markers' reserve denied
+    fi
+    chmod 700 "$guard_home/$marker"
+  done
+done
+new_home
+mkdir "$guard_home/actual-leases"
+ln -s "$guard_home/actual-leases" "$guard_home/.aeon-remote-leases"
+check 3 0 'lease directory symlink refused' 'cannot read run leases'
+new_home
+mkdir "$guard_home/actual-markers"
+ln -s "$guard_home/actual-markers" "$guard_home/.aeon-remote-test"
+check 3 0 'marker directory symlink refused' 'cannot read run markers'
+
+for contents in "reserved=$now"$'\npid=0' "pid=$$" "reserved=$now"$'\npid=0\npid=0' '' "reserved=$((now + 61))"; do
+  new_home
+  lease malformed "$contents"
+  check 3 0 'fresh malformed regular lease counts' '1/1 runs active (OPS budget)' reserve other
+done
+new_home
+lease unreadable 'invalid'
+chmod 000 "$guard_home/.aeon-remote-leases/unreadable"
+check 3 0 'fresh unreadable lease counts' '1/1 runs active (OPS budget)' reserve other
+chmod 600 "$guard_home/.aeon-remote-leases/unreadable"
+new_home
+lease multiple "reserved=$((now - 1000))"$'\npid='"$dead_pid"$'\npid='"$$"
+lease malformed "garbage"$'\npid='"$$"$'\nextra'
+python3 - "$guard_home/.aeon-remote-leases" "$((now - 1000))" <<'PYTIME'
+import os, sys
+for name in ('multiple', 'malformed'):
+    os.utime(os.path.join(sys.argv[1], name), (int(sys.argv[2]), int(sys.argv[2])))
+PYTIME
+budget "maxruns=2 epoch=$now"
+check 3 0 'any live pid counts even in old malformed leases' '2/2 runs active (OPS budget)' reserve other
+new_home
+lease stale-malformed 'garbage'
+lease future "reserved=$((now + 61))"
+lease .reservation.stale ''
+lease .reservation.fresh "reserved=$now"
+python3 - "$guard_home/.aeon-remote-leases" "$((now - 1000))" <<'PYTIME'
+import os, sys
+for name in ('stale-malformed', 'future', '.reservation.stale'):
+    os.utime(os.path.join(sys.argv[1], name), (int(sys.argv[2]), int(sys.argv[2])))
+PYTIME
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 0 0 'stale malformed and internal temp files do not count' '' reserve own
+[[ -f $guard_home/.aeon-remote-leases/stale-malformed && -f $guard_home/.aeon-remote-leases/future ]] || fail 'GC collected malformed lease'
+[[ ! -e $guard_home/.aeon-remote-leases/.reservation.stale && -f $guard_home/.aeon-remote-leases/.reservation.fresh ]] || fail 'temp GC did not respect mtime'
+new_home
+mkdir -p "$guard_home/.aeon-remote-leases/directory"
+mkfifo "$guard_home/.aeon-remote-leases/fifo"
+printf 'pid=%s\n' "$$" >"$guard_home/external"
+ln -s "$guard_home/external" "$guard_home/.aeon-remote-leases/link"
+lease visible "reserved=$now"
+check 3 0 'non-regular entries do not hide regular lease' '1/1 runs active (OPS budget)' reserve other
+[[ -L $guard_home/.aeon-remote-leases/link && -p $guard_home/.aeon-remote-leases/fifo ]] || fail 'GC touched non-regular entries'
+# The module eval below copies the source tree (tests/.tmp included); Nix cannot copy a FIFO.
+rm -f "$guard_home/.aeon-remote-leases/fifo"
+
+new_home
+check 0 0 'adopt recreates collected reservation' '' adopt adopted "$$"
+grep -qx "pid=$$" "$guard_home/.aeon-remote-leases/adopted" || fail 'adopt did not record pid'
+check 3 0 'adopted lease counts' '1/1 runs active (OPS budget)' reserve other
+check 0 0 'repeated adoption preserves live pid' '' adopt adopted "$$"
+check 0 0 'reserve preserves all live pids' '' reserve adopted
+check 3 0 'adopt dead pid refused' 'cannot adopt run pid' adopt dead "$dead_pid"
+check 3 0 'adopt invalid pid refused' 'cannot adopt run pid' adopt invalid 0
+check 3 0 'adopt negative pid refused' 'cannot adopt run pid' adopt invalid -1
+budget "maxruns=0 epoch=$now"
+touch "$guard_home/.hold-mbp2606"
+check 0 20 'adopt records admitted run even after pause/hold' '' adopt paused "$$"
+new_home
+mkdir -p "$guard_home/.aeon-remote-leases/dir"
+check 3 0 'adopt never writes inside a directory' 'guard error' adopt dir "$$"
+ln -s "$guard_home/external" "$guard_home/.aeon-remote-leases/link"
+check 3 0 'adopt never follows a symlink' 'guard error' adopt link "$$"
+[[ ! -e $guard_home/external ]] || fail 'adopt followed symlink'
+new_home
+mkdir "$guard_home/.aeon-remote-test"
+printf '%s\n' "$$" >"$guard_home/.aeon-remote-test/pinned.pid"
+test_caller_home="$scratch/unrelated-home" check 3 0 'marker home pinned independently of HOME' '1/1 runs active (OPS budget)' reserve other
+
+# Remove a marker exactly between its existence check and read. DEBUG runs in
+# the test shell only; the production script has no race-injection switches.
+cat >"$scratch/marker-race.bash" <<'SH'
+trap 'if [[ $BASH_COMMAND == pid=\$\(* && -n ${entry:-} ]]; then if [[ -d $entry ]]; then unlink -- "$entry/supervisor.pid" 2>/dev/null || true; else unlink -- "$entry" 2>/dev/null || true; fi; fi' DEBUG
+SH
+for source in legacy ui; do
+  new_home
+  if [[ $source == legacy ]]; then
+    mkdir "$guard_home/.aeon-remote-test"
+    race_marker="$guard_home/.aeon-remote-test/vanishing.pid"
+  else
+    mkdir -p "$guard_home/aeon-ui-runs/vanishing"
+    race_marker="$guard_home/aeon-ui-runs/vanishing/supervisor.pid"
+  fi
+  printf '%s\n' "$$" >"$race_marker"
+  BASH_ENV="$scratch/marker-race.bash" check 0 0 "vanishing $source marker read is tolerated"
+  [[ ! -e $race_marker ]] || fail 'marker race fixture did not remove marker'
+done
+
+# Fault injection checks the one-line protocol, including raw stderr suppression.
+mkdir "$scratch/fault-bin"
+for tool in mktemp mv chmod stat dirname; do
+  printf '#!%s\nprintf "raw injected failure\\n" >&2\nexit 1\n' "$BASH" >"$scratch/fault-bin/$tool"
+  chmod +x "$scratch/fault-bin/$tool"
+  new_home
+  if [[ $tool == stat ]]; then lease first "reserved=$now"; fi
+  PATH="$scratch/fault-bin:$PATH" check 3 0 "$tool failure exits busy 3" 'guard error' reserve denied
+  unlink "$scratch/fault-bin/$tool"
+done
+printf '#!%s\nprintf "%%s\\n" "%s"\n' "$BASH" "$((EUID + 1))" >"$scratch/fault-bin/ps"
+chmod +x "$scratch/fault-bin/ps"
+new_home
+PATH="$scratch/fault-bin:$PATH" check 3 0 'adopt rejects another uid' 'cannot adopt run pid' adopt foreign "$$"
+unlink "$scratch/fault-bin/ps"
+printf '#!%s\nprintf "raw unlink failure\\n" >&2\nexit 1\n' "$BASH" >"$scratch/fault-bin/unlink"
+chmod +x "$scratch/fault-bin/unlink"
+new_home
+lease expired "reserved=$((now - 1000))"
+python3 - "$guard_home/.aeon-remote-leases/expired" "$((now - 1000))" <<'PYTIME'
+import os, sys
+os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))
+PYTIME
+PATH="$scratch/fault-bin:$PATH" check 0 0 'unlink failure tolerated silently' '' reserve own
+[[ -f $guard_home/.aeon-remote-leases/expired ]] || fail 'unlink stub not exercised'
+unlink "$scratch/fault-bin/unlink"
+
+# Real lock contention must time out, rather than hanging a client indefinitely.
+new_home
+mkdir "$guard_home/.aeon-remote-leases"
+perl -e 'open my $f, ">>", $ARGV[0] or die; flock($f, 2) or die; open my $r, ">", $ARGV[1] or die; close $r; sleep 45' \
+  "$guard_home/.aeon-remote-leases.lock" "$scratch/lock-ready" &
+lock_holder=$!
+for ((i = 0; i < 500; i++)); do
+  [[ ! -f $scratch/lock-ready ]] || break
+  sleep 0.01
+done
+[[ -f $scratch/lock-ready ]] || fail 'lock fixture did not start'
+lock_started=$SECONDS
+check 3 0 'lock wait bounded at thirty seconds' 'cannot lock run budget' reserve denied
+((SECONDS - lock_started >= 29 && SECONDS - lock_started < 40)) || fail 'lock wait outside expected bound'
+kill "$lock_holder"
+wait "$lock_holder" 2>/dev/null || true
 
 # Tests run serially; each contention round intentionally starts ten guard
 # processes together to prove count + reserve is one host-locked transaction.
@@ -416,14 +584,30 @@ HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 git -C "$scratch/work" push \
   "$guard_home/aeon-remote.git" 'refs/heads/main:refs/heads/non-run' \
   >"$scratch/push-output" 2>&1 || fail 'non-run ref did not use bare check'
 [[ ! -e $guard_home/.aeon-remote-leases/non-run ]] || fail 'non-run ref reserved'
-HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 git -C "$scratch/work" push \
+if HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 git -C "$scratch/work" push \
   "$guard_home/aeon-remote.git" 'refs/heads/main:refs/runs/batch-a' 'refs/heads/main:refs/runs/batch-b' \
-  >"$scratch/push-output" 2>&1 || fail 'multi-ref push did not use bare check'
-[[ ! -e $guard_home/.aeon-remote-leases/batch-a && ! -e $guard_home/.aeon-remote-leases/batch-b ]] || fail 'multi-ref push reserved'
-printf 'old new refs/runs/nested/invalid\n' |
-  HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 "$scratch/pre-receive" \
-    >"$scratch/stdout" 2>"$scratch/stderr" || fail 'invalid run ref did not use bare check'
-[[ ! -e $guard_home/.aeon-remote-leases/nested ]] || fail 'invalid run ref reserved'
+  >"$scratch/push-output" 2>&1; then
+  fail 'multi-run push admitted'
+fi
+grep -q 'more than one run ref in one push' "$scratch/push-output" || fail 'multi-run refusal missing'
+[[ ! -e $guard_home/.aeon-remote-leases/batch-a && ! -e $guard_home/.aeon-remote-leases/batch-b ]] || fail 'multi-run push reserved'
+budget "maxruns=2 epoch=$(date +%s)"
+HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 git -C "$scratch/work" push \
+  "$guard_home/aeon-remote.git" 'refs/heads/main:refs/heads/main' 'refs/heads/main:refs/tags/fixture' 'refs/heads/main:refs/runs/batch' \
+  >"$scratch/push-output" 2>&1 || fail 'run plus main/tags push refused'
+[[ -f $guard_home/.aeon-remote-leases/batch ]] || fail 'run plus main/tags push did not reserve'
+for invalid in nested/invalid "$long_id" .reservation.internal; do
+  rc=0
+  printf 'old new refs/runs/%s\n' "$invalid" |
+    HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 "$scratch/pre-receive" \
+      >"$scratch/stdout" 2>"$scratch/stderr" || rc=$?
+  [[ $rc == 3 ]] || fail 'invalid run ref did not exit 3'
+  grep -q 'remote busy: invalid run id' "$scratch/stderr" || fail 'invalid run refusal missing'
+done
+# Deletion of an invalid legacy id is still allowed.
+printf 'old 0000 refs/runs/nested/invalid\n' |
+  HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=99 "$scratch/pre-receive" \
+    >"$scratch/stdout" 2>"$scratch/stderr" || fail 'invalid legacy deletion refused'
 
 # A mixed deletion/update must still be refused, preserving both refs.
 if HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=15 git -C "$scratch/work" push \

@@ -61,6 +61,7 @@ if moduleOnly then
       relativeBudgetRejected = rejects { maxRunsFile = "relative"; };
       relativeLeaseRejected = rejects { leaseDir = "relative"; };
       perlDependency = builtins.elem "/fixture/perl" guard.runtimeInputs;
+      homePinned = lib.hasInfix "readonly guard_home=/fixture/home" guard.text;
       productionLoadPinned = lib.hasInfix "unset AEON_REMOTE_GUARD_LOAD" guard.text;
       customBudgetPinned = lib.hasInfix "readonly guard_max_runs_file='/fixture/custom budget'" customGuard.text;
       customLeasesPinned = lib.hasInfix "readonly guard_lease_dir='/fixture/custom leases'" customGuard.text;
