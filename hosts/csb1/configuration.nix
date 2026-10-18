@@ -317,7 +317,6 @@ in
     postRecreate = [
       "hostdash-auth"
       "hostdash"
-      "traefik"
     ];
     # 🔴 removeOrphans stays FALSE on csb1, permanently-until-audited: project
     # csb1 contains Janus-managed containers driven from a second compose file

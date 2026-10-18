@@ -266,6 +266,15 @@ sudo /nix/store/f5qch8f2b3hch9ar5nvvadxxgnssxz6c-docker-compose-5.3.1/bin/docker
   up -d --no-deps <service>
 ```
 
+**OPS-338:** During compose reconciliation, Traefik is recreated for static config
+changes through its `ops.static-config-sha256` label; unrelated service changes
+no longer force its recreation. The file provider watches the dynamic config
+directory, and ACME state is not hashed. Image or compose service definition
+changes still follow normal Compose reconciliation. To force a manual recreate,
+use the scoped command above with `up -d --no-deps --force-recreate traefik`,
+prefixed by `sudo flock -w 300 /run/lock/compose-csb1.lock` in place of `sudo`
+to serialize with the reconcile and updater.
+
 (While OPS-136 staging has `reconcile = false`, this scoped command is also
 the ONLY sanctioned substitute for the absent reconcile unit — restart
 policies survive crashes, but a REMOVED container is not recreated until

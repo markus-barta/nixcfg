@@ -663,6 +663,9 @@ in
       ]
       ++ sharedFlowRouteVolumes;
       labels = [
+        # OPS-338: Compose cannot detect content changes behind this bind mount.
+        # Dynamic files are watched; mutable ACME state must not trigger restarts.
+        "ops.static-config-sha256=${builtins.hashFile "sha256" ./traefik/static.yml}"
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
       ];
       environment = [
