@@ -448,8 +448,10 @@ A refused tailnet packet increments the final DROP counter; LOG is limited to
 two packets per minute with a burst of two. Refusal alerts contain only the
 host and port; kernel packet logs remain in the local journal.
 
-The `root:1000`, mode `0640` `/run/tailnet-peers/peers.json` is atomically
-replaced inside a `root:1000`, mode `0750` directory. Both containers run as
+The `1000:1000`, mode `0600` `/run/tailnet-peers/peers.json` is atomically
+replaced inside a `root:1000`, mode `0710` directory. Ownership is set before
+publication; the directory permits group traversal only, and `state.json`
+stays root-owned with mode `0600`. Both containers run as
 `1000:1000` and mount that directory read-only at `/run/tailnet-peers`.
 Mounting the directory lets atomic file replacements become visible.
 Neither container receives the tailscaled socket or new privileges. The

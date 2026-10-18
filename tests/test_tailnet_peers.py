@@ -59,10 +59,10 @@ class Admission(unittest.TestCase):
         def deliver(message, identifier):
             self.alerts.append(message)
             return not self.relay_down
-        # macOS tests cannot chown root:1000; verify that exact ownership request
+        # macOS tests cannot chown 1000:1000; verify that exact ownership request
         # on the real open descriptor before the atomic rename instead.
         def ownership(fd, uid, gid):
-            self.assertEqual((uid, gid), (0, 1000))
+            self.assertEqual((uid, gid), (1000, 1000))
             self.assertGreater(os.fstat(fd).st_nlink, 0)
             self.owners.append((uid, gid))
         with patch.object(sync, "run", command), patch.object(sync.os, "fchown", ownership), contextlib.redirect_stdout(io.StringIO()):
@@ -86,9 +86,9 @@ class Admission(unittest.TestCase):
         for args, _ in self.calls:
             if args[0] == "restore":
                 self.assertIn("--noflush", args)
-        self.assertEqual((self.root / "peers.json").stat().st_mode & 0o777, 0o640)
+        self.assertEqual((self.root / "peers.json").stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.root / "state.json").stat().st_mode & 0o777, 0o600)
-        self.assertEqual(self.owners, [(0, 1000), (0, 1000)])
+        self.assertEqual(self.owners, [(1000, 1000), (1000, 1000)])
 
     def test_tag_removed_is_dropped_immediately(self):
         self.step()
@@ -288,43 +288,77 @@ class Admission(unittest.TestCase):
         good = (self.root / "peers.json").read_bytes()
         def reject_owner(fd, uid, gid):
             self.assertEqual((self.root / "peers.json").read_bytes(), good)
-            self.assertEqual((uid, gid), (0, 1000))
+            self.assertEqual((uid, gid), (1000, 1000))
             raise PermissionError("chown failed")
         with patch.object(sync.os, "fchown", reject_owner):
             with self.assertRaises(PermissionError):
-                sync.atomic_json(self.root / "peers.json", {}, 0o640, owner=sync.SNAPSHOT_OWNER)
+                sync.atomic_json(self.root / "peers.json", {}, 0o600, owner=sync.SNAPSHOT_OWNER)
         self.assertEqual((self.root / "peers.json").read_bytes(), good)
+
+    def test_snapshot_permissions_and_owner_are_ready_before_atomic_rename(self):
+        self.step()
+        target = self.root / "peers.json"
+        previous = target.read_bytes()
+        temporary = target.with_suffix(".new")
+        temporary.write_text("old partial write")
+        temporary.chmod(0o640)
+        changed_owner = []
+        replace = os.replace
+        def ownership(fd, uid, gid):
+            self.assertEqual((uid, gid), (1000, 1000))
+            self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(os.fstat(fd).st_ino, temporary.stat().st_ino)
+            changed_owner.append(True)
+        def publish(source, destination):
+            self.assertEqual(changed_owner, [True])
+            self.assertEqual(source.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(target.read_bytes(), previous)
+            replace(source, destination)
+        with patch.object(sync.os, "fchown", ownership), patch.object(sync.os, "replace", publish):
+            sync.atomic_json(target, {"schema": 1, "peers": {}}, 0o600, owner=sync.SNAPSHOT_OWNER)
+        self.assertEqual(self.peers(), {})
 
     def test_config_paths_require_store_or_explicit_bounded_test_override(self):
         file = self.root / "settings.json"
         file.write_text("{}")
-        self.assertEqual(sync.config_path(str(file), allow_test=True), file)
+        self.assertEqual(sync.config_path(str(file), allow_test=True), str(file))
+        linked = self.root / "linked.json"
+        linked.symlink_to(file)
+        self.assertEqual(sync.config_path(str(linked), allow_test=True), str(file))
         escaped = self.root / "escape.json"
         escaped.symlink_to(ROOT / "tests/fixtures/tailnet-peers/joined.json")
         for value, override in [
             (str(file), False), (str(escaped), True),
             (str(self.root / ".." / self.root.name / "settings.json"), True),
             (str(ROOT / "tests/fixtures/tailnet-peers/joined.json"), True),
+            (str(ROOT / "tests/.tmp-lookalike/settings.json"), True),
             ("settings.json", True), ("/nix/store-evil/settings.json", False),
+            ("/nix/storeX/" + "0" * 32 + "-settings.json", False),
         ]:
             with self.subTest(value=value), self.assertRaises((ValueError, OSError)):
                 sync.config_path(value, override)
-        store = Path("/nix/store/" + "0" * 32 + "-tailnet-peer-sync.json")
-        with patch.object(Path, "resolve", return_value=store) as resolve:
-            self.assertEqual(sync.config_path(str(store)), store)
-            resolve.assert_called_once_with(strict=True)
-        with patch.object(Path, "resolve", return_value=file):
-            with self.assertRaises(ValueError):
-                sync.config_path(str(store))
-        with patch.object(Path, "resolve", return_value=Path("/nix/store/not-a-store-object")):
+        store = "/nix/store/" + "0" * 32 + "-tailnet-peer-sync.json"
+        with patch.object(sync.os.path, "realpath", return_value=store) as resolve:
+            self.assertEqual(sync.config_path(store), store)
+            self.assertEqual(sync.config_path(store.replace("/store/", "//store/")), store)
+            self.assertEqual(resolve.call_count, 2)
+        # Model store symlinks without writing to the real immutable store.
+        for destination in [str(file), "/nix/storeX/" + "0" * 32 + "-settings.json"]:
+            with patch.object(sync.os.path, "realpath", return_value=destination):
+                with self.subTest(destination=destination), self.assertRaises(ValueError):
+                    sync.config_path(store)
+        with patch.object(sync.os.path, "realpath", return_value="/nix/store/not-a-store-object"):
             with self.assertRaises(ValueError):
                 sync.config_path("/nix/store/not-a-store-object")
+        with patch.object(sync.os.path, "realpath", return_value=store):
+            with self.assertRaises(ValueError):
+                sync.config_path(str(file))
 
     def test_cli_rejects_config_before_any_read_or_sync(self):
         file = self.root / "settings.json"
         file.write_text("{}")
         argv = ["sync.py", "--config", str(file), "--notification-config", "/unused"]
-        with patch("sys.argv", argv), patch.object(Path, "read_text") as read, patch.object(sync, "synchronize") as synchronize:
+        with patch("sys.argv", argv), patch("builtins.open") as read, patch.object(sync, "synchronize") as synchronize:
             with self.assertRaises(ValueError):
                 sync.main()
             read.assert_not_called()

@@ -87,8 +87,9 @@ in
       }
     ];
     networking.firewall.extraCommands = lib.mkAfter "${trigger} || true";
-    # Both consumers use gid 1000; keep state private and the snapshot group-readable.
-    systemd.tmpfiles.rules = [ "d /run/tailnet-peers 0750 root 1000 - -" ];
+    # Both consumers use uid 1000; allow traversal to their owner-only snapshot.
+    # Root owns the directory and state, so consumers cannot replace either file.
+    systemd.tmpfiles.rules = [ "d /run/tailnet-peers 0710 root 1000 - -" ];
     systemd.services = {
       tailnet-peer-sync = {
         description = "Synchronize paper desk admission from tailnet tags (OPS-384)";

@@ -19,7 +19,7 @@ function fixture(t) {
   t.after(() => rmSync(directory, { recursive: true }));
   const file = path.join(directory, "peers.json");
   const write = (peers) => {
-    writeFileSync(file + ".new", JSON.stringify({ schema: 1, peers }), { mode: 0o640 });
+    writeFileSync(file + ".new", JSON.stringify({ schema: 1, peers }), { mode: 0o600 });
     renameSync(file + ".new", file);
   };
   return { directory, file, write };

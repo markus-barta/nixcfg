@@ -22,7 +22,7 @@ assert cfg["timer"]["timerConfig"]["OnUnitActiveSec"] == "30s"
 assert cfg["sync"]["after"] == ["tailscaled.service", "firewall.service"]
 assert cfg["sync"]["serviceConfig"]["User"] == "root"
 assert cfg["sync"]["serviceConfig"]["UMask"] == "0077"
-assert "d /run/tailnet-peers 0750 root 1000 - -" in cfg["tmpfiles"]
+assert "d /run/tailnet-peers 0710 root 1000 - -" in cfg["tmpfiles"]
 assert "--notification-config /fixture/notification-config" in cfg["sync"]["serviceConfig"]["ExecStart"]
 assert "LoadCredential" not in cfg["sync"]["serviceConfig"]
 assert cfg["sync"]["wantedBy"] == ["tailscaled.service"]
