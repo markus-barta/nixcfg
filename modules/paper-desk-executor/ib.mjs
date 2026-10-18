@@ -354,6 +354,9 @@ function cleanSnapshot(session, symbol) {
 }
 
 function uncertain(error) {
+  // onPlan can publish a ledger body after an earlier broker cancellation.
+  // Preserve that error's identity so callers cannot overwrite the visible plan.
+  if (error?.published === true) return error;
   const result = new Error(`broker outcome uncertain; reconcile before retry: ${message(error)}`);
   result.code = "uncertain";
   return result;

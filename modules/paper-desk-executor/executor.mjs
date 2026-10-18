@@ -164,6 +164,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       saveState(state);
       return result({ paperPort: 4002, account: ACCOUNT, modification: outcome.modification });
     } catch (error) {
+      if (error?.published === true) throw error;
       // A durable acknowledgement followed by a ledger failure still needs recon.
       if (change?.status === "submitted") error.code = "uncertain";
       if (change) { change.status = error.code === "uncertain" ? "uncertain" : "rejected"; change.error = publicError(error); saveState(state); }
@@ -185,6 +186,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       const { executions: _private, ownershipExecutions: _attribution, ownershipSnapshot: _snapshot, ...body } = outcome;
       return result(body);
     } catch (error) {
+      if (error?.published === true) throw error;
       if (outcome.cancelled?.length || outcome.flattened?.length) error.code = "uncertain";
       throw error;
     }
@@ -251,7 +253,10 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
             ownershipSnapshot = legacy.state;
             replayedClients.add(targetClient);
           }
-        } catch { /* Keep unresolved when the relevant client's replay is unavailable. */ }
+        } catch (error) {
+          if (error?.published === true) throw error;
+          // Keep unresolved when the relevant client's replay is unavailable.
+        }
         finally { legacy?.close(); }
       }
       resolveUncertain(state, evidence.state, clientId, replayedClients);
@@ -292,6 +297,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     saveState(state);
     return result({ paperPort: 4002, account: ACCOUNT, contract: resolved.contract, budget, bracket: placed, ownershipHistory: historyError ? { status: "unavailable", reason: historyError, concurrency: "conservative_account_wide" } : { status: "complete" } });
   } catch (error) {
+    if (error?.published === true) throw error;
     if (placingSession?.sideEffects) error.code = "uncertain";
     placement.status = error.code === "uncertain" ? "uncertain" : "rejected";
     placement.error = publicError(error);

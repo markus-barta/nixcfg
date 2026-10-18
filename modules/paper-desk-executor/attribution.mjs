@@ -109,7 +109,14 @@ export function reconcileAttribution(state, config, context = {}) {
   if (!changed && !summary) return;
   // Publish receipts, compact proofs and the summary together before emitting.
   try { context.saveState?.(state); }
-  catch (error) { state.executions = previous.executions; state.foreignAlerts = previous.receipts; if (previous.backlog === undefined) delete state.foreignAlertBacklog; else state.foreignAlertBacklog = previous.backlog; throw error; }
+  catch (error) {
+    if (error?.published === true) throw error;
+    state.executions = previous.executions;
+    state.foreignAlerts = previous.receipts;
+    if (previous.backlog === undefined) delete state.foreignAlertBacklog;
+    else state.foreignAlertBacklog = previous.backlog;
+    throw error;
+  }
   if (summary) context.audit?.(summary);
   if (lateSummary) {
     context.audit?.(lateSummary);
