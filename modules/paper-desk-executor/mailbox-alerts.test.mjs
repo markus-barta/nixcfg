@@ -1,6 +1,7 @@
 import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import fs, { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -196,6 +197,210 @@ function sharedVolumeFailure(t, ledgerPath, journalPath, code, operation) {
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
   return { restoreLedger() { ledgerFailed = false; }, restoreStorage() { ledgerFailed = journalFailed = false; } };
 }
+
+// Fail after the ledger is visible, then optionally fail subsequent renames.
+// Match only this ledger/directory so the independent mailbox remains real.
+function partialLedgerPublication(t, ledger, code, operation, repeat = false) {
+  let failing = true, published = false;
+  const rootInode = fs.statSync(ledger.root).ino, directories = new Set();
+  const originals = Object.fromEntries(["openSync", "closeSync", "fsyncSync", "renameSync", "linkSync", "unlinkSync"].map(name => [name, fs[name]]));
+  const failure = () => Object.assign(new Error("synthetic-private-value /synthetic/path"), { code });
+  for (const name of ["renameSync", "linkSync"]) t.mock.method(fs, name, (from, to) => {
+    if (failing && published && !repeat && to === ledger.statePath) throw failure();
+    const result = originals[name](from, to);
+    if (to === ledger.statePath) published = true;
+    return result;
+  });
+  t.mock.method(fs, "openSync", (file, flags, ...args) => {
+    if (failing && published && operation === "directory-open" && file === ledger.root && (flags & fs.constants.O_DIRECTORY)) throw failure();
+    const fd = originals.openSync(file, flags, ...args);
+    if ((flags & fs.constants.O_DIRECTORY) && fs.fstatSync(fd).ino === rootInode) directories.add(fd);
+    return fd;
+  });
+  t.mock.method(fs, "fsyncSync", fd => {
+    if (failing && published && operation === "directory-fsync" && directories.has(fd)) throw failure();
+    return originals.fsyncSync(fd);
+  });
+  t.mock.method(fs, "closeSync", fd => {
+    const directory = directories.delete(fd);
+    originals.closeSync(fd);
+    if (failing && published && operation === "directory-close" && directory) throw failure();
+  });
+  t.mock.method(fs, "unlinkSync", file => {
+    if (failing && published && operation === "temporary-cleanup" && String(file).startsWith(`${ledger.statePath}.`)) throw failure();
+    return originals.unlinkSync(file);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  return { restore() { failing = false; } };
+}
+
+const halfVisibleCases = [
+  ...["EIO", "ENOSPC", "EROFS"].flatMap(code => ["restart after send", "restart before send", "lost reply"].map(order => ({ code, order, operation: "directory-fsync" }))),
+  ...["directory-open", "directory-close", "temporary-cleanup"].map(operation => ({ code: "EIO", order: "restart after send", operation })),
+  { code: "EIO", order: "repeated publications", operation: "directory-fsync", repeat: true },
+];
+for (const { code, order, operation, repeat } of halfVisibleCases) {
+  test(`half-visible ledger ${code} ${operation}, ${order}: one mailbox key and receipt through restart and disk return`, async t => {
+    t.mock.method(console, "error", () => {});
+    const root = temporary(t), options = { beforePrune() { throw { code }; } };
+    const ledger = openLedger(root, options), initial = ledger.load();
+    const mailbox = createMailbox({ stateDir: temporary(t), localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
+    t.after(() => mailbox.close());
+    const storage = partialLedgerPublication(t, ledger, code, operation, repeat);
+    assert.throws(() => ledger.save(initial), error => error.code === code);
+    const visible = JSON.parse(readFileSync(ledger.statePath)).resultsCaptureAlerts[0];
+    const posts = [];
+    let loseReply = order === "lost reply";
+    const post = async (socket, body, key) => {
+      posts.push({ body, key });
+      await postLocalMessage(socket, body, key, { request: mailboxHttpRequest(mailbox, {
+        loseReply() { const lost = loseReply; loseReply = false; return lost; },
+      }) });
+    };
+    const restarted = openLedger(root, options);
+    const ledgers = order === "restart before send" ? [restarted, ledger] : [ledger, restarted];
+    for (const [index, current] of ledgers.entries()) {
+      const delivery = sender(t, current, post);
+      if (order === "lost reply" && index === 0) {
+        await until(() => readState(current).resultsCaptureAlerts[0].delivery?.failure?.nextAttemptAt);
+      } else {
+        await until(() => deliveryHealth(readState(current), true).alertDelivery === "delivered");
+      }
+      delivery.close();
+    }
+    // The original process must also adopt the key already sent when storage
+    // returns, even if its pending overlay predates the visible publication.
+    storage.restore();
+    ledger.save(readState(ledger));
+    const disk = JSON.parse(readFileSync(ledger.statePath));
+    assert.equal(mailbox.mailbox.messages("amy").length, 1);
+    assert.equal(disk.resultsCaptureAlerts.length, 1);
+    assert.equal(disk.resultsCaptureAlerts[0].outageId, visible.outageId);
+    assert.equal(disk.resultsCaptureAlerts[0].at, visible.at);
+    const expectedKey = createHash("sha256").update(`${visible.outageId}:failure`).digest("hex");
+    assert.ok(posts.length >= 1);
+    assert.ok(posts.every(row => row.key === expectedKey));
+    assert.ok(posts.every(row => JSON.parse(row.body).since === visible.at && JSON.parse(row.body).at === visible.at));
+    assert.ok(posts.every(row => row.body === posts[0].body));
+    assert.equal(disk.resultsCaptureAlerts[0].delivery.failure.status, order === "lost reply" ? "pending" : "delivered");
+    const finalDelivery = sender(t, ledger, post, { now: () => Date.now() + 20000 });
+    await until(() => deliveryHealth(readState(ledger), true).alertDelivery === "delivered");
+    finalDelivery.close();
+    assert.equal(mailbox.mailbox.messages("amy").length, 1);
+    assert.equal(JSON.parse(readFileSync(ledger.statePath)).resultsCaptureAlerts.length, 1);
+    assert.doesNotMatch(JSON.stringify(posts), /synthetic-private-value|synthetic\/path/);
+  });
+}
+
+test("a half-visible initial hard link keeps its receipt identity when initialization and later renames fail", async t => {
+  t.mock.method(console, "error", () => {});
+  const root = temporary(t), options = { beforePrune() { throw { code: "EIO" }; } };
+  const ledger = openLedger(root, options);
+  // A startup diagnostic can exist before the initial ledger is linked.
+  ledger.noteCaptureFailure({ code: "EIO" });
+  const pending = structuredClone(readState(ledger).resultsCaptureAlerts[0]);
+  const storage = partialLedgerPublication(t, ledger, "EIO", "directory-fsync");
+  assert.throws(() => ledger.load(), { code: "EIO" });
+  const visible = JSON.parse(readFileSync(ledger.statePath)).resultsCaptureAlerts[0];
+  const mailbox = createMailbox({ stateDir: temporary(t), localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
+  t.after(() => mailbox.close());
+  const posts = [];
+  const post = async (socket, body, key) => {
+    posts.push({ body, key });
+    await postLocalMessage(socket, body, key, { request: mailboxHttpRequest(mailbox) });
+  };
+  for (const current of [ledger, openLedger(root, options)]) {
+    const delivery = sender(t, current, post);
+    await until(() => deliveryHealth(readState(current), true).alertDelivery === "delivered");
+    delivery.close();
+  }
+  storage.restore();
+  ledger.save(readState(ledger));
+  const disk = JSON.parse(readFileSync(ledger.statePath));
+  assert.equal(visible.outageId, pending.outageId);
+  assert.equal(mailbox.mailbox.messages("amy").length, 1);
+  assert.equal(disk.resultsCaptureAlerts.length, 1);
+  assert.equal(disk.resultsCaptureAlerts[0].outageId, visible.outageId);
+  assert.deepEqual(posts[1], posts[0]);
+});
+
+test("pending diagnostics adopt the unresolved on-disk class identity, timestamp and delivered record", async t => {
+  t.mock.method(console, "error", () => {});
+  const root = temporary(t), options = { beforePrune() { throw { code: "EIO" }; } };
+  const ledger = openLedger(root, options), initial = ledger.load();
+  const rename = fs.renameSync;
+  let blocked = true;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (blocked && to === ledger.statePath) throw Object.assign(new Error("synthetic failure"), { code: "EIO" });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  assert.throws(() => ledger.save(initial), { code: "EIO" });
+  // Another process publishes/delivers the class before the old process next
+  // loads. Its durable identity and delivery record must outrank the overlay.
+  blocked = false;
+  const publisher = openLedger(root, options);
+  publisher.save(readState(publisher));
+  const mailbox = createMailbox({ stateDir: temporary(t), localSocketPath: MAILBOX_SOCKET_PATH, log() {} });
+  t.after(() => mailbox.close());
+  const posts = [];
+  const post = async (socket, body, key) => {
+    posts.push({ body, key });
+    await postLocalMessage(socket, body, key, { request: mailboxHttpRequest(mailbox) });
+  };
+  const publishedDelivery = sender(t, publisher, post);
+  await until(() => deliveryHealth(readState(publisher), true).alertDelivery === "delivered");
+  publishedDelivery.close();
+  const authoritative = structuredClone(readState(publisher).resultsCaptureAlerts[0]);
+  const oldDelivery = sender(t, ledger, post);
+  await until(() => deliveryHealth(readState(ledger), true).alertDelivery === "delivered");
+  oldDelivery.close();
+  ledger.save(readState(ledger));
+  const disk = JSON.parse(readFileSync(ledger.statePath));
+  assert.equal(mailbox.mailbox.messages("amy").length, 1);
+  assert.equal(posts.length, 1);
+  assert.equal(disk.resultsCaptureAlerts.length, 1);
+  assert.equal(disk.resultsCaptureAlerts[0].outageId, authoritative.outageId);
+  assert.equal(disk.resultsCaptureAlerts[0].at, authoritative.at);
+  assert.deepEqual(disk.resultsCaptureAlerts[0].delivery, authoritative.delivery);
+});
+
+test("a half-visible claim still fails closed and returns uncertain on replay without a broker call", async t => {
+  t.mock.method(console, "error", () => {});
+  let executed = 0;
+  const app = executor(t, { beforePrune() { throw { code: "EIO" }; },
+    execute: async () => { executed++; return { status: "ok" }; } });
+  app.ledger.load();
+  const storage = partialLedgerPublication(t, app.ledger, "EIO", "directory-fsync");
+  const intent = { schema: "barta.paper-desk-intent.v2", intentId: "synthetic-half-visible-claim", desk: "j", action: "recon",
+    createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() };
+  const first = await executorRequest(app, "POST", "/v1/intents", intent);
+  assert.equal(first.status, 500);
+  assert.equal(first.body.status, "rejected");
+  assert.equal(executed, 0);
+  const visible = JSON.parse(readFileSync(app.ledger.statePath));
+  assert.equal(visible.intents[intent.intentId].status, "claimed");
+  const health = await app.readHealth();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.resultsCapture.persisted, false);
+  const second = await executorRequest(app, "POST", "/v1/intents", intent);
+  assert.equal(second.status, 409);
+  assert.equal(second.body.status, "uncertain");
+  await app.close().catch(() => {});
+  const restarted = executor(t, { stateDir: app.ledger.root, beforePrune() { throw { code: "EIO" }; },
+    execute: async () => { executed++; return { status: "ok" }; } });
+  const replay = await executorRequest(restarted, "POST", "/v1/intents", intent);
+  assert.equal(replay.status, 409);
+  assert.equal(replay.body.status, "uncertain");
+  assert.equal(executed, 0);
+  storage.restore();
+  restarted.ledger.save(readState(restarted.ledger));
+  const disk = JSON.parse(readFileSync(app.ledger.statePath));
+  assert.equal(disk.resultsCaptureAlerts.length, 1);
+  assert.equal(disk.resultsCaptureAlerts[0].outageId, visible.resultsCaptureAlerts[0].outageId);
+});
 
 for (const code of ["ENOSPC", "EROFS", "EIO"]) for (const operation of ["write", "rename"]) {
   test(`shared-volume ${code} ledger ${operation}: rejects undurable intent, degrades both health routes and dedupes across full-disk restart`, async t => {

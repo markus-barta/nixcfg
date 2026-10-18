@@ -1060,7 +1060,10 @@ admission/save proceeds within the capacity limits below if the ledger remains
 writable. If ledger publication itself fails (including ENOSPC, EDQUOT, EROFS,
 EIO or EFBIG on the shared state volume), the existing intent failure remains:
 HTTP 500 `status: "rejected"` for a failed claim save, no broker call and no
-in-memory claim carried into later loads. A failure after a durable claim keeps
+in-memory claim carried into later loads. If rename/link succeeded before a
+directory-fsync or cleanup error, the visible claim remains on disk for the
+existing uncertain/replay handling; that failed save still makes no broker call.
+A failure after a durable claim keeps
 that claim's existing uncertain/replay behavior; an alert never authorizes
 execution without durable evidence. Legacy migration remains pending with its
 complete evidence until capture succeeds.
@@ -1164,6 +1167,14 @@ unchanged. The first
 successful publication adopts that receipt's identity, body and attempt state.
 Persisted receipts keep their original identity, so restart does not reset
 their retry budget or repeat a delivered message.
+Once a ledger rename or initial hard link succeeds, its bytes and modification
+time become the diagnostic anchor immediately, even if directory fsync or
+cleanup subsequently fails. Pending diagnostics adopt an unresolved on-disk
+receipt of the same class, including its outage ID, timestamp and delivery
+record; they cannot replace it with a new outage identity. Same-generation
+memory retains newer unsaved attempt results. This preserves one mailbox key
+through partial publication, restart and storage recovery, while the save
+still reports failure until the entire write completes.
 The mailbox deduplicates a stable local delivery key against
 its durable inbox and 30-day archive, covering lost replies and acknowledgement.
 Resolved receipt retention still applies. `failed` requires operator attention;

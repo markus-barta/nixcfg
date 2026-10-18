@@ -52,6 +52,11 @@ is a host/container filesystem boundary, not isolation from trusted host root
 or other host processes running with that UID. No network credential is added.
 The restrictive socket-creation umask remains active until asynchronous listen
 and the final chmod finish; success and failure both restore the prior mask.
+The test-only socket override resolves the temporary directory, private test
+root and socket parent through `realpath`. The test root must stay strictly
+inside the real temporary directory, and the parent must stay within that test
+root. The listener uses the resolved parent so a caller's symlink alias cannot
+redirect it later. Production configuration accepts only the constant above.
 
 Capture sends run in the background with a one-second absolute timeout and
 at most five attempts with backoff. Each class outage and its resolution has
@@ -60,6 +65,9 @@ even after an acknowledgement or lost HTTP reply. The archive retains the
 existing 30-day policy. The executor persists delivery markers and retry
 budgets on capture receipts across restarts. The local test sender omits a
 key so each explicit test invocation creates exactly one new test message.
+Ledger rename/link publication anchors the receipt before directory fsync or
+cleanup can fail. Pending diagnostics adopt the on-disk class identity and
+delivery record, keeping the same key through partial publication and restart.
 
 Executor peer and loopback health expose `resultsCapture.state` (`ok` or
 `degraded`), optional `reason` (`results_capture_failed` or `ledger_size_limit`),
