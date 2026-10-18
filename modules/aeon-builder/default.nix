@@ -76,6 +76,10 @@ let
       prePullImages
       runner
       ruleset
+      rulesetQuarantineEnable
+      rulesetQuarantineGraceSeconds
+      rulesetQuarantineCleanReads
+      rulesetQuarantineMaxPerDay
       ;
     inherit baseId;
     appEnv = "${cfg.configDir}/app.env";
@@ -308,6 +312,26 @@ in
       };
       description = "actions/runner linux-arm64 release, verified by sha256 inside the base VM.";
     };
+    rulesetQuarantineEnable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Quarantine mismatching ruleset reads only when independent history proves the version unchanged; false pauses immediately on any drift.";
+    };
+    rulesetQuarantineGraceSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 600;
+      description = "Maximum quarantine duration before pausing and cancelling queued runs.";
+    };
+    rulesetQuarantineCleanReads = lib.mkOption {
+      type = lib.types.addCheck lib.types.int (value: value >= 2);
+      default = 2;
+      description = "Consecutive exact reads at the normal check cadence, with unchanged history, required for automatic recovery (at least two).";
+    };
+    rulesetQuarantineMaxPerDay = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 3;
+      description = "Maximum quarantines in a rolling 24 hours; the next anomaly pauses immediately.";
+    };
     ruleset = lib.mkOption {
       type = lib.types.anything;
       default = {
@@ -316,8 +340,9 @@ in
       };
       description = ''
         The paimos main ruleset (AEON-411), checked before every mint and every
-        availability publish. It must equal the pinned copy exactly; any drift
-        pauses the pool. After an intended ruleset change, refresh the pin with
+        availability publish. It must equal the pinned copy exactly. Drift with
+        a changed or unreadable history pauses; unchanged history can quarantine
+        temporarily. After an intended ruleset change, refresh the pin with
         `gh api repos/inspr-at/paimos/rulesets/24240960` (keys enforcement,
         target, conditions, bypass_actors, rules).
       '';
