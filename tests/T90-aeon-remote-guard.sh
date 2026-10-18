@@ -470,6 +470,62 @@ check 3 0 'adopt never writes inside a directory' 'guard error' adopt dir "$$"
 ln -s "$guard_home/external" "$guard_home/.aeon-remote-leases/link"
 check 3 0 'adopt never follows a symlink' 'guard error' adopt link "$$"
 [[ ! -e $guard_home/external ]] || fail 'adopt followed symlink'
+
+# Round 4: run directories only cover the start window (reservation TTL and the
+# same future skew). Leaked directories of killed runs never block the budget
+# and are never deleted; an adopted lease keeps the run counted once afterwards.
+run_dir_age() {
+  python3 - "$guard_home/ci.noindex/aeon-runs" "$1" "${@:2}" <<'PYTIME'
+import os, sys
+for name in sys.argv[3:]:
+    os.utime(os.path.join(sys.argv[1], name), (int(sys.argv[2]), int(sys.argv[2])))
+PYTIME
+}
+new_home
+mkdir -p "$guard_home/ci.noindex/aeon-runs/old"
+run_dir_age "$((now - 1000))" old
+check 0 0 'old run dir without lease does not count' '' reserve other
+check 0 0 'old run dir without lease passes bare call'
+[[ -d $guard_home/ci.noindex/aeon-runs/old ]] || fail 'guard removed old run dir'
+new_home
+mkdir -p "$guard_home/ci.noindex/aeon-runs/fresh"
+check 3 0 'fresh run dir counts' '1/1 runs active (OPS budget)' reserve other
+check 0 0 'fresh run dir excludes itself' '' reserve fresh
+new_home
+mkdir -p "$guard_home/ci.noindex/aeon-runs/boundary"
+run_dir_age "$((now - 119))" boundary
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 3 0 'run dir inside start window counts' '1/1 runs active (OPS budget)' reserve other
+run_dir_age "$((now - 120))" boundary
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 0 0 'run dir at TTL boundary does not count' '' reserve other
+unlink "$guard_home/.aeon-remote-leases/other"
+run_dir_age "$((now + 60))" boundary
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 3 0 '60-second future run dir counts' '1/1 runs active (OPS budget)' reserve other
+run_dir_age "$((now + 61))" boundary
+PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" \
+  check 0 0 'run dir beyond future skew does not count' '' reserve other
+[[ -d $guard_home/ci.noindex/aeon-runs/boundary ]] || fail 'guard removed boundary run dir'
+new_home
+mkdir -p "$guard_home/ci.noindex/aeon-runs/adopted"
+run_dir_age "$((now - 1000))" adopted
+check 0 0 'adopt keeps an old run dir counted' '' adopt adopted "$$"
+check 3 0 'old run dir with live adopted lease counts once' '1/1 runs active (OPS budget)' reserve other
+check 0 0 'old run dir with live adopted lease passes bare call'
+check 0 0 'adopted run with old run dir can refresh' '' reserve adopted
+grep -qx "pid=$$" "$guard_home/.aeon-remote-leases/adopted" || fail 'refresh dropped adopted pid'
+new_home
+leaked=()
+for i in 1 2 3 4 5 6 7 8; do leaked+=("leaked-$i"); done
+mkdir -p "${leaked[@]/#/$guard_home/ci.noindex/aeon-runs/}"
+run_dir_age "$((now - 1000))" "${leaked[@]}"
+check 0 0 'eight leaked run dirs still admit a reserve at maxruns=1' '' reserve admitted
+check 0 0 'eight leaked run dirs pass the bare call'
+check 3 0 'admitted run still counts beside leaked dirs' '1/1 runs active (OPS budget)' reserve other
+for i in "${leaked[@]}"; do
+  [[ -d $guard_home/ci.noindex/aeon-runs/$i ]] || fail "guard removed leaked run dir $i"
+done
 new_home
 mkdir "$guard_home/.aeon-remote-test"
 printf '%s\n' "$$" >"$guard_home/.aeon-remote-test/pinned.pid"
