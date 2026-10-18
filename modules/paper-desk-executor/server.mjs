@@ -216,6 +216,7 @@ export function createServer(options) {
           status: "ok", gatewayReachable: false, gatewayHost, gatewayPort,
           account: ACCOUNT, ...ledger.usage(), halt: activeHalt(ledger.haltBody()),
           brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
+          ...(state.resultsCapture ? { resultsCapture: state.resultsCapture } : {}),
         };
       }),
     ]);
@@ -515,7 +516,10 @@ async function main() {
   if (capture) {
     // Separate loopback listener: only a read-only health route, never intents,
     // admin attribution, halt, cancel or any Gateway request API.
-    healthServer = createHealthServer(async () => ({ ...await started.readHealth(), resultsCapture: capture.health() }));
+    healthServer = createHealthServer(async () => {
+      const health = await started.readHealth();
+      return { ...health, resultsCapture: { ...capture.health(), ...health.resultsCapture } };
+    });
     await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(resultsHealthPort(process.env.PAPER_DESK_RESULTS_HEALTH_PORT), "127.0.0.1", resolve); });
     capture({ ...started.ledger.load(), resultsFxSampler: { enabled: true, reason: "missing_sample", days: {} } });
   }

@@ -685,3 +685,53 @@ test('capture-only health port reserves 8472 and refuses mailbox or arbitrary po
   assert.equal(resultsHealthPort('8472'), 8472);
   for (const port of ['8471', '8470', '0', '8472.0', '08472']) assert.throws(() => resultsHealthPort(port));
 });
+
+for (const stage of ['admission', 'save']) for (const code of ['unavailable', 'ENOSPC', 'EIO']) {
+  test(`capture ${code} at ${stage} never fails HTTP intents or idempotent replay`, async t => {
+    const logs = t.mock.method(console, 'error', () => {});
+    let failure = true, currentId;
+    const ctx = await start(t, { beforePrune: state => {
+      if (failure && (stage === 'admission' || state.intents.has(currentId))) throw Object.assign(new Error('synthetic-private-value'), { code });
+    } });
+    const ledger = openLedger(ctx.stateDir), state = ledger.load();
+    state.intents.set('expired-capture-evidence', { action: 'place', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { evidence: 'synthetic-evidence' } });
+    // Seed without retention so admission itself can prove fail-open retention.
+    const disk = JSON.parse(readFileSync(ledger.statePath));
+    disk.intents = Object.fromEntries(state.intents);
+    writeFileSync(ledger.statePath, JSON.stringify(disk));
+    for (const action of ['place', 'flatten', 'recon', 'cancel']) {
+      const intent = valid({ intentId: `synthetic-${stage}-${code}-${action}`, action,
+        ...(action === 'place' ? {} : { order: undefined }), ...(action === 'cancel' ? { orderId: 123 } : {}) });
+      currentId = intent.intentId;
+      const result = await post(ctx.url, intent);
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, okResult(intent));
+      const beforeReplay = ctx.calls();
+      const replay = await post(ctx.url, intent);
+      assert.equal(replay.status, 200);
+      assert.equal(replay.body.idempotentReplay, true);
+      assert.equal(ctx.calls(), beforeReplay);
+    }
+    assert.equal(ctx.calls(), 4);
+    const retained = JSON.parse(readFileSync(ledger.statePath));
+    if (stage === 'admission') assert.equal(retained.intents['expired-capture-evidence'].result.evidence, 'synthetic-evidence');
+    assert.equal(retained.resultsCapture.ok, false);
+    assert.equal(retained.resultsCapture.code, code);
+    assert.equal(retained.resultsCaptureAlerts.length, 1);
+    assert.equal(retained.resultsCaptureAlerts[0].code, code);
+    const health = await (await fetch(`${ctx.url}/v1/health`)).json();
+    assert.equal(health.resultsCapture.ok, false);
+    assert.equal(health.resultsCapture.code, code);
+    assert.equal(JSON.stringify([health.resultsCapture, retained.resultsCaptureAlerts, logs.mock.calls]).includes('synthetic-private-value'), false);
+    // The save-only scenario successfully captures at each admission, hence
+    // one transition log per recovery/new outage, not per failed save.
+    assert.equal(logs.mock.callCount(), stage === 'admission' ? 1 : 4);
+    failure = false;
+    const recovered = await post(ctx.url, valid({ intentId: `synthetic-recovered-${stage}-${code}` }));
+    assert.equal(recovered.status, 200);
+    const after = await (await fetch(`${ctx.url}/v1/health`)).json();
+    assert.equal(after.resultsCapture.ok, true);
+    assert.ok(after.resultsCapture.lastRecoveredAt);
+    assert.equal(JSON.parse(readFileSync(ledger.statePath)).intents['expired-capture-evidence'], undefined);
+  });
+}
