@@ -199,7 +199,7 @@ export function admitIntent(state, action, options) {
 
 const STATE_SCHEMA = "barta.paper-desk-executor-state.v1";
 
-function writeAtomic(filePath, body, { exclusive = false } = {}) {
+function writeAtomic(filePath, body, { exclusive = false, onPublished } = {}) {
   const temporary = `${filePath}.${randomUUID()}.new`;
   const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   let publishedAt;
@@ -215,6 +215,9 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
     // a ledger concurrently created by another process.
     if (exclusive) linkSync(temporary, filePath);
     else renameSync(temporary, filePath);
+    // Readers already open these bytes, even if cleanup or directory fsync
+    // fails next. Record their identity before surfacing that failure.
+    onPublished?.(publishedAt);
   } finally {
     try { unlinkSync(temporary); } catch (error) { if (error.code !== "ENOENT") throw error; }
   }
@@ -234,9 +237,10 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   let headroomWarning = false;
   // Only diagnostics may outlive a failed publication in memory. Claims and
   // evidence must still come from disk on the next load.
-  let pendingCaptureFailure;
+  let pendingCaptureFailure, pendingCaptureAnchor;
   let captureRevision = 0, durableCaptureAnchor, durableCaptureAt;
   let durableCaptureOutages = new Set();
+  let durableCaptureAlerts = [];
 
   function rememberDurableCapture(body, state, at) {
     if (!beforePrune) return;
@@ -245,6 +249,27 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     durableCaptureAnchor = createHash("sha256").update(`${at}\n`).update(body).digest("hex");
     durableCaptureAt = at;
     durableCaptureOutages = new Set((state.resultsCaptureAlerts ?? []).map(row => row.outageId));
+    // Never alias the mutable pending delivery bookkeeping into this snapshot.
+    durableCaptureAlerts = structuredClone(state.resultsCaptureAlerts ?? []);
+  }
+
+  function adoptPublishedCapture(state, { adoptDelivery = false } = {}) {
+    const alerts = state.resultsCaptureAlerts ?? [];
+    for (const receipt of alerts) {
+      if (receipt.resolvedAt) continue;
+      const published = durableCaptureAlerts.find(row => !row.resolvedAt && row.code === receipt.code);
+      if (!published) continue;
+      // An older pending overlay must not replace the receipt other readers
+      // see. Same-generation memory may hold a newer unsaved delivery result.
+      if (adoptDelivery || receipt.outageId !== published.outageId || receipt.at !== published.at) {
+        receipt.outageId = published.outageId;
+        receipt.at = published.at;
+        delete receipt.delivery;
+        if (published.delivery) receipt.delivery = structuredClone(published.delivery);
+      }
+    }
+    if (state.resultsCaptureAlerts) state.resultsCaptureAlerts = [...alerts,
+      ...durableCaptureAlerts.filter(row => !alerts.some(receipt => receipt.outageId === row.outageId)).map(row => structuredClone(row))];
   }
 
   function retainCaptureFailure(state) {
@@ -252,6 +277,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     // after a full-disk restart. The last durable ledger anchors both key and
     // message timestamp; no evidence values enter the diagnostic. Previously
     // persisted outage IDs, bodies and delivery budgets remain authoritative.
+    adoptPublishedCapture(state);
     for (const receipt of state.resultsCaptureAlerts ?? []) {
       if (receipt.resolvedAt || durableCaptureOutages.has(receipt.outageId)) continue;
       receipt.outageId = digest({ event: "unpersisted_capture_failure", code: receipt.code,
@@ -259,6 +285,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       receipt.at = durableCaptureAt ?? state.initializedAt;
     }
     pendingCaptureFailure = { resultsCapture: state.resultsCapture, resultsCaptureAlerts: state.resultsCaptureAlerts };
+    pendingCaptureAnchor = durableCaptureAnchor;
     captureRevision++;
   }
 
@@ -422,8 +449,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   function persist(state) {
     const body = `${serializeState(state)}\n`;
     if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("ledger size limit reached; evidence retained");
-    const publishedAt = writeAtomic(statePath, body);
-    rememberDurableCapture(body, state, publishedAt);
+    writeAtomic(statePath, body, { onPublished: at => rememberDurableCapture(body, state, at) });
     pendingCaptureFailure = undefined;
     captureRevision++;
     headroom(Buffer.byteLength(body));
@@ -478,7 +504,8 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       if (!initialize || readOnly) return initialState();
       const initial = initialState();
       try {
-        writeAtomic(statePath, `${serializeState(initial)}\n`, { exclusive: true });
+        const body = `${serializeState(initial)}\n`;
+        writeAtomic(statePath, body, { exclusive: true, onPublished: at => rememberDurableCapture(body, initial, at) });
         audit({ event: "ledger_initialized", initializedAt: initial.initializedAt });
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
@@ -504,7 +531,12 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     value.intents = dictionary(value.intents, "intentId");
     delete value.attributionConfig;
     rememberFirstOrders(value);
-    Object.assign(value, pendingCaptureFailure);
+    if (pendingCaptureFailure) {
+      Object.assign(value, pendingCaptureFailure);
+      adoptPublishedCapture(value, { adoptDelivery: pendingCaptureAnchor !== durableCaptureAnchor });
+      pendingCaptureFailure = { resultsCapture: value.resultsCapture, resultsCaptureAlerts: value.resultsCaptureAlerts };
+      pendingCaptureAnchor = durableCaptureAnchor;
+    }
     const legacyRecons = [...value.intents.values()].some((row) => row.action === "recon" && row.result && row.result.resultCompacted !== true);
     if (!readOnly && migrate && (value.reconStorageVersion !== 1 || legacyRecons)) {
       if (!captureBeforePrune(value, beforePrune)) {

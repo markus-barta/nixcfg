@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -19,7 +20,10 @@ export function assertLocalSocketPath(value, testSocketDir) {
   if (!validPath(testSocketDir) || !validPath(value)) throw new Error("local mailbox socket path is invalid");
   const root = path.resolve(testSocketDir), socket = path.resolve(value);
   if (!beneath(path.resolve(tmpdir()), root) || !beneath(root, socket)) throw new Error("local mailbox socket path is invalid");
-  return socket;
+  const temporary = realpathSync(tmpdir()), realRoot = realpathSync(root), parent = realpathSync(path.dirname(socket));
+  if (!beneath(temporary, realRoot) || (parent !== realRoot && !beneath(realRoot, parent))) throw new Error("local mailbox socket path is invalid");
+  // Pin the validated parent rather than following the caller's alias later.
+  return path.join(parent, path.basename(socket));
 }
 
 export const LISTEN_HOST = "100.64.0.6";

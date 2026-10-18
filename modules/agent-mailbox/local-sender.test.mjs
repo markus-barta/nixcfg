@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createServer, LOCAL_SENDER } from "./server.mjs";
-import { LOCAL_SOCKET_PATH, validIdentity } from "./security.mjs";
+import { assertLocalSocketPath, LOCAL_SOCKET_PATH, validIdentity } from "./security.mjs";
 import { mailboxRequest } from "../../tests/local-mailbox-fixture.mjs";
 
 function fixture(t, options = {}) {
@@ -45,6 +45,47 @@ test("foreign socket paths are rejected before filesystem access, including envi
 test("the production socket constant is accepted", async t => {
   const app = fixture(t, { localSocketPath: LOCAL_SOCKET_PATH, testSocketDir: undefined });
   assert.ok(app.localServer);
+});
+
+for (const escape of ["test root", "socket parent", "sibling temporary directory"]) {
+  test(`test socket rejects a symlink escape through its ${escape}`, t => {
+    const root = mkdtempSync(path.join(tmpdir(), "joed43-socket-realpath-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const link = path.join(root, "link");
+    const sibling = path.join(root, "sibling");
+    fs.mkdirSync(sibling);
+    fs.symlinkSync(escape === "sibling temporary directory" ? sibling : "/etc", link);
+    const testRoot = escape === "socket parent" ? root : link;
+    if (escape === "sibling temporary directory") {
+      // Lexically inside a private test root, really in a sibling under tmp.
+      const privateRoot = path.join(root, "private");
+      fs.mkdirSync(privateRoot);
+      fs.symlinkSync(sibling, path.join(privateRoot, "link"));
+      assert.throws(() => assertLocalSocketPath(path.join(privateRoot, "link/mailbox.sock"), privateRoot), /socket path is invalid/);
+    } else {
+      assert.throws(() => assertLocalSocketPath(path.join(link, "mailbox.sock"), testRoot), /socket path is invalid/);
+    }
+  });
+}
+
+test("test socket accepts temporary aliases and pins the resolved parent before listen", async t => {
+  const root = fixture(t).mailbox.root;
+  const target = path.join(root, "target"), alias = path.join(root, "alias");
+  fs.mkdirSync(target);
+  fs.symlinkSync(target, alias);
+  const socket = assertLocalSocketPath(path.join(alias, "mailbox.sock"), alias);
+  assert.equal(socket, path.join(fs.realpathSync(target), "mailbox.sock"));
+  const app = fixture(t, { testSocketDir: alias, localSocketPath: path.join(alias, "mailbox.sock") });
+  fs.unlinkSync(alias);
+  fs.symlinkSync("/etc", alias);
+  t.mock.method(app.localServer, "listen", (filename, callback) => {
+    assert.equal(filename, socket);
+    writeFileSync(filename, "");
+    queueMicrotask(callback);
+    return app.localServer;
+  });
+  await app.listenLocal();
+  assert.equal(statSync(socket).isFile(), true);
 });
 
 test("local socket remains restricted from asynchronous creation until listen resolves", async t => {
