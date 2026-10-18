@@ -2870,7 +2870,8 @@ class RulesetQuarantineTests(unittest.TestCase):
         self.state.update(lambda d: d.update(mode="draining"))
         self.anomaly(ctl, gh)
         gh._runs = []
-        self.assertEqual(ctl.tick(), "draining", "an empty queue must not stop quarantine monitoring")
+        self.state.update(lambda d: d["slots"].update({"0": {"jobId": 90, "phase": "running"}}))
+        self.assertEqual(ctl.tick(), "draining", "a running job must finish before stopping")
         gh.ruleset.return_value = copy.deepcopy(LIVE_RULESET)
         for _ in range(2):
             self.clock.return_value += 5
@@ -3008,13 +3009,13 @@ class RulesetQuarantineTests(unittest.TestCase):
         self.clock.return_value = 1012
         self.assertIsNone(ctl.weak_window_reason(later))
         self.assertEqual(ctl.claim_slot(gh._jobs[10][0], later), 0)
-        for value in (None, "bad", "1970-01-01T00:16:45"):
+        for rid, value in enumerate((None, "bad", "1970-01-01T00:16:45"), start=11):
             with self.subTest(value=value):
-                unknown = run(id=11, created_at=value)
+                unknown = run(id=rid, created_at=value)
                 gh._runs = [unknown]
-                gh._jobs[11] = [{**job, "id": 110}]
-                self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, unknown)), [11])
-        self.assertEqual(gh.cancelled, [11])
+                gh._jobs[rid] = [{**job, "id": rid * 10}]
+                self.assertEqual(ctl.unverified_label_runs(ab.mint_labels(CFG, unknown)), [rid])
+        self.assertEqual(gh.cancelled, [11, 12, 13])
 
     def test_base_label_takers_in_the_window_are_cancelled_but_hosted_jobs_are_not(self):
         ctl, gh, _, job = self.pool()
@@ -3491,15 +3492,19 @@ class RulesetRoundTwoRegressionTests(unittest.TestCase):
         self.assertIn("rulesetQuarantine", self.state.load())
         self.assertIn(10, self.state.load()["cancelledRuns"])
 
-    def test_failed_cancel_is_recorded_without_repeated_posts_or_verification(self):
+    def test_failed_cancel_retries_only_in_pre_mint_sweep_without_reverification(self):
         ctl, gh, _, _ = self.pool()
         gh._runs = [run(id=9, head_repository={"full_name": "other/repo"})]
         gh.cancel = Mock(side_effect=ab.BuilderError("cancel unavailable"))
         with patch.object(ab, "verify_run", wraps=ab.verify_run) as verify:
             ctl.tick()
-            self.assertEqual(ctl.unverified_label_runs(ab.pool_labels(CFG)), [9])
+            gh.cancel.assert_called_once_with(9)
             ctl.tick()
-        gh.cancel.assert_called_once_with(9)
+            gh.cancel.assert_called_once_with(9)
+            self.assertEqual(ctl.unverified_label_runs(ab.pool_labels(CFG)), [9])
+            self.assertEqual(gh.cancel.call_args_list, [unittest.mock.call(9)] * 2)
+            ctl.tick()
+        self.assertEqual(gh.cancel.call_args_list, [unittest.mock.call(9)] * 2)
         verify.assert_called_once()
         self.assertIn(9, self.state.load()["cancelledRuns"])
 
@@ -3511,6 +3516,188 @@ class RulesetRoundTwoRegressionTests(unittest.TestCase):
             ctl.unverified_label_runs(ab.pool_labels(CFG))
         rejects = [call.args[0] for call in logged.call_args_list if call.args[0].startswith("reject run 9")]
         self.assertEqual(len(rejects), 1)
+
+
+class RulesetRoundThreeRegressionTests(unittest.TestCase):
+    setUp = ControllerTests.setUp
+    controller = ControllerTests.controller
+    history = RulesetRoundTwoRegressionTests.history
+    pool = RulesetRoundTwoRegressionTests.pool
+    anomaly = RulesetRoundTwoRegressionTests.anomaly
+
+    def test_pre_mint_cancel_retry_is_once_per_run_and_outside_state_lock(self):
+        ctl, gh, r, _ = self.pool()
+        self.state.update(lambda d: d["cancelledRuns"].append(r["id"]))
+        gh._runs = [r, r]
+        def cancel(_):
+            self.assertEqual(ab.State._local.depth, 0)
+        gh.cancel = Mock(side_effect=cancel)
+        self.assertEqual(ctl.unverified_label_runs(ab.pool_labels(CFG)), [r["id"]])
+        gh.cancel.assert_called_once_with(r["id"])
+        gh.cancel.side_effect = lambda _: self.anomaly(ctl, gh)
+        self.assertEqual(ctl.unverified_label_runs(ab.pool_labels(CFG)), [r["id"]])
+        self.assertEqual(gh.cancel.call_count, 2)
+        self.assertIn("rulesetQuarantine", self.state.load())
+
+    def test_pre_mint_cancel_retry_checks_interlock_after_queued_jobs_read(self):
+        ctl, gh, r, job = self.pool()
+        self.state.update(lambda d: d["cancelledRuns"].append(r["id"]))
+        def jobs(_):
+            self.anomaly(ctl, gh)
+            return [job]
+        gh.jobs = jobs
+        ctl.unverified_label_runs(ab.pool_labels(CFG))
+        self.assertEqual(gh.cancelled, [])
+
+    def test_dropped_history_ids_do_not_pause_or_shrink_exact_baseline(self):
+        ctl, gh, _, _ = self.pool(versions=(1, 9))
+        self.history(gh, (9,))
+        self.clock.return_value = 1005
+        self.assertTrue(ctl.check_ruleset())
+        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1, 9], "at": 1005})
+        self.history(gh, (1, 9))
+        self.assertTrue(ctl.check_ruleset(), "reappearing known ids must not look new")
+        self.assertEqual(gh.cancelled, [])
+
+    def test_dropped_history_ids_allow_quarantine_recovery_with_union_baseline(self):
+        ctl, gh, _, _ = self.pool(versions=(1, 9))
+        self.history(gh, (9,))
+        self.anomaly(ctl, gh)
+        gh.ruleset.return_value = LIVE_RULESET
+        for at, recovered in ((1006, False), (1011, True)):
+            self.clock.return_value = at
+            self.assertEqual(ctl.check_ruleset(), recovered)
+        self.assertEqual(self.state.load()["rulesetExact"], {"versions": [1, 9], "at": 1011})
+        self.history(gh, (1, 9))
+        self.assertTrue(ctl.check_ruleset())
+        self.assertEqual(gh.cancelled, [])
+
+    def test_exact_history_pause_rejects_delayed_window_jobs_in_same_update(self):
+        ctl, gh, _, job = self.pool()
+        self.history(gh, (1, 2))
+        self.clock.return_value = 1006
+        def clear():
+            data = self.state.load()
+            self.assertEqual(data["mode"], "paused")
+            self.assertEqual(data.get("rulesetRejectedWindows"), [{"since": 1000, "until": 1006}])
+        gh.clear = Mock(side_effect=clear)
+        self.assertFalse(ctl.check_ruleset())
+        gh.clear.assert_called_once()
+        self.state.update(lambda d: d.update(mode="on"))
+        gh._runs = [run(id=10, created_at="1970-01-01T00:16:41Z")]
+        gh._jobs = {10: [{**job, "id": 100}]}
+        ctl.tick()
+        self.assertEqual(gh.cancelled, [9, 10])
+        self.assertEqual(self.served, [])
+
+    def test_quarantine_limit_pause_rejects_delayed_window_jobs_in_same_update(self):
+        ctl, gh, _, job = self.pool()
+        ctl.cfg["rulesetQuarantineMaxPerDay"] = 1
+        self.state.update(lambda d: d.update(rulesetQuarantineEntries=[999]))
+        self.clock.return_value = 1006
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        def clear():
+            data = self.state.load()
+            self.assertEqual(data["mode"], "paused")
+            self.assertNotIn("rulesetQuarantine", data)
+            self.assertEqual(data.get("rulesetRejectedWindows"), [{"since": 1000, "until": 1006}])
+        gh.clear = Mock(side_effect=clear)
+        self.assertFalse(ctl.check_ruleset())
+        gh.clear.assert_called_once()
+        self.state.update(lambda d: d.update(mode="on"))
+        gh._runs = [run(id=10, created_at="1970-01-01T00:16:41Z")]
+        gh._jobs = {10: [{**job, "id": 100}]}
+        ctl.tick()
+        self.assertEqual(gh.cancelled, [9, 10])
+        self.assertEqual(self.served, [])
+
+    def test_new_pre_content_history_id_cannot_be_hidden_by_lagging_entry_read(self):
+        ctl, gh, _, _ = self.pool(versions=(1, 9))
+        gh.ruleset_versions.side_effect = [{1, 8, 9}, {1, 9}]
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.clock.return_value = 1006
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(ctl.mode(), "paused")
+        self.assertNotIn("rulesetQuarantine", self.state.load())
+        self.assertEqual(gh.cancelled, [9])
+        self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1000, "until": 1006}])
+
+    def test_off_during_empty_quarantine_finishes_drain_even_at_grace_deadline(self):
+        for at in (1006, 1601):
+            with self.subTest(at=at):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, _, _ = self.pool()
+                self.anomaly(ctl, gh)
+                real_init = ab.State.__init__
+                with patch.object(ab.State, "__init__", lambda state: real_init(state, self.tmp)), \
+                        patch.object(ab, "controller_pid", return_value=42), \
+                        patch.object(ab, "GitHub", return_value=gh), \
+                        patch("sys.stdout", new_callable=io.StringIO):
+                    self.assertEqual(ab.cmd_off(self.cfg, Mock(now=False, wait=0)), 2)
+                self.assertEqual(ctl.mode(), "draining")
+                self.clock.return_value = at
+                self.assertEqual(ctl.tick(), "off")
+                data = self.state.load()
+                self.assertNotIn("rulesetQuarantine", data)
+                self.assertNotIn("alert", data)
+                self.assertEqual(data["rulesetRejectedWindows"], [{"since": 1000, "until": at}])
+                self.assertEqual(Path(self.cfg["busyFile"]).read_text(), f"0/{self.cfg['slots']} {at}\n")
+                self.assertEqual(gh.cancelled, [])
+                self.assertEqual(self.served, [])
+
+    def test_quarantine_drain_waits_for_both_slots_and_workers(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        self.state.update(lambda d: d.update(mode="draining", slots={"0": {"jobId": 90, "phase": "running"}}))
+        self.assertEqual(ctl.tick(), "draining")
+        self.state.update(lambda d: d.update(slots={}))
+        worker = Mock()
+        worker.is_alive.return_value = True
+        ctl.workers[90] = worker
+        self.assertEqual(ctl.tick(), "draining")
+        self.assertIn("rulesetQuarantine", self.state.load())
+        self.assertEqual(gh.cancelled, [])
+
+    def test_class_mismatch_log_includes_job_labels_and_expected_class(self):
+        ctl, gh, _, job = self.pool()
+        job["labels"] = ["self-hosted", "Linux", "ARM64", "mbp2606"]
+        with patch.object(ab, "log") as logged:
+            ctl.tick()
+        rejects = [call.args[0] for call in logged.call_args_list if call.args[0].startswith("reject run 9:")]
+        self.assertEqual(len(rejects), 1)
+        self.assertIn(str(job["labels"]), rejects[0])
+        self.assertIn("mbp2606-push", rejects[0])
+        self.assertEqual(gh.cancelled, [9])
+
+    def test_persistent_exact_history_errors_log_at_most_once_per_minute(self):
+        ctl, gh, _, _ = self.pool()
+        baseline = self.state.load()["rulesetExact"]
+        self.history(gh, error=ab.BuilderError("HTTP 403"))
+        with patch.object(ab, "log") as logged:
+            for at in (1000, 1005, 1010, 1059, 1060):
+                self.clock.return_value = at
+                self.assertTrue(ctl.publish_once())
+        errors = [call.args[0] for call in logged.call_args_list if "history unreadable" in call.args[0]]
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all("HTTP 403" in message for message in errors))
+        self.assertEqual(self.state.load()["rulesetExact"], baseline)
+        self.assertEqual(gh.cancelled, [])
+
+    def test_persistent_quarantine_history_errors_are_rate_limited_without_recovery(self):
+        ctl, gh, _, _ = self.pool()
+        self.anomaly(ctl, gh)
+        gh.ruleset.return_value = LIVE_RULESET
+        self.history(gh, error=ab.BuilderError("HTTP 503"))
+        with patch.object(ab, "log") as logged:
+            for at in (1006, 1011, 1061, 1066):
+                self.clock.return_value = at
+                self.assertFalse(ctl.check_ruleset())
+        errors = [call.args[0] for call in logged.call_args_list if "not clean" in call.args[0]]
+        self.assertEqual(len(errors), 2)
+        self.assertEqual(self.state.load()["rulesetQuarantine"]["cleanReads"], 0)
+        self.assertEqual(ctl.mode(), "on")
+        self.assertEqual(gh.cancelled, [])
 
 
 if __name__ == "__main__":
