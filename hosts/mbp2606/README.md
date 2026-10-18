@@ -145,7 +145,8 @@ Pause and stop also close and reject the uncertain window, including a pause
 between exact reads or at the daily limit. A drain during quarantine goes off
 once no queued pool jobs, slots or workers remain. Queued jobs wait for recovery
 and continue draining, or grace expiry pauses and cancels them. Failed cancels
-retry only in the pre-mint sweep.
+retry only in the pre-mint sweep, which also cancels re-runs of earlier-cancelled
+runs, because a re-run keeps its run id and queues new pool jobs.
 Outside quarantine, content read errors skip that publish/mint; exact-read history
 errors keep the old baseline without pausing. Persistent read errors log at most
 once a minute.

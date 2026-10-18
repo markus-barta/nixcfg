@@ -681,6 +681,16 @@ class State:
             return data
 
 
+def quarantine_baseline(quarantine, exact):
+    """The baseline a quarantine was entered against, kept in the quarantine
+    itself because `on` removes rulesetExact while a quarantine may be active.
+    Older state files lack baselineSince: fall back to the exact read, then to
+    the quarantine cutoff, which is never later than the baseline's read."""
+    prior = exact or {}
+    since = prior.get("since", quarantine.get("baselineSince", quarantine["cutoff"]))
+    return {"versions": quarantine["versions"], "at": quarantine["cutoff"], "since": since}
+
+
 def reject_quarantine_window(data):
     """Close an uncertain window on recovery, pause or stop, under State's lock."""
     quarantine = data.pop("rulesetQuarantine", None)
@@ -856,14 +866,16 @@ class Controller:
             except BuilderError as err:
                 log(f"clear availability failed: {err}")
         def paused(data):
+            quarantine = data.get("rulesetQuarantine")
             baseline = data.get("rulesetExact")
+            if quarantine:
+                baseline = quarantine_baseline(quarantine, baseline)
             cutoff = baseline["at"] if baseline else None
             if history_versions is not None and baseline:
                 cutoff = self.history_window_start(baseline, history_versions)
-                quarantine = data.get("rulesetQuarantine")
                 if quarantine:
                     quarantine["cutoff"] = min(quarantine["cutoff"], cutoff)
-            if (reject_exact_window or history_versions is not None) and baseline and not data.get("rulesetQuarantine"):
+            if (reject_exact_window or history_versions is not None) and baseline and not quarantine:
                 data.setdefault("rulesetRejectedWindows", []).append({
                     "since": cutoff, "until": time.time(),
                 })
@@ -979,6 +991,7 @@ class Controller:
                 current["rulesetQuarantine"] = {
                     "since": time.time(), "checkedAt": started, "cleanReads": 0,
                     "versions": baseline["versions"], "cutoff": baseline["at"], "confirmed": False,
+                    "baselineSince": baseline.get("since", baseline["at"]),
                 }
                 entered.append(True)
 
@@ -990,7 +1003,8 @@ class Controller:
                         log(f"clear quarantine availability failed (lease expires in 30 s): {err}")
             data = self.state.update(enter, then=clear)
             if limited:
-                self.pause("main ruleset quarantine limit reached (24 h)", reject_exact_window=True)
+                self.pause("main ruleset quarantine limit reached (24 h)", reject_exact_window=True,
+                           history_versions=None if history_error else versions)
                 self.log_ruleset_drift(live)
                 return False
             quarantine = data.get("rulesetQuarantine")
@@ -1042,11 +1056,12 @@ class Controller:
                 if q["cleanReads"] >= self.cfg["rulesetQuarantineCleanReads"]:
                     # Keep closed intervals permanently, including across restarts:
                     # delayed/retried jobs from this uncertain window stay denied.
+                    # `on` may have removed rulesetExact during the quarantine.
+                    since = quarantine_baseline(q, current.get("rulesetExact"))["since"]
                     reject_quarantine_window(current)
-                    baseline = current["rulesetExact"]
                     current["rulesetExact"] = {
                         "versions": sorted(set(q["versions"]) | set(versions)), "at": int(started),
-                        "since": baseline.get("since", baseline["at"]),
+                        "since": since,
                     }
                     recovered.append(True)
             self.state.update(observe)
@@ -1947,7 +1962,8 @@ def cmd_off(cfg, args):
         except BuilderError as err:
             print(f"aeon-builder: warning, cancelling runs failed ({err})", file=sys.stderr)
     else:
-        print("aeon-builder: draining — availability cleared, queued mbp2606 jobs are still served")
+        print("aeon-builder: draining — availability cleared, queued mbp2606 jobs are still served "
+              "(during a ruleset quarantine they wait for recovery, or grace expiry cancels them)")
     deadline = time.time() + args.wait * 60
     while time.time() < deadline and controller_pid():
         data = state.load()

@@ -3833,5 +3833,115 @@ class RulesetRoundFourRegressionTests(unittest.TestCase):
         self.assertEqual(self.served, [])
 
 
+class RulesetRoundFiveRegressionTests(unittest.TestCase):
+    setUp = ControllerTests.setUp
+    controller = ControllerTests.controller
+    pool = RulesetRoundFourRegressionTests.pool
+    changed_history = RulesetRoundFourRegressionTests.changed_history
+    assert_delayed_run_rejected = RulesetRoundFourRegressionTests.assert_delayed_run_rejected
+
+    def limited(self):
+        """Three quarantines within 24 h, then a mismatch at T5 = 1006."""
+        ctl, gh, job, history, baseline = self.pool()
+        self.state.update(lambda d: d.update(rulesetQuarantineEntries=[900, 950, 999]))
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.clock.return_value = 1006
+        return ctl, gh, job, history, baseline
+
+    def test_daily_limit_pause_widens_to_lagging_new_history_ids(self):
+        ctl, gh, job, history, baseline = self.limited()
+        history.return_value = self.changed_history(baseline)
+        self.assertFalse(ctl.check_ruleset())
+        data = self.state.load()
+        self.assertEqual(data["mode"], "paused")
+        self.assertIn("limit reached", data["alert"])
+        self.assertNotIn("rulesetQuarantine", data)
+        self.assertEqual(data["rulesetRejectedWindows"], [{"since": 1001, "until": 1006}])
+        self.assert_delayed_run_rejected(ctl, gh, job)
+
+    def test_daily_limit_pause_with_history_error_keeps_last_exact_read(self):
+        ctl, gh, job, history, baseline = self.limited()
+        history.side_effect = ab.BuilderError("HTTP 500")
+        self.assertFalse(ctl.check_ruleset())
+        data = self.state.load()
+        self.assertEqual(data["mode"], "paused")
+        self.assertIn("limit reached", data["alert"])
+        self.assertNotIn("rulesetQuarantine", data)
+        self.assertEqual(data["rulesetRejectedWindows"], [{"since": 1005, "until": 1006}])
+
+    def quarantined(self, legacy=False, exact_removed=True):
+        """Enter quarantine at 1006, then drop rulesetExact as `on` does.
+        legacy=True strips baselineSince as a pre-round-5 state file would lack it."""
+        ctl, gh, job, history, baseline = self.pool()
+        self.clock.return_value = 1006
+        gh.ruleset.return_value = dict(LIVE_RULESET, enforcement="evaluate")
+        self.assertFalse(ctl.check_ruleset())
+        self.assertIn("rulesetQuarantine", self.state.load())
+
+        def on(data):
+            if legacy:
+                data["rulesetQuarantine"].pop("baselineSince", None)
+            if exact_removed:
+                data.pop("rulesetExact", None)
+        self.state.update(on)
+        return ctl, gh, job, history, baseline
+
+    def recover(self, ctl, gh):
+        gh.ruleset.return_value = LIVE_RULESET
+        for at, recovered in ((1011, False), (1016, True)):
+            self.clock.return_value = at
+            self.assertEqual(ctl.check_ruleset(), recovered)
+        data = self.state.load()
+        self.assertEqual(data["mode"], "on")
+        self.assertNotIn("rulesetQuarantine", data)
+        self.assertEqual(data["rulesetRejectedWindows"], [{"since": 1005, "until": 1016}])
+        return data
+
+    def test_recovery_after_on_removed_exact_baseline(self):
+        ctl, gh, job, _, _ = self.quarantined()
+        data = self.recover(ctl, gh)
+        self.assertEqual(data["rulesetExact"], {"versions": [1, 2, 3, 4, 5], "at": 1016, "since": 1000})
+        self.assertEqual(gh.cancelled, [])  # Run 9 (created before the window) is preserved.
+        gh._runs.append(run(id=10, created_at="1970-01-01T00:16:50Z"))  # Inside the uncertain window.
+        gh._jobs[10] = [{**job, "id": 100}]
+        ctl.tick()
+        self.assertIn(10, gh.cancelled)
+        self.assertNotIn(9, gh.cancelled)
+
+    def test_lagging_new_ids_widen_pause_after_on_removed_exact_baseline(self):
+        ctl, gh, job, history, baseline = self.quarantined()
+        history.return_value = self.changed_history(baseline)
+        self.clock.return_value = 1011
+        self.assertFalse(ctl.check_ruleset())
+        self.assertEqual(ctl.mode(), "paused")
+        self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": 1001, "until": 1011}])
+        self.assert_delayed_run_rejected(ctl, gh, job)
+
+    def test_legacy_quarantine_without_baseline_since_recovers(self):
+        for exact_removed, since in ((False, 1000), (True, 1005)):
+            with self.subTest(exact_removed=exact_removed):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, _, _, _ = self.quarantined(legacy=True, exact_removed=exact_removed)
+                data = self.recover(ctl, gh)
+                self.assertEqual(data["rulesetExact"], {"versions": [1, 2, 3, 4, 5], "at": 1016, "since": since})
+
+    def test_legacy_quarantine_unreadable_new_timestamp_never_narrows_window(self):
+        for exact_removed, since in ((False, 1000), (True, 1005)):
+            with self.subTest(exact_removed=exact_removed):
+                self.state.save({"mode": "on"})
+                self.clock.return_value = 1000
+                ctl, gh, job, history, baseline = self.quarantined(legacy=True, exact_removed=exact_removed)
+                changed = self.changed_history(baseline)
+                for entry in changed[-2:]:
+                    entry["updated_at"] = None
+                history.return_value = changed
+                self.clock.return_value = 1011
+                self.assertFalse(ctl.check_ruleset())
+                self.assertEqual(ctl.mode(), "paused")
+                self.assertEqual(self.state.load()["rulesetRejectedWindows"], [{"since": since, "until": 1011}])
+                self.assert_delayed_run_rejected(ctl, gh, job)
+
+
 if __name__ == "__main__":
     unittest.main()
