@@ -202,7 +202,7 @@ function sharedVolumeFailure(t, ledgerPath, journalPath, code, operation) {
 // Match only this ledger/directory so the independent mailbox remains real.
 function partialLedgerPublication(t, ledger, code, operation, repeat = false) {
   let failing = true, published = false;
-  const rootInode = fs.statSync(ledger.root).ino, directories = new Set();
+  const directories = new Set();
   const originals = Object.fromEntries(["openSync", "closeSync", "fsyncSync", "renameSync", "linkSync", "unlinkSync"].map(name => [name, fs[name]]));
   const failure = () => Object.assign(new Error("synthetic-private-value /synthetic/path"), { code });
   for (const name of ["renameSync", "linkSync"]) t.mock.method(fs, name, (from, to) => {
@@ -214,7 +214,7 @@ function partialLedgerPublication(t, ledger, code, operation, repeat = false) {
   t.mock.method(fs, "openSync", (file, flags, ...args) => {
     if (failing && published && operation === "directory-open" && file === ledger.root && (flags & fs.constants.O_DIRECTORY)) throw failure();
     const fd = originals.openSync(file, flags, ...args);
-    if ((flags & fs.constants.O_DIRECTORY) && fs.fstatSync(fd).ino === rootInode) directories.add(fd);
+    if ((flags & fs.constants.O_DIRECTORY) && file === ledger.root) directories.add(fd);
     return fd;
   });
   t.mock.method(fs, "fsyncSync", fd => {
@@ -384,7 +384,8 @@ test("a half-visible claim still fails closed and returns uncertain on replay wi
   assert.equal(visible.intents[intent.intentId].status, "claimed");
   const health = await app.readHealth();
   assert.equal(health.status, "degraded");
-  assert.equal(health.resultsCapture.persisted, false);
+  assert.equal(health.resultsCapture.persisted, true);
+  assert.equal(health.resultsCapture.durability, "uncertain");
   const second = await executorRequest(app, "POST", "/v1/intents", intent);
   assert.equal(second.status, 409);
   assert.equal(second.body.status, "uncertain");
