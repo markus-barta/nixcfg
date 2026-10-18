@@ -117,14 +117,22 @@ export function reconcileAttribution(state, config, context = {}) {
     else state.foreignAlertBacklog = previous.backlog;
     throw error;
   }
-  if (summary) context.audit?.(summary);
+  // Receipts already committed. Diagnostics cannot discard the broker return
+  // or interrupt the acknowledgement/result saves that follow attribution.
+  const diagnostic = work => {
+    try { work(); }
+    catch {
+      try { console.error(JSON.stringify({ event: "attribution_diagnostic_failed" })); } catch {}
+    }
+  };
+  if (summary) diagnostic(() => context.audit?.(summary));
   if (lateSummary) {
-    context.audit?.(lateSummary);
-    (context.alertForeign || ((event) => console.warn(JSON.stringify(event))))(lateSummary);
+    diagnostic(() => context.audit?.(lateSummary));
+    diagnostic(() => (context.alertForeign || ((event) => console.warn(JSON.stringify(event))))(lateSummary));
   }
   for (const alert of added.filter((row) => !row.silent)) {
-    context.audit?.(alert);
-    (context.alertForeign || ((event) => console.warn(JSON.stringify(event))))(alert);
+    diagnostic(() => context.audit?.(alert));
+    diagnostic(() => (context.alertForeign || ((event) => console.warn(JSON.stringify(event))))(alert));
   }
 }
 

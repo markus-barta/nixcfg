@@ -165,7 +165,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
       return result({ paperPort: 4002, account: ACCOUNT, modification: outcome.modification });
     } catch (error) {
       if (error?.published === true) throw error;
-      // A durable acknowledgement followed by a ledger failure still needs recon.
+      // An unpublished acknowledgement after submission still needs recon.
       if (change?.status === "submitted") error.code = "uncertain";
       if (change) { change.status = error.code === "uncertain" ? "uncertain" : "rejected"; change.error = publicError(error); saveState(state); }
       throw error;
@@ -303,5 +303,10 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     placement.error = publicError(error);
     saveState(state);
     throw error;
-  } finally { placingSession?.close(); }
+  } finally {
+    // Cleanup cannot replace either a saved acknowledgement or the original
+    // published/uncertain error and drive the server's failure-save path.
+    try { placingSession?.close(); }
+    catch { try { console.error(JSON.stringify({ event: "placing_session_cleanup_failed" })); } catch {} }
+  }
 }
