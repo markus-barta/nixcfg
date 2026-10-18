@@ -4,6 +4,7 @@
  * Never connects to live 4001. Never places orders.
  */
 import fs from "node:fs";
+import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
 import {
@@ -53,7 +54,7 @@ const PORT = 4002;
 const LIVE_PORT = 4001;
 const CLIENT_ID = 92;
 const OFFICIAL_HISTORY_CLIENT_ID = 94;
-const ACCOUNT = "DUR970597";
+const ACCOUNT = configuredPaperAccount();
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
 const FAMILY_HISTORY_PATH = "/var/lib/joe-board-pusher/family-history.json";
