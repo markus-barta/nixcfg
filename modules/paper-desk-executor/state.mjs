@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { ACCOUNT, digest, newYorkDay, validateKey } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
@@ -202,10 +202,12 @@ const STATE_SCHEMA = "barta.paper-desk-executor-state.v1";
 function writeAtomic(filePath, body, { exclusive = false } = {}) {
   const temporary = `${filePath}.${randomUUID()}.new`;
   const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  let publishedAt;
   try {
     try {
       writeFileSync(handle, body);
       fsyncSync(handle);
+      publishedAt = new Date(fstatSync(handle).mtimeMs).toISOString();
     } finally {
       closeSync(handle);
     }
@@ -218,6 +220,7 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
   }
   const directory = openSync(path.dirname(filePath), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try { fsyncSync(directory); } finally { closeSync(directory); }
+  return publishedAt;
 }
 
 export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune } = {}) {
@@ -229,9 +232,39 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   const reconEvidencePath = confinedPath(resolvedRoot, path.join(resolvedRoot, "recon-evidence.jsonl"), "recon evidence path");
   const backupPath = confinedPath(resolvedRoot, path.join(resolvedRoot, "ledger.pre-ops331.json"), "ledger backup path");
   let headroomWarning = false;
-  // If startup cannot publish diagnostics, retain only those diagnostics in
-  // memory. The next exclusive save carries them forward with fresh evidence.
+  // Only diagnostics may outlive a failed publication in memory. Claims and
+  // evidence must still come from disk on the next load.
   let pendingCaptureFailure;
+  let captureRevision = 0, durableCaptureAnchor, durableCaptureAt;
+  let durableCaptureOutages = new Set();
+
+  function rememberDurableCapture(body, state, at) {
+    if (!beforePrune) return;
+    // Publication time distinguishes a healthy rewrite of identical bytes
+    // while remaining stable across restarts of an unchanged full volume.
+    durableCaptureAnchor = createHash("sha256").update(`${at}\n`).update(body).digest("hex");
+    durableCaptureAt = at;
+    durableCaptureOutages = new Set((state.resultsCaptureAlerts ?? []).map(row => row.outageId));
+  }
+
+  function retainCaptureFailure(state) {
+    // A never-persisted outage must reconstruct the same delivery identity
+    // after a full-disk restart. The last durable ledger anchors both key and
+    // message timestamp; no evidence values enter the diagnostic. Previously
+    // persisted outage IDs, bodies and delivery budgets remain authoritative.
+    for (const receipt of state.resultsCaptureAlerts ?? []) {
+      if (receipt.resolvedAt || durableCaptureOutages.has(receipt.outageId)) continue;
+      receipt.outageId = digest({ event: "unpersisted_capture_failure", code: receipt.code,
+        anchor: durableCaptureAnchor ?? resolvedRoot });
+      receipt.at = durableCaptureAt ?? state.initializedAt;
+    }
+    pendingCaptureFailure = { resultsCapture: state.resultsCapture, resultsCaptureAlerts: state.resultsCaptureAlerts };
+    captureRevision++;
+  }
+
+  function captureDiagnostics() {
+    return { revision: captureRevision, persisted: !pendingCaptureFailure };
+  }
 
   function headroom(bytes) {
     const ledgerPercent = bytes / MAX_STATE_BYTES * 100;
@@ -361,30 +394,38 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       persist(state);
       return;
     }
-    if (!captureBeforePrune(state, beforePrune)) { persist(state); return; }
-    let next;
     try {
-      // These operations replace maps/arrays and recon receipts, leaving their
-      // original rows intact. Keep live placement/stop-change object identity:
-      // the executor updates those same objects after broker acknowledgement.
-      next = { ...state };
-      compactRecons(next);
-      pruneState(next, Date.now(), { reconRetentionMs });
-      captureRecovered(next);
+      if (!captureBeforePrune(state, beforePrune)) { persist(state); return; }
+      let next;
+      try {
+        // Keep live placement/stop-change identity across catch-up: the
+        // executor updates those objects after broker acknowledgement.
+        next = { ...state };
+        compactRecons(next);
+        pruneState(next, Date.now(), { reconRetentionMs });
+        captureRecovered(next);
+      } catch (error) {
+        captureFailure(state, error);
+        persist(state);
+        return;
+      }
+      persist(next);
+      Object.assign(state, next);
     } catch (error) {
-      captureFailure(state, error);
-      persist(state);
-      return;
+      if (state.resultsCapture?.ok === false) retainCaptureFailure(state);
+      // A failed durable claim remains a failed intent. Only capture
+      // diagnostics and best-effort alert delivery may fall back to memory.
+      throw error;
     }
-    persist(next);
-    Object.assign(state, next);
   }
 
   function persist(state) {
     const body = `${serializeState(state)}\n`;
     if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("ledger size limit reached; evidence retained");
-    writeAtomic(statePath, body);
+    const publishedAt = writeAtomic(statePath, body);
+    rememberDurableCapture(body, state, publishedAt);
     pendingCaptureFailure = undefined;
+    captureRevision++;
     headroom(Buffer.byteLength(body));
   }
 
@@ -393,7 +434,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     // stale snapshot while storage itself is unavailable.
     const state = load({ initialize: false, readOnly: true, migrate: false });
     captureFailure(state, error);
-    pendingCaptureFailure = { resultsCapture: state.resultsCapture, resultsCaptureAlerts: state.resultsCaptureAlerts };
+    retainCaptureFailure(state);
   }
 
   function updateCaptureDelivery(outageId, event, update) {
@@ -404,8 +445,28 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     if (!receipt) return;
     receipt.delivery ??= {};
     receipt.delivery[event] = update(receipt.delivery[event], receipt);
-    persist(state);
+    try { persist(state); }
+    catch {
+      // The sender is best effort even if the shared volume cannot publish
+      // its attempt marker. Keep the same finite per-receipt retry budget.
+      retainCaptureFailure(state);
+    }
     return receipt.delivery[event];
+  }
+
+  function rearmCaptureDelivery() {
+    // The HTTP admin caller holds the same exclusive queue as intent saves.
+    // No capture, retention, recovery or evidence mutation occurs here.
+    const state = load({ initialize: false, readOnly: true, migrate: false });
+    let rearmed = 0;
+    state.resultsCaptureAlerts = (state.resultsCaptureAlerts ?? []).map(receipt => {
+      if (receipt.resolvedAt || receipt.delivery?.failure?.status !== "failed") return receipt;
+      rearmed++;
+      return { ...receipt, delivery: { ...receipt.delivery,
+        failure: { ...receipt.delivery.failure, attempts: 0, status: "pending", nextAttemptAt: 0 } } };
+    });
+    if (rearmed) persist(state);
+    return { status: "ok", rearmed };
   }
 
   function load({ initialize = true, readOnly = false, migrate = true } = {}) {
@@ -431,6 +492,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       loadedBytes = info.size;
       original = readFileSync(handle, "utf8");
       value = JSON.parse(original);
+      rememberDurableCapture(original, value, new Date(info.mtimeMs).toISOString());
     } finally { closeSync(handle); }
     if (value?.schema !== STATE_SCHEMA || value?.account !== ACCOUNT
         || !Number.isFinite(Date.parse(value.initializedAt)) || !value.intents
@@ -502,5 +564,5 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     return planned.result;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute, updateCaptureDelivery, noteCaptureFailure };
+  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute, updateCaptureDelivery, noteCaptureFailure, captureDiagnostics, rearmCaptureDelivery };
 }

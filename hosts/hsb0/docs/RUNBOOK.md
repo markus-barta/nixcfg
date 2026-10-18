@@ -1056,8 +1056,14 @@ recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
 fills, commissions, close FX and reconciliation evidence with hashed identifiers.
 Capture exceptions retain the full ledger without pruning or recon compaction;
-admission/save proceeds within the capacity limits below. Legacy migration
-remains pending with its complete evidence until capture succeeds.
+admission/save proceeds within the capacity limits below if the ledger remains
+writable. If ledger publication itself fails (including ENOSPC, EDQUOT, EROFS,
+EIO or EFBIG on the shared state volume), the existing intent failure remains:
+HTTP 500 `status: "rejected"` for a failed claim save, no broker call and no
+in-memory claim carried into later loads. A failure after a durable claim keeps
+that claim's existing uncertain/replay behavior; an alert never authorizes
+execution without durable evidence. Legacy migration remains pending with its
+complete evidence until capture succeeds.
 
 Book polls load read-only snapshots without initialization or migration. Failed
 capture during a migration never publishes that reader's snapshot; the exclusive
@@ -1065,9 +1071,12 @@ save publishes its diagnostics alongside the current claim and delivery receipts
 Startup capture also runs on that exclusive queue. Journal initialization,
 append/fsync or migration-publication failures leave the executor listening with
 its capture hook installed and evidence retained. If diagnostics cannot be saved,
-health retains them in memory until a later exclusive publication succeeds;
-an unsaved diagnostic cannot survive process termination. Exception text and
-filesystem paths are excluded from these capture diagnostics.
+health retains them in memory until a later exclusive publication succeeds,
+for both startup and ordinary save failures. It reports
+`resultsCapture.persisted: false`; only diagnostics and delivery bookkeeping
+are retained, never undurable intent/evidence changes. An unsaved diagnostic
+cannot survive process termination, but startup redetects a continuing outage.
+Exception text and filesystem paths are excluded from these capture diagnostics.
 
 Executor `/v1/health` and loopback Results health (`127.0.0.1:8472`) report
 `status: "degraded"` after a capture/catch-up failure. This is executor health:
@@ -1081,6 +1090,7 @@ pinned Results wire contract here:
 | Field                                                  | Meaning                                                                                                                               |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                           |
+| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                            |
 | `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked       |
 | `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                  |
 | `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                      |
@@ -1138,9 +1148,23 @@ The background sender sends one value-free message per class outage and one
 resolution, containing only event, fixed class code, since/at timestamps,
 ledger bytes/cap and admission-block flag. It never waits on the intent path.
 Each attempt has a one-second absolute deadline; five attempts use bounded
-backoff of 250 ms, 1 s, 4 s and 15 s. Attempts and delivered markers persist on
-the outage receipt, so restart does not reset the retry budget or repeat a
-delivered message. The mailbox deduplicates a stable local delivery key against
+backoff of 250 ms, 1 s, 4 s and 15 s. Attempts and delivered markers normally
+persist on the outage receipt. When the shared volume cannot persist an
+attempt marker, the sender still posts best effort, with one in-memory delivery
+record per class and at most one post in flight. It uses the same five-attempt
+budget and backoff, without growing a retry list. This volatile attempt budget
+lasts for the process lifetime; a restart during unwritable storage redetects
+the fault and can retry, while the mailbox still deduplicates the message.
+For a never-persisted receipt, its class, last durable ledger digest and
+modification time anchor the stable delivery key; its message's since/at
+timestamp is that modification time (a lower bound on the outage start).
+The publication time distinguishes a later healthy rewrite of identical bytes.
+This reconstructs the same key and body across restart while the ledger is
+unchanged. The first
+successful publication adopts that receipt's identity, body and attempt state.
+Persisted receipts keep their original identity, so restart does not reset
+their retry budget or repeat a delivered message.
+The mailbox deduplicates a stable local delivery key against
 its durable inbox and 30-day archive, covering lost replies and acknowledgement.
 Resolved receipt retention still applies. `failed` requires operator attention;
 restoring delivery does not automatically reset an exhausted receipt's budget.
@@ -1159,6 +1183,35 @@ This sends exactly one `[TEST] JOED-43 capture alert path check` message to
 prints one value-free line. It never reads or changes the ledger, receipts or
 health. Verify receipt in Amy's existing watcher/inbox; do not infer receipt
 from a log line alone. The builder does not run this command against production.
+
+### Re-arming a failed capture alert delivery
+
+After fixing the mailbox, OPS can re-arm unresolved receipts whose failure
+delivery exhausted its five attempts. From an existing admin-allowed OPS peer
+(the executor's `PAPER_DESK_ADMIN_ALLOW`, not an ordinary order peer), run:
+
+```sh
+curl --fail --silent --show-error --request POST \
+  http://100.64.0.6:8470/v1/admin/capture-alerts/rearm
+```
+
+The value-free response is `{"status":"ok","rearmed":N}`. The endpoint
+uses the exclusive intent/save queue. It resets only unresolved `failed`
+failure-delivery counters/status/backoff, keeping their original body and
+Idempotency-Key. It does not capture, compact, prune, clear degradation or
+change evidence, claims, resolved receipts, pending deliveries or delivered
+markers. The background sender retries; verify `alertDelivery` and Amy's
+inbox. A lost reply can safely re-use the same key. If ledger publication
+still fails, the endpoint returns HTTP 500 and does not reset the budget;
+restore storage before re-arming. Do not edit the ledger or evidence files.
+
+Mailbox recovery alone does not re-arm an exhausted receipt. Capture
+degradation clears by itself only after a successful capture, catch-up and
+durable ledger save; that marks receipts resolved and schedules a resolution
+message. A failed failure-delivery marker remains `failed` even after a
+resolution is delivered, until the resolved receipt ages out under normal
+retention. No forced-clear operation is provided. A later outage after
+confirmed recovery receives a fresh receipt and retry budget.
 
 Persistent failure grows the ledger: monitor these health fields, alert receipts
 and `ledgerPercent`. Journal write/fsync failures latch the writer: restore
