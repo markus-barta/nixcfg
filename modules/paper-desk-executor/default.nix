@@ -442,8 +442,9 @@ in
       # Tailscale's ts-input can accept peers before nixos-fw is reached.
       # Restrict this one port in raw PREROUTING as well as the Nix filter.
       extraCommands = ''
+        ${pkgs.coreutils}/bin/mkdir -p /run/lock || true
         (
-        ${pkgs.util-linux}/bin/flock -x 9
+        ${pkgs.util-linux}/bin/flock -w 30 -x 9 || echo "tailnet admission lock unavailable; continuing unlocked" >&2
         iptables -t raw -N paper-desk-peers 2>/dev/null || true
         iptables -t raw -N paper-desk-dyn 2>/dev/null || true
         iptables -N paper-desk-dyn-fw 2>/dev/null || true
@@ -459,16 +460,17 @@ in
           iptables -t raw -I PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers
         ${peerRules "-I"}
         iptables -C nixos-fw -j paper-desk-dyn-fw 2>/dev/null || iptables -I nixos-fw -j paper-desk-dyn-fw
-        ) 9>/run/lock/tailnet-peer-sync.lock
+        ) 9>/run/lock/tailnet-peer-sync.lock || echo "tailnet admission firewall hook failed" >&2
       '';
       extraStopCommands = ''
+        ${pkgs.coreutils}/bin/mkdir -p /run/lock || true
         (
-        ${pkgs.util-linux}/bin/flock -x 9
+        ${pkgs.util-linux}/bin/flock -w 30 -x 9 || echo "tailnet admission lock unavailable; continuing unlocked" >&2
         iptables -t raw -D PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers 2>/dev/null || true
         iptables -t raw -F paper-desk-peers 2>/dev/null || true
         iptables -t raw -X paper-desk-peers 2>/dev/null || true
         iptables -D nixos-fw -j paper-desk-dyn-fw 2>/dev/null || true
-        ) 9>/run/lock/tailnet-peer-sync.lock
+        ) 9>/run/lock/tailnet-peer-sync.lock || echo "tailnet admission firewall hook failed" >&2
       '';
     };
 

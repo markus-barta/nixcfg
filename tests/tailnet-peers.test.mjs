@@ -62,6 +62,7 @@ for (const [name, create] of [["executor", executor], ["mailbox", mailbox]]) {
       '{"schema":1,"peers":{"100.64.0.14":"amy"}}',
       '{"schema":1,"peers":{"100.64.0.25":"constructor"}}',
       '{"schema":1,"peers":{"100.64.0.25":"unknown"}}',
+      ...(name === "mailbox" ? ['{"schema":1,"peers":{"100.64.0.25":"ops"}}'] : []),
       '{"schema":1,"peers":{"192.0.2.1":"amy"}}',
       '{"schema":1,"peers":[]}', " ".repeat(16385),
     ]) {

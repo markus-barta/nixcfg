@@ -68,7 +68,8 @@ export function createServer(options = {}) {
   const staticPeers = assertPeers(options.peers ?? DEFAULT_PEERS);
   const identities = options.identities ?? [...new Set([...staticPeers.values(), "amy"])];
   const peersFile = options.peersFile ?? process.env.AGENT_MAILBOX_PEERS_FILE ?? "/tailnet-peers/peers.json";
-  const peers = () => readPeers(peersFile, Object.fromEntries(staticPeers), identities);
+  const dynamicIdentities = options.dynamicIdentities ?? ["amy"];
+  const peers = () => readPeers(peersFile, Object.fromEntries(staticPeers), dynamicIdentities);
   const mailbox = openMailbox(options.stateDir ?? "/var/lib/agent-mailbox", identities, options.now ?? Date.now);
   const log = options.log ?? ((line) => console.log(line));
   // Count SSE and long polls together: neither can exhaust the peer's slots.
@@ -309,6 +310,7 @@ async function main() {
   const app = createServer({
     listenHost: process.env.AGENT_MAILBOX_BIND ?? LISTEN_HOST,
     listenPort: Number(process.env.AGENT_MAILBOX_PORT ?? LISTEN_PORT),
+    dynamicIdentities: process.env.AGENT_MAILBOX_DYNAMIC_IDENTITIES ? JSON.parse(process.env.AGENT_MAILBOX_DYNAMIC_IDENTITIES) : undefined,
     identities: process.env.AGENT_MAILBOX_IDENTITIES ? JSON.parse(process.env.AGENT_MAILBOX_IDENTITIES) : undefined,
     peers: process.env.AGENT_MAILBOX_PEERS ? JSON.parse(process.env.AGENT_MAILBOX_PEERS) : DEFAULT_PEERS,
     stateDir: process.env.AGENT_MAILBOX_STATE_DIR ?? "/var/lib/agent-mailbox",

@@ -17,6 +17,7 @@ spec.loader.exec_module(sync)
 
 class Admission(unittest.TestCase):
     def setUp(self):
+        (ROOT / "tests/.tmp").mkdir(exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "tests/.tmp")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -106,7 +107,7 @@ class Admission(unittest.TestCase):
 
     def test_errors_keep_last_good_and_alert_after_two_minutes(self):
         for index, bad in enumerate([subprocess.CalledProcessError(1, "tailscale"), "{broken", '{"BackendState":"Stopped","Peer":{}}',
-                    '{"BackendState":"Running","Peer":{"bad":{"Tags":"tag:paper-desk"}}}']):
+                    '{"BackendState":"Running","Peer":[]}']):
             with self.subTest(bad=type(bad).__name__):
                 base = 1000 + index * 2000
                 self.status = (ROOT / "tests/fixtures/tailnet-peers/joined.json").read_text()
@@ -142,15 +143,81 @@ class Admission(unittest.TestCase):
         self.assertEqual(self.peers(), {"100.64.0.23": "amy"})
 
     def test_reserved_address_and_malformed_peer_never_admitted(self):
-        self.step()
-        good = self.peers()
         for address in ["100.64.0.14", "192.0.2.1", "broken"]:
             value = json.loads(self.status)
             value["Peer"]["node-a"]["TailscaleIPs"] = [address]
             self.status = json.dumps(value)
             self.step(1030)
-            self.assertEqual(self.peers(), good)
+            self.assertEqual(self.peers(), {})
+            self.assertTrue(any("skipped" in m for m in self.alerts))
             self.fixture("joined")
+
+    def test_bad_peer_does_not_freeze_other_peer_admission_or_revocation(self):
+        for bad in [None, {"Tags": "tag:paper-desk"},
+                    {"HostName": "unsafe\nvalue", "TailscaleIPs": ["100.64.0.25"]},
+                    {"HostName": "grok-amy-box", "TailscaleIPs": None},
+                    {"HostName": "grok-amy-box", "TailscaleIPs": ["fd7a:115c:a1e0::1"]},
+                    {"HostName": "grok-amy-box", "TailscaleIPs": ["broken"]},
+                    {"HostName": "grok-amy-box", "TailscaleIPs": ["100.64.0.14"]}]:
+            with self.subTest(bad=bad):
+                self.fixture("joined")
+                value = json.loads(self.status)
+                value["Peer"]["node-b"] = None if bad is None else dict(bad)
+                if isinstance(value["Peer"]["node-b"], dict):
+                    value["Peer"]["node-b"].setdefault("Tags", ["tag:paper-desk"])
+                self.status = json.dumps(value)
+                self.step()
+                self.assertEqual(self.peers(), {"100.64.0.15": "amy"})
+                value["Peer"]["node-a"]["Tags"] = []
+                self.status = json.dumps(value)
+                self.step(1030)
+                self.assertEqual(self.peers(), {})
+                self.assertTrue(any("skipped" in m for m in self.alerts))
+
+    def test_node_set_changes_notify_without_addresses_and_deduplicate(self):
+        self.step()
+        self.assertTrue(any("node set changed" in m for m in self.alerts))
+        self.alerts.clear()
+        self.step(1030)
+        self.assertEqual(self.alerts, [])
+        self.fixture("rejoined")
+        self.step(1060)
+        self.assertTrue(any("node set changed" in m for m in self.alerts))
+        self.assertFalse(any("100.64." in m or "node-a" in m for m in self.alerts))
+        self.cfg["rules"][0]["host"] = None
+        self.fixture("two")
+        self.alerts.clear()
+        self.step(1090)
+        self.assertTrue(any("2 admitted nodes match one" in m for m in self.alerts))
+
+    def test_corrupt_or_unreadable_state_alerts_without_touching_admission(self):
+        self.step()
+        good = self.peers()
+        for invalid in ["{broken", "[]", '{"rows":{"100.64.0.15":{}}}']:
+            (self.root / "state.json").write_text(invalid)
+            self.alerts.clear()
+            self.step(1030)
+            self.assertEqual(self.peers(), good)
+            self.assertTrue(any("crashed" in m for m in self.alerts))
+        with patch.object(Path, "read_text", side_effect=PermissionError):
+            self.step(1060)
+        self.assertTrue(any("crashed" in m for m in self.alerts))
+
+    def test_state_write_failure_and_snapshot_keyerror_alert(self):
+        self.step()
+        original = sync.atomic_json
+        def fail_state(path, value, mode):
+            if path.name == "state.json":
+                raise OSError("private test detail must not reach alerts")
+            original(path, value, mode)
+        with patch.object(sync, "atomic_json", fail_state):
+            self.step(1030)
+        self.assertTrue(any("crashed" in m for m in self.alerts))
+        self.alerts.clear()
+        with patch.object(sync, "snapshot", side_effect=KeyError("private detail")):
+            self.step(1060)
+        self.assertTrue(any("sync failed" in m for m in self.alerts))
+        self.assertFalse(any("private" in m for m in self.alerts))
 
     def test_rejoin_with_absent_old_node_revokes_old_address(self):
         self.step()

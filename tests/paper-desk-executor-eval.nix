@@ -16,6 +16,7 @@ let
         name: _: _:
         "/fixture/${name}";
       writeText = name: _: "/fixture/${name}";
+      coreutils = "/fixture/coreutils";
       util-linux = "/fixture/util-linux";
       python3 = "/fixture/python3";
       tailscale = "/fixture/tailscale";
@@ -29,6 +30,10 @@ let
         options = {
           assertions = lib.mkOption { type = lib.types.listOf lib.types.attrs; };
           networking.firewall = {
+            package = lib.mkOption {
+              type = lib.types.str;
+              default = "/fixture/firewall-backend";
+            };
             allowedTCPPorts = lib.mkOption {
               type = lib.types.listOf lib.types.port;
               default = [ ];
@@ -107,8 +112,8 @@ if tailnetContract then
     mailbox = cfg.nixcfg.agentMailbox.serviceSpec;
     sync = cfg.systemd.services.tailnet-peer-sync;
     timer = cfg.systemd.timers.tailnet-peer-sync;
-    tailscaled = cfg.systemd.services.tailscaled;
-    firewallService = cfg.systemd.services.firewall;
+    serviceNames = builtins.attrNames cfg.systemd.services;
+    firewallStop = cfg.networking.firewall.extraStopCommands;
     firewall = cfg.networking.firewall.extraCommands;
     staticExecutor = cfg.nixcfg.paperDeskExecutor.peerAllowlist;
     staticMailbox = cfg.nixcfg.agentMailbox.peers;

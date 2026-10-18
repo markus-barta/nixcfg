@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -17,22 +18,32 @@ NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 
 def tailnet(ip):
-    return isinstance(ip, str) and ipaddress.ip_address(ip) in NETWORK
+    try:
+        return isinstance(ip, str) and ipaddress.ip_address(ip) in NETWORK
+    except ValueError:
+        return False
 
 
 def select(status, rules, previous, now, stale_seconds, reserved):
     if (not isinstance(status, dict) or status.get("BackendState") != "Running"
             or not isinstance(status.get("Peer"), dict)):
         raise ValueError("status unavailable")
-    current, online, occupied = {}, {}, set()
+    current, online, occupied, issues = {}, {}, set(), []
+    address_counts = {}
     for peer in status["Peer"].values():
-        if not isinstance(peer, dict) or not isinstance(peer.get("TailscaleIPs", []), list):
-            raise ValueError("peer malformed")
-        occupied.update(ip for ip in peer.get("TailscaleIPs", []) if isinstance(ip, str))
+        if isinstance(peer, dict) and isinstance(peer.get("TailscaleIPs"), list):
+            for ip in peer["TailscaleIPs"]:
+                if isinstance(ip, str):
+                    occupied.add(ip)
+                    address_counts[ip] = address_counts.get(ip, 0) + 1
     for key, peer in status["Peer"].items():
+        if not isinstance(peer, dict):
+            issues.append("hsb0:8470/8471 malformed tailnet peer skipped")
+            continue
         tags = peer.get("Tags") if peer.get("Tags") is not None else []
         if not isinstance(tags, list):
-            raise ValueError("peer malformed")
+            issues.append("hsb0:8470/8471 malformed tailnet peer tags skipped")
+            continue
         matches = [rule for rule in rules if rule["tag"] in tags
                    and (not rule.get("host") or rule["host"] == peer.get("HostName"))]
         tagged = any(rule["tag"] in tags for rule in rules)
@@ -41,23 +52,31 @@ def select(status, rules, previous, now, stale_seconds, reserved):
             continue
         name = peer.get("HostName", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}", name):
-            raise ValueError("host malformed")
+            issues.append("hsb0:8470/8471 malformed tagged tailnet hostname skipped")
+            continue
         addresses = peer.get("TailscaleIPs")
         if not isinstance(addresses, list):
-            raise ValueError("addresses malformed")
+            issues.append(f"{name}:8470/8471 malformed tagged tailnet addresses skipped")
+            continue
         ips = [ip for ip in addresses if tailnet(ip)]
         if not ips:
-            raise ValueError("no tailnet IPv4")
+            issues.append(f"{name}:8470/8471 tagged tailnet peer without IPv4 skipped")
+            continue
         if peer.get("Online") is True:
             online.update({ip: name for ip in ips})
         if not matches:
             # Alert on tagged online peers excluded by a hostname rule as well.
             continue
         if len({rule["identity"] for rule in matches}) != 1:
-            raise ValueError("ambiguous identity")
+            issues.append(f"{name}:8470/8471 ambiguous tailnet identity skipped")
+            continue
+        if any(ip in reserved or address_counts[ip] > 1 for ip in ips):
+            issues.append(f"{name}:8470/8471 reserved or duplicate tailnet address skipped")
+            continue
+        if len(current) + len(ips) > 32:
+            issues.append(f"{name}:8470/8471 tailnet admission limit reached; peer skipped")
+            continue
         for ip in ips:
-            if ip in reserved or ip in current:
-                raise ValueError("duplicate or reserved address")
             row = dict(node=key, identity=matches[0]["identity"], host=name, seen=now)
             current[ip] = row
     for ip, row in previous.items():
@@ -65,28 +84,49 @@ def select(status, rules, previous, now, stale_seconds, reserved):
             if ip not in occupied and not any(
                     item["host"] == row["host"] and item["identity"] == row["identity"]
                     for item in current.values()):
-                current[ip] = row
-    if len(current) > 32:
-        raise ValueError("too many addresses")
-    return current, online
+                if len(current) < 32:
+                    current[ip] = row
+    return current, online, issues
 
 
 def reconcile(status, rules, previous, now, stale_seconds, reserved):
     try:
-        selected, online = select(status, rules, previous, now, stale_seconds, reserved)
+        selected, online, issues = select(status, rules, previous, now, stale_seconds, reserved)
         # Missing nodes get a bounded grace, including a wholly empty valid map.
         # Explicit tag removal is authoritative; daemon/parse errors never age out.
         missing = any(row["node"] not in status["Peer"] for row in previous.values())
         tagged = any(rule["tag"] in (peer.get("Tags") or [])
                      and (not rule.get("host") or rule["host"] == peer.get("HostName"))
-                     for peer in status["Peer"].values() for rule in rules)
-        return selected, online, missing and not tagged
+                     for peer in status["Peer"].values() if isinstance(peer, dict)
+                     and isinstance(peer.get("Tags") or [], list) for rule in rules)
+        return selected, online, missing and not tagged, issues
     except (ValueError, TypeError, KeyError):
-        return previous, {}, True
+        return previous, {}, True, []
 
 
 def snapshot(rows):
     return {"schema": 1, "peers": {ip: row["identity"] for ip, row in sorted(rows.items())}}
+
+
+def admitted_nodes(rows):
+    return sorted((ip, row["node"], row["host"], row["identity"]) for ip, row in rows.items())
+
+
+def validate_state(state):
+    if not isinstance(state, dict) or not isinstance(state.get("rows", {}), dict):
+        raise ValueError("state malformed")
+    for ip, row in state.get("rows", {}).items():
+        if (not tailnet(ip) or not isinstance(row, dict)
+                or not isinstance(row.get("node"), str)
+                or not isinstance(row.get("host"), str)
+                or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}", row["host"])
+                or not isinstance(row.get("identity"), str)
+                or not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", row["identity"])
+                or not isinstance(row.get("seen"), (int, float))
+                or not math.isfinite(row["seen"])):
+            raise ValueError("state row malformed")
+    if len(state.get("rows", {})) > 32:
+        raise ValueError("state too large")
 
 
 def restore_rules(rows, address):
@@ -145,20 +185,35 @@ def has_rule(text, chain, required):
 
 
 def synchronize(cfg, root, lock_path, now, deliver):
+    try:
+        _synchronize(cfg, root, lock_path, now, deliver)
+        return True
+    except Exception:
+        # State corruption, write failures and unexpected probe/snapshot errors
+        # must use the same adapter as ordinary failures, without raw payloads.
+        message = "hsb0:8470/8471 tailnet admission sync crashed; check service journal and state storage"
+        print(message, flush=True)
+        deliver(message, "ops384-sync-crashed")
+        return False
+
+
+def _synchronize(cfg, root, lock_path, now, deliver):
     with open(lock_path, "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             state = json.loads((root / "state.json").read_text())
         except FileNotFoundError:
             state = {}
+        validate_state(state)
         previous = state.get("rows", {})
+        notice_fingerprint = ""
+        notices = set()
         try:
             status = json.loads(run([cfg["tailscale"], "status", "--json"]))
         except (OSError, ValueError, subprocess.SubprocessError):
             status = None
-        rows, online, failed = reconcile(status, cfg["rules"], previous, now,
+        rows, online, failed, issues = reconcile(status, cfg["rules"], previous, now,
                                           cfg["staleSeconds"], cfg["reserved"])
-        issues = []
         if failed:
             issues.append("hsb0:8470/8471 tailnet identity status unavailable or incomplete; retaining last good admission subject to missing-peer grace")
         try:
@@ -167,6 +222,16 @@ def synchronize(cfg, root, lock_path, now, deliver):
             run([cfg["restore"], "--wait", "5", "--noflush"], rules)
             atomic_json(root / "peers.json", snapshot(rows), 0o644)
             state["rows"] = rows
+            if admitted_nodes(rows) != admitted_nodes(previous):
+                notice_fingerprint = json.dumps([admitted_nodes(previous), admitted_nodes(rows)], sort_keys=True)
+                notices.add("hsb0:8470/8471 admitted tailnet node set changed")
+                for rule in cfg["rules"]:
+                    nodes = {row["node"] for row in rows.values()
+                             if row["identity"] == rule["identity"]
+                             and (not rule.get("host") or row["host"] == rule["host"])}
+                    if len(nodes) > 1:
+                        notices.add(f"hsb0:8470/8471 {len(nodes)} admitted nodes match one tailnet identity rule")
+                issues.extend(sorted(notices))
             # Check the installed chains and the published snapshot, not just subprocess success.
             published = json.loads((root / "peers.json").read_text())
             raw = run([cfg["save"], "-c", "-t", "raw"])
@@ -191,7 +256,7 @@ def synchronize(cfg, root, lock_path, now, deliver):
                 if count > 0 and count != state.get("counters", {}).get(port, 0):
                     issues.append(f"hsb0:{port} refused tailnet packets")
             state["counters"] = counts
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             failed = True
             issues.append("hsb0:8470/8471 admission sync failed")
             for host in sorted(set(online.values())):
@@ -207,7 +272,7 @@ def synchronize(cfg, root, lock_path, now, deliver):
         delivered = state.setdefault("delivered", {})
         for message in issues:
             print(message, flush=True)
-            key = hashlib.sha256(message.encode()).hexdigest()[:24]
+            key = hashlib.sha256((message + (notice_fingerprint if message in notices else "")).encode()).hexdigest()[:24]
             if now - delivered.get(key, 0) >= 300:
                 pending.setdefault(key, {"message": message, "since": now})
         atomic_json(root / "state.json", state, 0o600)
@@ -225,20 +290,22 @@ def synchronize(cfg, root, lock_path, now, deliver):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--notification-config", required=True)
     args = parser.parse_args()
     cfg = json.loads(Path(args.config).read_text())
 
     def deliver(message, identifier):
         try:
             from notification_delivery import email_sender, private_config
-            sender = email_sender(private_config(os.path.join(os.environ["CREDENTIALS_DIRECTORY"], "destinations.json"))["email"],
+            sender = email_sender(private_config(args.notification_config)["email"],
                                   cfg["docker"], subject="Tailnet paper desk admission needs attention")
             return sender(message, identifier)
         except (OSError, ValueError, KeyError, TypeError):
             print("hsb0:8470/8471 existing notification adapter unavailable", flush=True)
             return False
 
-    synchronize(cfg, Path("/run/tailnet-peers"), "/run/lock/tailnet-peer-sync.lock", time.time(), deliver)
+    if not synchronize(cfg, Path("/run/tailnet-peers"), "/run/lock/tailnet-peer-sync.lock", time.time(), deliver):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

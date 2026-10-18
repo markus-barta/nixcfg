@@ -24,8 +24,8 @@ let
         ++ config.nixcfg.paperDeskExecutor.adminPeerAllowlist
       );
       tailscale = "${pkgs.tailscale}/bin/tailscale";
-      restore = "${pkgs.iptables}/bin/iptables-restore";
-      save = "${pkgs.iptables}/bin/iptables-save";
+      restore = "${config.networking.firewall.package}/bin/iptables-restore";
+      save = "${config.networking.firewall.package}/bin/iptables-save";
       docker = "${config.virtualisation.docker.package}/bin/docker";
     }
   );
@@ -86,7 +86,7 @@ in
         message = "tailnetPeers requires hsb0's existing managed email notification adapter";
       }
     ];
-    networking.firewall.extraCommands = lib.mkAfter trigger;
+    networking.firewall.extraCommands = lib.mkAfter "${trigger} || true";
     systemd.tmpfiles.rules = [ "d /run/tailnet-peers 0755 root root - -" ];
     systemd.services = {
       tailnet-peer-sync = {
@@ -95,16 +95,14 @@ in
           "tailscaled.service"
           "firewall.service"
         ];
-        wants = [
-          "tailscaled.service"
-          "firewall.service"
-        ];
+        wantedBy = [ "tailscaled.service" ];
         serviceConfig = {
           Type = "oneshot";
           User = "root";
           UMask = "0022";
-          ExecStart = "${pkgs.python3}/bin/python3 ${source}/sync.py --config ${settings}";
-          LoadCredential = [ "destinations.json:${toString (notifier.destinationFile or "/missing")}" ];
+          ExecStart = "${pkgs.python3}/bin/python3 ${source}/sync.py --config ${settings} --notification-config ${
+            toString (notifier.destinationFile or "/missing")
+          }";
           TimeoutStartSec = 90;
           NoNewPrivileges = true;
           ProtectSystem = "strict";
@@ -116,9 +114,6 @@ in
           PrivateTmp = true;
         };
       };
-      # Async starts avoid waiting for a unit ordered after the triggering service.
-      tailscaled.postStart = lib.mkAfter trigger;
-      firewall.postStart = lib.mkAfter trigger;
     };
     systemd.timers.tailnet-peer-sync = {
       wantedBy = [ "timers.target" ];

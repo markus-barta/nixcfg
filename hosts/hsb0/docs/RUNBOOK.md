@@ -434,6 +434,7 @@ and after tailscaled or firewall starts/reloads. The configured rule requires
 both `tag:paper-desk` and exact Tailscale `HostName=grok-amy-box`, mapping
 the current IPv4 address to `amy`. Additional desks require explicit identity
 rules; a rule can omit the hostname when the tag alone is the intended identity.
+HostName is self-reported; the tag is the admission boundary.
 OPS remains static at `100.64.0.14`; the executor admin allowlist is unchanged.
 
 Static rules remain in `paper-desk-peers` and `agent-mailbox-peers` in raw
@@ -441,6 +442,8 @@ PREROUTING, before Tailscale's input acceptance. Each jumps to its own dynamic
 sub-chain. The sync replaces only the dynamic chains using
 `iptables-restore --noflush`, with matching source-specific filter rules.
 A shared lock serializes these updates with the modules' firewall hooks.
+Firewall hooks create the lock directory and wait at most 30 seconds; lock
+or async trigger failure is logged without aborting the host firewall script.
 A refused tailnet packet increments the final DROP counter; LOG is limited to
 two packets per minute with a burst of two. Refusal alerts contain only the
 host and port; kernel packet logs remain in the local journal.
@@ -454,6 +457,9 @@ snapshots allow only static peers. Tagged peers never gain admin permissions.
 No trading brakes, HALT, ledger, Gateway ports or Results enablement change.
 
 A daemon/status/parse error retains the last good admission and alerts.
+A malformed individual peer is skipped and alerted without freezing admission
+or tag revocation for healthy peers. Changes to the admitted node set and
+multiple nodes matching one rule produce deduplicated, value-free notices.
 An explicitly removed tag or changed hostname revokes immediately. A node
 absent from an otherwise valid status (including a transient empty map) keeps
 its last good admission for `nixcfg.tailnetPeers.staleSeconds` (default 300
@@ -464,7 +470,11 @@ receive new addresses, so identity rules replace manual pin updates.
 
 Admission alerts reuse the existing Gateway notifier's managed email adapter
 (`notification_delivery.email_sender`, `docker-smtp-1`, destinations loaded
-as a systemd credential from the existing Gateway notification declaration).
+directly from the existing Gateway notification declaration by the root sync
+process, with the same private-file custody checks). Missing notification
+configuration cannot prevent identity sync from starting; adapter failures are
+logged in the journal. State load/write and unexpected snapshot failures also
+attempt a value-free alert through this adapter on every failed tick.
 No new receiver, credential or channel is introduced. Alerts cover an online
 configured peer missing from the installed admission rules, status/sync failures
 (including escalation after two minutes), and increments of either refusal
