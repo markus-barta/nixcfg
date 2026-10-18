@@ -298,8 +298,18 @@ if $budget_locked && [[ -n $budget_now ]]; then
       pid=$(<"$entry") 2>/dev/null || continue
       if pid_alive "$pid"; then add_run "${id%.pid}"; fi
     done
+    # Run directories only cover the start window: killed runs leave them
+    # behind until the client sweep, so an older directory counts solely through
+    # a live adopted lease or pid marker. The guard never removes run directories.
     for entry in "$guard_home/ci.noindex/aeon-runs/"*; do
-      if [[ -d $entry && ! -L $entry ]]; then add_run "${entry##*/}"; fi
+      [[ -d $entry && ! -L $entry ]] || continue
+      mtime=$(stat -c %Y -- "$entry") || {
+        [[ -e $entry || -L $entry ]] && guard_error
+        continue
+      }
+      [[ $mtime =~ ^[0-9]{1,12}$ ]] || guard_error
+      run_dir_age=$((10#$budget_now - 10#$mtime))
+      if ((run_dir_age >= -60 && run_dir_age < guard_reservation_ttl_seconds)); then add_run "${entry##*/}"; fi
     done
     for entry in "$guard_home/aeon-ui-runs/"*; do
       if [[ -d $entry && ! -L $entry ]] && [[ ! -r $entry || ! -x $entry ]]; then

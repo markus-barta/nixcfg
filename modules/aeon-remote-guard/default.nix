@@ -76,7 +76,7 @@ in
     reservationTtlSeconds = lib.mkOption {
       type = lib.types.ints.positive;
       default = 120;
-      description = "Lifetime of reservations without a client pid.";
+      description = "Lifetime of reservations without a client pid; also the start window during which a run directory counts.";
     };
     staleSeconds = lib.mkOption {
       type = lib.types.ints.unsigned;

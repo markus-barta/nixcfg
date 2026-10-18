@@ -187,9 +187,13 @@ use the ordinary check; deletion-only pushes bypass admission for cleanup.
 
 Live run IDs are deduplicated across leases with any live `pid=` line, leases
 whose file mtime is younger than the TTL, live
-`~/.aeon-remote-test/<RUN>.pid` markers, existing
-`~/ci.noindex/aeon-runs/<RUN>` directories, and live
-`~/aeon-ui-runs/<RUN>/supervisor.pid` markers. Marker paths use the configured
+`~/.aeon-remote-test/<RUN>.pid` markers,
+`~/ci.noindex/aeon-runs/<RUN>` directories whose mtime is younger than the
+same TTL (the start window), and live
+`~/aeon-ui-runs/<RUN>/supervisor.pid` markers. Older run directories without
+a live lease or marker do not count: killed or interrupted runs leave them
+behind until the client sweep, and they must not block the budget. The guard
+never deletes run directories. Marker paths use the configured
 Home Manager home, independently of the caller's `HOME`. Legacy
 `ci.noindex/slots/s*` directories do not count. Symlinks and non-regular lease
 entries are ignored. Malformed regular leases still count while fresh or
@@ -217,11 +221,13 @@ records the pid under the same lock as collection, recreating the lease if
 its reservation was already collected. Exit 0 means the pid was recorded;
 adoption also succeeds while admission is paused or held and grants no new
 admission. Clients should treat adoption failure as non-fatal: the admitted
-run still counts through `ci.noindex/aeon-runs/<RUN>`. A live pid keeps the
+run still counts through `ci.noindex/aeon-runs/<RUN>` during the start
+window. Run directories cover only that window (`reservationTtlSeconds`), so
+clients must adopt to stay counted for the whole run. A live pid keeps the
 lease counted regardless of TTL. Clients may remove
 `~/.aeon-remote-leases/<RUN>` in their EXIT trap with
-a plain `rm`, or let GC collect it once dead and expired. Existing client
-markers and run directories also keep runs counted after the TTL. The bare
+a plain `rm`, or let GC collect it once dead and expired. Live client pid
+markers also keep runs counted after the TTL; run directories do not. The bare
 check remains compatible with existing clients.
 
 ## Inbound SSH (declarative)
