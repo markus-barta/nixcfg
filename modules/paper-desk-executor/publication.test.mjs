@@ -1140,6 +1140,11 @@ test("durability manifest: capture hook fault persists the trading transition de
 test("durability manifest: second FX date append EIO retains journal prefix and trading ledger", t => {
   t.mock.method(console, "error", () => {});
   const root = temporary(t), filename = path.join(root, "results-input.jsonl");
+  const readJournalBytes = () => {
+    const fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try { return readFileSync(fd); }
+    finally { fs.closeSync(fd); }
+  };
   const capture = createCapture(filename, { executorClientId: 705 }, { account: ACCOUNT,
     attribute: () => ({ desk: "j" }), executionTime: Date.parse, now: () => "2026-10-18T20:00:00.000Z" });
   t.after(() => capture.close());
@@ -1164,7 +1169,7 @@ test("durability manifest: second FX date append EIO retains journal prefix and 
   state.intents.set("fx-trading-transition", { action: "cancel", status: "done", claimedAt: new Date().toISOString() });
   ledger.save(state);
   assert.equal(fired, 1);
-  const visible = readFileSync(filename);
+  const visible = readJournalBytes();
   assert.ok(visible.subarray(0, prefix.length).equals(prefix));
   assert.equal(readJournal(filename).length, readJournalFromPrefix(prefix) + 1);
   assert.deepEqual(Object.keys(readJournal(filename).at(-1).fxSampler.days), ["2026-10-16"]);
@@ -1172,7 +1177,7 @@ test("durability manifest: second FX date append EIO retains journal prefix and 
   assert.equal(JSON.parse(readFileSync(ledger.statePath)).resultsFxSampler, undefined, "FX input stays outside the trading ledger");
   assert.equal(readState(ledger).resultsCapture.ok, false);
   ledger.save(readState(ledger));
-  assert.deepEqual(readFileSync(filename), visible, "poisoned journal keeps its complete first date and never retries an append");
+  assert.deepEqual(readJournalBytes(), visible, "poisoned journal keeps its complete first date and never retries an append");
   assert.equal(truncate.mock.callCount(), 0);
 });
 
