@@ -266,19 +266,36 @@ sudo /nix/store/f5qch8f2b3hch9ar5nvvadxxgnssxz6c-docker-compose-5.3.1/bin/docker
   up -d --no-deps <service>
 ```
 
-**OPS-338:** During compose reconciliation, Traefik is recreated for static config
-changes through its `ops.static-config-sha256` label; unrelated service changes
-no longer force its recreation. The file provider watches the dynamic config
-directory, and ACME state is not hashed. Image or compose service definition
-changes still follow normal Compose reconciliation. To force a manual recreate,
-use the scoped command above with `up -d --no-deps --force-recreate traefik`,
-prefixed by `sudo flock -w 300 /run/lock/compose-csb1.lock` in place of `sudo`
-to serialize with the reconcile and updater.
-
 (While OPS-136 staging has `reconcile = false`, this scoped command is also
 the ONLY sanctioned substitute for the absent reconcile unit — restart
 policies survive crashes, but a REMOVED container is not recreated until
 PR-2 restores reconciliation.)
+
+**OPS-338:** During compose reconciliation, Traefik is recreated when its
+`static.yml` or checkout `dynamic.yml` hash changes, or when either renderer's
+input hash changes: the inspr-auth ciphertext and edge renderer script; the
+generated routing fragment's store path, legacy routing fragment's store path,
+and shared-flow renderer script. Dynamic files are **not hot-reloaded** by this
+layout: git and the renderers replace single files with new inodes, and the bind
+mounts keep the old files until recreation. Labels come from the evaluated
+source, while relative mounts read the host checkout, so the checkout must be
+at the switched revision. Unrelated service changes no longer force Traefik's
+recreation; image and service definition changes follow normal Compose
+reconciliation. Rotating `traefik-variables` reruns reconciliation on the same
+switch via its ciphertext restart trigger; Compose hashes the resolved env_file
+contents and recreates Traefik with the new credentials. Credentials are not
+included in these labels. Both ACME files remain writable and unhashed. This
+rollout adds labels and therefore recreates Traefik once.
+
+To force a manual recreate, serialize with the reconcile and updater:
+
+```bash
+sudo flock -w 300 /run/lock/compose-csb1.lock \
+  /nix/store/f5qch8f2b3hch9ar5nvvadxxgnssxz6c-docker-compose-5.3.1/bin/docker-compose \
+  -p csb1 -f /etc/compose/csb1/docker-compose.yml \
+  --project-directory /home/mba/Code/nixcfg/hosts/csb1/docker \
+  up -d --no-deps --force-recreate traefik
+```
 
 ### OPS-136 — who owns the 5 (zitadel, zitadel-postgres, inspr-auth, inspr-www, paimos-www)
 
@@ -1130,9 +1147,11 @@ the help output). API access is through `docker exec` to this loopback listener,
 with responses captured inside the verification process below. Do not print
 raw API responses.
 
-`static.yml` and `dynamic.yml` are bind-mounted from each host checkout. Refresh
-the checkout before the managed switch; the configurations take effect when
-Traefik restarts. `postRecreate` explicitly recreates Traefik on both hosts.
+`static.yml` and `dynamic.yml` are single-file bind mounts from each host
+checkout. Refresh the checkout to the switched revision before the managed
+switch; git replacement requires container recreation to bind the new files.
+On csb1, their hash labels trigger recreation during reconciliation (OPS-338);
+csb0 still explicitly recreates Traefik through `postRecreate`.
 OPS compares the NixOS drvPath/nix-diff A/B remotely: the evaluated Compose
 changes are the API-label removal and HostDash path exclusions; the static
 and dynamic YAML add only the loopback operator route. Run
@@ -1292,8 +1311,11 @@ git grep -n -E 'ENTER_EDGE_TOKEN|csb1-inspr-auth-env|inspr-edge-config|X-Inspr-E
    Requires/After ordering renders the private fragment before reconciliation.
    The renderer publishes with `mv -f`, replacing the file with a new inode.
    An existing single-file bind mount can retain the previous inode even
-   after file-provider watch events. The Compose `postRecreate` list therefore
-   recreates Traefik, binding the new fragment before it loads configuration.
+   after file-provider watch events. The `ops.inspr-edge-inputs-sha256` label
+   hashes that ciphertext and the edge renderer script, so Compose recreates
+   Traefik when either changes, binding the new fragment before it loads
+   configuration. Shared-flow renderer inputs have their own recreate label;
+   csb1 no longer lists Traefik in `postRecreate` (OPS-338).
    Compose must recreate `inspr-auth` with the new env_file; a Docker restart
    alone retains its old environment. Confirm the renderer and reconcile
    units are active/successful and confirm the new `inspr-auth` start:
