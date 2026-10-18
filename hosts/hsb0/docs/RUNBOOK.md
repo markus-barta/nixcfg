@@ -460,7 +460,10 @@ snapshots allow only static peers. Tagged peers never gain admin permissions.
 The reader accepts only this fixed production path; test overrides require
 Node's test runner and a canonical file under the source checkout's
 `tests/.tmp`. The sync accepts only resolved `/nix/store` settings paths,
-with an explicit `--test-config` override restricted to `tests/.tmp`.
+with an explicit `--test-config` override restricted to `tests/.tmp`. The
+settings file carries data only: the `tailscale`, `iptables-restore`,
+`iptables-save` and `docker` paths are substituted into the script at build
+time, and an unbuilt copy refuses to start.
 No trading brakes, HALT, ledger, Gateway ports or Results enablement change.
 
 A daemon/status/parse error retains the last good admission and alerts.

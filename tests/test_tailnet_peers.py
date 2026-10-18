@@ -27,9 +27,14 @@ class Admission(unittest.TestCase):
         self.reject_restore = self.reject_probe = self.relay_down = False
         self.count = 0
         self.installed = ""
-        self.cfg = dict(tailscale="tailscale", restore="restore", iptables="iptables", save="save",
-                        docker="docker", rules=[dict(tag="tag:paper-desk", host="grok-amy-box", identity="amy")],
+        self.cfg = dict(rules=[dict(tag="tag:paper-desk", host="grok-amy-box", identity="amy")],
                         reserved=["100.64.0.14"], staleSeconds=300, address="100.64.0.6")
+        # Fake tool paths are patched onto the imported module, never read from settings.
+        for name, fake in [("TAILSCALE", "tailscale"), ("IPTABLES_RESTORE", "restore"),
+                           ("IPTABLES_SAVE", "save"), ("DOCKER", "docker")]:
+            patcher = patch.object(sync, name, fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def fixture(self, name):
         self.status = (ROOT / f"tests/fixtures/tailnet-peers/{name}.json").read_text()
@@ -358,14 +363,43 @@ class Admission(unittest.TestCase):
         file = self.root / "settings.json"
         file.write_text("{}")
         argv = ["sync.py", "--config", str(file), "--notification-config", "/unused"]
-        with patch("sys.argv", argv), patch("builtins.open") as read, patch.object(sync, "synchronize") as synchronize:
-            with self.assertRaises(ValueError):
+        tools = [patch.object(sync, name, f"/fixture/bin/{name.lower()}")
+                 for name in ["TAILSCALE", "IPTABLES_RESTORE", "IPTABLES_SAVE", "DOCKER"]]
+        with contextlib.ExitStack() as stack:
+            for tool in tools:
+                stack.enter_context(tool)
+            with patch("sys.argv", argv), patch("builtins.open") as read, patch.object(sync, "synchronize") as synchronize:
+                with self.assertRaises(ValueError):
+                    sync.main()
+                read.assert_not_called()
+                synchronize.assert_not_called()
+            with patch("sys.argv", argv + ["--test-config"]), patch.object(sync, "synchronize", return_value=True) as synchronize:
                 sync.main()
-            read.assert_not_called()
-            synchronize.assert_not_called()
-        with patch("sys.argv", argv + ["--test-config"]), patch.object(sync, "synchronize", return_value=True) as synchronize:
-            sync.main()
-            self.assertEqual(synchronize.call_args.args[0], {})
+                self.assertEqual(synchronize.call_args.args[0], {})
+
+    def test_cli_refuses_unsubstituted_tool_placeholders_before_any_read(self):
+        """An unbuilt checkout copy must fail closed even with a valid --test-config."""
+        file = self.root / "settings.json"
+        file.write_text("{}")
+        argv = ["sync.py", "--config", str(file), "--notification-config", "/unused", "--test-config"]
+        source = (ROOT / "modules/tailnet-peers/sync.py").read_text()
+        for name, placeholder in [("TAILSCALE", "@tailscale@"), ("IPTABLES_RESTORE", "@iptablesRestore@"),
+                                  ("IPTABLES_SAVE", "@iptablesSave@"), ("DOCKER", "@docker@")]:
+            self.assertEqual(source.count(f'{name} = "{placeholder}"'), 1)
+            for bad in [placeholder, "tailscale", "", None]:
+                with self.subTest(name=name, bad=bad), patch.object(sync, name, bad), \
+                        patch("sys.argv", argv), patch("builtins.open") as read, \
+                        patch.object(sync, "synchronize") as synchronize:
+                    with self.assertRaises(ValueError):
+                        sync.main()
+                    read.assert_not_called()
+                    synchronize.assert_not_called()
+        with contextlib.ExitStack() as stack:
+            for name in ["TAILSCALE", "IPTABLES_RESTORE", "IPTABLES_SAVE", "DOCKER"]:
+                stack.enter_context(patch.object(sync, name, f"/fixture/bin/{name.lower()}"))
+            with patch("sys.argv", argv), patch.object(sync, "synchronize", return_value=True) as synchronize:
+                sync.main()
+                self.assertEqual(synchronize.call_args.args[0], {})
 
 
 if __name__ == "__main__":

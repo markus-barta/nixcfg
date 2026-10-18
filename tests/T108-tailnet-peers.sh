@@ -82,8 +82,21 @@ for script in [cfg["firewall"], cfg["firewallStop"]]:
                 (lockdir / "tailnet-peer-sync.lock").unlink()
                 lockdir.rmdir()
 source = (root / "modules/tailnet-peers/default.nix").read_text()
-assert 'restore = "${config.networking.firewall.package}/bin/iptables-restore"' in source
-assert 'save = "${config.networking.firewall.package}/bin/iptables-save"' in source
+script = (root / "modules/tailnet-peers/sync.py").read_text()
+# Tool paths are substituted into sync.py at build time; the settings JSON carries data only,
+# so no configured value can reach subprocess argv (CodeQL py/command-line-injection).
+assert source.index('cp ${./sync.py} "$out/sync.py"') < source.index('substituteInPlace "$out/sync.py"')
+for placeholder, binary in [("@tailscale@", "${pkgs.tailscale}/bin/tailscale"),
+                            ("@iptablesRestore@", "${config.networking.firewall.package}/bin/iptables-restore"),
+                            ("@iptablesSave@", "${config.networking.firewall.package}/bin/iptables-save"),
+                            ("@docker@", "${config.virtualisation.docker.package}/bin/docker")]:
+    assert f"--replace-fail '{placeholder}' '{binary}'" in source, placeholder
+    assert script.count(f'"{placeholder}"') == 1, placeholder
+for key in ["tailscale", "restore", "save", "docker", "iptables"]:
+    assert f"{key} = " not in source.split("builtins.toJSON", 1)[1].split("trigger =", 1)[0], key
+assert 'cfg["tailscale"]' not in script and 'cfg["restore"]' not in script
+assert 'cfg["save"]' not in script and 'cfg["docker"]' not in script
+assert "require_tools()" in script.split("def main():", 1)[1].split("with open(", 1)[0]
 for folder in ["modules/paper-desk-executor", "modules/agent-mailbox"]:
     source = (root / folder / "default.nix").read_text()
     assert source.index('cp ${./server.mjs} "$out/server.mjs"') < source.index("substituteInPlace")

@@ -17,6 +17,20 @@ CHAINS = (("paper-desk", 8470), ("agent-mailbox", 8471))
 NETWORK = ipaddress.ip_network("100.64.0.0/10")
 SNAPSHOT_OWNER = (1000, 1000)  # Both unprivileged containers run as 1000:1000.
 TEST_ROOT = Path(__file__).resolve().parents[2] / "tests/.tmp"
+# Executables are fixed at build time by default.nix (substituteInPlace); the
+# settings file carries data only, so no configured value ever reaches argv[0].
+# Tests import this module and patch these names; main() refuses placeholders.
+TAILSCALE = "@tailscale@"
+IPTABLES_RESTORE = "@iptablesRestore@"
+IPTABLES_SAVE = "@iptablesSave@"
+DOCKER = "@docker@"
+
+
+def require_tools():
+    """Fail closed when sync.py was not produced by the Nix module."""
+    for value in (TAILSCALE, IPTABLES_RESTORE, IPTABLES_SAVE, DOCKER):
+        if not isinstance(value, str) or re.fullmatch(r"@[A-Za-z]+@", value) or not value.startswith("/"):
+            raise ValueError("tool path not substituted at build time")
 
 
 def config_path(value, allow_test=False):
@@ -230,7 +244,7 @@ def _synchronize(cfg, root, lock_path, now, deliver):
         notice_fingerprint = ""
         notices = set()
         try:
-            status = json.loads(run([cfg["tailscale"], "status", "--json"]))
+            status = json.loads(run([TAILSCALE, "status", "--json"]))
         except (OSError, ValueError, subprocess.SubprocessError):
             status = None
         rows, online, failed, issues = reconcile(status, cfg["rules"], previous, now,
@@ -239,8 +253,8 @@ def _synchronize(cfg, root, lock_path, now, deliver):
             issues.append("hsb0:8470/8471 tailnet identity status unavailable or incomplete; retaining last good admission subject to missing-peer grace")
         try:
             rules = restore_rules(rows, cfg["address"])
-            run([cfg["restore"], "--wait", "5", "--noflush", "--test"], rules)
-            run([cfg["restore"], "--wait", "5", "--noflush"], rules)
+            run([IPTABLES_RESTORE, "--wait", "5", "--noflush", "--test"], rules)
+            run([IPTABLES_RESTORE, "--wait", "5", "--noflush"], rules)
             atomic_json(root / "peers.json", snapshot(rows), 0o600, owner=SNAPSHOT_OWNER)
             state["rows"] = rows
             if admitted_nodes(rows) != admitted_nodes(previous):
@@ -255,8 +269,8 @@ def _synchronize(cfg, root, lock_path, now, deliver):
                 issues.extend(sorted(notices))
             # Check the installed chains and the published snapshot, not just subprocess success.
             published = json.loads((root / "peers.json").read_text())
-            raw = run([cfg["save"], "-c", "-t", "raw"])
-            filt = run([cfg["save"], "-c", "-t", "filter"])
+            raw = run([IPTABLES_SAVE, "-c", "-t", "raw"])
+            filt = run([IPTABLES_SAVE, "-c", "-t", "filter"])
             for ip, host in online.items():
                 admitted = ip in rows and published.get("peers", {}).get(ip) == rows[ip]["identity"]
                 for prefix, port in CHAINS:
@@ -315,6 +329,7 @@ def main():
     parser.add_argument("--test-config", action="store_true",
                         help="Allow --config under this source checkout's tests/.tmp only")
     args = parser.parse_args()
+    require_tools()
     with open(config_path(args.config, args.test_config)) as settings:
         cfg = json.load(settings)
 
@@ -322,7 +337,7 @@ def main():
         try:
             from notification_delivery import email_sender, private_config
             sender = email_sender(private_config(args.notification_config)["email"],
-                                  cfg["docker"], subject="Tailnet paper desk admission needs attention")
+                                  DOCKER, subject="Tailnet paper desk admission needs attention")
             return sender(message, identifier)
         except (OSError, ValueError, KeyError, TypeError):
             print("hsb0:8470/8471 existing notification adapter unavailable", flush=True)

@@ -12,6 +12,12 @@ let
   source = pkgs.runCommand "tailnet-peer-sync-source" { } ''
     mkdir -p "$out"
     cp ${./sync.py} "$out/sync.py"
+    # Tool paths are build-time constants, never settings data (CodeQL py/command-line-injection).
+    substituteInPlace "$out/sync.py" \
+      --replace-fail '@tailscale@' '${pkgs.tailscale}/bin/tailscale' \
+      --replace-fail '@iptablesRestore@' '${config.networking.firewall.package}/bin/iptables-restore' \
+      --replace-fail '@iptablesSave@' '${config.networking.firewall.package}/bin/iptables-save' \
+      --replace-fail '@docker@' '${config.virtualisation.docker.package}/bin/docker'
     cp ${../ib-gateway-session/notification_delivery.py} "$out/notification_delivery.py"
   '';
   settings = pkgs.writeText "tailnet-peer-sync.json" (
@@ -23,10 +29,6 @@ let
         ++ config.nixcfg.paperDeskExecutor.peerAllowlist
         ++ config.nixcfg.paperDeskExecutor.adminPeerAllowlist
       );
-      tailscale = "${pkgs.tailscale}/bin/tailscale";
-      restore = "${config.networking.firewall.package}/bin/iptables-restore";
-      save = "${config.networking.firewall.package}/bin/iptables-save";
-      docker = "${config.virtualisation.docker.package}/bin/docker";
     }
   );
   trigger = "${pkgs.systemd}/bin/systemctl --no-block start tailnet-peer-sync.service";
