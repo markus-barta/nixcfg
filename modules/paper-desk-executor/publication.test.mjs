@@ -1,6 +1,6 @@
 import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
-import fs, { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
@@ -21,23 +21,30 @@ import { openSession, readPusherExecutions } from "./ib.mjs";
 import { createCapture } from "../joe-results-producer/capture.mjs";
 import { hash, readJournal } from "../joe-results-producer/journal.mjs";
 
+const temporaryPaths = new Map();
 function temporary(t) {
-  const root = mkdtempSync(path.join(tmpdir(), "joed43-publication-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "joed43-publication-")));
+  temporaryPaths.set(root, Object.freeze(Object.fromEntries([
+    "ledger.json", "HALT", "audit.jsonl", "audit.jsonl.1",
+    "recon-evidence.jsonl", "recon-evidence.jsonl.1", "ledger.pre-ops331.json",
+  ].map(name => [name, path.join(root, name)]))));
+  t.after(() => { temporaryPaths.delete(root); rmSync(root, { recursive: true, force: true }); });
   return root;
 }
 const readState = ledger => ledger.load({ initialize: false, readOnly: true, migrate: false });
 const diagnostics = state => ({ resultsCapture: state.resultsCapture, resultsCaptureAlerts: state.resultsCaptureAlerts });
 
-// Paths are constructed from this test's mkdtemp, never from ledger output.
+// Only paths minted by temporary() and fixed target names reach the fault reads.
 function storageFaults(t, root, pre, post, target = "ledger.json", { when = () => true, once = false } = {}) {
-  const statePath = path.join(root, target), directories = new Set(), files = new Map(), ledgerBodies = [];
+  const paths = temporaryPaths.get(root);
+  if (!paths || !Object.hasOwn(paths, target)) throw new Error("invalid publication fixture target");
+  const statePath = paths[target], ledgerPath = paths["ledger.json"], directories = new Set(), files = new Map(), ledgerBodies = [];
   const originals = Object.fromEntries(["openSync", "closeSync", "writeFileSync", "fsyncSync", "renameSync", "linkSync", "unlinkSync"].map(name => [name, fs[name]]));
   let enabled = true, published = false, publications = 0, preErrors = 0, postErrors = 0, conflicts = 0;
   let faultBody, error, faultLedgerPublications;
   const failure = () => {
-    const ledgerPath = path.join(root, "ledger.json");
-    if (fs.existsSync(ledgerPath)) faultBody = readFileSync(ledgerPath, "utf8");
+    try { faultBody = readFileSync(ledgerPath, "utf8"); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
     faultLedgerPublications = ledgerBodies.length;
     return error = Object.assign(new Error("synthetic-private-value /synthetic/path"), { code: "EIO" });
   };
@@ -49,7 +56,7 @@ function storageFaults(t, root, pre, post, target = "ledger.json", { when = () =
     catch (error) { if (to === statePath && error.code === "EEXIST") conflicts++; throw error; }
     published = to === statePath;
     if (published) publications++;
-    if (to === path.join(root, "ledger.json")) ledgerBodies.push(readFileSync(to, "utf8"));
+    if (to === ledgerPath) ledgerBodies.push(readFileSync(ledgerPath, "utf8"));
     return result;
   });
   t.mock.method(fs, "openSync", (file, flags, ...args) => {
@@ -1137,7 +1144,10 @@ test("durability manifest: second FX date append EIO retains journal prefix and 
     attribute: () => ({ desk: "j" }), executionTime: Date.parse, now: () => "2026-10-18T20:00:00.000Z" });
   t.after(() => capture.close());
   capture({ executions: [] });
-  const prefix = readFileSync(filename), inode = fs.statSync(filename).ino;
+  const fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  let prefix, inode;
+  try { prefix = readFileSync(fd); inode = fs.fstatSync(fd).ino; }
+  finally { fs.closeSync(fd); }
   const write = fs.writeSync, truncate = t.mock.method(fs, "ftruncateSync", () => assert.fail("journal must never truncate"));
   let appends = 0, fired = 0;
   t.mock.method(fs, "writeSync", (fd, ...args) => {
