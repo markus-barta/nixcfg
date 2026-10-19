@@ -85,5 +85,5 @@ for (const [name, set] of Object.entries(release.sets)) {
   }
 }
 console.log(
-  "joedesk_production_host_gate=ok current_previous_and_candidate=actual-functions cs0=allowed",
+  "joedesk_production_host_gate=ok current_previous_and_v2=actual-functions cs0=allowed",
 );
