@@ -685,14 +685,21 @@ it does not claim this Linux derivation check passed.
 
 This is preparation, not permission to switch. Current active board remains
 db621bf (legacy `calendar`, 26.09.21.12.00, sequence 23, no matching tag). The
-inactive candidate is 9550f81 / `inspr-calver-3` / 261016151218.0.0. Reuse
-JOED-26's approved adoption scope; it remains pending publication and live gates.
-The JOED-20 worktree and draft producer remain separately owned and disabled.
+inactive v2 source is published main dafe7909af04ba5ded3c4b55504ea10970e07e4d
+(JOED-41, PR #52), tree 6b614bb7cc14a2773a38b39fe3bde522ca522969,
+`inspr-calver-3` / 261016151218.0.0 / sequence 24. Contracts manifest revision
+7 has set SHA256 `3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d`;
+`release/contracts.json` SHA256 is
+`c48587f34ebbda801bd609d3a79efbe9257d497266198554554885175d0812a4`.
+Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
+gates below. Upstream `release.json` still describes the source as a candidate;
+that historical status does not replace the immutable JOED-41 publication pin.
+JOED-20 producer/executor activation and evidence remain separately owned.
 
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
-   `just rehearse-joedesk SOURCE` using the exact candidate checkout with the
-   legacy Git object available. The second command builds db621bf and 9550f81
+   `just rehearse-joedesk SOURCE` using the exact published checkout with the
+   legacy Git object available. The second command builds db621bf and dafe7909
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
@@ -853,14 +860,15 @@ This client privacy stub does not replace SSO or private-port enforcement.
 README item 4 adds no route exemption beyond the existing token inbox and
 item 1's exact GET/HEAD health.
 
-### Separate Results ingress proposal — pending JOED-27 merge + LEAD confirmation
+### Separate Results ingress proposal — pending LEAD confirmation
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
+droppable review item; do not deploy it until LEAD confirms. Published dafe7909
+includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`
 and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
 GET/HEAD/POST probes. GET/HEAD and every other non-POST method on the exact
-path also require SSO. This infrastructure proposal does not claim an ingress
-implementation or producer/results sign-off in the pinned candidate.
+path also require SSO. Source publication does not establish producer/results
+sign-off, OPS rehearsal or permission to activate this infrastructure proposal.

@@ -36,7 +36,7 @@
     },
     "v2": {
       "board": {
-        "rev": "9550f81b448110bfa8fb3ea8df0956430012d5e1",
+        "rev": "dafe7909af04ba5ded3c4b55504ea10970e07e4d",
         "version_scheme": "inspr-calver-3",
         "version": "261016151218.0.0",
         "release_sequence": 24,
@@ -49,8 +49,8 @@
       "executor": null,
       "contracts": {
         "schema": "joedesk.release-contracts.v1",
-        "contract_set_sha256": "cc3456de6a67692f361f1d4604f18b0cc1850787f7bc671907f0a71e82236b35",
-        "manifest_revision": 2,
+        "contract_set_sha256": "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d",
+        "manifest_revision": 7,
         "compatibility": {
           "data": ["inspr.joe.household.v2"],
           "history": ["inspr.joe.household.history.v2"],
@@ -70,13 +70,13 @@
             "evidence": "test/release.mjs + test/server-contract.mjs"
           },
           "pusher": {
-            "required_contract_set_sha256": "cc3456de6a67692f361f1d4604f18b0cc1850787f7bc671907f0a71e82236b35",
+            "required_contract_set_sha256": "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d",
             "required_data_schema": "inspr.joe.household.v2",
             "deployment_pin": null,
             "status": "Amy JOED-20 real producer rehearsal/sign-off required"
           },
           "executor": {
-            "required_contract_set_sha256": "cc3456de6a67692f361f1d4604f18b0cc1850787f7bc671907f0a71e82236b35",
+            "required_contract_set_sha256": "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d",
             "reports_via": "pusher data.safety.executor",
             "deployment_pin": null,
             "status": "Amy executor/broker reconciliation required"
@@ -85,7 +85,7 @@
         "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"
       },
       "backup_schema": "v2",
-      "status": "candidate; pending immutable publication, JOED-20 producer/executor evidence, review and owner cutover"
+      "status": "published source (JOED-41); inactive pending JOED-20 producer/executor evidence, OPS rehearsal, review and owner cutover"
     },
     "previous": {
       "board": {

@@ -2,6 +2,7 @@
 """OPS-354 release-set consistency and evaluation-only refactor proof."""
 import argparse
 import json
+import hashlib
 import pathlib
 import re
 import subprocess
@@ -14,6 +15,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
 BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
+PUBLISHED = 'dafe7909af04ba5ded3c4b55504ea10970e07e4d'
+PUBLISHED_TREE = '6b614bb7cc14a2773a38b39fe3bde522ca522969'
+CONTRACT_SET_SHA256 = '3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d'
+CONTRACTS_JSON_SHA256 = 'c48587f34ebbda801bd609d3a79efbe9257d497266198554554885175d0812a4'
 SHA = re.compile(r'[0-9a-f]{64}')
 REV = re.compile(r'[0-9a-f]{40}')
 
@@ -40,10 +45,12 @@ def check(source=None):
             require(item['contracts'] is None and board['public_health'] is False, 'v1 has no v2 contract or public health')
         else:
             require(board['data_schema'] == 'v2', 'unknown board data schema')
-            require(board['version_scheme'] == 'inspr-calver-3' and re.fullmatch(r'\d{12}\.0\.0', board['version']), 'candidate canonical CalVer3')
+            require(board['rev'] == PUBLISHED, 'published v2 revision mismatch')
+            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261016151218.0.0' and board['release_sequence'] == 24, 'published canonical CalVer3 metadata mismatch')
             contracts = item['contracts']
             digest = contracts['contract_set_sha256']
-            require(SHA.fullmatch(digest), 'contract digest malformed')
+            require(SHA.fullmatch(digest) and digest == CONTRACT_SET_SHA256, 'published contract digest mismatch')
+            require(contracts['manifest_revision'] == 7, 'published contract manifest revision mismatch')
             expected = {'data': ['inspr.joe.household.v2'], 'history': ['inspr.joe.household.history.v2'], 'results': ['inspr.joe.household.results.v2'], 'fleet-config': ['inspr.joe.fleet-config.v1'], 'healthz': ['inspr.joe.healthz.v2']}
             require(contracts['compatibility'] == expected and contracts['participants']['board']['accepts'] == expected, 'exact compatibility IDs required')
             for participant in ('pusher', 'executor'):
@@ -57,10 +64,14 @@ def check(source=None):
         candidate_version = json.loads((source / 'release.json').read_text())
         for field in ('version_scheme', 'version', 'release_sequence'):
             require(release['sets']['v2']['board'][field] == candidate_version[field], 'candidate version metadata mismatch')
-        expected = json.loads((source / 'release/contracts.json').read_text())
+        contracts_bytes = (source / 'release/contracts.json').read_bytes()
+        require(hashlib.sha256(contracts_bytes).hexdigest() == CONTRACTS_JSON_SHA256, 'published contracts.json hash mismatch')
+        expected = json.loads(contracts_bytes)
         require(release['sets']['v2']['contracts'] == expected, 'candidate differs from authoritative contracts.json')
         revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
         require(release['sets']['v2']['board']['rev'] == revision, 'candidate revision mismatch')
+        tree = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+        require(tree == PUBLISHED_TREE, 'published source tree mismatch')
     return release
 
 

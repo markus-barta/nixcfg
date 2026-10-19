@@ -49,14 +49,17 @@ before cutover; preserve it when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The inactive `v2` set records candidate 9550f81, CalVer3
-261016151218.0.0 and the complete exact `release/contracts.json` record. Its
-missing downstream deployment pins/publication remain gates. Fixtures do not
+The inactive `v2` set records published main dafe7909 (JOED-41, PR #52), CalVer3
+261016151218.0.0, sequence 24 and the complete exact `release/contracts.json`
+record at manifest revision 7. The full source/tree and contract hashes are in
+the RUNBOOK. Its missing downstream deployment pins remain gates. Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
-JOED-26 is the pending JoeDesk adoption; current legacy metadata stays intact.
+JOED-26 live adoption remains gated; current legacy metadata stays intact.
+The published source's `release.json` still says candidate; OPS uses the exact
+JOED-41 commit and contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves byte-identical static csb0/hsb0 specs and the unchanged executor image
@@ -113,13 +116,14 @@ not a network/auth boundary; it adds no route exemption. Run
 `just test-joedesk SOURCE` before review and the full T76 flake gate on Linux.
 The rehearsal also requires this host gate before it creates lab artifacts.
 
-### Separate Results ingress proposal — pending JOED-27 merge + LEAD confirmation
+### Separate Results ingress proposal — pending LEAD confirmation
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until JOED-27 merges and LEAD confirms.
+droppable review item; do not deploy it until LEAD confirms. Published dafe7909
+includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
 The proposed exact `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`
 and `/joe/inbox/resultsx` still require SSO, including anonymous/spoofed live
-GET/HEAD/POST probes. This infrastructure proposal does not claim an ingress
-implementation or producer/results sign-off in the pinned candidate.
+GET/HEAD/POST probes. Source publication does not establish producer/results
+sign-off, OPS rehearsal or permission to activate this infrastructure proposal.
