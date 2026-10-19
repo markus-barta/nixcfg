@@ -165,6 +165,9 @@ in
     !joeHouseholdV2StageEnabled
   ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
   nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
+  # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
+  # capture runs fail-open in the executor while the producer stays off.
+  nixcfg.paperDeskExecutor.resultsCaptureEnabled = true;
 
   # OPS-272 — caller identity comes from the tailnet source address.
   nixcfg.agentMailbox.enable = true;
