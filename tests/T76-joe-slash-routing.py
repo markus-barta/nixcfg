@@ -50,6 +50,20 @@ def require(condition: bool, message: str) -> None:
         raise ContractError(message)
 
 
+def has_tls_alias_deletion(static: str) -> bool:
+    # Match the former expression's exact line language, including blank lines
+    # and its unanchored web-secure/alias-prefix matches, in one forward pass.
+    in_block = False
+    for line in static.split("\n"):
+        if in_block and line.startswith("      aliasHeadersStrategy: delete"):
+            return True
+        if line.endswith("  web-secure:"):
+            in_block = True
+        elif not (line.startswith("    ") or not line or line.isspace()):
+            in_block = False
+    return False
+
+
 def run_nix_json(arguments: list[str], context: str) -> Any:
     result = subprocess.run(
         ["nix", "eval", "--json", *arguments],
@@ -169,7 +183,7 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
     require("traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email" in all_labels, "SSO identity replacement must remain enabled")
     require(not any("x-joedesk-origin" in label.lower() for label in all_labels), "edge must preserve app stamp")
     static = (REPO / "hosts/csb0/docker/traefik/static.yml").read_text()
-    require(re.search(r'  web-secure:\n(?:(?:    .*|\s*)\n)*?      aliasHeadersStrategy: delete', static) is not None,
+    require(has_tls_alias_deletion(static),
             "TLS entrypoint must delete all aliasing headers before routing/auth")
 
     require(labels.get(results + "rule") == host + " && Path(`/joe/inbox/results`) && Method(`POST`)", "Results ingress must be exact POST")
