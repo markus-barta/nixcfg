@@ -35,9 +35,9 @@ def main():
     assert labels[prefix + "middlewares"] == "inspr-media-inflight@docker"
     inflight = "traefik.http.middlewares.inspr-media-inflight.inflightreq."
     assert labels[inflight + "amount"] == "16"
-    assert not any(key.startswith(inflight + "sourcecriterion.") for key in labels), (
-        "direct ingress must use the default remote-address source criterion"
-    )
+    assert labels[inflight + "sourcecriterion.ipstrategy.depth"] == "0"
+    assert inflight + "sourcecriterion.requesthost" not in labels
+    assert inflight + "sourcecriterion.requestheadername" not in labels
     for key, value in labels.items():
         if key.endswith(".middlewares") and key != prefix + "middlewares":
             assert "inspr-media-inflight@docker" not in value, (
