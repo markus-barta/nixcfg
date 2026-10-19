@@ -32,22 +32,170 @@ export LC_ALL=C
 : "${guard_lease_dir:=${guard_home}/.aeon-remote-leases}"
 : "${guard_default_max_runs:=1}"
 : "${guard_reservation_ttl_seconds:=120}"
+: "${guard_budget_file:=${guard_home}/.aeon-remote-budget}"
+: "${guard_allow_unknown_lane:=true}"
+: "${guard_units_total:=4}"
+: "${guard_units_new_max:=3}"
+: "${guard_units_finishing_reserve:=1}"
+: "${guard_aeon_new_max:=2}"
+: "${guard_ait_new_max:=1}"
+: "${guard_ops_new_max:=1}"
+: "${guard_browser_max:=1}"
+: "${guard_units_new_max_during_browser:=2}"
+: "${guard_yellow_units_new_max:=1}"
+: "${guard_yellow_browser_max:=0}"
+: "${guard_red_units_new_max:=0}"
+: "${guard_red_browser_max:=0}"
+: "${guard_finish_window_seconds:=1800}"
+: "${guard_recent_round_limit:=128}"
 run_id=''
 action=check
 adopt_pid=''
+lane=unknown
+kind='test'
+round=''
+phase=new
+valid_round() { [[ $1 =~ ^[A-Za-z0-9._-]{1,64}$ ]]; }
 valid_id() {
-  [[ $1 =~ ^[A-Za-z0-9._-]{1,64}$ && $1 != . && $1 != .. && $1 != .reservation.* ]]
+  valid_round "$1" && [[ $1 != . && $1 != .. && $1 != .reservation.* && $1 != .recent-rounds ]]
 }
-if (($#)); then
-  if { [[ $# == 2 && $1 == reserve ]] || [[ $# == 3 && $1 == adopt ]]; } && valid_id "${2:-}"; then
-    action=$1
-    run_id=$2
-    adopt_pid=${3:-}
-  else
-    printf 'usage: aeon-remote-guard [reserve <run-id> | adopt <run-id> <pid>]\n' >&3
+adoption_recorded=false
+adoption_classifying=false
+adopt_warning() { printf 'remote warning: %s; adoption retained\n' "$1" >&3; }
+busy() {
+  if $adoption_recorded; then
+    if $adoption_classifying; then
+      # The work is already running. Count its requested lane/kind, but never
+      # grant finish status or round proof when classification was refused.
+      round='' phase=new
+      write_lease || guard_error
+    fi
+    adopt_warning "$1"
+    exit 0
+  fi
+  printf 'remote busy: %s; retry in a few minutes or rely on PR CI\n' "$1" >&3
+  exit 3
+}
+if (($#)) && [[ $1 == reserve || $1 == adopt || $1 == release ]]; then
+  action=$1
+  if (($# < 2)) || ! valid_id "$2"; then
+    printf 'usage: aeon-remote-guard [reserve <run-id> | adopt <run-id> <pid> | release <run-id>] [lane=... kind=... round=... [phase=finish]]\n' >&3
     exit 2
   fi
+  run_id=$2
+  shift 2
+  if [[ $action == adopt ]]; then
+    (($#)) || busy 'cannot adopt run pid'
+    adopt_pid=$1
+    shift
+  fi
 fi
+declare -A supplied=()
+client_reason=''
+parse_client() {
+  local parameter key value
+  for parameter in "$@"; do
+    [[ $parameter == *=* ]] || {
+      client_reason='invalid client parameters'
+      return 1
+    }
+    key=${parameter%%=*}
+    value=${parameter#*=}
+    case $key in lane | kind | round | phase) ;; *)
+      client_reason='invalid client parameters'
+      return 1
+      ;;
+    esac
+    [[ ! ${supplied[$key]+yes} ]] || {
+      client_reason='duplicate client parameter'
+      return 1
+    }
+    supplied[$key]=1
+    case $key in
+    lane)
+      [[ $value == aeon || $value == ait || $value == ops ]] || {
+        client_reason='invalid lane'
+        return 1
+      }
+      lane=$value
+      ;;
+    kind)
+      [[ $value == test || $value == browser ]] || {
+        client_reason='invalid kind'
+        return 1
+      }
+      kind=$value
+      ;;
+    round)
+      valid_round "$value" || {
+        client_reason='invalid round'
+        return 1
+      }
+      round=$value
+      ;;
+    phase)
+      [[ $value == finish ]] || {
+        client_reason='invalid phase'
+        return 1
+      }
+      phase=$value
+      ;;
+    esac
+  done
+  if ((${#supplied[@]})) && [[ ! ${supplied[kind]+yes} || ! ${supplied[round]+yes} ]]; then
+    client_reason='incomplete client parameters'
+    return 1
+  fi
+}
+if ! parse_client "$@" && [[ $action != adopt ]]; then busy "$client_reason"; fi
+# Legacy callers inherit their existing metadata on refresh/adopt. They cannot
+# erase a lane or convert a browser into an unclassified test by omitting args.
+read_metadata() {
+  lease_lane=unknown lease_kind='test' lease_round='' lease_phase=new
+  local line key value
+  local -A seen=()
+  metadata_ok=true
+  for line in "${lease_lines[@]:1}"; do
+    key=${line%%=*} value=${line#*=}
+    case $key in
+    pid) continue ;;
+    lane)
+      [[ $value == aeon || $value == ait || $value == ops || $value == unknown ]] || metadata_ok=false
+      lease_lane=$value
+      ;;
+    kind)
+      [[ $value == test || $value == browser ]] || metadata_ok=false
+      lease_kind=$value
+      ;;
+    round)
+      [[ -z $value ]] || valid_round "$value" || metadata_ok=false
+      lease_round=$value
+      ;;
+    phase)
+      [[ $value == new || $value == finish ]] || metadata_ok=false
+      lease_phase=$value
+      ;;
+    *)
+      metadata_ok=false
+      continue
+      ;;
+    esac
+    [[ ! ${seen[$key]+yes} ]] || metadata_ok=false
+    seen[$key]=1
+  done
+  if ((${#seen[@]})) && ((${#seen[@]} != 4)); then metadata_ok=false; fi
+  if [[ $lease_phase == finish && -z $lease_round ]]; then metadata_ok=false; fi
+  if ! $metadata_ok; then
+    lease_lane=unknown lease_kind='test' lease_round='' lease_phase=new
+  fi
+}
+inherit_metadata() {
+  if ((${#supplied[@]} == 0)); then
+    lane=$lease_lane kind=$lease_kind round=$lease_round phase=$lease_phase
+  elif [[ -n $lease_round ]] && [[ $lane != "$lease_lane" || $kind != "$lease_kind" || $round != "$lease_round" || $phase != "$lease_phase" ]]; then
+    busy 'run metadata mismatch'
+  fi
+}
 pid_alive() {
   [[ $1 =~ ^[1-9][0-9]{0,9}$ ]] && ((10#$1 <= 2147483647)) && kill -0 -- "$1" 2>/dev/null
 }
@@ -57,6 +205,7 @@ write_lease() {
     [[ -f $guard_lease_dir/$run_id && ! -L $guard_lease_dir/$run_id ]] || return 1
   reservation=$(mktemp "$guard_lease_dir/.reservation.XXXXXXXXXX") || return 1
   printf 'reserved=%s\n' "$budget_now" >"$reservation" || return 1
+  printf 'lane=%s\nkind=%s\nround=%s\nphase=%s\n' "$lane" "$kind" "$round" "$phase" >>"$reservation" || return 1
   local pid
   for pid in "${adopted_pids[@]}"; do
     printf 'pid=%s\n' "$pid" >>"$reservation" || return 1
@@ -115,24 +264,46 @@ if [[ $action == adopt ]]; then
   else
     budget_now=$(date +%s)
     [[ $budget_now =~ ^[0-9]{1,12}$ ]] || guard_error
+    requested_lane=$lane requested_kind=$kind requested_round=$round requested_phase=$phase
+    lane=unknown kind=test round='' phase=new
     adopted_pids=("$adopt_pid")
+    lease_exists=false
     if [[ -f $guard_lease_dir/$run_id && ! -L $guard_lease_dir/$run_id ]]; then
+      lease_exists=true
       lines=()
-      if mapfile -t lines <"$guard_lease_dir/$run_id"; then
-        for line in "${lines[@]}"; do
-          if [[ $line =~ ^pid=([1-9][0-9]{0,9})$ && ${line#pid=} != "$adopt_pid" ]] && pid_alive "${BASH_REMATCH[1]}"; then
-            adopted_pids+=("${line#pid=}")
-          fi
-        done
-      else
-        guard_error
-      fi
+      mapfile -t lines <"$guard_lease_dir/$run_id" || guard_error
+      lease_lines=("${lines[@]}")
+      read_metadata
+      lane=$lease_lane kind=$lease_kind round=$lease_round phase=$lease_phase
+      for line in "${lines[@]}"; do
+        if [[ $line =~ ^pid=([1-9][0-9]{0,9})$ && ${line#pid=} != "$adopt_pid" ]] && pid_alive "${BASH_REMATCH[1]}"; then
+          adopted_pids+=("${line#pid=}")
+        fi
+      done
     fi
+    # Persist liveness first. Metadata can never stop an admitted run counting.
     write_lease || guard_error
-    exit 0
+    adoption_recorded=true
+    if [[ -n $client_reason ]]; then
+      adopt_warning "$client_reason"
+      exit 0
+    fi
+    if ((${#supplied[@]} == 0)); then exit 0; fi
+    if ! $lease_exists; then
+      adopt_warning 'missing lease metadata ignored'
+      exit 0
+    fi
+    if [[ -n $round ]]; then
+      if [[ $lane != "$requested_lane" || $kind != "$requested_kind" || $round != "$requested_round" || $phase != "$requested_phase" ]]; then
+        adopt_warning 'run metadata mismatch'
+      fi
+      exit 0
+    fi
+    # Classifying an unclassified lease uses exactly the reserve gates below.
+    lane=$requested_lane kind=$requested_kind round=$requested_round phase=$requested_phase
+    adoption_classifying=true
   fi
-  printf 'remote busy: %s; retry in a few minutes or rely on PR CI\n' "$reason" >&3
-  exit 3
+  if ! $adoption_recorded; then busy "$reason"; fi
 fi
 
 # -L also catches a dangling hold symlink. An inaccessible/missing parent is
@@ -221,10 +392,132 @@ else
   budget_now=''
 fi
 
-declare -A active_runs=()
+# All caps use decimal integers. The optional override is a single line of
+# whitelisted key=value tokens, in any order, with exactly one fresh epoch.
+# Validate the whole file before applying any field; never source OPS input.
+declare -A caps=() overrides=()
+for key in units_total units_new_max units_finishing_reserve aeon_new_max ait_new_max ops_new_max browser_max units_new_max_during_browser yellow_units_new_max yellow_browser_max red_units_new_max red_browser_max; do
+  setting=guard_$key
+  caps[$key]=${!setting}
+done
+if [[ -n $budget_now && -f $guard_budget_file && ! -L $guard_budget_file && -r $guard_budget_file ]]; then
+  override_lines=()
+  if mapfile -t override_lines <"$guard_budget_file" && ((${#override_lines[@]} == 1)); then
+    override_valid=true
+    read -r -a tokens <<<"${override_lines[0]}"
+    for token in "${tokens[@]}"; do
+      if [[ ! $token =~ ^([a-z_]+)=([0-9]{1,12})$ ]]; then
+        override_valid=false
+        break
+      fi
+      key=${BASH_REMATCH[1]} value=${BASH_REMATCH[2]}
+      if [[ ${overrides[$key]+yes} || ($key != epoch && ! ${caps[$key]+yes}) ]]; then
+        override_valid=false
+        break
+      fi
+      if [[ $key != epoch && ! $value =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
+        override_valid=false
+        break
+      fi
+      overrides[$key]=$value
+    done
+    if $override_valid && [[ ${overrides[epoch]+yes} ]] && ((${#overrides[@]} > 1)); then
+      override_age=$((10#$budget_now - 10#${overrides[epoch]}))
+      if ((override_age >= -60 && override_age <= guard_stale_seconds)); then
+        for key in "${!caps[@]}"; do
+          if [[ ${overrides[$key]+yes} ]] && ((overrides[$key] > caps[$key])); then override_valid=false; fi
+        done
+        if ! $override_valid; then
+          printf 'remote warning: budget override violates pinned caps; override ignored\n' >&3
+        else
+          for key in "${!caps[@]}"; do
+            if [[ ${overrides[$key]+yes} ]] && ((overrides[$key] < caps[$key])); then caps[$key]=${overrides[$key]}; fi
+          done
+        fi
+      fi
+    fi
+  fi
+fi
+# A lower total is a tightening even if other pins now exceed it. Preserve
+# one finishing slot (except at total zero), then bound every dependent cap.
+new_ceiling=$((caps[units_total] > 0 ? caps[units_total] - 1 : 0))
+((caps[units_new_max] <= new_ceiling)) || caps[units_new_max]=$new_ceiling
+for key in units_finishing_reserve browser_max; do
+  ((caps[$key] <= caps[units_total])) || caps[$key]=${caps[units_total]}
+done
+for key in aeon_new_max ait_new_max ops_new_max units_new_max_during_browser yellow_units_new_max red_units_new_max; do
+  ((caps[$key] <= caps[units_new_max])) || caps[$key]=${caps[units_new_max]}
+done
+for key in yellow_browser_max red_browser_max; do
+  ((caps[$key] <= caps[browser_max])) || caps[$key]=${caps[browser_max]}
+done
+if [[ $level == YELLOW ]]; then
+  ((caps[units_new_max] <= caps[yellow_units_new_max])) || caps[units_new_max]=${caps[yellow_units_new_max]}
+  ((caps[browser_max] <= caps[yellow_browser_max])) || caps[browser_max]=${caps[yellow_browser_max]}
+elif [[ $level == RED ]]; then
+  ((caps[units_new_max] <= caps[red_units_new_max])) || caps[units_new_max]=${caps[red_units_new_max]}
+  ((caps[browser_max] <= caps[red_browser_max])) || caps[browser_max]=${caps[red_browser_max]}
+fi
+
+declare -A active_runs=() run_lanes=() run_kinds=() run_rounds=() run_phases=() recent_rounds=() expired_leases=()
+recent_file=$guard_lease_dir/.recent-rounds
+recent_ok=true
+# Bounded, atomic round history survives both GC and client-owned unlink. A
+# timestamp is proof the round held a live unit then, never an assumed death
+# time. release records the exact end; unobserved deaths use last proof only.
+remember_round() {
+  local previous=${recent_rounds[$1]:-0}
+  if (($2 > previous)); then recent_rounds[$1]=$2; fi
+}
+write_recent() {
+  $recent_ok || return 1
+  [[ ! -e $recent_file && ! -L $recent_file ]] || [[ -f $recent_file && ! -L $recent_file ]] || return 1
+  reservation=$(mktemp "$guard_lease_dir/.reservation.XXXXXXXXXX") || return 1
+  local r
+  for r in "${!recent_rounds[@]}"; do
+    printf '%s %s\n' "${recent_rounds[$r]}" "$r"
+  done | sort -rn | awk -v limit="$guard_recent_round_limit" 'NR <= limit' >"$reservation" || return 1
+  chmod 600 "$reservation" || return 1
+  mv -fT -- "$reservation" "$recent_file" || return 1
+  reservation=''
+}
+# History is optional for ordinary work, mandatory evidence for finish work.
+# Over-limit input is trimmed on this call, but cannot authorize a finisher yet.
+history_over_limit=false
+if $budget_locked && [[ -n $budget_now && (-e $recent_file || -L $recent_file) ]]; then
+  if [[ -f $recent_file && ! -L $recent_file && -r $recent_file ]]; then
+    history=()
+    if mapfile -t history <"$recent_file"; then
+      if ((${#history[@]} > guard_recent_round_limit)); then history_over_limit=true; fi
+      for line in "${history[@]}"; do
+        if [[ $line =~ ^([0-9]{1,12})\ ((aeon|ait|ops|unknown):[A-Za-z0-9._-]{1,64})$ ]]; then
+          epoch=${BASH_REMATCH[1]} r=${BASH_REMATCH[2]}
+          age=$((10#$budget_now - 10#$epoch))
+          if ((age >= 0 && age <= guard_finish_window_seconds)); then remember_round "$r" "$((10#$epoch))"; fi
+        fi
+      done
+    else
+      recent_ok=false
+    fi
+  else
+    recent_ok=false
+  fi
+fi
+persist_recent() {
+  # Adoption only attaches liveness/classifies; it never creates round proof.
+  [[ $action != adopt ]] || return 0
+  if ! write_recent; then
+    recent_ok=false
+    if [[ -n $reservation ]]; then
+      unlink -- "$reservation" 2>/dev/null || true
+      reservation=''
+    fi
+  fi
+}
+
 adopted_pids=()
 add_run() {
-  if valid_id "$1" && [[ $1 != "$run_id" ]]; then
+  if valid_id "$1"; then
     active_runs["$1"]=1
   fi
 }
@@ -241,6 +534,7 @@ if $budget_locked && [[ -n $budget_now ]]; then
     }
     [[ $mtime =~ ^[0-9]{1,12}$ ]] || guard_error
     lease_age=$((10#$budget_now - 10#$mtime))
+    [[ $id != .recent-rounds ]] || continue
     if [[ $id == .reservation.* ]]; then
       if ((lease_age >= guard_reservation_ttl_seconds)); then unlink -- "$entry" || true; fi
       continue
@@ -264,18 +558,26 @@ if $budget_locked && [[ -n $budget_now ]]; then
             if [[ $id == "$run_id" ]]; then adopted_pids+=("$lease_pid"); fi
           fi
           if ((i == 0)); then parsed=false; fi
-        elif ((i != 0)); then
+        elif ((i != 0)) && [[ ! $line =~ ^(lane|kind|round|phase)= ]]; then
           parsed=false
         fi
       done
     fi
+    read_metadata
+    $metadata_ok || parsed=false
+    run_lanes[$id]=$lease_lane run_kinds[$id]=$lease_kind run_rounds[$id]=$lease_round run_phases[$id]=$lease_phase
     # Even malformed/unreadable leases reserve budget while fresh; only fully
     # parsed, dead and expired entries are safe to collect. Future mtimes do
     # not extend the TTL beyond the same 60-second skew used by policy input.
     if $live || ((lease_age >= -60 && lease_age < guard_reservation_ttl_seconds)); then
       add_run "$id"
+      if [[ -n $lease_round ]]; then remember_round "$lease_lane:$lease_round" "$budget_now"; fi
+      if [[ $id == "$run_id" ]]; then inherit_metadata; fi
     elif $parsed; then
-      unlink -- "$entry" || true
+      if [[ -n $lease_round ]] && ((lease_age >= 0 && lease_age <= guard_finish_window_seconds)); then
+        remember_round "$lease_lane:$lease_round" "$((10#$mtime))"
+      fi
+      expired_leases[$id]=$entry
     fi
   done
   markers_readable=true
@@ -322,7 +624,40 @@ if $budget_locked && [[ -n $budget_now ]]; then
     done
   fi
 fi
+# Collection waits for every liveness source. An expired pid-less lease with
+# a live client marker must retain its lane/browser/round metadata across calls.
+if ${markers_readable:-false}; then
+  for id in "${!expired_leases[@]}"; do
+    if [[ ! ${active_runs[$id]+yes} ]]; then unlink -- "${expired_leases[$id]}" || true; fi
+  done
+fi
+# A live legacy marker can outlast its pid-less reservation. Its retained
+# metadata still proves a live round and must survive this ID's refresh.
+for id in "${!active_runs[@]}"; do
+  r=${run_rounds[$id]:-}
+  if [[ -n $r ]]; then remember_round "${run_lanes[$id]:-unknown}:$r" "$budget_now"; fi
+  if [[ $id == "$run_id" && ${run_lanes[$id]+yes} ]]; then
+    lease_lane=${run_lanes[$id]} lease_kind=${run_kinds[$id]} lease_round=$r lease_phase=${run_phases[$id]}
+    inherit_metadata
+  fi
+done
+# A release is cleanup, allowed even while held or paused. Keep marker files
+# client-owned; the caller releases after stopping its work and its markers.
+if [[ $action == release ]]; then
+  $budget_locked && [[ -n $budget_now ]] || guard_error
+  if [[ -f $guard_lease_dir/$run_id && ! -L $guard_lease_dir/$run_id ]]; then
+    r=${run_rounds[$run_id]:-}
+    if [[ -n $r ]]; then remember_round "${run_lanes[$run_id]:-unknown}:$r" "$budget_now"; fi
+    persist_recent
+    unlink -- "$guard_lease_dir/$run_id" || guard_error
+  elif [[ -e $guard_lease_dir/$run_id || -L $guard_lease_dir/$run_id ]]; then
+    guard_error
+  fi
+  exit 0
+fi
+if [[ -n $run_id && $lane == unknown && $guard_allow_unknown_lane != true ]]; then busy 'lane required'; fi
 active_count=${#active_runs[@]}
+if [[ -n $run_id && ${active_runs[$run_id]+yes} ]]; then active_count=$((active_count - 1)); fi
 budget_full=false
 if [[ -n $run_id ]]; then
   if ((active_count >= maxruns)); then budget_full=true; fi
@@ -333,8 +668,73 @@ if ((maxruns > 0)) && $budget_full; then
   reasons+=("$active_count/$maxruns runs active (OPS budget)")
 fi
 
+# Project the complete admitted set, replacing only this ID. Marker-only and
+# malformed leases count conservatively as unknown new test units.
+total=0 new=0 browsers=0 finishing=0
+declare -A lane_new=([aeon]=0 [ait]=0 [ops]=0 [unknown]=0)
+for id in "${!active_runs[@]}"; do
+  [[ -z $run_id || $id != "$run_id" ]] || continue
+  total=$((total + 1))
+  if [[ ${run_kinds[$id]:-test} == browser ]]; then browsers=$((browsers + 1)); fi
+  if [[ ${run_phases[$id]:-new} == finish ]]; then
+    finishing=$((finishing + 1))
+  else
+    new=$((new + 1))
+    l=${run_lanes[$id]:-unknown}
+    lane_new[$l]=$((lane_new[$l] + 1))
+  fi
+done
+if [[ -n $run_id ]]; then
+  total=$((total + 1))
+  if [[ $kind == browser ]]; then browsers=$((browsers + 1)); fi
+  if [[ $phase == finish ]]; then
+    finishing=$((finishing + 1))
+    if ! $recent_ok || $history_over_limit; then
+      persist_recent
+      busy 'finish history unavailable'
+    fi
+    round_key=$lane:$round
+    if [[ -z $round || ! ${recent_rounds[$round_key]+yes} ]]; then busy 'finish round not recent'; fi
+  else
+    new=$((new + 1))
+    lane_new[$lane]=$((lane_new[$lane] + 1))
+  fi
+fi
+joint_reason=''
+if ((total > caps[units_total])); then
+  joint_reason='joint total cap'
+elif ((finishing > caps[units_finishing_reserve])) && [[ -z $run_id || $phase == finish ]]; then
+  joint_reason='finishing reserve cap'
+elif ((browsers > caps[browser_max])) && [[ -z $run_id || $kind == browser ]]; then
+  joint_reason='browser cap'
+elif ((new > caps[units_new_max])) && [[ -z $run_id || $phase != finish ]]; then
+  joint_reason='joint new cap'
+elif ((browsers > 0 && new > caps[units_new_max_during_browser])) && [[ -z $run_id || $phase != finish || $kind == browser ]]; then
+  joint_reason='new cap during browser'
+elif [[ -z $run_id || $phase != finish ]]; then
+  lanes_to_check=(aeon ait ops)
+  if [[ -n $run_id ]]; then lanes_to_check=("$lane"); fi
+  for l in "${lanes_to_check[@]}"; do
+    [[ $l != unknown ]] || continue
+    key=${l}_new_max
+    if ((lane_new[$l] > caps[$key])); then
+      joint_reason='lane new cap'
+      break
+    fi
+  done
+fi
+# Policy reductions stop new work; they cannot prevent an eligible finisher
+# merely because already admitted new units exceed the newly lowered ceiling.
+# Persist observations even on refusals, but admission itself is recorded only
+# after all gates pass. One value-free reason covers a joint-budget refusal.
+if $budget_locked && [[ -n $budget_now ]]; then persist_recent; fi
+if [[ -n $run_id && $phase == finish ]] && ! $recent_ok; then busy 'finish history unavailable'; fi
+# Bare main/tag checks start no work and retain only the pre-OPS-393 gates.
+if [[ -n $run_id && -n $joint_reason ]] && ((${#reasons[@]} == 0)) && ((maxruns != 0)); then busy "$joint_reason"; fi
+
 # Keep all existing reasons together, including alongside a paused budget.
 if ((maxruns == 0)); then
+  if $adoption_recorded; then busy 'admission paused'; fi
   detail=''
   if $malformed_policy; then reasons+=("malformed policy ignored; using default maxload"); fi
   for item in "${reasons[@]}"; do detail+="; $item"; done
@@ -343,6 +743,7 @@ if ((maxruns == 0)); then
 fi
 
 if ((${#reasons[@]})); then
+  if $adoption_recorded; then busy 'metadata admission refused'; fi
   if $malformed_policy; then
     reasons+=("malformed policy ignored; using default maxload")
   fi
@@ -350,8 +751,7 @@ if ((${#reasons[@]})); then
   for item in "${reasons[@]:1}"; do
     reason+="; $item"
   done
-  printf 'remote busy: %s; retry in a few minutes or rely on PR CI\n' "$reason" >&3
-  exit 3
+  busy "$reason"
 fi
 if [[ -n $run_id ]]; then
   # mv would otherwise put the reservation *inside* an unexpected directory.
@@ -360,5 +760,9 @@ if [[ -n $run_id ]]; then
     exit 3
   fi
   write_lease || guard_error
+  if [[ -n $round && $action != adopt ]]; then
+    remember_round "$lane:$round" "$budget_now"
+    persist_recent
+  fi
 fi
 exit 0
