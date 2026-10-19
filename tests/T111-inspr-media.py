@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""INSPR-572: evaluate media ingress and its host directory offline, without builds."""
+"""INSPR-572: evaluate media and paimos.com ingress offline, without builds."""
 
+from copy import deepcopy
 import json
 from pathlib import Path
 import subprocess
@@ -16,6 +17,73 @@ def evaluate(expression):
     )
     assert result.returncode == 0, "offline Nix evaluation failed"
     return json.loads(result.stdout)
+
+
+def check_paimos(services):
+    parsed = {}
+    for name, service in services.items():
+        parsed[name] = dict(label.split("=", 1) for label in service["labels"])
+        if name in ("inspr-www", "paimos-www"):
+            assert len(parsed[name]) == len(service["labels"]), "duplicate labels"
+
+    labels = parsed["inspr-www"]
+    assert labels["traefik.enable"] == "true"
+    prefix = "traefik.http.routers.paimos."
+    assert labels[prefix + "rule"] == "Host(`paimos.com`) || Host(`www.paimos.com`)"
+    assert labels[prefix + "tls"] == "true"
+    assert labels[prefix + "tls.certresolver"] == "default"
+    assert labels[prefix + "service"] == "inspr-sites"
+    assert labels[prefix + "middlewares"] == "paimos-www-redirect@docker,cloudflarewarp@file"
+    middleware = "traefik.http.middlewares.paimos-www-redirect."
+    assert labels[middleware + "redirectregex.regex"] == r"^https?://www\.paimos\.com/(.*)"
+    assert labels[middleware + "redirectregex.replacement"] == "https://paimos.com/$${1}"
+    assert labels[middleware + "redirectregex.permanent"] == "true"
+
+    for host in ("paimos.com", "www.paimos.com"):
+        owners = {
+            (name, key)
+            for name, service_labels in parsed.items()
+            for key, value in service_labels.items()
+            if key.startswith("traefik.http.routers.") and key.endswith(".rule")
+            and f"`{host}`" in value
+        }
+        assert owners == {
+            ("inspr-www", prefix + "rule"),
+            ("inspr-www", "traefik.http.routers.inspr-sites-http.rule"),
+        }, f"unexpected routing ownership for {host}"
+
+    for name, service_labels in parsed.items():
+        if name != "inspr-www":
+            assert not any(key.startswith((prefix, middleware)) for key in service_labels)
+        assert "traefik.http.services.paimos.loadbalancer.server.port" not in service_labels
+    idle = parsed["paimos-www"]
+    assert idle["traefik.enable"] == "false"
+    assert not any(key.startswith("traefik.http.") for key in idle)
+
+
+def self_check_paimos(services):
+    # Every mutation must be rejected: prove these checks catch routing regressions.
+    mutations = [
+        ("paimos-www", "traefik.enable", "true"),
+        ("paimos-www", "traefik.http.services.stray.loadbalancer.server.port", "80"),
+        ("paimos-www", "traefik.http.routers.stray.rule", "Host(`paimos.com`)"),
+        ("paimos-www", "traefik.http.routers.stray.rule", "Host(`www.paimos.com`)"),
+        ("inspr-www", "traefik.http.routers.paimos.service", "paimos"),
+        ("inspr-www", "traefik.http.routers.paimos.middlewares", "cloudflarewarp@file"),
+        ("inspr-www", "traefik.http.routers.paimos.middlewares", "paimos-www-redirect@docker"),
+        ("inspr-www", "traefik.http.middlewares.paimos-www-redirect.redirectregex.permanent", "false"),
+        ("inspr-www", "traefik.http.routers.inspr-sites-http.rule", "Host(`media.inspr.at`)"),
+    ]
+    for name, key, value in mutations:
+        broken = deepcopy(services)
+        broken[name]["labels"] = [
+            label for label in broken[name]["labels"] if not label.startswith(key + "=")
+        ] + [key + "=" + value]
+        try:
+            check_paimos(broken)
+        except AssertionError:
+            continue
+        raise AssertionError(f"self-check accepted broken label: {key}")
 
 
 def main():
@@ -55,6 +123,13 @@ def main():
     assert labels[middleware + "scheme"] == "https"
     assert labels[middleware + "permanent"] == "true"
 
+    # Select labels only across the stack; never resolve runtime environment values.
+    services = evaluate('''builtins.mapAttrs (name: service: {
+      labels = service.labels or [];
+    }) (import ./hosts/csb1/docker/compose-spec.nix).services''')
+    check_paimos(services)
+    self_check_paimos(services)
+
     # Lazily select tmpfiles only: inert dependencies avoid derivations and secrets.
     rules = evaluate('''(import ./hosts/csb1/configuration.nix {
       pkgs = {}; lib = {}; inputs = {}; config = {};
@@ -64,7 +139,7 @@ def main():
     assert workflow.count("run: python3 tests/T111-inspr-media.py") == 1, (
         "CI wiring missing or duplicated"
     )
-    print("T111 inspr-media: DNS-only TLS, per-IP limit, HTTP redirect, read-only mount, tmpfiles and CI wiring OK")
+    print("T111: media ingress, paimos.com routing ownership, redirects, idle legacy container, mutation self-checks and CI wiring OK")
 
 
 if __name__ == "__main__":

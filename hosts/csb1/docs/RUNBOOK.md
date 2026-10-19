@@ -215,32 +215,34 @@ journalctl -u github-runner-csb1-hausv.service --since today
 
 ### All Containers (15 running)
 
-| Container                   | Purpose                                                        |
-| --------------------------- | -------------------------------------------------------------- |
-| csb1-barta-public-1         | Public mailbridge homepage and privacy                         |
-| csb1-bytepoets-memorial-1   | bytepoets.com memorial page (OPS-337)                          |
-| csb1-jhw22-wp-1             | jhw22-wp.hausv.org WEG heat-pump page (OPS-340)                |
-| csb1-docmost-1              | Documentation wiki                                             |
-| csb1-docmost-db-1           | PostgreSQL for Docmost                                         |
-| csb1-docmost-redis-1        | Redis cache                                                    |
-| csb1-paperless-1            | Document management                                            |
-| csb1-paperless-db-1         | PostgreSQL for Paperless                                       |
-| csb1-paperless-redis-1      | Redis                                                          |
-| csb1-paperless-tika-1       | Document parsing                                               |
-| csb1-paperless-gotenberg-1  | PDF conversion                                                 |
-| csb1-traefik-1              | Reverse proxy                                                  |
-| csb1-hostdash-1             | HostDash service dashboard                                     |
-| csb1-docker-proxy-traefik-1 | Traefik proxy                                                  |
-| csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)                                      |
-| csb1-smtp-1                 | Mail relay                                                     |
-| csb1-excalidraw-1           | Whiteboard (draw.barta.cm)                                     |
-| ppm                         | PAIMOS PM (pm.barta.cm)                                        |
-| minio                       | S3 for ppm attachments                                         |
-| paimos-www                  | paimos.com static (caddy)                                      |
-| inspr-www                   | inspr.at family edge (caddy: www/janus/paimos/pharos/v1/media) |
-| inspr-auth                  | OIDC session backend (inspr.at/{enter,login,welcome,logout})   |
-| zitadel                     | 🔴 Identity provider (auth.inspr.at)                           |
-| zitadel-postgres            | 🔴 IdP database (volume inspr-at_zitadel_postgres_data)        |
+| Container                   | Purpose                                                      |
+| --------------------------- | ------------------------------------------------------------ |
+| csb1-barta-public-1         | Public mailbridge homepage and privacy                       |
+| csb1-bytepoets-memorial-1   | bytepoets.com memorial page (OPS-337)                        |
+| csb1-jhw22-wp-1             | jhw22-wp.hausv.org WEG heat-pump page (OPS-340)              |
+| csb1-docmost-1              | Documentation wiki                                           |
+| csb1-docmost-db-1           | PostgreSQL for Docmost                                       |
+| csb1-docmost-redis-1        | Redis cache                                                  |
+| csb1-paperless-1            | Document management                                          |
+| csb1-paperless-db-1         | PostgreSQL for Paperless                                     |
+| csb1-paperless-redis-1      | Redis                                                        |
+| csb1-paperless-tika-1       | Document parsing                                             |
+| csb1-paperless-gotenberg-1  | PDF conversion                                               |
+| csb1-traefik-1              | Reverse proxy                                                |
+| csb1-hostdash-1             | HostDash service dashboard                                   |
+| csb1-docker-proxy-traefik-1 | Traefik proxy                                                |
+| csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)                                    |
+| csb1-smtp-1                 | Mail relay                                                   |
+| csb1-excalidraw-1           | Whiteboard (draw.barta.cm)                                   |
+| ppm                         | PAIMOS PM (pm.barta.cm)                                      |
+| minio                       | S3 for ppm attachments                                       |
+| paimos-www                  | Idle caddy; Traefik off, pending separate retirement         |
+| inspr-www                   | inspr.at family edge + paimos.com (caddy)                    |
+| inspr-auth                  | OIDC session backend (inspr.at/{enter,login,welcome,logout}) |
+| zitadel                     | 🔴 Identity provider (auth.inspr.at)                         |
+| zitadel-postgres            | 🔴 IdP database (volume inspr-at_zitadel_postgres_data)      |
+
+`inspr-www` also serves `paimos.com` and `www.paimos.com` (Cloudflare-proxied). The `paimos` TLS router retains `cloudflarewarp@file` and `paimos-www-redirect@docker` for the permanent www-to-apex redirect, and uses the shared `inspr-sites` service. Both hosts join `inspr-sites-http` for permanent HTTP-to-HTTPS upgrades. `paimos-www` remains idle with `traefik.enable=false` and no HTTP router, middleware, or service labels, pending retirement in a separate ticket (INSPR-572).
 
 `inspr-www` mounts `/home/mba/docker/inspr-at/media:/srv/media:ro`; tmpfiles creates the host directory as `0755 mba:users`. The inspr-site-owned Caddyfile serves `media.inspr.at` from `/srv/media` once inspr-site's INSPR-572 release deploys; until then Caddy answers 404. This hostname is DNS-only; its Traefik router omits `cloudflarewarp` and limits in-flight requests to 16 per source IP using an explicit `ipStrategy` with depth 0: the connection address, which Docker port forwarding preserves. Viewers behind a shared NAT/CGNAT share one bucket (about 8 concurrent viewers). Excess requests receive an immediate 429, with no `Retry-After` and no queueing.
 
