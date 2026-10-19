@@ -169,7 +169,7 @@ test('true fill/broker mismatch emits exact disagreement code; gateway flaps do 
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).status, 'degraded');
 });
 
-test('capture degradation projects the rev-7 reason and bytes without changing trading brakes', () => {
+test('capture degradation projects the rev-8 reason and bytes without changing trading brakes', () => {
   const running = executorHealth(health, at);
   assert.equal(running.status, 'running');
   for (const status of ['ok', 'degraded']) {
@@ -322,18 +322,18 @@ test('journal tampering and torn tails fail closed, and source symlinks are refu
   assert.throws(() => readJournal(path.join(dir, 'link')));
 });
 
-test('contracts pin names the rev-7 closure and preserves the data contract id', () => {
+test('contracts pin names the rev-8 closure and preserves the data contract id', () => {
   const lock = JSON.parse(readFileSync(path.join(root, 'contracts.lock.json'), 'utf8'));
   assert.equal(lock.repository, 'https://github.com/markus-barta/joedesk');
-  assert.equal(lock.revision, '65779bde6022e654184e634a57e368742dee1266');
-  assert.equal(lock.manifest_revision, 7);
-  assert.equal(lock.contract_set_sha256, '3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d');
-  assert.equal(CONTRACTS.revision, 7);
+  assert.equal(lock.revision, 'dcdf850d06a5087b674a533875ebaec6127e9819');
+  assert.equal(lock.manifest_revision, 8);
+  assert.equal(lock.contract_set_sha256, 'a7f937ab012b03695e2d94685fd5c50b8d1309810a88bf0331d3cdf3d2f727f9');
+  assert.equal(CONTRACTS.revision, 8);
   assert.equal(CONTRACTS.contracts.data, 'inspr.joe.household.v2');
   assert.equal(verifyContracts(), true);
 });
 
-test('byte-exact rev-7 closure check rejects altered, missing, extra and former pinned contracts', () => {
+test('byte-exact rev-8 closure check rejects altered, missing, extra and former pinned contracts', () => {
   assert.equal(verifyContracts(), true);
   function copy() {
     const dir = temp(); cpSync(path.join(root, 'contracts'), path.join(dir, 'contracts'), { recursive: true });
