@@ -1640,7 +1640,7 @@ in
     # renaming them would strand the IdP database.
     # ============================================
     inspr-www = {
-      # inspr.at edge: serves www + paimos/pharos/janus/v1/media subdomains. Its
+      # inspr.at edge: serves www + paimos/pharos/janus/v1/media and paimos.com. Its
       # routers carry ALL inspr.at web properties — downtime here takes the
       # whole family including the Pharos UI.
       image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"; # OPS-136: pinned at adoption; floating policy is a later reviewed change
@@ -1694,6 +1694,15 @@ in
         "traefik.http.routers.inspr-v1.tls.certresolver=default"
         "traefik.http.routers.inspr-v1.middlewares=cloudflarewarp@file"
         "traefik.http.routers.inspr-v1.service=inspr-sites"
+        # Cloudflare-proxied paimos.com shares this edge; preserve router/middleware names.
+        "traefik.http.routers.paimos.rule=Host(`paimos.com`) || Host(`www.paimos.com`)"
+        "traefik.http.routers.paimos.tls=true"
+        "traefik.http.routers.paimos.tls.certresolver=default"
+        "traefik.http.routers.paimos.service=inspr-sites"
+        "traefik.http.routers.paimos.middlewares=paimos-www-redirect@docker,cloudflarewarp@file"
+        "traefik.http.middlewares.paimos-www-redirect.redirectregex.regex=^https?://www\\.paimos\\.com/(.*)"
+        "traefik.http.middlewares.paimos-www-redirect.redirectregex.replacement=https://paimos.com/$\${1}"
+        "traefik.http.middlewares.paimos-www-redirect.redirectregex.permanent=true"
         # DNS-only hostname: direct requests must not use cloudflarewarp.
         "traefik.http.routers.inspr-media.rule=Host(`media.inspr.at`)"
         "traefik.http.routers.inspr-media.tls=true"
@@ -1704,7 +1713,7 @@ in
         "traefik.http.middlewares.inspr-media-inflight.inflightreq.amount=16"
         "traefik.http.middlewares.inspr-media-inflight.inflightreq.sourcecriterion.ipstrategy.depth=0"
         # Catch first-time plain-HTTP visits before HSTS can apply.
-        "traefik.http.routers.inspr-sites-http.rule=Host(`inspr.at`) || Host(`www.inspr.at`) || Host(`aithema.inspr.at`) || Host(`paimos.inspr.at`) || Host(`pharos.inspr.at`) || Host(`janus.inspr.at`) || Host(`v1.inspr.at`) || Host(`media.inspr.at`)"
+        "traefik.http.routers.inspr-sites-http.rule=Host(`inspr.at`) || Host(`www.inspr.at`) || Host(`aithema.inspr.at`) || Host(`paimos.inspr.at`) || Host(`pharos.inspr.at`) || Host(`janus.inspr.at`) || Host(`v1.inspr.at`) || Host(`media.inspr.at`) || Host(`paimos.com`) || Host(`www.paimos.com`)"
         "traefik.http.routers.inspr-sites-http.entrypoints=web"
         "traefik.http.routers.inspr-sites-http.middlewares=inspr-sites-https@docker"
         "traefik.http.routers.inspr-sites-http.service=inspr-sites"
@@ -1906,6 +1915,7 @@ in
     # (/home/mba/docker/paimos/docker-compose.yml)
     # ============================================
     paimos-www = {
+      # INSPR-572: idle with Traefik off; retain the container pending separate retirement.
       image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"; # OPS-136: pinned at adoption; floating policy is a later reviewed change
       container_name = "paimos-www";
       restart = "unless-stopped";
@@ -1918,16 +1928,7 @@ in
         "paimos_caddy_config:/config"
       ];
       labels = [
-        "traefik.enable=true"
-        "traefik.docker.network=csb1_traefik"
-        "traefik.http.routers.paimos.rule=Host(`paimos.com`) || Host(`www.paimos.com`)"
-        "traefik.http.routers.paimos.tls=true"
-        "traefik.http.routers.paimos.tls.certresolver=default"
-        "traefik.http.routers.paimos.middlewares=paimos-www-redirect@docker,cloudflarewarp@file"
-        "traefik.http.middlewares.paimos-www-redirect.redirectregex.regex=^https?://www\\.paimos\\.com/(.*)"
-        "traefik.http.middlewares.paimos-www-redirect.redirectregex.replacement=https://paimos.com/$\${1}"
-        "traefik.http.middlewares.paimos-www-redirect.redirectregex.permanent=true"
-        "traefik.http.services.paimos.loadbalancer.server.port=80"
+        "traefik.enable=false"
         "com.centurylinklabs.watchtower.enable=false" # OPS-136: composeStack owns this service now (was =true under watchtower)
       ];
     };
