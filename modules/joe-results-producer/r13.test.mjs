@@ -202,7 +202,7 @@ test('many simultaneous partial causes deduplicate in canonical order, with no f
   assert.equal(validateResults(result, { requirePartialReasons: true }).ok, true);
 });
 
-test('rev-8 local validator matches every board refusal; strict producer mode requires reasons', t => {
+test('rev-9 local validator matches every board refusal; strict producer mode requires reasons', t => {
   const result = setup(t, pair()).snapshot();
   const invalid = [
     ['partialCoverageRequired', day => { day.partialReasons = ['history_gap']; }],

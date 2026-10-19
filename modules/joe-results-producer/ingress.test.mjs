@@ -340,7 +340,7 @@ test('producer emits partial coverage from its capture interval and removed reas
   const value = producer.snapshot();
   assert.equal(value.days[0].coverage, 'partial');
   assert.equal(validateContract('results', value, { stage: 'ingress' }).ok, true);
-  assert.equal(CONTRACTS.revision, 8);
+  assert.equal(CONTRACTS.revision, 9);
   assert.equal(REASONS.includes('results_not_wired'), false);
   assert.equal(validateResults({ ...value, reason: 'results_not_wired' }).status, 422);
   producer.close();

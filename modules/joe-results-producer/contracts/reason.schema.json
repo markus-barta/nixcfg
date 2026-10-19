@@ -36,6 +36,7 @@
     "executor_broker_disagreement",
     "results_capture_failed",
     "not_exact_yet",
-    "source_unavailable"
+    "source_unavailable",
+    "desk_unmapped"
   ]
 }
