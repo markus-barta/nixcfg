@@ -19,6 +19,12 @@ const source = (at = instant) => ({ format: FRAME_FORMAT, bookTs: at,
   apiReplyCheckedAt: at, positions: [] });
 const candidate = observation => buildCandidate(1, observation.bookTs, observation);
 const check = value => validateContract("data", value, { stage: "ingress" });
+const unmappedRow = {
+  symbol: "UNKNOWN", side: "short", scope: "stage0", desk: null,
+  quantity: null, mark: null, marketValue: null, dayPnl: null, openPnl: null,
+  reasons: { desk: "desk_unmapped", quantity: "not_exact_yet", mark: "not_exact_yet",
+    marketValue: "not_exact_yet", dayPnl: "not_exact_yet", openPnl: "not_exact_yet" },
+};
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-switch-"));
   fs.chmodSync(root, 0o700);
@@ -166,6 +172,7 @@ test("KEEP rows exist even without broker rows; reporting and mapping never give
     for (const symbol of ["SXR8", "TSLA"]) {
       const row = value.positions.rows.find(row => row.symbol === symbol);
       assert.equal(row.scope, "keep"); assert.equal(row.desk, null);
+      assert.equal(Object.hasOwn(row.reasons, "desk"), false);
       assert.ok(row.side);
       for (const field of ["quantity", "mark", "marketValue", "dayPnl", "openPnl"]) {
         assert.equal(row[field], null);
@@ -192,7 +199,10 @@ test("handoff copies precomputed ownership, overrides KEEP, and retains every un
   const value = candidate(observation);
   assert.equal(value.positions.rows.length, 5);
   assert.equal(value.positions.rows.at(-1).reasons.desk, "desk_unmapped");
-  assert.equal(check(value).ok, false, "rev 8 must reject the future desk reason; never drop or guess the row");
+  assert.equal(check(value).ok, true, "rev 9 accepts every row without dropping or guessing ownership");
+  for (const row of value.positions.rows.filter(row => row.scope === "keep" || row.desk !== null)) {
+    assert.equal(Object.hasOwn(row.reasons, "desk"), false);
+  }
   observation.positions.pop();
   assert.equal(check(candidate(observation)).ok, true);
   input.deskEquities.desks.joe.positions.push(projection("SYNTHJ"));
@@ -206,20 +216,55 @@ test("handoff copies precomputed ownership, overrides KEEP, and retains every un
   assert.equal(copyObservation(input).positions[1].desk, null, "no legacy symbol attribution");
 });
 
-test("unmapped desk-null validator acceptance", { skip: "JOED-52: pending contracts rev 9; rev 8 deliberately rejects desk_unmapped" }, () => {
+test("unmapped desk-null validator acceptance", () => {
   const observation = source(); observation.positions.push({ symbol: "UNKNOWN", side: "short", desk: null, scope: "stage0" });
-  assert.equal(check(candidate(observation)).ok, true);
+  const value = candidate(observation);
+  assert.deepEqual(value.positions.rows[0], unmappedRow);
+  assert.equal(check(value).ok, true);
 });
 
-test("unmapped observation skips staging without partial rows, a poisoned worker or a replaced pair", async t => {
+test("desk-null stage0 requires a desk reason; mapped and KEEP rows forbid it", () => {
+  for (const [scope, desk, reason, rule] of [
+    ["stage0", null, null, "deskRequired"],
+    ...["j", "joe", "joel"].map(desk => ["stage0", desk, "desk_unmapped", "contradictoryDesk"]),
+    ["keep", null, "desk_unmapped", "contradictoryDesk"],
+  ]) {
+    const value = candidate({ ...source(), positions: [{ symbol: scope === "keep" ? "SXR8" : "UNKNOWN", side: "short", desk, scope }] });
+    const row = value.positions.rows[0];
+    if (reason) row.reasons.desk = reason;
+    else delete row.reasons.desk;
+    const result = check(value);
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some(error => error.rule === rule), JSON.stringify(result.errors));
+  }
+});
+
+test("unmapped observation stages a complete rev 9 pair and survives restart", async t => {
   const { root, store, options } = fixture(t); await store.open(); store.stage(source(), () => instant);
   const pointer = fs.readFileSync(path.join(root, "current.json"));
-  const observation = source(later); observation.positions.push({ symbol: "UNKNOWN", side: "short", desk: null, scope: "stage0" });
-  assert.equal(store.stage(observation, () => later).reason, "contract_invalid");
+  const observation = source(later); observation.positions.push(
+    { symbol: "UNKNOWN", side: "short", desk: null, scope: "stage0" },
+    ...["j", "joe", "joel"].map(desk => ({ symbol: `SYNTH${desk.toUpperCase()}`, side: "long", desk, scope: "stage0" })),
+    { symbol: "SXR8", side: "long", desk: null, scope: "keep" },
+  );
+  assert.equal(store.stage(observation, () => later).status, 200);
   assert.equal(store.disabled, false);
-  assert.ok(fs.readFileSync(path.join(root, "current.json")).equals(pointer));
-  assert.equal((await new StageStore(options).open()).state.lastReservedSeq, 2);
-  assert.equal(store.stage(source(later), () => later).status, 200);
+  assert.equal(fs.readFileSync(path.join(root, "current.json")).equals(pointer), false);
+  const { pair } = JSON.parse(fs.readFileSync(path.join(root, "current.json")));
+  assert.equal(pair, "pair-2");
+  const snapshot = JSON.parse(fs.readFileSync(path.join(root, pair, "snapshot.json")));
+  const receipt = JSON.parse(fs.readFileSync(path.join(root, pair, "receipt.json")));
+  assert.equal(check(snapshot).ok, true);
+  assert.equal(receipt.seq, snapshot.seq);
+  assert.equal(receipt.contractSetSha256, "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5");
+  assert.deepEqual(snapshot.positions.rows[0], unmappedRow);
+  assert.equal(snapshot.positions.rows.length, 6);
+  for (const row of snapshot.positions.rows.slice(1)) assert.equal(Object.hasOwn(row.reasons, "desk"), false);
+  const restarted = await new StageStore(options).open();
+  assert.equal(restarted.state.lastReservedSeq, 2);
+  assert.deepEqual(restarted.previous.value.positions.rows, snapshot.positions.rows);
+  assert.equal(restarted.stage(observation, () => later).status, 200);
+  assert.equal(restarted.state.lastReservedSeq, 3);
 });
 
 test("all null fields require individual reasons and no desk subtotal can masquerade as totals", () => {
@@ -228,7 +273,7 @@ test("all null fields require individual reasons and no desk subtotal can masque
     for (const field of ["equity", "dayPnl", "openPnl", "totalPnl"]) {
       assert.equal(bag[field], null); assert.equal(bag.reasons[field], "not_exact_yet");
       const reason = bag.reasons[field]; delete bag.reasons[field];
-      // Rev 8 permits missing desk reasons when ready; this producer is stricter.
+      // Rev 9 permits missing desk money reasons when ready; this producer is stricter.
       assert.equal(new StageStore().validProjection(value), false); bag.reasons[field] = reason;
     }
   }

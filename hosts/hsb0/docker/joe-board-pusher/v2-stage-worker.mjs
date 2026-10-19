@@ -9,7 +9,7 @@ import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
-export const CONTRACT_SHA = "a7f937ab012b03695e2d94685fd5c50b8d1309810a88bf0331d3cdf3d2f727f9";
+export const CONTRACT_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const stateFormat = "ops392.v2-sequence-state.v1";
 const pairFormat = "ops392.v2-stage-pair.v1";
