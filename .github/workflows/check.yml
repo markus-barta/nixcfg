@@ -426,6 +426,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify local capture mailbox wiring (JOED-43)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 --run "bash tests/T110-capture-local-mailbox.sh"
+
       - name: Verify hsb0 dynamic tailnet admission (OPS-384)
         if: steps.pin.outputs.pin_only != 'true'
         run: |
