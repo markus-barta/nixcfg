@@ -311,6 +311,24 @@ for (const pre of ["writeFileSync", "renameSync"]) test(`HALT route: ${pre} EIO 
   assert.equal(ledger.haltBody(), "");
 });
 
+test("HALT route: healthy halt reports an earlier capture durability warning", async t => {
+  const app = publicationApp(t, { beforePrune() {} }), ledger = app.ledger;
+  const faults = storageFaults(t, ledger.root, "none", "directory-fsync", "ledger.json", { once: true });
+  assert.throws(() => ledger.save(readState(ledger)), { code: "EIO", published: true });
+  assert.equal(faults.counts.postErrors, 1, "the earlier publication fault must actually fire");
+  faults.restore();
+  const { durability, durabilityCode } = ledger.captureDiagnostics();
+  assert.deepEqual({ durability, durabilityCode }, { durability: "uncertain", durabilityCode: "EIO" });
+  assert.equal(ledger.haltBody(), "");
+  const result = await request(app, "POST", "/v1/halt", { reason: "operator stop" });
+  assert.deepEqual(result, { status: 200, body: { status: "halted", active: true, source: "local", durability, durabilityCode } });
+  assert.equal(faults.counts.postErrors, 1, "the halt must not inject another fault");
+  assert.equal(JSON.parse(readFileSync(ledger.haltPath, "utf8")).reason, "operator stop");
+  const health = (await request(app, "GET", "/v1/health")).body;
+  assert.equal(health.resultsCapture.durability, durability);
+  assert.equal(health.resultsCapture.durabilityCode, durabilityCode);
+});
+
 test("HALT route: repeated healthy requests keep the normal success shape", async t => {
   const app = publicationApp(t);
   const expected = { status: 200, body: { status: "halted", active: true, source: "local" } };
