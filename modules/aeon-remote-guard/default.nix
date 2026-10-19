@@ -192,6 +192,10 @@ in
         message = "services.aeonRemoteGuard.defaultMaxLoad must be nonnegative.";
       }
       {
+        assertion = cfg.unitsNewMax < cfg.unitsTotal;
+        message = "services.aeonRemoteGuard.unitsNewMax must be less than unitsTotal.";
+      }
+      {
         assertion = lib.hasPrefix "/" cfg.repo;
         message = "services.aeonRemoteGuard.repo must be an absolute path.";
       }

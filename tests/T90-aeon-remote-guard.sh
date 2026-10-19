@@ -1041,12 +1041,14 @@ joint_home
 request 0 '' browser aeon browser r
 check 0 0 'legacy second reservation' '' reserve legacy
 check 0 0 'adopt cannot bypass browser cap' "${warning_prefix}browser cap; adoption retained" adopt legacy "$$" lane=ait kind=browser round=r
-assert_adopted legacy lane=unknown
+for field in lane=ait kind=browser round= phase=new; do assert_adopted legacy "$field"; done
+check 0 0 'release first browser' '' release browser
+request 3 'browser cap' next-browser aeon browser r
 joint_home
 request 0 '' capped ait test r
 check 0 0 'legacy lane candidate' '' reserve legacy
 check 0 0 'adopt cannot bypass lane cap' "${warning_prefix}lane new cap; adoption retained" adopt legacy "$$" lane=ait kind=test round=r
-assert_adopted legacy lane=unknown
+for field in lane=ait kind=test round= phase=new; do assert_adopted legacy "$field"; done
 check 0 0 'adopt cannot bypass finish proof' "${warning_prefix}finish round not recent; adoption retained" adopt legacy "$$" lane=aeon kind=test round=never phase=finish
 assert_adopted legacy phase=new
 check 0 0 'adopt missing lease stays unknown' "${warning_prefix}missing lease metadata ignored; adoption retained" adopt missing "$$" lane=aeon kind=browser round=missing phase=finish
@@ -1056,12 +1058,34 @@ check 0 0 'legacy before policy migration' '' reserve legacy
 guard_allow_unknown_lane=false check 0 0 'migration keeps adopted pid' '' adopt legacy "$$"
 assert_adopted legacy lane=unknown
 guard_allow_unknown_lane=false check 0 0 'migration ignores unknown classification' "${warning_prefix}lane required; adoption retained" adopt legacy "$$" kind=browser round=r
-assert_adopted legacy kind=test
+for field in lane=unknown kind=browser round= phase=new; do assert_adopted legacy "$field"; done
 # Bare checks still run for main and tag pushes after unknown lanes are disabled.
 for refname in refs/heads/main refs/tags/check; do
   printf 'old new %s\n' "$refname" | HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 guard_allow_unknown_lane=false "$scratch/pre-receive" >"$scratch/stdout" 2>"$scratch/stderr" || fail 'bare hook blocked main/tag'
   [[ ! -s $scratch/stderr ]] || fail 'bare hook emitted diagnostics'
   count=$((count + 1))
+done
+# RED/YELLOW caps affect work admissions, never bare main/tag checks. Old
+# gates still refuse the same pushes, even with no unit requested.
+for level in RED YELLOW; do
+  joint_home
+  if [[ $level == RED ]]; then request 0 '' live aeon test r; else request 0 '' live ait browser r; fi
+  policy "block=0 maxload=12 level=$level epoch=$(date +%s)"
+  check 0 0 'policy reduced bare check'
+  for refname in refs/heads/main refs/tags/check; do
+    printf 'old new %s\n' "$refname" | HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 guard_allow_unknown_lane=false "$scratch/pre-receive" >"$scratch/stdout" 2>"$scratch/stderr" || fail 'policy reduced bare hook blocked main/tag'
+    [[ ! -s $scratch/stdout && ! -s $scratch/stderr ]] || fail 'bare hook emitted output'
+    count=$((count + 1))
+  done
+  touch "$guard_home/.hold-mbp2606"
+  check 3 0 'bare check retains hold' 'hold file exists'
+  unlink "$guard_home/.hold-mbp2606"
+  policy "block=1 maxload=12 level=$level epoch=$(date +%s)"
+  check 3 0 'bare check retains policy block' 'fresh policy block=1'
+  policy "block=0 maxload=12 level=$level epoch=$(date +%s)"
+  check 3 13 'bare check retains load' 'exceeds maxload 12'
+  budget "maxruns=0 epoch=$(date +%s)"
+  check 3 0 'bare check retains pause' 'OPS budget is 0'
 done
 # A reduced lane or finishing cap does not block another lane's new work.
 joint_home
@@ -1074,13 +1098,36 @@ request 0 '' finisher ait test r phase=finish
 printf 'ait_new_max=0 units_finishing_reserve=0 epoch=%s\n' "$(date +%s)" >"$guard_home/.aeon-remote-budget"
 request 0 '' independent-again aeon test r
 # Every override is transactional and tighten-only, including policy caps.
-for raised in units_total=5 units_new_max=4 units_finishing_reserve=2 aeon_new_max=3 ait_new_max=2 ops_new_max=2 browser_max=2 units_new_max_during_browser=3 yellow_units_new_max=2 yellow_browser_max=1 red_units_new_max=1 red_browser_max=1 units_total=3; do
+for raised in units_total=5 units_new_max=4 units_finishing_reserve=2 aeon_new_max=3 ait_new_max=2 ops_new_max=2 browser_max=2 units_new_max_during_browser=3 yellow_units_new_max=2 yellow_browser_max=1 red_units_new_max=1 red_browser_max=1; do
   joint_home
   printf 'browser_max=0 %s epoch=%s\n' "$raised" "$(date +%s)" >"$guard_home/.aeon-remote-budget"
   # Avoid duplicate browser_max in that particular test.
   if [[ $raised == browser_max=* ]]; then printf '%s epoch=%s\n' "$raised" "$(date +%s)" >"$guard_home/.aeon-remote-budget"; fi
   check 0 0 'raised override ignored as whole file' 'remote warning: budget override violates pinned caps; override ignored' reserve browser lane=aeon kind=browser round=r
   grep -qx kind=browser "$guard_home/.aeon-remote-leases/browser" || fail 'override partially applied'
+done
+# Lower totals clamp dependent pins rather than discarding valid tightenings.
+joint_home
+printf 'units_total=3 browser_max=0 epoch=%s\n' "$(date +%s)" >"$guard_home/.aeon-remote-budget"
+request 3 'browser cap' tightened-browser aeon browser r
+request 0 '' first aeon test r
+request 0 '' second ait test r
+request 3 'joint new cap' third ops test r
+request 0 '' finisher aeon test r phase=finish
+request 3 'joint total cap' fourth ops test r
+for total in 0 1 2 3; do
+  joint_home
+  printf 'units_total=%s epoch=%s\n' "$total" "$(date +%s)" >"$guard_home/.aeon-remote-budget"
+  for ((i = 0; i < total - 1; i++)); do check 0 0 'clamped new slot' '' reserve "new-$i"; done
+  if ((total == 0)); then reason='joint total cap'; else reason='joint new cap'; fi
+  check 3 0 'clamped new ceiling' "$reason" reserve excess
+done
+# An expired or excessively future file cannot generate a raise warning.
+now=$(date +%s)
+for epoch in "$((now - 901))" "$((now + 61))"; do
+  joint_home
+  printf 'units_total=5 browser_max=0 epoch=%s\n' "$epoch" >"$guard_home/.aeon-remote-budget"
+  PATH="$scratch/clock-bin:$PATH" AEON_REMOTE_GUARD_TEST_CLOCK="$now" request 0 '' stale-raise aeon browser r
 done
 joint_home
 now=$(date +%s)
@@ -1123,10 +1170,18 @@ for broken in symlink directory unreadable over-limit; do
     if grep -q ' aeon:round-0$' "$recent"; then fail 'oldest history retained'; fi
   fi
 done
+# Atomic replace repairs readable, read-only history in a writable directory.
+joint_home
+request 0 '' source aeon test readonly-round
+recent="$guard_home/.aeon-remote-leases/.recent-rounds"
+chmod 400 "$recent"
+request 0 '' finish aeon test readonly-round phase=finish
+[[ -w $recent ]] || fail 'read-only history not atomically repaired'
+count=$((count + 1))
 # Parallel clients exercise the whole transaction, including finishing history.
 # Leases stay live until inspection; each successful exit must have one lease.
 parallel_clients=0
-for mode in unknown lanes browser-finish lifecycle; do
+for mode in unknown lanes browser-finish lifecycle classification; do
   for _iteration in 1 2 3 4; do
     joint_home
     if [[ $mode == browser-finish ]]; then
@@ -1137,6 +1192,24 @@ for mode in unknown lanes browser-finish lifecycle; do
     fi
     jobs=()
     lifecycle_jobs=()
+    if [[ $mode == classification ]]; then
+      check 0 0 'parallel unclassified browser' '' reserve observed-browser
+      check 0 0 'parallel unclassified test' '' reserve observed-test
+      start="$scratch/classification-start"
+      if [[ -e $start ]]; then unlink "$start"; fi
+      for observed in observed-browser observed-test; do
+        (
+          while [[ ! -e $start ]]; do sleep 0.01; done
+          if [[ $observed == observed-browser ]]; then args=(lane=ait kind=browser); else args=(lane=aeon kind=test); fi
+          rc=0
+          HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 "$BASH" "$guard" adopt "$observed" "$$" "${args[@]}" round=observed \
+            >"$scratch/$observed.out" 2>"$scratch/$observed.err" || rc=$?
+          printf '%s\n' "$rc" >"$scratch/$observed.rc"
+        ) &
+        lifecycle_jobs+=("$!")
+        parallel_clients=$((parallel_clients + 1))
+      done
+    fi
     if [[ $mode == lifecycle ]]; then
       request 0 '' retained aeon test shared
       request 0 '' departing ops test shared
@@ -1163,8 +1236,14 @@ for mode in unknown lanes browser-finish lifecycle; do
         args+=("lane=${lanes[i % 3]}" kind=test round=shared)
         if [[ $mode == browser-finish && $((i % 4)) == 0 ]]; then args[3]=kind=browser; fi
         if [[ $mode == browser-finish && $((i % 5)) == 0 ]]; then args+=(phase=finish); fi
+        # Keep this wave in another lane so a late browser report isolates the
+        # coupled new cap; per-lane and browser caps remain directly assertable.
+        if [[ $mode == classification ]]; then args=(reserve "parallel-$i" lane=ops kind=test round=shared); fi
       fi
       (
+        if [[ $mode == classification ]]; then
+          while [[ ! -e $start ]]; do sleep 0.01; done
+        fi
         rc=0
         HOME="$guard_home" AEON_REMOTE_GUARD_LOAD=0 "$BASH" "$guard" "${args[@]}" \
           >"$scratch/parallel-$i.out" 2>"$scratch/parallel-$i.err" || rc=$?
@@ -1173,6 +1252,10 @@ for mode in unknown lanes browser-finish lifecycle; do
       jobs+=("$!")
       parallel_clients=$((parallel_clients + 1))
     done
+    if [[ $mode == classification ]]; then
+      touch "$start"
+      for job in "${lifecycle_jobs[@]}"; do wait "$job"; done
+    fi
     for job in "${jobs[@]}"; do wait "$job"; done
     python3 - "$guard_home/.aeon-remote-leases" "$scratch" "$mode" <<'PY'
 from pathlib import Path
@@ -1200,23 +1283,51 @@ if mode == 'lifecycle':
     retained = dict(line.split('=', 1) for line in (leases / 'retained').read_text().splitlines())
     assert int(retained['pid']) > 0 and retained['lane'] == 'aeon'
     records.append(retained)
+if mode == 'classification':
+    for name, lane, kind in [('observed-browser', 'ait', 'browser'), ('observed-test', 'aeon', 'test')]:
+        assert (scratch / f'{name}.rc').read_text().strip() == '0'
+        assert not (scratch / f'{name}.out').read_text()
+        r = dict(line.split('=', 1) for line in (leases / name).read_text().splitlines())
+        assert int(r['pid']) > 0 and r['lane'] == lane and r['kind'] == kind and r['phase'] == 'new', r
+        warning = (scratch / f'{name}.err').read_text()
+        if warning:
+            assert warning.startswith('remote warning: ') and warning.endswith('; adoption retained\n')
+            assert len(warning.splitlines()) == 1 and r['round'] == '', r
+        else:
+            assert r['round'] == 'observed', r
+        records.append(r)
 assert 1 <= len(records) <= 4
 new = [r for r in records if r['phase'] != 'finish']
 assert len(new) <= 3
 assert sum(r['phase'] == 'finish' for r in records) <= 1
 browsers = sum(r['kind'] == 'browser' for r in records)
 assert browsers <= 1
-assert not browsers or len(new) <= 2
+if mode == 'classification' and len(new) > 2:
+    # A reservation may win the lock before the running browser is reported.
+    # Its refused classification MUST still expose the browser, never mint a
+    # round, and prevent later work. Only that observed unit explains overage.
+    browser = next(r for r in new if r['kind'] == 'browser')
+    assert browser['round'] == ''
+    assert 'new cap during browser' in (scratch / 'observed-browser.err').read_text()
+    assert len([r for r in new if r['round']]) <= 2
+else:
+    assert not browsers or len(new) <= 2
 for lane, cap in [('aeon', 2), ('ait', 1), ('ops', 1)]:
     assert sum(r['lane'] == lane for r in new) <= cap
 if mode in ('unknown', 'lanes', 'lifecycle'):
     assert len(records) == 3, records
 PY
+    if [[ $mode == classification ]]; then
+      request 3 'browser cap' after-browser ops browser after
+      # At least two new units and the observed browser remain, so a further
+      # test cannot enter, irrespective of which caller acquired the lock first.
+      check 3 0 'post-classification test refused' '' reserve after-test lane=ops kind=test round=after
+    fi
     count=$((count + 1))
   done
 done
 joint_count=$((count - legacy_count))
-printf 'T90 joint budget ok: %s cases; %s parallel clients in 16 batches\n' "$joint_count" "$parallel_clients"
+printf 'T90 joint budget ok: %s cases; %s parallel clients in 20 batches\n' "$joint_count" "$parallel_clients"
 
 printf 'T90 runtime ok: %s guard cases; busy/allowed/mixed/deletion local pushes through executable symlink; 5000 stdin lines drained; hook exit 3\n' "$count"
 

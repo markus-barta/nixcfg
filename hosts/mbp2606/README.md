@@ -275,9 +275,13 @@ metadata, both `kind` and `round` are required. Omit `phase` for new work;
 `phase=finish` is its only accepted explicit value. Refresh and adoption preserve
 all metadata when arguments are omitted. A reserve refresh that changes classified
 metadata for a live ID refuses. Adoption always records the live pid and keeps
-stored metadata; mismatched, invalid or inadmissible client metadata is ignored
+stored metadata; mismatched or invalid client metadata is ignored
 with a value-free warning and exit 0. Only an existing unclassified lease can be
-classified during adoption, and only through the same gates as reserve. Missing
+classified during adoption, and only through the same gates as reserve. If those
+gates refuse classification, the requested lane and kind still count the running
+work, but the lease keeps an empty round and `phase=new`; it gains no finishing
+eligibility. This can expose an existing overage and prevents further admissions
+against the affected caps. Missing
 leases are recreated as unknown new test units. Adoption never writes round
 history or grants admission. A pre-receive reservation starts unclassified; the
 caller can classify it with `reserve` before starting work. The lease records `lane`, `kind`, `round`
@@ -301,6 +305,9 @@ requires a live unit with the same lane and round, or recent proof that this
 lane and round held a unit within `finishWindowSeconds` (1800). `release` records completion under the lock;
 it remains available while held or paused. Atomic `.recent-rounds` history holds
 at most `recentRoundLimit` (128) lane/round pairs as `epoch lane:round`.
+On the first deploy of this format, old `epoch round` history lines are dropped
+once. Finishers within 30 minutes of that switch need a live lease of their lane
+and round until scoped history has been populated again.
 A symlink, directory, unreadable history or write failure refuses only finish
 admissions (`finish history unavailable`); bare checks, new reservations, adoption
 and release keep working. Over-limit history refuses finishing on that call and
@@ -312,8 +319,10 @@ A missing lane defaults to `unknown`, counts against total/new/browser limits,
 and has no lane cap while `allowUnknownLane = true` (default). Harness-install
 will set it to false after migrating callers. With that setting, clients reserve
 with metadata before pushing; the hook then refreshes the classified lease.
-Bare preflight checks and main/tag pushes remain available without metadata.
-These caps intersect with maxruns,
+Bare preflight checks and main/tag pushes start no unit: they skip joint, lane,
+browser and finishing caps and retain the pre-OPS-393 hold, policy block, load
+and maxruns gates (including maxruns' strict `>` comparison).
+Reservations intersect these caps with maxruns,
 hold, policy block and load gates; the most restrictive rule applies. Missing,
 invalid or stale policy preserves the existing default fallback. Bare checks do
 not claim a unit; clients must reserve before work and adopt to keep it live.
@@ -333,11 +342,15 @@ order, for example `units_new_max=2 browser_max=0 epoch=<unix>`. Keys are
 `yellow_units_new_max`, `yellow_browser_max`, `red_units_new_max`, and
 `red_browser_max`. Values are canonical integers 0–999; each key occurs once. Unspecified caps keep their Nix
 defaults. Each effective cap is the minimum of its pin and override. Any attempt
-to raise a pinned cap (including YELLOW/RED keys), or a resulting
-`units_new_max >= units_total`, discards the whole file with a value-free warning.
+to raise a pinned cap (including YELLOW/RED keys) in a fresh override discards the
+whole file with a value-free warning. After taking these minima,
+`units_new_max` is clamped to at most `max(units_total - 1, 0)`; finishing and
+browser caps cannot exceed total units, and dependent new/browser caps cannot
+exceed their parent caps. Lowering only `units_total` remains valid.
 An unknown/duplicate key, invalid value, missing epoch, multiple lines,
 unreadable/symlink input, age over `staleSeconds` (900), or future skew over 60
-seconds discards the entire override. The wrapper pins all Nix options; caller
+seconds discards the entire override. Stale files produce no warning.
+The wrapper pins all Nix options; caller
 environment variables cannot retune production admission.
 
 The browser counts as one of the two new units allowed by
