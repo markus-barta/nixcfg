@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, lstatSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const REVISION = '65779bde6022e654184e634a57e368742dee1266';
@@ -16,7 +16,8 @@ function filesBelow(root, prefix = '') {
   });
 }
 
-export function verifyContracts(root = path.dirname(fileURLToPath(import.meta.url))) {
+export function verify() {
+  const root = path.dirname(fileURLToPath(import.meta.url));
   const lock = JSON.parse(readFileSync(path.join(root, 'contracts.lock.json'), 'utf8'));
   if (lock.revision !== REVISION || lock.manifest_revision !== 7 || lock.repository !== 'https://github.com/markus-barta/joedesk') throw new Error('contract_pin_drift');
   if (lock.contract_set_sha256 !== SET_SHA256) throw new Error('contract_set_drift');
@@ -35,7 +36,3 @@ export function verifyContracts(root = path.dirname(fileURLToPath(import.meta.ur
   if (JSON.parse(readFileSync(path.join(root, 'contracts/manifest.json'), 'utf8')).revision !== 7) throw new Error('contract_pin_drift');
   return true;
 }
-
-// source.nix, paper-desk-executor/default.nix and T100 run this via the CLI.
-// The argv check is safe for imports: main.mjs always calls verifyContracts.
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) verifyContracts();

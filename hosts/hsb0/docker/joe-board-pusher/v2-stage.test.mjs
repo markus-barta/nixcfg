@@ -275,5 +275,5 @@ for (const entry of ["file", "symlink"]) test(`worker refuses to unlink unexpect
 });
 
 test("separate Linux memory-cgroup identities and OOM isolation", {
-  skip: "Requires Linux container runtime; this offline macOS brief prohibits Docker and fleet labs",
+  skip: "Run node scripts/rehearse-household-v2-stage.mjs in the workstation lab; offline builders cannot run Docker",
 }, () => {});

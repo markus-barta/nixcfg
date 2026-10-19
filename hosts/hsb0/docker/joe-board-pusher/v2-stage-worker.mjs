@@ -4,7 +4,7 @@ import net from "node:net";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { verifyContracts } from "./verify-contracts.mjs";
+import { verify } from "./verify-contracts.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
@@ -123,7 +123,7 @@ export class StageStore {
     this.syncDir("", `${label}_dir_fsync`);
   }
   async contracts() {
-    verifyContracts(); // Before any contract imports (including JSON imports).
+    verify(); // Before any contract imports (including JSON imports).
     const { validateContract } = await import("./contracts/index.mjs");
     const { acceptSnapshot } = await import("./contracts/accept.mjs");
     Object.assign(this, { validateContract, acceptSnapshot });
@@ -352,7 +352,7 @@ async function main() {
   }
   const store = new StageStore();
   if (args.includes("--enroll")) {
-    verifyContracts(); store.enroll();
+    verify(); store.enroll();
     console.log('{"event":"v2_stage_enrolled"}');
   } else {
     await store.open();
