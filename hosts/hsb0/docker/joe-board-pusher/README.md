@@ -32,7 +32,8 @@ Gateway, executor, positions, raw NAV, historical evidence and accounting are
 omitted. The legal non-money `haltReason: null` accompanies `halt: false`.
 
 The pusher constructs its optional Unix client once at startup and reconnects
-from `setImmediate` after close. After its one v1 fetch/response has settled
+from `setImmediate` after close. Only the fixed `/run/joe-household-v2/stage.sock`
+setting is accepted. After its one v1 fetch/response has settled
 (including rejection), it offers only the cycle's `book.ts`. An idle worker
 issues one `0x01` credit; one frame is uint32-be byte length followed by UTF-8
 JSON `{format:"ops392.phase-a-observation.v1",bookTs}`, at most 4096 bytes,
@@ -88,8 +89,9 @@ Run `node --test` for all pusher tests. New tests cover exact baseline v1 bytes,
 fetch/body rejection identity, skips, the credit/frame protocol, real child
 death at persistence boundaries, contract acceptance/replay/clocks, corruption,
 ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
-synthetic/masked. For an offline byte comparison against the reviewed producer,
-set `OPS392_REVIEWED_CONTRACTS_ROOT` to its module directory when testing. Linux
+synthetic/masked. The pinned verifier checks every closure file against its
+independent hash/size manifest; offline handoff evidence also compares the
+17 files, lock and verifier directly against the reviewed producer. Linux
 flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
 those separately and does not claim container isolation has been live-verified.
 

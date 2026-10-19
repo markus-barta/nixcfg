@@ -24,9 +24,6 @@ test("independently pinned reviewed 17-file closure verifies", () => {
   assert.equal(verifyContracts(), true);
   const lock = JSON.parse(fs.readFileSync(path.join(root, "contracts.lock.json")));
   assert.equal(Object.keys(lock.files).length, 17);
-  // Optional offline byte comparison: supply a reviewed checkout, never fetch it.
-  const reviewed = process.env.OPS392_REVIEWED_CONTRACTS_ROOT;
-  if (reviewed) for (const name of Object.keys(lock.files)) assert.ok(fs.readFileSync(path.join(root, "contracts", name)).equals(fs.readFileSync(path.join(reviewed, "contracts", name))));
 });
 for (const fault of ["changed", "extra", "symlink", "lock-drift"]) test(`contract verifier rejects ${fault}`, t => {
   const directory = temp(t); copyClosure(directory);

@@ -6,6 +6,7 @@ export function createStageHandoff({
   makeSocket = () => new net.Socket(),
   defer = setImmediate,
 } = {}) {
+  if (socketPath !== "/run/joe-household-v2/stage.sock") return { offer: () => false, stop() {} };
   let socket;
   let credit = false;
   let stopped = false;
@@ -30,7 +31,7 @@ export function createStageHandoff({
       } else credit = true;
     });
     next.unref?.();
-    try { next.connect(socketPath); } catch { next.destroy(); }
+    try { next.connect("/run/joe-household-v2/stage.sock"); } catch { next.destroy(); }
   }
   connect();
   return {

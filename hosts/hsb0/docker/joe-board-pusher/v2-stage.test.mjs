@@ -5,6 +5,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { StageStore, buildCandidate, normalizeBookTs, acceptStage, prepareLock, launchLocked, serveWorker } from "./v2-stage-worker.mjs";
 import { createStageSupervisor } from "./v2-stage-supervisor.mjs";
@@ -97,12 +98,12 @@ for (const point of boundaries) test(`process death at ${point} preserves author
   const { root, store, options } = fixture(t);
   store.enroll(); await store.open(); store.stage(instant, () => instant);
   // A real child dies at the boundary; no catch/finally recovery can hide residue.
-  const moduleUrl = new URL("./v2-stage-worker.mjs", import.meta.url).href;
-  const source = `import { StageStore } from ${JSON.stringify(moduleUrl)};
-    const store = await new StageStore(${JSON.stringify({ root, uid: options.uid, gid: options.gid })}).open();
-    store.boundary = label => { if (label === ${JSON.stringify(point)}) process.kill(process.pid, 'SIGKILL'); };
-    store.stage(${JSON.stringify(later)}, () => ${JSON.stringify(later)});`;
-  const result = spawnSync(process.execPath, ["--input-type=module", "-e", source], { encoding: "utf8" });
+  const source = `import { pathToFileURL } from 'node:url';
+    const { StageStore } = await import(pathToFileURL(process.argv[1]).href);
+    const store = await new StageStore({root:process.argv[2],uid:process.getuid(),gid:process.getgid()}).open();
+    store.boundary = label => { if (label === process.argv[3]) process.kill(process.pid, 'SIGKILL'); };
+    store.stage('2026-10-19T07:00:01.000Z', () => '2026-10-19T07:00:01.000Z');`;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", source, fileURLToPath(new URL("./v2-stage-worker.mjs", import.meta.url)), root, point], { encoding: "utf8" });
   assert.equal(result.signal, "SIGKILL", result.stderr);
   const reserved = json(path.join(root, "sequence-state.json")).lastReservedSeq;
   const pair = current(root); // Always a whole old or new pair.
