@@ -37,6 +37,7 @@ let
       readonly guard_yellow_units_new_max=${toString cfg.yellowUnitsNewMax}
       readonly guard_yellow_browser_max=${toString cfg.yellowBrowserMax}
       readonly guard_red_units_new_max=${toString cfg.redUnitsNewMax}
+      readonly guard_red_browser_max=${toString cfg.redBrowserMax}
       readonly guard_finish_window_seconds=${toString cfg.finishWindowSeconds}
       readonly guard_recent_round_limit=${toString cfg.recentRoundLimit}
       readonly guard_budget_file=${lib.escapeShellArg cfg.budgetFile}
@@ -96,7 +97,7 @@ in
     budgetFile = lib.mkOption {
       type = lib.types.nonEmptyStr;
       default = "${home}/.aeon-remote-budget";
-      description = "OPS joint-budget override: whitelisted cap key=value tokens and epoch=<unix> on one line; invalid/stale files use pinned defaults.";
+      description = "OPS tighten-only joint-budget override: whitelisted cap key=value tokens and epoch=<unix> on one line; invalid/stale files use pinned defaults.";
     };
     allowUnknownLane = lib.mkOption {
       type = lib.types.bool;
@@ -157,6 +158,11 @@ in
       type = lib.types.ints.unsigned;
       default = 0;
       description = "Additional new-unit cap under a fresh RED policy.";
+    };
+    redBrowserMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      description = "Additional browser cap under a fresh RED policy.";
     };
     finishWindowSeconds = lib.mkOption {
       type = lib.types.ints.positive;
