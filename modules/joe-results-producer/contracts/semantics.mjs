@@ -99,6 +99,10 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
       }
     }
     if (payload.safety.halt && !payload.safety.haltReason) fail('$.safety.haltReason', 'reasonRequired');
+    const executor = payload.safety.executor;
+    if (executor && Object.hasOwn(executor, 'ledgerCapBytes') && !Object.hasOwn(executor, 'ledgerBytes')) {
+      fail('$.safety.executor.ledgerBytes', 'required');
+    }
   }
   if (kind === 'history') {
     if (payload.reason === 'history_compacted' && !payload.compactedThrough) fail('$.compactedThrough', 'required');

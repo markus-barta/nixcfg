@@ -1,6 +1,6 @@
 {
   "schema": "joedesk.contracts.v2",
-  "revision": 6,
+  "revision": 7,
   "status": "P2 integration candidate; producer, UI and release cutover require coordinator approval",
   "contracts": {
     "data": "inspr.joe.household.v2",

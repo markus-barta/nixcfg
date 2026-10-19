@@ -11,7 +11,7 @@ import { openProducer, createRunner, executorHealth, CADENCE_MS } from './produc
 import { hash, openJournal, readJournal } from './journal.mjs';
 import { verifyContracts } from './verify-contracts.mjs';
 import { fixtureIngress, httpTransport } from './transport.mjs';
-import { validateContract } from './contracts/index.mjs';
+import { CONTRACTS, validateContract } from './contracts/index.mjs';
 import { createCapture, reconciliationEvidence } from './capture.mjs';
 import { ACCOUNT, activityAttribution, executionTimeMs } from '../paper-desk-executor/policy.mjs';
 import { openLedger } from '../paper-desk-executor/state.mjs';
@@ -169,17 +169,17 @@ test('true fill/broker mismatch emits exact disagreement code; gateway flaps do 
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).status, 'degraded');
 });
 
-test('capture degradation projects executor health without changing trading brakes or the pinned board contract', () => {
+test('capture degradation projects the rev-7 reason and bytes without changing trading brakes', () => {
   const running = executorHealth(health, at);
   assert.equal(running.status, 'running');
   for (const status of ['ok', 'degraded']) {
     const degraded = executorHealth({ ...health, status, resultsCapture: { ok: false,
-      ledgerBytes: 15099494, ledgerMaxBytes: 16777216, admissionThresholdBytes: 15099494,
+      ledgerBytes: 15099494, ledgerCapBytes: 16777216, ledgerMaxBytes: 16777216, admissionThresholdBytes: 15099494,
     } }, at);
-    assert.deepEqual(degraded, { ...running, status: 'degraded' });
+    assert.deepEqual(degraded, { ...running, status: 'degraded', reason: 'results_capture_failed', ledgerBytes: 15099494, ledgerCapBytes: 16777216 });
     assert.equal(degraded.halt, running.halt);
     assert.equal(degraded.brakes, running.brakes);
-    assert.equal(degraded.reason, undefined);
+    assert.equal(degraded.reason, 'results_capture_failed');
     const producer = open(temp());
     producer.ingest(source());
     assert.equal(producer.health({ ...health, status, resultsCapture: { ok: false } }, at).status, 'degraded');
@@ -322,7 +322,18 @@ test('journal tampering and torn tails fail closed, and source symlinks are refu
   assert.throws(() => readJournal(path.join(dir, 'link')));
 });
 
-test('byte-exact closure check rejects altered, missing and extra vendored contract bytes', () => {
+test('contracts pin names the rev-7 closure and preserves the data contract id', () => {
+  const lock = JSON.parse(readFileSync(path.join(root, 'contracts.lock.json'), 'utf8'));
+  assert.equal(lock.repository, 'https://github.com/markus-barta/joedesk');
+  assert.equal(lock.revision, '65779bde6022e654184e634a57e368742dee1266');
+  assert.equal(lock.manifest_revision, 7);
+  assert.equal(lock.contract_set_sha256, '3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d');
+  assert.equal(CONTRACTS.revision, 7);
+  assert.equal(CONTRACTS.contracts.data, 'inspr.joe.household.v2');
+  assert.equal(verifyContracts(), true);
+});
+
+test('byte-exact rev-7 closure check rejects altered, missing, extra and former pinned contracts', () => {
   assert.equal(verifyContracts(), true);
   function copy() {
     const dir = temp(); cpSync(path.join(root, 'contracts'), path.join(dir, 'contracts'), { recursive: true });
@@ -347,7 +358,14 @@ test('byte-exact closure check rejects altered, missing and extra vendored contr
   delete incomplete.files['vienna-date.mjs'];
   writeFileSync(path.join(missing, 'contracts.lock.json'), JSON.stringify(incomplete));
   assert.throws(() => verifyContracts(missing), /contract_set_drift/);
-  for (const [key, value, error] of [['revision', '0'.repeat(40), 'contract_pin_drift'], ['manifest_revision', 2, 'contract_pin_drift'], ['contract_set_sha256', '0'.repeat(64), 'contract_set_drift']]) {
+  for (const [key, value, error] of [
+    ['revision', '0'.repeat(40), 'contract_pin_drift'],
+    ['manifest_revision', 2, 'contract_pin_drift'],
+    ['contract_set_sha256', '0'.repeat(64), 'contract_set_drift'],
+    ['revision', '26a5d2ac04fad707ea63e49a91a348b2a49035cc', 'contract_pin_drift'],
+    ['manifest_revision', 6, 'contract_pin_drift'],
+    ['contract_set_sha256', 'f092c0f1f6223f965486f6f1b072e6c305b3fafd2ce34b1b551fb6dbed0ddf80', 'contract_set_drift'],
+  ]) {
     const drift = copy(), pinned = JSON.parse(readFileSync(path.join(drift, 'contracts.lock.json'), 'utf8'));
     pinned[key] = value;
     writeFileSync(path.join(drift, 'contracts.lock.json'), JSON.stringify(pinned));
