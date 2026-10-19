@@ -20,9 +20,15 @@ class Socket extends EventEmitter {
 }
 function handoff() {
   const sockets = []; const deferred = [];
-  const adapter = createStageHandoff({ socketPath: "/synthetic/stage.sock", makeSocket: () => { const socket = new Socket(); sockets.push(socket); return socket; }, defer: fn => { deferred.push(fn); return {}; } });
+  const adapter = createStageHandoff({ socketPath: "/run/joe-household-v2/stage.sock", makeSocket: () => { const socket = new Socket(); sockets.push(socket); return socket; }, defer: fn => { deferred.push(fn); return {}; } });
   return { adapter, sockets, deferred };
 }
+
+test("unrecognized socket setting cannot select a network destination", () => {
+  let created = false;
+  const adapter = createStageHandoff({ socketPath: "unexpected", makeSocket() { created = true; } });
+  assert.equal(adapter.offer(instant), false); assert.equal(created, false); adapter.stop();
+});
 
 test("one 0x01 credit permits one uint32-be bounded scalar frame, including backpressure", () => {
   const { adapter, sockets } = handoff(); const socket = sockets[0];
@@ -58,7 +64,7 @@ test("duplicate/invalid credits close the socket; construction failure is contai
   }
   const { adapter, sockets } = handoff(); sockets[0].emit("data", Buffer.from([1])); sockets[0].emit("data", Buffer.from([1]));
   assert.equal(sockets[0].destroyed, true); adapter.stop();
-  assert.doesNotThrow(() => createStageHandoff({ makeSocket: () => { throw new Error("synthetic"); } }));
+  assert.doesNotThrow(() => createStageHandoff({ socketPath: "/run/joe-household-v2/stage.sock", makeSocket: () => { throw new Error("synthetic"); } }));
 });
 
 function harness(source, { variant = "normal", socket, fetchError, bodyError } = {}) {
