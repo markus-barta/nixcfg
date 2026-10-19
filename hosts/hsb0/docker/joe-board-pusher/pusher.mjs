@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
+import { createStageHandoff } from "./v2-stage-handoff.mjs";
 import { IBApi, EventName } from "@stoqey/ib";
 import {
   EXECUTION_CAPTURE_SCHEMA,
@@ -77,6 +78,9 @@ function parseIntervalSec() {
 }
 
 const INTERVAL_SEC = parseIntervalSec();
+const v2StageHandoff = process.env.JOE_V2_STAGE_SOCKET
+  ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET })
+  : null;
 let connectionSupervisor = null;
 let portfolioRefresh = null;
 let flatNetMarks = null;
@@ -303,7 +307,7 @@ function bookSnapshot() {
   };
 }
 
-async function pushOnce() {
+async function pushOnce(stageObservation) {
   const liveUp = await portUp(HOST, LIVE_PORT);
   if (liveUp) {
     console.warn("live 4001 appears up on host — ignoring; this pusher stays on paper", PORT);
@@ -357,6 +361,8 @@ async function pushOnce() {
     return { ok: false, error: "no token" };
   }
 
+  if (stageObservation) stageObservation.bookTs = book.ts;
+
   const res = await fetch(INBOX_URL, {
     method: "POST",
     headers: {
@@ -383,6 +389,15 @@ async function pushOnce() {
   };
   console.log(JSON.stringify(line));
   return line;
+}
+
+// Each promise owns its scalar observation, including overlapping push cycles.
+function pushWithStage() {
+  if (!v2StageHandoff) return pushOnce();
+  const observation = {};
+  return pushOnce(observation).finally(() => {
+    if (observation.bookTs) v2StageHandoff.offer(observation.bookTs);
+  });
 }
 
 connectionSupervisor = createConnectionSupervisor({
@@ -456,6 +471,7 @@ const portfolioRefreshTimer = setInterval(() => {
 }, 5_000);
 
 function shutdown() {
+  v2StageHandoff?.stop();
   clearInterval(portfolioRefreshTimer);
   flatNetMarks?.reset();
   adapter.retire("shutdown");
@@ -473,11 +489,11 @@ connectionSupervisor.start();
 officialHistoryRefresher.start();
 
 setTimeout(() => {
-  pushOnce().catch((error) => console.error("push error", error.message || error));
+  pushWithStage().catch((error) => console.error("push error", error.message || error));
 }, 8000);
 
 setInterval(() => {
-  pushOnce().catch((error) => console.error("push error", error.message || error));
+  pushWithStage().catch((error) => console.error("push error", error.message || error));
 }, INTERVAL_SEC * 1000);
 
 console.log(
