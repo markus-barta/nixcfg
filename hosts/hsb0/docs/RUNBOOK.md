@@ -272,8 +272,8 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `072f86b44a0afd40e7cc92b67e682e15b9fea4c3`
-(`v261019014556.0.0`, HNET-37: demo-only --demo-elapsed flag and a read-only map-ready test hook (no live-path change), UI only; module unchanged since `v261017204833.0.0`, OPS-355; the web source HNET-238 and the Starlink dish status HNET-48 keep their module defaults (on, owner-approved 2026-10-17): outgoing only, no firewall or capability change; `discovery.webCheck = false` or `starlink = false` turns either off), with `discovery.passive = true` (ARP/DHCP
+The private flake input is pinned to `c7f90bf36d6dafd2c24d1bb430e502fa21e23cfb`
+(`v261019075517.0.0`, HNET-250/247/249: floor strip keeps map levels in view; CI browser check and comment renames (no live-path change), UI only; module unchanged since `v261017204833.0.0`, OPS-355; the web source HNET-238 and the Starlink dish status HNET-48 keep their module defaults (on, owner-approved 2026-10-17): outgoing only, no firewall or capability change; `discovery.webCheck = false` or `starlink = false` turns either off), with `discovery.passive = true` (ARP/DHCP
 listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
