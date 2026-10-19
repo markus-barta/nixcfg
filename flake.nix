@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET-248: v261018233919.0.0 (the tray keeps one chip row in very short windows; UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
+    # HNET-159: v261019002940.0.0 (the plan editor caches the bearing (no visible change); UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=57b4863b6e63aaf291d9c7abdc8010ed2012f10d";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=51753159f6a1549416be2c6f2e95e93e02b60314";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
