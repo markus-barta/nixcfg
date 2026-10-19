@@ -1,0 +1,83 @@
+{
+  "schema": "inspr.joe.household.v2",
+  "seq": 1,
+  "generatedAt": "2026-10-19T07:00:00.000Z",
+  "mode": "PAPER",
+  "currency": "EUR",
+  "source": {
+    "kind": "live-ib-api",
+    "label": "hsb0 joe-board-pusher (paper Gateway projection)"
+  },
+  "safety": {
+    "halt": false,
+    "haltReason": null
+  },
+  "desks": [
+    {
+      "id": "j",
+      "label": "J",
+      "state": "sit-out",
+      "action": "Valuation unavailable pending exact source validation.",
+      "money": {
+        "equity": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "totalPnl": null,
+        "reasons": {
+          "equity": "source_not_authoritative",
+          "dayPnl": "source_not_authoritative",
+          "openPnl": "source_not_authoritative",
+          "totalPnl": "source_not_authoritative"
+        }
+      }
+    },
+    {
+      "id": "joe",
+      "label": "Joe",
+      "state": "sit-out",
+      "action": "Valuation unavailable pending exact source validation.",
+      "money": {
+        "equity": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "totalPnl": null,
+        "reasons": {
+          "equity": "source_not_authoritative",
+          "dayPnl": "source_not_authoritative",
+          "openPnl": "source_not_authoritative",
+          "totalPnl": "source_not_authoritative"
+        }
+      }
+    },
+    {
+      "id": "joel",
+      "label": "Joel",
+      "state": "sit-out",
+      "action": "Valuation unavailable pending exact source validation.",
+      "money": {
+        "equity": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "totalPnl": null,
+        "reasons": {
+          "equity": "source_not_authoritative",
+          "dayPnl": "source_not_authoritative",
+          "openPnl": "source_not_authoritative",
+          "totalPnl": "source_not_authoritative"
+        }
+      }
+    }
+  ],
+  "totals": {
+    "equity": null,
+    "dayPnl": null,
+    "openPnl": null,
+    "totalPnl": null,
+    "reasons": {
+      "equity": "source_not_authoritative",
+      "dayPnl": "source_not_authoritative",
+      "openPnl": "source_not_authoritative",
+      "totalPnl": "source_not_authoritative"
+    }
+  }
+}
