@@ -8,7 +8,7 @@ nix_module="$module/default.nix"
 host="$repo_root/hosts/hsb0/configuration.nix"
 docs="$repo_root/hosts/hsb0/docs/IB-GATEWAY.md"
 
-node --test "$module"/*.test.mjs
+node --test --test-concurrency=1 "$module"/*.test.mjs
 
 # Pure module evaluation with inert packages, never a NixOS build on macOS.
 python3 - "$repo_root" <<'PY'
@@ -27,7 +27,11 @@ def evaluate(options):
 
 default = evaluate("{}")
 assert default.returncode == 0, default.stderr
-assert json.loads(default.stdout) == {"reconRetentionHours": 48, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"]}
+assert json.loads(default.stdout) == {"reconRetentionHours": 48, "resultsHealthPort": 8472, "retentionEnvironment": ["PAPER_DESK_RECON_RETENTION_HOURS=48"], "envFile": ["/run/agenix/hsb0-ib-desk-env"], "accountEnvironment": []}
+for port in ["8471", "8470", "8473"]:
+    result = evaluate("{ resultsHealthPort = " + port + "; }")
+    assert result.returncode != 0, port
+    assert "loopback port 8472" in result.stderr, result.stderr
 for hours in ["16.0 / 60.0", "0.33333333", "72", "336"]:
     result = evaluate("{ reconRetentionHours = " + hours + "; }")
     assert result.returncode == 0, result.stderr
@@ -42,6 +46,11 @@ for hours in ["0", "-1", "0.25", "0.26666665", "337"]:
 result = evaluate('{ reconRetentionHours = "invalid"; }')
 assert result.returncode != 0
 assert "reconRetentionHours" in result.stderr
+for options in ['{ clientIds.executor = 709; }', '{ clientIds.recon = 709; }', '{ ownershipClientIds.j = [ 709 ]; }', '{ marketDataClientId = 709; }', '{ bookClientId = 709; }']:
+    rejected = evaluate(options)
+    assert rejected.returncode != 0, options
+    assert "client" in rejected.stderr.lower(), rejected.stderr
+print("JOED-20 reserved FX client 709 rejects executor, recon, legacy, market and book collisions")
 print("OPS-331 retention module evaluation passed: default, 4 valid overrides, 5 bounds failures, invalid type")
 PY
 
@@ -57,9 +66,7 @@ grep -Fq 'peerRules "-I"' "$nix_module"
 grep -Fq -- '-i tailscale0 -s ${peer}' "$nix_module"
 grep -Fq '100.64.0.6' "$nix_module"
 grep -Fq '8470' "$nix_module"
-grep -Fq '"100.64.0.10"' "$nix_module"
-# OPS-266 2026-10-07: the pre-rebuild Amy-box address is no longer admitted.
-if grep -Fq '"100.64.0.9"' "$nix_module"; then exit 1; fi
+grep -Fq 'PAPER_DESK_PEERS_FILE=/run/tailnet-peers/peers.json' "$nix_module"
 grep -Fq '100.64.0.14' "$nix_module"
 grep -Fq 'user = "1000:1000"' "$nix_module"
 grep -Fq 'read_only = true' "$nix_module"
@@ -92,8 +99,9 @@ if grep -Fq 'oc-workspace-shared' "$module"/*.mjs "$nix_module"; then
   printf 'T93 failed: GitHub control plane must stay out of the executor\n' >&2
   exit 1
 fi
-if grep -Eq 'age[.]secrets|githubToken|IB_DESK_GITHUB' "$nix_module"; then
-  printf 'T93 failed: executor must not take a token or agenix secret\n' >&2
+grep -Fq 'env_file = [ config.age.secrets.hsb0-ib-desk-env.path ]' "$nix_module"
+if grep -Eq 'githubToken|IB_DESK_GITHUB|IB_DESK_ACCOUNT=' "$nix_module"; then
+  printf 'T93 failed: executor must not take a GitHub token or public account pin\n' >&2
   exit 1
 fi
 if grep -Fq 'ConditionPathExists' "$nix_module"; then

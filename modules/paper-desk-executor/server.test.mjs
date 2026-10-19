@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import fs, { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -8,7 +9,9 @@ import test from "node:test";
 import { runClient } from "./client/paper-intent.mjs";
 
 import { digest, parseIntent } from "./policy.mjs";
-import { createServer } from "./server.mjs";
+import { createServer, createResultsSampler } from "./server.mjs";
+import { createCapture } from "../joe-results-producer/capture.mjs";
+import { createFxSampler } from "./fx-sampler.mjs";
 import { MAX_STATE_BYTES, openLedger } from "./state.mjs";
 
 // Exercise the real HTTP handler without requiring a listening socket. The
@@ -126,8 +129,8 @@ async function runCli(args, origin) {
 }
 
 test("peer allowlist rejects every source that is not listed", async (t) => {
-  const denied = await start(t, { allowlist: ["100.64.0.9"] });
-  const response = await fetch(`${denied.url}/v1/health`, { headers: { "X-Forwarded-For": "100.64.0.9" } });
+  const denied = await start(t, { allowlist: ["100.64.0.24"] });
+  const response = await fetch(`${denied.url}/v1/health`, { headers: { "X-Forwarded-For": "100.64.0.24" } });
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { status: "rejected", reason: "source is not allowed" });
 
@@ -381,7 +384,7 @@ test("live port 4001 and non-tailnet binds are refused before listen", () => {
       listenHost: "0.0.0.0",
       listenPort: 8470,
       gatewayPort: 4002,
-      allowlist: ["100.64.0.9"],
+      allowlist: ["100.64.0.24"],
       stateDir,
       execute: async () => ({ status: "ok" }),
     }), /tailnet address/);
@@ -390,7 +393,7 @@ test("live port 4001 and non-tailnet binds are refused before listen", () => {
       listenHost: "192.168.1.99",
       listenPort: 8470,
       gatewayPort: 4002,
-      allowlist: ["100.64.0.9"],
+      allowlist: ["100.64.0.24"],
       stateDir,
       execute: async () => ({ status: "ok" }),
     }), /tailnet address/);
@@ -399,7 +402,7 @@ test("live port 4001 and non-tailnet binds are refused before listen", () => {
       listenHost: "100.64.0.6",
       listenPort: 8470,
       gatewayPort: 4002,
-      allowlist: ["100.64.0.9", "100.64.0.14"],
+      allowlist: ["100.64.0.24", "100.64.0.14"],
       stateDir,
       execute: async () => ({ status: "ok" }),
     });
@@ -617,4 +620,68 @@ test("CLI modify-stop produces the exact shape for either selector and rejects m
     ["modify-stop", "--desk", "j", "--intent-id", "j-trail-cli", "--stop", "100", "--order-id", "21"],
   ]) assert.notEqual(await runClient(argv, options), 0);
   assert.equal(seen.length, before);
+});
+
+for (const mode of ['failure', 'slow', 'pacing']) test(`FX ${mode} cannot change or delay place/flatten/recon results or ledger health`, async t => {
+  const ctx = await start(t);
+  const before = await (await fetch(`${ctx.url}/v1/health`)).text();
+  const beforeLedger = readFileSync(openLedger(ctx.stateDir).statePath);
+  let started;
+  const ready = new Promise(resolve => { started = resolve; });
+  const sampler = createFxSampler({ root: ctx.stateDir, now: () => Date.parse('2026-10-26T13:30:00Z'), timeoutMs: 5000,
+    request: async ({ signal }) => {
+      started();
+      if (mode === 'slow') await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('synthetic timeout')), { once: true }));
+      throw Object.assign(new Error('synthetic failure'), { reason: mode === 'pacing' ? 'pacing_rejected' : 'quote_failed' });
+    },
+  });
+  t.after(() => sampler.close());
+  const sampling = sampler.tick(); await ready;
+  const deadline = new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('intent waited on FX')), 1000); timer.unref(); t.after(() => clearTimeout(timer)); });
+  for (const action of ['place', 'flatten', 'recon']) {
+    const intent = valid({ intentId: `j-fx-${mode}-${action}`, action, ...(action === 'place' ? {} : { order: undefined }) });
+    const result = await Promise.race([post(ctx.url, intent), deadline]);
+    assert.equal(result.status, 200);
+    assert.equal(JSON.stringify(result.body), JSON.stringify(okResult(intent)));
+  }
+  if (mode === 'slow') sampler.close();
+  await sampling;
+  // Repeat health comparison with no trading writes between the samples.
+  const afterOrders = await (await fetch(`${ctx.url}/v1/health`)).text();
+  const ledgerAfterOrders = readFileSync(openLedger(ctx.stateDir).statePath);
+  await sampler.tick();
+  assert.equal(await (await fetch(`${ctx.url}/v1/health`)).text(), afterOrders);
+  assert.deepEqual(readFileSync(openLedger(ctx.stateDir).statePath), ledgerAfterOrders);
+  assert.ok(before.includes('ledgerPercent'));
+  assert.ok(beforeLedger.length > 0);
+});
+
+test('whole simulated paper day with FX and capture running leaves ledgerPercent and health byte-identical', async t => {
+  const stateDir = tempDir();
+  let fx;
+  const capture = createCapture(path.join(stateDir, 'results-input.jsonl'), {}, {
+    account: 'synthetic-account', attribute: () => ({ desk: 'j' }), executionTime: Date.parse,
+  });
+  const ctx = await start(t, { stateDir, beforePrune: state => capture({ ...state, resultsFxSampler: fx }) });
+  t.after(() => capture.close());
+  const before = await (await fetch(`${ctx.url}/v1/health`)).text();
+  const ledger = openLedger(ctx.stateDir), bytes = readFileSync(ledger.statePath);
+  let now = Date.parse('2026-10-26T13:30:00Z'), calls = 0;
+  const sampler = createResultsSampler({ root: ctx.stateDir, now: () => now, request: async () => { calls++; return '0.90000000'; }, ledger,
+    capture: state => { fx = state.resultsFxSampler; capture(state); } });
+  t.after(() => sampler.close());
+  for (let minute = 0; minute <= 395; minute++) {
+    now = Date.parse('2026-10-26T13:30:00Z') + minute * 60_000;
+    await sampler.tick();
+    assert.equal(await (await fetch(`${ctx.url}/v1/health`)).text(), before);
+  }
+  assert.equal(calls, 27);
+  assert.deepEqual(readFileSync(ledger.statePath), bytes);
+});
+
+test('capture-only health port reserves 8472 and refuses mailbox or arbitrary ports', async () => {
+  const { resultsHealthPort } = await import('./server.mjs');
+  assert.equal(resultsHealthPort(), 8472);
+  assert.equal(resultsHealthPort('8472'), 8472);
+  for (const port of ['8471', '8470', '0', '8472.0', '08472']) assert.throws(() => resultsHealthPort(port));
 });

@@ -52,13 +52,14 @@
       url = "github:markus-barta/joedesk/db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
       flake = false;
     };
+    # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
     hostdash = {
-      url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
+      url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # OPS-355: v261016200509.0.0 (OPS-355 follow-up, HNET-232); explicitly reviewed revision; automated updates skip this input.
+    # HNET-248: v261018233919.0.0 (the tray keeps one chip row in very short windows; UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=e50b0c463eb56f5e1374f70b62965df3a0756b6a";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=57b4863b6e63aaf291d9c7abdc8010ed2012f10d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

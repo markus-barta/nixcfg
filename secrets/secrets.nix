@@ -535,6 +535,7 @@ in
   # IB Gateway paper password (raw password only for TWS_PASSWORD_FILE).
   # Edit: just edit-secret secrets/hsb0-ib-gateway-password.age
   "hsb0-ib-gateway-password.age".publicKeys = markus ++ hsb0;
+  "hsb0-ib-desk-env.age".publicKeys = markus ++ hsb0;
 
   # Shared inbox push credential: hsb0 joe-board-pusher → csb0 joe-board inbox.
   # Edit: just edit-secret secrets/joe-board-push-token.age
@@ -725,4 +726,10 @@ in
   "agents/archive/imac0/imac0-personal-userkey.age".publicKeys = markus;
   "agents/archive/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
 
+  # OPS-372: plain declarations keep T47 red until all three ciphertexts exist.
+  # Markus-only recovery password; no host may declare or decrypt this file.
+  "adguard-admin-password.age".publicKeys = markus;
+  "hsb0-adguard-users.age".publicKeys = markus ++ hsb0;
+  # Deliberately excludes gb: hsb8 receives only its own verifier, never plaintext.
+  "hsb8-adguard-users.age".publicKeys = markus ++ hsb8;
 }

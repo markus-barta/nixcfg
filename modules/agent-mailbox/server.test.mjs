@@ -14,9 +14,9 @@ import { HOUR_MS, RETENTION_MS } from "./state.mjs";
 function start(t, options = {}) {
   const logs = [];
   const stateDir = options.stateDir ?? mkdtempSync(path.join(tmpdir(), "ops272-http-"));
-  const app = createServer({ ...options, stateDir, log: (line) => logs.push(JSON.parse(line)) });
+  const app = createServer({ peers: { "100.64.0.23": "amy", "100.64.0.14": "ops" }, ...options, stateDir, log: (line) => logs.push(JSON.parse(line)) });
   t.after(() => app.close());
-  async function request(method, url, body, { peer = "100.64.0.10", headers = {}, chunks } = {}) {
+  async function request(method, url, body, { peer = "100.64.0.23", headers = {}, chunks } = {}) {
     const raw = body === undefined ? "" : typeof body === "string" ? body : JSON.stringify(body);
     const stream = Readable.from(chunks ?? (raw.length ? [Buffer.from(raw)] : []));
     stream.method = method;
@@ -112,8 +112,8 @@ test("SSE replays all unread then emits live, isolates identity and never acknow
   app.mailbox.send("ops", { to: "amy", body: "private", ticket: null });
   assert.equal(stream.events().length, 56);
   assert.equal(app.mailbox.unread("ops"), 56);
-  assert.equal((await connect(app, "/v1/events", "100.64.0.9", { "x-forwarded-for": ops.peer })).status, 403);
-  const amyStream = await connect(app, "/v1/events", "100.64.0.10");
+  assert.equal((await connect(app, "/v1/events", "100.64.0.24", { "x-forwarded-for": ops.peer })).status, 403);
+  const amyStream = await connect(app, "/v1/events", "100.64.0.23");
   assert.deepEqual(amyStream.events().map((row) => row.body), ["private"]);
 });
 
@@ -192,7 +192,7 @@ test("heartbeat, stream lifetime, backpressure and per-identity limits release s
   assert.equal((await connect(app)).status, 200);
   assert.equal(streams[0].ended, true);
   assert.equal(streams[0].destroyed, true);
-  const amyStream = await connect(app, "/v1/events", "100.64.0.10");
+  const amyStream = await connect(app, "/v1/events", "100.64.0.23");
   assert.equal(amyStream.status, 200);
   t.mock.timers.tick(HEARTBEAT_MS);
   assert.equal(streams[1].chunks.join(""), ": heartbeat\n\n");
@@ -281,15 +281,15 @@ test("unknown source is refused before reading any body; headers never confer id
   const ctx = start(t);
   const stream = new Readable({ read() { throw new Error("must not read unauthorized body"); } });
   stream.method = "POST"; stream.url = "/v1/messages";
-  stream.socket = { remoteAddress: "100.64.0.9" };
-  stream.headers = { "x-forwarded-for": "100.64.0.10", "content-type": "application/json" };
+  stream.socket = { remoteAddress: "100.64.0.24" };
+  stream.headers = { "x-forwarded-for": "100.64.0.23", "content-type": "application/json" };
   let status; let headers;
   await ctx.app.handle(stream, { writeHead(code, values) { status = code; headers = values; }, end() {} });
   assert.equal(status, 403);
   assert.equal(stream.readableFlowing, null);
   assert.equal(headers["X-Mailbox-Policy"], POLICY);
   for (const peer of ["127.0.0.1", "::1", "100.64.0.20"]) assert.equal((await ctx.request("POST", "/v1/messages", valid, { peer, headers: { "x-forwarded-for": "100.64.0.14" } })).status, 403);
-  const sent = await ctx.request("POST", "/v1/messages", valid, { peer: "::ffff:100.64.0.10", headers: { "x-forwarded-for": "100.64.0.14" } });
+  const sent = await ctx.request("POST", "/v1/messages", valid, { peer: "::ffff:100.64.0.23", headers: { "x-forwarded-for": "100.64.0.14" } });
   assert.equal(sent.status, 201);
   assert.equal((await ctx.request("GET", "/v1/messages", undefined, ops)).result.messages[0].from, "amy");
   const health = await ctx.request("GET", "/v1/health", undefined, { peer: "::ffff:100.64.0.14" });
@@ -389,7 +389,7 @@ test("logs contain one safe line per request and no bodies, queries, or arbitrar
 test("HTTP parser error responses also carry policy and never log parser content", async (t) => {
   const ctx = start(t);
   let wire;
-  const socket = { writable: true, remoteAddress: "100.64.0.10", end(value) { wire = value; } };
+  const socket = { writable: true, remoteAddress: "100.64.0.23", end(value) { wire = value; } };
   ctx.app.server.emit("clientError", { code: "HPE_INVALID_METHOD", rawPacket: Buffer.from("test-body-do-not-log") }, socket);
   assert.match(wire, /^HTTP\/1.1 400/);
   assert.ok(wire.includes(`X-Mailbox-Policy: ${POLICY}\r\n`));
@@ -400,7 +400,7 @@ test("HTTP parser error responses also carry policy and never log parser content
 
 test("Expect requests cannot trigger an automatic interim reply or bypass source admission", async (t) => {
   const ctx = start(t);
-  for (const [event, peer, expected] of [["checkContinue", "100.64.0.10", 417], ["checkExpectation", "100.64.0.10", 417], ["checkContinue", "100.64.0.9", 403]]) {
+  for (const [event, peer, expected] of [["checkContinue", "100.64.0.23", 417], ["checkExpectation", "100.64.0.23", 417], ["checkContinue", "100.64.0.24", 403]]) {
     const stream = new Readable({ read() { throw new Error("must not read rejected body"); } });
     stream.method = "POST"; stream.url = "/v1/messages";
     stream.socket = { remoteAddress: peer };

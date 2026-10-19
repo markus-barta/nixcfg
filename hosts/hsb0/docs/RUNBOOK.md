@@ -6,6 +6,218 @@
 
 ---
 
+## AdGuard admin rotation (OPS-372)
+
+Desk decision `aafbeaa2` is answered (option 1). OPS runs this procedure under that decision. Keep
+both hosts in one reviewed PR; merge only with all three ciphertexts provisioned,
+T105/T47 green, and independent approval recorded. Missing either host's users
+ciphertext fails evaluation on both hosts. Never switch a preparation branch,
+print credentials or verifiers, globally rekey, or rewrite Git history.
+
+### Back up both hosts before generation or switching
+
+Keep a live root session to each host open **by IP or tailnet IP** throughout
+cutover. DNS names may stop resolving if AdGuard fails. On each host, from the
+repo root, run as root:
+
+```bash
+sudo nix-shell -p python3 --run 'python3 -' <<'PYBACKUP'
+import datetime, os, pathlib, shutil, subprocess, sys
+os.umask(0o077)
+try:
+    backup = pathlib.Path('/var/backups/ops372') / datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    backup.mkdir(parents=True, mode=0o700)
+    backup.parent.chmod(0o700)
+    (backup / 'generation').write_text(os.readlink('/run/current-system') + '\n')
+    generations = subprocess.run(['nix-env', '--list-generations', '--profile', '/nix/var/nix/profiles/system'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+    (backup / 'generations').write_bytes(generations)
+    for name in ('AdGuardHome.yaml', 'data/leases.json'):
+        target = backup / pathlib.Path(name).name
+        shutil.copyfile(pathlib.Path('/var/lib/private/AdGuardHome') / name, target)
+        target.chmod(0o600)
+    for name in ('generation', 'generations'):
+        (backup / name).chmod(0o600)
+except Exception:
+    sys.exit('Backup failed; do not proceed.')
+print('backup complete')
+PYBACKUP
+```
+
+Do not display backup contents: they include runtime verifiers and lease data.
+Keep the previous three encrypted files and their reviewed Git revision for
+later rotations. Record backup paths and generation references on OPS-372.
+`/var/backups/ops372` holds lease data and the old verifier (root 0700); trash it after the cutover is verified and one clean day has passed, and record that on OPS-372.
+
+### Generate once on hsb0, encrypt three times
+
+Run the following **only on hsb0**, as one root Python process from the reviewed
+repo root. It creates a new candidate directory under root-only tmpfs, refuses to
+overwrite an earlier attempt, derives recipients from the plain declarations,
+and sends encryption input only through stdin. `markus` means the existing
+Markus key set; no host receives the plaintext. The hsb8 users declaration
+intentionally excludes `gb`. Record that recipient boundary on OPS-372.
+
+```bash
+sudo nix-shell -p age 'python3.withPackages (p: [ p.bcrypt ])' --run 'python3 -' <<'PYROTATE'
+import bcrypt, json, os, pathlib, secrets, subprocess, sys
+os.umask(0o077)
+try:
+    if os.geteuid() != 0:
+        raise ValueError()
+    fs = subprocess.run(['findmnt', '-n', '-o', 'FSTYPE', '-T', '/run'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.strip()
+    if fs != b'tmpfs':
+        raise ValueError()
+    work = pathlib.Path('/run/ops372')
+    work.mkdir(mode=0o700)  # Existing attempt: stop, inspect status, do not overwrite.
+    output = work / 'ciphertexts'
+    output.mkdir(mode=0o700)
+    password = secrets.token_urlsafe(24).encode()
+    verifiers = [bcrypt.hashpw(password, bcrypt.gensalt(rounds=12)).decode() for _ in range(2)]
+    names = ('adguard-admin-password.age', 'hsb0-adguard-users.age', 'hsb8-adguard-users.age')
+    payloads = [password] + [json.dumps([{'name': 'admin', 'password': value}]).encode() for value in verifiers]
+    for name, payload in zip(names, payloads):
+        recipients = json.loads(subprocess.run(
+            ['nix', 'eval', '--json', '--file', 'secrets/secrets.nix', '--apply', 's: s.' + json.dumps(name) + '.publicKeys'],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout)
+        if not recipients:
+            raise ValueError()
+        args = ['age', '--encrypt', '--output', str(output / name)]
+        for recipient in recipients:
+            args.extend(['--recipient', recipient])
+        subprocess.run(args, input=payload, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with (work / 'admin').open('xb') as handle:
+        handle.write(password)
+        os.fchmod(handle.fileno(), 0o400)
+except Exception:
+    sys.exit('Generation failed; do not switch or publish partial candidates.')
+print('3 ciphertexts written')
+PYROTATE
+```
+
+The only temporary plaintext file is `/run/ops372/admin` (root:root, 0400); it
+stays on hsb0 tmpfs solely for the probe below. Never copy it to hsb8 or a
+workstation. On abort, remove it immediately using the probe's unlink cleanup or root Python
+`Path('/run/ops372/admin').unlink(missing_ok=True)`. Never put plaintext in
+persistent Trash.
+Clean failed candidate directories only through the operator's trash procedure.
+Do not reuse a partial set. Candidate ciphertexts may leave hsb0; credentials,
+verifiers, private keys, and runtime YAML may not.
+Copy ciphertexts off hsb0 with `scp`/`install`/`rsync`, never `cat`.
+
+OPS installs only these three ciphertexts into `secrets/` in its review branch
+and stages them before flake evaluation. Do not declare the Markus-only
+`adguard-admin-password.age` in any host or module. Its plaintext is recoverable
+only by Markus; each host receives only `/run/agenix/<host>-adguard-users`
+(root:root, 0400). Run T105 with the flake-pinned `NIXPKGS_LIB`, T47 and full-host
+evaluations, then obtain review and merge the one PR. Retain the root tmpfs file
+only until both post-switch probes finish; remove it on any abort or delay and
+arrange Markus's own status-only probe instead.
+
+### Switch, verify, remove temporary plaintext
+
+On each host, use `gitpl && just switch` only after approval and merge. Agenix
+activation requires the switch; restarting a container or AdGuard alone is
+insufficient. `restartTriggers` tracks ciphertext content, so secret-only
+rotations restart AdGuard. Verify service state and DNS/DHCP using the existing
+host tests (lease contents must stay private). Also require
+`adguardhome-users-health.service` to pass after its next minute tick and the
+`/run/AdGuardHome/admin-locked` marker to be absent.
+
+Immediately after both switches, run this as root **on hsb0**. The hsb8 address
+is discovered from Tailscale and must be in the tailnet IPv4 range; credentials
+travel to hsb0 on loopback and hsb8 only through the encrypted tailnet. Redirects
+are disabled. It prints HTTP status codes only, never bodies, cookies or headers,
+and removes the plaintext in `finally`, including on failure.
+
+```bash
+sudo nix-shell -p python3 --run 'python3 -' <<'PYLOGIN'
+import ipaddress, json, pathlib, secrets, subprocess, sys, time, urllib.error, urllib.request
+admin = pathlib.Path('/run/ops372/admin')
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+def status(base, path, payload=None):
+    request = urllib.request.Request(base + path, data=payload,
+        headers={'Content-Type': 'application/json'} if payload is not None else {},
+        method='POST' if payload is not None else 'GET')
+    for attempt in range(4):  # Initial request plus up to three connection-error retries.
+        try:
+            with opener.open(request, timeout=10) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code  # Never retry HTTP results, including a positive-login 403.
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 3:
+                raise
+            time.sleep(10)
+try:
+    password = admin.read_text()
+    state = json.loads(subprocess.run(['tailscale', 'status', '--json'], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout)
+    peers = [p for p in state['Peer'].values() if p.get('HostName') == 'hsb8']
+    if len(peers) != 1:
+        raise ValueError()
+    addresses = [ip for ip in peers[0]['TailscaleIPs'] if ipaddress.ip_address(ip) in ipaddress.ip_network('100.64.0.0/10')]
+    if len(addresses) != 1:
+        raise ValueError()
+    valid = json.dumps({'name': 'admin', 'password': password}).encode()
+    invalid = json.dumps({'name': 'admin', 'password': secrets.token_urlsafe(24)}).encode()
+    for base in ('http://127.0.0.1:3000', 'http://' + addresses[0] + ':3000'):
+        positive = status(base, '/control/login', valid)
+        negative = status(base, '/control/login', invalid)
+        unauthenticated = status(base, '/control/status')
+        print(positive, negative, unauthenticated)
+        if positive != 200 or negative not in (400, 401, 403) or unauthenticated not in (302, 401, 403):
+            raise ValueError()
+except Exception:
+    sys.exit('login check failed')
+finally:
+    admin.unlink(missing_ok=True)
+PYLOGIN
+```
+
+Record only status codes, health/unit results, and DNS/DHCP pass/fail on OPS-372.
+Markus can later use the encrypted admin password through his own private
+recovery flow; OPS never decrypts the Markus-only file.
+
+### Immediate first-cutover rollback
+
+If the `adguardhome` unit, DNS, or DHCP fails, immediately run
+`nixos-rebuild switch --rollback` in the live root session on the affected host,
+using its IP connection. This restores the previous generation, including its
+old compromised verifier, to recover availability. Record that exposure and the
+rollback generation on OPS-372, verify DNS/DHCP recovery, and fix forward with a
+reviewed candidate. Keep the dated YAML/leases backup for controlled recovery;
+never dump it to a terminal. Remove `/run/ops372/admin` immediately on abort.
+If the unit and DNS/DHCP are healthy and only the login probe fails, stay forward:
+the UI is locked or carries an unknown verifier, which is the safe state.
+Investigate `adguardhome-users-health.service` and `/run/AdGuardHome/admin-locked`,
+record the findings on OPS-372, and fix forward. Never roll back for a login-only failure.
+If the negative login or the unauthenticated GET returns 2xx, the UI is open, not
+locked: treat it as an incident (stop the UI or roll back) and record it on
+OPS-372; this is never a stay-forward case.
+
+For subsequent rotations, revert all three ciphertexts together to the recorded
+known-good revision via PR and CI, then switch both hosts.
+
+### Runtime failure behaviour
+
+The upstream store template contains no users. After upstream preStart and the
+existing static-leases hook, the injector runs as DynamicUser, reads the private
+systemd credential and atomically replaces runtime YAML (0600, same ownership).
+No root merge or sandbox relaxation is used. `LoadCredential` and agenix are
+only declared when the ciphertext exists. An empty `SetCredential` fallback
+lets a missing runtime source reach the injector instead of failing in systemd.
+Missing or malformed users cause a fresh random bcrypt user and loopback-only
+HTTP binding, preserving DNS/DHCP settings. The unknown password is discarded;
+the runtime marker causes the minute health check to fail visibly. Restoring a
+valid secret and restarting recopies the template, restores the configured HTTP
+listener and clears the marker. Template/parser/write failures still prevent
+AdGuard starting, because starting a users-less template would open admin access.
+The pre-existing static-leases preStart failure path is outside this change.
+Password changes in the UI are overwritten on restart; rotate through agenix.
+
 ## Quick Connect
 
 ```bash
@@ -51,12 +263,18 @@ replies only on that same interface (`ssdpInterfaces` defaults to
 remote SSDP query destination, not an additional inbound opening. The module
 also allows AF_NETLINK for Go interface enumeration. State starts empty in
 `/var/lib/private/hausnetz` (DynamicUser, exposed as `/var/lib/hausnetz`), with no
-seed or DHCP leases integration. Limits: 512M memory, 50% CPU quota, nice 10.
+seed. Since `v261017120723.0.0` (HNET-228) the DHCP leases are optional
+enrichment: because AdGuard runs DHCP here, `discovery.leasesFile` defaults to
+`/var/lib/AdGuardHome/data/leases.json`; the root `hausnetz-leases` service
+(path unit on change plus a 5-minute timer) copies it to
+`/run/hausnetz-leases/leases.json` (0640 root:hausnetz-leases, 8 MiB bound) and
+hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50% CPU quota, nice 10.
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `e50b0c463eb56f5e1374f70b62965df3a0756b6a`
-(`v261016200509.0.0`, OPS-355).
+The private flake input is pinned to `57b4863b6e63aaf291d9c7abdc8010ed2012f10d`
+(`v261018233919.0.0`, HNET-248: the tray keeps one chip row in very short windows, UI only; module unchanged since `v261017204833.0.0`, OPS-355; the web source HNET-238 and the Starlink dish status HNET-48 keep their module defaults (on, owner-approved 2026-10-17): outgoing only, no firewall or capability change; `discovery.webCheck = false` or `starlink = false` turns either off), with `discovery.passive = true` (ARP/DHCP
+listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
 markus-barta/hausnetz**, not a Nix-managed secret. On a reinstall/recovery,
@@ -87,13 +305,14 @@ run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
 and build), then `just switch`. Roll back this bump by reverting its reviewed
 commit(s), restoring the previous pin
-`1f876f1d28d74d5931f4f3628a90de112a43506c`, its lock node and compatible
-configuration/tests (`openFirewallSsdp` is absent in that module). Repeat the
-same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
+`037a6b5f5580937f7e343c0ea04dadefe3f32889` (`v261017161630.0.0`), its lock
+node and the T99 pin, and restoring the `webCheck = false` line (that release has
+no `starlink` option).
+Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /ops/api/export` on the LAN before activation;
-reverting a source pin does not undo imported data. Both nginx snippets
-(`hsb0-home-hausnetz.conf` and `hsb0-home-inflight.conf`) are compose restart
-triggers, so a normal switch recreates `hsb0-home` when either changes.
+reverting a source pin does not undo imported data. The nginx snippets
+(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
+triggers, so a normal switch recreates `hsb0-home` when any of them changes.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
 checkout on **hsb0**, with the root deploy key present (0600). The first root
@@ -179,6 +398,20 @@ Push atomically (the temp dotfile is never served):
 scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/inflight/.index.html.tmp /var/lib/inflight/index.html'
 ```
 
+### Video overview page (OPS-380)
+
+**URL**: http://100.64.0.6/videos/ (tailnet) or http://hsb0.lan/videos/ (home). Never public: hsb0 has no port forward.
+
+VID's scored overview of the planned videos (AEON-1480): one self-contained `index.html`
+(inline CSS and JS, no external requests, no private or client content). Same pattern as the
+In-flight page: `/var/lib/videos` (mba, 0755, tmpfiles), mounted read-only at `/srv/videos`,
+location from `docker/hsb0-home-videos.conf` through the HostDash include point, same headers,
+dotfiles return 404. Push atomically:
+
+```bash
+scp -q index.html mba@100.64.0.6:/var/lib/videos/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/videos/.index.html.tmp /var/lib/videos/index.html'
+```
+
 ---
 
 ## IB Gateway (paper) — enabled
@@ -188,6 +421,103 @@ scp -q aeon-progress.html mba@100.64.0.6:/var/lib/inflight/.index.html.tmp && ss
 **Container**: `ib-gateway` | **API**: `100.64.0.6:4002` (Tailscale only) | **Data**: `/var/lib/ib-gateway/tws_settings` (uid/gid 1000)
 
 Mac must **not** run Gateway or an SSH `-L` tunnel. Desks connect directly over Tailscale to `100.64.0.6:4002`. The live account (port 4001) stays OFF.
+
+Alerts on this host are enabled with transport `email-agent-bus`: email uses the managed house relay, while chat stays skipped until the Aeon notifier key is enrolled. When `destinations.json` loads, a null key path or absent key file logs exactly one `grok notification not enrolled: Aeon notifier key absent, chat channel skipped` line per run, even if the private chat section is missing or unusable. If the destination file cannot load, both channels report `notification unavailable: configuration or receiver missing` when delivery is attempted. On confirmed recovery, skipped chat's pending state retires with a value-free record without claiming delivery; email still completes its own delivery and recovery sequence.
+
+A healthy `api_ready` run exits 0 once email succeeds. Expected startup and authentication waits also exit 0 until both the outage and any restart recovery have lasted at least ten minutes. Halts and restarts exit 3 immediately; otherwise a known unhealthy session exits 3 once that alert threshold is reached. An enrolled but unusable chat configuration, an unreadable enrolled key, or failed email delivery retains the configured channel's retries and exits 2 while its event is undelivered, including when a session problem occurs in the same run. A nonzero mail relay result logs only `email notification failed: relay exit status N`. This unit accepts only exit 0, so an uncaught Python crash (exit 1) is red. Other fleet units retain their own exit conventions. Intentionally disabled adapters still log one `warning: alert adapter disabled; reason=...` line and retire stale alerts only on confirmed recovery.
+
+## Paper desk executor admission (OPS-384)
+
+The executor still binds only hsb0's tailnet address on TCP 8470. The host's
+`tailnet-peer-sync.service` reads `tailscale status --json` every 30 seconds,
+and after tailscaled or firewall starts/reloads. The configured rule requires
+both `tag:paper-desk` and exact Tailscale `HostName=grok-amy-box`, mapping
+the current IPv4 address to `amy`. Additional desks require explicit identity
+rules; a rule can omit the hostname when the tag alone is the intended identity.
+HostName is self-reported; the tag is the admission boundary.
+OPS remains static at `100.64.0.14`; the executor admin allowlist is unchanged.
+
+Static rules remain in `paper-desk-peers` and `agent-mailbox-peers` in raw
+PREROUTING, before Tailscale's input acceptance. Each jumps to its own dynamic
+sub-chain. The sync replaces only the dynamic chains using
+`iptables-restore --noflush`, with matching source-specific filter rules.
+A shared lock serializes these updates with the modules' firewall hooks.
+Firewall hooks create the lock directory and wait at most 30 seconds; lock
+or async trigger failure is logged without aborting the host firewall script.
+A refused tailnet packet increments the final DROP counter; LOG is limited to
+two packets per minute with a burst of two. Refusal alerts contain only the
+host and port; kernel packet logs remain in the local journal.
+
+The `1000:1000`, mode `0600` `/run/tailnet-peers/peers.json` is atomically
+replaced inside a `root:1000`, mode `0710` directory. Ownership is set before
+publication; the directory permits group traversal only, and `state.json`
+stays root-owned with mode `0600`. Both containers run as
+`1000:1000` and mount that directory read-only at `/run/tailnet-peers`.
+Mounting the directory lets atomic file replacements become visible.
+Neither container receives the tailscaled socket or new privileges. The
+executor reads the snapshot on each request; missing, unsafe or malformed
+snapshots allow only static peers. Tagged peers never gain admin permissions.
+The reader accepts only this fixed production path; test overrides require
+Node's test runner and a canonical file under the source checkout's
+`tests/.tmp`. The sync accepts only resolved `/nix/store` settings paths,
+with an explicit `--test-config` override restricted to `tests/.tmp`. The
+settings file carries data only: the `tailscale`, `iptables-restore`,
+`iptables-save` and `docker` paths are substituted into the script at build
+time, and an unbuilt copy refuses to start.
+No trading brakes, HALT, ledger, Gateway ports or Results enablement change.
+
+A daemon/status/parse error retains the last good admission and alerts.
+A malformed individual peer is skipped and alerted without freezing admission
+or tag revocation for healthy peers. Changes to the admitted node set and
+multiple nodes matching one rule produce deduplicated, value-free notices.
+An explicitly removed tag or changed hostname revokes immediately. A node
+absent from an otherwise valid status (including a transient empty map) keeps
+its last good admission for `nixcfg.tailnetPeers.staleSeconds` (default 300
+seconds), then expires. Status errors never age out the last good list.
+After reboot, /run starts empty and admission is static-only until a valid
+status is read. Headscale has no static-IP reservation feature; re-joins can
+receive new addresses, so identity rules replace manual pin updates.
+
+Admission alerts reuse the existing Gateway notifier's managed email adapter
+(`notification_delivery.email_sender`, `docker-smtp-1`, destinations loaded
+directly from the existing Gateway notification declaration by the root sync
+process, with the same private-file custody checks). Missing notification
+configuration cannot prevent identity sync from starting; adapter failures are
+logged in the journal. State load/write and unexpected snapshot failures also
+attempt a value-free alert through this adapter on every failed tick.
+No new receiver, credential or channel is introduced. Alerts cover an online
+configured peer missing from the installed admission rules, status/sync failures
+(including escalation after two minutes), and increments of either refusal
+counter. Pending notices are batched into one bounded relay call per tick,
+survive relay failure and retry on the next sync;
+identical delivered notices are bounded to once per five minutes. Relay
+acceptance means queued mail, not proof of inbox delivery.
+
+On hsb0, inspect without opening private state or credentials:
+
+```bash
+systemctl status tailnet-peer-sync.service tailnet-peer-sync.timer
+journalctl -u tailnet-peer-sync.service -n 40 --no-pager
+cat /run/tailnet-peers/peers.json
+sudo iptables -t raw -L paper-desk-peers -nvx
+sudo iptables -t raw -L agent-mailbox-peers -nvx
+```
+
+The stage-2 Headscale policy grants `amy@` and `tag:paper-desk` TCP access
+only to `paper-desk:8470` and `paper-desk:8471`, where `paper-desk` is
+hsb0's /32. That file labels itself staged; verify its activation through the
+owning operations workflow. No broader ACL or csb0 change is required here.
+
+## Agent mailbox admission (OPS-384)
+
+The mailbox still binds only the tailnet address on TCP 8471. It resolves the
+socket source to a caller identity from the same snapshot on every request;
+forwarded headers and message bodies cannot claim an identity. Missing or
+invalid data allows static OPS only, while the configured Amy inbox remains
+available as a recipient. Existing SSE/long-poll connections check admission
+every 15 seconds and close if their source is revoked. Use the sync status,
+public JSON and mailbox refusal counter checks above. Private message storage
+and all existing container hardening stay in force.
 
 ## OpenClaw Gateway (Merlin + Nimue)
 
@@ -710,3 +1040,454 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 
 - [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Full OpenClaw operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
+
+## JoeDesk Results producer (JOED-20, disabled)
+
+`nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
+does not change the board deployment pin or enable a writer. The module requires
+a separately reviewed ingress endpoint and pinned ingress IP/TLS hostname.
+Household v2 health/account and equity fragments are outside v1 scope: the
+service neither reads nor mounts the household producer directory. No fixtures
+are selected by the service. No LIVE mode or Gateway client exists in the producer.
+
+When separately enabled, the executor's optional capture writes
+`/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
+recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
+whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
+fills, commissions, close FX and reconciliation evidence with hashed identifiers.
+FX-only events update samples/status without repeating position or history
+proofs; older producers ignore that event type on rollback; samples carried only
+by FX-only events are then unseen, so USD days fail closed as partial until
+roll-forward. Health rows in the
+producer journal record changed health values; every transmission still reserves
+a sequence durably, even when health is unchanged. Legacy, unowned and external
+activity and policy KEEP symbols do not enter FIFO. The producer opens that
+input read-only and keeps
+its own append-only `/var/lib/joe-results-producer/results.jsonl`; retain and
+back up **both** files. Never reconstruct them from the bounded executor ledger,
+rotate them as ordinary logs, truncate a damaged tail, or reset sequence state
+to satisfy the board. A damaged journal holds output for operator recovery.
+
+FIFO uses independent `j`, `joe`, `joel` books and emits each closed portion.
+M-2 (a) and L-6 (b), approved 2026-10-17: EUR-denominated commissions
+use an eight-decimal BigInt allocation budget. Each non-final share is
+`halfEvenUnits(fee * portionQuantity, executionQuantity)`; the final portion
+takes `originalFee - sharesAlreadyAllocated` without additional rounding.
+For seven shares and EUR 3, closing three allocates `1.28571429` and closing
+four allocates `1.71428571`, conserving exactly `3.00000000`.
+USD and other non-EUR commission shares stay rational (`fee * portionQuantity /
+executionQuantity`), with no allocation rounding or final remainder adjustment.
+Convert both opening and closing shares at that close's FX, combine them exactly,
+then round the combined EUR commission once, half-even, to eight decimals.
+A closing execution spanning several entry lots has its own allocation;
+a reversal carries the EUR budget or foreign rational shares into its residual
+opening lot. Pre-tracking and excluded portions consume their quantities and
+EUR allocation budgets, so later portions cannot reuse either.
+USD gross uses the exact quantity × price move × close rate product and rounds
+once, half-even; EUR gross retains its exact conversion policy. Daily and range
+totals sum emitted EUR portions exactly, without further rounding. The final
+remainder/conservation rule applies only to EUR commissions; independently
+rounded foreign portions need not always sum to a separately rounded total,
+and different close FX rates do not imply a fixed EUR total.
+The producer reads decimal strings only; the capture SDK boundary converts
+Numbers per I-2 (a), as detailed below. Missing or stale USD FX excludes its
+portion and marks its day partial with a value-free `conversion-exclusion`
+journal record whose `kind` is `fx_missing`.
+A missing opening or closing commission temporarily excludes its portion and marks its day partial with journal-only `broker_evidence_missing`, without a durable portion guard, scoped gap or `portionExclusions` count; the next snapshot can emit the trade and restore full coverage when the commission arrives.
+Other unexpected failures (for example third-currency commissions or invalid
+rates) are excluded with the existing journal-only `source_not_authoritative`
+kind. An inexact fee split alone no longer excludes an EUR portion. Their journal
+records contain only day/time and hashed desk, instrument and portion identity.
+The quantity book advances even on exclusion; other portions keep producing.
+A rollback to round 12b and roll-forward keeps any durable `source_not_authoritative` guards that 12b wrote for EUR fee splits; harmless while capture is off.
+Coverage is per day across all desks: an affected desk makes the shared day partial while other desks retain their trades and totals.
+Each such exclusion adds a 1 ms history gap at the affected close, scoped to
+its desk and instrument. Its day stays partial, and later days with fills in
+that book stay partial until position evidence covers the gap under the existing
+proof rules. Producer health `portionExclusions` counts distinct exclusions
+of this kind across polls and restart. Rev-6 wire diagnostics map the guarded
+portion and its scoped 1 ms gap to `history_gap`; the original value-free
+journal diagnostics remain replayable. Round-9b journals still
+replay without rewriting old exclusions
+or resetting sequence state. Days previously excluded only for precision now
+include their rounded USD portions on the next snapshot and can become full
+when the existing coverage and broker-evidence gates pass. With the JOED-20
+sampler, USD fills use their own day's latest RTH
+observation provisionally (same day, at most 30 minutes old) and the frozen
+16:05 New York close when available.
+The rate and sample timestamp travel together; a later day's rate never fills
+historical holes. Legacy capture evidence keeps its execution-local 60-second
+rule. EUR uses identity FX. Existing open lots can seed the
+book, but round trips closing before capture began are omitted. `trackingStart`
+is the Vienna date capture began; display earlier coverage as **since that
+date**, never as a complete lifetime result.
+
+Daily rows come only from captured executor activity on each Vienna day; days
+without captured activity are omitted, except every Vienna day touching an
+explicit history or fill gap (including unattributed own fills): those days emit a
+partial row with an empty desk map, whose total is unknown, not zero.
+`equityClose` is always null: v1 does not
+consume household v2 health/account fragments, desk equity or History basis IDs,
+and old household observation journal events are ignored on replay. Day realised
+net, fees and trade counts sum every included closed FIFO portion across all
+active desks, including opening-only desks with zero realised totals. Both legs'
+fees are charged to each closed portion. Revision-6 validation still checks
+missing traded desks, exact counts and exact net/fee sums on full days.
+
+Under rev 6, every CLOSED partial Vienna day (date before the producer's send
+day) emits a nonempty, unique `partialReasons` array. The OPEN day stays partial
+("so far") and omits reasons when there is no real cause; it never gets
+`capture_gap` merely because it has not closed. Real causes use the same
+nonempty list on open and closed days, in this canonical order:
+
+| Code                           | Producer evidence                                                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `capture_gap`                  | Capture refusals/issues or a real tracking start after Vienna midnight                                                                    |
+| `history_gap`                  | Unknown/malformed/missing history bounds, real history gaps, earlier fill gaps lacking position proof, guarded conversion/fill exclusions |
+| `broker_trade_count_mismatch`  | Closed-day broker closing-execution count differs from FIFO portion count                                                                 |
+| `broker_realised_pnl_mismatch` | Exact broker net differs by more than EUR 0.01                                                                                            |
+| `unattributed_activity`        | Current capture cut reports own unattributed fills; `unattributedCount` is included only when known and positive                          |
+| `avg_cost_mismatch`            | Reserved by the board; producer never emits it                                                                                            |
+| `fx_disabled`                  | Required USD day FX is incomplete while the sampler is disabled                                                                           |
+| `fx_missing`                   | Missing/stale portion FX, refused close FX or FX samples, stale/missing samples, sampler failures or missed fixed close                   |
+| `broker_evidence_missing`      | Missing broker reports or commissions, including transient missing commissions; refused broker evidence                                   |
+
+Full days carry neither reasons nor a count. Corrections may heal transient
+commission and unattributed-activity diagnostics; capture refusals and guarded
+history gaps retain their existing durable behavior. Old capture cuts without
+unattributed metadata cannot distinguish an unattributed 1 ms gap from another
+history gap: emit `history_gap` and omit the unknown count. Capture writes only
+value-free day/count metadata for current unattributed activity; it deduplicates
+logical fills, excludes KEEP/foreign/pre-tracking/out-of-window activity, and
+updates the cut when attribution changes even at the same timestamp.
+At ingress, the board and local validator reject a closed partial day without
+reasons with 422 `partialReasonsRequired` at `$.days[i].partialReasons`. Local
+validation always supplies `receivedAt`: the producer's reserved send time
+(`generatedAt`), also used by snapshot validation and the push. Offline calls
+without an explicit option use that same payload send time, never silently skip
+the rule. Served legacy data uses its persisted board receipt. Strict producer
+validation rejects the reserved code; only the open day without a real cause
+may omit reasons. The board's open-day note rule shows no generic note when
+that day has no reasons, and shows a real FX reason when present.
+A reasonless open day built just before Vienna midnight and received just after
+it gets one 422 `partialReasonsRequired`; the runner silently recomputes and
+resends once without failure logging or counter changes. Only that sole error
+on the day open at generation qualifies; other rejections use normal backoff.
+New cuts journal reported `historyGaps` separately from value-free 1 ms
+`fillGaps`, tagged `unattributed_activity` or `capture_gap`. They revoke coverage and
+remain in earlier-gap position-proof maths; their own day carries its own reason
+only, while later unproven days retain `history_gap`. A separate real history
+gap still adds `history_gap` on the fill day. Legacy cuts without fill-gap
+provenance keep their conservative `history_gap` label. The existing
+`historyCoverage.gaps` field retains the combined omissions for conservative
+older readers on rollback; the new producer uses the separate provenance for
+labelling, without removing omissions from coverage or earlier-gap proof.
+Fill-gap labels start at the tracking instant; pre-tracking fill gaps remain in
+the proof maths without creating earlier day rows. Combining fill gaps is
+idempotent across capture initialization, authority hashing and producer replay;
+the round-14 authority hash stays unchanged.
+Refused FX samples and close FX keep the journal kind `broker_evidence_missing`
+for round-12b/13 rollback readers. The new producer maps fields `sample.rate`
+and `closeFx.rate` to the Results reason `fx_missing`; other broker issues keep
+their existing reason. Round-14 journals that already use `fx_missing` remain
+readable by the new producer.
+There is no exact rev-6 code for an unexpected conversion failure: `history_gap`
+is used because containment creates that scoped gap. No provisional FX reason is emitted.
+
+**P3 — per-desk close basis:** Amy approved the single `CLOSE_BASIS` constant
+`execution-fifo-net-current-fx`, versioned by `manifest_revision`, for v1.
+Changing that basis requires a manifest revision bump and matching contract
+review; `backstop.test.mjs` preserves the approved close-basis baseline. A per-desk
+close-basis wire field remains P3, requiring a future JoeDesk contract revision.
+Pinned Results at `26a5d2ac04fad707ea63e49a91a348b2a49035cc` (revision 6)
+forbids adding an unversioned basis field to `days[]`.
+
+KEEP fills are excluded at capture and again at FIFO, including pre-existing
+captured fills. They contribute nothing to trades, day counts, realised net or
+fees. The protected SXR8/TSLA floor cannot be removed.
+Results never contains account/order IDs, receipts or broker account equity.
+The runner reads only the executor's loopback health endpoint for local status,
+halt, brakes and Gateway diagnostics; account fields are discarded before any
+write. That status is never reconciliation evidence and no household handoff is
+produced. Concrete owned-fill quantity vs complete broker-position evidence can
+produce `executor_broker_disagreement` in Results' permitted `reason`.
+Foreign/netted residuals and incomplete broker cuts do not prove disagreement;
+gateway reachability changes alone never do.
+
+Reserved ports: executor tailnet `8470`, mailbox tailnet `8471`, capture health
+loopback `8472`. Capture OFF writes no `resultsFx`, `resultsHistoryCoverage`,
+`resultsFxSampler` or `ownershipSnapshot.observedAt` into executor state/ledger.
+
+The optional executor listener on `127.0.0.1:8472` serves only `GET /v1/health`; no intent/admin/halt route is exposed.
+
+The Results runner posts one `results.v2` snapshot to the configurable board
+origin at **`POST /joe/inbox/results`**, with `Content-Type: application/json`
+and the contracts package's 8 MiB limit. Authentication uses the **same** raw
+machine token as the household pusher: systemd `LoadCredential` copies
+`config.age.secrets.joe-board-push-token.path` into a private credential
+directory. The runtime reads only that copy and sends `Authorization: Bearer …`.
+There is no new secret or token value in Nix, Git or logs.
+
+It attempts a fresh, strictly increasing producer sequence every 25 seconds,
+reserving it durably before sending. Failed or ambiguous sends burn the
+sequence, including across restart. Generated time comes from the system clock;
+an explicitly requested future instant is clamped to now. A clock rollback
+holds output until time catches up, without stamping ahead. The unit orders
+after `time-sync.target`; verify hsb0 NTP is synchronized before enablement.
+Board receipt rejects generation more than 5 seconds ahead with `clock_ahead`.
+Retries use 1/2/4/8/16/25-second bounded backoff, capped by the original 25-second
+cycle deadline so request time does not extend the cadence. Every retry builds
+a new snapshot and sequence. It never sends `receivedAt`, `missingDays` or
+`X-Joe-Received-At`; ingress stamps receipt time and uses `acceptSnapshot('results')`. HTTP redirects
+are refused. A 200 updates the last-good snapshot; 422 retains it and logs only
+an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
+and network failures also back off with value-free diagnostics. The board is
+stale after 60 seconds without an accepted push; retries do not fake freshness.
+
+JOED-34 rev 6 is merged at `26a5d2ac04fad707ea63e49a91a348b2a49035cc`.
+The complete self-contained `contracts/` directory (manifest revision 6,
+including `vienna-date.mjs`) is vendored byte-for-byte. `contracts.lock.json`
+pins its source revision, each file's byte count and SHA-256, and set digest
+`f092c0f1f6223f965486f6f1b072e6c305b3fafd2ce34b1b551fb6dbed0ddf80`.
+A round-12b producer against the rev-6 board gets 422s on closed reasonless
+days; the contract pin mismatch already blocks activation.
+`verify-contracts.mjs` checks the complete file set and reproduces JoeDesk's
+`scripts/check-release.mjs` set hash: SHA-256 of the UTF-8 compact JSON array
+of sorted `{path,size,sha256}` entries with `contracts/`-prefixed paths.
+Build/CI checks reject changed, missing, extra or symlinked contract files,
+including a changed closure with a rewritten per-file lock.
+CI also runs `scripts/test-joe-results-contracts-pin.py`: it fetches the exact
+lock revision via the existing private Nix GitHub transport and recreates the
+closure in a temporary directory, checking bytes and both digest layers. Fetch
+failure is fatal in GitHub Actions; unavailable local/offline sources explicitly
+print SKIP. `--source <checkout>` proves a clean local checkout at the exact pin.
+The deterministic CPU test covers 4,320 synthetic fills across three desks over
+60 Vienna days in each DST season, including KEEP, with a 2,500 ms CPU bound
+per operation: ingest of 1,920 cuts with per-cut position proofs and a persistent
+earlier gap plus snapshot build/validation, and
+separately restart replay plus prefix verification and snapshot build/validation.
+Both the test and runtime transport check the 8 MiB
+served-size limit including the board's `receivedAt` overhead; no broker or
+account data is used.
+
+Coverage uses the executor history's explicit `fromInclusive`/`toExclusive`
+bounds minus gaps, persisted with capture cuts even when fills do not change.
+The executor persists only status, target bounds and gap bounds, excluding
+receipt lists. Own-account non-KEEP fills awaiting attribution at or after the
+cutover add a 1 ms gap at their execution time inside the history target.
+Attribution removes that gap on the next cut. Coverage-only cuts are written
+when the gap set changes or another closed Vienna day is proved, rather than
+for each movement of intraday bounds; fill and authority changes stay immediate.
+The producer unions proven intervals across restart and subtracts newly
+declared gaps from earlier proof too, using the vendored Vienna
+date helper for 23/25-hour DST days. Missing/unknown bounds, any uncovered part
+of a closed day, a mid-day window start, and the current day emit
+`"coverage":"partial"`; a stale capture never extends proof to generation time.
+For the open day, the reason check ends at the largest validated authoritative
+history target's `toExclusive` or the send time, whichever is earlier.
+The trailing unproven stretch is "so far",
+without a `history_gap` label. Explicit gaps and holes between Vienna midnight
+and that instant still produce `history_gap`; closed-day checks
+continue to require proof through the next midnight.
+Full days omit `coverage`, using the README's documented default of `"full"`.
+An earlier gap also makes a day partial unless every captured Stage-0
+fill on that day has a post-gap baseline for its instrument before that fill
+(openings included): either a broker-flat
+snapshot with every desk flat, or exact captured quantities reconciled to the
+broker at the start of the proven interval containing the fill, or the last
+proven interval for fills at or after its end under the open-day "so far" rule.
+A later snapshot inside that interval can establish the start quantity by subtracting the same
+captured intervening fills from both books. The executor records the complete
+broker `positionEnd` time as `positionsObservedAt`, persists it with
+`ownershipSnapshot.observedAt`, positions and ownership completeness, and
+capture journals only hashed instruments, decimal quantities, the hashed foreign
+instrument set and that time. Every non-KEEP broker-position instrument and
+known instrument is listed; an absent instrument is proven broker-flat only
+in a complete receipt that does not mark it foreign, with every desk also flat.
+Legacy receipts lacking the foreign set prove only explicitly listed positions.
+Missing, future, mismatched, equal-time ambiguous or pre-gap proof fails closed;
+an activity timestamp never refreshes an old position snapshot. Opposing desk
+positions do not count as flat. A gap after the day does not change its coverage;
+the current Vienna day remains partial. Proof and corrections replay from the
+same journals after either service restarts.
+
+The I1/I2 coverage rules above remain in force. Their residual risk is a missed
+open+close pair inside an earlier gap: quantities may net to zero while FIFO
+prices shift. The automated broker backstop now compares each closed Vienna day
+and desk before every push, using existing executor `executions` and
+`commissions` only. `execution.execId` joins `commissionReport.execId` privately;
+`time`, `shares`, `side`, contract currency and attributed desk establish the day
+and closing execution count. Only hashed fill/instrument keys and an allowlisted
+`brokerRealised: {amount,currency}` or `{unset:true,currency}` projection of `commissionReport.realizedPNL`
+and `currency` enter the capture. Broker realised PnL is net (fees are not
+subtracted again); the already captured close FX converts it to EUR exactly.
+Broker net sums retain the exact PnL × rate products at 10⁻¹⁶ EUR with no
+rounding, then compare against realised net scaled to the same precision.
+IB unset realised PnL (null or Double.MAX_VALUE) is accepted only on quantity-book
+openings with a commission report; closes require an exact amount.
+No new IB request is added. At the SDK boundary, `Number.MAX_VALUE` (and its
+String form), `2147483647`, null and missing values map to unset before conversion.
+Unset PnL on closes still keeps D partial; unset opening PnL follows the quantity
+book rules above. Numbers are accepted only when `String(n)` is a finite plain
+decimal with at most 15 significant digits and fits the eight-decimal contract;
+`-0` normalises to `0`. Exponents, NaN, infinities and excess precision are refused.
+Decimal strings retain the existing exact policy. Converted fields carry additive
+`src: "sdk_number_roundtrip"` provenance (fill fields use a `provenance` list);
+older replays ignore it. A later string-source adapter can replace this boundary.
+Every refused field produces a value-free `captureIssues` journal record with
+`day`, hashed identity/desk, field name and kind: `capture_gap` for fill fields,
+`broker_evidence_missing` for broker evidence. Its day stays partial on replay;
+no refused numeric value or raw identifier is stored. Unset required fill fields
+also record a gap, without counting as a conversion refusal. A refused fill
+adds a 1 ms history gap at its timestamp, so later fills cannot silently pair
+against an incomplete FIFO book even when broker PnL is exactly zero.
+A capture issue keeps its day partial even after a clean correction arrives,
+by design. The loopback health `resultsCapture.refusals` and producer
+`captureRefusals` count distinct refused field records, deduplicated across
+polls and restart. Missing reports and incompatible currencies also keep D partial.
+
+A per-desk absolute net difference **above EUR 0.01**, or any count mismatch,
+downgrades D to `partial` on the next push. Broker count is closing executions,
+independent of FIFO price lots: one execution closing multiple FIFO portions
+therefore conservatively remains partial even if amounts match. Missing broker
+evidence also downgrades D. Unknown capture bounds remain partial regardless of
+broker agreement; executor health and household fragments cannot restore full.
+A `broker-mismatch` journal record contains only `{day, deskHash, kind}` (no
+amounts or raw identifiers), deduplicated across heartbeats and replay. Late
+commission/correction updates trigger a new capture cut; corrected evidence is
+recompared without erasing old mismatch records. Capture/producer restarts retain
+the same result. Private broker rehearsal on hsb0 remains an enablement gate.
+The producer and fixture ingress call the vendored validator directly: partial
+days skip day/trade reconciliation while schema and trade checks still apply;
+full days reconcile every trading desk with exact counts and decimal sums.
+KEEP contributes nothing to either array, including partial-day totals.
+The revision-4 closed reason enum no longer permits `results_not_wired`.
+The module remains disabled; paper rehearsal and coordinator sign-off are
+still required before a separately approved enablement/cutover.
+The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
+one writable state directory, empty capabilities, no added groups/Docker socket, and
+IP egress limited to loopback and the pinned ingress address. The private hosts
+file resolves the TLS hostname without DNS egress. Endpoint and health paths
+are fixed by configuration/code; systemd's IP filter operates at address scope.
+The module independently pins `JOE_RESULTS_INGRESS_ORIGIN` (scheme, host, port);
+settings/state cannot redirect transport, and redirects are refused. Settings
+must be an immutable Nix-store file; state/input paths are fixed. The credential
+reader accepts only systemd's fixed service directory and fixed token basename,
+refusing traversal and directory/file symlinks.
+
+Paper proof, for the operator **after** separate enablement approval:
+
+1. On the workstation/CI, run `bash tests/T100-joe-results-producer.sh` and
+   `bash tests/T93-paper-desk-executor.sh`. Confirm the vendored bytes against
+   `contracts.lock.json`. Keep synthetic compaction, torn-write and gateway-flap
+   simulations in this lab; hsb0 remains a production paper host.
+2. Before the approved hsb0 switch, retain its previous generation and compatible
+   board/pusher/executor pins plus private backups of both Results journals (if
+   present). Record the rollback path on JOED-20/OPS. Configure the board
+   endpoint, complete KEEP policy and IP/TLS pin in the reviewed Nix change.
+   Verify the revision-4 contract pin, exact decimal source evidence and broker
+   report backstop with JoeDesk/Amy first. Follow the normal remote NixOS build
+   and human-controlled switch procedure; no local NixOS build on macOS.
+   csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
+3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
+   Read `http://127.0.0.1:8472/v1/health` privately and verify paper Gateway
+   configuration, halt and brakes. Do not copy its raw body/account into tickets,
+   Git, public logs or fixtures. Verify non-GET/other paths return 404 and the
+   optional listener is bound only to loopback. The producer never submits an
+   intent to perform this check.
+4. Observe an **already authorized paper** desk open/partial close/full close
+   through the normal desk workflow. Compare private broker fill/commission/FX
+   evidence to every Results portion and Vienna close; check the constant close
+   basis and value-free broker mismatch journal records. Verify KEEP holdings
+   are untouched. Observe two accepted Results generations within 30 seconds, strictly increasing sequence and
+   server-stamped receipt; board freshness must remain below 60 seconds. Do not
+   create trades or force a gateway outage solely for this proof.
+5. Restart only the producer through the approved procedure and confirm its
+   sequence advances and accumulated history is unchanged. Verify production
+   evidence contains no fabricated pre-tracking days. Use the offline fixtures
+   for a true disagreement and a clean gateway flap; do not tamper with the
+   production ledger. Record value-free counts/digests and Amy's explicit sign-off
+   on JOED-20. If proof fails, disable the producer through the reviewed config,
+   retain both journals and the prior pins, and keep Results explicitly unwired.
+
+Open ingress gates: exact route/auth and credential handoff; response receipt
+contract; exact broker source evidence; immutable deployment pins and Amy's
+paper reconciliation approval. Household fragments are excluded from v1; the
+per-desk close-basis field is P3. Amy's 2026-10-17 JOED-20 approval permits only
+the isolated USD/EUR sampler described below; it does not widen any other IB
+scope. Local fixture ingress is a test adapter, not an installed service.
+
+### Close-FX sampler (JOED-20, local candidate)
+
+When Results capture is enabled, the paper executor runs a separate background
+FX reader using
+client 709 and request IDs in 920000000..929999999. Reserve client 709 separately
+from order/recon, quote and book clients. It requests only EUR/USD CASH on
+IDEALPRO (`reqMktData`, snapshot=true, regulatorySnapshot=false), then inverts
+the bid/ask midpoint to a USD→EUR observation at eight decimal places. This rate
+is a float-derived observation, unlike the exact decimal financial inputs.
+Sampler client-ID conflicts or invalid client-ID JSON disable the sampler with
+a value-free reason. It uses
+`cancelMktData` on success, error or timeout and disconnects its dedicated
+client; it requests no account, order, execution or historical data.
+The snapshot/cancellation mechanics follow the [IB API documentation](https://interactivebrokers.github.io/tws-api/md_request.html).
+
+The one-second scheduler interprets America/New_York wall time: 09:30–16:00
+RTH in 15-minute buckets, plus the fixed 16:05 close minute. Each RTH attempt
+also requires a rolling 15-minute gap. A durable reservation precedes the IB
+request, including across restart; this implementation chooses **zero retries**
+(within the approved maximum of one). No catch-up request runs outside its
+slot. RTH holidays and 13:00 early closes use the reviewed
+[NYSE 2026–2028 calendar](https://ir.theice.com/press/news-details/2025/NYSE-Group-Announces-2026-2027-and-2028-Holiday-and-Early-Closings-Calendar/);
+unknown years make no requests until that calendar is reviewed. For an
+exceptional unscheduled market closure, OPS disables the sampler. The 16:05
+sample remains fixed even on a scheduled early-close trading day. During
+26–30 October 2026, 16:05 New York is **21:05 Vienna** (20:05 UTC), not 22:05.
+
+`/var/lib/paper-desk-executor/results-fx.json` stores up to 14 sampled days,
+each with bounded bucket reservations, attempt timestamp/reason and at most
+27 `{rate, sampleAt, kind}` observations; the file cap is 256 KiB. It is a
+separate executor state sidecar, never part of `ledger.json`. Capture copies
+only changed dates’ samples and enabled/reason metadata into its durable cuts;
+attempts and pending reservations remain private to the sidecar. Capture and
+producer stream replay without retaining journal entries, and normal producer
+polls verify the appended suffix plus a bounded tail anchor. The full source
+prefix is checked again on restart. The producer retains frozen
+historical closes after sidecar/ledger pruning. Preserve the two Results
+journals when rolling back. A missing close is never backfilled the next day.
+A day with USD activity is partial/yellow when disabled, sampling fails, or its
+latest
+RTH observation is more than 30 minutes old during RTH. A failed/missed close
+keeps that USD day partial. Missing all usable FX excludes USD portions and
+marks the day partial; EUR-only days are unaffected. Pending requests do not
+publish a transient partial state.
+
+Runtime kill switch, no rebuild or restart: OPS creates the regular file
+`/var/lib/paper-desk-executor/FX-SAMPLER-OFF`, owned by 1000:1000, for example
+`sudo install -m 0600 -o 1000 -g 1000 /dev/null /var/lib/paper-desk-executor/FX-SAMPLER-OFF`.
+Contents are irrelevant. The next idle scheduler tick observes it; an already
+in-flight snapshot finishes or times out within ten seconds. No later request
+runs while it is present. An unreadable/invalid switch also disables requests.
+OPS can remove its own switch with `trash` to resume in the next eligible
+unreserved bucket. Disabling only affects Results completeness: it never
+changes order admission, ownership, brakes, recon, HALT or `/v1/health`.
+
+Live verification belongs to OPS after a separately reviewed deployment. Keep
+all broker/account payloads private. Inspect the sidecar with a local script
+that prints **only** day keys, sample counts, `sampleAt`, `kind`, attempt reasons
+and file byte count; never print rates or the whole JSON. Check one request
+per bucket and a single close, using timestamps rather than values. Confirm
+that the OFF file suppresses the next eligible bucket and capture records
+`enabled:false`; confirm producer day coverage is partial. Compare the
+loopback health projection's ledgerBytes/ledgerPercent, status, brakes and
+HALT before/after sampling, without printing its account field. Confirm the
+sampler's client disconnects and has no remaining market-data lines in the
+Gateway. Verify fills/recon through Amy's normal private paper workflow;
+record only counts, digests and pass/fail on JOED-20.
+
+Rollback starts by creating the OFF file and retaining it. Preserve the
+sidecar and both journals (do not reset bucket reservations or producer
+sequence). OPS then uses the normal reviewed rollback to the prior executor
+source pin; round-8 baseline is `697959a6`. Keep Results disabled unless its
+existing ingress and paper-reconciliation gates pass. This candidate neither
+deploys nor changes producer enablement or board pins.

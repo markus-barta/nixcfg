@@ -35,15 +35,17 @@ c = json.load(sys.stdin)
 s, fw, home = c["service"], c["firewall"], c["home"]
 assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
-assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"]}
-assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s
+assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True}
+assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s and "starlink" not in s
 assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and all(p not in fw["allowedUDPPorts"] for p in (5353, 1901))
 assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
 assert home.get("network_mode", "bridge") == "bridge"
 assert home["extra_hosts"] == ["host.docker.internal:host-gateway"]
 assert "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro" in home["volumes"]
+assert "/var/lib/videos:/srv/videos:ro" in home["volumes"]  # OPS-380
+assert "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro" in home["volumes"]
 assert c["proxySource"].endswith("/hosts/hsb0/docker/hsb0-home-hausnetz.conf")
-for snippet in ("hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf"):
+for snippet in ("hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf", "hsb0-home-videos.conf"):
     assert any(t.endswith("/hosts/hsb0/docker/" + snippet) for t in c["restartTriggers"]), snippet
 ssh = c["ssh"]
 assert "Match host github.com localuser root" in ssh["extraConfig"]
@@ -84,21 +86,23 @@ assert defaults == {'hsb0': {'privateInputHosts': ['hsb0'], 'canEvaluatePrivateI
 fixture = {
     'services': {'hausnetz': {
         'enable': True, 'listen': '0.0.0.0:8377', 'firewallInterfaces': ['br-+', 'docker0'],
-        'seed': None, 'extraArgs': [], 'discovery': {
-            'leasesFile': None, 'openFirewallMdns': True, 'mdnsInterfaces': ['enp2s0f0'],
-            'openFirewallSsdp': True, 'ssdpPort': 1901, 'ssdpInterfaces': ['enp2s0f0']}}},
+        'seed': None, 'extraArgs': [], 'starlink': True, 'discovery': {
+            'leasesFile': '/var/lib/AdGuardHome/data/leases.json', 'openFirewallMdns': True, 'mdnsInterfaces': ['enp2s0f0'],
+            'openFirewallSsdp': True, 'ssdpPort': 1901, 'ssdpInterfaces': ['enp2s0f0'],
+            'passive': True, 'passiveInterfaces': ['enp2s0f0'], 'webCheck': True}}},
     'networking': {'nftables': {'enable': False}, 'firewall': {
         'enable': True, 'trustedInterfaces': [], 'allowedTCPPorts': [], 'allowedTCPPortRanges': [],
         'allowedUDPPorts': [], 'allowedUDPPortRanges': [], 'interfaces': {
             'br-+': {'allowedTCPPorts': [8377]}, 'docker0': {'allowedTCPPorts': [8377]},
             'enp2s0f0': {'allowedUDPPorts': [5353, 1901]}}}},
     'systemd': {'services': {'hausnetz': {'serviceConfig': {
-        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901"',
-        'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_UNIX'],
-        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10}}}},
+        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"',
+        'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_PACKET', 'AF_UNIX'],
+        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases']}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
     'nixcfg': {'composeStack': {'extraRestartTriggers': [
-        '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf']}},
+        '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf',
+        '/hosts/hsb0/docker/hsb0-home-videos.conf']}},
 }
 
 def check_fixture(config):
@@ -124,8 +128,19 @@ for path, value, failed_check in (
     (('services', 'hausnetz', 'discovery', 'openFirewallSsdp'), False, 'ssdpEnabled'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz"', 'ssdpArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_UNIX'], 'netlinkAllowed'),
+    (('services', 'hausnetz', 'discovery', 'passive'), False, 'passiveEnabled'),
+    (('services', 'hausnetz', 'discovery', 'webCheck'), False, 'webCheckAllowed'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--web-check=false" "--passive" "--passive-interfaces" "enp2s0f0"', 'noWebCheckFlag'),
+    (('services', 'hausnetz', 'starlink'), False, 'starlinkAllowed'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--starlink=false" "--passive" "--passive-interfaces" "enp2s0f0"', 'noStarlinkFlag'),
+    (('services', 'hausnetz', 'discovery', 'leasesFile'), None, 'leasesFromAdguard'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), [], 'leasesCopyGroupOnly'),
+    (('services', 'hausnetz', 'discovery', 'passiveInterfaces'), ['enp2s0f0', 'docker0'], 'passiveLanOnly'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901"', 'passiveArgument'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_NETLINK', 'AF_UNIX'], 'packetAllowed'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf'], 'proxyRestartTriggers'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
+    (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
 ):
     changed = copy.deepcopy(fixture)
     node = changed
@@ -159,7 +174,7 @@ for location in (app, archive):
         assert directive in location, directive
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = 'e50b0c463eb56f5e1374f70b62965df3a0756b6a'
+pin = '57b4863b6e63aaf291d9c7abdc8010ed2012f10d'
 assert f'git+ssh://git@github.com/markus-barta/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -168,8 +183,8 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/markus-barta/hausnetz'
-assert node['locked']['narHash'] == 'sha256-v5iFt8zNzLvVY9n06ohbpShlebli7Ix3r+wcxoZOb6k='
-assert node['locked']['lastModified'] == 1792181378
+assert node['locked']['narHash'] == 'sha256-DAMkQZ7rzLP13NX1WLaTHsMvxsYy3IdIigcpRKcbiI0='
+assert node['locked']['lastModified'] == 1792367796
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 

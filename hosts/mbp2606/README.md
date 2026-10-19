@@ -125,6 +125,34 @@ main ruleset differs from `modules/aeon-builder/paimos-main-ruleset.json`,
 including tightenings and merge-queue tuning. CI falls back to hosted runners
 automatically while the pool is unavailable.
 
+OPS-329 quarantines mismatching reads only when ruleset history is unchanged:
+availability clears, minting stops, running jobs finish and queued jobs wait.
+Two consecutive exact reads at the normal cadence, with no new history version
+ids, recover automatically. The baseline retains every id seen, so a dropped id
+does not pause. History is read before content, and a new id before a mismatch
+or between exact reads pauses; `on` and controller start reset that baseline.
+Queued pool runs created from the last exact read through recovery are cancelled
+and remain ineligible after restart, while earlier runs are preserved. If history
+lags, a new id widens the rejected window to the earlier of that last exact read
+and the new ids' earliest `updated_at`. Missing or unreadable new timestamps fall
+back to the baseline's creation time, retained across exact reads and recovery.
+Changed, empty or unreadable history at entry pauses immediately; errors in quarantine
+reset clean reads without extending grace. Defaults: 600 seconds, two clean
+reads, three quarantines per rolling 24 h (`rulesetQuarantineGraceSeconds`,
+`rulesetQuarantineCleanReads`, `rulesetQuarantineMaxPerDay`). Expiry or the next
+anomaly beyond that limit pauses with cancellation and requires `on --resume`.
+Pause and stop also close and reject the uncertain window, including a pause
+between exact reads or at the daily limit. A drain during quarantine goes off
+once no queued pool jobs, slots or workers remain. Queued jobs wait for recovery
+and continue draining, or grace expiry pauses and cancels them. Failed cancels
+retry only in the pre-mint sweep, which also cancels re-runs of earlier-cancelled
+runs, because a re-run keeps its run id and queues new pool jobs.
+Outside quarantine, content read errors skip that publish/mint; exact-read history
+errors keep the old baseline without pausing. Persistent read errors log at most
+once a minute.
+`status` shows progress;
+`rulesetQuarantineEnable = false` skips history and pauses on confirmed drift.
+
 After an intentional ruleset change, regenerate the five pinned keys from the
 live ruleset, from the nixcfg checkout (Bash):
 
@@ -143,7 +171,7 @@ The regression tests require the five checks (`go`, `web`, `release-check`,
 The supplied live policy retains the existing role-5 PR-only bypass; tests
 permit its removal but reject additional actors or broader bypass permissions.
 
-## Remote-test admission (OPS-300)
+## Remote-test admission (OPS-300, OPS-385)
 
 The `mba` profile supplies `aeon-remote-guard` and manages the executable
 pre-receive hook in `~/aeon-remote.git/hooks/`. It rejects pushes that create
@@ -155,12 +183,80 @@ policies older than 900 seconds, more than 60 seconds in the future, or
 malformed policies use the default load limit. The policy writer must replace
 the file atomically (write a temporary file in the same directory, then `mv`
 it into place); OPS's writer already does. Pushes that only delete refs are
-allowed while busy so cleanup can run. Refusals print `remote busy` with retry
-guidance and exit 3. Clients should also call
+allowed while busy so cleanup can run. Clients must match both `remote busy`
+and `remote paused`; refusals include retry guidance and exit 3. Clients should also call
 `/Users/mba/.nix-profile/bin/aeon-remote-guard || exit 3` first in their
 `bash -s` scripts to check again before running tests and get a clean exit 3.
 Non-login `ssh mba@mbp2606 bash -s` sessions run via `fish -c` and do not have
 `~/.nix-profile/bin` on PATH, so clients must use the absolute guard path.
+
+OPS also writes `~/.aeon-remote-maxruns`, exactly one line
+`maxruns=<0-9> epoch=<unix>`. The guard never sources either input. A missing,
+malformed or stale budget uses `services.aeonRemoteGuard.defaultMaxRuns`
+(default 1); freshness uses the same `staleSeconds` (default 900) and at most
+60 seconds of future skew as the unchanged four-field policy. The writer
+must replace the budget atomically too. `maxRunsFile` and `leaseDir` are
+configurable absolute paths; the lease directory defaults to
+`~/.aeon-remote-leases`. `reservationTtlSeconds` defaults to 120 and must be
+positive, as must `defaultMaxRuns`.
+
+For a push with exactly one non-deletion update under `refs/runs/<RUN>`,
+the hook calls `aeon-remote-guard reserve <RUN>`, including pushes that also
+update main or tags. More than one run update or an invalid run ID refuses
+with exit 3. IDs use 1–64 ASCII letters, digits, dots, underscores or hyphens;
+`.` and `..` and the internal `.reservation.*` prefix are excluded. Under one
+exclusive kernel lock, the guard checks hold, policy, load and budget, counts
+other run IDs, and atomically writes a mode-0600 reservation containing
+`reserved=<unix>`. A re-push refreshes that ID and preserves its live pids.
+The persistent lock file is adjacent at `~/.aeon-remote-leases.lock`; never
+remove it while guards may run. Lock acquisition times out after 30 seconds;
+the kernel releases the lock when the guard dies. Pushes without run updates
+use the ordinary check; deletion-only pushes bypass admission for cleanup.
+
+Live run IDs are deduplicated across leases with any live `pid=` line, leases
+whose file mtime is younger than the TTL, live
+`~/.aeon-remote-test/<RUN>.pid` markers,
+`~/ci.noindex/aeon-runs/<RUN>` directories whose mtime is younger than the
+same TTL (the start window), and live
+`~/aeon-ui-runs/<RUN>/supervisor.pid` markers. Older run directories without
+a live lease or marker do not count: killed or interrupted runs leave them
+behind until the client sweep, and they must not block the budget. The guard
+never deletes run directories. Marker paths use the configured
+Home Manager home, independently of the caller's `HOME`. Legacy
+`ci.noindex/slots/s*` directories do not count. Symlinks and non-regular lease
+entries are ignored. Malformed regular leases still count while fresh or
+while any pid lives; only fully parsed dead and expired leases are collected.
+Internal `.reservation.*` temporary files never count and are collected once
+stale. Lease timestamps allow at most 60 seconds of future skew. The lease
+directory and persistent lock file must belong to the guard's user. Unreadable
+lease or marker directories and unreadable `.aeon-remote-test/*.pid` files
+refuse admission. Client markers and run
+directories stay client-owned.
+
+Bare guard calls make no reservation and refuse only when the count is
+**greater than** the budget, so an admitted run passes its second check at the
+limit. A reservation refuses when other IDs are **at least** the budget.
+Refusals print `remote busy: <N>/<M> runs active (OPS budget)` and exit 3.
+A zero budget refuses admission with
+`remote paused: OPS budget is 0 (level <L>)`; the level comes from a fresh
+policy, or is `UNKNOWN` without one. Existing refusal reasons stay combined.
+Unexpected failures print `remote busy: guard error` with retry guidance and
+exit 3.
+
+At run start, clients call `aeon-remote-guard adopt <RUN> <pid>` with their
+own live shell pid. Adoption validates same-user ownership and atomically
+records the pid under the same lock as collection, recreating the lease if
+its reservation was already collected. Exit 0 means the pid was recorded;
+adoption also succeeds while admission is paused or held and grants no new
+admission. Clients should treat adoption failure as non-fatal: the admitted
+run still counts through `ci.noindex/aeon-runs/<RUN>` during the start
+window. Run directories cover only that window (`reservationTtlSeconds`), so
+clients must adopt to stay counted for the whole run. A live pid keeps the
+lease counted regardless of TTL. Clients may remove
+`~/.aeon-remote-leases/<RUN>` in their EXIT trap with
+a plain `rm`, or let GC collect it once dead and expired. Live client pid
+markers also keep runs counted after the TTL; run directories do not. The bare
+check remains compatible with existing clients.
 
 ## Inbound SSH (declarative)
 

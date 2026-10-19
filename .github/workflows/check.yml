@@ -211,6 +211,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh
 
+      - name: Restrict SSO to the operator domain (OPS-366)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T104-oauth2-proxy-email-domain.py
+
       - name: Verify Pharos kernel posture
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T11-pharos-kernel-posture.sh
@@ -250,6 +254,10 @@ jobs:
       - name: Verify compose-stack contract and YAML equivalence (OPS-116/117)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
+
+      - name: Verify csb1 Traefik config and renderer recreation boundary (OPS-338)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 yq-go --run "python3 tests/T106-csb1-traefik-recreate.py"
 
       - name: Verify aeon upstream transport disables connection reuse (OPS-308)
         if: steps.pin.outputs.pin_only != 'true'
@@ -291,6 +299,12 @@ jobs:
       - name: Verify static uid/gid collision gate (NIX-354)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T39-static-id-gate.sh
+
+      - name: Verify AdGuard runtime admin secret boundary (OPS-372)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: |
+          export NIXPKGS_LIB="$(nix eval --impure --no-update-lock-file --raw --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.outPath + "/lib"')"
+          nix-shell -I nixpkgs="${NIXPKGS_LIB%/lib}" -p 'python3.withPackages (p: [ p.bcrypt ])' yq-go --run "python3 tests/T105-adguard-users-secret.py"
 
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
         if: steps.pin.outputs.pin_only != 'true'
@@ -424,6 +438,34 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p nodejs --run "bash tests/T93-paper-desk-executor.sh"
 
+      - name: Verify hsb0 dynamic tailnet admission (OPS-384)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: |
+          mkdir -p tests/.tmp
+          nix-shell -p python3 nodejs --run '
+            python3 -B -m unittest discover -s tests -p test_tailnet_peers.py -v &&
+            node --test --test-concurrency=1 tests/tailnet-peers.test.mjs &&
+            bash tests/T108-tailnet-peers.sh
+          '
+
+      - name: Keep IB identifiers out of the public tree (OPS-317, OPS-369)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T107-ib-identifier-guard.py
+
+      - name: Verify JoeDesk Results v2 producer and pinned contracts (JOED-20)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p nodejs python3 --run "bash tests/T100-joe-results-producer.sh"
+
+      - name: Recreate JoeDesk Results contracts from the immutable private pin (JOED-20)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: >-
+          nix-shell -p nodejs python3
+          --run 'python3 -B -m unittest discover -s tests -p test_joe_results_contracts_pin.py -v && python3 scripts/test-joe-results-contracts-pin.py'
+
+      - name: Bound JoeDesk Results CPU and served snapshot size (JOED-20)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p nodejs --run "node --test modules/joe-results-producer/cpu.test.mjs"
+
       - name: Verify LG Developer Mode renewal (OPS-309)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run "bash tests/T98-lg-devmode-renew.sh"
@@ -510,6 +552,10 @@ jobs:
       - name: Verify classic PPM container is absent (NIX-584)
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
+
+      - name: Verify Traefik API loopback routing and mutations (OPS-365)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p python3 ruby yq-go --run "python3 tests/T103-traefik-api-auth.py"
 
       - name: Verify csb1 inspr-auth Cloudflare edge boundary
         if: steps.pin.outputs.pin_only != 'true'
@@ -601,6 +647,13 @@ jobs:
           nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0.config \
             --apply 'config: import ./tests/lg-devmode-renew-eval.nix { inherit config; }' \
             | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-309 full hsb0 evaluation: OK")'
+
+      - name: Verify AdGuard users in both full host configurations (OPS-372)
+        if: matrix.host == 'hsb0' || matrix.host == 'hsb8'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.${{ matrix.host }} \
+            --apply 'system: import ./tests/adguard-users-full-host-eval.nix { inherit (system) config lib; }' \
+            | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-372 full host evaluation: OK")'
 
       - name: Verify hausnetz in the full hsb0 configuration (OPS-207)
         if: matrix.host == 'hsb0'

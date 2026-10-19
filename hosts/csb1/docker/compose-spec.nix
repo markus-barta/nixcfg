@@ -243,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261016060843.0.0@sha256:d558d3e937e249f4d7b66f3704ae55a8292fd91a1489eca81a6ada1dc4a42497"; # release 135 Teal Timer (AEON-1437): project checklists, Desk step-up fix, model catalog with Opus 5.5, faster ticket creation, isolated Codex reviews, merge-queue admission groundwork (default off); migrations 1355-1359
+      image = "ghcr.io/inspr-at/aeon:261017115202.0.0@sha256:b3f5b782787d5cda2c2f4832c1ae4c2f0c5b630992bd35738cec2da8f1c84c88"; # release 136 Aglow Apsis (AEON-1475): Goals API and CLI, Desk answers stay queued, safer administration saves, clearer session delivery; migrations 1360-1361
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
@@ -663,15 +663,13 @@ in
       ]
       ++ sharedFlowRouteVolumes;
       labels = [
+        # OPS-338: checkout replaces these single-file binds with new inodes.
+        # Renderer input labels are added in configuration.nix; mutable ACME
+        # state must not trigger restarts.
+        "ops.static-config-sha256=${builtins.hashFile "sha256" ./traefik/static.yml}"
+        "ops.dynamic-config-sha256=${builtins.hashFile "sha256" ./traefik/dynamic.yml}"
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
-        "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
-        "traefik.http.routers.traefik.entrypoints=web-secure"
-        "traefik.http.routers.traefik.service=api@internal"
-        "traefik.http.routers.traefik.tls.certresolver=default"
-        "traefik.http.routers.traefik.tls=true"
-        "traefik.http.routers.traefik.priority=100"
       ];
-      # - traefik.http.routers.traefik.middlewares=authelia  # DISABLED 2026-03-06 - no authelia container
       environment = [
         "TZ=Europe/Vienna"
       ];
@@ -692,7 +690,7 @@ in
         "--provider=oidc"
         "--oidc-issuer-url=https://auth.inspr.at"
         "--redirect-url=https://cs1.barta.cm/oauth2/callback"
-        "--email-domain=*"
+        "--email-domain=barta.com"
         "--cookie-domain=.barta.cm"
         "--whitelist-domain=.barta.cm"
         "--cookie-secure=true"
@@ -738,7 +736,7 @@ in
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
-        "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)"
+        "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`) && !(PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
         "traefik.http.routers.hostdash-csb1.entrypoints=web-secure"
         "traefik.http.routers.hostdash-csb1.tls=true"
         "traefik.http.routers.hostdash-csb1.tls.certresolver=default"

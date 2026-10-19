@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
-import { createHash } from "node:crypto";
 
 import { ACCOUNT, KEEP, LIMITS, PAPER_PORT, DESKS, activityAttribution, newYorkDay, belongsToDesk, normalizeOrderRef, assertSideEffect, mergeExecutions, ownedPositions, ownershipSinceFlat } from "./policy.mjs";
 import { confinedPath } from "./security.mjs";
@@ -65,7 +64,6 @@ export async function openMarketDataSession(clientId, runtime = {}, signal) {
 
 const HOST = process.env.IB_DESK_GATEWAY_HOST || "100.64.0.6";
 const PORT = Number(process.env.IB_DESK_GATEWAY_PORT || PAPER_PORT);
-const TARGET_ACCOUNT_SHA256 = "cea300419862ca7b9a504376b2ee6268447acd35bfa43e2badb87e6f21338a81";
 const INFORMATIONAL_CODES = new Set([202, 2100, 2104, 2106, 2107, 2108, 2119, 2158]);
 // Matches the pusher writer cap (hosts/hsb0/docker/joe-board-pusher/family-history.mjs MAX_STATE_BYTES) and fits the 256m container.
 const MAX_PUSHER_HISTORY_BYTES = 32 * 1024 * 1024;
@@ -75,13 +73,13 @@ function sleep(ms) {
 }
 
 export function assertTargetAccount(account = process.env.IB_DESK_ACCOUNT) {
-  if (typeof account !== "string" || !/^DU[A-Z0-9]+$/.test(account) || createHash("sha256").update(account).digest("hex") !== TARGET_ACCOUNT_SHA256) throw new Error("runner refuses an account that does not match the pinned paper account");
+  if (typeof account !== "string" || !/^DU[A-Z0-9]+$/.test(account) || account !== ACCOUNT) throw new Error("runner refuses an account that does not match the configured paper account");
 }
 
 function paperGuard({ checkTarget = false } = {}) {
   if (PORT !== PAPER_PORT || PORT === 4001) throw new Error("runner refuses any non-paper port");
   if (!/^DU[A-Z0-9]+$/.test(ACCOUNT)) throw new Error("runner refuses any non-paper account");
-  // Pin startup and real connections; injected test APIs use synthetic accounts.
+  // Pin startup and real connections to the immutable configured account.
   if (checkTarget) assertTargetAccount();
   if (HOST !== "100.64.0.6") throw new Error("runner refuses an undeclared Gateway host");
 }
@@ -157,6 +155,9 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
   });
   api.on(EventName.position, (account, contract, position, averageCost) => {
     if (account !== ACCOUNT) return;
+    // A streaming update after positionEnd is no longer the completed cut.
+    // Results proof must wait for another complete position snapshot.
+    if (positionsEnd) state.positionsObservedAt = null;
     const row = {
       account,
       conId: Number(contract.conId) || 0,
@@ -171,7 +172,7 @@ export async function openSession(clientId, timeoutMs = 20_000, runtime = {}) {
     const index = state.positions.findIndex((prior) => prior.conId === row.conId);
     if (index < 0) state.positions.push(row); else state.positions[index] = row;
   });
-  api.on(EventName.positionEnd, () => { positionsEnd = true; });
+  api.on(EventName.positionEnd, () => { positionsEnd = true; state.positionsObservedAt = new Date().toISOString(); });
   api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
     const row = {
       orderId: Number(orderId),
@@ -304,12 +305,16 @@ export async function resolveStock(session, symbol, requestId = 881001, { readOn
 export async function freshUsdToEur(session, requestId = 881101) {
   const EventName = session.events;
   const rates = new Map();
+  const exactRates = new Map();
   let ended = false;
   const onValue = (id, account, _model, key, value, currency) => {
     if (Number(id) !== requestId || account !== ACCOUNT || key !== "ExchangeRate") return;
     const rate = Number(value);
     const code = String(currency || "").toUpperCase();
-    if (/^[A-Z]{3}$/.test(code) && Number.isFinite(rate) && rate > 0) rates.set(code, rate);
+    if (/^[A-Z]{3}$/.test(code) && Number.isFinite(rate) && rate > 0) {
+      rates.set(code, rate);
+      if (typeof value === "string" && /^(?:0\.[0-9]{1,8}|[1-9][0-9]*(?:\.[0-9]{1,8})?)$/.test(value)) exactRates.set(code, value);
+    }
   };
   const onEnd = (id) => {
     if (Number(id) === requestId) ended = true;
@@ -327,6 +332,7 @@ export async function freshUsdToEur(session, requestId = 881101) {
   const usdToEur = rates.get("USD");
   if (!Number.isFinite(usdToEur) || usdToEur <= 0) throw new Error("IB USD/EUR exchange rate is unavailable");
   session.state.fxObservedAt = new Date().toISOString();
+  session.state.resultsFx = Object.fromEntries([...exactRates].map(([base, rate]) => [base, { base, quote: "EUR", rate, source: "ib-account-exchange-rate", observedAt: session.state.fxObservedAt }]));
   return usdToEur;
 }
 

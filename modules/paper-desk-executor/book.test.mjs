@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
@@ -34,7 +35,7 @@ function harness(options = {}) {
       invoke("positions", this);
       if (options.stall === "positions") return;
       for (const row of options.positions ?? [{ contract, pos: 2, avgCost: 100 }, { contract: kept, pos: 1, avgCost: 200 }]) this.emit(events.position, ACCOUNT, row.contract, row.pos, row.avgCost);
-      this.emit(events.position, "U0000000", { ...contract, conId: 3 }, 100, 1);
+      this.emit(events.position, "U0000001", { ...contract, conId: 3 }, 100, 1);
       this.emit(events.positionEnd);
     }
     reqAllOpenOrders() {
@@ -49,7 +50,7 @@ function harness(options = {}) {
       this.emit(events.accountSummaryEnd, id + 1);
       this.emit(events.accountSummary, id, ACCOUNT, "NetLiquidation", "1000", "USD");
       this.emit(events.accountSummary, id, ACCOUNT, "TotalCashValue", "500", "USD");
-      this.emit(events.accountSummary, id, "U0000000", "BuyingPower", "wrong-account", "USD");
+      this.emit(events.accountSummary, id, "U0000001", "BuyingPower", "wrong-account", "USD");
       if (options.stall !== "summary") this.emit(events.accountSummaryEnd, id);
     }
     reqAccountUpdates(subscribe, account) {
@@ -164,14 +165,14 @@ test("book reads share a short snapshot cache, coalesce concurrent requests and 
 
 test("book rejects bad queries before IB calls", async () => {
   const h = harness(), service = book(h);
-  for (const params of ["desk=unknown", "desk=j&desk=joe", "account=DU0000000", "clientId=705"]) assert.equal((await service.read("positions", new URLSearchParams(params))).statusCode, 400);
+  for (const params of ["desk=unknown", "desk=j&desk=joe", "account=DU0000001", "clientId=705"]) assert.equal((await service.read("positions", new URLSearchParams(params))).statusCode, 400);
   assert.equal((await service.read("unknown")).statusCode, 400);
   assert.deepEqual(h.calls, []);
 });
 
 test("book fails closed on mixed/live accounts, incomplete callbacks and broker errors, with cleanup", async () => {
   for (const options of [
-    { accounts: "U0000000" }, { accounts: `${ACCOUNT},U0000000` },
+    { accounts: "U0000001" }, { accounts: `${ACCOUNT},U0000001` },
     ...["handshake", "positions", "orders", "summary"].map((stall) => ({ stall })),
     { onCall: (name, api) => { if (name === "summary") api.emit(events.error, new Error("private broker details"), 321); } },
   ]) {
@@ -185,7 +186,7 @@ test("book fails closed on mixed/live accounts, incomplete callbacks and broker 
 });
 
 test("book paces failed snapshots before opening another connection and retries ID-in-use once", async () => {
-  const h = harness({ accounts: "U0000000" }); let now = 1000;
+  const h = harness({ accounts: "U0000001" }); let now = 1000;
   const service = book(h, { now: () => now });
   assert.equal((await service.read("positions")).statusCode, 503);
   const limited = await service.read("account");
@@ -301,13 +302,13 @@ test("IB account-summary limit refuses the optional account read with cleanup", 
 });
 
 test("an order-allowlisted desk peer is refused before parsing the admin body; OPS journals its peer", async () => {
-  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.10"], adminAllowlist: undefined, execute: async () => ({ status: "ok" }) });
+  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.23"], adminAllowlist: undefined, execute: async () => ({ status: "ok" }) });
   assert.deepEqual(app.adminAllowlist, ["100.64.0.14"]);
   const state = app.ledger.load(); state.executions = [{ ...fill, execution: { ...fill.execution, clientId: 28, orderRef: "" } }]; app.ledger.save(state);
   const before = readFileSync(app.ledger.statePath, "utf8");
   let bodyReads = 0, status;
   const req = Readable.from([Buffer.from("invalid admin JSON")]);
-  req.method = "POST"; req.url = "/v1/admin/attribution"; req.socket = { remoteAddress: "::ffff:100.64.0.10" };
+  req.method = "POST"; req.url = "/v1/admin/attribution"; req.socket = { remoteAddress: "::ffff:100.64.0.23" };
   req[Symbol.asyncIterator] = () => { bodyReads++; throw new Error("admin body must not be parsed"); };
   await app.handle(req, { writeHead(code) { status = code; }, end() {} });
   assert.equal(status, 403); assert.equal(bodyReads, 0);
@@ -316,18 +317,18 @@ test("an order-allowlisted desk peer is refused before parsing the admin body; O
   assert.equal((await request(app, "POST", "/v1/admin/attribution", change, "::ffff:100.64.0.14")).status, 200);
   const journal = app.ledger.load().attributionJournal[0];
   assert.equal(journal.actor, "ops-test"); assert.equal(journal.peer, "100.64.0.14");
-  assert.equal((await request(app, "POST", "/v1/intents", { schema: "barta.paper-desk-intent.v2", intentId: "desk-still-allowed", desk: "j", action: "recon", createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() }, "100.64.0.10")).status, 200);
+  assert.equal((await request(app, "POST", "/v1/intents", { schema: "barta.paper-desk-intent.v2", intentId: "desk-still-allowed", desk: "j", action: "recon", createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() }, "100.64.0.23")).status, 200);
   assert.deepEqual(h.calls, []);
 });
 
 test("external disposition uses the same OPS-only admin route for dry run and apply without IB effects", async () => {
-  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.10"], adminAllowlist: undefined });
+  const h = harness(), app = server(h, { allowlist: ["127.0.0.1", "100.64.0.23"], adminAllowlist: undefined });
   const state = app.ledger.load();
   state.executions = [{ ...fill, execution: { ...fill.execution, clientId: 28, orderRef: "" } }];
   app.ledger.save(state);
   const before = readFileSync(app.ledger.statePath, "utf8");
   const change = { execId: fill.execution.execId, disposition: "external", actor: "ops-test", reason: "Acknowledge external activity" };
-  for (const dryRun of [true, false]) assert.equal((await request(app, "POST", "/v1/admin/attribution", { ...change, dryRun }, "100.64.0.10")).status, 403);
+  for (const dryRun of [true, false]) assert.equal((await request(app, "POST", "/v1/admin/attribution", { ...change, dryRun }, "100.64.0.23")).status, 403);
   const preview = await request(app, "POST", "/v1/admin/attribution", change, "100.64.0.14");
   assert.equal(preview.status, 200); assert.equal(preview.body.dryRun, true);
   assert.equal(readFileSync(app.ledger.statePath, "utf8"), before);
