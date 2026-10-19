@@ -1700,8 +1700,9 @@ in
         "traefik.http.routers.inspr-media.tls.certresolver=default"
         "traefik.http.routers.inspr-media.middlewares=inspr-media-inflight@docker"
         "traefik.http.routers.inspr-media.service=inspr-sites"
-        # Default remote-address criterion: this hostname has no proxy in front.
+        # Explicit remote-address ipStrategy: inFlightReq defaults to requestHost (one global bucket).
         "traefik.http.middlewares.inspr-media-inflight.inflightreq.amount=16"
+        "traefik.http.middlewares.inspr-media-inflight.inflightreq.sourcecriterion.ipstrategy.depth=0"
         # Catch first-time plain-HTTP visits before HSTS can apply.
         "traefik.http.routers.inspr-sites-http.rule=Host(`inspr.at`) || Host(`www.inspr.at`) || Host(`aithema.inspr.at`) || Host(`paimos.inspr.at`) || Host(`pharos.inspr.at`) || Host(`janus.inspr.at`) || Host(`v1.inspr.at`) || Host(`media.inspr.at`)"
         "traefik.http.routers.inspr-sites-http.entrypoints=web"

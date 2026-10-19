@@ -1154,7 +1154,9 @@ in
       "d /var/lib/janus-identity-csb1/production/audit 0700 65532 65532 -"
 
       # /home/mba/docker is still live — NIX-116 archive reverted (see above).
-      # INSPR-572: OPS writes as mba via rsync, once per films/<ep>/v<n>/ version;
+      # INSPR-572: OPS writes as mba via rsync; film files are write-once per
+      # films/<ep>/v<n>/ version. Only films/manifest.json is replaced in place;
+      # rsync's temp file plus rename inside media/ is fine.
       # deploy.sh never touches media/. Write inside it, never replace or rename
       # the directory: the read-only inspr-www bind mount keeps the old inode.
       # inspr-site's Caddyfile serves media.inspr.at from /srv/media once its
