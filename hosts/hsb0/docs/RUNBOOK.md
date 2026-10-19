@@ -1090,19 +1090,19 @@ the pinned board contract belong to JoeDesk. The executor endpoints expose
 the following fields for that consumer; size diagnostics are not added to the
 pinned Results wire contract here:
 
-| Field                                                  | Meaning                                                                                                                                                   |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                                               |
-| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                                                |
-| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked                           |
-| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                                      |
-| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                                          |
-| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                                      |
-| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                                            |
-| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                                                 |
-| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                                          |
-| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present                     |
-| `resultsCapture.durability`, `durabilityCode`          | `uncertain` plus a fixed error class after publication succeeds but directory fsync, cleanup or close fails; cleared by a complete successful publication |
+| Field                                                  | Meaning                                                                                                                               |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                           |
+| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                            |
+| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked       |
+| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                  |
+| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                      |
+| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                  |
+| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                        |
+| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                             |
+| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                      |
+| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present |
+| `resultsCapture.durability`, `durabilityCode`          | `uncertain` plus an allowlisted code while a capture-durability warning is held (set/cleared: see 'Capture-durability warning')       |
 
 The allowed-peer `GET /v1/health` on port 8470 exposes these names, as does
 loopback Results health. The producer keeps the vendored rev-6 board shape:
@@ -1178,6 +1178,9 @@ a published exclusive migration backup permits migration. An existing regular
 backup is validated and kept immutable on `EEXIST`. HALT and both audit
 generations use the same writer; audit rotation copies the complete old generation
 before publishing the new one. The attribution journal publishes in the ledger.
+
+Capture-durability warning: a published-but-uncertain ledger-store publication, or an audit failure after HALT is published, sets `durability: "uncertain"` with a fixed `durabilityCode` (an allowlisted error code, otherwise `unavailable`). It is held in memory only: a later ledger.json publication that completes with durability ok clears it, provided no other warning arose during that save, migration or single ledger.json write. Publications of other files never clear it, and a restart starts without it. `/halt` 200 reports it whenever it is set; health reports the same value under `resultsCapture` whenever the ledger has `resultsCapture` or capture is on.
+
 `audit()` reads the whole file and atomically rewrites up to 1 MiB, plus fsync
 per row. This is safe only while every caller is synchronous and runs in the
 single executor Node process. No second process (CLI or tool) may ever write
@@ -1185,11 +1188,7 @@ single executor Node process. No second process (CLI or tool) may ever write
 append needed only one row.
 After HALT is published, an audit failure still returns HTTP 200 with
 `status: "halted"`, `active: true`, `source: "local"`, plus
-`durability: "uncertain"` and an allowlisted `durabilityCode` consistent with
-health diagnostics. The halt response reports the current capture durability,
-whatever its cause, just like health's `resultsCapture`; a warning on a healthy
-halt can come from an earlier ledger publication that left durability `"uncertain"`,
-cleared by the next complete successful publication. The visible halt is retained;
+`durability: "uncertain"` and a fixed `durabilityCode` (an allowlisted error code, otherwise `unavailable`) consistent with health diagnostics. The halt response reports the current capture-durability warning (see 'Capture-durability warning'), so a healthy halt can carry a warning from an earlier publication or halt. The visible halt is retained;
 a failure before HALT publication keeps the existing error response. Repeated
 halt requests keep the halt active.
 Once a ledger rename or initial hard link succeeds, its published body becomes
