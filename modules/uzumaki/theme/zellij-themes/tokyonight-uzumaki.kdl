@@ -16,6 +16,9 @@ show_startup_tips false
 keybinds {
     unbind "Ctrl o"
     unbind "~" // Prevent tilde from triggering a split
+    // Ghostty sends Option+←/→ as ESC b / ESC f for word jumps in fish/readline/Claude Code.
+    // Floating panes stay on Ctrl p → w.
+    unbind "Alt f" "Alt b"
     normal {
         bind "Ctrl a" { MoveTab "Left"; }
         bind "Ctrl e" { SwitchToMode "Session"; }
