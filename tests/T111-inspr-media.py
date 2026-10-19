@@ -30,9 +30,19 @@ def main():
     assert "cloudflarewarp" not in labels.get(prefix + "middlewares", ""), (
         "DNS-only media ingress must not trust Cloudflare forwarded headers"
     )
-    assert labels.get(prefix + "entrypoints") == labels.get(
-        "traefik.http.routers.inspr-www.entrypoints"
-    ), "media must follow the existing HTTPS entrypoint policy"
+    # Deliberately match the sibling inspr-* routers: no explicit entrypoints.
+    assert prefix + "entrypoints" not in labels
+    assert labels[prefix + "middlewares"] == "inspr-media-inflight@docker"
+    inflight = "traefik.http.middlewares.inspr-media-inflight.inflightreq."
+    assert labels[inflight + "amount"] == "16"
+    assert not any(key.startswith(inflight + "sourcecriterion.") for key in labels), (
+        "direct ingress must use the default remote-address source criterion"
+    )
+    for key, value in labels.items():
+        if key.endswith(".middlewares") and key != prefix + "middlewares":
+            assert "inspr-media-inflight@docker" not in value, (
+                "the media in-flight limit must not affect sibling routers"
+            )
     assert labels["traefik.http.services.inspr-sites.loadbalancer.server.port"] == "80"
     assert service["volumes"].count("/home/mba/docker/inspr-at/media:/srv/media:ro") == 1
 
@@ -50,7 +60,11 @@ def main():
       pkgs = {}; lib = {}; inputs = {}; config = {};
     }).systemd.tmpfiles.rules''')
     assert rules.count("d /home/mba/docker/inspr-at/media 0755 mba users -") == 1
-    print("T111 inspr-media: DNS-only TLS, HTTP redirect, read-only mount and tmpfiles OK")
+    workflow = (ROOT / ".github/workflows/check.yml").read_text()
+    assert workflow.count("run: python3 tests/T111-inspr-media.py") == 1, (
+        "CI wiring missing or duplicated"
+    )
+    print("T111 inspr-media: DNS-only TLS, per-IP limit, HTTP redirect, read-only mount, tmpfiles and CI wiring OK")
 
 
 if __name__ == "__main__":
