@@ -454,14 +454,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1792181378,
-        "narHash": "sha256-v5iFt8zNzLvVY9n06ohbpShlebli7Ix3r+wcxoZOb6k=",
-        "rev": "e50b0c463eb56f5e1374f70b62965df3a0756b6a",
+        "lastModified": 1792367796,
+        "narHash": "sha256-DAMkQZ7rzLP13NX1WLaTHsMvxsYy3IdIigcpRKcbiI0=",
+        "ref": "refs/heads/main",
+        "rev": "57b4863b6e63aaf291d9c7abdc8010ed2012f10d",
+        "revCount": 293,
         "type": "git",
         "url": "ssh://git@github.com/markus-barta/hausnetz"
       },
       "original": {
-        "rev": "e50b0c463eb56f5e1374f70b62965df3a0756b6a",
+        "rev": "57b4863b6e63aaf291d9c7abdc8010ed2012f10d",
         "type": "git",
         "url": "ssh://git@github.com/markus-barta/hausnetz"
       }
@@ -580,17 +582,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1789063450,
-        "narHash": "sha256-ClWZOv9/ErewT02aPSBo25zBZef4H+70vy6xdGdvJe0=",
+        "lastModified": 1792221766,
+        "narHash": "sha256-voLMjI3A4woTmKaoc7tmjZ2735aNejRn3u/+aRO1hrc=",
         "owner": "markus-barta",
         "repo": "hostdash",
-        "rev": "b71356f2c9df1776c29ec565cb49389231fc8774",
+        "rev": "cf515a6c28ddc888e40bb966518801f183c35aa5",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "hostdash",
-        "rev": "b71356f2c9df1776c29ec565cb49389231fc8774",
+        "rev": "cf515a6c28ddc888e40bb966518801f183c35aa5",
         "type": "github"
       }
     },

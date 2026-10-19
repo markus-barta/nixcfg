@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "halt": {
+    "active": false
+  },
+  "brakes": {
+    "placementBlockedOnInitDay": false,
+    "newPerDay": 2,
+    "notionalEur": 5000
+  },
+  "gatewayReachable": true
+}

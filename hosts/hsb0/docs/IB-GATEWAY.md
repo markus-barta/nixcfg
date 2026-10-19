@@ -8,24 +8,24 @@ paper session. Desks connect **directly over Tailscale** to `100.64.0.6:4002`
 SSH `-L` tunnel on the Mac. Do **not** bind `0.0.0.0` or the LAN IP
 `192.168.1.99` (plaintext IB API).
 
-| Item                | Value                                                                               |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j)  |
-| Mode                | paper only (`TRADING_MODE=paper`)                                                   |
-| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                       |
-| API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                      |
-| Live API            | **not published** (no `4001`/`4003`)                                                |
-| IBKR login          | username `ib-user-redacted` (one login for paper + live); password via agenix            |
-| Paper account (ref) | `DU0000001` — selected by `TRADING_MODE=paper`                                      |
-| Live account (ref)  | not recorded here — only if `TRADING_MODE=live`/`both`; **port 4001 not published** |
-| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)   |
-| Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                     |
-| Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                         |
+| Item                | Value                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j) |
+| Mode                | paper only (`TRADING_MODE=paper`)                                                  |
+| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                      |
+| API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                     |
+| Live API            | **not published** (no `4001`/`4003`)                                               |
+| IBKR login          | see the private PPM runbook `host-hsb0`; password via agenix                       |
+| Paper account (ref) | see the private PPM runbook `host-hsb0`; selected by `TRADING_MODE=paper`          |
+| Live account (ref)  | see the private PPM runbook `host-hsb0`; **port 4001 not published**               |
+| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)  |
+| Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                    |
+| Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                        |
 
 ## One IBKR login
 
-Interactive Brokers uses **one username/password** (`ib-user-redacted`) for both the
-paper account (`DU0000001`) and the live account. Which book you
+Interactive Brokers uses **one username/password** for both the paper account
+and the live account; see the private PPM runbook `host-hsb0`. Which book you
 get is selected at Gateway start via `TRADING_MODE` (`paper` / `live` / `both`),
 not via separate credentials. This host stays **`paper` only** and does **not**
 publish live API port `4001` until Markus explicitly keys a live cut.
@@ -58,8 +58,20 @@ Gateway capability used by separately authorized paper clients.
 
 Password secret: `secrets/hsb0-ib-gateway-password.age` (decryptable by Markus +
 hsb0). Body must be the **raw paper password only** (no `KEY=`, no quotes,
-preferably no trailing newline). Username in compose: `TWS_USERID=ib-user-redacted`.
+preferably no trailing newline). Login identity: see the private PPM runbook `host-hsb0`.
 Volume mount + `TWS_PASSWORD_FILE` are active.
+
+The required root-owned (0400) agenix env file `hsb0-ib-desk-env` supplies
+`IB_DESK_ACCOUNT` to the executor, pusher and official reader, and `TWS_USERID`
+to the Gateway through Compose `env_file`. These are the only two keys; see
+the private PPM runbook `host-hsb0` for their values. OPS creates
+`secrets/hsb0-ib-desk-env.age` with the same recipients as the hsb0 env secrets
+before evaluation/activation. A missing env file makes Compose refuse to load
+the whole `docker` project, blocking reconcile for every hsb0 service and the
+HOSTD-58 `compose restart`; running containers keep their old configuration.
+Restore the file through agenix / a NixOS switch, then run
+`systemctl reset-failed compose-hsb0` and `systemctl restart compose-hsb0`.
+A missing or malformed paper-account pin stops the clients without a default.
 
 Verify decrypt (should print only `***` length, not the secret):
 
@@ -136,7 +148,7 @@ trade, restart, or account change.
 Aeon binding (`grok.backend = "aeon"`). Chat requires a dedicated Aeon inbox
 sender key (`inbox.send` + `inbox.receipt` only) pointed at
 `alert.aeonNotifierKeyFile`. Until then `aeonNotifierKeyFile = null` keeps chat
-unavailable without blocking email. Do not reuse a classic PPM notifier key.
+skipped without blocking email. Do not reuse a classic PPM notifier key.
 systemd `LoadCredential` supplies private copies; no destination or API key enters
 the Nix store, command logs, or alert-state files. No existing secret is rekeyed.
 
@@ -202,7 +214,7 @@ order reference thesis IDs). Server exceptions return a stable `code` and
 | Item    | Value                                                                                                   |
 | ------- | ------------------------------------------------------------------------------------------------------- |
 | Bind    | `100.64.0.6:8470`, firewall permits only the listed source IPs on `tailscale0`                          |
-| Peers   | `100.64.0.10` (grok-amy-box), `100.64.0.14` (mbp2607). Other sources get 403                            |
+| Peers   | `tag:paper-desk` + `grok-amy-box` (dynamic), `100.64.0.14` (static OPS). Other sources get 403          |
 | Gateway | paper port `4002`. Live port `4001` is a hard startup error                                             |
 | Schema  | `barta.paper-desk-intent.v2` (`recon`, protective `place`, `modify-stop`, owned `flatten` and `cancel`) |
 | State   | `/var/lib/paper-desk-executor` (`ledger.json`, `audit.jsonl`, `HALT`)                                   |
@@ -604,9 +616,9 @@ account-wide book. All three routes have the quote peer allowlist, work under
 HALT and for KEEP holdings, and never create or modify intents, the ledger,
 HALT or the persistent audit log. Read audit goes to the existing journal.
 Broker reads are paper-only and require the single configured managed account;
-startup also checks the configured account against a pinned SHA-256 and the
-paper-account prefix. Mixed/live accounts, incomplete callbacks and broker
-errors return 503; a disabled account route returns 503 before IB calls or
+startup requires the paper-account prefix and pins all requests to the one
+account configured by the root-owned encrypted env file. Mixed/live accounts,
+incomplete callbacks and broker errors return 503; a disabled account route returns 503 before IB calls or
 cache access. IB 2100 is informational. Invalid queries return 400, and pacing
 or queue limits return 429 with `retry_after_s`.
 
@@ -630,7 +642,9 @@ Gateway port 4002 is a later round.
 ## Agent mailbox (OPS-272)
 
 Amy and OPS exchange JSON text at `http://100.64.0.6:8471`. Caller identity
-comes only from the socket source: Amy at `100.64.0.10`, OPS at `100.64.0.14`.
+comes from the socket source using the host-maintained tailnet identity snapshot:
+`tag:paper-desk` + `grok-amy-box` identifies Amy; OPS stays static at `100.64.0.14`.
+See RUNBOOK.md, “Paper desk executor admission (OPS-384)”, for sync and alert checks.
 Forwarded headers and body fields cannot set identity. Other sources get 403;
 Headscale grants `amy@` and `tag:paper-desk` exactly TCP ports 8470 and 8471 on
 hsb0. The mailbox has no token, trading API, or command execution capability.

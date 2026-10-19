@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
@@ -16,20 +17,38 @@ import { runClient } from "./client/paper-intent.mjs";
 import { openLedger } from "./state.mjs";
 import { attributionConfig } from "./attribution.mjs";
 
-const ACCOUNT = "DU0000000";
+const ACCOUNT = "DU0000001";
 
-test("runtime account identity must match the pinned paper account fingerprint at startup", () => {
-  const script = 'import { assertTargetAccount, marketDataRuntime } from "./ib.mjs"; let allowed = false; try { assertTargetAccount(); allowed = true; } catch {} let connectionRefused = false; try { marketDataRuntime(); } catch (error) { connectionRefused = /pinned paper account/.test(error.message); } process.stdout.write(JSON.stringify({ allowed, connectionRefused }));';
-  const configured = readFileSync(new URL("./default.nix", import.meta.url), "utf8").match(/IB_DESK_ACCOUNT=([A-Z0-9]+)/)[1];
-  for (const [account, allowed] of [[configured, true], ["DU0000001", false], ["U0000000", false], ["", false]]) {
-    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+test("startup requires an explicit paper account and pins requests to that account", () => {
+  const script = `
+    import { assertTargetAccount } from "./ib.mjs";
+    assertTargetAccount();
+    let refused = false;
+    try { assertTargetAccount("DU0000002"); } catch { refused = true; }
+    if (!refused) throw new Error("foreign paper account was accepted");
+    process.env.IB_DESK_ACCOUNT = "DU0000002";
+    refused = false;
+    try { assertTargetAccount(); } catch { refused = true; }
+    if (!refused) throw new Error("runtime account pin changed");
+  `;
+  const valid = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: new URL(".", import.meta.url), encoding: "utf8",
+    env: { ...process.env, IB_DESK_ACCOUNT: ACCOUNT },
+  });
+  assert.equal(valid.status, 0, valid.stderr);
+
+  for (const account of [undefined, "", "U0000001", "not-an-account", " DU0000001", "DU0000001\n"]) {
+    const childEnv = { ...process.env };
+    delete childEnv.IB_DESK_ACCOUNT;
+    if (account !== undefined) childEnv.IB_DESK_ACCOUNT = account;
+    const child = spawnSync(process.execPath, ["server.mjs"], {
       cwd: new URL(".", import.meta.url), encoding: "utf8",
-      env: { ...process.env, IB_DESK_ACCOUNT: account, IB_DESK_GATEWAY_HOST: "100.64.0.6", IB_DESK_GATEWAY_PORT: "4002" },
+      env: childEnv,
+      timeout: 5000,
     });
-    assert.equal(child.status, 0, child.stderr);
-    const result = JSON.parse(child.stdout);
-    assert.equal(result.allowed, allowed);
-    if (account.startsWith("DU") && !allowed || account === "") assert.equal(result.connectionRefused, true);
+    assert.equal(child.status, 1, child.stderr);
+    assert.match(child.stderr, /IB_DESK_ACCOUNT must configure a paper account/);
+    assert.doesNotMatch(child.stderr, /listening/);
   }
 });
 const events = Object.fromEntries(["error", "connected", "disconnected", "managedAccounts", "position", "positionEnd", "openOrder", "openOrderEnd", "execDetails", "execDetailsEnd", "nextValidId", "orderStatus", "contractDetails", "contractDetailsEnd", "accountUpdateMulti", "accountUpdateMultiEnd", "commissionReport", "tickPrice", "tickString", "tickSnapshotEnd"].map((key) => [key, key]));
@@ -50,7 +69,7 @@ function intradayCoverage() {
   return { status: "known", gaps: [{ fromInclusive: new Date(midnight).toISOString(), toExclusive: new Date(now).toISOString(), reason: "no authoritative completeness receipt" }], target: { fromInclusive: new Date(midnight - 86400000).toISOString(), toExclusive: new Date(now).toISOString() } };
 }
 function harness(options = {}) {
-  const broker = { positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], marketDataTypes: [], markRequests: [], live: new Set(), ...options };
+  const broker = { managedAccounts: ACCOUNT, positionRequests: [], positions: [], orders: [], executions: [], commissions: [], placed: [], cancelled: [], connections: [], executionRequests: [], marketDataTypes: [], markRequests: [], live: new Set(), ...options };
   class FakeIB extends EventEmitter {
     constructor({ clientId }) { super(); this.clientId = clientId; this.autoCancelled = new Set(); }
     connect() {
@@ -59,8 +78,8 @@ function harness(options = {}) {
       this.emit(events.connected);
     }
     disconnect() { broker.live.delete(this.clientId); this.emit(events.disconnected); }
-    reqManagedAccts() { this.emit(events.managedAccounts, ACCOUNT); }
-    reqPositions() { for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
+    reqManagedAccts() { this.emit(events.managedAccounts, broker.managedAccounts); }
+    reqPositions() { broker.positionRequests.push(this.clientId); for (const row of broker.positions) this.emit(events.position, ACCOUNT, row, row.position, row.averageCost || 100); this.emit(events.positionEnd); }
     reqAllOpenOrders() { for (const row of broker.orders) { this.emit(events.openOrder, row.orderId, row, { ...row, totalQuantity: row.quantity }, { status: row.status }); if (!broker.noOrderEvidence) this.emit(events.orderStatus, row.orderId, row.status, row.filled || 0, row.quantity - (row.filled || 0), 0, 0, row.parentId, 0, row.clientId); } if (!broker.noCancelOrdersEnd || !broker.cancelled.length) this.emit(events.openOrderEnd); }
     reqExecutions(id, filter) {
       broker.executionRequests.push({ id, filter });
@@ -119,10 +138,36 @@ function harness(options = {}) {
   const history = { schema: "inspr.joe.best-available-history.v1", version: 1, account: ACCOUNT, executions: options.history || [], coverage: { status: "complete", gaps: [], target: { fromInclusive: new Date(Date.now() - 40 * 86400000).toISOString(), toExclusive: new Date().toISOString() } } };
   if (options.coverage) history.coverage = options.coverage;
   const readHistory = (file, now = Date.now(), _readFile, historyOptions) => readPusherExecutions(file, now, () => { if (options.missingHistory) throw new Error("ENOENT"); return JSON.stringify(history); }, historyOptions);
-  const config = { clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
+  const config = { resultsCaptureEnabled: true, clientIds: { executor: 705, recon: 700 }, ownership: { j: [702], j2: [706], j5: [703], joe: [701], joel: [704] }, ownershipLedger: "/pusher-state/family-history.json", blockOnInitDay: false };
   const run = (value, state = ledger(), context = {}) => executeIntent(value, state, { halt: { active: false }, saveState: () => {}, ...context }, { config, connect, readHistory });
   return { broker, run, connect, readHistory, config, runtime: { config, connect, readHistory } };
 }
+
+test("recon and placement refuse any managed-account list other than the configured paper account", async (t) => {
+  const cases = [
+    ["different paper account", "DU0000002"],
+    ["paper and live accounts", `${ACCOUNT},U0000001`],
+    ["empty account list", ""],
+    ["live account only", "U0000001"],
+  ];
+  for (const [label, managedAccounts] of cases) for (const action of ["recon", "place"]) {
+    await t.test(`${action}: ${label}`, async () => {
+      const h = harness({ managedAccounts }), state = ledger();
+      const before = structuredClone(state);
+      let saves = 0;
+      await assert.rejects(h.run(intent(action), state, { saveState: () => { saves += 1; } }), /managed account is not exactly the paper account/);
+      assert.deepEqual(h.broker.connections, [h.config.clientIds.recon]);
+      assert.deepEqual(h.broker.positionRequests, [], "refusal must precede reqPositions");
+      assert.deepEqual(h.broker.executionRequests, []);
+      assert.deepEqual(h.broker.placed, [], "refusal must precede placeOrder");
+      assert.deepEqual(state.placements, [], "refusal must not reserve a placement");
+      assert.equal(state.intents.size, 0, "refusal must not reserve an intent");
+      assert.deepEqual(state, before, "refusal must leave the ledger unchanged");
+      assert.equal(saves, 0, "refusal must not persist a ledger reservation");
+      assert.equal(h.broker.live.size, 0, "refused sessions must disconnect");
+    });
+  }
+});
 
 test("pusher history accepts files up to 32 MiB (the pusher writer cap) and refuses larger files before reading", (t) => {
   const now = Date.now();
@@ -311,9 +356,25 @@ test("place and recon refuse missing, stale, wrong-account and uncovered recon e
       assert.deepEqual(h.broker.connections, [700, 705]);
     }
     assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.equal(state.resultsHistoryCoverage, null);
     assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
     assert.equal(h.broker.live.size, 0);
   }
+});
+
+test("Results position proof time belongs to a complete snapshot, never a later streaming update", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const h = harness({ positions: [{ ...contract(), position: 2 }] });
+  const session = await h.connect(700);
+  try {
+    assert.equal(session.state.positionsObservedAt, new Date(now).toISOString());
+    t.mock.timers.tick(1000);
+    session.api.emit(events.position, ACCOUNT, contract(), 1, 100);
+    assert.equal(session.state.positionsObservedAt, null);
+    session.api.emit(events.positionEnd);
+    assert.equal(session.state.positionsObservedAt, new Date(now + 1000).toISOString());
+  } finally { session.close(); }
 });
 
 test("recon accepts today's ownership gap only after the same session's execution request completed", async (t) => {
@@ -329,8 +390,38 @@ test("recon accepts today's ownership gap only after the same session's executio
   const result = await h.run(intent("recon"), state);
   assert.deepEqual(result.ownershipHistory, { status: "complete" }); assert.equal(result.ownershipComplete, true);
   assert.equal(state.ownershipComplete, true); assert.equal(result.deskPositions[0].quantity, 2);
+  assert.equal(state.ownershipSnapshot.observedAt, new Date(now).toISOString());
+  assert.deepEqual(state.resultsHistoryCoverage, { status: coverage.status, target: coverage.target,
+    gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) });
   assert.equal(state.executions[0].execution.execId, bought.execution.execId);
   assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
+});
+
+test("results history persists only bounds and gaps, excluding receipt lists; legacy ledgers remain readable", async (t) => {
+  const now = Date.parse("2026-10-07T19:13:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const coverage = intradayCoverage();
+  coverage.completeIntervals = [{ ...coverage.target, receiptIds: ["synthetic-complete-receipt"] }];
+  coverage.knownIntervals = [{ ...coverage.target, receiptIds: ["synthetic-known-receipt"] }];
+  coverage.gaps[0].receiptIds = ["synthetic-gap-receipt"];
+  coverage.target.receiptIds = ["synthetic-target-receipt"];
+  const root = mkdtempSync(path.join(tmpdir(), "results-history-projection-"));
+  const store = openLedger(root), state = store.load();
+  assert.equal(state.resultsHistoryCoverage, undefined);
+  // Simulate an old round-4 ledger; reconciliation replaces the extra fields.
+  state.resultsHistoryCoverage = structuredClone(coverage); store.save(state);
+  const loaded = store.load();
+  const h = harness({ coverage });
+  await h.run(intent("recon"), loaded, { saveState: store.save });
+  const persisted = JSON.parse(readFileSync(path.join(root, "ledger.json"), "utf8")).resultsHistoryCoverage;
+  const expected = { status: coverage.status,
+    target: { fromInclusive: coverage.target.fromInclusive, toExclusive: coverage.target.toExclusive },
+    gaps: coverage.gaps.map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive })) };
+  assert.deepEqual(persisted, expected);
+  assert.deepEqual(store.load().resultsHistoryCoverage, expected);
+  assert.equal(store.load().ownershipSnapshot.observedAt, new Date(now).toISOString());
+  assert.deepEqual(coverage.completeIntervals[0].receiptIds, ["synthetic-complete-receipt"]);
+  assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
 });
 
 test("previous-day ownership gaps remain unavailable for place and recon despite fresh execution snapshots", async (t) => {
@@ -348,6 +439,7 @@ test("previous-day ownership gaps remain unavailable for place and recon despite
       assert.equal(result.ownershipComplete, false); assert.deepEqual(result.deskPositions, []);
     }
     assert.equal(state.ownershipComplete, false); assert.deepEqual(state.deskPositions, []);
+    assert.equal(state.resultsHistoryCoverage, null);
     assert.deepEqual(h.broker.placed, []); assert.equal(h.broker.live.size, 0);
   }
 });
@@ -1662,5 +1754,23 @@ test("HTTP modify-stop validation explains missing selector, extra order fields 
     let result; let status;
     await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
     assert.equal(status, 400); assert.equal(result.code, "modify_stop_refused"); assert.match(result.reason, reason);
+  }
+});
+
+test('capture OFF reconciliation and placement save no capture-only executor state or ledger fields', async () => {
+  for (const action of ['recon', 'place']) {
+    const h = harness(); h.config.resultsCaptureEnabled = false;
+    const root = mkdtempSync(path.join(tmpdir(), 'joed20-capture-off-'));
+    const store = openLedger(root), state = store.load();
+    // Also remove prior additive capture metadata when capture is switched off.
+    Object.assign(state, { resultsFx: {}, resultsHistoryCoverage: null, resultsFxSampler: {} });
+    await h.run(intent(action), state, { saveState: store.save });
+    const disk = JSON.parse(readFileSync(path.join(root, 'ledger.json'), 'utf8'));
+    for (const value of [state, disk]) {
+      for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler']) assert.equal(Object.hasOwn(value, key), false, key);
+      assert.equal(Object.hasOwn(value.ownershipSnapshot, 'observedAt'), false);
+    }
+    const allKeys = JSON.stringify(disk);
+    for (const key of ['resultsFx', 'resultsHistoryCoverage', 'resultsFxSampler', 'positionsObservedAt']) assert.equal(allKeys.includes(`"${key}"`), false, key);
   }
 });

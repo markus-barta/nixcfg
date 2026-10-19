@@ -46,6 +46,9 @@ PROBLEM_KEY = "ib-gateway:session"
 LISTEN_STATE = "0A"
 PORT_API = 4002
 PORT_RELAY = 4004
+# Map the shared engine's EXIT_PROBLEMS (1) to session status 3 at main().
+# This unit accepts only 0; an uncaught Python crash (1) must also fail.
+EXIT_SESSION_PROBLEM = 3
 
 LOGIN_LOGGED_OUT = "logged_out"
 LOGIN_AUTHENTICATING = "authenticating"
@@ -1482,6 +1485,19 @@ def disabled_alert_status(blocker: str) -> str:
     return f"not-sent:{blocker}"
 
 
+def disabled_alert_reason(cfg: Config) -> str | None:
+    """Only intentional absence is disabled; broken declared receivers fail."""
+    if not cfg.alert_enable:
+        return "alert-enable-false"
+    if cfg.alert_transport in ("", "none"):
+        return "transport-none"
+    if cfg.alert_transport == "agent-bus":
+        return "receiver-parked"
+    if cfg.alert_transport == "shoutrrr" and not cfg.notification_env.strip():
+        return "receiver-not-declared"
+    return None
+
+
 def run_cycle(
     obs: Observation,
     cfg: Config,
@@ -1524,20 +1540,38 @@ def run_cycle(
             if outcome == "failed_after_reserve":
                 decision.notes.append("restart-failed-budget-consumed")
 
+    # Expected startup/authentication waits become failures only once the
+    # outage is old enough to alert. Halts and restarts fail immediately.
+    # Keep this independent of whether an alert adapter is enabled.
+    health = True if decision.phase == PHASE_API_READY else (
+        None if decision.phase == PHASE_UNKNOWN else False
+    )
+    outage_start = persist.unhealthy_since if persist.unhealthy_since is not None else obs.now
+    recovery_start = persist.last_restart_at if persist.last_restart_at is not None else outage_start
+    outage_age = obs.now - outage_start
+    recovery_age = obs.now - recovery_start
+    eligible = health is False and outage_age >= 600 and recovery_age >= 600
+    exit_code = (
+        engine.EXIT_PROBLEMS if decision.action in (ACTION_HALT, ACTION_RESTART) or eligible
+        else engine.EXIT_CLEAN
+    )
+    disabled_reason = disabled_alert_reason(cfg)
+    if disabled_reason is not None:
+        if decision.phase == PHASE_API_READY:
+            from notification_state import retire_notifications
+
+            retire_notifications(cfg.alert_state_path, obs.now, disabled_reason)
+        persist.last_alert_status = disabled_alert_status(disabled_reason)
+        save_supervisor_state(cfg.state_path, persist)
+        print(f"warning: alert adapter disabled; reason={disabled_reason}")
+        return decision, exit_code
+
     if cfg.alert_enable and cfg.alert_transport == "email-agent-bus":
         from notification_delivery import declared_senders
-        from notification_state import run_notifications
+        from notification_state import retire_notifications, run_notifications
 
         # Readiness, not the absence of an alert, proves recovery. Unknown
         # probes and post-restart grace must preserve an existing outage.
-        health = True if decision.phase == PHASE_API_READY else (
-            None if decision.phase == PHASE_UNKNOWN else False
-        )
-        outage_start = persist.unhealthy_since if persist.unhealthy_since is not None else obs.now
-        recovery_start = persist.last_restart_at if persist.last_restart_at is not None else outage_start
-        outage_age = obs.now - outage_start
-        recovery_age = obs.now - recovery_start
-        eligible = health is False and outage_age >= 600 and recovery_age >= 600
         if persist.operator_clear_required:
             manual = "Manual Gateway login or operator intervention is required; inspect the login session."
         else:
@@ -1548,35 +1582,38 @@ def run_cycle(
             "Automatic recovery has not restarted the Gateway because its safety checks do not yet permit it."
         )
         notice = f"Paper Gateway remains unavailable. {decision.reason}. {attempt} {manual} Paper trading only."
+        senders = notification_senders if notification_senders is not None else declared_senders(
+            cfg.notification_config, cfg.docker_bin, cfg.aeon_notification_key_file,
+        )
         delivery = run_notifications(
             str(Path(cfg.alert_state_path).with_suffix(".channels")), obs.now,
-            health, eligible, notice,
-            notification_senders if notification_senders is not None else declared_senders(
-                cfg.notification_config, cfg.docker_bin, cfg.aeon_notification_key_file,
-            ),
+            health, eligible, notice, senders,
         )
+        if health is True and "grok" not in senders:
+            # A deliberately unenrolled chat receiver has no retry destination.
+            # Email remains configured; never retire its events or the legacy WAL.
+            retire_notifications(
+                cfg.alert_state_path, obs.now, "receiver-not-enrolled",
+                channels=("grok",), retire_legacy=False,
+            )
         persist.last_alert_status = "undelivered" if delivery == engine.EXIT_UNDELIVERED else (
             "cleared" if health is True else "pending-or-announced"
         )
         decision.persist = persist
         save_supervisor_state(cfg.state_path, persist)
-        return decision, delivery
+        # An announced outage is not itself a new session failure during an
+        # expected wait. Only failed delivery overrides the session policy.
+        return decision, engine.EXIT_UNDELIVERED if delivery == engine.EXIT_UNDELIVERED else exit_code
 
     blocker = resolve_alert_blocker(cfg)
     if blocker is None and sender is None:
         blocker = "alert enabled but no sender wired; refusing to invent an endpoint"
-    exit_code = engine.EXIT_PROBLEMS if session_unhealthy(obs) or decision.action == ACTION_HALT else engine.EXIT_CLEAN
-
     if blocker is not None:
-        persist.last_alert_status = disabled_alert_status(blocker)
+        persist.last_alert_status = "undelivered"
         decision.persist = persist
         save_supervisor_state(cfg.state_path, persist)
-        if decision.alert_problem is not None:
-            print(f"alert not sent: {blocker}")
-            print(f"would-alert: {decision.alert_problem.text}")
-        else:
-            print(f"alert activation blocker: {blocker}")
-        return decision, exit_code
+        print("warning: configured alert adapter unavailable; reason=sender-unavailable")
+        return decision, engine.EXIT_UNDELIVERED
 
     def check() -> list[engine.Problem]:
         return [decision.alert_problem] if decision.alert_problem else []
@@ -1843,7 +1880,7 @@ def main() -> int:
         "notes": decision.notes,
     }
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
-    return 0 if code in (engine.EXIT_CLEAN, engine.EXIT_PROBLEMS) else code
+    return EXIT_SESSION_PROBLEM if code == engine.EXIT_PROBLEMS else code
 
 
 if __name__ == "__main__":

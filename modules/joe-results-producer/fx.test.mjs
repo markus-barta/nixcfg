@@ -1,0 +1,80 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createCapture } from './capture.mjs';
+import { readJournal } from './journal.mjs';
+import { openProducer } from './producer.mjs';
+import { dayFx, fxDayPartial } from './fx.mjs';
+import { brokerDayTotals } from './broker-backstop.mjs';
+
+const rth = { rate: '0.90000000', sampleAt: '2026-10-26T13:30:00.000Z', kind: 'rth' };
+const close = { rate: '0.80000000', sampleAt: '2026-10-26T20:05:00.000Z', kind: 'close' };
+const status = { enabled: true, reason: null };
+
+test('open day becomes partial after 30 RTH minutes, when off or failing; only same-day fixed close freezes it', () => {
+  const day = { samples: [rth] };
+  assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-26T14:00:00.000Z'), false);
+  assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-26T14:00:00.001Z'), true);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-26T14:00:00.000Z').rate, rth.rate);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-26T14:00:00.001Z'), null);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-27T13:30:00.000Z'), null);
+  assert.equal(fxDayPartial(day, '2026-10-26', { enabled: false }, rth.sampleAt), true);
+  assert.equal(fxDayPartial(day, '2026-10-26', { enabled: true, reason: 'pacing_rejected' }, rth.sampleAt), true);
+  assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-26T20:06:00.000Z'), true);
+  assert.equal(fxDayPartial(day, '2026-10-26', status, '2026-10-27T13:30:00.000Z'), true);
+  assert.equal(dayFx({ samples: [close] }, '2026-10-26', rth.sampleAt), null);
+  assert.equal(dayFx({ samples: [close] }, '2026-10-27', '2026-10-27T22:00:00.000Z'), null);
+  assert.equal(dayFx({ samples: [{ ...close, sampleAt: '2026-10-26T21:05:00.000Z' }] }, '2026-10-26', '2026-10-26T22:00:00.000Z'), null);
+  day.samples.push(close);
+  assert.equal(fxDayPartial(day, '2026-10-26', { enabled: false }, close.sampleAt), true);
+  assert.equal(fxDayPartial(day, '2026-10-26', { enabled: false }, '2026-10-27T22:00:00.000Z'), false);
+  assert.equal(dayFx(day, '2026-10-26', '2026-10-27T22:00:00.000Z').rate, close.rate);
+});
+
+test('capture exposes samples and failures without raw IDs; producer uses frozen daily close across pruning and replay', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'joed20-fx-producer-'));
+  const input = path.join(dir, 'capture.jsonl'), output = path.join(dir, 'producer.jsonl');
+  let at = '2026-10-26T13:30:00.000Z';
+  const options = { account: 'synthetic-account', attribute: () => ({ desk: 'j', method: 'admin' }), executionTime: Date.parse, now: () => at };
+  const config = { executorClientId: 705, foreignAlertSince: '2026-10-25T00:00:00.000Z' };
+  let capture = createCapture(input, config, options);
+  const fill = (id, side, time, price) => ({ contract: { conId: 123, symbol: 'ACME', currency: 'USD' }, execution: { execId: `${id}.01`, acctNumber: options.account, clientId: 705, shares: '1', price, side, time } });
+  const state = { ownershipComplete: true, executions: [], commissions: [], resultsFxSampler: { ...status, days: { '2026-10-26': { samples: [rth], attempts: { 0: { at: rth.sampleAt, reason: 'ok' } } } } } };
+  capture(state);
+  at = '2026-10-26T14:00:00.000Z';
+  state.executions = [fill('synthetic-open', 'BOT', '2026-10-26T13:35:00.000Z', '10'), fill('synthetic-close', 'SLD', '2026-10-26T14:00:00.000Z', '12')];
+  state.commissions = state.executions.map(row => ({ execId: row.execution.execId, commission: '0', currency: 'USD', realizedPNL: row.execution.side === 'SLD' ? '2' : Number.MAX_VALUE }));
+  capture(state);
+  let producer = openProducer(output, { now: () => at });
+  producer.ingest(readJournal(input));
+  assert.equal(producer.snapshot().trades[0].fx.source, 'ib-fx-rth');
+  state.resultsFxSampler.enabled = false;
+  capture(state); producer.ingest(readJournal(input));
+  assert.equal(producer.snapshot().days[0].coverage, 'partial');
+  state.resultsFxSampler.enabled = true;
+  state.resultsFxSampler.days['2026-10-26'].samples.push(close);
+  at = close.sampleAt; capture(state); producer.ingest(readJournal(input));
+  const frozen = producer.snapshot();
+  assert.equal(frozen.trades[0].fx.rate, close.rate);
+  assert.equal(frozen.trades[0].fx.observedAt, close.sampleAt);
+  assert.equal(frozen.trades[0].netEur.amount, '1.6');
+  const converted = { currency: 'USD', closeFx: frozen.trades[0].fx, commission: { amount: '0', currency: 'USD' }, brokerRealised: { amount: '2', currency: 'USD' }, desk: 'j', instrument: 'synthetic', at: '2026-10-26T14:00:00.000Z', side: 'SELL', quantity: '1', key: 'close' };
+  assert.equal(brokerDayTotals([converted], rth.sampleAt).get('2026-10-26:j').complete, true);
+  state.resultsFxSampler.days['2026-10-26'].samples = [{ ...close, rate: '0.60000000' }];
+  capture(state); producer.ingest(readJournal(input));
+  assert.equal(producer.snapshot().trades[0].fx.rate, close.rate, 'first fixed close stays frozen even if a later cut differs');
+  producer.close(); capture.close();
+  // After sidecar retention and executor execution pruning, the producer keeps
+  // the captured frozen rate; it never borrows the new day's quote.
+  at = '2026-11-16T15:00:00.000Z';
+  state.executions = []; state.commissions = [];
+  state.resultsFxSampler.days = { '2026-11-16': { samples: [{ ...rth, rate: '0.70000000', sampleAt: at }] } };
+  capture = createCapture(input, config, options); capture(state); capture.close();
+  producer = openProducer(output, { now: () => at }); producer.ingest(readJournal(input));
+  assert.deepEqual(producer.snapshot().trades, frozen.trades);
+  const bytes = JSON.stringify(readJournal(input));
+  for (const forbidden of ['synthetic-account', 'synthetic-open', 'synthetic-close', 'acctNumber', 'execId', 'clientId']) assert.equal(bytes.includes(forbidden), false);
+  producer.close();
+});

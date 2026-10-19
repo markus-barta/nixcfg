@@ -137,6 +137,44 @@ def _recovery_text() -> str:
     return "Paper Gateway recovered and is ready; the previously reported outage has cleared."
 
 
+def retire_notifications(
+    state_path: str,
+    now: float,
+    reason: str,
+    *,
+    channels: tuple[str, ...] = ("email", "grok"),
+    retire_legacy: bool = True,
+) -> None:
+    """Retire recovered events only when the caller proves the adapter disabled.
+
+    Keep a value-free tombstone, never claim delivery. Configured channels still
+    use the normal problem-before-recovery retry path unchanged.
+    """
+    directory = Path(state_path).with_suffix(".channels")
+    for channel in channels:
+        state = _load(directory, channel)
+        pending = state.get("pending")
+        if pending is None and state.get("outage") is None:
+            continue
+        kind = pending.get("kind") if isinstance(pending, dict) else None
+        retired = {
+            "at": now,
+            "reason": reason,
+            "pending_kind": kind if kind in {"problem", "recovery"} else "none",
+            "outage": state.get("outage") is not None,
+        }
+        _save(directory, channel, {**_empty_state(), "retired": retired})
+
+    # The single-channel fleet-alerts WAL predates the independent channels.
+    # A transport change must not resurrect its stale transition on re-enable.
+    legacy = engine.load_state(state_path) if retire_legacy else {}
+    if legacy.get("pending") is not None or legacy.get("seen"):
+        engine.atomic_write_state(state_path, {
+            "seen": {}, "pending": None,
+            "retired": {"at": now, "reason": reason, "transition": True},
+        })
+
+
 def _run_channel(
     state_directory: str | Path,
     channel: str,

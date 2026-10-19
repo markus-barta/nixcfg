@@ -1,3 +1,4 @@
+import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -7,6 +8,22 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { admitIntent, MAX_RECON_EVIDENCE_BYTES, MAX_STATE_BYTES, openLedger, pruneState, RECON_RETENTION_MS, RETENTION_MS } from "./state.mjs";
 import { digest, newYorkDay, parseIntent } from "./policy.mjs";
+
+test("read-only sampler load never initializes, migrates, archives or invokes capture", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "joed20-readonly-"));
+  const ledger = openLedger(root, { beforePrune: () => assert.fail("read-only load invoked capture") });
+  ledger.load({ readOnly: true });
+  assert.deepEqual(readdirSync(root), []);
+  const initialized = openLedger(root);
+  initialized.load();
+  const legacy = JSON.parse(readFileSync(initialized.statePath, "utf8"));
+  delete legacy.reconStorageVersion;
+  writeFileSync(initialized.statePath, JSON.stringify(legacy));
+  const before = readFileSync(initialized.statePath, "utf8"), files = readdirSync(root);
+  assert.equal(ledger.load({ initialize: false, readOnly: true }).reconStorageVersion, undefined);
+  assert.equal(readFileSync(initialized.statePath, "utf8"), before);
+  assert.deepEqual(readdirSync(root), files);
+});
 
 test("retention preserves recent idempotency and unresolved evidence while pruning expired terminal claims", () => {
   const now = Date.now();
@@ -167,7 +184,7 @@ test("unresolved stop modifications retain their bracket beyond normal placement
 function reconRow(intentId, payload = "evidence", at = new Date().toISOString()) {
   return { action: "recon", desk: "j", hash: `hash-${intentId}`, status: "done", claimedAt: at, finishedAt: at, result: {
     status: "ok", intentId, desk: "j", action: "recon", observedAt: at,
-    account: "DU0000000", gateway: true, ownershipComplete: true,
+    account: "DU0000001", gateway: true, ownershipComplete: true,
     ownershipHistory: { status: "complete" },
     positions: [], openOrders: [], executions: [{ payload }], pnlPerDesk: { j: { realized: 10 } },
   } };
@@ -293,7 +310,7 @@ test("OPS-331 incident regression: a ledger above admission headroom migrates an
   legacy.placements = [{ desk: "j", symbol: "AAPL", status: "filled", reservedAt: new Date().toISOString(), orderIds: [1, 2], stopHistory: [{ status: "uncertain" }] }];
   legacy.firstOrders = { j: { AAPL: "2026-10-01" } };
   legacy.attributionJournal = [{ evidence: "assignment retained" }];
-  legacy.ownershipSnapshot = { account: "DU0000000", positions: [{ symbol: "AAPL", position: 2 }], ownershipComplete: true };
+  legacy.ownershipSnapshot = { account: "DU0000001", positions: [{ symbol: "AAPL", position: 2 }], ownershipComplete: true };
   legacy.ownershipComplete = true;
   const body = `${JSON.stringify(legacy)}\n`;
   assert.ok(Buffer.byteLength(body) > MAX_STATE_BYTES - 262144);
@@ -486,4 +503,20 @@ test("headroom reports disk bytes and emits one warning per 75-percent crossing"
   state.intents.set("mutation-large", { action: "place", status: "uncertain", result: { evidence: "x".repeat(12 * 1024 * 1024) } });
   ledger.save(state);
   assert.equal(warn.mock.callCount(), 2);
+});
+
+test('save invokes capture exactly once before compaction and retention', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'joed20-once-'));
+  let calls = 0;
+  const ledger = openLedger(root, { beforePrune: state => {
+    calls++;
+    assert.equal(state.intents.get('expired-recon').result.resultCompacted, undefined);
+  } });
+  const state = ledger.load();
+  for (let i = 0; i < 2; i++) {
+    state.intents.set('expired-recon', { action: 'recon', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { status: 'ok', executions: [] } });
+    ledger.save(state);
+    assert.equal(calls, i + 1);
+    assert.equal(state.intents.has('expired-recon'), false);
+  }
 });

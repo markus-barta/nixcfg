@@ -1,6 +1,7 @@
 # Host-local paper desk executor for hsb0 (OPS-266).
 # Desks submit intents over the tailnet. The host enforces Stage-0 brakes and
-# talks to the paper Gateway. No GitHub queue, no token, no agenix secret.
+# talks to the paper Gateway. No GitHub queue or token; the paper-account pin
+# comes from agenix.
 {
   config,
   pkgs,
@@ -15,7 +16,7 @@ let
   ledgerName = baseNameOf cfg.ownershipLedgerFile;
   ledgerDir = dirOf cfg.ownershipLedgerFile;
   allPeers = lib.unique (cfg.peerAllowlist ++ cfg.adminPeerAllowlist);
-  deskPeers = lib.unique ([ "100.64.0.10" ] ++ lib.subtractLists [ "100.64.0.14" ] cfg.peerAllowlist);
+  deskPeers = lib.subtractLists [ "100.64.0.14" ] cfg.peerAllowlist;
   tailnetPeer =
     peer:
     lib.match "100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])" peer
@@ -24,6 +25,8 @@ let
     mkdir -p "$out/client"
     cp ${./policy.mjs} "$out/policy.mjs"
     cp ${./security.mjs} "$out/security.mjs"
+    cp ${../tailnet-peers/peers.mjs} "$out/peers.mjs"
+    cp ${./fx-sampler.mjs} "$out/fx-sampler.mjs"
     cp ${./ib.mjs} "$out/ib.mjs"
     cp ${./market-data.mjs} "$out/market-data.mjs"
     cp ${./book.mjs} "$out/book.mjs"
@@ -31,10 +34,14 @@ let
     cp ${./state.mjs} "$out/state.mjs"
     cp ${./executor.mjs} "$out/executor.mjs"
     cp ${./server.mjs} "$out/server.mjs"
+    substituteInPlace "$out/server.mjs" --replace-fail '"../tailnet-peers/peers.mjs"' '"./peers.mjs"'
     cp ${./client/paper-intent.mjs} "$out/client/paper-intent.mjs"
+    ${lib.optionalString cfg.resultsCaptureEnabled ''
+      cp -r ${import ../joe-results-producer/source.nix { inherit pkgs; }} "$out/results"
+      ${pkgs.nodejs}/bin/node "$out/results/verify-contracts.mjs"
+    ''}
   '';
   environment = [
-    "IB_DESK_ACCOUNT=DU0000001"
     "IB_DESK_GATEWAY_HOST=100.64.0.6"
     "IB_DESK_GATEWAY_PORT=${toString cfg.gatewayPort}"
     "IB_DESK_OWNERSHIP_LEDGER=/pusher-state/${ledgerName}"
@@ -46,12 +53,19 @@ let
     "PAPER_DESK_BIND=${cfg.listenAddress}"
     "PAPER_DESK_PORT=${toString cfg.listenPort}"
     "PAPER_DESK_ALLOW=${builtins.toJSON cfg.peerAllowlist}"
+    "PAPER_DESK_PEERS_FILE=/run/tailnet-peers/peers.json"
+    "PAPER_DESK_IDENTITIES=${
+      builtins.toJSON (lib.unique (map (rule: rule.identity) config.nixcfg.tailnetPeers.rules))
+    }"
     "PAPER_DESK_ADMIN_ALLOW=${builtins.toJSON cfg.adminPeerAllowlist}"
     "PAPER_DESK_FOREIGN_ALERT_SINCE=${cfg.foreignAlertSince}"
     "PAPER_DESK_FOREIGN_ALERT_RETENTION_DAYS=${toString cfg.foreignAlertRetentionDays}"
     "PAPER_DESK_RECON_RETENTION_HOURS=${toString cfg.reconRetentionHours}"
     "PAPER_DESK_STATE_DIR=/state"
     "PAPER_DESK_BLOCK_ON_INIT_DAY=${lib.boolToString cfg.blockOnInitDay}"
+    "PAPER_DESK_RESULTS_HEALTH_PORT=${toString cfg.resultsHealthPort}"
+    "PAPER_DESK_RESULTS_CAPTURE=${lib.boolToString cfg.resultsCaptureEnabled}"
+    "PAPER_DESK_RESULTS_KEEP=${builtins.toJSON cfg.resultsKeepSymbols}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
   ];
   peerRules =
@@ -62,8 +76,27 @@ let
     ) allPeers;
 in
 {
+  imports = [ ../tailnet-peers ];
+
   options.nixcfg.paperDeskExecutor = {
     enable = lib.mkEnableOption "tailnet paper desk executor on hsb0";
+
+    resultsCaptureEnabled = lib.mkEnableOption "durable read-only Results capture before ledger compaction (JOED-20)";
+
+    resultsHealthPort = lib.mkOption {
+      type = lib.types.port;
+      default = 8472;
+      description = "Capture-only loopback health port; 8471 remains reserved for the mailbox.";
+    };
+
+    resultsKeepSymbols = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "SXR8"
+        "TSLA"
+      ];
+      description = "Full Results exclusion policy; independent of the executor's trading KEEP floor.";
+    };
 
     listenAddress = lib.mkOption {
       type = lib.types.str;
@@ -86,7 +119,6 @@ in
     peerAllowlist = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [
-        "100.64.0.10" # grok-amy-box (node 21 after the 2026-10-07 rebuild; was .9)
         "100.64.0.14" # mbp2607, OPS tests
       ];
       description = "Tailnet source addresses allowed to call the executor. Any other source receives 403.";
@@ -227,7 +259,12 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    nixcfg.tailnetPeers.enable = lib.mkDefault true;
     assertions = [
+      {
+        assertion = cfg.resultsHealthPort == 8472;
+        message = "paperDeskExecutor Results health listens only on loopback port 8472";
+      }
       {
         assertion = cfg.reconRetentionHours >= 16.0 / 60.0 && cfg.reconRetentionHours <= 336;
         message = "paperDeskExecutor reconRetentionHours must be between 16/60 and 336 hours (16 minutes to 14 days)";
@@ -287,6 +324,7 @@ in
         assertion =
           cfg.marketDataClientId != cfg.bookClientId
           && cfg.marketDataClientId != 708
+          && cfg.marketDataClientId != 709
           && !(lib.elem cfg.marketDataClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.marketDataClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.marketDataClientId [
@@ -305,6 +343,7 @@ in
       {
         assertion =
           cfg.bookClientId != cfg.marketDataClientId
+          && cfg.bookClientId != 709
           && !(lib.elem cfg.bookClientId (lib.attrValues cfg.clientIds))
           && !(lib.elem cfg.bookClientId (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
           && !(lib.elem cfg.bookClientId [
@@ -324,7 +363,9 @@ in
       }
       {
         assertion =
-          cfg.clientIds.recon > 0
+          !(lib.elem 709 (lib.attrValues cfg.clientIds))
+          && !(lib.elem 709 (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
+          && cfg.clientIds.recon > 0
           && cfg.clientIds.executor > 0
           && cfg.clientIds.recon != cfg.clientIds.executor
           && !(lib.elem cfg.clientIds.executor (lib.concatLists (lib.attrValues cfg.ownershipClientIds)))
@@ -385,10 +426,12 @@ in
       mem_limit = "384m";
       tmpfs = [ "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ];
       volumes = [
+        "/run/tailnet-peers:/run/tailnet-peers:ro"
         "${source}:/executor:ro"
         "/var/lib/paper-desk-executor:/state:rw"
         "${ledgerDir}:/pusher-state:ro"
       ];
+      env_file = [ config.age.secrets.hsb0-ib-desk-env.path ];
       inherit environment;
       entrypoint = [ "node" ];
       command = [ "/executor/server.mjs" ];
@@ -402,20 +445,35 @@ in
       # Tailscale's ts-input can accept peers before nixos-fw is reached.
       # Restrict this one port in raw PREROUTING as well as the Nix filter.
       extraCommands = ''
+        ${pkgs.coreutils}/bin/mkdir -p /run/lock || true
+        (
+        ${pkgs.util-linux}/bin/flock -w 30 -x 9 || echo "tailnet admission lock unavailable; continuing unlocked" >&2
         iptables -t raw -N paper-desk-peers 2>/dev/null || true
+        iptables -t raw -N paper-desk-dyn 2>/dev/null || true
+        iptables -N paper-desk-dyn-fw 2>/dev/null || true
         iptables -t raw -F paper-desk-peers
         ${lib.concatMapStringsSep "\n" (
           peer: "iptables -t raw -A paper-desk-peers -s ${peer} -j RETURN"
         ) allPeers}
+        iptables -t raw -A paper-desk-peers -j paper-desk-dyn
+        iptables -t raw -A paper-desk-peers -s 100.64.0.0/10 -m limit --limit 2/min --limit-burst 2 -j LOG --log-prefix "tailnet-refused-${toString cfg.listenPort} "
+        iptables -t raw -A paper-desk-peers -s 100.64.0.0/10 -m comment --comment "tailnet-refused-${toString cfg.listenPort}" -j DROP
         iptables -t raw -A paper-desk-peers -j DROP
         iptables -t raw -C PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers 2>/dev/null || \
           iptables -t raw -I PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers
         ${peerRules "-I"}
+        iptables -C nixos-fw -j paper-desk-dyn-fw 2>/dev/null || iptables -I nixos-fw -j paper-desk-dyn-fw
+        ) 9>/run/lock/tailnet-peer-sync.lock || echo "tailnet admission firewall hook failed" >&2
       '';
       extraStopCommands = ''
+        ${pkgs.coreutils}/bin/mkdir -p /run/lock || true
+        (
+        ${pkgs.util-linux}/bin/flock -w 30 -x 9 || echo "tailnet admission lock unavailable; continuing unlocked" >&2
         iptables -t raw -D PREROUTING -i tailscale0 -d ${cfg.listenAddress} -p tcp --dport ${toString cfg.listenPort} -j paper-desk-peers 2>/dev/null || true
         iptables -t raw -F paper-desk-peers 2>/dev/null || true
         iptables -t raw -X paper-desk-peers 2>/dev/null || true
+        iptables -D nixos-fw -j paper-desk-dyn-fw 2>/dev/null || true
+        ) 9>/run/lock/tailnet-peer-sync.lock || echo "tailnet admission firewall hook failed" >&2
       '';
     };
 

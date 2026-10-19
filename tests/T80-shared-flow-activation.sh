@@ -255,7 +255,7 @@ for required in (
         raise SystemExit(f"routing-edge active merge is missing: {required}")
 
 triggers_start = source.index("    extraRestartTriggers = [")
-triggers_end = source.index("\n    spec = import ./docker/compose-spec.nix;", triggers_start)
+triggers_end = source.index("\n    spec =", triggers_start)  # OPS-338: spec is now a let-binding that adds Traefik labels
 triggers = source[triggers_start:triggers_end]
 for required in (
     "++ lib.optionals sharedFlow.active [",

@@ -1,7 +1,9 @@
+import "../../../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
+import { configuredPaperAccount } from "./paper-account.mjs";
 import {
   OFFICIAL_WINDOW_READER_LIMITS,
   createOfficialWindowReader,
@@ -226,7 +228,7 @@ test("port, client, account, past-week, and seven-date limits fail before spawni
   for (const invalid of [
     options({ port: 4001 }),
     options({ clientId: 93 }),
-    options({ targetAccount: "DU999999" }),
+    options({ targetAccount: "DU0000002" }),
     options({ fromInclusive: "2026-09-04T11:59:59Z", toExclusive: NOW }),
     options({ fromInclusive: "2026-09-04T12:00:00Z", toExclusive: NOW }),
   ]) {
@@ -253,7 +255,7 @@ test("foreign account, pending flag, filter drift, and malformed JSON are reject
   const variants = [
     (value) => {
       value.requests["9300"].executions = [execution("synthetic.foreign.01", "20260910 12:00:00 America/New_York", {
-        acctNumber: "DU999999",
+        acctNumber: "DU0000002",
       })];
     },
     (value) => {
@@ -290,6 +292,26 @@ test("stdout byte bounds and nonzero subprocess exit fail closed", async () => {
     child.respond("", 2);
   });
   await assert.rejects(readerWith(failed)(options()), /exited 2/);
+});
+
+test("missing or malformed runtime account pins fail before spawning", async () => {
+  const harness = spawnHarness(() => assert.fail("subprocess must not start"));
+  const read = readerWith(harness);
+  const prior = process.env.IB_DESK_ACCOUNT;
+  try {
+    for (const account of [undefined, "", "U0000001", "invalid", "DU0000001\n"]) {
+      if (account === undefined) delete process.env.IB_DESK_ACCOUNT;
+      else process.env.IB_DESK_ACCOUNT = account;
+      assert.throws(() => configuredPaperAccount(), /IB_DESK_ACCOUNT/);
+      await assert.rejects(read(options()), /IB_DESK_ACCOUNT/);
+    }
+    process.env.IB_DESK_ACCOUNT = "DU0000002";
+    assert.equal(configuredPaperAccount(), "DU0000002");
+    await assert.rejects(read(options()), /configured paper account/);
+  } finally {
+    process.env.IB_DESK_ACCOUNT = prior;
+  }
+  assert.equal(harness.calls.length, 0);
 });
 
 test("published safety constants identify only the dedicated paper reader", () => {
