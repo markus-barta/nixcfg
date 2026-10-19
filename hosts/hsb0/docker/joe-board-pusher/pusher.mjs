@@ -307,7 +307,7 @@ function bookSnapshot() {
   };
 }
 
-async function pushOnce() {
+async function pushOnce(stageObservation) {
   const liveUp = await portUp(HOST, LIVE_PORT);
   if (liveUp) {
     console.warn("live 4001 appears up on host — ignoring; this pusher stays on paper", PORT);
@@ -361,36 +361,43 @@ async function pushOnce() {
     return { ok: false, error: "no token" };
   }
 
+  if (stageObservation) stageObservation.bookTs = book.ts;
+
+  const res = await fetch(INBOX_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "User-Agent": "joe-board-pusher/1.0",
+    },
+    body: JSON.stringify(snap),
+  });
+  const text = await res.text();
+  let body;
   try {
-    const res = await fetch(INBOX_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "joe-board-pusher/1.0",
-      },
-      body: JSON.stringify(snap),
-    });
-    const text = await res.text();
-    let body;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = { raw: text.slice(0, 200) };
-    }
-    const line = {
-      ok: res.ok,
-      status: res.status,
-      equity: snap.totals.equity,
-      generatedAt: snap.generatedAt,
-      gateway: adapter.connected,
-      inbox: body,
-    };
-    console.log(JSON.stringify(line));
-    return line;
-  } finally {
-    v2StageHandoff?.offer(book.ts);
+    body = JSON.parse(text);
+  } catch {
+    body = { raw: text.slice(0, 200) };
   }
+  const line = {
+    ok: res.ok,
+    status: res.status,
+    equity: snap.totals.equity,
+    generatedAt: snap.generatedAt,
+    gateway: adapter.connected,
+    inbox: body,
+  };
+  console.log(JSON.stringify(line));
+  return line;
+}
+
+// Each promise owns its scalar observation, including overlapping push cycles.
+function pushWithStage() {
+  if (!v2StageHandoff) return pushOnce();
+  const observation = {};
+  return pushOnce(observation).finally(() => {
+    if (observation.bookTs) v2StageHandoff.offer(observation.bookTs);
+  });
 }
 
 connectionSupervisor = createConnectionSupervisor({
@@ -482,11 +489,11 @@ connectionSupervisor.start();
 officialHistoryRefresher.start();
 
 setTimeout(() => {
-  pushOnce().catch((error) => console.error("push error", error.message || error));
+  pushWithStage().catch((error) => console.error("push error", error.message || error));
 }, 8000);
 
 setInterval(() => {
-  pushOnce().catch((error) => console.error("push error", error.message || error));
+  pushWithStage().catch((error) => console.error("push error", error.message || error));
 }, INTERVAL_SEC * 1000);
 
 console.log(

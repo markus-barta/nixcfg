@@ -91,9 +91,43 @@ death at persistence boundaries, contract acceptance/replay/clocks, corruption,
 ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
 synthetic/masked. The pinned verifier checks every closure file against its
 independent hash/size manifest; offline handoff evidence also compares the
-17 files, lock and verifier directly against the reviewed producer. Linux
+17 files and lock directly against the reviewed producer closure. The pusher-local
+verifier exports a fixed-path `verify()`; `node verify-contracts-entry.mjs`
+is the unconditional Docker build entry. Its pass/fail verdicts are compared
+with the original producer verifier on identical valid and damaged trees. Linux
 flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
 those separately and does not claim container isolation has been live-verified.
+
+### Linux isolation rehearsal
+
+On a workstation with Docker/Colima, Nix (`<nixpkgs/lib>`), Node 22.23+ and
+`trash` available, run from the repository root:
+
+```sh
+node scripts/rehearse-household-v2-stage.mjs
+```
+
+This builds a unique local image from the actual Nix-filtered source. It refuses
+fleet workstation/engine names and non-Unix Docker endpoints, pins the checked
+endpoint, and proves the daemon can see a unique local marker. It creates only
+unique lab containers and volumes; it never opens credentials, a real account
+or a broker. The pusher imports its real code and projection with synthetic
+broker/token boundaries and a loopback stub inbox; its original 30-second
+interval and v1 fetch block execute unchanged. The stager keeps the actual
+Compose memory/swap/CPU/PID limits, network isolation and security settings.
+A read-only lab mount injects OOM and hang faults into the lock-holding worker's
+fsync; runtime code and the filtered image contain no fault hook. A one-shot
+root initializer grants CHOWN solely to initialize fresh lab volumes; both
+runtime services use the image's uid 1000.
+
+The rehearsal checks distinct memory-cgroup inodes, the 128m limit, kernel OOM
+evidence, watchdog recovery from a blocked job, forced worker death, continuing
+identical v1 POST bytes/cadence, an unchanged pusher boot identity and a valid
+new staged pair after each fault. Pair inspection is read-only. It removes only
+its own Compose project, volumes, image and temporary directory. A final
+`{"result":"ok",...}` is the runtime verdict; failure is nonzero. Allow roughly
+four minutes plus image build time. CI runs `node --test` on Ubuntu/Node 22,
+including real flock; this longer Docker rehearsal remains a workstation gate.
 
 ## Board health
 
