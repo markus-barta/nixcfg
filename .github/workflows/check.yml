@@ -215,6 +215,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 tests/T104-oauth2-proxy-email-domain.py
 
+      - name: Guard DNS-only media ingress (INSPR-572)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T111-inspr-media.py
+
       - name: Verify Pharos kernel posture
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T11-pharos-kernel-posture.sh

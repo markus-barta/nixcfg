@@ -242,7 +242,11 @@ journalctl -u github-runner-csb1-hausv.service --since today
 | zitadel                     | 🔴 Identity provider (auth.inspr.at)                           |
 | zitadel-postgres            | 🔴 IdP database (volume inspr-at_zitadel_postgres_data)        |
 
-`inspr-www` mounts `/home/mba/docker/inspr-at/media:/srv/media:ro`; tmpfiles creates the host directory as `0755 mba:users`, and the inspr-site-owned Caddyfile serves `media.inspr.at` from `/srv/media`. This hostname is DNS-only and its Traefik router omits `cloudflarewarp` (INSPR-572).
+`inspr-www` mounts `/home/mba/docker/inspr-at/media:/srv/media:ro`; tmpfiles creates the host directory as `0755 mba:users`. The inspr-site-owned Caddyfile serves `media.inspr.at` from `/srv/media` once inspr-site's INSPR-572 release deploys; until then Caddy answers 404. This hostname is DNS-only; its Traefik router omits `cloudflarewarp` and limits in-flight requests to 16 per source IP using the default remote-address criterion (no proxy in front).
+
+OPS is the writer: the operator uses rsync as `mba`, write-once per film version (`films/<ep>/v<n>/...`). `deploy.sh` never touches `media/`. Write inside `media/` and never replace or rename the directory itself, because the bind mount keeps the old inode.
+
+Media is deliberately included in the nightly restic backup: the immutable files are deduplicated. There is no media exclude (INSPR-572).
 
 ### Quick Commands
 
