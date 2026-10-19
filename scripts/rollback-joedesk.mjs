@@ -167,6 +167,34 @@ export function rollbackPlan(record, release) {
     ],
   };
 }
+export function readOperatorRecord(recordPath) {
+  // The RUNBOOK permits a custom private record path without fixing its root.
+  // Hold one no-follow descriptor through the checks and read: replacement of
+  // the pathname cannot redirect the read after ownership/mode validation.
+  let fd;
+  try {
+    fd = fs.openSync(
+      recordPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if (error.code === "ELOOP")
+      throw new Error("private_operator_record_required");
+    throw error;
+  }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      stat.mode & 0o077 ||
+      ![0, process.getuid()].includes(stat.uid)
+    )
+      throw new Error("private_operator_record_required");
+    return JSON.parse(fs.readFileSync(fd));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 async function main() {
   if (os.hostname().toLowerCase().split(".")[0] !== "csb0")
     throw new Error("rollback_requires_csb0");
@@ -176,15 +204,7 @@ async function main() {
   if (values.length !== 0 && (values.length !== 2 || values[0] !== "--record"))
     throw new Error("usage");
   const recordPath = values[1] || "/var/lib/joedesk-rollback/record.json";
-  const stat = fs.lstatSync(recordPath);
-  if (
-    !stat.isFile() ||
-    stat.isSymbolicLink() ||
-    stat.mode & 0o077 ||
-    ![0, process.getuid()].includes(stat.uid)
-  )
-    throw new Error("private_operator_record_required");
-  const record = JSON.parse(fs.readFileSync(recordPath));
+  const record = readOperatorRecord(recordPath);
   const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   process.chdir(repo);
   const release = JSON.parse(

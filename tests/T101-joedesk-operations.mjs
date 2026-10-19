@@ -6,6 +6,8 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import vm from "node:vm";
+import { fleetActorSource } from "./joedesk-pinned-functions.mjs";
+import { sourceRoot, sourcePath, readSource } from "./joedesk-test-paths.mjs";
 import {
   requireSafeHost,
   swapDirectories,
@@ -14,7 +16,9 @@ import {
   requireBoardStopped,
 } from "../scripts/joedesk-data-swap.mjs";
 
-const source = process.env.JOEDESK_TEST_SOURCE;
+const source = process.env.JOEDESK_TEST_SOURCE
+  ? sourceRoot(process.env.JOEDESK_TEST_SOURCE)
+  : undefined;
 const uid = process.getuid(),
   gid = process.getgid();
 function root() {
@@ -46,9 +50,7 @@ function seed(dir) {
     put(
       dir,
       "fleet-config.json",
-      JSON.parse(fs.readFileSync(path.join(source, "fixtures/valid.json")))[
-        "fleet-config"
-      ],
+      JSON.parse(readSource(source, "fixtures/valid.json"))["fleet-config"],
     );
   put(dir, "fleet-config-actions.json", {
     schema: "inspr.joe.fleet-config.actions.v1",
@@ -66,7 +68,7 @@ function bytes(dir) {
 function prepare(...args) {
   const result = spawnSync(
     process.execPath,
-    [path.join(source, "scripts/prepare-data.mjs"), ...args],
+    [sourcePath(source, "scripts/prepare-data.mjs"), ...args],
     { encoding: "utf8" },
   );
   assert.equal(result.status, 0, "actual prepare-data CLI must pass");
@@ -176,9 +178,7 @@ test(
       snapshot = path.join(dir, "snapshot.json");
     seed(store);
     const before = bytes(store);
-    const samples = JSON.parse(
-        fs.readFileSync(path.join(source, "fixtures/valid.json")),
-      ),
+    const samples = JSON.parse(readSource(source, "fixtures/valid.json")),
       data = structuredClone(samples.data),
       receipt = data.receivedAt;
     delete data.receivedAt;
@@ -241,8 +241,9 @@ test(
 );
 
 test("extracted labels retain exact rule, priority and strip-before-auth order", async () => {
-  const { labelsToDynamic, requireWorkstation } =
-    await import("../scripts/rehearse-joedesk.mjs");
+  const { labelsToDynamic, requireWorkstation } = await import(
+    "../scripts/rehearse-joedesk.mjs"
+  );
   for (const host of ["csb0", "hsb0.example.invalid", "agm1"])
     assert.throws(() => requireWorkstation(host), /fleet/);
   requireWorkstation("workstation");
@@ -295,9 +296,10 @@ test("extracted labels retain exact rule, priority and strip-before-auth order",
     ["X-Auth-Request-User", "X-Auth-Request-Email"],
   );
 });
-test("rollback plan binds exact set, images, generations and cross-host commands without SSH", async () => {
-  const { rollbackPlan, setDigest } =
-    await import("../scripts/rollback-joedesk.mjs");
+test("rollback plan binds exact set, images, generations and cross-host commands without SSH", async (t) => {
+  const { rollbackPlan, setDigest, readOperatorRecord } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
   const release = JSON.parse(
     fs.readFileSync(
       new URL("../hosts/csb0/joedesk-release.json", import.meta.url),
@@ -316,6 +318,42 @@ test("rollback plan binds exact set, images, generations and cross-host commands
     cookie_jar: "/private/cookies",
     hsb0_checkout: "/srv/nixcfg",
   };
+  const dir = root(),
+    recordFile = path.join(dir, "record.json");
+  put(dir, "record.json", record);
+  assert.deepEqual(readOperatorRecord(recordFile), record);
+  fs.chmodSync(recordFile, 0o644);
+  assert.throws(
+    () => readOperatorRecord(recordFile),
+    /private_operator_record_required/,
+  );
+  fs.chmodSync(recordFile, 0o600);
+  fs.symlinkSync(recordFile, path.join(dir, "linked-record.json"));
+  assert.throws(
+    () => readOperatorRecord(path.join(dir, "linked-record.json")),
+    /private_operator_record_required/,
+  );
+  const open = fs.openSync;
+  let replaced = false;
+  const mock = t.mock.method(fs, "openSync", (file, ...args) => {
+    const fd = open(file, ...args);
+    if (file === recordFile && !replaced) {
+      replaced = true;
+      fs.renameSync(file, path.join(dir, "retained-record.json"));
+      put(dir, "record.json", { replacement: true });
+    }
+    return fd;
+  });
+  try {
+    assert.deepEqual(readOperatorRecord(recordFile), record);
+    assert.equal(
+      replaced,
+      true,
+      "record replacement must exercise the descriptor read",
+    );
+  } finally {
+    mock.mock.restore();
+  }
   const plan = rollbackPlan(record, release);
   assert.match(
     plan.crossStop.join("\n"),
@@ -352,8 +390,9 @@ test("rollback plan binds exact set, images, generations and cross-host commands
 });
 
 test("Docker context precedence cannot send a workstation lab to a remote engine", async () => {
-  const { resolveLocalDockerSocket } =
-    await import("../scripts/joedesk-docker.mjs");
+  const { resolveLocalDockerSocket } = await import(
+    "../scripts/joedesk-docker.mjs"
+  );
   assert.throws(
     () =>
       resolveLocalDockerSocket({
@@ -423,8 +462,9 @@ test("engine name and bind visibility are checked before a lab can use Docker", 
 });
 
 test("lab edge publishes loopback on bridge, connects internally and reads YAML", async () => {
-  const { createLabRoot, startLabEdge } =
-    await import("../scripts/rehearse-joedesk.mjs");
+  const { createLabRoot, startLabEdge } = await import(
+    "../scripts/rehearse-joedesk.mjs"
+  );
   const base = root(),
     dir = createLabRoot(base),
     calls = [];
@@ -475,10 +515,12 @@ test("Docker failures reveal only first subcommand and numeric status", async ()
 });
 
 test("lab never bind-mounts the host store: every data operation shares one Linux volume", async () => {
-  const { labData, prepareLabData } =
-    await import("../scripts/rehearse-joedesk.mjs");
-  const { expectedBackup } =
-    await import("../scripts/joedesk-legacy-smoke.mjs");
+  const { labData, prepareLabData } = await import(
+    "../scripts/rehearse-joedesk.mjs"
+  );
+  const { expectedBackup } = await import(
+    "../scripts/joedesk-legacy-smoke.mjs"
+  );
   const volume = "ops354-12345678-1234-1234-1234-123456789abc-data";
   const calls = [],
     payload = Buffer.from('{"synthetic":"unaltered backup bytes"}\n');
@@ -606,7 +648,11 @@ test("ownership normalization cannot follow a symlink swapped in before open", (
     outside = path.join(dir, "outside");
   seed(staged);
   put(dir, "outside", "unchanged");
-  const before = fs.statSync(outside),
+  const beforeFd = fs.openSync(
+    outside,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  const before = fs.fstatSync(beforeFd),
     open = fs.openSync;
   let raced = false;
   t.mock.method(fs, "openSync", (file, ...args) => {
@@ -619,8 +665,20 @@ test("ownership normalization cannot follow a symlink swapped in before open", (
   });
   assert.throws(() => normalizeStore(staged, uid, gid), /regular_unlinked/);
   assert.equal(raced, true);
-  assert.equal(fs.statSync(outside).mode, before.mode);
-  assert.equal(fs.readFileSync(outside, "utf8"), "unchanged");
+  const afterFd = fs.openSync(
+    outside,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    const after = fs.fstatSync(afterFd);
+    assert.equal(after.ino, before.ino);
+    assert.equal(after.dev, before.dev);
+    assert.equal(after.mode, before.mode);
+    assert.equal(fs.readFileSync(afterFd, "utf8"), "unchanged");
+  } finally {
+    fs.closeSync(afterFd);
+    fs.closeSync(beforeFd);
+  }
 });
 
 test("operators cannot request the internal flock bypass", () => {
@@ -646,9 +704,12 @@ test(
       "immutable legacy source unavailable; Dockerfile closure not exercised",
   },
   async () => {
-    const { checkLegacyFiles } =
-      await import("../scripts/joedesk-legacy-smoke.mjs");
-    const legacy = process.env.JOEDESK_LEGACY_SOURCE,
+    const { checkLegacyFiles } = await import(
+      "../scripts/joedesk-legacy-smoke.mjs"
+    );
+    const legacy = process.env.JOEDESK_LEGACY_SOURCE
+        ? sourceRoot(process.env.JOEDESK_LEGACY_SOURCE)
+        : undefined,
       rev = "db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
     const git = (...args) => {
       const result = spawnSync("git", ["-C", source, ...args], {
@@ -659,12 +720,15 @@ test(
     };
     const read = (file) =>
       legacy
-        ? fs.readFileSync(path.join(legacy, file))
+        ? readSource(legacy, file)
         : Buffer.from(git("show", rev + ":" + file));
     const files = legacy
       ? fs
-          .readdirSync(legacy, { recursive: true })
-          .filter((file) => fs.statSync(path.join(legacy, file)).isFile())
+          .readdirSync(legacy, { recursive: true, withFileTypes: true })
+          .filter((entry) => entry.isFile())
+          .map((entry) =>
+            path.relative(legacy, path.join(entry.parentPath, entry.name)),
+          )
       : git("ls-tree", "-r", "--name-only", rev).trim().split("\n");
     const copySources = [
       ...read("Dockerfile")
@@ -743,7 +807,7 @@ test(
   },
   async () => {
     const { spoofHeaders } = await import("../scripts/rehearse-joedesk.mjs");
-    const server = fs.readFileSync(path.join(source, "server.mjs"), "utf8");
+    const server = readSource(source, "server.mjs", "utf8");
     const constant = server.match(/^const FLEET_ACTOR = .+;$/m)?.[0];
     const functionSource = server.match(
       /function fleetActor\(req\) \{[\s\S]*?\n\}/,
@@ -752,11 +816,12 @@ test(
       constant && functionSource,
       "actual pinned identity reader required",
     );
-    const actor = vm.runInNewContext(
+    assert.equal(
       constant + "; (" + functionSource + ")",
-      {},
-      { timeout: 1000 },
+      fleetActorSource,
+      "actual pinned identity reader differs from reviewed fixture",
     );
+    const actor = vm.runInNewContext(fleetActorSource, {}, { timeout: 1000 });
     for (const name of Object.keys(spoofHeaders)) {
       if (name.toLowerCase() === "x-auth-request-user") continue;
       assert.equal(
@@ -821,8 +886,9 @@ function runtimeRepo() {
 }
 
 test("rollback runtime gates catch added files and changed bytes at HEAD", async () => {
-  const { verifyPreviousRuntimeSource } =
-    await import("../scripts/rollback-joedesk.mjs");
+  const { verifyPreviousRuntimeSource } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
   for (const [name, file] of [
     ["pusher", "added.py"],
     ["executor", "added.mjs"],
@@ -849,8 +915,9 @@ test("rollback runtime gates catch added files and changed bytes at HEAD", async
 });
 
 test("rollback resolves the exact fetched fast-forward target before stopping writers", async () => {
-  const { verifyRollbackTarget, setDigest } =
-    await import("../scripts/rollback-joedesk.mjs");
+  const { verifyRollbackTarget, setDigest } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
   const fixture = runtimeRepo();
   const previous = { ...fixture.previous, board: { rev: "b".repeat(40) } };
   const record = {

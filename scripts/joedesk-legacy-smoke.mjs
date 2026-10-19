@@ -38,7 +38,28 @@ export function expectedBackup(backup, readFile = fs.readFileSync) {
     throw new Error("legacy_data_and_history_required");
   return expected;
 }
+// Callers use the public origin or Docker's dynamically assigned IPv4 loopback
+// TCP port. Enumerate that finite origin set from constants: lookup keys never
+// contribute bytes to a request URL, including when read from a private record.
+const publicBases = new Map([
+  ["https://cs0.barta.cm/joe/", "https://cs0.barta.cm/joe/"],
+  ["http://127.0.0.1/joe/", "http://127.0.0.1/joe/"],
+  ...Array.from({ length: 65535 }, (_, index) => {
+    const base = "http://127.0.0.1:" + (index + 1) + "/joe/";
+    return [base, base];
+  }),
+]);
+const publicRoutes = new Map([
+  ["data.json", "data.json"],
+  ["history.json", "history.json"],
+  ["fleet-config.json", "fleet-config.json"],
+  ["joe-version.js", "joe-version.js"],
+]);
 function publicRead(base, route, cookieJar) {
+  const allowedBase = publicBases.get(base);
+  const allowedRoute = publicRoutes.get(route);
+  if (!allowedBase) throw new Error("legacy_base_invalid");
+  if (!allowedRoute) throw new Error("legacy_route_invalid");
   const args = [
     "--silent",
     "--max-time",
@@ -53,10 +74,14 @@ function publicRead(base, route, cookieJar) {
   if (cookieJar) args.push("--cookie", cookieJar);
   let output;
   try {
-    output = execFileSync("curl", [...args, new URL(route, base).href], {
-      maxBuffer: 17 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    output = execFileSync(
+      "curl",
+      [...args, new URL(allowedRoute, allowedBase).href],
+      {
+        maxBuffer: 17 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
   } catch {
     throw new Error("legacy_public_transport_failed");
   }
@@ -108,7 +133,8 @@ export async function legacySmoke({
     url.username ||
     url.password ||
     url.search ||
-    url.hash
+    url.hash ||
+    !publicBases.has(url.href)
   )
     throw new Error("legacy_base_invalid");
   if (
@@ -131,14 +157,14 @@ export async function legacySmoke({
     ["exec", "-i", container, "node", "--input-type=module", "-e", script],
     { input: JSON.stringify(expected) },
   );
-  const anonymous = publicRead(base, "data.json");
+  const anonymous = publicRead(url.href, "data.json");
   if (![301, 302, 303, 307, 308, 401, 403].includes(anonymous.status))
     throw new Error("legacy_public_read_exposed");
-  const version = publicRead(base, "joe-version.js", cookieJar);
+  const version = publicRead(url.href, "joe-version.js", cookieJar);
   if (version.status !== 200 || hash(version.body) !== versionHash)
     throw new Error("legacy_authenticated_version_failed");
   for (const name of ["data.json", "history.json", "fleet-config.json"]) {
-    const response = publicRead(base, name, cookieJar);
+    const response = publicRead(url.href, name, cookieJar);
     if (
       response.status !== 200 ||
       (name !== "fleet-config.json" &&

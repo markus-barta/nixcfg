@@ -4,13 +4,19 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import vm from "node:vm";
+import { legacyHostSource } from "./joedesk-pinned-functions.mjs";
+import {
+  sourceRoot,
+  readSource,
+  readSourceMap,
+} from "./joedesk-test-paths.mjs";
 const args = process.argv.slice(2);
 assert.equal(args.length, 2, "use --joedesk-source SOURCE or --source-map MAP");
 assert.ok(["--joedesk-source", "--source-map"].includes(args[0]));
 const source = args[0] === "--joedesk-source" ? args[1] : null;
 // CI creates this map through Nix's immutable GitHub fetchTree transport,
 // the same authenticated source transport used by T76's full flake evaluation.
-const archives = source ? null : JSON.parse(fs.readFileSync(args[1]));
+const archives = source ? null : readSourceMap(args[1]);
 const read = (file) =>
   JSON.parse(fs.readFileSync(new URL("../" + file, import.meta.url)));
 const release = read("hosts/csb0/joedesk-release.json");
@@ -26,7 +32,7 @@ function show(rev, file) {
       archives[rev]?.startsWith("/nix/store/"),
       "immutable source archive required for exact revision",
     );
-    return fs.readFileSync(archives[rev] + "/" + file, "utf8");
+    return readSource(sourceRoot(archives[rev]), file, "utf8");
   }
   return execFileSync("git", ["-C", source, "show", rev + ":" + file], {
     encoding: "utf8",
@@ -61,9 +67,12 @@ for (const [name, set] of Object.entries(release.sets)) {
       /function isCanonicalJoeHost\(hostname\) \{[\s\S]*?\n  \}/,
     )?.[0];
     assert.ok(functionSource, "actual legacy host function missing");
-    checkGate(
-      vm.runInNewContext("(" + functionSource + ")", {}, { timeout: 1000 }),
+    assert.equal(
+      "(" + functionSource + ")",
+      legacyHostSource,
+      "actual pinned legacy host gate differs from reviewed fixture",
     );
+    checkGate(vm.runInNewContext(legacyHostSource, {}, { timeout: 1000 }));
     assert.match(
       legacy,
       /if \(!isCanonicalJoeHost\(location.hostname\)\)/,
