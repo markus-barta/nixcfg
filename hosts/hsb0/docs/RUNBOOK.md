@@ -1188,7 +1188,8 @@ After HALT is published, an audit failure still returns HTTP 200 with
 `durability: "uncertain"` and an allowlisted `durabilityCode` consistent with
 health diagnostics. The halt response reports the current capture durability,
 whatever its cause, just like health's `resultsCapture`; a warning on a healthy
-halt can come from an earlier capture failure. The visible halt is retained;
+halt can come from an earlier ledger publication that left durability `"uncertain"`,
+cleared by the next complete successful publication. The visible halt is retained;
 a failure before HALT publication keeps the existing error response. Repeated
 halt requests keep the halt active.
 Once a ledger rename or initial hard link succeeds, its published body becomes
