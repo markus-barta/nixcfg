@@ -4,12 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { labParents } from "../scripts/joedesk-lab-paths.mjs";
 
 // CI's fetchTree archives, workstation sibling checkouts, and per-run labs.
 const sourceParents = [
   "/nix/store",
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
-  fs.realpathSync(os.tmpdir()),
+  ...labParents(),
 ];
 
 const sourceNames = new Map([
