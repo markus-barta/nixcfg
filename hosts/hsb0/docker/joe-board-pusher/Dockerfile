@@ -21,6 +21,12 @@ ENV NODE_ENV=production \
     JOE_INBOX_URL=https://cs0.barta.cm/joe/inbox
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
+# OPS-392: exact Alpine 3.24 flock (util-linux 2.42.3, musl-only dependency), pinned like the FROM digest and npm lock.
+RUN apk add --no-cache flock=2.42.3-r1 \
+    && flock --no-fork --nonblock /tmp/flock-probe true
 COPY project.mjs positions-state.mjs pusher-state.mjs pusher-recovery.mjs portfolio-refresh.mjs family-ledger.mjs family-state.mjs flat-net-marks.mjs execution-history.mjs execution-reconciliation.mjs family-history.mjs family-history-cli.mjs family-history-session.mjs official-window-reader.mjs official-window-reader.py paper-account.mjs desk-ledger.mjs day-baseline.mjs pusher.mjs ./
+COPY contracts/ ./contracts/
+COPY contracts.lock.json verify-contracts.mjs verify-contracts-entry.mjs v2-stage-handoff.mjs v2-stage-supervisor.mjs v2-stage-worker.mjs ./
+RUN node verify-contracts-entry.mjs
 USER node
 CMD ["node", "pusher.mjs"]
