@@ -1154,6 +1154,8 @@ in
       "d /var/lib/janus-identity-csb1/production/audit 0700 65532 65532 -"
 
       # /home/mba/docker is still live — NIX-116 archive reverted (see above).
+      # INSPR-572: writable by site deploys, read-only inside inspr-www.
+      "d /home/mba/docker/inspr-at/media 0755 mba users -"
     ];
 
   # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate

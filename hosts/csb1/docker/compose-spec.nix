@@ -1640,7 +1640,7 @@ in
     # renaming them would strand the IdP database.
     # ============================================
     inspr-www = {
-      # inspr.at edge: serves www + paimos/pharos/janus/v1 subdomains. Its
+      # inspr.at edge: serves www + paimos/pharos/janus/v1/media subdomains. Its
       # routers carry ALL inspr.at web properties — downtime here takes the
       # whole family including the Pharos UI.
       image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"; # OPS-136: pinned at adoption; floating policy is a later reviewed change
@@ -1654,6 +1654,7 @@ in
         # atomically flips releases/current; site/ is the frozen v1 archive.
         # Paths stay byte-identical to the legacy project on purpose.
         "/home/mba/docker/inspr-at/releases:/srv/releases:ro"
+        "/home/mba/docker/inspr-at/media:/srv/media:ro"
         "/home/mba/docker/inspr-at/site:/srv/v1:ro"
         "/home/mba/docker/inspr-at/Caddyfile:/etc/caddy/Caddyfile:ro"
         "inspr_at_caddy_data:/data"
@@ -1693,8 +1694,13 @@ in
         "traefik.http.routers.inspr-v1.tls.certresolver=default"
         "traefik.http.routers.inspr-v1.middlewares=cloudflarewarp@file"
         "traefik.http.routers.inspr-v1.service=inspr-sites"
+        # DNS-only hostname: direct requests must not use cloudflarewarp.
+        "traefik.http.routers.inspr-media.rule=Host(`media.inspr.at`)"
+        "traefik.http.routers.inspr-media.tls=true"
+        "traefik.http.routers.inspr-media.tls.certresolver=default"
+        "traefik.http.routers.inspr-media.service=inspr-sites"
         # Catch first-time plain-HTTP visits before HSTS can apply.
-        "traefik.http.routers.inspr-sites-http.rule=Host(`inspr.at`) || Host(`www.inspr.at`) || Host(`aithema.inspr.at`) || Host(`paimos.inspr.at`) || Host(`pharos.inspr.at`) || Host(`janus.inspr.at`) || Host(`v1.inspr.at`)"
+        "traefik.http.routers.inspr-sites-http.rule=Host(`inspr.at`) || Host(`www.inspr.at`) || Host(`aithema.inspr.at`) || Host(`paimos.inspr.at`) || Host(`pharos.inspr.at`) || Host(`janus.inspr.at`) || Host(`v1.inspr.at`) || Host(`media.inspr.at`)"
         "traefik.http.routers.inspr-sites-http.entrypoints=web"
         "traefik.http.routers.inspr-sites-http.middlewares=inspr-sites-https@docker"
         "traefik.http.routers.inspr-sites-http.service=inspr-sites"
