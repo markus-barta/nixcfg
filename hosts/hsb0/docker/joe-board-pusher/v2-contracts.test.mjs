@@ -26,15 +26,15 @@ function copyClosure(directory) {
   fs.copyFileSync(path.join(root, "contracts.lock.json"), path.join(directory, "contracts.lock.json"));
 }
 
-test("independently pinned reviewed 17-file closure verifies, at rev 8", async t => {
+test("independently pinned reviewed 17-file closure verifies, at rev 9", async t => {
   assert.equal(verify(), true);
   const lock = JSON.parse(fs.readFileSync(path.join(root, "contracts.lock.json")));
   assert.equal(Object.keys(lock.files).length, 17);
   const directory = temp(t); copyClosure(directory);
   for (const check of await verifiers(directory)) assert.equal(check(), true);
-  assert.equal(lock.revision, "dcdf850d06a5087b674a533875ebaec6127e9819");
-  assert.equal(lock.manifest_revision, 8);
-  assert.equal(lock.contract_set_sha256, "a7f937ab012b03695e2d94685fd5c50b8d1309810a88bf0331d3cdf3d2f727f9");
+  assert.equal(lock.revision, "84c47b647cf06a38a3f61ce7f928a10ed10eeef3");
+  assert.equal(lock.manifest_revision, 9);
+  assert.equal(lock.contract_set_sha256, "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5");
 });
 for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-drift", "set-drift", "size-drift", "hash-drift", "manifest-drift"]) test(`fixed-path pusher verifier reject ${fault}`, async t => {
   const directory = temp(t); copyClosure(directory);

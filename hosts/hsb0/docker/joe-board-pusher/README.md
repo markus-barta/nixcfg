@@ -76,11 +76,11 @@ with `not_exact_yet`. Other broker rows copy ownership from the already computed
 dated desk/family projection, including its existing partial J projection when
 available. A split or ambiguous identity has no guessed desk. The legacy symbol
 map is not used. Unmapped stage0 rows retain `desk:null` and
-`reasons.desk:desk_unmapped`; rev 8 rejects these until JOED-52/rev 9 is vendored.
-That observation is skipped whole, burns its reserved sequence, and preserves
-the prior staged pair. The validator acceptance test is explicitly pending.
+`reasons.desk:desk_unmapped`; rev 9 accepts these observations and the worker
+stages the complete pair with all five valuation fields null and individually
+reasoned `not_exact_yet`. KEEP and mapped stage0 rows carry no desk reason.
 No desk subtotal is presented as a household total. The producer also requires
-individual null reasons where rev 8's ready-session schema permits omission.
+individual null reasons where the ready-session schema permits omission.
 
 The service has no networking, credentials or broker mounts, a separate 128m
 memory/swap limit, 0.25 CPU and 32 processes. It runs as 1000:1000 with a read-only
@@ -101,7 +101,7 @@ The supervisor never enrolls. An absent or corrupt state fails closed; do not
 reset it to recover service. The first reserved sequence is 1. Other hosts or
 reenrollment need a separate operator floor record and reviewed procedure.
 
-The worker verifies the exact 17-file revision-8 closure before importing any
+The worker verifies the exact 17-file revision-9 closure before importing any
 contracts. Source time is calendar-validated UTC from `book.ts`; missing or
 regressing time suppresses staging. Repeated observations retain generation
 and local generation-progress time. Each sequence is fsynced, renamed and
@@ -136,10 +136,10 @@ death at persistence boundaries, contract acceptance/replay/clocks, corruption,
 ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
 synthetic/masked. The pinned verifier checks every closure file against its
 independent hash/size manifest; offline handoff evidence also compares the
-17 files directly against JoeDesk dcdf850d06a5087b674a533875ebaec6127e9819
-(set a7f937ab012b03695e2d94685fd5c50b8d1309810a88bf0331d3cdf3d2f727f9). The pusher-local
+17 files directly against JoeDesk 84c47b647cf06a38a3f61ce7f928a10ed10eeef3
+(set 000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5). The pusher-local
 verifier exports a fixed-path `verify()`; `node verify-contracts-entry.mjs`
-is the unconditional Docker build entry. It is tested on valid and damaged rev 8 closures. Linux
+is the unconditional Docker build entry. It is tested on valid and damaged rev 9 closures. Linux
 flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
 those separately and does not claim container isolation has been live-verified.
 

@@ -1041,6 +1041,19 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 - [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Full OpenClaw operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
 
+## JoeDesk household v2 local staging (OPS-392)
+
+The pusher vendors the exact 17-file JoeDesk contracts rev 9 closure from
+`84c47b647cf06a38a3f61ce7f928a10ed10eeef3`, set digest
+`000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`.
+Unmapped stage0 rows now stage a complete pair with `desk:null`,
+`reasons.desk:desk_unmapped`, and all five valuation fields null with individual
+`not_exact_yet` reasons. KEEP rows retain `scope:keep`, `desk:null` and no desk
+reason; mapped stage0 rows also have no desk reason. Older contract-set pairs
+still fail closed: preserve state and obtain coordinator review before promotion.
+See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
+recovery and rollback. Local staging is not board acceptance or deployment.
+
 ## JoeDesk Results producer (JOED-20, disabled)
 
 `nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
