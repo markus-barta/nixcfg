@@ -361,7 +361,7 @@ async function pushOnce(stageObservation) {
     return { ok: false, error: "no token" };
   }
 
-  if (stageObservation) stageObservation.bookTs = book.ts;
+  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities });
 
   const res = await fetch(INBOX_URL, {
     method: "POST",
@@ -391,12 +391,12 @@ async function pushOnce(stageObservation) {
   return line;
 }
 
-// Each promise owns its scalar observation, including overlapping push cycles.
+// Each promise owns its source references, including overlapping push cycles.
 function pushWithStage() {
   if (!v2StageHandoff) return pushOnce();
   const observation = {};
   return pushOnce(observation).finally(() => {
-    if (observation.bookTs) v2StageHandoff.offer(observation.bookTs);
+    if (observation.book) v2StageHandoff.offer(observation);
   });
 }
 

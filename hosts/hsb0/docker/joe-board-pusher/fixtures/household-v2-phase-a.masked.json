@@ -1,7 +1,7 @@
 {
   "schema": "inspr.joe.household.v2",
   "seq": 1,
-  "generatedAt": "2026-10-19T07:00:00.000Z",
+  "generatedAt": "2026-10-18T21:59:59.950Z",
   "mode": "PAPER",
   "currency": "EUR",
   "source": {
@@ -10,7 +10,11 @@
   },
   "safety": {
     "halt": false,
-    "haltReason": null
+    "haltReason": null,
+    "gateway": {
+      "apiSessionReady": true,
+      "checkedAt": "2026-10-18T21:59:59.900Z"
+    }
   },
   "desks": [
     {
@@ -24,10 +28,10 @@
         "openPnl": null,
         "totalPnl": null,
         "reasons": {
-          "equity": "source_not_authoritative",
-          "dayPnl": "source_not_authoritative",
-          "openPnl": "source_not_authoritative",
-          "totalPnl": "source_not_authoritative"
+          "equity": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet",
+          "totalPnl": "not_exact_yet"
         }
       }
     },
@@ -42,10 +46,10 @@
         "openPnl": null,
         "totalPnl": null,
         "reasons": {
-          "equity": "source_not_authoritative",
-          "dayPnl": "source_not_authoritative",
-          "openPnl": "source_not_authoritative",
-          "totalPnl": "source_not_authoritative"
+          "equity": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet",
+          "totalPnl": "not_exact_yet"
         }
       }
     },
@@ -60,10 +64,10 @@
         "openPnl": null,
         "totalPnl": null,
         "reasons": {
-          "equity": "source_not_authoritative",
-          "dayPnl": "source_not_authoritative",
-          "openPnl": "source_not_authoritative",
-          "totalPnl": "source_not_authoritative"
+          "equity": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet",
+          "totalPnl": "not_exact_yet"
         }
       }
     }
@@ -74,10 +78,100 @@
     "openPnl": null,
     "totalPnl": null,
     "reasons": {
-      "equity": "source_not_authoritative",
-      "dayPnl": "source_not_authoritative",
-      "openPnl": "source_not_authoritative",
-      "totalPnl": "source_not_authoritative"
+      "equity": "not_exact_yet",
+      "dayPnl": "not_exact_yet",
+      "openPnl": "not_exact_yet",
+      "totalPnl": "not_exact_yet"
     }
+  },
+  "brokerAccount": {
+    "scope": "paper-account-including-keep",
+    "observedAt": "2026-10-18T21:59:59.950Z",
+    "equity": {
+      "amount": "12345.67000000",
+      "currency": "EUR"
+    },
+    "cash": {
+      "amount": "-0.0000",
+      "currency": "EUR"
+    }
+  },
+  "positions": {
+    "source": "live-ib-api",
+    "observedAt": "2026-10-18T21:59:59.950Z",
+    "rows": [
+      {
+        "symbol": "SXR8",
+        "side": "long",
+        "desk": null,
+        "scope": "keep",
+        "quantity": null,
+        "mark": null,
+        "marketValue": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "reasons": {
+          "quantity": "not_exact_yet",
+          "mark": "not_exact_yet",
+          "marketValue": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet"
+        }
+      },
+      {
+        "symbol": "TSLA",
+        "side": "long",
+        "desk": null,
+        "scope": "keep",
+        "quantity": null,
+        "mark": null,
+        "marketValue": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "reasons": {
+          "quantity": "not_exact_yet",
+          "mark": "not_exact_yet",
+          "marketValue": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet"
+        }
+      },
+      {
+        "symbol": "SYNTHJ",
+        "side": "short",
+        "desk": "j",
+        "scope": "stage0",
+        "quantity": null,
+        "mark": null,
+        "marketValue": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "reasons": {
+          "quantity": "not_exact_yet",
+          "mark": "not_exact_yet",
+          "marketValue": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet"
+        }
+      },
+      {
+        "symbol": "SYNTHJOE",
+        "side": "long",
+        "desk": "joe",
+        "scope": "stage0",
+        "quantity": null,
+        "mark": null,
+        "marketValue": null,
+        "dayPnl": null,
+        "openPnl": null,
+        "reasons": {
+          "quantity": "not_exact_yet",
+          "mark": "not_exact_yet",
+          "marketValue": "not_exact_yet",
+          "dayPnl": "not_exact_yet",
+          "openPnl": "not_exact_yet"
+        }
+      }
+    ]
   }
 }
