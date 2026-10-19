@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
-const REVISION = '26a5d2ac04fad707ea63e49a91a348b2a49035cc';
-const SET_SHA256 = 'f092c0f1f6223f965486f6f1b072e6c305b3fafd2ce34b1b551fb6dbed0ddf80';
+const REVISION = '65779bde6022e654184e634a57e368742dee1266';
+const SET_SHA256 = '3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function filesBelow(root, prefix = '') {
@@ -18,7 +18,7 @@ function filesBelow(root, prefix = '') {
 
 export function verifyContracts(root = path.dirname(fileURLToPath(import.meta.url))) {
   const lock = JSON.parse(readFileSync(path.join(root, 'contracts.lock.json'), 'utf8'));
-  if (lock.revision !== REVISION || lock.manifest_revision !== 6 || lock.repository !== 'https://github.com/markus-barta/joedesk') throw new Error('contract_pin_drift');
+  if (lock.revision !== REVISION || lock.manifest_revision !== 7 || lock.repository !== 'https://github.com/markus-barta/joedesk') throw new Error('contract_pin_drift');
   if (lock.contract_set_sha256 !== SET_SHA256) throw new Error('contract_set_drift');
   const actual = filesBelow(path.join(root, 'contracts')).sort();
   if (JSON.stringify(actual) !== JSON.stringify(Object.keys(lock.files).sort())) throw new Error('contract_closure_drift');
@@ -32,7 +32,7 @@ export function verifyContracts(root = path.dirname(fileURLToPath(import.meta.ur
   // JoeDesk scripts/check-release.mjs:63-66 hashes the compact JSON array
   // of sorted closure entries, retaining this path/size/sha256 property order.
   if (sha(Buffer.from(JSON.stringify(entries))) !== SET_SHA256) throw new Error('contract_set_drift');
-  if (JSON.parse(readFileSync(path.join(root, 'contracts/manifest.json'), 'utf8')).revision !== 6) throw new Error('contract_pin_drift');
+  if (JSON.parse(readFileSync(path.join(root, 'contracts/manifest.json'), 'utf8')).revision !== 7) throw new Error('contract_pin_drift');
   return true;
 }
 

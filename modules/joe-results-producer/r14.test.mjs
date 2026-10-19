@@ -36,7 +36,7 @@ function snapshot(t, { from = start, through = at, historyEnd = new Date(Date.pa
   return p.snapshot();
 }
 
-test('open Vienna day with no cause has no reasons; rev 6 validator accepts it', t => {
+test('open Vienna day with no cause has no reasons; rev 7 validator accepts it', t => {
   const value = snapshot(t);
   assert.equal(value.days[0].coverage, 'partial');
   assert.equal(Object.hasOwn(value.days[0], 'partialReasons'), false);

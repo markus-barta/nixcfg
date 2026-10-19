@@ -146,6 +146,16 @@
             "reason": {
               "$ref": "urn:joedesk:reason:v2",
               "x-owner": "paper executor 8470"
+            },
+            "ledgerBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "x-owner": "paper executor 8470"
+            },
+            "ledgerCapBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "x-owner": "paper executor 8470"
             }
           },
           "x-owner": "paper executor 8470"

@@ -1105,11 +1105,16 @@ pinned Results wire contract here:
 | `resultsCapture.durability`, `durabilityCode`          | `uncertain` plus a fixed error class after publication succeeds but directory fsync, cleanup or close fails; cleared by a complete successful publication |
 
 The allowed-peer `GET /v1/health` on port 8470 exposes these names, as does
-loopback Results health. The producer keeps the vendored rev-6 board shape:
-capture failure maps to `safety.executor.status: "degraded"` without a reason;
-the admission cap maps to `degraded` with `reason: "ledger_size_limit"`.
-`executor_broker_disagreement` takes priority over that cap reason. No ledger
-byte fields or `results_capture_failed` reason enter `safety.executor`.
+loopback Results health. JOED-45 replaces the JOED-43 interim board mapping
+with the vendored rev-7 contract: capture failure below the admission bound maps
+to `safety.executor.status: "degraded"` with `reason: "results_capture_failed"`;
+`newAdmissionsBlocked` or `reason: "ledger_size_limit"` maps to `degraded` with
+`reason: "ledger_size_limit"`. `executor_broker_disagreement` takes priority
+over both. The producer includes `ledgerBytes` and `ledgerCapBytes` together
+when both are known safe integers (bytes ≥ 0, cap ≥ 1); otherwise it omits both.
+Bytes above the cap remain valid telemetry. No cap is sent without bytes, and
+byte counts alone never infer an admission block. The data contract id remains
+`inspr.joe.household.v2`.
 
 At the threshold, NEW placement intents fail closed with HTTP 422 and both
 `code` and `reason` equal to `results_capture_degraded_ledger_cap`. They receive
@@ -1399,7 +1404,7 @@ is used because containment creates that scoped gap. No provisional FX reason is
 Changing that basis requires a manifest revision bump and matching contract
 review; `backstop.test.mjs` preserves the approved close-basis baseline. A per-desk
 close-basis wire field remains P3, requiring a future JoeDesk contract revision.
-Pinned Results at `26a5d2ac04fad707ea63e49a91a348b2a49035cc` (revision 6)
+Pinned Results at `65779bde6022e654184e634a57e368742dee1266` (revision 7)
 forbids adding an unversioned basis field to `days[]`.
 
 KEEP fills are excluded at capture and again at FIFO, including pre-existing
@@ -1444,11 +1449,12 @@ an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
 and network failures also back off with value-free diagnostics. The board is
 stale after 60 seconds without an accepted push; retries do not fake freshness.
 
-JOED-34 rev 6 is merged at `26a5d2ac04fad707ea63e49a91a348b2a49035cc`.
-The complete self-contained `contracts/` directory (manifest revision 6,
+JOED-45 vendors JOED-44 rev 7 from `65779bde6022e654184e634a57e368742dee1266`,
+superseding the JOED-34 rev-6 pin `26a5d2ac04fad707ea63e49a91a348b2a49035cc`.
+The complete self-contained `contracts/` directory (manifest revision 7,
 including `vienna-date.mjs`) is vendored byte-for-byte. `contracts.lock.json`
 pins its source revision, each file's byte count and SHA-256, and set digest
-`f092c0f1f6223f965486f6f1b072e6c305b3fafd2ce34b1b551fb6dbed0ddf80`.
+`3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d`.
 A round-12b producer against the rev-6 board gets 422s on closed reasonless
 days; the contract pin mismatch already blocks activation.
 `verify-contracts.mjs` checks the complete file set and reproduces JoeDesk's
