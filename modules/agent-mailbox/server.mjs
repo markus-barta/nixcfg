@@ -1,10 +1,11 @@
 import { readPeers, SNAPSHOT_PATH } from "../tailnet-peers/peers.mjs";
 import { createServer as createHttpServer } from "node:http";
+import { chmodSync, lstatSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { TextDecoder } from "node:util";
 import {
-  assertListen, assertPeers, BODY_LIMIT, DEFAULT_PEERS, failure, ID_PATTERN,
+  assertListen, assertPeers, assertLocalSocketPath, configuredLocalSocketPath, BODY_LIMIT, DEFAULT_PEERS, failure, ID_PATTERN,
   LISTEN_HOST, LISTEN_PORT, normalizePeer, parseMessage, POLICY,
 } from "./security.mjs";
 import { HOUR_MS, openMailbox, UNREAD_LIMIT } from "./state.mjs";
@@ -12,6 +13,7 @@ import { HOUR_MS, openMailbox, UNREAD_LIMIT } from "./state.mjs";
 export const STREAM_LIMIT = 4;
 export const HEARTBEAT_MS = 15000;
 export const STREAM_LIFETIME_MS = HOUR_MS;
+export const LOCAL_SENDER = "paper-desk-executor";
 
 function send(response, status, body) {
   const payload = JSON.stringify(body);
@@ -66,7 +68,10 @@ function jsonBody(raw) {
 export function createServer(options = {}) {
   const listen = assertListen(options.listenHost ?? LISTEN_HOST, options.listenPort ?? LISTEN_PORT);
   const staticPeers = assertPeers(options.peers ?? DEFAULT_PEERS);
-  const identities = options.identities ?? [...new Set([...staticPeers.values(), "amy"])];
+  const localSocketPath = options.localSocketPath === undefined
+    ? configuredLocalSocketPath(process.env.AGENT_MAILBOX_LOCAL_SOCKET)
+    : assertLocalSocketPath(options.localSocketPath, options.testSocketDir);
+  const identities = [...new Set([...(options.identities ?? [...staticPeers.values(), "amy"]), LOCAL_SENDER])];
   const peersFile = options.peersFile ?? process.env.AGENT_MAILBOX_PEERS_FILE ?? SNAPSHOT_PATH;
   const dynamicIdentities = options.dynamicIdentities ?? ["amy"];
   const peers = () => readPeers(peersFile, Object.fromEntries(staticPeers), dynamicIdentities);
@@ -192,9 +197,10 @@ export function createServer(options = {}) {
     connection.timer(setTimeout(deliver, seconds * 1000));
   }
 
-  async function handle(request, response) {
+  async function handle(request, response, local = false) {
     const peer = normalizePeer(request.socket?.remoteAddress);
-    const identity = peers().get(peer) ?? null;
+    const claimed = local ? null : peers().get(peer) ?? null;
+    const identity = local ? LOCAL_SENDER : claimed === LOCAL_SENDER ? null : claimed;
     const method = request.method;
     // Log only canonical routes, excluding arbitrary paths and query strings
     // that could contain message text. JSON encoding keeps each event one line.
@@ -208,6 +214,8 @@ export function createServer(options = {}) {
       const ackMatch = /^\/v1\/messages\/([0-9]{13}-[a-f0-9]{32})\/ack$/.exec(route);
       if (["/v1/health", "/v1/messages", "/v1/events"].includes(route) || ackMatch) logPath = route;
       if (!identity) { reply(403, { error: "source is not allowed" }); return; }
+      if (local && (method !== "POST" || request.url !== "/v1/messages")) throw failure(403, "local sender is send-only");
+      if (local && request.headers?.["x-ticket"] !== "JOED-43") throw failure(403, "local sender requires JOED-43");
       if (method === "POST") mailbox.admitPost(identity);
       if (request.headers?.expect) throw failure(417, "Expect is not supported");
       if (Number(request.headers?.["content-length"]) > BODY_LIMIT) throw failure(413, "request body is too large");
@@ -239,8 +247,11 @@ export function createServer(options = {}) {
         if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers?.["content-type"] ?? "")) throw failure(415, "Content-Type must be application/json");
         const raw = await readBody(request);
         if (route === "/v1/messages") {
-          const message = parseMessage(jsonBody(raw), identity, identities);
-          reply(201, mailbox.send(identity, message));
+          const value = jsonBody(raw);
+          if (local && (value?.to !== "amy" || value?.ticket !== "JOED-43")) throw failure(403, "local sender may only send JOED-43 to amy");
+          const message = parseMessage(value, identity, identities);
+          if (!local && message.to === LOCAL_SENDER) throw failure(400, "recipient is invalid");
+          reply(201, mailbox.send(identity, message, local ? request.headers?.["idempotency-key"] : undefined));
         } else {
           const value = raw.length ? jsonBody(raw) : {};
           if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length) throw failure(400, "ack body must be empty or an empty object");
@@ -259,13 +270,20 @@ export function createServer(options = {}) {
     }
   }
 
-  const dispatch = (request, response) => {
-    handle(request, response).catch(() => {
+  const dispatch = (request, response, local = false) => {
+    handle(request, response, local).catch(() => {
       if (!response.headersSent) send(response, 500, { error: "mailbox operation failed" });
       else response.end();
     });
   };
-  const server = createHttpServer(dispatch);
+  const server = createHttpServer((request, response) => dispatch(request, response));
+  const localServer = localSocketPath ? createHttpServer((request, response) => dispatch(request, response, true)) : null;
+  if (localServer) {
+    localServer.requestTimeout = 2000;
+    localServer.headersTimeout = 2000;
+    localServer.on("checkContinue", (request, response) => dispatch(request, response, true));
+    localServer.on("checkExpectation", (request, response) => dispatch(request, response, true));
+  }
   // Avoid Node's automatic 100/417 replies without the policy header, and
   // authorize the socket before handling clients waiting on an Expect reply.
   server.on("checkContinue", dispatch);
@@ -287,7 +305,35 @@ export function createServer(options = {}) {
   server.once("close", () => clearInterval(pruneTimer));
 
   return {
-    server, handle, mailbox, listenHost: listen.host, listenPort: listen.port,
+    server, localServer, handle, mailbox, listenHost: listen.host, listenPort: listen.port,
+    async listenLocal() {
+      if (!localServer) return;
+      // The root-owned directory is mounted only into these two containers.
+      // Clear only our stale socket; never replace another kind of item.
+      try {
+        if (!lstatSync(localSocketPath).isSocket()) throw new Error("local mailbox path is not a socket");
+        unlinkSync(localSocketPath);
+      } catch (error) { if (error.code !== "ENOENT") throw error; }
+      // Node may defer binding until after listen() returns. Keep the creation
+      // mask through its callback and final chmod, then restore it on all exits.
+      const mask = process.umask(0o117);
+      try {
+        await new Promise((resolve, reject) => {
+          const onError = error => reject(error);
+          localServer.once("error", onError);
+          try {
+            localServer.listen(localSocketPath, () => {
+              localServer.off("error", onError);
+              resolve();
+            });
+          } catch (error) {
+            localServer.off("error", onError);
+            reject(error);
+          }
+        });
+        chmodSync(localSocketPath, 0o660);
+      } finally { process.umask(mask); }
+    },
     listen() {
       return new Promise((resolve, reject) => {
         const onError = (error) => { server.off("listening", onListening); reject(error); };
@@ -297,11 +343,15 @@ export function createServer(options = {}) {
         server.listen(listen.port, listen.host);
       });
     },
-    close() {
+    async close() {
       clearInterval(pruneTimer);
       for (const active of connections.values()) for (const finish of active) finish();
       server.closeIdleConnections();
-      return new Promise((resolve, reject) => server.close((error) => error && error.code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve()));
+      const close = socket => new Promise((resolve, reject) => {
+        socket.closeIdleConnections();
+        socket.close(error => error && error.code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve());
+      });
+      await Promise.all([close(server), ...(localServer ? [close(localServer)] : [])]);
     },
   };
 }
@@ -315,7 +365,13 @@ async function main() {
     peers: process.env.AGENT_MAILBOX_PEERS ? JSON.parse(process.env.AGENT_MAILBOX_PEERS) : DEFAULT_PEERS,
     stateDir: process.env.AGENT_MAILBOX_STATE_DIR ?? "/var/lib/agent-mailbox",
   });
-  await app.listen();
+  try {
+    await app.listenLocal();
+    await app.listen();
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
   const shutdown = () => { app.close().finally(() => process.exit(0)); };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);

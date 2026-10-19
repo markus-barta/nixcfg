@@ -8,9 +8,11 @@
 let
   cfg = config.nixcfg.agentMailbox;
   stack = config.nixcfg.composeStack;
+  localSender = config.nixcfg.paperDeskExecutor.enable;
   peerAddresses = lib.attrNames cfg.peers;
   dynamicIdentities = lib.unique (map (rule: rule.identity) config.nixcfg.tailnetPeers.rules);
   identities = lib.unique (lib.attrValues cfg.peers ++ dynamicIdentities);
+  mailboxIdentities = identities ++ lib.optional localSender "paper-desk-executor";
   tailnetAddress =
     address:
     lib.match "100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])[.]([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])" address
@@ -80,6 +82,10 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
+        assertion = !(lib.elem "paper-desk-executor" identities);
+        message = "paper-desk-executor is a host-local send-only identity, never a network peer";
+      }
+      {
         assertion = stack.enable;
         message = "agentMailbox requires nixcfg.composeStack";
       }
@@ -140,15 +146,19 @@ in
         "/run/tailnet-peers:/run/tailnet-peers:ro"
         "${source}:/mailbox:ro"
         "${cfg.stateDir}:/state:rw"
-      ];
+      ]
+      ++ lib.optionals localSender [ "/run/agent-mailbox-local:/run/agent-mailbox-local:rw" ];
       environment = [
         "AGENT_MAILBOX_BIND=${cfg.listenAddress}"
         "AGENT_MAILBOX_PORT=${toString cfg.listenPort}"
         "AGENT_MAILBOX_PEERS=${builtins.toJSON cfg.peers}"
         "AGENT_MAILBOX_PEERS_FILE=/run/tailnet-peers/peers.json"
         "AGENT_MAILBOX_DYNAMIC_IDENTITIES=${builtins.toJSON dynamicIdentities}"
-        "AGENT_MAILBOX_IDENTITIES=${builtins.toJSON identities}"
+        "AGENT_MAILBOX_IDENTITIES=${builtins.toJSON mailboxIdentities}"
         "AGENT_MAILBOX_STATE_DIR=/state"
+      ]
+      ++ lib.optionals localSender [
+        "AGENT_MAILBOX_LOCAL_SOCKET=/run/agent-mailbox-local/sender/mailbox.sock"
       ];
       entrypoint = [ "node" ];
       command = [ "/mailbox/server.mjs" ];
@@ -193,6 +203,10 @@ in
     };
     systemd.tmpfiles.rules = [
       "d ${cfg.stateDir} 0700 1000 1000 - -"
+    ]
+    ++ lib.optionals localSender [
+      "d /run/agent-mailbox-local 0750 root 1000 - -"
+      "d /run/agent-mailbox-local/sender 0700 1000 1000 - -"
     ];
   };
 }

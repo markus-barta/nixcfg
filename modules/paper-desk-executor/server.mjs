@@ -30,7 +30,9 @@ import {
   normalizePeer,
   peerAllowed,
 } from "./security.mjs";
-import { admitIntent, openLedger } from "./state.mjs";
+import { admitIntent, openLedger, CAPTURE_DEGRADED_ADMISSION_BYTES, MAX_STATE_BYTES } from "./state.mjs";
+import { createAlertDelivery, deliveryHealth } from "./mailbox-alerts.mjs";
+import { configuredMailboxSocket } from "./local-mailbox-client.mjs";
 import { createMarketData, validMarketSymbol } from "./market-data.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { createBook } from "./book.mjs";
@@ -51,6 +53,7 @@ const PUBLIC_ERRORS = new Map([
   ["modify_stop_refused", "modify-stop preflight refused"],
   ["attribution_refused", "execution attribution refused"],
   ["placement_refused", "placement preflight refused"],
+  ["results_capture_degraded_ledger_cap", "results_capture_degraded_ledger_cap"],
 ]);
 function publicFailure(error) {
   const code = error?.code === "uncertain" ? "uncertain"
@@ -141,7 +144,14 @@ function claimRecord(state, intent, ledger) {
     }
     return { replay: { ...storedResult(prior), idempotentReplay: true } };
   }
-  admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs, beforePrune: ledger.beforePrune });
+  try {
+    admitIntent(state, intent.action, { reconRetentionMs: ledger.reconRetentionMs, beforePrune: ledger.beforePrune });
+  } catch (error) {
+    // Publish capture diagnostics even when this first failed capture discovers
+    // the admission bound. No claim or broker operation has happened yet.
+    if (error.publicCode === "results_capture_degraded_ledger_cap") ledger.save(state);
+    throw error;
+  }
   state.intents.set(intent.intentId, {
     hash,
     action: intent.action,
@@ -165,6 +175,7 @@ function finish(state, intent, status, result) {
 }
 
 export function createServer(options) {
+  const mailboxSocket = configuredMailboxSocket(options.mailboxSocket ?? process.env.PAPER_DESK_MAILBOX_SOCKET);
   const testMode = options.testMode === true;
   const gatewayPort = assertPaperPort(options.gatewayPort ?? process.env.IB_DESK_GATEWAY_PORT ?? PAPER_PORT);
   const gatewayHost = assertGatewayHost(options.gatewayHost ?? process.env.IB_DESK_GATEWAY_HOST ?? LISTEN_HOST);
@@ -190,9 +201,11 @@ export function createServer(options) {
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
   const marketData = createMarketData({ ...options.marketData, bookClientId: options.book?.clientId });
-  const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false })) });
+  const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false, readOnly: true, migrate: false })) });
   const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
+  const alertDelivery = createAlertDelivery({ socketPath: mailboxSocket, ledger, exclusive, ...options.alertDelivery });
+  alertDelivery.start();
 
   function logError(error) {
     console.error(error);
@@ -211,11 +224,24 @@ export function createServer(options) {
     const [reachable, body] = await Promise.all([
       Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
       exclusive(() => {
-        const state = ledger.load();
+        // Health polling must not retry failed capture/compaction or resolve it.
+        const state = ledger.load({ migrate: !ledger.beforePrune });
+        const usage = ledger.usage();
+        const degraded = !!ledger.beforePrune && state.resultsCapture?.ok === false;
+        const newAdmissionsBlocked = degraded && usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES;
+        const { revision: _revision, ...captureDiagnostics } = ledger.captureDiagnostics();
         return {
-          status: "ok", gatewayReachable: false, gatewayHost, gatewayPort,
-          account: ACCOUNT, ...ledger.usage(), halt: activeHalt(ledger.haltBody()),
+          status: degraded ? "degraded" : "ok", gatewayReachable: false, gatewayHost, gatewayPort,
+          account: ACCOUNT, ...usage, halt: activeHalt(ledger.haltBody()),
           brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
+          ...(state.resultsCapture || ledger.beforePrune ? { resultsCapture: {
+            ...state.resultsCapture, degraded, ...captureDiagnostics,
+            state: degraded ? "degraded" : "ok",
+            ...(degraded ? { reason: newAdmissionsBlocked ? "ledger_size_limit" : "results_capture_failed" } : {}),
+            ...usage, admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES,
+            ledgerCapBytes: MAX_STATE_BYTES, newAdmissionsBlocked,
+            ...deliveryHealth(state, !!mailboxSocket && !!ledger.beforePrune),
+          } } : {}),
         };
       }),
     ]);
@@ -248,7 +274,7 @@ export function createServer(options) {
       } catch { /* A journal failure must not reach the order/ledger error path. */ }
     }
     const peer = normalizePeer(request.socket?.remoteAddress);
-    const adminRoute = request.method === "POST" && routeUrl?.pathname === "/v1/admin/attribution";
+    const adminRoute = request.method === "POST" && ["/v1/admin/attribution", "/v1/admin/capture-alerts/rearm"].includes(routeUrl?.pathname);
     if (!peerAllowed(peer, adminRoute ? adminAllowlist : currentAllowlist())) {
       request.resume();
       send(response, 403, { status: "rejected", reason: "source is not allowed" });
@@ -258,6 +284,11 @@ export function createServer(options) {
     try {
       const url = new URL(request.url || "/", "http://paper-desk.local");
       const pathname = url.pathname;
+      if (request.method === "POST" && pathname === "/v1/admin/capture-alerts/rearm") {
+        await readBody(request);
+        send(response, 200, await exclusive(() => ledger.rearmCaptureDelivery()));
+        return;
+      }
       if (dataUrl) {
         let cached = false;
         let outcome = "unavailable";
@@ -399,15 +430,14 @@ export function createServer(options) {
             return result;
           }
           const runner = execute || (await import("./executor.mjs")).executeIntent;
+          let result;
           try {
             assertSideEffect(intent, { getHalt: () => activeHalt(ledger.haltBody()) });
-            const result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign });
-            const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
-            finish(state, intent, status, result);
-            ledger.save(state);
-            ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
-            return result;
+            result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign });
           } catch (error) {
+            // The visible claim/result is authoritative even when its crash
+            // durability is uncertain. Never replace it with an execution failure.
+            if (error?.published === true) throw error;
             logError(error);
             const status = error?.code === "uncertain" ? "uncertain" : "rejected";
             const result = {
@@ -423,6 +453,13 @@ export function createServer(options) {
             ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
             return result;
           }
+          const status = result?.status === "ok" ? "done" : (result?.status || "rejected");
+          finish(state, intent, status, result);
+          ledger.save(state);
+          // A failed audit reports 500 through the outer handler. The returned
+          // result save is authoritative and must never enter the failure save.
+          ledger.audit({ event: "intent_finished", intentId: intent.intentId, status, result: intent.action === "recon" ? storedResult(state.intents.get(intent.intentId)) : result });
+          return result;
         });
         send(response, httpStatus(outcome), outcome);
         return;
@@ -431,6 +468,10 @@ export function createServer(options) {
       send(response, 404, { status: "not_found", reason: "unknown route" });
     } catch (error) {
       const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+      if (error.publicCode === "results_capture_degraded_ledger_cap") {
+        send(response, status, { status: "rejected", ...publicFailure(error) });
+        return;
+      }
       if (error.publicCode === "attribution_refused") {
         ledger.audit({ event: "attribution_refused", peer, status, ...publicFailure(error) });
         send(response, status, { status: "rejected", ...publicFailure(error) });
@@ -462,6 +503,18 @@ export function createServer(options) {
     server,
     handle,
     readHealth,
+    initializeCapture() {
+      return exclusive(() => {
+        try { ledger.save(ledger.load()); }
+        catch (error) {
+          if (error?.published === true) return;
+          // Journal initialization, migration publication and the initial save
+          // may fail. Keep listening, retain the hook, and expose value-free
+          // diagnostics even when their ledger publication must wait.
+          ledger.noteCaptureFailure(error);
+        }
+      });
+    },
     listen() {
       return new Promise((resolve, reject) => {
         const onError = (error) => {
@@ -478,6 +531,7 @@ export function createServer(options) {
       });
     },
     close() {
+      alertDelivery.close();
       if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
       return new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -515,9 +569,12 @@ async function main() {
   if (capture) {
     // Separate loopback listener: only a read-only health route, never intents,
     // admin attribution, halt, cancel or any Gateway request API.
-    healthServer = createHealthServer(async () => ({ ...await started.readHealth(), resultsCapture: capture.health() }));
+    healthServer = createHealthServer(async () => {
+      const health = await started.readHealth();
+      return { ...health, resultsCapture: { ...capture.health(), ...health.resultsCapture } };
+    });
     await new Promise((resolve, reject) => { healthServer.once("error", reject); healthServer.listen(resultsHealthPort(process.env.PAPER_DESK_RESULTS_HEALTH_PORT), "127.0.0.1", resolve); });
-    capture({ ...started.ledger.load(), resultsFxSampler: { enabled: true, reason: "missing_sample", days: {} } });
+    await started.initializeCapture();
   }
   // An independent background task: never put quote waits on the intent queue,
   // mutate the trading ledger, or route FX failures through executor_error.
