@@ -13,7 +13,7 @@ const boardResult = executor => validateContract("data", {
   totals: {},
 }, { stage: "ingress", receivedAt: at });
 const assertBoard = value => {
-  assert.equal(CONTRACTS.revision, 8);
+  assert.equal(CONTRACTS.revision, 9);
   assert.equal(CONTRACTS.contracts.data, "inspr.joe.household.v2");
   assert.deepEqual(boardResult(value), { ok: true, status: 200, reason: null, errors: [] });
 };
@@ -27,7 +27,7 @@ for (const [label, resultsCapture, reason] of [
   ["cap reason alias", { reason: "ledger_size_limit" }, "ledger_size_limit"],
   ["cap before capture failure", { state: "degraded", reason: "results_capture_failed", newAdmissionsBlocked: true }, "ledger_size_limit"],
 ]) {
-  test(`${label} maps to rev-8 safety.executor`, () => {
+  test(`${label} maps to rev-9 safety.executor`, () => {
     const value = executorHealth({ ...health, resultsCapture: { ...resultsCapture, ledgerBytes: 15100000, ledgerCapBytes: 16777216 } }, at);
     assert.equal(value.status, "degraded");
     assert.equal(value.reason, reason);
@@ -115,7 +115,7 @@ test("unrelated degradation keeps its existing reasonless shape", () => {
   }
 });
 
-test("rev-8 board semantics reject a cap without bytes and allow bytes above cap", () => {
+test("rev-9 board semantics reject a cap without bytes and allow bytes above cap", () => {
   const base = executorHealth(health, at);
   const invalid = boardResult({ ...base, ledgerCapBytes: 100 });
   assert.equal(invalid.status, 422);

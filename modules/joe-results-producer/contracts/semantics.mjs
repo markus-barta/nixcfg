@@ -72,7 +72,8 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
     }
     payload.positions?.rows.forEach((p, i) => {
       if ((KEEP.includes(p.symbol) && p.scope !== 'keep') || (p.scope === 'keep' && p.desk !== null)) fail(`$.positions.rows[${i}]`, 'keepExcluded');
-      if (p.scope === 'stage0' && !DESKS.includes(p.desk)) fail(`$.positions.rows[${i}]`, 'deskRequired');
+      if (p.scope === 'stage0' && !DESKS.includes(p.desk) && !(p.desk === null && p.reasons?.desk)) fail(`$.positions.rows[${i}]`, 'deskRequired');
+      if (p.reasons?.desk && (p.desk !== null || p.scope === 'keep')) fail(`$.positions.rows[${i}].reasons.desk`, 'contradictoryDesk');
       for (const field of ['quantity', 'mark', 'marketValue', 'dayPnl', 'openPnl']) {
         if (Object.hasOwn(p, field)) unavailable(p[field], `$.positions.rows[${i}].${field}`,
           p.reasons?.[field] || (gatewayReason(payload.safety.gateway, payload.generatedAt) && payload.positions.reason));

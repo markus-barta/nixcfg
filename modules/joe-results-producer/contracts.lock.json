@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/markus-barta/joedesk",
-  "revision": "dcdf850d06a5087b674a533875ebaec6127e9819",
-  "manifest_revision": 8,
-  "contract_set_sha256": "a7f937ab012b03695e2d94685fd5c50b8d1309810a88bf0331d3cdf3d2f727f9",
+  "revision": "84c47b647cf06a38a3f61ce7f928a10ed10eeef3",
+  "manifest_revision": 9,
+  "contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
   "files": {
     "accept.mjs": {
       "bytes": 2159,
@@ -13,8 +13,8 @@
       "sha256": "64f5e9187602d9b1d38b90210a90f51a4eda72df995acf2251cf0685731fe881"
     },
     "data.schema.json": {
-      "bytes": 28644,
-      "sha256": "e81b01af53b6953aedfb9e28105fe6bf1b148ce26476ff97018bf74f783c68d0"
+      "bytes": 28786,
+      "sha256": "84a9de4449d87a69ee620d0f37bd84d77b2de86cebb03fe2ef9e709161161d26"
     },
     "decimal.mjs": {
       "bytes": 2397,
@@ -42,7 +42,7 @@
     },
     "manifest.json": {
       "bytes": 932,
-      "sha256": "4b4828d76e513792bc6bfa15a1f279de3753c055c2c32d927c041e6e3aba58e4"
+      "sha256": "3246d0979f790ed33aec2bd66efb195ffab4ac6d916519d9b4e2f7b3601feb3f"
     },
     "panel-state.mjs": {
       "bytes": 8101,
@@ -53,8 +53,8 @@
       "sha256": "c1d8983dd20f5abb31f0fcb366a756bbe207a41bce2485f64dca0158b519a31b"
     },
     "reason.schema.json": {
-      "bytes": 1043,
-      "sha256": "74bb9c43bcf094d183fac21f09378978004a2dcf1ead9310fa523391fb0b0a10"
+      "bytes": 1064,
+      "sha256": "11dbe796c379dce9ee669aa724e29a3f45b0e5823902a8f3f68d2d3f82c65916"
     },
     "results.schema.json": {
       "bytes": 13236,
@@ -65,8 +65,8 @@
       "sha256": "a251176cf1c815fb767a323bb740a76c954481d36c082b10981d07ba7de58bf8"
     },
     "semantics.mjs": {
-      "bytes": 12700,
-      "sha256": "c1a77cce6aec15d7a955cd9afd05cc7fd116c59a8a49f50f1d1980555a30a989"
+      "bytes": 12877,
+      "sha256": "29e28436ec1400a27507308206591c64342890a6bf56c056589373b3a20dd6fc"
     },
     "vienna-date.mjs": {
       "bytes": 1065,
