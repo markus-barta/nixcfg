@@ -38,28 +38,29 @@ export function expectedBackup(backup, readFile = fs.readFileSync) {
     throw new Error("legacy_data_and_history_required");
   return expected;
 }
-// Callers use the public origin or Docker's dynamically assigned IPv4 loopback
-// TCP port. Enumerate that finite origin set from constants: lookup keys never
-// contribute bytes to a request URL, including when read from a private record.
-const publicBases = new Map([
-  ["https://cs0.barta.cm/joe/", "https://cs0.barta.cm/joe/"],
-  ["http://127.0.0.1/joe/", "http://127.0.0.1/joe/"],
-  ...Array.from({ length: 65535 }, (_, index) => {
-    const base = "http://127.0.0.1:" + (index + 1) + "/joe/";
-    return [base, base];
-  }),
-]);
+// Public production origin or Docker's dynamically assigned IPv4 loopback port.
+// Rebuild the origin from constants and a validated integer, never URL text.
+function publicBase(base) {
+  if (base === "https://cs0.barta.cm/joe/") return "https://cs0.barta.cm/joe/";
+  if (base === "http://127.0.0.1/joe/") return "http://127.0.0.1/joe/";
+  const match = /^http:\/\/127\.0\.0\.1:([0-9]+)\/joe\/$/.exec(base);
+  const port = match ? Number(match[1]) : NaN;
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("legacy_base_invalid");
+  return "http://127.0.0.1:" + port + "/joe/";
+}
 const publicRoutes = new Map([
   ["data.json", "data.json"],
   ["history.json", "history.json"],
   ["fleet-config.json", "fleet-config.json"],
   ["joe-version.js", "joe-version.js"],
 ]);
-function publicRead(base, route, cookieJar) {
-  const allowedBase = publicBases.get(base);
+export function publicRead(base, route, cookieJar) {
+  const allowedBase = publicBase(base);
   const allowedRoute = publicRoutes.get(route);
-  if (!allowedBase) throw new Error("legacy_base_invalid");
   if (!allowedRoute) throw new Error("legacy_route_invalid");
+  if (cookieJar && /["\\\r\n]/.test(cookieJar))
+    throw new Error("private_cookie_jar_required");
   const args = [
     "--silent",
     "--max-time",
@@ -71,7 +72,7 @@ function publicRead(base, route, cookieJar) {
     "--header",
     "Accept: application/json",
   ];
-  if (cookieJar) args.push("--cookie", cookieJar);
+  if (cookieJar) args.push("--config", "-");
   let output;
   try {
     output = execFileSync(
@@ -79,7 +80,8 @@ function publicRead(base, route, cookieJar) {
       [...args, new URL(allowedRoute, allowedBase).href],
       {
         maxBuffer: 17 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "pipe"],
+        input: cookieJar ? 'cookie = "' + cookieJar + '"\n' : undefined,
+        stdio: ["pipe", "pipe", "pipe"],
       },
     );
   } catch {
@@ -134,7 +136,7 @@ export async function legacySmoke({
     url.password ||
     url.search ||
     url.hash ||
-    !publicBases.has(url.href)
+    !publicBase(url.href)
   )
     throw new Error("legacy_base_invalid");
   if (

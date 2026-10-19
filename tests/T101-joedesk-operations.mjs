@@ -4,10 +4,17 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { createHash } from "node:crypto";
 import vm from "node:vm";
 import { fleetActorSource } from "./joedesk-pinned-functions.mjs";
-import { sourceRoot, sourcePath, readSource } from "./joedesk-test-paths.mjs";
+import {
+  sourceRoot,
+  sourcePath,
+  readSource,
+  readSourceMap,
+} from "./joedesk-test-paths.mjs";
 import {
   requireSafeHost,
   swapDirectories,
@@ -86,6 +93,103 @@ function prepare(...args) {
   );
   assert.equal(result.status, 0, "actual prepare-data CLI must pass");
 }
+
+test("source readers require fixed parents and reject symlink escapes", () => {
+  const dir = root();
+  put(dir, "package.json", { name: "synthetic-source" });
+  assert.equal(sourceRoot(dir), dir);
+  assert.equal(
+    JSON.parse(readSource(dir, "package.json")).name,
+    "synthetic-source",
+  );
+  for (const outside of ["/", "/etc", path.dirname(dir)])
+    assert.throws(() => sourceRoot(outside), /source outside fixed parents/);
+  fs.symlinkSync("/etc", path.join(dir, "escape"));
+  assert.throws(
+    () => sourceRoot(path.join(dir, "escape")),
+    /source outside fixed parents/,
+  );
+  fs.symlinkSync("/etc/hosts", path.join(dir, "server.mjs"));
+  assert.throws(
+    () => readSource(dir, "server.mjs"),
+    /source file outside root/,
+  );
+  assert.throws(
+    () => readSource(dir, "../package.json"),
+    /fixed source filename/,
+  );
+});
+
+test("source maps accept the CI temp layout and reject foreign layouts", () => {
+  const dir = fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "ops354-ci-"),
+  );
+  put(dir, "sources.json", { synthetic: "/nix/store/synthetic-source" });
+  assert.deepEqual(readSourceMap(path.join(dir, "sources.json")), {
+    synthetic: "/nix/store/synthetic-source",
+  });
+  put(dir, "other.json", {});
+  assert.throws(() => readSourceMap(path.join(dir, "other.json")));
+  const foreign = root();
+  put(foreign, "sources.json", {});
+  assert.throws(() => readSourceMap(path.join(foreign, "sources.json")));
+});
+
+test("legacy curl keeps cookie paths in stdin and restricts request destinations", async (t) => {
+  const { publicRead } = await import("../scripts/joedesk-legacy-smoke.mjs");
+  const calls = [];
+  const mock = t.mock.method(childProcess, "execFileSync", (...args) => {
+    calls.push(args);
+    return Buffer.from("synthetic-response\n200");
+  });
+  syncBuiltinESMExports();
+  try {
+    const cookie = "/private/synthetic cookie jar";
+    for (const base of [
+      "https://cs0.barta.cm/joe/",
+      "http://127.0.0.1/joe/",
+      "http://127.0.0.1:1/joe/",
+      "http://127.0.0.1:80/joe/",
+      "http://127.0.0.1:65535/joe/",
+    ]) {
+      assert.equal(publicRead(base, "data.json", cookie).status, 200);
+      const [command, args, options] = calls.at(-1);
+      assert.equal(command, "curl");
+      assert.ok(!args.includes(cookie));
+      assert.deepEqual(args.slice(-3, -1), ["--config", "-"]);
+      assert.equal(options.input, 'cookie = "' + cookie + '"\n');
+      assert.equal(options.stdio[0], "pipe");
+      assert.equal(new URL(args.at(-1)).pathname, "/joe/data.json");
+    }
+    publicRead("https://cs0.barta.cm/joe/", "data.json");
+    assert.equal(calls.at(-1)[2].input, undefined);
+    assert.ok(!calls.at(-1)[1].includes("--config"));
+    const count = calls.length;
+    for (const base of [
+      "http://127.0.0.1:0/joe/",
+      "http://127.0.0.1:65536/joe/",
+      "https://example.invalid/joe/",
+      "http://127.0.0.1:1234/other/",
+    ])
+      assert.throws(
+        () => publicRead(base, "data.json", cookie),
+        /legacy_base_invalid/,
+      );
+    for (const unsafe of ['bad"path', "bad\\path", "bad\rpath", "bad\npath"])
+      assert.throws(
+        () => publicRead("https://cs0.barta.cm/joe/", "data.json", unsafe),
+        /private_cookie_jar_required/,
+      );
+    assert.throws(
+      () => publicRead("https://cs0.barta.cm/joe/", "../data.json", cookie),
+      /legacy_route_invalid/,
+    );
+    assert.equal(calls.length, count, "invalid input must fail before curl");
+  } finally {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
 
 test("host guards reject every fleet lab prefix and require exact production host/store", () => {
   const dir = root(),
@@ -768,18 +872,13 @@ test("ownership normalization cannot follow a symlink swapped in before open", (
   });
   assert.throws(() => normalizeStore(staged, uid, gid), /regular_unlinked/);
   assert.equal(raced, true);
-  const afterFd = fs.openSync(
-    outside,
-    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
-  );
   try {
-    const after = fs.fstatSync(afterFd);
+    const after = fs.fstatSync(beforeFd);
     assert.equal(after.ino, before.ino);
     assert.equal(after.dev, before.dev);
     assert.equal(after.mode, before.mode);
-    assert.equal(fs.readFileSync(afterFd, "utf8"), "unchanged");
+    assert.equal(fs.readFileSync(beforeFd, "utf8"), "unchanged");
   } finally {
-    fs.closeSync(afterFd);
     fs.closeSync(beforeFd);
   }
 });
