@@ -60,9 +60,16 @@ valid_id() {
   valid_round "$1" && [[ $1 != . && $1 != .. && $1 != .reservation.* && $1 != .recent-rounds ]]
 }
 adoption_recorded=false
+adoption_classifying=false
 adopt_warning() { printf 'remote warning: %s; adoption retained\n' "$1" >&3; }
 busy() {
   if $adoption_recorded; then
+    if $adoption_classifying; then
+      # The work is already running. Count its requested lane/kind, but never
+      # grant finish status or round proof when classification was refused.
+      round='' phase=new
+      write_lease || guard_error
+    fi
     adopt_warning "$1"
     exit 0
   fi
@@ -294,6 +301,7 @@ if [[ $action == adopt ]]; then
     fi
     # Classifying an unclassified lease uses exactly the reserve gates below.
     lane=$requested_lane kind=$requested_kind round=$requested_round phase=$requested_phase
+    adoption_classifying=true
   fi
   if ! $adoption_recorded; then busy "$reason"; fi
 fi
@@ -415,22 +423,34 @@ if [[ -n $budget_now && -f $guard_budget_file && ! -L $guard_budget_file && -r $
     done
     if $override_valid && [[ ${overrides[epoch]+yes} ]] && ((${#overrides[@]} > 1)); then
       override_age=$((10#$budget_now - 10#${overrides[epoch]}))
-      for key in "${!caps[@]}"; do
-        if [[ ${overrides[$key]+yes} ]] && ((overrides[$key] > caps[$key])); then override_valid=false; fi
-      done
-      candidate_new=${overrides[units_new_max]:-${caps[units_new_max]}}
-      candidate_total=${overrides[units_total]:-${caps[units_total]}}
-      if ((candidate_new >= candidate_total)); then override_valid=false; fi
-      if ! $override_valid; then
-        printf 'remote warning: budget override violates pinned caps; override ignored\n' >&3
-      elif ((override_age >= -60 && override_age <= guard_stale_seconds)); then
+      if ((override_age >= -60 && override_age <= guard_stale_seconds)); then
         for key in "${!caps[@]}"; do
-          if [[ ${overrides[$key]+yes} ]]; then caps[$key]=${overrides[$key]}; fi
+          if [[ ${overrides[$key]+yes} ]] && ((overrides[$key] > caps[$key])); then override_valid=false; fi
         done
+        if ! $override_valid; then
+          printf 'remote warning: budget override violates pinned caps; override ignored\n' >&3
+        else
+          for key in "${!caps[@]}"; do
+            if [[ ${overrides[$key]+yes} ]] && ((overrides[$key] < caps[$key])); then caps[$key]=${overrides[$key]}; fi
+          done
+        fi
       fi
     fi
   fi
 fi
+# A lower total is a tightening even if other pins now exceed it. Preserve
+# one finishing slot (except at total zero), then bound every dependent cap.
+new_ceiling=$((caps[units_total] > 0 ? caps[units_total] - 1 : 0))
+((caps[units_new_max] <= new_ceiling)) || caps[units_new_max]=$new_ceiling
+for key in units_finishing_reserve browser_max; do
+  ((caps[$key] <= caps[units_total])) || caps[$key]=${caps[units_total]}
+done
+for key in aeon_new_max ait_new_max ops_new_max units_new_max_during_browser yellow_units_new_max red_units_new_max; do
+  ((caps[$key] <= caps[units_new_max])) || caps[$key]=${caps[units_new_max]}
+done
+for key in yellow_browser_max red_browser_max; do
+  ((caps[$key] <= caps[browser_max])) || caps[$key]=${caps[browser_max]}
+done
 if [[ $level == YELLOW ]]; then
   ((caps[units_new_max] <= caps[yellow_units_new_max])) || caps[units_new_max]=${caps[yellow_units_new_max]}
   ((caps[browser_max] <= caps[yellow_browser_max])) || caps[browser_max]=${caps[yellow_browser_max]}
@@ -465,7 +485,7 @@ write_recent() {
 # Over-limit input is trimmed on this call, but cannot authorize a finisher yet.
 history_over_limit=false
 if $budget_locked && [[ -n $budget_now && (-e $recent_file || -L $recent_file) ]]; then
-  if [[ -f $recent_file && ! -L $recent_file && -r $recent_file && -w $recent_file ]]; then
+  if [[ -f $recent_file && ! -L $recent_file && -r $recent_file ]]; then
     history=()
     if mapfile -t history <"$recent_file"; then
       if ((${#history[@]} > guard_recent_round_limit)); then history_over_limit=true; fi
@@ -709,7 +729,8 @@ fi
 # after all gates pass. One value-free reason covers a joint-budget refusal.
 if $budget_locked && [[ -n $budget_now ]]; then persist_recent; fi
 if [[ -n $run_id && $phase == finish ]] && ! $recent_ok; then busy 'finish history unavailable'; fi
-if [[ -n $joint_reason ]] && ((${#reasons[@]} == 0)) && ((maxruns != 0)); then busy "$joint_reason"; fi
+# Bare main/tag checks start no work and retain only the pre-OPS-393 gates.
+if [[ -n $run_id && -n $joint_reason ]] && ((${#reasons[@]} == 0)) && ((maxruns != 0)); then busy "$joint_reason"; fi
 
 # Keep all existing reasons together, including alongside a paused budget.
 if ((maxruns == 0)); then

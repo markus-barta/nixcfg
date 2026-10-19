@@ -75,6 +75,10 @@ if moduleOnly then
       unitsTotalPinned = lib.hasInfix "readonly guard_units_total=6" customGuard.text;
       unitsTotalNegativeRejected = !evaluated.options.services.aeonRemoteGuard.unitsTotal.type.check (-1);
       unitsNewMaxDefault = cfg.unitsNewMax == 3;
+      unitsNewMaxEqualTotalRejected = rejects { unitsNewMax = 4; };
+      unitsNewMaxAboveTotalRejected = rejects { unitsNewMax = 5; };
+      unitsTotalBelowNewRejected = rejects { unitsTotal = 3; };
+      customAssertionsValid = builtins.all (a: a.assertion) custom.config.assertions;
       unitsNewMaxPinned = lib.hasInfix "readonly guard_units_new_max=4" customGuard.text;
       unitsNewMaxNegativeRejected =
         !evaluated.options.services.aeonRemoteGuard.unitsNewMax.type.check (-1);
