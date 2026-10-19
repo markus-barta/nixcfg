@@ -204,7 +204,7 @@ For a push with exactly one non-deletion update under `refs/runs/<RUN>`,
 the hook calls `aeon-remote-guard reserve <RUN>`, including pushes that also
 update main or tags. More than one run update or an invalid run ID refuses
 with exit 3. IDs use 1–64 ASCII letters, digits, dots, underscores or hyphens;
-`.` and `..` and the internal `.reservation.*` prefix are excluded. Under one
+`.` and `..`, the internal `.reservation.*` prefix and `.recent-rounds` are excluded. Under one
 exclusive kernel lock, the guard checks hold, policy, load and budget, counts
 other run IDs, and atomically writes a mode-0600 reservation containing
 `reserved=<unix>`. A re-push refreshes that ID and preserves its live pids.
@@ -252,11 +252,80 @@ admission. Clients should treat adoption failure as non-fatal: the admitted
 run still counts through `ci.noindex/aeon-runs/<RUN>` during the start
 window. Run directories cover only that window (`reservationTtlSeconds`), so
 clients must adopt to stay counted for the whole run. A live pid keeps the
-lease counted regardless of TTL. Clients may remove
-`~/.aeon-remote-leases/<RUN>` in their EXIT trap with
-a plain `rm`, or let GC collect it once dead and expired. Live client pid
+lease counted regardless of TTL. Clients should call `aeon-remote-guard release <RUN>` after stopping work
+and removing their own markers. Legacy clients may unlink their lease, or let
+GC collect it once dead and expired. Live client pid
 markers also keep runs counted after the TTL; run directories do not. The bare
 check remains compatible with existing clients.
+
+### Joint lane budget (OPS-393)
+
+The pinned defaults come from `MBP2606-BUDGET` (OPS-393). That coordinator-side
+file is a specification, never a runtime dependency on this host. Clients pass
+literal trailing arguments, with no shell evaluation:
+
+```sh
+aeon-remote-guard reserve <RUN> lane=<aeon|ait|ops> kind=<test|browser> round=<ROUND> [phase=finish]
+aeon-remote-guard adopt <RUN> <pid>
+aeon-remote-guard release <RUN>
+```
+
+`ROUND` is 1–64 ASCII letters, digits, dots, underscores or hyphens. With any
+metadata, both `kind` and `round` are required. Omit `phase` for new work;
+`phase=finish` is its only accepted explicit value. Refresh and adoption preserve
+all metadata when arguments are omitted; changing classified metadata for a live
+ID refuses. A pre-receive reservation starts unclassified; the caller can classify
+it with `reserve` before starting work. The lease records `lane`, `kind`, `round`
+and `phase` alongside `reserved` and live `pid` lines.
+
+| Limit                                                            | Pinned default                  |
+| ---------------------------------------------------------------- | ------------------------------- |
+| All live units (`unitsTotal`)                                    | 4                               |
+| New units (`unitsNewMax`)                                        | 3                               |
+| Finishing units (`unitsFinishingReserve`)                        | 1                               |
+| New units per lane (`aeonNewMax`, `aitNewMax`, `opsNewMax`)      | 2 / 1 / 1                       |
+| Browsers across lanes and phases (`browserMax`)                  | 1                               |
+| New units while any browser is live (`unitsNewMaxDuringBrowser`) | 2, including a new browser      |
+| Fresh YELLOW policy                                              | new ≤ 1, browsers = 0           |
+| Fresh RED policy                                                 | new = 0, finishing reserve only |
+
+Every live ID costs one unit, deduplicated with the existing marker sources.
+The candidate and existing units are checked together under the budget lock, so
+a browser cannot enter after the coupled new limit is already reached. Finishing
+requires a live unit with the same round or recent proof that round held a unit
+within `finishWindowSeconds` (1800). `release` records completion under the lock;
+it remains available while held or paused. Atomic `.recent-rounds` history holds
+at most `recentRoundLimit` (128) rounds. Legacy unlink/GC retains the last observed
+activity conservatively; clients should use `release` for an exact finish time.
+History eviction can require a new admission rather than a finishing retry.
+
+A missing lane defaults to `unknown`, counts against total/new/browser limits,
+and has no lane cap while `allowUnknownLane = true` (default). Harness-install
+will set it to false after migrating callers. With that setting, clients reserve
+with metadata before pushing; the hook then refreshes the classified lease.
+Preflight checks must also include metadata. These caps intersect with maxruns,
+hold, policy block and load gates; the most restrictive rule applies. Missing,
+invalid or stale policy preserves the existing default fallback. Bare checks do
+not claim a unit; clients must reserve before work and adopt to keep it live.
+
+Joint refusals exit 3 with one value-free reason: `joint total cap`, `joint new
+cap`, `lane new cap`, `browser cap`, `new cap during browser`, `finishing reserve
+cap`, or `finish round not recent`. Client validation uses `invalid lane`,
+`invalid kind`, `invalid round`, `invalid phase`, `incomplete client parameters`,
+`duplicate client parameter`, `invalid client parameters`, `run metadata mismatch`
+or `lane required`. Existing maxruns/load/hold diagnostics remain unchanged.
+
+OPS can retune without a switch by atomically replacing `~/.aeon-remote-budget`
+(`budgetFile`) with one line of cap `key=value` tokens and `epoch=<unix>`, in any
+order, for example `units_new_max=2 browser_max=0 epoch=<unix>`. Keys are
+`units_total`, `units_new_max`, `units_finishing_reserve`, `aeon_new_max`,
+`ait_new_max`, `ops_new_max`, `browser_max`, `units_new_max_during_browser`,
+`yellow_units_new_max`, `yellow_browser_max`, and `red_units_new_max`. Values are
+canonical integers 0–999; each key occurs once. Unspecified caps keep their Nix
+defaults. An unknown/duplicate key, invalid value, missing epoch, multiple lines,
+unreadable/symlink input, age over `staleSeconds` (900), or future skew over 60
+seconds discards the entire override. The wrapper pins all Nix options; caller
+environment variables cannot retune production admission.
 
 ## Inbound SSH (declarative)
 
