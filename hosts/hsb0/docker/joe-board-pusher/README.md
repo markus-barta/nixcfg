@@ -22,8 +22,9 @@ package manifests and `npm ci` remain unchanged.
 
 ## household.v2 switch-set staging (OPS-392)
 
-`joeHouseholdV2StageEnabled` stays **false**. Setting it true in a later reviewed
-promotion enables the independent `joe-household-v2-stage` service. This build
+The existing `joeHouseholdV2StageEnabled` flag enables the independent
+`joe-household-v2-stage` service in the Phase A candidate. The Results producer
+remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
 adds useful account and position evidence to local staging; it adds no v2 POST
 selector. PAPER only; live remains locked. All v1 accounting, subscriptions,
 token source, POST bytes and interval remain unchanged. Desk money and totals
@@ -63,7 +64,10 @@ Old, future and stale replies are not ready; account money is then withheld.
 With no completed reply, omit gateway rather than fabricate a timestamp.
 The worker mirrors the board's post-acceptance checkedAt regression gate and
 fsyncs its nonfuture high-water before publishing; equal checks are accepted.
-Future replies never advance this durable watermark.
+Future replies never advance this durable watermark. A check ahead of receipt
+but within a skewed generation skips the whole pair to avoid disagreeing with
+the board's generatedAt-relative watermark. No new broker polling is added;
+readiness expires when no completed reply renews it.
 
 SXR8 and TSLA always appear with `scope:keep`, `desk:null`. Missing KEEP rows use
 `side:long` from the existing long-only KEEP policy and `source_unavailable` for
