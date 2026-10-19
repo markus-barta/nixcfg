@@ -57,6 +57,7 @@ if moduleOnly then
       yellowUnitsNewMax = 2;
       yellowBrowserMax = 1;
       redUnitsNewMax = 1;
+      redBrowserMax = 1;
       finishWindowSeconds = 60;
       recentRoundLimit = 8;
     };
@@ -109,6 +110,10 @@ if moduleOnly then
       redUnitsNewMaxPinned = lib.hasInfix "readonly guard_red_units_new_max=1" customGuard.text;
       redUnitsNewMaxNegativeRejected =
         !evaluated.options.services.aeonRemoteGuard.redUnitsNewMax.type.check (-1);
+      redBrowserMaxDefault = cfg.redBrowserMax == 0;
+      redBrowserMaxPinned = lib.hasInfix "readonly guard_red_browser_max=1" customGuard.text;
+      redBrowserMaxNegativeRejected =
+        !evaluated.options.services.aeonRemoteGuard.redBrowserMax.type.check (-1);
       finishWindowSecondsDefault = cfg.finishWindowSeconds == 1800;
       finishWindowSecondsPinned = lib.hasInfix "readonly guard_finish_window_seconds=60" customGuard.text;
       finishWindowSecondsNegativeRejected =
@@ -170,6 +175,7 @@ else
       yellowUnitsNewMax = cfg.yellowUnitsNewMax == 1;
       yellowBrowserMax = cfg.yellowBrowserMax == 0;
       redUnitsNewMax = cfg.redUnitsNewMax == 0;
+      redBrowserMax = cfg.redBrowserMax == 0;
       finishWindowSeconds = cfg.finishWindowSeconds == 1800;
       recentRoundLimit = cfg.recentRoundLimit == 128;
       reservationTtl = cfg.reservationTtlSeconds == 120;
