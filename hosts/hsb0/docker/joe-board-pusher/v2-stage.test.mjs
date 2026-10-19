@@ -8,12 +8,14 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { StageStore, buildCandidate, normalizeBookTs, acceptStage, prepareLock, launchLocked, serveWorker } from "./v2-stage-worker.mjs";
+import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
 import { createStageSupervisor } from "./v2-stage-supervisor.mjs";
 import { validateContract } from "./contracts/index.mjs";
 import { acceptSnapshot } from "./contracts/accept.mjs";
 
 const instant = "2026-10-19T07:00:00.000Z";
 const later = "2026-10-19T07:00:01.000Z";
+const observation = (bookTs = instant) => ({ format: FRAME_FORMAT, bookTs, equity: null, cash: null, apiReplyCheckedAt: null, positions: [] });
 const json = name => JSON.parse(fs.readFileSync(name));
 function fixture(t, boundary, io = fs) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-"));
@@ -29,18 +31,19 @@ function current(root) {
   return { snapshot: json(path.join(root, pointer.pair, "snapshot.json")), receipt: json(path.join(root, pointer.pair, "receipt.json")), pair: pointer.pair };
 }
 
-test("masked golden is the exact honest-null projection; ingress, served and semantic negatives", () => {
+test("masked golden preserves raw account evidence; ingress, served and semantic negatives", () => {
   const golden = json(new URL("./fixtures/household-v2-phase-a.masked.json", import.meta.url));
-  assert.deepEqual(buildCandidate(1, instant), golden);
+  const source = json(new URL("./fixtures/switch-set-observation.masked.json", import.meta.url));
+  assert.deepEqual(buildCandidate(1, source.observation.bookTs, source.observation, source.receivedAt), golden);
   assert.equal(validateContract("data", golden, { stage: "ingress" }).ok, true);
-  assert.equal(acceptSnapshot("data", golden, null, instant).status, 200);
+  assert.equal(acceptSnapshot("data", golden, null, golden.generatedAt).status, 200);
   assert.equal(validateContract("data", golden).ok, false);
   assert.equal(validateContract("data", { ...golden, receivedAt: instant }, { stage: "ingress" }).ok, false);
   const zero = structuredClone(golden); zero.totals.equity = { amount: "0", currency: "EUR" }; delete zero.totals.reasons.equity;
   assert.equal(validateContract("data", zero, { stage: "ingress" }).ok, false);
   const noReasons = structuredClone(golden); delete noReasons.totals.reasons;
-  assert.equal(validateContract("data", noReasons, { stage: "ingress" }).ok, false);
-  assert.doesNotMatch(JSON.stringify(golden), /"(?:account|accountHint|brokerAccount|positions|symbol|amount|pnlSources|accounting|learning|moneyEvidence|heartbeatAt)"/);
+  assert.equal(new StageStore().validProjection(noReasons), false);
+  assert.doesNotMatch(JSON.stringify(golden), /"(?:account|accountHint|pnlSources|accounting|learning|moneyEvidence|heartbeatAt)"/);
   for (const desk of golden.desks) assert.equal(desk.action, "Valuation unavailable pending exact source validation.");
 });
 
@@ -228,7 +231,7 @@ test("worker frame parser bounds partial/oversized/malformed frames and issues a
   const { root, store } = fixture(t);
   let connect; let partialTimeout; let stageCalls = 0;
   const events = []; const trace = [];
-  store.stage = bookTs => { stageCalls++; trace.push("stage"); assert.equal(bookTs, instant); return { status: 200 }; };
+  store.stage = source => { stageCalls++; trace.push("stage"); assert.equal(source.bookTs, instant); return { status: 200 }; };
   const socketPath = path.join(root, "stage.sock");
   await serveWorker({
     store, socketPath, notify: message => { events.push(message); trace.push(message.event); },
@@ -247,7 +250,7 @@ test("worker frame parser bounds partial/oversized/malformed frames and issues a
     destroy() { this.destroyed = true; this.emit("close"); }
   }
   const frame = value => { const bytes = Buffer.from(JSON.stringify(value)); const b = Buffer.alloc(bytes.length + 4); b.writeUInt32BE(bytes.length); bytes.copy(b, 4); return b; };
-  const good = frame({ format: "ops392.phase-a-observation.v1", bookTs: instant });
+  const good = frame(observation());
   const socket = new Socket(); connect(socket);
   assert.deepEqual(socket.writes, [Buffer.from([1])]);
   const extra = new Socket(); connect(extra); assert.equal(extra.destroyed, true);
@@ -255,7 +258,7 @@ test("worker frame parser bounds partial/oversized/malformed frames and issues a
   socket.emit("data", good.subarray(2)); assert.equal(stageCalls, 1);
   assert.deepEqual(trace.slice(-4), ["job_start", "stage", "job_done", "credit"]);
   assert.equal(socket.writes.length, 2); socket.destroy();
-  for (const invalid of [Buffer.from([0, 0, 16, 1]), Buffer.concat([good, good]), frame({ format: "wrong", bookTs: instant }), frame({ format: "ops392.phase-a-observation.v1", bookTs: "x".repeat(65) }), Buffer.from([0, 0, 0, 1, 0xff])]) {
+  for (const invalid of [Buffer.from([0, 0, 64, 1]), Buffer.concat([good, good]), frame({ format: "wrong", bookTs: instant }), frame({ ...observation(), bookTs: "x".repeat(65) }), Buffer.from([0, 0, 0, 1, 0xff])]) {
     const next = new Socket(); connect(next); next.emit("data", invalid); assert.equal(next.destroyed, true);
   }
   const partial = new Socket(); connect(partial); partial.emit("data", Buffer.from([0]));

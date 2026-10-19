@@ -45,6 +45,7 @@ function emptyWorkingState() {
     netLiquidationSeen: false,
     accountComplete: false,
     summaryComplete: false,
+    targetSummarySeen: false,
     openOrders: [],
     portfolio: new Map(),
   };
@@ -81,6 +82,7 @@ export function createBrokerSessionAdapter({
   let publishedGeneration = null;
   let lastError = null;
   let gatewayLastSeenAt = null;
+  let apiReplyCheckedAt = null;
 
   function isCurrent(api, attachedGeneration) {
     return activeApi === api && generation === attachedGeneration;
@@ -123,6 +125,7 @@ export function createBrokerSessionAdapter({
   }
 
   function markFinancialUnavailable(reason) {
+    apiReplyCheckedAt = null;
     upstreamConnected = false;
     resyncing = false;
     working = null;
@@ -268,6 +271,7 @@ export function createBrokerSessionAdapter({
     upstreamLossObserved = false;
     working = null;
     trackerEpoch = tracker.onDisconnected();
+    apiReplyCheckedAt = null;
 
     const guard = (event, handler) => (...args) => {
       if (!isCurrent(api, attachedGeneration)) return;
@@ -321,6 +325,8 @@ export function createBrokerSessionAdapter({
     api.on(eventNames.accountSummary, guard("accountSummary", (reqId, account, tag, value, currency) => {
       if (!working || reqId !== accountSummaryRequestId || account !== targetAccount) return;
       working.summary[tag] = { account, value, currency };
+      // Keep both NetLiquidation and TotalCashValue as the broker's raw text.
+      working.targetSummarySeen = true;
       if (tag === "NetLiquidation" && validSummaryNumber(value)) {
         working.netLiquidationSeen = true;
       }
@@ -332,6 +338,7 @@ export function createBrokerSessionAdapter({
       if (!working || reqId !== accountSummaryRequestId) return;
       working.summaryComplete = true;
       const observedAt = now();
+      if (working.targetSummarySeen) apiReplyCheckedAt = observedAt;
       publishIfReady(observedAt);
     }));
 
@@ -358,6 +365,7 @@ export function createBrokerSessionAdapter({
       if (!working) return;
       if (!tracker.onPositionEnd(trackerEpoch)) return;
       const observedAt = now();
+      apiReplyCheckedAt = observedAt;
       publishIfReady(observedAt);
     }));
 
@@ -489,6 +497,7 @@ export function createBrokerSessionAdapter({
         gateway: upstreamConnected,
         localSocket: socketConnected,
         gatewayLastSeenAt,
+        apiReplyCheckedAt,
         lastError,
       };
     },

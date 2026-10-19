@@ -5,10 +5,11 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
+import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
-export const CONTRACT_SHA = "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d";
+export const CONTRACT_SHA = "a7f937ab012b03695e2d94685fd5c50b8d1309810a88bf0331d3cdf3d2f727f9";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const stateFormat = "ops392.v2-sequence-state.v1";
 const pairFormat = "ops392.v2-stage-pair.v1";
@@ -32,27 +33,81 @@ const freeze = value => {
   if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); }
   return value;
 };
-const observationId = instant => JSON.stringify(["ops392.phase-a.v1", instant]);
+const observationId = instant => JSON.stringify(["ops392.switch-set.v2", instant]);
 
-export function buildCandidate(seq, generatedAt) {
+export function validObservation(value) {
+  const raw = item => item === null || (exactKeys(item, "value,currency") && typeof item.value === "string"
+    && item.value.length <= 32 && typeof item.currency === "string" && item.currency.length <= 3);
+  return exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions") && value.format === FRAME_FORMAT
+    && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
+    && (value.apiReplyCheckedAt === null || canonical(value.apiReplyCheckedAt))
+    && Array.isArray(value.positions) && value.positions.length <= 256 && value.positions.every(row =>
+      exactKeys(row, "symbol,side,desk,scope") && typeof row.symbol === "string" && /^[A-Z0-9][A-Z0-9._-]{0,15}$/.test(row.symbol)
+      && ["long", "short"].includes(row.side) && [null, "j", "joe", "joel"].includes(row.desk)
+      && row.scope === (["SXR8", "TSLA"].includes(row.symbol) ? "keep" : "stage0")
+      && (row.scope !== "keep" || row.desk === null));
+}
+
+export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = generatedAt, highWater = null) {
+  const checkedAt = observation.apiReplyCheckedAt;
+  let gateway;
+  if (canonical(checkedAt)) {
+    const age = Date.parse(generatedAt) - Date.parse(checkedAt);
+    const receiptAge = Date.parse(receivedAt) - Date.parse(checkedAt);
+    const reason = (age < 0 || receiptAge < 0) ? "clock_ahead"
+      : highWater && checkedAt < highWater ? "clock_regressed"
+        : age >= 60000 || receiptAge >= 60000 ? "gateway_unconfirmed" : null;
+    gateway = { apiSessionReady: !reason, checkedAt, ...(reason ? { reason } : {}) };
+  }
+  const accountMoney = item => gateway?.apiSessionReady && item?.currency === "EUR" && typeof item.value === "string"
+    && item.value.length <= 32 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,8})?$/.test(item.value)
+    ? { amount: item.value, currency: item.currency } : null;
+  const equity = accountMoney(observation.equity);
+  const cash = accountMoney(observation.cash);
+  const fields = ["quantity", "mark", "marketValue", "dayPnl", "openPnl"];
+  const row = (identity, reason) => ({ ...identity, ...Object.fromEntries(fields.map(f => [f, null])),
+    reasons: { ...Object.fromEntries(fields.map(f => [f, reason])),
+      ...(identity.scope !== "keep" && identity.desk === null ? { desk: "desk_unmapped" } : {}) } });
+  const reported = observation.positions || [];
+  const rows = reported.map(identity => row({ ...identity, ...(identity.scope === "keep" ? { desk: null } : {}) }, "not_exact_yet"));
+  for (const symbol of ["SXR8", "TSLA"]) {
+    if (!rows.some(item => item.symbol === symbol)) rows.push(row({ symbol, side: "long", desk: null, scope: "keep" }, "source_unavailable"));
+  }
   const money = () => ({
     equity: null, dayPnl: null, openPnl: null, totalPnl: null,
-    reasons: { equity: "source_not_authoritative", dayPnl: "source_not_authoritative", openPnl: "source_not_authoritative", totalPnl: "source_not_authoritative" },
+    reasons: { equity: "not_exact_yet", dayPnl: "not_exact_yet", openPnl: "not_exact_yet", totalPnl: "not_exact_yet" },
   });
   return {
     schema: "inspr.joe.household.v2", seq, generatedAt, mode: "PAPER", currency: "EUR",
     source: { kind: "live-ib-api", label: "hsb0 joe-board-pusher (paper Gateway projection)" },
-    safety: { halt: false, haltReason: null },
+    safety: { halt: false, haltReason: null, ...(gateway ? { gateway } : {}) },
     desks: [["j", "J"], ["joe", "Joe"], ["joel", "Joel"]].map(([id, label]) => ({
       id, label, state: "sit-out", action: "Valuation unavailable pending exact source validation.", money: money(),
     })),
     totals: money(),
+    brokerAccount: { scope: "paper-account-including-keep", observedAt: generatedAt, equity, cash,
+      ...(!equity ? { reason: "source_unavailable" } : {}), ...(!cash ? { reasons: { cash: "source_unavailable" } } : {}) },
+    positions: { source: "live-ib-api", observedAt: generatedAt, rows,
+      ...(!gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
   };
 }
 
-export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, floor) {
+export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, floor, highWater = null) {
   if (candidate.seq <= floor) return { status: 422, reason: "sequence_replayed" };
-  return acceptSnapshot("data", candidate, previous, receivedAt);
+  const accepted = acceptSnapshot("data", candidate, previous, receivedAt);
+  if (accepted.status !== 200) return accepted;
+  const checkedAt = candidate.safety.gateway?.checkedAt;
+  // Match the board's post-acceptance gate, including unconfirmed old replies.
+  if (canonical(checkedAt) && checkedAt <= candidate.generatedAt && highWater && checkedAt < highWater) {
+    return { status: 422, reason: "clock_regressed" };
+  }
+  // If the local clock regressed between source and receipt, the board would
+  // otherwise advance this check (age relative to generatedAt is nonnegative).
+  // Skip the pair rather than create a watermark mismatch with the board.
+  if (canonical(checkedAt) && checkedAt <= candidate.generatedAt && checkedAt > receivedAt) {
+    return { status: 422, reason: "clock_ahead" };
+  }
+  return accepted;
 }
 
 // Synchronous durable operations run only inside the separately limited worker.
@@ -141,10 +196,11 @@ export class StageStore {
     if (!exactKeys(state, "format,floor,lastReservedSeq,lastObservationId,lastGeneratedAt,lastGatewayCheckedAt")
       || state.format !== stateFormat || state.floor !== 0
       || !Number.isSafeInteger(state.lastReservedSeq) || state.lastReservedSeq < state.floor
-      || state.lastGatewayCheckedAt !== null) fail();
+      || (state.lastGatewayCheckedAt !== null && (!canonical(state.lastGatewayCheckedAt) || state.lastGatewayCheckedAt > state.lastGeneratedAt))) fail();
     if (state.lastReservedSeq === 0) {
-      if (state.lastObservationId !== null || state.lastGeneratedAt !== null) fail();
-    } else if (!canonical(state.lastGeneratedAt) || state.lastObservationId !== observationId(state.lastGeneratedAt)) fail();
+      if (state.lastObservationId !== null || state.lastGeneratedAt !== null || state.lastGatewayCheckedAt !== null) fail();
+    } else if (!canonical(state.lastGeneratedAt) || (state.lastObservationId !== observationId(state.lastGeneratedAt)
+      && !(state.lastGatewayCheckedAt === null && state.lastObservationId === JSON.stringify(["ops392.phase-a.v1", state.lastGeneratedAt])))) fail();
   }
   readPair(name) {
     if (!/^pair-[1-9]\d{0,15}$/.test(name)) fail();
@@ -160,9 +216,30 @@ export class StageStore {
       || receipt.generatedAdvancedAt > receipt.stagedReceivedAt
       || receipt.snapshotSha256 !== sha(bytes) || receipt.contractSetSha256 !== CONTRACT_SHA
       || !this.validateContract("data", snapshot, { stage: "ingress" }).ok
-      || JSON.stringify(snapshot) !== JSON.stringify(buildCandidate(snapshot.seq, snapshot.generatedAt))
+      || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
     return { value: { ...snapshot, receivedAt: receipt.stagedReceivedAt }, generatedAdvancedAt: receipt.generatedAdvancedAt };
+  }
+  validProjection(snapshot) {
+    // Recovery verifies the closed switch-set shape without reclassifying old
+    // checks against today's clock or inventing raw broker evidence.
+    const expected = buildCandidate(snapshot.seq, snapshot.generatedAt);
+    if (JSON.stringify(Object.keys(snapshot).sort()) !== JSON.stringify(Object.keys(expected).sort())) return false;
+    for (const field of ["schema", "seq", "generatedAt", "mode", "currency", "source", "desks", "totals"]) {
+      if (JSON.stringify(snapshot[field]) !== JSON.stringify(expected[field])) return false;
+    }
+    if (!exactKeys(snapshot.safety, snapshot.safety.gateway ? "halt,haltReason,gateway" : "halt,haltReason")
+      || snapshot.safety.halt !== false || snapshot.safety.haltReason !== null) return false;
+    const account = snapshot.brokerAccount;
+    if (account.scope !== expected.brokerAccount.scope || account.observedAt !== snapshot.generatedAt
+      || Object.hasOwn(account, "accountHint") || (!account.equity && account.reason !== "source_unavailable")
+      || (!account.cash && account.reasons?.cash !== "source_unavailable")) return false;
+    const positions = snapshot.positions;
+    return positions.source === "live-ib-api" && positions.observedAt === snapshot.generatedAt
+      && ["SXR8", "TSLA"].every(symbol => positions.rows.some(row => row.symbol === symbol && row.scope === "keep" && row.desk === null))
+      && positions.rows.every(row => exactKeys(row, "symbol,side,desk,scope,quantity,mark,marketValue,dayPnl,openPnl,reasons")
+        && ["quantity", "mark", "marketValue", "dayPnl", "openPnl"].every(field => row[field] === null
+          && ["not_exact_yet", "source_unavailable"].includes(row.reasons?.[field])));
   }
   checkResidue(name, state) {
     if (name === ".sequence-state.tmp" || name === ".current.tmp") { this.read(name, 4096); return; }
@@ -199,6 +276,9 @@ export class StageStore {
       current = pointer.pair;
       if (previous.value.seq <= state.floor || previous.value.seq > state.lastReservedSeq
         || previous.value.generatedAt > state.lastGeneratedAt
+        || (previous.value.safety.gateway?.checkedAt <= previous.value.generatedAt
+          && previous.value.safety.gateway.checkedAt <= previous.value.receivedAt
+          && (!state.lastGatewayCheckedAt || previous.value.safety.gateway.checkedAt > state.lastGatewayCheckedAt))
         || (previous.value.seq === state.lastReservedSeq && previous.value.generatedAt !== state.lastGeneratedAt)) fail();
     }
     const residue = names.filter(name => ![".allocator.lock", "sequence-state.json", "current.json", current].includes(name));
@@ -210,8 +290,12 @@ export class StageStore {
     Object.assign(this, { state, previous, current });
     return this;
   }
-  stage(bookTs, now = () => new Date().toISOString()) {
+  stage(observation, now = () => new Date().toISOString()) {
     if (this.disabled) fail();
+    // Scalar input remains useful to the allocator/crash tests; the wire only
+    // accepts the closed v2 frame through validObservation.
+    if (typeof observation === "string") observation = { bookTs: observation };
+    const bookTs = observation?.bookTs;
     const generatedAt = normalizeBookTs(bookTs);
     if (!generatedAt || (this.state.lastGeneratedAt && generatedAt < this.state.lastGeneratedAt)) return { status: 422, reason: "source_time_invalid" };
     if (this.state.lastReservedSeq === Number.MAX_SAFE_INTEGER) { this.disabled = true; fail(); }
@@ -219,15 +303,20 @@ export class StageStore {
       const state = { ...this.state, lastReservedSeq: this.state.lastReservedSeq + 1, lastObservationId: observationId(generatedAt), lastGeneratedAt: generatedAt };
       this.atomic("sequence-state.json", state, "reserve");
       this.state = state;
-      const candidate = buildCandidate(state.lastReservedSeq, generatedAt);
-      if (!this.validateContract("data", candidate, { stage: "ingress" }).ok) fail();
+      const stagedReceivedAt = now();
+      if (!canonical(stagedReceivedAt)) fail();
+      const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt);
+      if (!this.validProjection(candidate) || !this.validateContract("data", candidate, { stage: "ingress" }).ok) return { status: 422, reason: "contract_invalid" };
       const bytes = Buffer.from(JSON.stringify(candidate));
       if (bytes.length > 262144) fail();
       freeze(candidate);
-      const stagedReceivedAt = now();
-      if (!canonical(stagedReceivedAt)) fail();
-      const accepted = acceptStage(this.acceptSnapshot, candidate, this.previous, stagedReceivedAt, state.floor);
+      const accepted = acceptStage(this.acceptSnapshot, candidate, this.previous, stagedReceivedAt, state.floor, state.lastGatewayCheckedAt);
       if (accepted.status !== 200) return { status: accepted.status, reason: accepted.reason };
+      const checkedAt = candidate.safety.gateway?.checkedAt;
+      if (canonical(checkedAt) && checkedAt <= generatedAt && checkedAt <= stagedReceivedAt && checkedAt !== state.lastGatewayCheckedAt) {
+        state.lastGatewayCheckedAt = checkedAt;
+        this.atomic("sequence-state.json", state, "gateway");
+      }
       const receipt = {
         format: pairFormat, stagedReceivedAt, seq: candidate.seq, generatedAt,
         generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes), contractSetSha256: CONTRACT_SHA,
@@ -287,7 +376,7 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
   const server = createServer(socket => {
     if (active) { socket.destroy(); return; }
     active = socket;
-    let buffer = Buffer.alloc(4100);
+    let buffer = Buffer.alloc(MAX_FRAME_BYTES + 4);
     let used = 0;
     let length = null;
     let busy = false;
@@ -301,7 +390,7 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
       chunk.copy(buffer, used); used += chunk.length;
       if (length === null && used >= 4) {
         length = buffer.readUInt32BE();
-        if (length < 1 || length > 4096) { socket.destroy(); return; }
+        if (length < 1 || length > MAX_FRAME_BYTES) { socket.destroy(); return; }
       }
       if (length === null || used < length + 4) return;
       if (used !== length + 4) { socket.destroy(); return; }
@@ -313,18 +402,18 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
         const text = new TextDecoder("utf-8", { fatal: true }).decode(payload);
         observation = JSON.parse(text);
       } catch { socket.destroy(); notify({ event: "job_done", outcome: "skipped" }); return; }
-      if (!exactKeys(observation, "format,bookTs") || observation.format !== "ops392.phase-a-observation.v1" || typeof observation.bookTs !== "string" || observation.bookTs.length > 64) {
+      if (!validObservation(observation)) {
         socket.destroy(); notify({ event: "job_done", outcome: "skipped" }); return;
       }
       try {
-        const result = store.stage(observation.bookTs);
+        const result = store.stage(observation);
         notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped" });
       } catch {
         notify({ event: "disabled" });
         socket.destroy(); server.close();
         return;
       }
-      buffer = Buffer.alloc(4100); used = 0; length = null; busy = false;
+      buffer = Buffer.alloc(MAX_FRAME_BYTES + 4); used = 0; length = null; busy = false;
       if (!socket.destroyed) socket.write(Buffer.from([0x01]));
     });
     socket.write(Buffer.from([0x01]));

@@ -14,6 +14,10 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
   const eur = (money, path) => {
     if (money && money.currency !== 'EUR') fail(path, 'EUR');
   };
+  const unavailable = (value, path, reason, session = false) => {
+    if (session && value != null) fail(path, 'sessionUnavailable');
+    if ((session || value == null) && !reason) fail(path, 'reasonRequired');
+  };
   function walk(value, path) {
     if (!value || typeof value !== 'object') return;
     if (Object.hasOwn(value, 'amount') && Object.hasOwn(value, 'currency') && value.fx) {
@@ -50,6 +54,11 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
       }
     });
     eur(payload.brokerAccount?.equity, '$.brokerAccount.equity');
+    const account = payload.brokerAccount;
+    if (account && Object.hasOwn(account, 'cash')) {
+      eur(account.cash, '$.brokerAccount.cash');
+      unavailable(account.cash, '$.brokerAccount.cash', account.reasons?.cash);
+    }
     checkDeskSum(payload.desks, payload.totals, '$.totals');
     for (const [kind, field] of [['day', 'dayPnl'], ['open', 'openPnl']]) {
       const source = payload.pnlSources?.[kind];
@@ -64,6 +73,10 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
     payload.positions?.rows.forEach((p, i) => {
       if ((KEEP.includes(p.symbol) && p.scope !== 'keep') || (p.scope === 'keep' && p.desk !== null)) fail(`$.positions.rows[${i}]`, 'keepExcluded');
       if (p.scope === 'stage0' && !DESKS.includes(p.desk)) fail(`$.positions.rows[${i}]`, 'deskRequired');
+      for (const field of ['quantity', 'mark', 'marketValue', 'dayPnl', 'openPnl']) {
+        if (Object.hasOwn(p, field)) unavailable(p[field], `$.positions.rows[${i}].${field}`,
+          p.reasons?.[field] || (gatewayReason(payload.safety.gateway, payload.generatedAt) && payload.positions.reason));
+      }
       for (const field of ['mark', 'marketValue', 'dayPnl', 'openPnl']) {
         if (p[field] && p.mark && p[field].currency !== p.mark.currency) fail(`$.positions.rows[${i}].${field}`, 'nativeCurrency');
       }
@@ -78,17 +91,16 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
       payload.desks.forEach((desk, i) => {
         if (desk.moneyEvidence) fail(`$.desks[${i}].moneyEvidence`, 'sessionUnavailable');
       });
-      const unavailable = (value, path, reason) => {
-        if (value != null) fail(path, 'sessionUnavailable');
-        if (!reason) fail(path, 'reasonRequired');
-      };
       for (const [bag, path] of [[payload.totals, '$.totals'],
         ...payload.desks.map((d, i) => [d.money, `$.desks[${i}].money`])]) {
         for (const field of FIELDS) if (Object.hasOwn(bag, field)) {
-          unavailable(bag[field], `${path}.${field}`, bag.reasons?.[field]);
+          unavailable(bag[field], `${path}.${field}`, bag.reasons?.[field], true);
         }
       }
-      if (payload.brokerAccount) unavailable(payload.brokerAccount.equity, '$.brokerAccount.equity', payload.brokerAccount.reason);
+      if (account) {
+        unavailable(account.equity, '$.brokerAccount.equity', account.reason, true);
+        if (Object.hasOwn(account, 'cash')) unavailable(account.cash, '$.brokerAccount.cash', account.reasons?.cash, true);
+      }
       if (payload.positions) {
         if (!payload.positions.reason) fail('$.positions.reason', 'reasonRequired');
         payload.positions.rows.forEach((row, i) => {

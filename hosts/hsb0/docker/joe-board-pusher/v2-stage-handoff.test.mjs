@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import test, { before, after } from "node:test";
-import { createStageHandoff } from "./v2-stage-handoff.mjs";
+import { createStageHandoff, copyObservation, FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
 import { runPusher } from "./fixtures/pusher-harness.mjs";
 
 const file = "hosts/hsb0/docker/joe-board-pusher/pusher.mjs";
@@ -26,6 +26,7 @@ before(() => {
 });
 after(() => { if (baselineRoot) spawnSync("trash", [baselineRoot]); });
 const instant = "2026-10-19T07:00:00.000Z";
+const source = { book: { ts: instant, summary: {}, positions: [] } };
 class Socket extends EventEmitter {
   writable = true; writableLength = 0; destroyed = false; connecting = false;
   writes = []; result = true;
@@ -42,33 +43,33 @@ function handoff() {
 test("unrecognized socket setting cannot select a network destination", () => {
   let created = false;
   const adapter = createStageHandoff({ socketPath: "unexpected", makeSocket() { created = true; } });
-  assert.equal(adapter.offer(instant), false); assert.equal(created, false); adapter.stop();
+  assert.equal(adapter.offer(source), false); assert.equal(created, false); adapter.stop();
 });
 
 test("one 0x01 credit permits one uint32-be bounded scalar frame, including backpressure", () => {
   const { adapter, sockets } = handoff(); const socket = sockets[0];
-  assert.equal(adapter.offer(instant), false);
+  assert.equal(adapter.offer(source), false);
   socket.emit("data", Buffer.from([1])); socket.result = false;
-  assert.equal(adapter.offer(instant), false);
-  assert.equal(adapter.offer(instant), false); assert.equal(socket.writes.length, 1);
+  assert.equal(adapter.offer(source), false);
+  assert.equal(adapter.offer(source), false); assert.equal(socket.writes.length, 1);
   const frame = socket.writes[0];
   assert.equal(frame.readUInt32BE(), frame.length - 4);
-  assert.ok(frame.readUInt32BE() <= 4096);
-  assert.deepEqual(JSON.parse(frame.subarray(4)), { format: "ops392.phase-a-observation.v1", bookTs: instant });
+  assert.ok(frame.readUInt32BE() <= MAX_FRAME_BYTES);
+  assert.deepEqual(JSON.parse(frame.subarray(4)), copyObservation(source));
   socket.emit("data", Buffer.from([1])); socket.writableLength = 1;
-  assert.equal(adapter.offer(instant), false); socket.writableLength = 0;
-  assert.equal(adapter.offer("x".repeat(65)), false);
-  socket.result = true; assert.equal(adapter.offer(instant), true);
+  assert.equal(adapter.offer(source), false); socket.writableLength = 0;
+  assert.equal(adapter.offer({ book: { ts: "x".repeat(65) } }), false);
+  socket.result = true; assert.equal(adapter.offer(source), true);
   assert.equal(socket.writes.length, 2); adapter.stop();
 });
 
 for (const code of ["EPIPE", "ECONNRESET", "ERR_STREAM_DESTROYED"]) test(`${code} drops credit and reconnects outside offer only after close`, () => {
   const { adapter, sockets, deferred } = handoff(); const socket = sockets[0];
   socket.emit("data", Buffer.from([1])); socket.failure = Object.assign(new Error("synthetic"), { code });
-  assert.doesNotThrow(() => adapter.offer(instant)); assert.equal(socket.destroyed, true);
+  assert.doesNotThrow(() => adapter.offer(source)); assert.equal(socket.destroyed, true);
   assert.equal(deferred.length, 0); assert.equal(sockets.length, 1);
   socket.emit("error", socket.failure); socket.emit("close");
-  assert.equal(deferred.length, 1); assert.equal(adapter.offer(instant), false);
+  assert.equal(deferred.length, 1); assert.equal(adapter.offer(source), false);
   deferred.shift()(); assert.equal(sockets.length, 2); adapter.stop();
 });
 
