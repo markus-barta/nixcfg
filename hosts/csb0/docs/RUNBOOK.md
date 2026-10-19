@@ -818,7 +818,7 @@ Pusher and executor already use never. Never restore the entire old nixcfg
 revision or silently discard intervening host changes. Review the affected
 source paths from the release set and check their recorded source trees.
 
-On csb0, run `just rollback-joedesk` (or pass the private record path). The
+On csb0, run `just rollback-joedesk` (or `--record` another `.json` file directly in `/var/lib/joedesk-rollback/`). The
 command refuses every other host and noninteractive use, asks y/N before
 each action, and prints exact cross-host commands instead of using SSH.
 Before any stop, it fetches main and verifies that the exact recorded commit

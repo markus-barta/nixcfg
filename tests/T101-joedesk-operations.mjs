@@ -35,6 +35,19 @@ function put(dir, name, value) {
     { mode: 0o600 },
   );
 }
+function operatorRecordIO(dir) {
+  return {
+    ...fs,
+    openSync(file, ...args) {
+      assert.equal(path.dirname(file), "/var/lib/joedesk-rollback");
+      return fs.openSync(path.join(dir, path.basename(file)), ...args);
+    },
+    lstatSync(file) {
+      assert.equal(file, "/var/lib/joedesk-rollback");
+      return fs.lstatSync(dir);
+    },
+  };
+}
 function seed(dir) {
   fs.mkdirSync(dir, { mode: 0o700 });
   put(
@@ -319,18 +332,21 @@ test("rollback plan binds exact set, images, generations and cross-host commands
     hsb0_checkout: "/srv/nixcfg",
   };
   const dir = root(),
-    recordFile = path.join(dir, "record.json");
+    recordFile = path.join(dir, "record.json"),
+    recordPath = "/var/lib/joedesk-rollback/record.json",
+    io = operatorRecordIO(dir);
   put(dir, "record.json", record);
-  assert.deepEqual(readOperatorRecord(recordFile), record);
+  assert.deepEqual(readOperatorRecord(recordPath, io), record);
   fs.chmodSync(recordFile, 0o644);
   assert.throws(
-    () => readOperatorRecord(recordFile),
+    () => readOperatorRecord(recordPath, io),
     /private_operator_record_required/,
   );
   fs.chmodSync(recordFile, 0o600);
   fs.symlinkSync(recordFile, path.join(dir, "linked-record.json"));
   assert.throws(
-    () => readOperatorRecord(path.join(dir, "linked-record.json")),
+    () =>
+      readOperatorRecord("/var/lib/joedesk-rollback/linked-record.json", io),
     /private_operator_record_required/,
   );
   const open = fs.openSync;
@@ -345,7 +361,7 @@ test("rollback plan binds exact set, images, generations and cross-host commands
     return fd;
   });
   try {
-    assert.deepEqual(readOperatorRecord(recordFile), record);
+    assert.deepEqual(readOperatorRecord(recordPath, io), record);
     assert.equal(
       replaced,
       true,
@@ -387,6 +403,93 @@ test("rollback plan binds exact set, images, generations and cross-host commands
     { v1_backup: "relative" },
   ])
     assert.throws(() => rollbackPlan({ ...record, ...patch }, release));
+});
+
+test("operator records accept the default and private filenames in the fixed root", async () => {
+  const { readOperatorRecord } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
+  const dir = root(),
+    io = operatorRecordIO(dir),
+    record = { synthetic: true };
+  put(dir, "record.json", record);
+  put(dir, "Review_2026-10.19.json", record);
+  assert.deepEqual(readOperatorRecord(undefined, io), record);
+  assert.deepEqual(
+    readOperatorRecord("/var/lib/joedesk-rollback/Review_2026-10.19.json", io),
+    record,
+  );
+  fs.chmodSync(path.join(dir, "record.json"), 0o644);
+  assert.throws(
+    () => readOperatorRecord(undefined, io),
+    /private_operator_record_required/,
+    "the default must still reach the descriptor permission checks",
+  );
+});
+
+test("operator record paths reject traversal, subdirectories and other names before opening", async () => {
+  const { readOperatorRecord } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
+  const io = {
+    openSync() {
+      assert.fail("invalid paths must be rejected before open");
+    },
+  };
+  for (const file of [
+    "../x.json",
+    "/var/lib/joedesk-rollback/../x.json",
+    "/var/lib/joedesk-rollback/nested/../x.json",
+    "/var/lib/joedesk-rollback/nested/x.json",
+    "/private/x.json",
+    "/var/lib/joedesk-rollback-other/x.json",
+    "/var/lib/joedesk-rollback/record.txt",
+    "/var/lib/joedesk-rollback/.json",
+    "/var/lib/joedesk-rollback/bad name.json",
+    "/var/lib/joedesk-rollback/record.json\n",
+  ])
+    assert.throws(
+      () => readOperatorRecord(file, io),
+      /private_operator_record_required/,
+      file,
+    );
+});
+
+test("operator records reject symlinked, exposed or foreign-owned parent directories", async () => {
+  const { readOperatorRecord } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
+  const dir = root(),
+    io = operatorRecordIO(dir),
+    record = { synthetic: true };
+  put(dir, "record.json", record);
+  io.readFileSync = () => assert.fail("unsafe parent must fail before reading");
+  for (const mode of [0o740, 0o704, 0o750, 0o705]) {
+    fs.chmodSync(dir, mode);
+    assert.throws(
+      () => readOperatorRecord(undefined, io),
+      /private_operator_record_required/,
+    );
+  }
+  fs.chmodSync(dir, 0o700);
+  const link = path.join(root(), "linked-parent");
+  fs.symlinkSync(dir, link);
+  const linkedIO = operatorRecordIO(link);
+  linkedIO.readFileSync = io.readFileSync;
+  assert.throws(
+    () => readOperatorRecord(undefined, linkedIO),
+    /private_operator_record_required/,
+  );
+  const parent = fs.lstatSync(dir);
+  io.lstatSync = () => ({
+    isDirectory: () => true,
+    mode: parent.mode,
+    uid: Math.max(uid, 0) + 1,
+  });
+  assert.throws(
+    () => readOperatorRecord(undefined, io),
+    /private_operator_record_required/,
+  );
 });
 
 test("Docker context precedence cannot send a workstation lab to a remote engine", async () => {

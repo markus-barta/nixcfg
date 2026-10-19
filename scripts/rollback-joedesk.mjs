@@ -167,14 +167,26 @@ export function rollbackPlan(record, release) {
     ],
   };
 }
-export function readOperatorRecord(recordPath) {
-  // The RUNBOOK permits a custom private record path without fixing its root.
+const OPERATOR_RECORD_ROOT = "/var/lib/joedesk-rollback";
+export function readOperatorRecord(
+  recordPath = OPERATOR_RECORD_ROOT + "/record.json",
+  io = fs,
+) {
+  const resolved = path.resolve(recordPath),
+    basename = path.basename(resolved);
+  if (
+    !resolved.startsWith(OPERATOR_RECORD_ROOT + path.sep) ||
+    path.dirname(resolved) !== OPERATOR_RECORD_ROOT ||
+    recordPath.split(path.sep).includes("..") ||
+    !/^[A-Za-z0-9._-]+\.json$/.test(basename)
+  )
+    throw new Error("private_operator_record_required");
   // Hold one no-follow descriptor through the checks and read: replacement of
   // the pathname cannot redirect the read after ownership/mode validation.
   let fd;
   try {
-    fd = fs.openSync(
-      recordPath,
+    fd = io.openSync(
+      path.join(OPERATOR_RECORD_ROOT, basename),
       fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
     );
   } catch (error) {
@@ -183,16 +195,23 @@ export function readOperatorRecord(recordPath) {
     throw error;
   }
   try {
-    const stat = fs.fstatSync(fd);
+    const parent = io.lstatSync(OPERATOR_RECORD_ROOT);
+    if (
+      !parent.isDirectory() ||
+      parent.mode & 0o077 ||
+      ![0, process.getuid()].includes(parent.uid)
+    )
+      throw new Error("private_operator_record_required");
+    const stat = io.fstatSync(fd);
     if (
       !stat.isFile() ||
       stat.mode & 0o077 ||
       ![0, process.getuid()].includes(stat.uid)
     )
       throw new Error("private_operator_record_required");
-    return JSON.parse(fs.readFileSync(fd));
+    return JSON.parse(io.readFileSync(fd));
   } finally {
-    fs.closeSync(fd);
+    io.closeSync(fd);
   }
 }
 async function main() {
@@ -203,8 +222,7 @@ async function main() {
   const values = process.argv.slice(2);
   if (values.length !== 0 && (values.length !== 2 || values[0] !== "--record"))
     throw new Error("usage");
-  const recordPath = values[1] || "/var/lib/joedesk-rollback/record.json";
-  const record = readOperatorRecord(recordPath);
+  const record = readOperatorRecord(values[1]);
   const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   process.chdir(repo);
   const release = JSON.parse(
