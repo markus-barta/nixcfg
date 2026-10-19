@@ -8,6 +8,8 @@
   ...
 }:
 let
+  # OPS-392: disable only staging for rollback; preserve its durable high water.
+  joeHouseholdV2StageEnabled = true;
   hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
   joeBoardPusherSource = lib.cleanSourceWith {
     name = "joe-board-pusher-source";
@@ -16,9 +18,14 @@ let
       path: type:
       let
         name = builtins.baseNameOf path;
+        relative = lib.removePrefix (toString ./docker/joe-board-pusher + "/") (toString path);
       in
       if type == "directory" then
-        name != "node_modules"
+        !builtins.elem name [
+          "node_modules"
+          "fixtures"
+          "tests"
+        ]
       else
         builtins.elem name [
           "Dockerfile"
@@ -28,7 +35,24 @@ let
           "install-official-sdk.py"
           "official-window-reader.py"
         ]
+        || builtins.elem relative [
+          "contracts.lock.json"
+          "contracts/common.schema.json"
+          "contracts/data.schema.json"
+          "contracts/fleet-config.schema.json"
+          "contracts/healthz.schema.json"
+          "contracts/history.schema.json"
+          "contracts/manifest.json"
+          "contracts/reason.schema.json"
+          "contracts/results.schema.json"
+        ]
         || (lib.hasSuffix ".mjs" name && !lib.hasSuffix ".test.mjs" name);
+  };
+  joeComposeBase = import ./docker/compose-spec.nix;
+  joeComposeSpec = joeComposeBase // {
+    services = builtins.removeAttrs joeComposeBase.services (
+      lib.optional (!joeHouseholdV2StageEnabled) "joe-household-v2-stage"
+    );
   };
   # Image tag is pinned explicitly below; source stays for build context + restart triggers.
 
@@ -84,7 +108,7 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@1adff7e7 nix/module.nix:44-278.
+  # Options: hausnetz@7f29f6df nix/module.nix:44-278.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
   # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
   # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
@@ -136,6 +160,10 @@ in
 
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
+  # Flag-off restores the previous matching pusher/executor image. Never retag it.
+  nixcfg.paperDeskExecutor.image = lib.mkIf (
+    !joeHouseholdV2StageEnabled
+  ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
   nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
   # capture runs fail-open in the executor while the producer stays off.
@@ -175,26 +203,48 @@ in
     # (verified live 2026-08-01) — reaps the retired watchtower container.
     removeOrphans = true;
     autoUpdate.enable = true;
-    autoUpdate.excludeFromPull = [ "joe-board-pusher" ];
-    # Paper joe-board-pusher: pin the validated cancel-after-mark + reconcile-perf
-    # image so compose recreate cannot rebuild/reuse exclusive-era
-    # source-3594180a. Keep the filtered source in the closure (and as a
-    # restart trigger) for intentional rebuilds; bump the concrete tag when
-    # promoting a new paper image. pull_policy=never skips registry + rebuild.
-    spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) (
+    autoUpdate.excludeFromPull = [
+      "joe-board-pusher"
+    ]
+    ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
+    # OPS-392: a fresh immutable candidate shared with the executor; the
+    # previous tag remains available for flag-off rollback. No rebuild on switch.
+    spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
         {
           services.paper-desk-executor = config.nixcfg.paperDeskExecutor.serviceSpec;
           services.joe-board-pusher = {
             build = "${joeBoardPusherSource}";
-            image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+            image =
+              if joeHouseholdV2StageEnabled then
+                "hsb0-joe-board-pusher:household-v2-phase-a-202610190715"
+              else
+                "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
+          }
+          // lib.optionalAttrs joeHouseholdV2StageEnabled {
+            environment = joeComposeBase.services.joe-board-pusher.environment ++ [
+              "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
+            ];
+            volumes = joeComposeBase.services.joe-board-pusher.volumes ++ [
+              "/run/joe-household-v2:/run/joe-household-v2:rw"
+            ];
           };
         }
         (
-          lib.optionalAttrs config.nixcfg.agentMailbox.enable {
-            services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec;
-          }
+          lib.recursiveUpdate
+            (lib.optionalAttrs config.nixcfg.agentMailbox.enable {
+              services.agent-mailbox = config.nixcfg.agentMailbox.serviceSpec;
+            })
+            (
+              lib.optionalAttrs joeHouseholdV2StageEnabled {
+                services.joe-household-v2-stage = {
+                  build = "${joeBoardPusherSource}";
+                  image = "hsb0-joe-board-pusher:household-v2-phase-a-202610190715";
+                  pull_policy = "never";
+                };
+              }
+            )
         )
     );
   };
@@ -1124,6 +1174,8 @@ in
     "d /var/lib/ncps-db 0755 994 992 - -"
     # Official node:22-alpine runs the Dockerfile's USER node as uid/gid 1000.
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
+    "d /var/lib/joe-board-pusher/v2 0700 1000 1000 - -"
+    "d /run/joe-household-v2 0700 1000 1000 - -"
     # OPS-353: In-flight page content; mba pushes index.html, hsb0-home reads it (ro mount).
     "d /var/lib/inflight 0755 mba users - -"
     # OPS-380: video overview page content; mba pushes index.html, hsb0-home reads it (ro mount).

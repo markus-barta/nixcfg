@@ -380,6 +380,29 @@
       ];
     };
 
+    # OPS-392: staging only; independently limited and unable to reach a broker/inbox.
+    joe-household-v2-stage = {
+      container_name = "joe-household-v2-stage";
+      command = [
+        "node"
+        "v2-stage-supervisor.mjs"
+      ];
+      restart = "unless-stopped";
+      network_mode = "none";
+      mem_limit = "128m";
+      memswap_limit = "128m";
+      cpus = 0.25;
+      pids_limit = 32;
+      read_only = true;
+      cap_drop = [ "ALL" ];
+      security_opt = [ "no-new-privileges:true" ];
+      user = "1000:1000";
+      volumes = [
+        "/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw"
+        "/run/joe-household-v2:/run/joe-household-v2:rw"
+      ];
+    };
+
     # hsb0-home — HostDash service landing page for this host. Static HTML/CSS/JS
     # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
     # read-only from /etc.
