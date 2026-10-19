@@ -711,7 +711,11 @@ JOED-20 producer/executor activation and evidence remain separately owned.
    data. Fleet names csb*, hsb*, agm\* and remote Docker contexts are refused.
    The engine name from `docker info` must also be outside those fleet prefixes.
    The default private lab parent is `~/.cache/joedesk-rehearsal/`, inside
-   Colima's HOME mount; `--lab-root PATH` chooses another parent. Before using
+   Colima's HOME mount; `--lab-root PATH` must be that parent or a directory
+   beneath it, the system temporary directory (`os.tmpdir()`), or `/tmp`
+   (`/private/tmp` on macOS), including their descendants. Paths are resolved
+   before any source work or lab writes; other parents fail with
+   `lab_root_outside_allowed_parents`. Before using
    any lab data, a disposable container must read its marker or the rehearsal
    fails with `lab_root_not_visible_to_docker`. The edge publishes loopback on
    bridge, then joins the internal-only board/auth network; JSON config is

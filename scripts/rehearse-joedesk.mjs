@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { docker, requireLabDocker, runningImage } from "./joedesk-docker.mjs";
 import { legacySmoke } from "./joedesk-legacy-smoke.mjs";
+import { validateLabRoot } from "./joedesk-lab-paths.mjs";
 const V1 = "db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
 const V2 = "dafe7909af04ba5ded3c4b55504ea10970e07e4d";
 const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -28,9 +29,8 @@ export function requireWorkstation(hostname = os.hostname()) {
   if (/^(csb|hsb|agm)/i.test(hostname.split(".")[0]))
     throw new Error("fleet_is_not_a_lab");
 }
-export function createLabRoot(
-  base = path.join(os.homedir(), ".cache/joedesk-rehearsal"),
-) {
+export function createLabRoot(base) {
+  base = validateLabRoot(base);
   fs.mkdirSync(base, { recursive: true, mode: 0o700 });
   const root = fs.mkdtempSync(path.join(fs.realpathSync(base), "ops354-"));
   fs.chmodSync(root, 0o700);
@@ -350,12 +350,14 @@ async function main() {
     labRoot,
     dryRun = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--source") source = fs.realpathSync(args[++i]);
+    if (args[i] === "--source" && args[i + 1]) source = args[++i];
     else if (args[i] === "--lab-root" && args[i + 1])
       labRoot = path.resolve(args[++i]);
     else if (args[i] === "--dry-run") dryRun = true;
     else throw new Error("usage");
   }
+  labRoot = validateLabRoot(labRoot); // Before source reads or any lab writes.
+  if (source) source = fs.realpathSync(source);
   if (!source || run("git", ["-C", source, "rev-parse", "HEAD"]).trim() !== V2)
     throw new Error("exact_candidate_source_required");
   run(process.execPath, [

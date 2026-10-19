@@ -104,12 +104,12 @@ export function rollbackPlan(record, release) {
   for (const key of ["csb0_generation", "hsb0_generation"])
     if (!Number.isSafeInteger(record[key]) || record[key] < 1)
       throw new Error("retained_generations_required");
-  for (const key of [
-    "v1_backup",
-    "prepare_source",
-    "cookie_jar",
-    "hsb0_checkout",
-  ])
+  if (
+    !path.isAbsolute(record.cookie_jar || "") ||
+    /["\\\r\n]/.test(record.cookie_jar)
+  )
+    throw new Error("private_cookie_jar_required");
+  for (const key of ["v1_backup", "prepare_source", "hsb0_checkout"])
     if (!path.isAbsolute(record[key] || "") || /[\r\n]/.test(record[key]))
       throw new Error("absolute_private_paths_required");
   const hsbCompose =

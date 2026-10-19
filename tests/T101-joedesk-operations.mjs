@@ -357,6 +357,55 @@ test(
   },
 );
 
+test("rehearsal roots share fixed source parents and reject escapes before work", async () => {
+  const { labParents, validateLabRoot } = await import(
+    "../scripts/joedesk-lab-paths.mjs"
+  );
+  const { createLabRoot } = await import("../scripts/rehearse-joedesk.mjs");
+  const parents = labParents();
+  assert.equal(validateLabRoot(), parents[0]);
+  const defaultParent = path.join(os.homedir(), ".cache", "joedesk-rehearsal");
+  if (fs.existsSync(defaultParent))
+    assert.equal(parents[0], fs.realpathSync(defaultParent));
+  for (const parent of [os.tmpdir(), "/private/tmp"].filter(fs.existsSync)) {
+    const dir = createLabRoot(parent);
+    const candidate = path.join(dir, "v2-source");
+    fs.mkdirSync(candidate, { mode: 0o700 });
+    assert.equal(sourceRoot(candidate), candidate);
+    const nested = path.join(dir, "not-created", "nested");
+    assert.equal(validateLabRoot(nested), nested);
+    assert.equal(fs.existsSync(path.dirname(nested)), false);
+    fs.symlinkSync("/etc", path.join(dir, "escape"));
+    assert.throws(
+      () => createLabRoot(path.join(dir, "escape", "uncreated")),
+      /lab_root_outside_allowed_parents/,
+    );
+  }
+  const outside = "/etc/ops354-uncreated-lab";
+  assert.equal(fs.existsSync(outside), false);
+  for (const invalid of [outside, parents[0] + "-lookalike", "/etc"]) {
+    assert.throws(
+      () => createLabRoot(invalid),
+      /lab_root_outside_allowed_parents/,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        new URL("../scripts/rehearse-joedesk.mjs", import.meta.url).pathname,
+        "--source",
+        "/nonexistent-ops354-source",
+        "--lab-root",
+        invalid,
+        "--dry-run",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /lab_root_outside_allowed_parents/);
+  }
+  assert.equal(fs.existsSync(outside), false);
+});
+
 test("extracted labels retain exact rule, priority and strip-before-auth order", async () => {
   const { labelsToDynamic, requireWorkstation } = await import(
     "../scripts/rehearse-joedesk.mjs"
@@ -507,6 +556,28 @@ test("rollback plan binds exact set, images, generations and cross-host commands
     { v1_backup: "relative" },
   ])
     assert.throws(() => rollbackPlan({ ...record, ...patch }, release));
+  await t.test("unsafe cookie jars fail during rollback preflight", () => {
+    for (const character of ['"', "\\", "\r", "\n"])
+      assert.throws(
+        () =>
+          rollbackPlan(
+            { ...record, cookie_jar: "/private/cookie" + character + "jar" },
+            release,
+          ),
+        /private_cookie_jar_required/,
+      );
+    for (const cookie_jar of [undefined, "", "relative"])
+      assert.throws(
+        () => rollbackPlan({ ...record, cookie_jar }, release),
+        /private_cookie_jar_required/,
+      );
+    for (const cookie_jar of [
+      "/private/cookie jar",
+      "/private/#jar",
+      "/private/-jar",
+    ])
+      assert.ok(rollbackPlan({ ...record, cookie_jar }, release));
+  });
 });
 
 test("operator records accept the default and private filenames in the fixed root", async () => {
