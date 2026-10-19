@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
+import { createStageHandoff } from "./v2-stage-handoff.mjs";
 import { IBApi, EventName } from "@stoqey/ib";
 import {
   EXECUTION_CAPTURE_SCHEMA,
@@ -77,6 +78,9 @@ function parseIntervalSec() {
 }
 
 const INTERVAL_SEC = parseIntervalSec();
+const v2StageHandoff = process.env.JOE_V2_STAGE_SOCKET
+  ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET })
+  : null;
 let connectionSupervisor = null;
 let portfolioRefresh = null;
 let flatNetMarks = null;
@@ -357,32 +361,36 @@ async function pushOnce() {
     return { ok: false, error: "no token" };
   }
 
-  const res = await fetch(INBOX_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": "joe-board-pusher/1.0",
-    },
-    body: JSON.stringify(snap),
-  });
-  const text = await res.text();
-  let body;
   try {
-    body = JSON.parse(text);
-  } catch {
-    body = { raw: text.slice(0, 200) };
+    const res = await fetch(INBOX_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": "joe-board-pusher/1.0",
+      },
+      body: JSON.stringify(snap),
+    });
+    const text = await res.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { raw: text.slice(0, 200) };
+    }
+    const line = {
+      ok: res.ok,
+      status: res.status,
+      equity: snap.totals.equity,
+      generatedAt: snap.generatedAt,
+      gateway: adapter.connected,
+      inbox: body,
+    };
+    console.log(JSON.stringify(line));
+    return line;
+  } finally {
+    v2StageHandoff?.offer(book.ts);
   }
-  const line = {
-    ok: res.ok,
-    status: res.status,
-    equity: snap.totals.equity,
-    generatedAt: snap.generatedAt,
-    gateway: adapter.connected,
-    inbox: body,
-  };
-  console.log(JSON.stringify(line));
-  return line;
 }
 
 connectionSupervisor = createConnectionSupervisor({
@@ -456,6 +464,7 @@ const portfolioRefreshTimer = setInterval(() => {
 }, 5_000);
 
 function shutdown() {
+  v2StageHandoff?.stop();
   clearInterval(portfolioRefreshTimer);
   flatNetMarks?.reset();
   adapter.retire("shutdown");
