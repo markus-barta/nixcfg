@@ -155,7 +155,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      default = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+      default = "hsb0-joe-board-pusher:household-v2-phase-a-202610190715";
       description = "Pinned local image used only for Node and @stoqey/ib. The pusher service is unchanged.";
     };
 
