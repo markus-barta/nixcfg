@@ -1178,6 +1178,17 @@ a published exclusive migration backup permits migration. An existing regular
 backup is validated and kept immutable on `EEXIST`. HALT and both audit
 generations use the same writer; audit rotation copies the complete old generation
 before publishing the new one. The attribution journal publishes in the ledger.
+`audit()` reads the whole file and atomically rewrites up to 1 MiB, plus fsync
+per row. This is safe only while every caller is synchronous and runs in the
+single executor Node process. No second process (CLI or tool) may ever write
+`audit.jsonl`. Near a full volume, the rewrite needs about 1 MiB free where an
+append needed only one row.
+After HALT is published, an audit failure still returns HTTP 200 with
+`status: "halted"`, `active: true`, `source: "local"`, plus
+`durability: "uncertain"` and an allowlisted `durabilityCode` consistent with
+health diagnostics. The visible halt is retained; a failure before HALT
+publication keeps the existing error response. Repeated halt requests keep the
+halt active.
 Once a ledger rename or initial hard link succeeds, its published body becomes
 the in-memory state, including capture recovery, resolved receipts and delivery
 records. Initialization, migration, normal saves, delivery updates and OPS re-arm
