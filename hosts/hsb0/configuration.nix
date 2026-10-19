@@ -84,7 +84,7 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@8df6c92b nix/module.nix:44-278.
+  # Options: hausnetz@645bcb25 nix/module.nix:44-278.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
   # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
   # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
@@ -137,6 +137,9 @@ in
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
   nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
+  # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
+  # capture runs fail-open in the executor while the producer stays off.
+  nixcfg.paperDeskExecutor.resultsCaptureEnabled = true;
 
   # OPS-272 — caller identity comes from the tailnet source address.
   nixcfg.agentMailbox.enable = true;

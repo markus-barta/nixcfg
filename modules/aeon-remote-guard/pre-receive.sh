@@ -14,7 +14,7 @@ while read -r _old new ref; do
     if [[ $ref == refs/runs/* ]]; then
       run_count=$((run_count + 1))
       run_id=${ref#refs/runs/}
-      if [[ ! $run_id =~ ^[A-Za-z0-9._-]{1,64}$ || $run_id == . || $run_id == .. || $run_id == .reservation.* ]]; then
+      if [[ ! $run_id =~ ^[A-Za-z0-9._-]{1,64}$ || $run_id == . || $run_id == .. || $run_id == .reservation.* || $run_id == .recent-rounds ]]; then
         invalid_run=true
       fi
     fi
