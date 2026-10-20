@@ -1,4 +1,4 @@
-// Exact function bytes from db621bf (host) and dafe7909 (identity).
+// Exact function bytes from db621bf (host) and d36b5295 (identity).
 // Compare actual pinned source before evaluating these repository constants.
 export const legacyHostSource = String.raw`(function isCanonicalJoeHost(hostname) {
     var host = String(hostname || "").toLowerCase();

@@ -678,28 +678,51 @@ metadata for both evaluations (apply item 2 uncommitted to that baseline), so
 a configurationRevision change from different commits does not confound the
 comparison. Include the new JSON with `git add -N` for Git-backed flake
 evaluation. This is an evaluation comparison, with no build or switch.
-The worker's static proof covers csb0/hsb0 specs and executor image defaults;
-it does not claim this Linux derivation check passed.
+T100 compares the csb0 static spec against ed5e43d6, and hsb0 against main
+9b00f745: image, full Compose spec, executor service, units, firewall, users
+and real source derivation paths. It evaluates Linux packages in a disposable
+local store without building. The whole-host toplevel derivation comparison
+above remains a separate OPS gate; T100 does not claim it passed.
 
 ### OPS-354 cutover order and stopped-writer swap
 
 This is preparation, not permission to switch. Current active board remains
 db621bf (legacy `calendar`, 26.09.21.12.00, sequence 23, no matching tag). The
-inactive v2 source is published main dafe7909af04ba5ded3c4b55504ea10970e07e4d
-(JOED-41, PR #52), tree 6b614bb7cc14a2773a38b39fe3bde522ca522969,
-`inspr-calver-3` / 261016151218.0.0 / sequence 24. Contracts manifest revision
-7 has set SHA256 `3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d`;
+inactive v2 source is main d36b5295295a6901e36fdf2dc0d64353ddf88d0e
+(PR #58), tree ba066aaeebf193eab93154ca9e0335f7dbba9d28,
+`inspr-calver-3` / 261019102825.0.0 / sequence 25. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-50).
+Contracts manifest revision 9 has set SHA256
+`000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
 `release/contracts.json` SHA256 is
-`c48587f34ebbda801bd609d3a79efbe9257d497266198554554885175d0812a4`.
+`5c20c38be4602f6c142ece1c1abc65172306d504aa0a74d098e10bb15f78ef17`.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
-that historical status does not replace the immutable JOED-41 publication pin.
+the exact main commit and hashes identify this inactive candidate.
 JOED-20 producer/executor activation and evidence remain separately owned.
+
+The active v1 board stays on db621bf; the current pusher/executor records now
+match main 9b00f745 and image
+`hsb0-joe-board-pusher:household-v2-phase-a-202610190715`. Main's staging,
+local-mailbox wiring and source closure are retained. `previous` preserves
+the older flat-net downstream pins; it is historical rollback metadata.
+
+Compared with dafe7909, revision 9 adds optional paper-account cash with a
+per-field unavailability reason, per-field position reasons (including an
+unmapped desk), and stricter unavailable-value semantics. The read model adds
+a `paperCash` cell and accepts the older revision-7 state shape without losing
+sequence or last-good values. Contract schema IDs stay v2. Dockerfile,
+`server.mjs` routes/identity/health, `scripts/smoke-release.mjs`,
+`scripts/prepare-data.mjs` and `release/data-migration.mjs` are byte-identical;
+the existing fixture, backup/migrate/verify/restore and swap commands remain
+applicable. Re-extracted identity function bytes and the db621bf host gate are
+unchanged. Main's Phase A producer contracts are not revision-9 sign-off;
+JOED-20 must still supply compatible downstream pins and real evidence.
 
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
    `just rehearse-joedesk SOURCE` using the exact published checkout with the
-   legacy Git object available. The second command builds db621bf and dafe7909
+   legacy Git object available. The second command builds db621bf and d36b5295
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
@@ -867,7 +890,7 @@ item 1's exact GET/HEAD health.
 ### Separate Results ingress proposal — pending LEAD confirmation
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. Published dafe7909
+droppable review item; do not deploy it until LEAD confirms. Main candidate d36b5295
 includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
