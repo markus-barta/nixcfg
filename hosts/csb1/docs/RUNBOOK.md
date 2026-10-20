@@ -250,6 +250,8 @@ OPS is the writer: the operator uses rsync as `mba`; film files are write-once p
 
 Media is deliberately included in the nightly restic backup: the immutable files are deduplicated. There is no media exclude (INSPR-572).
 
+INSPR-576: tmpfiles creates `/home/mba/docker/inspr-at/admin` as `0755 mba:users`; `inspr-www` mounts it read-only at `/srv/admin`. VID's `vid-admin-upload` SSH key runs only nixpkgs `rrsync -no-del` within that directory: no deletion, shell, PTY, forwarding or user rc (`restrict`). Upload inside `admin/` without replacing or renaming the directory, so the bind mount keeps the same inode. Serving `paimos.com/admin` is gated on inspr-site #82's Caddyfile deployment and must remain behind the `inspr-auth` sign-in; this host change only prepares the write path and mount.
+
 ### Quick Commands
 
 ```bash

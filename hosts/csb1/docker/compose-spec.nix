@@ -1655,6 +1655,7 @@ in
         # Paths stay byte-identical to the legacy project on purpose.
         "/home/mba/docker/inspr-at/releases:/srv/releases:ro"
         "/home/mba/docker/inspr-at/media:/srv/media:ro"
+        "/home/mba/docker/inspr-at/admin:/srv/admin:ro"
         "/home/mba/docker/inspr-at/site:/srv/v1:ro"
         "/home/mba/docker/inspr-at/Caddyfile:/etc/caddy/Caddyfile:ro"
         "inspr_at_caddy_data:/data"
