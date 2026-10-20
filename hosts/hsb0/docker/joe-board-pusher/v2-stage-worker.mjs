@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
+import { validCycle, cycleId, cycleReceipt, validCycleReceipt, receiptBinding, frame } from "./v1-cycle.mjs";
 import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, deskState } from "./desk-activity.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
@@ -56,7 +57,9 @@ export function validObservation(value) {
       && typeof row.hasPositions === "boolean" && typeof row.hasOrders === "boolean"
       && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));
   }));
-  return validActivity && exactKeys(value, activity === undefined ? "format,bookTs,equity,cash,apiReplyCheckedAt,positions" : "format,bookTs,equity,cash,apiReplyCheckedAt,positions,deskActivity") && value.format === FRAME_FORMAT
+  return validActivity && (value?.v1Cycle === undefined || validCycle(value.v1Cycle))
+    && exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions"
+      + (activity === undefined ? "" : ",deskActivity") + (value.v1Cycle === undefined ? "" : ",v1Cycle")) && value.format === FRAME_FORMAT
     && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
     && (value.apiReplyCheckedAt === null || canonical(value.apiReplyCheckedAt))
     && Array.isArray(value.positions) && value.positions.length <= 256 && value.positions.every(row =>
@@ -218,7 +221,7 @@ export class StageStore {
       || (state.lastGatewayCheckedAt !== null && (!canonical(state.lastGatewayCheckedAt) || state.lastGatewayCheckedAt > state.lastGeneratedAt))) fail();
     if (state.lastReservedSeq === 0) {
       if (state.lastObservationId !== null || state.lastGeneratedAt !== null || state.lastGatewayCheckedAt !== null) fail();
-    } else if (!canonical(state.lastGeneratedAt) || (state.lastObservationId !== observationId(state.lastGeneratedAt)
+    } else if (!canonical(state.lastGeneratedAt) || (state.lastObservationId !== observationId(state.lastGeneratedAt) && !cycleId(state.lastObservationId)
       && !(state.lastGatewayCheckedAt === null && state.lastObservationId === JSON.stringify(["ops392.phase-a.v1", state.lastGeneratedAt])))) fail();
   }
   readPair(name) {
@@ -228,7 +231,10 @@ export class StageStore {
     const bytes = this.read(`${name}/snapshot.json`, 262144);
     const snapshot = JSON.parse(bytes);
     const receipt = this.json(`${name}/receipt.json`);
-    if (!exactKeys(receipt, "format,stagedReceivedAt,seq,generatedAt,generatedAdvancedAt,snapshotSha256,contractSetSha256")
+    const binding = receiptBinding(receipt);
+    if (!(Object.keys(binding).length === 0 || validCycleReceipt(binding))
+      || !exactKeys(receipt, "format,stagedReceivedAt,seq,generatedAt,generatedAdvancedAt,snapshotSha256,contractSetSha256"
+        + (Object.keys(binding).length ? ",v1Sha256,v1Status,v1RepliedAt,observationId,v1PostStatus" : ""))
       || receipt.format !== pairFormat || !positiveSeq(snapshot.seq) || name !== `pair-${snapshot.seq}`
       || receipt.seq !== snapshot.seq || receipt.generatedAt !== snapshot.generatedAt
       || !canonical(receipt.stagedReceivedAt) || !canonical(receipt.generatedAdvancedAt)
@@ -237,7 +243,8 @@ export class StageStore {
       || !this.validateContract("data", snapshot, { stage: "ingress" }).ok
       || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
-    return { value: { ...snapshot, receivedAt: receipt.stagedReceivedAt }, generatedAdvancedAt: receipt.generatedAdvancedAt };
+    return { value: { ...snapshot, receivedAt: receipt.stagedReceivedAt }, generatedAdvancedAt: receipt.generatedAdvancedAt,
+      observationId: receipt.observationId || null };
   }
   validProjection(snapshot) {
     // Recovery verifies the closed switch-set shape without reclassifying old
@@ -312,7 +319,10 @@ export class StageStore {
           if (newline > 1024) fail();
           const row = JSON.parse(pending.slice(0, newline));
           pending = pending.slice(newline + 1);
-          if (!exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256")
+          const binding = receiptBinding(row);
+          if (!(Object.keys(binding).length === 0 || validCycleReceipt(binding))
+            || !exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256"
+              + (Object.keys(binding).length ? ",v1Sha256,v1Status,v1RepliedAt,observationId,v1PostStatus" : ""))
             || row.format !== logFormat || !positiveSeq(row.seq) || row.seq <= this.lastReceiptSeq || row.seq > state.lastReservedSeq
             || !["staged", "committed", "rejected"].includes(row.outcome)
             || ![row.generatedAt, row.stagedReceivedAt, row.recordedAt].every(canonical)
@@ -321,7 +331,8 @@ export class StageStore {
           const pair = pairs.get(row.seq);
           if (pair) {
             if (row.outcome === "rejected" || row.pairSha256 !== pair.snapshotSha256
-              || row.generatedAt !== pair.generatedAt || row.stagedReceivedAt !== pair.stagedReceivedAt) fail();
+              || row.generatedAt !== pair.generatedAt || row.stagedReceivedAt !== pair.stagedReceivedAt
+              || JSON.stringify(binding) !== JSON.stringify(receiptBinding(pair))) fail();
             found.add(row.seq);
           }
         }
@@ -331,9 +342,9 @@ export class StageStore {
     } finally { this.io.closeSync(fd); }
     return found;
   }
-  appendReceipt(seq, outcome, generatedAt, stagedReceivedAt, pairSha256, recordedAt = new Date().toISOString()) {
+  appendReceipt(seq, outcome, generatedAt, stagedReceivedAt, pairSha256, recordedAt = new Date().toISOString(), binding = {}) {
     if (seq <= this.lastReceiptSeq) fail();
-    const bytes = Buffer.from(JSON.stringify({ format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256 }) + "\n");
+    const bytes = Buffer.from(JSON.stringify({ format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256, ...binding }) + "\n");
     const fd = this.io.openSync(this.check("receipts.jsonl", "file"), fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW);
     try {
       const stat = this.io.fstatSync(fd);
@@ -377,6 +388,8 @@ export class StageStore {
           && previous.value.safety.gateway.checkedAt <= previous.value.receivedAt
           && (!state.lastGatewayCheckedAt || previous.value.safety.gateway.checkedAt > state.lastGatewayCheckedAt))
         || (previous.value.seq === state.lastReservedSeq && previous.value.generatedAt !== state.lastGeneratedAt)) fail();
+      if (previous.value.seq === state.lastReservedSeq && cycleId(state.lastObservationId)
+        && previous.observationId !== state.lastObservationId) fail();
     }
     const residue = names.filter(name => ![".allocator.lock", "sequence-state.json", "current.json", "receipts.jsonl"].includes(name));
     const pairs = new Map();
@@ -392,7 +405,7 @@ export class StageStore {
     const found = this.openReceipts(state, pairs);
     for (const [seq, receipt] of [...pairs].sort((a, b) => a[0] - b[0])) {
       if (!found.has(seq)) this.appendReceipt(seq, `pair-${seq}` === current ? "committed" : "staged",
-        receipt.generatedAt, receipt.stagedReceivedAt, receipt.snapshotSha256);
+        receipt.generatedAt, receipt.stagedReceivedAt, receipt.snapshotSha256, undefined, receiptBinding(receipt));
     }
     Object.assign(this, { state, previous, current });
     for (const name of residue.filter(name => !name.startsWith("pair-"))) this.retire(name);
@@ -400,26 +413,42 @@ export class StageStore {
     this.prunePairs(names);
     return this;
   }
-  stage(observation, now = () => new Date().toISOString()) {
+  retainedSeqs() {
+    return this.names().filter(name => /^pair-[1-9]\d{0,15}$/.test(name)).map(name => Number(name.slice(5))).sort((a, b) => a - b);
+  }
+  reserve(observation) {
     if (this.disabled) fail();
-    // Scalar input remains useful to the allocator/crash tests; the wire only
-    // accepts the closed v2 frame through validObservation.
     if (typeof observation === "string") observation = { bookTs: observation };
-    const bookTs = observation?.bookTs;
-    const generatedAt = normalizeBookTs(bookTs);
+    const generatedAt = normalizeBookTs(observation?.bookTs);
     if (!generatedAt || (this.state.lastGeneratedAt && generatedAt < this.state.lastGeneratedAt)) return { status: 422, reason: "source_time_invalid" };
+    if (observation.v1Cycle?.observationId === this.state.lastObservationId) return { status: 422, reason: "cycle_replayed" };
     if (this.state.lastReservedSeq === Number.MAX_SAFE_INTEGER) { this.disabled = true; fail(); }
     try {
-      const state = { ...this.state, lastReservedSeq: this.state.lastReservedSeq + 1, lastObservationId: observationId(generatedAt), lastGeneratedAt: generatedAt };
+      const state = { ...this.state, lastReservedSeq: this.state.lastReservedSeq + 1,
+        lastObservationId: observation.v1Cycle?.observationId || observationId(generatedAt), lastGeneratedAt: generatedAt };
       this.atomic("sequence-state.json", state, "reserve");
       this.state = state;
+      return { status: 200, seq: state.lastReservedSeq };
+    } catch { this.disabled = true; fail(); }
+  }
+  stage(observation, now = () => new Date().toISOString(), reservation = null, stored = false) {
+    if (this.disabled) fail();
+    if (typeof observation === "string") observation = { bookTs: observation };
+    reservation ||= this.reserve(observation);
+    if (reservation.status !== 200) return reservation;
+    try {
+      const state = this.state;
+      const generatedAt = normalizeBookTs(observation.bookTs);
+      if (reservation.seq !== state.lastReservedSeq || generatedAt !== state.lastGeneratedAt
+        || state.lastObservationId !== (observation.v1Cycle?.observationId || observationId(generatedAt))) fail();
+      const binding = observation.v1Cycle ? cycleReceipt(observation.v1Cycle, stored) : {};
       const stagedReceivedAt = now();
       if (!canonical(stagedReceivedAt)) fail();
       const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt);
       const bytes = Buffer.from(JSON.stringify(candidate));
       if (bytes.length > 262144) fail();
       const reject = (status, reason) => {
-        this.appendReceipt(candidate.seq, "rejected", generatedAt, stagedReceivedAt, sha(bytes));
+        this.appendReceipt(candidate.seq, "rejected", generatedAt, stagedReceivedAt, sha(bytes), undefined, binding);
         return { status, reason, seq: candidate.seq };
       };
       if (!this.validProjection(candidate) || !this.validateContract("data", candidate, { stage: "ingress" }).ok) return reject(422, "contract_invalid");
@@ -433,7 +462,7 @@ export class StageStore {
       }
       const receipt = {
         format: pairFormat, stagedReceivedAt, seq: candidate.seq, generatedAt,
-        generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes), contractSetSha256: CONTRACT_SHA,
+        generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes), contractSetSha256: CONTRACT_SHA, ...binding,
       };
       const next = `.next-${candidate.seq}`;
       const pair = `pair-${candidate.seq}`;
@@ -448,7 +477,7 @@ export class StageStore {
       this.atomic("current.json", { format: pointerFormat, pair }, "pointer");
       this.current = pair;
       this.previous = accepted;
-      this.appendReceipt(candidate.seq, "committed", generatedAt, stagedReceivedAt, receipt.snapshotSha256);
+      this.appendReceipt(candidate.seq, "committed", generatedAt, stagedReceivedAt, receipt.snapshotSha256, undefined, binding);
       this.prunePairs();
       return { status: 200, reason: null, seq: candidate.seq };
     } catch {
@@ -495,12 +524,35 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
     let used = 0;
     let length = null;
     let busy = false;
+    let awaiting;
     let timer;
     const clear = () => { clearTimer(timer); timer = undefined; };
+    const reset = () => { buffer = Buffer.alloc(MAX_FRAME_BYTES + 4); used = 0; length = null; };
+    const finish = (observation, reservation, stored) => {
+      clear();
+      try {
+        const result = store.stage(observation, undefined, reservation, stored);
+        notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped", ...(positiveSeq(result.seq) ? { seq: result.seq } : {}) });
+        if (observation.v1Cycle && stored !== true) notify({ event: "v1_unbound" });
+      } catch {
+        notify({ event: "disabled" });
+        awaiting = undefined;
+        socket.destroy(); server.close(); return;
+      }
+      awaiting = undefined; reset(); busy = false;
+      if (!socket.destroyed) {
+        if (observation.v1Cycle) socket.write(frame({ event: "v1_retained", retainedSeqs: store.retainedSeqs() }));
+        socket.write(Buffer.from([0x01]));
+      }
+    };
     socket.on("error", () => socket.destroy());
-    socket.on("close", () => { clear(); if (active === socket) active = undefined; });
+    socket.on("close", () => {
+      clear();
+      if (awaiting) { const job = awaiting; awaiting = undefined; finish(job.observation, job.reservation, false); }
+      if (active === socket) active = undefined;
+    });
     socket.on("data", chunk => {
-      if (busy || used + chunk.length > buffer.length) { socket.destroy(); return; }
+      if ((busy && !awaiting) || used + chunk.length > buffer.length) { socket.destroy(); return; }
       if (!timer) timer = setTimer(() => socket.destroy(), 5000);
       chunk.copy(buffer, used); used += chunk.length;
       if (length === null && used >= 4) {
@@ -510,27 +562,51 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
       if (length === null || used < length + 4) return;
       if (used !== length + 4) { socket.destroy(); return; }
       clear(); busy = true;
-      notify({ event: "job_start" });
+      if (!awaiting) notify({ event: "job_start" });
       let observation;
       try {
         const payload = buffer.subarray(4, used);
         const text = new TextDecoder("utf-8", { fatal: true }).decode(payload);
         observation = JSON.parse(text);
-      } catch { socket.destroy(); notify({ event: "job_done", outcome: "skipped" }); return; }
+      } catch {
+        if (awaiting) { const job = awaiting; finish(job.observation, job.reservation, false); }
+        else notify({ event: "job_done", outcome: "skipped" });
+        socket.destroy(); return;
+      }
+      if (awaiting) {
+        const job = awaiting;
+        if (!exactKeys(observation, "seq,observationId,stored") || typeof observation.stored !== "boolean"
+          || observation.seq !== job.reservation.seq || observation.observationId !== job.observation.v1Cycle.observationId) {
+          finish(job.observation, job.reservation, false); socket.destroy(); return;
+        }
+        finish(job.observation, job.reservation, observation.stored);
+        return;
+      }
       if (!validObservation(observation)) {
         socket.destroy(); notify({ event: "job_done", outcome: "skipped" }); return;
       }
-      try {
-        const result = store.stage(observation);
-        notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped", ...(positiveSeq(result.seq) ? { seq: result.seq } : {}) });
-      } catch {
-        notify({ event: "disabled" });
-        socket.destroy(); server.close();
-        return;
+      if (observation.v1Cycle) {
+        let reservation;
+        try { reservation = store.reserve(observation); }
+        catch { notify({ event: "disabled" }); socket.destroy(); server.close(); return; }
+        if (reservation.status === 200) {
+          awaiting = { observation, reservation }; reset();
+          timer = setTimer(() => {
+            // The POST has already settled. Preserve a receipt even if its
+            // optional local writer is stalled; late acks cannot bind it.
+            finish(observation, reservation, false);
+            socket.destroy();
+          }, 1500);
+          socket.write(frame({ event: "v1_store", seq: reservation.seq, observationId: observation.v1Cycle.observationId }));
+          return;
+        }
+        notify({ event: "job_done", outcome: "skipped" });
+        socket.write(frame({ event: "v1_retained", retainedSeqs: store.retainedSeqs() }));
+        reset(); busy = false; socket.write(Buffer.from([0x01])); return;
       }
-      buffer = Buffer.alloc(MAX_FRAME_BYTES + 4); used = 0; length = null; busy = false;
-      if (!socket.destroyed) socket.write(Buffer.from([0x01]));
+      finish(observation, null, false);
     });
+    if (store.state) socket.write(frame({ event: "v1_retained", retainedSeqs: store.retainedSeqs() }));
     socket.write(Buffer.from([0x01]));
   });
   await new Promise((resolve, reject) => {
