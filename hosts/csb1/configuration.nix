@@ -277,7 +277,7 @@ in
     # want admitted on this private server. extraKeys carries:
     #   - one-off mba@miniserver24 (= mba@hsb1) ed25519 (Node-RED automation)
     #   - PPM CI deploy key (command-restricted to test-report uploads)
-    #   - FleetCom CI deploy key (command-restricted to docker pull+restart)
+    #   - VID admin upload key (rrsync, no delete, restricted to admin/)
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
     # NIX-447: published routing-edge module. enable stays false until the
@@ -1154,6 +1154,18 @@ in
       "d /var/lib/janus-identity-csb1/production/audit 0700 65532 65532 -"
 
       # /home/mba/docker is still live — NIX-116 archive reverted (see above).
+      # INSPR-572: OPS writes as mba via rsync; film files are write-once per
+      # films/<ep>/v<n>/ version. Only films/manifest.json is replaced in place;
+      # rsync's temp file plus rename inside media/ is fine.
+      # deploy.sh never touches media/. Write inside it, never replace or rename
+      # the directory: the read-only inspr-www bind mount keeps the old inode.
+      # inspr-site's Caddyfile serves media.inspr.at from /srv/media once its
+      # INSPR-572 release deploys; until then Caddy answers 404.
+      # Deliberately included in nightly restic: immutable files deduplicate;
+      # no media exclude.
+      "d /home/mba/docker/inspr-at/media 0755 mba users -"
+      # INSPR-576: VID uploads here; inspr-www mounts it read-only at /srv/admin.
+      "d /home/mba/docker/inspr-at/admin 0755 mba users -"
     ];
 
   # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate
@@ -1488,7 +1500,7 @@ in
 
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
-    # The 2 command-restricted CI deploy keys (PPM, FleetCom) live in
+    # The 2 command-restricted keys (PPM CI, VID admin upload) live in
     # extraKeys and are preserved verbatim with their command="..." prefix.
 
   };
@@ -1510,8 +1522,8 @@ in
   # extraKeys carries 3 csb1-specific entries:
   #   - mba@miniserver24 (= mba@hsb1) ed25519 — Node-RED automation
   #   - PPM CI deploy key (command-restricted to test-report uploads only)
-  #   - FleetCom CI deploy key (command-restricted to docker pull + restart)
-  # The two command="..." CI keys are CRITICAL — the prefix is what enforces
+  #   - VID admin upload key (rrsync, no delete, restricted to admin/)
+  # The two command="..." keys are CRITICAL — the prefix is what enforces
   # the principle-of-least-authority. They are preserved verbatim here.
   #
   # NOTE (NIX-198, 2026-06-28): csb1 is now PER-HOST — the hash declared above
@@ -1531,6 +1543,9 @@ in
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
         # PPM CI deploy key — command-restricted to test report uploads only
         "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
+        # INSPR-576: nixpkgs rrsync includes Python and an absolute rsync path.
+        # No deletions, shell, PTY, forwarding or user rc via this upload key.
+        "command=\"${pkgs.rrsync}/bin/rrsync -no-del /home/mba/docker/inspr-at/admin\",restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJn7weE26GvDJ5RmNV2WgWpmNddlvQrywDxurwialSdU vid-admin-upload"
       ];
     };
   };

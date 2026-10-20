@@ -14,10 +14,13 @@ export const MIDNIGHT_RETRIES = 1;
 // and never proof for the broker Results comparison.
 export function executorHealth(health, checkedAt, disagreement = false) {
   if (!validInstant(checkedAt)) throw unavailable();
-  const valid = health?.status === 'ok' && typeof health.halt?.active === 'boolean' && health.brakes && typeof health.gatewayReachable === 'boolean';
+  const valid = ['ok', 'degraded'].includes(health?.status) && typeof health.halt?.active === 'boolean' && health.brakes && typeof health.gatewayReachable === 'boolean';
+  const ledgerCap = health?.resultsCapture?.newAdmissionsBlocked === true || health?.resultsCapture?.reason === 'ledger_size_limit';
+  const captureDegraded = ledgerCap || health?.resultsCapture?.ok === false || health?.resultsCapture?.state === 'degraded' || health?.status === 'degraded';
   const brakes = valid && !health.brakes.placementBlockedOnInitDay && Number.isFinite(health.brakes.newPerDay) && Number.isFinite(health.brakes.notionalEur) && health.brakes.newPerDay > 0 && health.brakes.notionalEur > 0;
-  const result = { status: !valid ? 'down' : disagreement || !brakes || !health.gatewayReachable ? 'degraded' : 'running', halt: health?.halt?.active === true, brakes: !!brakes, gatewayReachable: health?.gatewayReachable === true, checkedAt };
+  const result = { status: !valid ? 'down' : captureDegraded || disagreement || !brakes || !health.gatewayReachable ? 'degraded' : 'running', halt: health?.halt?.active === true, brakes: !!brakes, gatewayReachable: health?.gatewayReachable === true, checkedAt };
   if (disagreement) result.reason = 'executor_broker_disagreement';
+  else if (ledgerCap) result.reason = 'ledger_size_limit';
   return result;
 }
 

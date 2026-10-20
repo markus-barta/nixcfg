@@ -1,7 +1,8 @@
 import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -87,6 +88,67 @@ async function request(app, method, url, body, peer = "127.0.0.1") {
 function server(h, extra = {}) {
   return createServer({ testMode: true, listenHost: "127.0.0.1", listenPort: 0, allowlist: ["127.0.0.1"], adminAllowlist: ["127.0.0.1"], stateDir: mkdtempSync(path.join(tmpdir(), "ops313-book-http-")), gatewayReachable: () => true, book: { runtime: h.runtime, reconnectDelayMs: 0, ownershipClientIds: { j: [28] }, accountEnabled: true }, marketDataAudit: () => {}, ...extra });
 }
+
+test("book polls overlapping recon then claim cannot overwrite the claim or original alert delivery", async t => {
+  t.mock.method(console, "error", () => {});
+  let release, entered;
+  const executing = new Promise(resolve => { entered = resolve; });
+  const pending = new Promise(resolve => { release = resolve; });
+  const app = server(harness(), {
+    beforePrune() { throw Object.assign(new Error("synthetic-private-value"), { code: "EIO" }); },
+    execute: async intent => {
+      if (intent.action === "place") { entered(); await pending; }
+      return { status: "ok", intentId: intent.intentId, desk: intent.desk, action: intent.action,
+        observedAt: new Date().toISOString(), executions: [] };
+    },
+  });
+  t.after(() => rmSync(app.ledger.root, { recursive: true, force: true }));
+  const intent = { schema: "barta.paper-desk-intent.v2", intentId: "synthetic-recon-book", desk: "j", action: "recon",
+    createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() };
+  assert.equal((await request(app, "POST", "/v1/intents", intent)).status, 200);
+  const stale = readFileSync(app.ledger.statePath, "utf8");
+  const receipt = JSON.parse(stale).resultsCaptureAlerts[0];
+  const delivered = { status: "delivered", attempts: 1 };
+  app.ledger.updateCaptureDelivery(receipt.outageId, "failure", () => delivered);
+  const place = request(app, "POST", "/v1/intents", { ...intent, intentId: "synthetic-place-book", action: "place",
+    order: { symbol: "AAPL", side: "BUY", quantity: 2, limitPrice: 100, stopPrice: 99, currency: "USD" } });
+  await executing;
+  try {
+    const fd = fs.openSync(app.ledger.statePath, "r");
+    let claimed, inode;
+    try {
+      claimed = readFileSync(fd);
+      inode = fs.fstatSync(fd).ino;
+    } finally { fs.closeSync(fd); }
+    const read = fs.readFileSync;
+    const readCurrent = () => {
+      const current = fs.openSync(app.ledger.statePath, "r");
+      try { return read(current); }
+      finally { fs.closeSync(current); }
+    };
+    let replaySnapshot = true;
+    // Model a reader's pre-rename file descriptor: it parsed the earlier
+    // recon snapshot while the exclusive writer published claim + delivery.
+    t.mock.method(fs, "readFileSync", (fd, ...args) => {
+      if (replaySnapshot && typeof fd === "number" && fs.fstatSync(fd).ino === inode) {
+        replaySnapshot = false;
+        return stale;
+      }
+      return read(fd, ...args);
+    });
+    syncBuiltinESMExports();
+    t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+    for (const endpoint of ["positions", "open-orders", "account"]) {
+      assert.equal((await request(app, "GET", `/v1/book/${endpoint}`)).status, 200);
+    }
+    assert.equal(replaySnapshot, false, "book reader consumed the stale recon snapshot");
+    const disk = JSON.parse(readCurrent());
+    assert.equal(disk.intents["synthetic-place-book"]?.status, "claimed");
+    assert.equal(disk.resultsCaptureAlerts[0].outageId, receipt.outageId);
+    assert.deepEqual(disk.resultsCaptureAlerts[0].delivery.failure, delivered);
+    assert.deepEqual(readCurrent(), claimed, "book polls never publish a ledger snapshot");
+  } finally { release(); await place; }
+});
 
 test("book endpoints provide positions, all open orders and summary without the pusher account subscription", async () => {
   const h = harness(), service = book(h);
