@@ -130,8 +130,9 @@ test("single in-flight publisher; bounded value-free outcomes survive failure/re
   for (let i = 0; i < OUTCOME_LIMIT + 3; i++) await f.push(failed);
   const state = read(f.file);
   assert.equal(state.outcomes.length, OUTCOME_LIMIT); assert.equal(state.pending.seq, 1); assert.equal(state.lastPosted, null);
-  assert.ok(fs.statSync(f.file).size <= 65536);
-  assert.doesNotMatch(fs.readFileSync(f.file, "utf8"), /synthetic-private|synthetic-contract-token|brokerAccount/);
+  const stored = fs.readFileSync(f.file);
+  assert.ok(stored.length <= 65536);
+  assert.doesNotMatch(stored.toString("utf8"), /synthetic-private|synthetic-contract-token|brokerAccount/);
 });
 
 test("chmod read-only simulation rejects write-open of the v2 directory and pair body", async t => {

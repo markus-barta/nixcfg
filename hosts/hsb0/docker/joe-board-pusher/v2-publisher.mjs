@@ -43,7 +43,7 @@ export function createPostStateStore({ file = POST_STATE, io = fs, uid = process
       check(io.lstatSync(root), true);
       let fd;
       try {
-        check(io.lstatSync(file));
+        // No lstat-then-open (TOCTOU): O_NOFOLLOW refuses links; the opened fd is checked.
         fd = io.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         check(io.fstatSync(fd));
         const bytes = Buffer.alloc(MAX_STATE_BYTES + 1);
@@ -61,11 +61,9 @@ export function createPostStateStore({ file = POST_STATE, io = fs, uid = process
       check(io.lstatSync(root), true);
       const bytes = Buffer.from(JSON.stringify(state));
       if (bytes.length > MAX_STATE_BYTES) fail();
-      // A crashed pre-rename temporary file is ours; validate before replacing.
+      // A crashed pre-rename temporary file is ours; the opened fd is validated before replacing.
       let fd;
       try {
-        try { check(io.lstatSync(temp)); }
-        catch (error) { if (error.code !== "ENOENT") throw error; }
         fd = io.openSync(temp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, 0o600);
         check(io.fstatSync(fd));
         io.ftruncateSync(fd, 0);
