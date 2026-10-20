@@ -68,8 +68,9 @@ The worker mirrors the board's post-acceptance checkedAt regression gate and
 fsyncs its nonfuture high-water before publishing; equal checks are accepted.
 Future replies never advance this durable watermark. A check ahead of receipt
 but within a skewed generation skips the whole pair to avoid disagreeing with
-the board's generatedAt-relative watermark. No new broker polling is added;
-readiness expires when no completed reply renews it.
+the board's generatedAt-relative watermark. Gateway readiness still requires a
+completed positions or account-summary reply; the read-only order refresh below
+does not renew it. Readiness expires when no qualifying reply renews it.
 
 SXR8 and TSLA always appear with `scope:keep`, `desk:null`. Missing KEEP rows use
 `side:long` from the existing long-only KEEP policy and `source_unavailable` for
@@ -87,16 +88,26 @@ Desk rows use exactly `desks[].state` from [rev 9 data.schema.json](./contracts/
 ownership, or its observation is older than the existing five-minute pusher
 bound (future evidence also fails closed); otherwise `working` if that desk has
 positions, active open orders or executions on the executor's current New York
-day, and `sit-out` if empty. Order evidence comes from the pusher's existing
-`reqAllOpenOrders`/`openOrderEnd` reply, with a generation-scoped completion
-clock; execution evidence is summarized when the family reader completes its
-existing execution cycle. Both use the same dated client ownership policy as
+day, and `sit-out` if empty. Read-only `reqAllOpenOrders` runs on connect and
+every 60 seconds, checked by the existing 5-second maintenance tick, with at
+most one reply in flight. Each reply collects a fresh set keyed by
+`(orderId, clientId)`; `openOrderEnd` atomically replaces the previous set,
+including an empty set, and stamps its generation-scoped completion clock.
+While a reply is in flight the last completed set and clock remain unchanged;
+a missing end marker blocks overlapping requests and the old clock expires
+after five minutes, yielding `stuck`. Unsolicited callbacks, publication and
+cached executor order rows cannot renew this clock. A new connection generation
+discards any pending reply. Execution evidence is summarized when the family
+reader completes its existing read-only `reqExecutions` cycle, scheduled 30
+seconds after each completion (20-second request timeout, existing retry backoff).
+Identical completed replays renew execution observation time without restamping
+unchanged money; missing `execDetailsEnd` cannot prove absence. Both use the same dated client ownership policy as
 the desk projection; unclaimed clients are unavailable rather than guessed from
 an order reference. Reader errors/disconnects invalidate evidence. The execution
 summary must cover the current NY day, including weekends; midnight needs a new
 completed reply. The mirrored `newYorkDay` function is tested against executor
 `brakeUsage` around both midnight offsets and DST changes. The optional summary runs only with staging enabled and its failures cannot
-change v1 reader availability. No new polling or API call is added. `desks[].action` says "Valuation is not exact yet."; all desk money
+change v1 reader availability. `desks[].action` says "Valuation is not exact yet."; all desk money
 stays null with individual `not_exact_yet` reasons. KEEP rows are unaffected.
 
 No desk subtotal is presented as a household total. The producer also requires
