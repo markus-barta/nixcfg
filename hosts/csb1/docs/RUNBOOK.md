@@ -252,6 +252,8 @@ Media is deliberately included in the nightly restic backup: the immutable files
 
 INSPR-576: tmpfiles creates `/home/mba/docker/inspr-at/admin` as `0755 mba:users`; `inspr-www` mounts it read-only at `/srv/admin`. VID's `vid-admin-upload` SSH key runs only nixpkgs `rrsync -no-del` within that directory: no deletion, shell, PTY, forwarding or user rc (`restrict`). Upload inside `admin/` without replacing or renaming the directory, so the bind mount keeps the same inode. Serving `paimos.com/admin` is gated on inspr-site #82's Caddyfile deployment and must remain behind the `inspr-auth` sign-in; this host change only prepares the write path and mount.
 
+INSPR-576 phase 2: inspr-site #82 adds the separate `paimos.com/admin` sign-in scope, using ZITADEL client `paimos-admin` managed in inspr-services `services/zitadel/paimos-admin.tf`. `inspr-auth` loads its five `ADMIN_*` settings from a second root-only env file, `/run/agenix/csb1-inspr-auth-admin-env`; partial settings prevent startup and an empty subject allowlist denies everyone. Ciphertext changes trigger Compose reconciliation on switch, while the Traefik edge renderer continues to read only `/run/agenix/csb1-inspr-auth-env`. Rollback: restore the previous `0.3.0` image and exact digest recorded in `compose-spec.nix`, and remove the second `env_file` entry.
+
 ### Quick Commands
 
 ```bash

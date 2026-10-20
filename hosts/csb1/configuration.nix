@@ -360,6 +360,9 @@ in
       hostdashCsb1
       config.age.secrets.traefik-variables.file
       config.age.secrets.csb1-inspr-auth-env.file
+      # INSPR-576: rerun Compose on admin credential rotation; Compose hashes
+      # the resolved env_file contents and recreates inspr-auth as needed.
+      config.age.secrets.csb1-inspr-auth-admin-env.file
       config.age.secrets.csb1-aeon-review-app-key.file
       config.age.secrets.csb1-aeon-review-webhook-secret.file
       ./scripts/render-inspr-edge-config.sh
@@ -1931,6 +1934,14 @@ in
   age.secrets.csb1-inspr-auth-env = {
     file = ../../secrets/csb1-inspr-auth-env.age;
     path = "/run/agenix/csb1-inspr-auth-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-inspr-auth-admin-env = {
+    file = ../../secrets/csb1-inspr-auth-admin-env.age;
+    path = "/run/agenix/csb1-inspr-auth-admin-env";
     owner = "root";
     group = "root";
     mode = "0400";
