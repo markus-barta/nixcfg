@@ -84,6 +84,8 @@ export function createBrokerSessionAdapter({
   let gatewayLastSeenAt = null;
   let apiReplyCheckedAt = null;
   let ordersObservedAt = null;
+  let pendingOpenOrders = null;
+  let nextOrdersRequestAt = 0;
 
   function isCurrent(api, attachedGeneration) {
     return activeApi === api && generation === attachedGeneration;
@@ -128,6 +130,8 @@ export function createBrokerSessionAdapter({
   function markFinancialUnavailable(reason) {
     apiReplyCheckedAt = null;
     ordersObservedAt = null;
+    pendingOpenOrders = null;
+    nextOrdersRequestAt = 0;
     upstreamConnected = false;
     resyncing = false;
     working = null;
@@ -153,13 +157,32 @@ export function createBrokerSessionAdapter({
     try {
       api.reqManagedAccts();
       api.reqPositions();
-      api.reqAllOpenOrders();
+      if (!requestOpenOrders(api)) return false;
       api.reqAccountSummary(
         accountSummaryRequestId,
         "All",
         "NetLiquidation,TotalCashValue,BuyingPower,AccountType"
       );
       api.reqAccountUpdates(true, targetAccount);
+    } catch (error) {
+      const detail = String(error?.message || error);
+      hooks.onError?.(detail);
+      invalidate(api, detail, true);
+      return false;
+    }
+    return true;
+  }
+
+  function requestOpenOrders(api) {
+    const at = Date.parse(now());
+    // IB has no request ID for openOrderEnd. Never overlap replies, including
+    // an overdue one: only its end or a new connection generation can retire it.
+    if (api !== activeApi || !socketConnected || !working || pendingOpenOrders ||
+        !Number.isFinite(at) || at < nextOrdersRequestAt) return false;
+    pendingOpenOrders = new Map();
+    nextOrdersRequestAt = at + 60_000;
+    try {
+      api.reqAllOpenOrders();
     } catch (error) {
       const detail = String(error?.message || error);
       hooks.onError?.(detail);
@@ -275,6 +298,8 @@ export function createBrokerSessionAdapter({
     trackerEpoch = tracker.onDisconnected();
     apiReplyCheckedAt = null;
     ordersObservedAt = null;
+    pendingOpenOrders = null;
+    nextOrdersRequestAt = 0;
 
     const guard = (event, handler) => (...args) => {
       if (!isCurrent(api, attachedGeneration)) return;
@@ -422,7 +447,7 @@ export function createBrokerSessionAdapter({
     }));
 
     api.on(eventNames.openOrder, guard("openOrder", (orderId, contract, order, orderState) => {
-      if (!working || order?.account !== targetAccount) return;
+      if (!working || !pendingOpenOrders || order?.account !== targetAccount) return;
       const row = {
         orderId,
         clientId: order.clientId,
@@ -433,13 +458,13 @@ export function createBrokerSessionAdapter({
         status: orderState?.status,
         account: order.account,
       };
-      ordersObservedAt = null; // An incomplete/new reply cannot prove absence.
-      working.openOrders = working.openOrders.filter((item) => item.orderId !== orderId || item.clientId !== order.clientId);
-      working.openOrders.push(row);
+      pendingOpenOrders.set(`${orderId}:${order.clientId}`, row);
     }));
 
     if (eventNames.openOrderEnd) api.on(eventNames.openOrderEnd, guard("openOrderEnd", () => {
-      if (!working) return;
+      if (!working || !pendingOpenOrders) return;
+      working.openOrders = [...pendingOpenOrders.values()];
+      pendingOpenOrders = null;
       ordersObservedAt = now();
       // A completed reply may follow financial publication; keep its own clock.
       if (publishedGeneration === generation) published.openOrders = working.openOrders.map(row => ({ ...row }));
@@ -454,6 +479,11 @@ export function createBrokerSessionAdapter({
 
   return {
     attach,
+
+    refreshOpenOrders() {
+      if (!upstreamConnected) return false;
+      return requestOpenOrders(activeApi);
+    },
 
     refreshPortfolio() {
       if (!activeApi || !socketConnected || !upstreamConnected || !working?.accountComplete) return false;

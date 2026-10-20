@@ -103,23 +103,109 @@ test("raw completed reader evidence attributes by existing dated policy, exclude
   assert.equal(deskState(copyDeskActivity(source).joe, instant, instant), "stuck");
 });
 
-test("broker order completion clock is generation scoped and invalidated on upstream loss", () => {
+function orderSession() {
+  let epoch = Date.parse(instant);
   const events = Object.fromEntries(["connected", "disconnected", "error", "info", "managedAccounts", "accountSummary", "accountSummaryEnd", "position", "positionEnd", "updatePortfolio", "accountDownloadEnd", "openOrder", "openOrderEnd"].map(name => [name, name]));
-  const adapter = createBrokerSessionAdapter({ targetAccount: "DUFIXTURE", eventNames: events, now: () => instant });
-  const make = () => Object.assign(new EventEmitter(), Object.fromEntries(["reqManagedAccts", "reqPositions", "reqAllOpenOrders", "reqAccountSummary", "reqAccountUpdates"].map(name => [name, () => {}])));
+  const adapter = createBrokerSessionAdapter({ targetAccount: "DUFIXTURE", eventNames: events, now: () => new Date(epoch).toISOString() });
+  const make = () => Object.assign(new EventEmitter(), { requests: [], ...Object.fromEntries(["reqManagedAccts", "reqPositions", "reqAllOpenOrders", "reqAccountSummary", "reqAccountUpdates"].map(name => [name, function (...args) { this.requests.push([name, ...args]); }])) });
   const api = make(); adapter.attach(api); api.emit("connected"); api.emit("managedAccounts", "DUFIXTURE");
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "1", "EUR");
   api.emit("accountSummaryEnd", 9501); api.emit("positionEnd"); api.emit("accountDownloadEnd", "DUFIXTURE");
+  return {
+    adapter, api, make,
+    at: () => new Date(epoch).toISOString(),
+    advance(ms) { epoch += ms; api.emit("accountDownloadEnd", "DUFIXTURE"); },
+    order(clientId = 22, symbol = "SYNTH", orderId = 1, account = "DUFIXTURE") {
+      api.emit("openOrder", orderId, { symbol }, { account, clientId }, { status: "Submitted" });
+    },
+    requests: () => api.requests.filter(([name]) => name === "reqAllOpenOrders").length,
+    desks() {
+      return copyDeskActivity({ book: adapter.snapshot(),
+        deskEquities: { ok: true, oldestSourceObservedAt: new Date(epoch).toISOString(),
+          desks: { j: { positions: [] }, joe: { positions: [] }, joel: { positions: [] } } },
+        executions: { observedAt: new Date(epoch).toISOString(), day: newYorkDay(epoch), latest: {} } });
+    },
+  };
+}
+
+test("broker order completion clock is generation scoped, preserves client-scoped IDs and invalidates on upstream loss", () => {
+  const { adapter, api, make, order, advance } = orderSession();
   assert.equal(adapter.snapshot().ordersObservedAt, null);
-  api.emit("openOrder", 1, { symbol: "SYNTH" }, { account: "DUFIXTURE", clientId: 22 }, { status: "Submitted" });
+  order(); order(27, "OTHER"); order(22, "UPDATED");
   api.emit("openOrderEnd");
-  assert.equal(adapter.snapshot().ordersObservedAt, instant); assert.equal(adapter.snapshot().openOrders[0].clientId, 22);
+  assert.equal(adapter.snapshot().ordersObservedAt, instant);
   // Order IDs are scoped to the broker client. Equal IDs must not erase a desk.
-  api.emit("openOrder", 1, { symbol: "OTHER" }, { account: "DUFIXTURE", clientId: 27 }, { status: "Submitted" });
-  assert.equal(adapter.snapshot().ordersObservedAt, null, "incomplete updates cannot retain an old completeness clock");
+  assert.deepEqual(adapter.snapshot().openOrders.map(row => [row.clientId, row.symbol]), [[22, "UPDATED"], [27, "OTHER"]]);
+  advance(60_000); assert.equal(adapter.refreshOpenOrders(), true); order(27, "NEXT");
+  assert.equal(adapter.snapshot().ordersObservedAt, instant, "in-flight reply retains the last completed clock");
+  assert.equal(adapter.snapshot().openOrders.length, 2);
   api.emit("openOrderEnd");
-  assert.deepEqual(adapter.snapshot().openOrders.map(row => row.clientId), [22, 27]);
+  assert.deepEqual(adapter.snapshot().openOrders.map(row => row.clientId), [27]);
   api.emit("info", "synthetic", 1100); assert.equal(adapter.snapshot().ordersObservedAt, null);
+  assert.equal(adapter.refreshOpenOrders(), false);
   const next = make(); adapter.attach(next); api.emit("openOrderEnd");
   assert.equal(adapter.snapshot().ordersObservedAt, null);
+});
+
+for (const hasOrders of [false, true]) test(`60-second read-only order requests keep desks fresh beyond five minutes (${hasOrders ? "working" : "sit-out"})`, () => {
+  const session = orderSession();
+  const { adapter, api, at, advance, order, requests, desks } = session;
+  if (hasOrders) order();
+  api.emit("openOrderEnd");
+  for (let elapsed = 5_000; elapsed <= 10 * 60_000; elapsed += 5_000) {
+    advance(5_000);
+    const requested = adapter.refreshOpenOrders();
+    assert.equal(requested, elapsed % 60_000 === 0);
+    if (requested) { if (hasOrders) order(); api.emit("openOrderEnd"); }
+    for (const [id, row] of Object.entries(desks())) {
+      assert.equal(deskState(row, at(), at()), hasOrders && id === "joe" ? "working" : "sit-out");
+    }
+    assert.equal(requests(), 1 + Math.floor(elapsed / 60_000));
+  }
+  assert.equal(adapter.snapshot().ordersObservedAt, at());
+});
+
+test("a fresh order reply atomically replaces vanished rows, including an empty reply, without publisher restamping", () => {
+  const { adapter, api, advance, order, at } = orderSession();
+  order(); api.emit("openOrderEnd");
+  advance(60_000); adapter.refreshOpenOrders();
+  order(27, "REPLACEMENT"); order(22, "FOREIGN", 2, "OTHER-PAPER");
+  advance(5_000); // A financial publication during the reply still sees the old complete set.
+  assert.equal(adapter.snapshot().ordersObservedAt, instant);
+  assert.deepEqual(adapter.snapshot().openOrders.map(row => row.symbol), ["SYNTH"]);
+  api.emit("openOrderEnd");
+  assert.equal(adapter.snapshot().ordersObservedAt, at());
+  assert.deepEqual(adapter.snapshot().openOrders.map(row => row.symbol), ["REPLACEMENT"]);
+  advance(55_000); assert.equal(adapter.refreshOpenOrders(), true);
+  api.emit("openOrderEnd");
+  assert.deepEqual(adapter.snapshot().openOrders, []);
+  const completedAt = at();
+  advance(5_000); order(); api.emit("openOrderEnd");
+  assert.equal(adapter.snapshot().ordersObservedAt, completedAt, "unsolicited callbacks cannot restamp a completed snapshot");
+  assert.deepEqual(adapter.snapshot().openOrders, []);
+});
+
+for (const completedBefore of [false, true]) test(`missing openOrderEnd stays stuck after the freshness bound (prior reply: ${completedBefore})`, () => {
+  const { adapter, api, advance, order, at, desks, requests } = orderSession();
+  if (completedBefore) {
+    api.emit("openOrderEnd"); advance(60_000);
+    assert.equal(adapter.refreshOpenOrders(), true);
+  }
+  order(); // A partial reply proves neither a complete order set nor absence.
+  advance(300_001);
+  for (let i = 0; i < 20; i++) assert.equal(adapter.refreshOpenOrders(), false, "never overlap an uncorrelated reply");
+  assert.equal(requests(), completedBefore ? 2 : 1);
+  assert.equal(adapter.snapshot().ordersObservedAt, completedBefore ? instant : null);
+  assert.deepEqual(adapter.snapshot().openOrders, []);
+  for (const row of Object.values(desks())) assert.equal(deskState(row, at(), at()), "stuck");
+});
+
+test("a failed periodic order request invalidates its generation and cannot accept its late end", () => {
+  const { adapter, api, advance } = orderSession();
+  api.emit("openOrderEnd"); advance(60_000);
+  api.reqAllOpenOrders = () => { throw new Error("synthetic request failure"); };
+  assert.equal(adapter.refreshOpenOrders(), false);
+  api.emit("openOrderEnd");
+  assert.equal(adapter.snapshot().ordersObservedAt, null);
+  assert.equal(adapter.snapshot().gateway, false);
 });

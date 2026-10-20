@@ -1060,9 +1060,20 @@ active orders or executions on the executor's current NY day, and `sit-out`
 otherwise. Evidence comes from the pusher's existing broker position/all-open-order
 replies and completed family execution cycles, using the same dated ownership
 policy and five-minute freshness bound as its readers; unknown ownership is
-unavailable, never inferred. NY midnight requires a new current-day execution
-reply, and the mirrored day function is tested against executor `brakeUsage`,
-including DST and weekends. No executor API or code change is added. Desk action
+unavailable, never inferred. Read-only `reqAllOpenOrders` runs on connect and
+every 60 seconds via the existing 5-second maintenance tick, with one reply
+in flight. Each reply starts a fresh `(orderId, clientId)` set; `openOrderEnd`
+atomically replaces the previous set (even when empty) and stamps its own
+completion clock. Pending replies retain the last completed set and clock;
+without an end marker no overlapping request is sent, and the old clock expires
+after five minutes to `stuck`. Publication and cached executor order rows never
+renew it. A new connection generation discards the pending reply. Executions
+already use read-only `reqExecutions` 30 seconds after each completed cycle,
+with a 20-second request timeout and existing retry backoff; identical completed
+replays renew activity evidence, missing `execDetailsEnd` cannot prove absence,
+and unchanged money keeps its original timestamp. NY midnight requires a new
+current-day execution reply, and the mirrored day function is tested against
+executor `brakeUsage`, including DST and weekends. No executor API or code change is added. Desk action
 says "Valuation is not exact yet."; money remains null with `not_exact_yet`.
 KEEP rows retain their existing scope and reasons.
 
