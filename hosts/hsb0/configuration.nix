@@ -207,7 +207,8 @@ in
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-392: a fresh immutable candidate shared with the executor; the
+    # OPS-392 switch set (2026-10-20): a fresh immutable candidate shared with the executor
+    # (rollback: household-v2-phase-a-202610190715); the
     # previous tag remains available for flag-off rollback. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
@@ -217,7 +218,7 @@ in
             build = "${joeBoardPusherSource}";
             image =
               if joeHouseholdV2StageEnabled then
-                "hsb0-joe-board-pusher:household-v2-phase-a-202610190715"
+                "hsb0-joe-board-pusher:household-v2-switch-set-202610201110"
               else
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
@@ -240,7 +241,7 @@ in
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-phase-a-202610190715";
+                  image = "hsb0-joe-board-pusher:household-v2-switch-set-202610201110";
                   pull_policy = "never";
                 };
               }
