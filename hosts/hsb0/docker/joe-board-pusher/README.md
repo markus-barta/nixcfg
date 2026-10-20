@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-202610201110`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -43,13 +43,51 @@ already available source scalars and identities. An idle worker issues one
 {format:"ops392.switch-set-observation.v2", bookTs,
  equity:{value,currency}|null, cash:{value,currency}|null,
  apiReplyCheckedAt:string|null, positions:[{symbol,side,desk,scope}],
- deskActivity:{j,joe,joel}}
+ deskActivity:{j,joe,joel},
+ v1Cycle:{v1Sha256,v1Status,v1RepliedAt,observationId}}
 ```
 
 There are at most 256 broker identities before encoding; oversize observations
 are dropped whole and keep the unused credit. Busy/disconnected/backpressured
-opportunities are dropped. There is no ledger traversal in the handoff, contract import,
-fsync, awaiting the worker, second POST or queued retry in the pusher.
+opportunities are dropped. POST settlement and the initial offer do no ledger
+traversal, contract import, fsync, worker wait, second POST or queued retry.
+
+Each attempted POST hashes the exact serialized v1 request once and gets a
+unique `ops392.v1-cycle.<uuid>` observation ID. After response consumption, the
+handoff carries a closed `v1Cycle` envelope: the SHA256, HTTP status (100–599),
+local reply-completion time and observation ID. A rejected fetch uses
+`post_failed`; failed response consumption uses `reply_failed`. Neither failure
+drops the available observation. Request bodies, reply bodies, financial values
+and raw POST exceptions are excluded from publication logs.
+
+Body storage runs asynchronously **after v1 has settled**, with at most one
+body write outstanding; a hung write refuses further bodies as unbound and
+coalesces retention controls to the latest set instead of accumulating payloads.
+Bodies above 256 KiB are unbound. The lock-holding
+stager durably reserves a sequence and sends a bounded `v1_store` control frame
+with that sequence and observation ID. The pusher alone writes the exact body
+to `/var/lib/joe-board-pusher/v1-cycles/<seq>.json` (0600, directory 0700), fsyncs
+the file and directory, then acknowledges only the sequence, ID and success bit.
+The stager has no mount of `v1-cycles`, never receives a body, and keeps
+`network_mode = "none"`. No new service permissions or mounts are required.
+
+Both `receipt.json` and its `receipts.jsonl` row record `v1Sha256`, `v1Status`,
+`v1RepliedAt`, `observationId` and `v1PostStatus`. The latter preserves the POST
+outcome even when a failed body write changes `v1Status` to `v1_unbound`.
+After 1500 ms without a storage acknowledgement, the stager records an unbound
+pair and disconnects; the five-second supervisor watchdog remains independent.
+Unbound and failed POSTs cannot prove v1 acceptance. Storage failures emit only
+closed `v1_cycle_unbound` events. Storage can neither delay nor fail a v1 POST.
+
+After pair pruning, the stager returns the retained sequence set (default N=10).
+The pusher serializes body pruning behind its writes and keeps exactly the
+existing bodies for those pair sequences, by count rather than age. A reconnect
+repeats the set, removing recognized bodies orphaned by a crash or rejected pair.
+Recovery after an interrupted exchange converges on that same set; missing or
+failed-write bodies remain visibly unbound rather than being reconstructed.
+Unknown entries, symlinks, ownership or mode mismatches stop body cleanup and
+emit a value-free event. Legacy receipts without cycle metadata remain readable
+and do not establish v1 provenance.
 
 NAV (`NetLiquidation`) and cash (`TotalCashValue`) retain raw account-summary
 strings and currencies, including scale, negative signs and signed zero. Only
@@ -149,9 +187,9 @@ regressing time suppresses staging. Repeated observations retain generation
 and local generation-progress time. Each sequence is fsynced, renamed and
 parent-directory-fsynced before use; crashes may burn numbers, never reuse them.
 The stable `.allocator.lock` inode is never replaced. A second writer cannot
-acquire it. The observation identity is `["ops392.switch-set.v2",bookTs]`;
-legacy Phase A reservation identities with a null gateway watermark remain
-readable. Older contract-set staged pairs fail closed and require coordinator
+acquire it. New reservation identities use the unique v1 cycle ID; legacy
+`["ops392.switch-set.v2",bookTs]` identities and Phase A reservation identities
+with a null gateway watermark remain readable. Older contract-set staged pairs fail closed and require coordinator
 review before promotion; never reset enrollment or sequence state to migrate.
 
 Readers follow only `current.json` to an immutable `pair-<seq>` directory.
@@ -227,6 +265,16 @@ its own Compose project, volumes, image and temporary directory. A final
 `{"result":"ok",...}` is the runtime verdict; failure is nonzero. Allow roughly
 four minutes plus image build time. CI runs `node --test` on Ubuntu/Node 22,
 including real flock; this longer Docker rehearsal remains a workstation gate.
+
+`image-import-closure.test.mjs` runs through that same CI discovery path. It
+parses every Dockerfile COPY, follows relative imports, re-exports and literal
+dynamic imports from all Node entrypoints, and checks the executor's declared
+mounted source separately. Missing modules are named; removing
+`executor-attribution.mjs` from COPY reproduces the pre-fix failure. The masked
+705 inventory fixture covers 30 fills: j5 ×10 and j2 ×6 roll up to J ×16 with
+each internal `subDesk` retained, while joe ×14 stays Joe. Duplicate order keys
+and unknown intent desks fail closed; unknown-desk events contain only the desk
+token and fixed cause.
 
 ## Board health
 
@@ -501,8 +549,43 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r14-202610201330`; the retained
-rollback image is `household-v2-switch-set-202610201110`.
+The candidate image is `household-v2-switch-set-r15-202610201500`; the retained
+rollback image is `household-v2-switch-set-r14-202610201330`.
+
+R15 attributes executor-route executions through the executor's own intent
+ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same
+path and reads a bounded snapshot of `ledger.json` on completed execution
+cycles. `JOE_EXECUTOR_CLIENT_IDS` comes from the executor's declared `clientIds`
+(currently 700 and 705). Those clients bypass static assignments and require
+exactly one intent owning the `(clientId, orderId)` pair: a place intent's
+`result.bracket` records its client plus parent/stop order IDs, and a flatten
+intent's `result.flattened` records the submitted client/order pairs. Cancel,
+modify-stop and recon records do not create ownership. Multiple matching
+intents fail closed even if they name the same desk.
+
+For retained economic captures without routing fields, an exact execution-ID,
+client and account match in the executor ledger's `executions` must first
+recover one unambiguous order ID. Missing ledger data, missing keys, no intent,
+duplicate intents or conflicting execution identities leave the execution
+unclaimed. Amy's explicit intent-desk table is `j → j`, `j2 → j`, `j5 → j`,
+`joe → joe`, `joel → joel`; no prefix parsing or orderRef inference is used.
+The attributed execution keeps the original intent desk as internal `subDesk`,
+including `j2`/`j5`, and history evidence retains that distinction. Rev 9 output
+has no sub-desk field. Any other intent desk stays unclaimed and emits
+`executor_intent_desk_unclaimed` with only `cause:intent_desk_invalid` and the
+desk token (`null` for a missing/non-string desk), never account, order,
+execution or financial values. Pruned intent evidence also remains unavailable.
+
+The same resolver feeds J FIFO/history/fee/FX/flat-net evidence, all-desk equity,
+and v2 execution/open-order activity. Joel is valued from its proven executions
+when present. KEEP SXR8/TSLA is excluded before matching; 229 and every dated or
+static assignment keep their boundaries. The executor's trading authority and
+source are unchanged. `v2_desk_state` adds only per-executor-client matched and
+unmatched execution counts when available; it exposes no ledger identities.
+The intent attribution method and explicit table bind the policy hash and select a fresh
+policy-keyed baseline while preserving every old baseline and capture. R15
+rollback uses `household-v2-switch-set-r14-202610201330`; the earlier R14 notes remain
+historical rollout evidence.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
 22, 89, 90, 91, 119, 130, 131, 148, 151, and 152. The 2026-09-23 ledger listed

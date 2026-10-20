@@ -307,16 +307,16 @@ function hasExactKeys(value, keys) {
     JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort()));
 }
 
-function normalizedDeskEquities(value, family) {
+function normalizedDeskEquities(value, family, providerContract = DESK_PROVIDER_CONTRACT) {
   if (!value || value.ok !== true || !hasExactKeys(value.equity, [...DESK_IDS, "total"]) ||
       !hasExactKeys(value.desks, DESK_IDS)) return null;
   const contract = value.sourceContract;
   if (!hasExactKeys(contract, ["method", "policyMethod", "policyHash", "scope", "keepExcluded"]) ||
-      Object.entries(DESK_PROVIDER_CONTRACT).some(([key, expected]) => contract[key] !== expected) ||
+      Object.entries(providerContract).some(([key, expected]) => contract[key] !== expected) ||
       value.historyRevisionMethod !== DESK_HISTORY_REVISION_METHOD ||
       !/^[0-9a-f]{64}$/.test(value.historyRevision || "") ||
       value.ownershipEvidence?.status !== "complete" ||
-      value.ownershipEvidence.policyHash !== DESK_PROVIDER_CONTRACT.policyHash ||
+      value.ownershipEvidence.policyHash !== providerContract.policyHash ||
       value.ownershipEvidence.unclaimedExecutionCount !== 0 ||
       value.executionCoverage?.status !== "complete") return null;
   const sourceObservedAt = normalizedIso(value.sourceObservedAt);
@@ -357,14 +357,14 @@ function normalizedDeskEquities(value, family) {
   return { desks, equity, sourceObservedAt, oldestSourceObservedAt };
 }
 
-function normalizedRetainedDeskEquity(value) {
+function normalizedRetainedDeskEquity(value, providerContract = DESK_PROVIDER_CONTRACT) {
   if (!value || !hasExactKeys(value.equity, [...DESK_IDS, "total"])) return null;
   const provenance = value.provenance;
-  if (provenance?.method !== DESK_PROVIDER_CONTRACT.method ||
-      provenance?.classifier?.method !== DESK_PROVIDER_CONTRACT.policyMethod ||
-      provenance?.classifier?.policyHash !== DESK_PROVIDER_CONTRACT.policyHash ||
+  if (provenance?.method !== providerContract.method ||
+      provenance?.classifier?.method !== providerContract.policyMethod ||
+      provenance?.classifier?.policyHash !== providerContract.policyHash ||
       provenance?.historyRevisionMethod !== DESK_HISTORY_REVISION_METHOD ||
-      provenance?.scope !== DESK_PROVIDER_CONTRACT.scope || provenance?.keepExcluded !== true ||
+      provenance?.scope !== providerContract.scope || provenance?.keepExcluded !== true ||
       !/^[0-9a-f]{64}$/.test(provenance?.historyRevision || "") ||
       provenance?.executionCoverage?.status !== "complete") return null;
   const sourceObservedAt = normalizedIso(value.sourceObservedAt);
@@ -625,8 +625,9 @@ export function projectBook(book, opts = {}) {
   const familyBackfill = projectFamilyHistory(opts.familyHistory);
   const publisherAt = opts.publisherAt || opts.now || new Date();
   const publisherMs = new Date(publisherAt).getTime();
-  const deskCandidate = familyAccepted ? normalizedDeskEquities(opts.deskEquities, family) : null;
-  const retainedDeskEquity = familyRuntimeEnabled ? normalizedRetainedDeskEquity(opts.retainedDeskEquity) : null;
+  const providerContract = opts.deskOwnershipPolicy ? deskOwnershipPolicyContract(opts.deskOwnershipPolicy) : DESK_PROVIDER_CONTRACT;
+  const deskCandidate = familyAccepted ? normalizedDeskEquities(opts.deskEquities, family, providerContract) : null;
+  const retainedDeskEquity = familyRuntimeEnabled ? normalizedRetainedDeskEquity(opts.retainedDeskEquity, providerContract) : null;
   const deskEquities = deskCandidate || retainedDeskEquity;
   const deskSourceAge = publisherMs - Date.parse(deskCandidate?.oldestSourceObservedAt || "");
   const currentDeskEquities = Boolean(book.gateway) && Number.isFinite(deskSourceAge) &&

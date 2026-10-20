@@ -79,7 +79,7 @@ function hostEval(t, source, enabled, filtered = false) {
       inherit lib;
       pkgs.stdenv.hostPlatform.system = "x86_64-linux";
       inputs = {};
-      config.nixcfg = { paperDeskExecutor.serviceSpec = { image = "fixture"; }; agentMailbox.enable = true; agentMailbox.serviceSpec = { image = "mailbox-fixture"; }; };
+      config.nixcfg = { paperDeskExecutor = { serviceSpec = { image = "fixture"; }; clientIds = { executor = 705; recon = 700; }; }; agentMailbox.enable = true; agentMailbox.serviceSpec = { image = "mailbox-fixture"; }; };
     };
     executorDefault = (import ${repo}/modules/paper-desk-executor/default.nix {
       lib = baseLib; config = {}; pkgs = {};
@@ -98,22 +98,25 @@ function hostEval(t, source, enabled, filtered = false) {
   return JSON.parse(run("nix-instantiate", ["--eval", "--strict", "--json", "--expr", expr]));
 }
 
-test("Nix flag-off preserves baseline pusher rendering; enabled overlay preserves env/volumes and isolates service", t => {
+test("Nix flag-off preserves baseline runtime with read-only executor evidence; enabled overlay isolates staging", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const old = run("git", ["show", "27681452:hosts/hsb0/configuration.nix"], { cwd: repo });
   const baseline = hostEval(t, old, false);
   const disabled = hostEval(t, source, false);
   const baselinePusher = baseline.spec.services["joe-board-pusher"];
-  assert.ok(Buffer.from(JSON.stringify(baselinePusher)).equals(Buffer.from(JSON.stringify(disabled.spec.services["joe-board-pusher"]))));
+  const executorEnvironment = "JOE_EXECUTOR_CLIENT_IDS=[705,700]";
+  assert.deepEqual(disabled.spec.services["joe-board-pusher"], { ...baselinePusher, environment: [...baselinePusher.environment, executorEnvironment] });
+  assert.ok(baselinePusher.volumes.includes("/var/lib/paper-desk-executor:/var/lib/paper-desk-executor:ro"));
   assert.equal(Object.hasOwn(disabled.spec.services, "joe-household-v2-stage"), false);
   assert.equal(disabled.executorImage, disabled.spec.services["joe-board-pusher"].image);
   assert.deepEqual(disabled.exclusions, baseline.exclusions);
   const enabled = hostEval(t, source, true);
   const service = enabled.spec.services["joe-household-v2-stage"];
   const pusher = enabled.spec.services["joe-board-pusher"];
-  assert.deepEqual(pusher.environment, [...baselinePusher.environment, "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"]);
+  assert.deepEqual(pusher.environment, [...baselinePusher.environment, executorEnvironment, "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"]);
   assert.deepEqual(pusher.volumes, [...baselinePusher.volumes, "/run/joe-household-v2:/run/joe-household-v2:rw"]);
   assert.equal(service.image, pusher.image);
+  assert.equal(pusher.image, "hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500");
   assert.equal(enabled.executorImage, pusher.image);
   assert.equal(service.network_mode, "none"); assert.equal(service.mem_limit, "128m"); assert.equal(service.memswap_limit, "128m");
   assert.equal(service.cpus, 0.25); assert.equal(service.pids_limit, 32); assert.equal(service.user, "1000:1000");
