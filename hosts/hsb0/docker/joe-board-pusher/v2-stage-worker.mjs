@@ -6,11 +6,15 @@ import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
+import { DESK_IDS, DESK_ACTION, deskState } from "./desk-activity.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
 export const CONTRACT_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
+export const RETAIN_PAIRS = 10;
+const MAX_RETAIN_PAIRS = 1024;
+const logFormat = "ops392.v2-sequence-receipt.v1";
 const stateFormat = "ops392.v2-sequence-state.v1";
 const pairFormat = "ops392.v2-stage-pair.v1";
 const pointerFormat = "ops392.v2-stage-current.v1";
@@ -38,7 +42,15 @@ const observationId = instant => JSON.stringify(["ops392.switch-set.v2", instant
 export function validObservation(value) {
   const raw = item => item === null || (exactKeys(item, "value,currency") && typeof item.value === "string"
     && item.value.length <= 32 && typeof item.currency === "string" && item.currency.length <= 3);
-  return exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions") && value.format === FRAME_FORMAT
+  const activity = value?.deskActivity;
+  const validActivity = activity === undefined || (exactKeys(activity, "j,joe,joel") && DESK_IDS.every(id => {
+    const row = activity[id];
+    return exactKeys(row, "positionsAt,hasPositions,ordersAt,hasOrders,executionsAt,executionDay,lastExecutionAt")
+      && [row.positionsAt, row.ordersAt, row.executionsAt, row.lastExecutionAt].every(at => at === null || canonical(at))
+      && typeof row.hasPositions === "boolean" && typeof row.hasOrders === "boolean"
+      && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));
+  }));
+  return validActivity && exactKeys(value, activity === undefined ? "format,bookTs,equity,cash,apiReplyCheckedAt,positions" : "format,bookTs,equity,cash,apiReplyCheckedAt,positions,deskActivity") && value.format === FRAME_FORMAT
     && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
     && (value.apiReplyCheckedAt === null || canonical(value.apiReplyCheckedAt))
     && Array.isArray(value.positions) && value.positions.length <= 256 && value.positions.every(row =>
@@ -82,7 +94,7 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
     source: { kind: "live-ib-api", label: "hsb0 joe-board-pusher (paper Gateway projection)" },
     safety: { halt: false, haltReason: null, ...(gateway ? { gateway } : {}) },
     desks: [["j", "J"], ["joe", "Joe"], ["joel", "Joel"]].map(([id, label]) => ({
-      id, label, state: "sit-out", action: "Valuation unavailable pending exact source validation.", money: money(),
+      id, label, state: deskState(observation.deskActivity?.[id], generatedAt, receivedAt), action: DESK_ACTION, money: money(),
     })),
     totals: money(),
     brokerAccount: { scope: "paper-account-including-keep", observedAt: generatedAt, equity, cash,
@@ -112,8 +124,9 @@ export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, flo
 
 // Synchronous durable operations run only inside the separately limited worker.
 export class StageStore {
-  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {} } = {}) {
-    Object.assign(this, { root, uid, gid, io, boundary });
+  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS } = {}) {
+    if (!Number.isSafeInteger(retainPairs) || retainPairs < RETAIN_PAIRS || retainPairs > MAX_RETAIN_PAIRS) fail();
+    Object.assign(this, { root, uid, gid, io, boundary, retainPairs });
     this.disabled = false;
   }
   check(name, kind, limit) {
@@ -125,7 +138,7 @@ export class StageStore {
       || (limit !== undefined && stat.size > limit)) fail();
     return target;
   }
-  names(name = "", max = 8) {
+  names(name = "", max = MAX_RETAIN_PAIRS + 8) {
     const dir = this.io.opendirSync(this.check(name, "directory"));
     const names = [];
     try {
@@ -225,9 +238,16 @@ export class StageStore {
     // checks against today's clock or inventing raw broker evidence.
     const expected = buildCandidate(snapshot.seq, snapshot.generatedAt);
     if (JSON.stringify(Object.keys(snapshot).sort()) !== JSON.stringify(Object.keys(expected).sort())) return false;
-    for (const field of ["schema", "seq", "generatedAt", "mode", "currency", "source", "desks", "totals"]) {
+    for (const field of ["schema", "seq", "generatedAt", "mode", "currency", "source", "totals"]) {
       if (JSON.stringify(snapshot[field]) !== JSON.stringify(expected[field])) return false;
     }
+    if (!Array.isArray(snapshot.desks) || snapshot.desks.length !== 3 || !snapshot.desks.every((desk, index) => {
+      const template = expected.desks[index];
+      return exactKeys(desk, "id,label,state,action,money") && desk.id === template.id && desk.label === template.label
+        && ["working", "sit-out", "stuck"].includes(desk.state)
+        && (desk.action === DESK_ACTION || (desk.state === "sit-out" && desk.action === "Valuation unavailable pending exact source validation."))
+        && JSON.stringify(desk.money) === JSON.stringify(template.money);
+    })) return false;
     if (!exactKeys(snapshot.safety, snapshot.safety.gateway ? "halt,haltReason,gateway" : "halt,haltReason")
       || snapshot.safety.halt !== false || snapshot.safety.haltReason !== null) return false;
     const account = snapshot.brokerAccount;
@@ -243,7 +263,7 @@ export class StageStore {
   }
   checkResidue(name, state) {
     if (name === ".sequence-state.tmp" || name === ".current.tmp") { this.read(name, 4096); return; }
-    const match = /^(?:pair-|\.next-)([1-9]\d{0,15})$/.exec(name);
+    const match = /^(?:pair-|\.next-|\.retired-)([1-9]\d{0,15})$/.exec(name);
     if (!match || !positiveSeq(Number(match[1])) || Number(match[1]) > state.lastReservedSeq) fail();
     if (name.startsWith("pair-")) {
       this.readPair(name);
@@ -256,10 +276,81 @@ export class StageStore {
   }
   retire(name) {
     // Only entries completely recognized and checked under the lifetime lock.
-    if (name.startsWith("pair-") || name.startsWith(".next-")) {
+    if (name.startsWith("pair-") || name.startsWith(".next-") || name.startsWith(".retired-")) {
       for (const child of this.names(name, 2)) this.io.unlinkSync(path.join(this.root, name, child));
       this.io.rmdirSync(path.join(this.root, name));
     } else this.io.unlinkSync(path.join(this.root, name));
+  }
+  // A bounded streaming scan keeps the append-only log independent of pair
+  // retention. Torn/invalid records fail closed; they are never truncated.
+  openReceipts(state, pairs) {
+    const name = "receipts.jsonl";
+    if (!this.names().includes(name)) {
+      this.write(name, Buffer.alloc(0), "log_create");
+      this.syncDir("", "log_create_dir_fsync");
+    }
+    const target = this.check(name, "file");
+    const fd = this.io.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    this.lastReceiptSeq = 0;
+    const found = new Set();
+    try {
+      const stat = this.io.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== this.uid || stat.gid !== this.gid || (stat.mode & 0o7777) !== 0o600) fail();
+      const buffer = Buffer.alloc(4096);
+      let pending = "";
+      let count;
+      while ((count = this.io.readSync(fd, buffer, 0, buffer.length, null))) {
+        pending += buffer.subarray(0, count).toString("utf8");
+        let newline;
+        while ((newline = pending.indexOf("\n")) >= 0) {
+          if (newline > 1024) fail();
+          const row = JSON.parse(pending.slice(0, newline));
+          pending = pending.slice(newline + 1);
+          if (!exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256")
+            || row.format !== logFormat || !positiveSeq(row.seq) || row.seq <= this.lastReceiptSeq || row.seq > state.lastReservedSeq
+            || !["staged", "committed", "rejected"].includes(row.outcome)
+            || ![row.generatedAt, row.stagedReceivedAt, row.recordedAt].every(canonical)
+            || typeof row.pairSha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.pairSha256)) fail();
+          this.lastReceiptSeq = row.seq;
+          const pair = pairs.get(row.seq);
+          if (pair) {
+            if (row.outcome === "rejected" || row.pairSha256 !== pair.snapshotSha256
+              || row.generatedAt !== pair.generatedAt || row.stagedReceivedAt !== pair.stagedReceivedAt) fail();
+            found.add(row.seq);
+          }
+        }
+        if (pending.length > 1024) fail();
+      }
+      if (pending.length) fail();
+    } finally { this.io.closeSync(fd); }
+    return found;
+  }
+  appendReceipt(seq, outcome, generatedAt, stagedReceivedAt, pairSha256, recordedAt = new Date().toISOString()) {
+    if (seq <= this.lastReceiptSeq) fail();
+    const bytes = Buffer.from(JSON.stringify({ format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256 }) + "\n");
+    const fd = this.io.openSync(this.check("receipts.jsonl", "file"), fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = this.io.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== this.uid || stat.gid !== this.gid || (stat.mode & 0o7777) !== 0o600) fail();
+      this.io.writeFileSync(fd, bytes);
+      this.boundary("log_append");
+      this.io.fsyncSync(fd);
+      this.boundary("log_fsync");
+      this.lastReceiptSeq = seq;
+    } finally { this.io.closeSync(fd); }
+  }
+  prunePairs(names = this.names()) {
+    const pairs = names.filter(name => /^pair-[1-9]\d{0,15}$/.test(name))
+      .sort((a, b) => Number(b.slice(5)) - Number(a.slice(5)));
+    for (const name of pairs.slice(this.retainPairs)) {
+      if (name === this.current) continue;
+      const retired = `.retired-${name.slice(5)}`;
+      // Recovery recognizes a partially removed tombstone, never a partial pair.
+      this.io.renameSync(path.join(this.root, name), path.join(this.root, retired));
+      this.syncDir("", "prune_rename_fsync");
+      this.retire(retired);
+      this.syncDir("", "retire_dir_fsync");
+    }
   }
   async open() {
     await this.contracts();
@@ -281,13 +372,26 @@ export class StageStore {
           && (!state.lastGatewayCheckedAt || previous.value.safety.gateway.checkedAt > state.lastGatewayCheckedAt))
         || (previous.value.seq === state.lastReservedSeq && previous.value.generatedAt !== state.lastGeneratedAt)) fail();
     }
-    const residue = names.filter(name => ![".allocator.lock", "sequence-state.json", "current.json", current].includes(name));
-    if (residue.filter(name => /^(pair-|\.next-)/.test(name)).length > 1) fail();
-    // Validate everything before removing anything. Unknown items disable v2.
-    for (const name of residue) this.checkResidue(name, state);
-    for (const name of residue) this.retire(name);
-    if (residue.length) this.syncDir("", "recovery_dir_fsync");
+    const residue = names.filter(name => ![".allocator.lock", "sequence-state.json", "current.json", "receipts.jsonl"].includes(name));
+    const pairs = new Map();
+    // Validate every entry before cleanup or pruning. All old pairs stay checked.
+    for (const name of residue) {
+      this.checkResidue(name, state);
+      if (name.startsWith("pair-")) {
+        const receipt = this.json(`${name}/receipt.json`);
+        if (receipt.generatedAt > state.lastGeneratedAt) fail();
+        pairs.set(receipt.seq, receipt);
+      }
+    }
+    const found = this.openReceipts(state, pairs);
+    for (const [seq, receipt] of [...pairs].sort((a, b) => a[0] - b[0])) {
+      if (!found.has(seq)) this.appendReceipt(seq, `pair-${seq}` === current ? "committed" : "staged",
+        receipt.generatedAt, receipt.stagedReceivedAt, receipt.snapshotSha256);
+    }
     Object.assign(this, { state, previous, current });
+    for (const name of residue.filter(name => !name.startsWith("pair-"))) this.retire(name);
+    if (residue.some(name => !name.startsWith("pair-"))) this.syncDir("", "recovery_dir_fsync");
+    this.prunePairs(names);
     return this;
   }
   stage(observation, now = () => new Date().toISOString()) {
@@ -306,12 +410,16 @@ export class StageStore {
       const stagedReceivedAt = now();
       if (!canonical(stagedReceivedAt)) fail();
       const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt);
-      if (!this.validProjection(candidate) || !this.validateContract("data", candidate, { stage: "ingress" }).ok) return { status: 422, reason: "contract_invalid" };
       const bytes = Buffer.from(JSON.stringify(candidate));
       if (bytes.length > 262144) fail();
+      const reject = (status, reason) => {
+        this.appendReceipt(candidate.seq, "rejected", generatedAt, stagedReceivedAt, sha(bytes));
+        return { status, reason, seq: candidate.seq };
+      };
+      if (!this.validProjection(candidate) || !this.validateContract("data", candidate, { stage: "ingress" }).ok) return reject(422, "contract_invalid");
       freeze(candidate);
       const accepted = acceptStage(this.acceptSnapshot, candidate, this.previous, stagedReceivedAt, state.floor, state.lastGatewayCheckedAt);
-      if (accepted.status !== 200) return { status: accepted.status, reason: accepted.reason };
+      if (accepted.status !== 200) return reject(accepted.status, accepted.reason);
       const checkedAt = candidate.safety.gateway?.checkedAt;
       if (canonical(checkedAt) && checkedAt <= generatedAt && checkedAt <= stagedReceivedAt && checkedAt !== state.lastGatewayCheckedAt) {
         state.lastGatewayCheckedAt = checkedAt;
@@ -332,10 +440,11 @@ export class StageStore {
       this.boundary("pair_rename");
       this.syncDir("", "pair_dir_fsync");
       this.atomic("current.json", { format: pointerFormat, pair }, "pointer");
-      if (this.current) { this.retire(this.current); this.syncDir("", "retire_dir_fsync"); }
       this.current = pair;
       this.previous = accepted;
-      return { status: 200, reason: null };
+      this.appendReceipt(candidate.seq, "committed", generatedAt, stagedReceivedAt, receipt.snapshotSha256);
+      this.prunePairs();
+      return { status: 200, reason: null, seq: candidate.seq };
     } catch {
       this.disabled = true; // Even an uncertain rename/fsync must never reuse memory state.
       throw new Error("stage_storage_invalid");
@@ -407,7 +516,7 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
       }
       try {
         const result = store.stage(observation);
-        notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped" });
+        notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped", ...(positiveSeq(result.seq) ? { seq: result.seq } : {}) });
       } catch {
         notify({ event: "disabled" });
         socket.destroy(); server.close();

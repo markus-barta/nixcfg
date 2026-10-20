@@ -28,8 +28,9 @@ remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
 adds useful account and position evidence to local staging; it adds no v2 POST
 selector. PAPER only; live remains locked. All v1 accounting, subscriptions,
 token source, POST bytes and interval remain unchanged. Desk money and totals
-stay null with `not_exact_yet`; desk states remain `sit-out` with a fixed action.
-Executor, historical evidence and accounting remain omitted.
+stay null with `not_exact_yet`. Desk activity uses the existing read-only broker
+replies; no executor API request or executor change is added. Historical evidence
+and accounting remain omitted.
 
 The pusher constructs its optional Unix client once at startup and reconnects
 from `setImmediate` after close. Only `/run/joe-household-v2/stage.sock` is accepted.
@@ -41,13 +42,14 @@ already available source scalars and identities. An idle worker issues one
 ```text
 {format:"ops392.switch-set-observation.v2", bookTs,
  equity:{value,currency}|null, cash:{value,currency}|null,
- apiReplyCheckedAt:string|null, positions:[{symbol,side,desk,scope}]}
+ apiReplyCheckedAt:string|null, positions:[{symbol,side,desk,scope}],
+ deskActivity:{j,joe,joel}}
 ```
 
 There are at most 256 broker identities before encoding; oversize observations
 are dropped whole and keep the unused credit. Busy/disconnected/backpressured
-opportunities are dropped. There is no ledger traversal, contract import, fsync,
-awaiting the worker, second POST or queued retry in the pusher.
+opportunities are dropped. There is no ledger traversal in the handoff, contract import,
+fsync, awaiting the worker, second POST or queued retry in the pusher.
 
 NAV (`NetLiquidation`) and cash (`TotalCashValue`) retain raw account-summary
 strings and currencies, including scale, negative signs and signed zero. Only
@@ -79,6 +81,24 @@ map is not used. Unmapped stage0 rows retain `desk:null` and
 `reasons.desk:desk_unmapped`; rev 9 accepts these observations and the worker
 stages the complete pair with all five valuation fields null and individually
 reasoned `not_exact_yet`. KEEP and mapped stage0 rows carry no desk reason.
+
+Desk rows use exactly `desks[].state` from [rev 9 data.schema.json](./contracts/data.schema.json):
+`stuck` if a position, order or execution reader is unavailable, has unknown
+ownership, or its observation is older than the existing five-minute pusher
+bound (future evidence also fails closed); otherwise `working` if that desk has
+positions, active open orders or executions on the executor's current New York
+day, and `sit-out` if empty. Order evidence comes from the pusher's existing
+`reqAllOpenOrders`/`openOrderEnd` reply, with a generation-scoped completion
+clock; execution evidence is summarized when the family reader completes its
+existing execution cycle. Both use the same dated client ownership policy as
+the desk projection; unclaimed clients are unavailable rather than guessed from
+an order reference. Reader errors/disconnects invalidate evidence. The execution
+summary must cover the current NY day, including weekends; midnight needs a new
+completed reply. The mirrored `newYorkDay` function is tested against executor
+`brakeUsage` around both midnight offsets and DST changes. The optional summary runs only with staging enabled and its failures cannot
+change v1 reader availability. No new polling or API call is added. `desks[].action` says "Valuation is not exact yet."; all desk money
+stays null with individual `not_exact_yet` reasons. KEEP rows are unaffected.
+
 No desk subtotal is presented as a household total. The producer also requires
 individual null reasons where the ready-session schema permits omission.
 
@@ -117,10 +137,22 @@ Readers follow only `current.json` to an immutable `pair-<seq>` directory.
 `receipt.json` records the real local staging receipt, sequence/generation,
 `generatedAdvancedAt`, snapshot SHA256 and contract-set SHA256. Receipt is not
 proof of live board acceptance. Pair files and directory become durable before
-the pointer's own atomic replacement. At most one current and one orphan/next
-pair plus one state/pointer temp exist. Recovery checks all recognized residue
-before retiring it; unknown files, wrong ownership/modes, inconsistent sequences
-or digests disable staging and preserve evidence. v1 state is untouched.
+the pointer's own atomic replacement. `RETAIN_PAIRS` defaults to **10**; the
+`StageStore.retainPairs` constant override permits 10–1024. Keep the newest N
+pairs by sequence count only, never age; the current pointer is protected.
+Recovery validates retained and orphan pairs before pruning. Pruning atomically
+renames an old pair to a recognized `.retired-<seq>` tombstone so interrupted
+cleanup remains recoverable. `receipts.jsonl` is a separate fsynced append-only
+0600 log with one record per staged/resolved sequence: `seq`, outcome
+(`committed`, `rejected`, or recovered `staged`), source/staging/record timestamps,
+and `pairSha256` (the snapshot byte hash from the pair receipt), plus its format.
+It contains no payload values and outlives pair pruning; restart never appends a
+duplicate. A crash can burn an unbuilt reservation without a staged pair/record.
+A durable orphan is recorded as `staged`; the pointed-to pair is `committed`,
+meaning local pointer publication only. The supervisor emits exactly
+`{event:"v2_stage_committed",seq}` for a completed commit. Unknown files, wrong
+ownership/modes, inconsistent sequences/digests or torn log lines disable staging
+and preserve evidence. v1 state is untouched.
 
 For rollback, set `joeHouseholdV2StageEnabled = false` through the normal
 reviewed configuration workflow. The service, socket env/mount and updater

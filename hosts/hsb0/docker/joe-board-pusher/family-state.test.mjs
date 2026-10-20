@@ -20,6 +20,7 @@ import { CURRENT_DESK_OWNERSHIP_POLICY, DESK_HISTORY_REVISION_METHOD, calculateD
   deskOwnershipPolicyContract, buildDeskDayBoundaryEvidence } from "./desk-ledger.mjs";
 import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 import { createOfficialHistoryRefresher } from "./family-history-session.mjs";
+import { executionActivity } from "./desk-activity.mjs";
 import { waitForExecutionCycle } from "./pusher-state.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
@@ -136,12 +137,14 @@ function setup({
   retryMaxMs = 20_000,
   getVerifiedHistoryState = null,
   onReplayIncomplete,
+  summarizeActivity = null,
 } = {}) {
   let current = at;
   const timers = fakeTimers();
   const unavailable = [];
   const adapter = createFamilySessionAdapter({
     targetAccount: ACCOUNT,
+    summarizeActivity,
     familyClientIds,
     excludedSymbols,
     periodStart: FAMILY_BASELINE_PERIOD_START,
@@ -1599,4 +1602,26 @@ test("idle accounting publication does not wait, and disconnect cannot become ac
     sleep: async () => { api.emit(EVENTS.disconnected); },
   }), true);
   assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
+});
+
+test("desk execution activity comes from completed live replies, is copied as scalars and invalidates on reader loss", () => {
+  const session = setup({ at: "2026-09-10T15:00:00.000Z", summarizeActivity: executionActivity });
+  assert.equal(session.adapter.activitySnapshot(), null);
+  const api = connect(session);
+  assert.equal(session.adapter.activitySnapshot(), null);
+  complete(api, [execution("activity-j.01", 27, { time: "2026-09-10T14:59:00.000Z" })]);
+  const first = session.adapter.activitySnapshot();
+  assert.deepEqual(first, { observedAt: "2026-09-10T15:00:00.000Z", day: "2026-09-10",
+    latest: { j: "2026-09-10T14:59:00.000Z", joe: null, joel: null } });
+  first.latest.j = null;
+  assert.equal(session.adapter.activitySnapshot().latest.j, "2026-09-10T14:59:00.000Z");
+  api.emit(EVENTS.disconnected); assert.equal(session.adapter.activitySnapshot(), null);
+});
+
+test("optional staging summary failure cannot change execution cycle or v1 reader availability", () => {
+  const session = setup({ summarizeActivity: () => { throw new Error("synthetic staging failure"); } });
+  const api = connect(session); complete(api, []);
+  assert.equal(session.adapter.blockedReason, null); assert.equal(session.adapter.retryReason, null);
+  assert.equal(session.adapter.activitySnapshot(), null); assert.ok(session.store.state);
+  assert.equal(session.timers.count(30_000), 1);
 });

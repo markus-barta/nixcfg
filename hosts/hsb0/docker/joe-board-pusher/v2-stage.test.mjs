@@ -44,7 +44,7 @@ test("masked golden preserves raw account evidence; ingress, served and semantic
   const noReasons = structuredClone(golden); delete noReasons.totals.reasons;
   assert.equal(new StageStore().validProjection(noReasons), false);
   assert.doesNotMatch(JSON.stringify(golden), /"(?:account|accountHint|pnlSources|accounting|learning|moneyEvidence|heartbeatAt)"/);
-  for (const desk of golden.desks) assert.equal(desk.action, "Valuation unavailable pending exact source validation.");
+  for (const desk of golden.desks) assert.equal(desk.action, "Valuation is not exact yet.");
 });
 
 test("real contract rejects replay, clock/receipt regression and +5001; +5000 passes", () => {
@@ -90,13 +90,13 @@ test("explicit enrollment emits seq 1; exact bytes/receipt/modes; restart and re
   assert.equal(current(root).snapshot.seq, 2);
   assert.equal(current(root).snapshot.generatedAt, instant);
   assert.equal(current(root).receipt.generatedAdvancedAt, instant);
-  assert.equal(fs.readdirSync(root).filter(n => n.startsWith("pair-")).length, 1);
+  assert.equal(fs.readdirSync(root).filter(n => n.startsWith("pair-")).length, 2);
   assert.equal(restarted.stage("2026-10-19T06:00:00.000Z").reason, "source_time_invalid");
   assert.equal(restarted.stage(undefined).reason, "source_time_invalid");
   assert.equal(json(path.join(root, "sequence-state.json")).lastReservedSeq, 2);
 });
 
-const boundaries = ["reserve_write", "reserve_fsync", "reserve_rename", "reserve_dir_fsync", "pair_mkdir", "snapshot_write", "snapshot_fsync", "receipt_write", "receipt_fsync", "pair_fsync", "pair_rename", "pair_dir_fsync", "pointer_write", "pointer_fsync", "pointer_rename", "pointer_dir_fsync", "retire_dir_fsync"];
+const boundaries = ["reserve_write", "reserve_fsync", "reserve_rename", "reserve_dir_fsync", "pair_mkdir", "snapshot_write", "snapshot_fsync", "receipt_write", "receipt_fsync", "pair_fsync", "pair_rename", "pair_dir_fsync", "pointer_write", "pointer_fsync", "pointer_rename", "pointer_dir_fsync", "log_append", "log_fsync"];
 for (const point of boundaries) test(`process death at ${point} preserves authoritative pair and never reuses durable reservation`, async t => {
   const { root, store, options } = fixture(t);
   store.enroll(); await store.open(); store.stage(instant, () => instant);
@@ -114,7 +114,7 @@ for (const point of boundaries) test(`process death at ${point} preserves author
   const reopened = await new StageStore(options).open();
   reopened.stage(later, () => later);
   assert.equal(current(root).snapshot.seq, reserved + 1);
-  assert.ok(fs.readdirSync(root).filter(n => /^(pair-|\.next-)/.test(n)).length <= 1);
+  assert.ok(fs.readdirSync(root).filter(n => /^(pair-|\.next-)/.test(n)).length <= 10);
 });
 
 for (const corruption of ["missing", "malformed", "floor", "owner", "mode", "symlink", "unknown", "digest", "pair-ahead", "oversize", "null-high-water"]) test(`corrupt ${corruption} disables startup without deleting evidence`, async t => {
@@ -280,3 +280,116 @@ for (const entry of ["file", "symlink"]) test(`worker refuses to unlink unexpect
 test("separate Linux memory-cgroup identities and OOM isolation", {
   skip: "Run node scripts/rehearse-household-v2-stage.mjs in the workstation lab; offline builders cannot run Docker",
 }, () => {});
+
+test("count retention keeps N pairs, prunes N+1 oldest, survives restart and permits a larger bound", async t => {
+  const { root, store, options } = fixture(t);
+  store.enroll(); await store.open();
+  for (let seq = 1; seq <= 10; seq++) assert.equal(store.stage(instant, () => instant).seq, seq);
+  const pairs = () => fs.readdirSync(root).filter(name => /^pair-/.test(name)).sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)));
+  assert.deepEqual(pairs(), Array.from({ length: 10 }, (_, n) => `pair-${n + 1}`));
+  store.stage(instant, () => instant);
+  assert.deepEqual(pairs(), Array.from({ length: 10 }, (_, n) => `pair-${n + 2}`));
+  const restarted = await new StageStore(options).open();
+  assert.equal(restarted.previous.value.seq, 11); assert.equal(pairs().length, 10);
+  // Count only: a later observation does not prune the nine older pairs by age.
+  restarted.stage("2026-10-20T07:00:00.000Z", () => "2026-10-20T07:00:00.000Z");
+  assert.deepEqual(pairs(), Array.from({ length: 10 }, (_, n) => `pair-${n + 3}`));
+  const bigger = await new StageStore({ ...options, retainPairs: 12 }).open();
+  bigger.stage("2026-10-20T07:00:00.000Z", () => "2026-10-20T07:00:00.000Z");
+  bigger.stage("2026-10-20T07:00:00.000Z", () => "2026-10-20T07:00:00.000Z");
+  assert.equal(pairs().length, 12);
+  await new StageStore(options).open(); assert.equal(pairs().length, 10);
+  assert.throws(() => new StageStore({ ...options, retainPairs: 9 }));
+});
+
+test("receipt log appends exactly one value-free outcome per sequence and outlives pair pruning", async t => {
+  const { root, store, options } = fixture(t); store.enroll(); await store.open();
+  const read = () => fs.readFileSync(path.join(root, "receipts.jsonl"), "utf8");
+  store.stage(instant, () => instant); const prefix = read();
+  store.stage(later, () => "2026-10-19T06:00:00.000Z");
+  for (let seq = 3; seq <= 13; seq++) store.stage(later, () => later);
+  assert.ok(read().startsWith(prefix));
+  const rows = read().trim().split("\n").map(JSON.parse);
+  assert.equal(rows.length, 13); assert.deepEqual(rows.map(row => row.seq), Array.from({ length: 13 }, (_, n) => n + 1));
+  assert.equal(rows[0].outcome, "committed"); assert.equal(rows[1].outcome, "rejected");
+  for (const row of rows) {
+    assert.deepEqual(Object.keys(row).sort(), ["format", "seq", "outcome", "generatedAt", "stagedReceivedAt", "recordedAt", "pairSha256"].sort());
+    assert.match(row.pairSha256, /^[0-9a-f]{64}$/);
+  }
+  const pair = current(root);
+  assert.equal(rows.at(-1).pairSha256, pair.receipt.snapshotSha256);
+  assert.equal(fs.statSync(path.join(root, "receipts.jsonl")).mode & 0o777, 0o600);
+  const before = read(); const restarted = await new StageStore(options).open(); assert.equal(read(), before);
+  restarted.stage(later, () => later); assert.ok(read().startsWith(before));
+  assert.equal(fs.existsSync(path.join(root, "pair-1")), false);
+});
+
+for (const point of ["pair_dir_fsync", "pointer_dir_fsync", "log_fsync", "prune_rename_fsync", "retire_dir_fsync"]) {
+  test(`retention/receipt recovery at ${point} is idempotent and never changes the sequence high water`, async t => {
+    const { root, store, options } = fixture(t); store.enroll(); await store.open();
+    for (let seq = 1; seq <= 10; seq++) store.stage(instant, () => instant);
+    store.boundary = name => { if (name === point) throw new Error("synthetic crash"); };
+    assert.throws(() => store.stage(later, () => later));
+    const reopened = await new StageStore(options).open();
+    assert.equal(reopened.state.lastReservedSeq, 11);
+    const log = () => fs.readFileSync(path.join(root, "receipts.jsonl"), "utf8");
+    const rows = log().trim().split("\n").map(JSON.parse);
+    assert.equal(rows.length, 11); assert.equal(rows.at(-1).seq, 11);
+    assert.equal(rows.at(-1).outcome, point === "pair_dir_fsync" ? "staged" : "committed");
+    const before = log(); await new StageStore(options).open(); assert.equal(log(), before);
+    reopened.stage(later, () => later); assert.equal(current(root).snapshot.seq, 12);
+    assert.equal(fs.readdirSync(root).filter(name => /^pair-/.test(name)).length, 10);
+  });
+}
+
+test("torn receipt log or corrupt historical pair disables staging and preserves evidence", async t => {
+  const { root, store, options } = fixture(t); store.enroll(); await store.open();
+  store.stage(instant, () => instant); store.stage(later, () => later);
+  fs.appendFileSync(path.join(root, "pair-1/snapshot.json"), " ");
+  const before = fs.readdirSync(root).sort();
+  await assert.rejects(new StageStore(options).open()); assert.deepEqual(fs.readdirSync(root).sort(), before);
+  const other = fixture(t); other.store.enroll(); await other.store.open(); other.store.stage(instant, () => instant);
+  fs.appendFileSync(path.join(other.root, "receipts.jsonl"), "{");
+  await assert.rejects(new StageStore(other.options).open());
+  assert.ok(fs.readFileSync(path.join(other.root, "receipts.jsonl"), "utf8").endsWith("{"));
+});
+
+test("worker commit IPC and supervisor commit event carry only a positive sequence", async t => {
+  const { root, store } = fixture(t); const events = []; let connect;
+  store.stage = () => ({ status: 200, seq: 7 });
+  const socketPath = path.join(root, "stage.sock");
+  await serveWorker({ store, socketPath, notify: value => events.push(value), createServer(callback) {
+    connect = callback;
+    return { once() {}, on() {}, close() {}, listen(name, callback) { fs.writeFileSync(name, "", { mode: 0o600 }); callback(); } };
+  } });
+  const socket = new EventEmitter(); socket.write = () => {}; socket.destroy = () => {};
+  connect(socket);
+  const payload = Buffer.from(JSON.stringify(observation())); const frame = Buffer.alloc(payload.length + 4); frame.writeUInt32BE(payload.length); payload.copy(frame, 4);
+  socket.emit("data", frame); socket.emit("close");
+  assert.deepEqual(events.at(-1), { event: "job_done", outcome: "committed", seq: 7 });
+  const child = new EventEmitter(); child.kill = () => {}; const output = [];
+  const supervisor = createStageSupervisor({ launch: () => child, setTimer: () => 1, clearTimer() {}, emit: value => output.push(value) });
+  child.emit("message", { event: "ready" }); child.emit("message", { event: "job_start" }); child.emit("message", events.at(-1));
+  assert.deepEqual(output, [{ event: "v2_stage_committed", seq: 7 }]);
+  child.emit("message", { event: "job_start" }); child.emit("message", { event: "job_done", outcome: "committed", seq: "unsafe" });
+  assert.equal(output.at(-1).reason, "worker_protocol"); supervisor.stop();
+});
+
+test("a crash between pruning file unlinks recovers only the checked tombstone", async t => {
+  const { root, store, options } = fixture(t); store.enroll(); await store.open();
+  for (let seq = 1; seq <= 10; seq++) store.stage(instant, () => instant);
+  let once = true;
+  store.io = new Proxy(fs, { get(target, name) {
+    if (name === "unlinkSync") return file => {
+      target.unlinkSync(file);
+      if (once) { once = false; throw new Error("synthetic prune crash"); }
+    };
+    return target[name];
+  } });
+  assert.throws(() => store.stage(later, () => later));
+  assert.equal(fs.existsSync(path.join(root, ".retired-1")), true);
+  const recovered = await new StageStore(options).open();
+  assert.equal(recovered.previous.value.seq, 11);
+  assert.equal(fs.existsSync(path.join(root, ".retired-1")), false);
+  assert.equal(fs.readdirSync(root).filter(name => /^pair-/.test(name)).length, 10);
+});

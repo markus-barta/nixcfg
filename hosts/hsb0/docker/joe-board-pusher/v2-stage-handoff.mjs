@@ -1,11 +1,12 @@
 import net from "node:net";
+import { copyDeskActivity } from "./desk-activity.mjs";
 
 export const FRAME_FORMAT = "ops392.switch-set-observation.v2";
 export const MAX_FRAME_BYTES = 16 * 1024;
 
 // Copy only existing scalar evidence, after v1 settles. Never inspect a ledger.
 // A symbol/side shared by desks or broker contracts cannot prove a single owner.
-export function copyObservation({ book, family, deskEquities } = {}) {
+export function copyObservation({ book, family, deskEquities, executions } = {}) {
   if (!book || typeof book.ts !== "string" || book.ts.length > 64) return null;
   if (book.apiReplyCheckedAt != null && (typeof book.apiReplyCheckedAt !== "string" || book.apiReplyCheckedAt.length > 24)) return null;
   const rows = book.positions || [];
@@ -56,7 +57,8 @@ export function copyObservation({ book, family, deskEquities } = {}) {
     return { value: item.value, currency: item.currency };
   };
   return { format: FRAME_FORMAT, bookTs: book.ts, equity: raw("NetLiquidation"), cash: raw("TotalCashValue"),
-    apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions };
+    apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
+    deskActivity: copyDeskActivity({ book, family, deskEquities, executions }) };
 }
 
 // This module deliberately has no filesystem, contract, timer or broker work.
