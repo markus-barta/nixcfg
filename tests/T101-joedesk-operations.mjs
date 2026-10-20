@@ -406,30 +406,37 @@ test("rehearsal roots share fixed source parents and reject escapes before work"
   assert.equal(fs.existsSync(outside), false);
 });
 
-test("extracted labels retain exact rule, priority and strip-before-auth order", async () => {
+test("label fixtures retain exact rule, priority and strip-before-auth order", async () => {
   const { labelsToDynamic, requireWorkstation } = await import(
     "../scripts/rehearse-joedesk.mjs"
   );
   for (const host of ["csb0", "hsb0.example.invalid", "agm1"])
     assert.throws(() => requireWorkstation(host), /fleet/);
   requireWorkstation("workstation");
-  const spec = JSON.parse(
-    spawnSync(
-      "nix",
-      [
-        "eval",
-        "--json",
-        "--file",
-        new URL("../hosts/csb0/docker/compose-spec.nix", import.meta.url)
-          .pathname,
-      ],
-      { encoding: "utf8" },
-    ).stdout,
-  );
-  const labels = spec.services["joe-board"].labels;
-  const authLabels = spec.services.hostdash.labels.filter((l) =>
-    l.startsWith("traefik.http.middlewares.hostdash-auth-csb0."),
-  );
+  // Unit tests use evaluated fixtures. T76 --labels-only independently checks
+  // the actual Compose source; no Nix command runs in this unit suite.
+  const labels = [
+    "traefik.http.routers.joe-health-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/healthz`) && (Method(`GET`) || Method(`HEAD`))",
+    "traefik.http.routers.joe-health-csb0.priority=400",
+    "traefik.http.routers.joe-csb0.middlewares=joe-identity-strip-csb0@docker,hostdash-auth-csb0@docker",
+    ...[
+      "X-Auth-Request-User",
+      "X-Auth-Request-Email",
+      "X-Auth-Request-Preferred-Username",
+      "X-Auth-Request-Groups",
+      "X-Forwarded-User",
+      "X-Forwarded-Email",
+      "X-Forwarded-Preferred-Username",
+    ].map(
+      (header) =>
+        "traefik.http.middlewares.joe-identity-strip-csb0.headers.customrequestheaders." +
+        header +
+        "=",
+    ),
+  ];
+  const authLabels = [
+    "traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email",
+  ];
   const config = labelsToDynamic(
     labels,
     authLabels,
