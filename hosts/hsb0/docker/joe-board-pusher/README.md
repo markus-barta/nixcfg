@@ -518,10 +518,15 @@ intents fail closed even if they name the same desk.
 For retained economic captures without routing fields, an exact execution-ID,
 client and account match in the executor ledger's `executions` must first
 recover one unambiguous order ID. Missing ledger data, missing keys, no intent,
-duplicate intents, conflicting execution identities or an intent desk outside
-`j`/`joe`/`joel` leave the execution unclaimed. No orderRef inference is used:
-J's `j2`/`j5` sub-theses require an intent whose desk is literally `j`; other
-desk values are never mapped. Pruned intent evidence also remains unavailable.
+duplicate intents or conflicting execution identities leave the execution
+unclaimed. Amy's explicit intent-desk table is `j → j`, `j2 → j`, `j5 → j`,
+`joe → joe`, `joel → joel`; no prefix parsing or orderRef inference is used.
+The attributed execution keeps the original intent desk as internal `subDesk`,
+including `j2`/`j5`, and history evidence retains that distinction. Rev 9 output
+has no sub-desk field. Any other intent desk stays unclaimed and emits
+`executor_intent_desk_unclaimed` with only `cause:intent_desk_invalid` and the
+desk token (`null` for a missing/non-string desk), never account, order,
+execution or financial values. Pruned intent evidence also remains unavailable.
 
 The same resolver feeds J FIFO/history/fee/FX/flat-net evidence, all-desk equity,
 and v2 execution/open-order activity. Joel is valued from its proven executions
@@ -529,7 +534,7 @@ when present. KEEP SXR8/TSLA is excluded before matching; 229 and every dated or
 static assignment keep their boundaries. The executor's trading authority and
 source are unchanged. `v2_desk_state` adds only per-executor-client matched and
 unmatched execution counts when available; it exposes no ledger identities.
-The intent attribution method changes the policy hash and selects a fresh
+The intent attribution method and explicit table bind the policy hash and select a fresh
 policy-keyed baseline while preserving every old baseline and capture. R15
 rollback uses the immutable R14 image above; the earlier R14 notes remain
 historical rollout evidence.

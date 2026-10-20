@@ -16,13 +16,19 @@ const bracket = (desk = "j", clientId = 705) => ({ action: "place", desk,
 const execution = (overrides = {}) => ({ acctNumber: account, clientId: 705, orderId: 101, execId: "synthetic.01", ...overrides });
 const row = (overrides = {}, symbol = "SYNTH") => ({ contract: { symbol }, execution: execution({ time: "20261019 10:00:00 US/Eastern", ...overrides }) });
 const ledger = (intents = { "masked-intent": bracket() }, executions = []) => ({ schema: "barta.paper-desk-executor-state.v1", account, intents, executions });
-const attribution = (intents, executions, clientIds) => createExecutorAttribution({ ledger: ledger(intents, executions), account, clientIds });
+const attribution = (intents, executions, clientIds, onEvent) => createExecutorAttribution({ ledger: ledger(intents, executions), account, clientIds, onEvent });
 
-for (const desk of ["j", "joe", "joel"]) test(`705 uses exactly one intent desk ${desk}, ignoring every orderRef prefix`, () => {
-  const source = attribution({ "masked-intent": bracket(desk) });
+for (const [intentDesk, desk] of [["j", "j"], ["j2", "j"], ["j5", "j"], ["joe", "joe"], ["joel", "joel"]]) test(`705 explicitly rolls intent ${intentDesk} up to ${desk}, retaining its sub-desk and ignoring every orderRef prefix`, () => {
+  const source = attribution({ "masked-intent": bracket(intentDesk) });
   for (const orderRef of ["j2|masked", "j5|masked", "joe|masked", "joel|masked", "unrecognized"]) {
     assert.equal(source.resolve(execution({ orderRef })), desk);
     assert.equal(source.resolve(execution({ orderId: 102, orderRef })), desk);
+    const original = execution({ orderRef, desk: "forged", subDesk: "forged" });
+    const before = structuredClone(original);
+    const attributed = source.attribute(original);
+    assert.deepEqual(attributed, { ...original, desk, subDesk: intentDesk });
+    assert.notEqual(attributed, original);
+    assert.deepEqual(original, before);
   }
 });
 
@@ -45,10 +51,20 @@ test("flatten submission keys match; cancel, modify and recon references cannot 
   assert.throws(() => source.resolve(execution()), /intent_unmatched/);
 });
 
-test("zero, duplicate, same-desk duplicate and unauthorized desk matches all fail closed", () => {
+test("zero, duplicate and same-roll-up duplicate intent matches all fail closed", () => {
   assert.throws(() => attribution({}).resolve(execution({ orderRef: "j|masked" })), /intent_unmatched/);
-  for (const desk of ["j", "joe"]) assert.throws(() => attribution({ first: bracket(), second: bracket(desk) }).resolve(execution()), /intent_ambiguous/);
-  for (const desk of ["j2", "j5", "J", "unknown", null]) assert.throws(() => attribution({ only: bracket(desk) }).resolve(execution()), /intent_desk_invalid/);
+  for (const desk of ["j", "j2", "j5", "joe"]) assert.throws(() => attribution({ first: bracket(), second: bracket(desk) }).resolve(execution()), /intent_ambiguous/);
+});
+
+test("unknown intent desks fail closed with only the desk token in a value-free event", () => {
+  for (const desk of ["J", "j20", "j50", "joe2", "joel2", "unknown", "constructor", "__proto__", "", null, { desk: "j" }]) {
+    const events = [];
+    const source = attribution({ only: bracket(desk) }, [], undefined, event => events.push(event));
+    assert.throws(() => source.attribute(execution({ orderRef: "j|masked", price: 123, shares: 45 })), /intent_desk_invalid/);
+    assert.deepEqual(events, [{ event: "executor_intent_desk_unclaimed", cause: "intent_desk_invalid",
+      desk: typeof desk === "string" ? desk : null }]);
+    assert.deepEqual(executorClientCounts([row()], source), [{ client: 705, matched: 0, unmatched: 1 }]);
+  }
 });
 
 test("retained economic rows recover only an exact executor execution identity before joining an intent", () => {

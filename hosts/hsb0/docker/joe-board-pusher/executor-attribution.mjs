@@ -2,9 +2,9 @@ import fs from "node:fs";
 
 export const EXECUTOR_CLIENT_IDS = Object.freeze([700, 705]);
 export const EXECUTOR_ATTRIBUTION_METHOD = "exactly-one-executor-intent-client-order-v1";
+export const EXECUTOR_DESK_ROLLUP = Object.freeze({ j: "j", j2: "j", j5: "j", joe: "joe", joel: "joel" });
 export const EXECUTOR_LEDGER_PATH = "/var/lib/paper-desk-executor/ledger.json";
 const MAX_LEDGER_BYTES = 16 * 1024 * 1024;
-const DESKS = ["j", "joe", "joel"];
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
 const dictionary = value => value && typeof value === "object" && !Array.isArray(value);
 
@@ -13,14 +13,20 @@ export function isExecutorClient(clientId, attribution) {
 }
 
 export function executorDesk(execution, attribution) {
+  return executorExecution(execution, attribution).desk;
+}
+
+// Internal copy only: broker captures and the rev 9 contract keep their shape.
+export function executorExecution(execution, attribution) {
   if (!attribution) throw new Error("executor intent ledger is unavailable");
-  return attribution.resolve(execution);
+  return attribution.attribute(execution);
 }
 
 // The index holds broker keys, never orderRef prefixes or inferred desk names.
 // A bracket's two legs belong to one intent; duplicate keys in different intents
 // remain ambiguous even when their desk is identical.
-export function createExecutorAttribution({ ledger, account, clientIds = EXECUTOR_CLIENT_IDS } = {}) {
+export function createExecutorAttribution({ ledger, account, clientIds = EXECUTOR_CLIENT_IDS,
+  onEvent = event => console.warn(JSON.stringify(event)) } = {}) {
   if (!Array.isArray(clientIds) || !clientIds.length || clientIds.some(id => !positiveId(id))) {
     throw new Error("executor client configuration is invalid");
   }
@@ -56,7 +62,7 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
       executions.get(key).add(execution.orderId);
     }
   }
-  const resolve = execution => {
+  const attribute = execution => {
     const client = execution?.clientId;
     const fail = cause => {
       const error = new Error(`execution client ${Number.isSafeInteger(client) ? client : "unknown"} is unclaimed by executor intent ledger (${cause})`);
@@ -74,15 +80,20 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
     const matches = orders.get(`${client}:${orderId}`);
     if (matches?.size !== 1) return fail(matches?.size > 1 ? "intent_ambiguous" : "intent_unmatched");
     const [record] = matches.values();
-    if (!DESKS.includes(record.desk)) return fail("intent_desk_invalid");
-    return record.desk;
+    if (typeof record.desk !== "string" || !Object.hasOwn(EXECUTOR_DESK_ROLLUP, record.desk)) {
+      onEvent({ event: "executor_intent_desk_unclaimed", cause: "intent_desk_invalid",
+        desk: typeof record.desk === "string" ? record.desk : null });
+      return fail("intent_desk_invalid");
+    }
+    return { ...execution, desk: EXECUTOR_DESK_ROLLUP[record.desk], subDesk: record.desk };
   };
-  return Object.freeze({ clientIds: Object.freeze(clientIds), resolve });
+  const resolve = execution => attribute(execution).desk;
+  return Object.freeze({ clientIds: Object.freeze(clientIds), resolve, attribute });
 }
 
-// The caller replaces this snapshot before valuation. Read errors expose a
-// fixed cause only; neither filesystem errors nor ledger data reach diagnostics.
-export function readExecutorAttribution({ account, clientIds = EXECUTOR_CLIENT_IDS, file = EXECUTOR_LEDGER_PATH } = {}) {
+// The caller replaces this snapshot before valuation. Read failures expose a
+// fixed cause only; the separate unknown-desk event names only the desk token.
+export function readExecutorAttribution({ account, clientIds = EXECUTOR_CLIENT_IDS, file = EXECUTOR_LEDGER_PATH, onEvent } = {}) {
   let handle;
   let ledger;
   try {
@@ -92,7 +103,7 @@ export function readExecutorAttribution({ account, clientIds = EXECUTOR_CLIENT_I
     ledger = JSON.parse(fs.readFileSync(handle, "utf8"));
   } catch { ledger = null; }
   finally { if (handle !== undefined) fs.closeSync(handle); }
-  return createExecutorAttribution({ ledger, account, clientIds });
+  return createExecutorAttribution({ ledger, account, clientIds, onEvent });
 }
 
 export function executorClientCounts(rows, attribution) {

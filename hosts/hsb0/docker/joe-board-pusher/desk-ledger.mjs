@@ -5,7 +5,7 @@ import { J_DATED_CLIENT_ASSIGNMENTS, normalizeEconomicCommission, normalizeEcono
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
-import { EXECUTOR_ATTRIBUTION_METHOD, EXECUTOR_CLIENT_IDS, executorDesk, executorClientCounts } from "./executor-attribution.mjs";
+import { EXECUTOR_ATTRIBUTION_METHOD, EXECUTOR_CLIENT_IDS, EXECUTOR_DESK_ROLLUP, executorExecution, executorClientCounts } from "./executor-attribution.mjs";
 
 const PERIOD_START = "2026-09-10T04:00:00Z";
 const METHOD = "owned-lots-current-mark-fx";
@@ -136,7 +136,7 @@ function canonicalPolicy(value = CURRENT_DESK_OWNERSHIP_POLICY) {
     throw new Error("executor client configuration is invalid");
   }
   return { method: POLICY_METHOD, periodStart, scope: SCOPE, excludedSymbols, keepPositions, assignments, emptyDesks, executorClientIds,
-    executorAttribution: EXECUTOR_ATTRIBUTION_METHOD };
+    executorAttribution: EXECUTOR_ATTRIBUTION_METHOD, executorDeskRollup: EXECUTOR_DESK_ROLLUP };
 }
 
 /** Canonical contract callers can persist before any valuation evidence exists. */
@@ -152,14 +152,14 @@ export function deskOwnershipPolicyContract(policy = CURRENT_DESK_OWNERSHIP_POLI
 }
 
 function classify(row, policy, executorAttribution) {
-  if (policy.executorClientIds.includes(row.execution.clientId)) return executorDesk(row.execution, executorAttribution);
+  if (policy.executorClientIds.includes(row.execution.clientId)) return executorExecution(row.execution, executorAttribution);
   const matches = policy.assignments.filter((rule) => rule.clientId === row.execution.clientId &&
     rule.fromInclusive <= row.execution.time && (rule.toExclusive === null || row.execution.time < rule.toExclusive));
   if (matches.length !== 1) {
     throw new Error(matches.length ? `client ${row.execution.clientId} has conflicting desk ownership` :
       `execution client ${row.execution.clientId} is unclaimed by the desk ownership policy`);
   }
-  return matches[0].desk;
+  return { ...row.execution, desk: matches[0].desk };
 }
 
 function effectiveRows(rows) {
@@ -186,11 +186,12 @@ function economicHistory({ rows, commissions, policy, cutoff, inclusive = true, 
     .sort((left, right) => left.execution.time.localeCompare(right.execution.time) || left.execution.execId.localeCompare(right.execution.execId))) {
     if (row.execution.acctNumber !== account) throw new Error("execution account does not match the all-desk source");
     if (excluded.has(row.contract.symbol)) continue;
-    const desk = classify(row, policy, executorAttribution);
+    const attributed = classify(row, policy, executorAttribution);
     const fee = fees.get(row.execution.execId);
     if (!fee) throw new Error(`missing commission for classified execution ${row.execution.execId}`);
     economics.push({
-      desk,
+      desk: attributed.desk,
+      ...(attributed.subDesk ? { subDesk: attributed.subDesk } : {}),
       contract: row.contract,
       execution: normalizeEconomicExecution(row).execution,
       fee: { execId: fee.execId, commission: fee.commission, currency: fee.currency },
@@ -279,13 +280,17 @@ function canonicalHistorySource(state, account) {
 
 function remapForDesk(rows, policy, desk, executorAttribution) {
   const excluded = new Set(policy.excludedSymbols);
-  return rows.map((row) => ({
-    contract: structuredClone(row.contract),
-    execution: {
-      ...structuredClone(row.execution),
-      clientId: excluded.has(row.contract.symbol) || classify(row, policy, executorAttribution) !== desk ? 2 : 1,
-    },
-  }));
+  return rows.map((row) => {
+    const attributed = excluded.has(row.contract.symbol) ? null : classify(row, policy, executorAttribution);
+    return {
+      contract: structuredClone(row.contract),
+      execution: {
+        ...structuredClone(row.execution),
+        ...(attributed?.subDesk ? { subDesk: attributed.subDesk } : {}),
+        clientId: attributed?.desk === desk ? 1 : 2,
+      },
+    };
+  });
 }
 
 function observedKeep(positions, account, policy) {
