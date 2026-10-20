@@ -60,6 +60,11 @@ export function copyObservation({ book, family, deskEquities, executions, execut
     return { value: item.value, currency: item.currency };
   };
   return { format: FRAME_FORMAT, bookTs: book.ts, equity: raw("NetLiquidation"), cash: raw("TotalCashValue"),
+    sourceObservedAt: {
+      equity: book.summaryObservedAt === undefined ? book.ts : book.summaryObservedAt?.NetLiquidation ?? null,
+      cash: book.summaryObservedAt === undefined ? book.ts : book.summaryObservedAt?.TotalCashValue ?? null,
+      positions: book.positionsCoverage?.observedAt === undefined ? book.ts : book.positionsCoverage.observedAt,
+    },
     apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
     deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }),
     ...(v1Cycle === undefined ? {} : { v1Cycle: { ...v1Cycle } }) };

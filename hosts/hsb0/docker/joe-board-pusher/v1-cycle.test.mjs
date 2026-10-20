@@ -49,7 +49,7 @@ test("pusher-only store preserves exact bytes, modes and pair sequence set by co
   const events = [], writer = createCycleStore({ root: cycles, emit: event => events.push(event) });
   for (let i = 1; i <= 14; i++) {
     const observation = copyObservation(source(i === 3 ? "post_failed" : 200));
-    const reservation = store.reserve(observation);
+    const reservation = store.reserve(observation, at);
     assert.equal(await writer.write(reservation.seq, body, observation.v1Cycle.v1Sha256), true);
     assert.equal(store.stage(observation, () => at, reservation, true).status, 200);
     await writer.prune(store.retainedSeqs());
@@ -176,7 +176,6 @@ for (const fault of ["none", "store-write", "post-failed", "http-failed"]) test(
   const parent = temp(t), root = path.join(parent, "v2"); fs.mkdirSync(root, { mode: 0o700 });
   const options = { root, uid: process.getuid(), gid: process.getgid() };
   prepareLock(root, options.uid, options.gid); const store = new StageStore(options); store.enroll(); await store.open();
-  const stage = store.stage.bind(store); store.stage = (observation, _now, reservation, stored) => stage(observation, () => bookTs, reservation, stored);
   let connect, completed;
   const done = new Promise(resolve => { completed = resolve; });
   const controls = [];

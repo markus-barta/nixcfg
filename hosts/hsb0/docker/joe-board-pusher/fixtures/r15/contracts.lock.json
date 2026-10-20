@@ -1,0 +1,76 @@
+{
+  "repository": "https://github.com/markus-barta/joedesk",
+  "revision": "84c47b647cf06a38a3f61ce7f928a10ed10eeef3",
+  "manifest_revision": 9,
+  "contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+  "files": {
+    "accept.mjs": {
+      "bytes": 2159,
+      "sha256": "2551167aabd6cf064501bf91e9de4ea7ee2a2a58b0481346bfe1b3c73d885849"
+    },
+    "common.schema.json": {
+      "bytes": 1920,
+      "sha256": "64f5e9187602d9b1d38b90210a90f51a4eda72df995acf2251cf0685731fe881"
+    },
+    "data.schema.json": {
+      "bytes": 28786,
+      "sha256": "84a9de4449d87a69ee620d0f37bd84d77b2de86cebb03fe2ef9e709161161d26"
+    },
+    "decimal.mjs": {
+      "bytes": 2397,
+      "sha256": "fb105a853b2e3212b4cb699287b25dd708b7a47b9d62273d4c3692497c95a5a5"
+    },
+    "fleet-config.schema.json": {
+      "bytes": 10186,
+      "sha256": "6405dd82726b5fd30913a6171c7cd0e648defb1aa7c0ce8ed6e30085a0ca4086"
+    },
+    "gateway.mjs": {
+      "bytes": 1040,
+      "sha256": "2021ebd9f9ca4ffce1236dfb7983f64bcd909edfbf5d7482354501fdf358700f"
+    },
+    "healthz.schema.json": {
+      "bytes": 6419,
+      "sha256": "ebf858e504535303096b8e10294af6017f758c3beb78a837ab9b81730e7dbd31"
+    },
+    "history.schema.json": {
+      "bytes": 16944,
+      "sha256": "9eb91eebe727a726439c44297708f7b7c2cb02122d2c40fc0fdad0aeb7620568"
+    },
+    "index.mjs": {
+      "bytes": 2873,
+      "sha256": "8d27098aab36bcb573c813dd9d2cc00872028cc74e46828c5d8f370a45a2e448"
+    },
+    "manifest.json": {
+      "bytes": 932,
+      "sha256": "3246d0979f790ed33aec2bd66efb195ffab4ac6d916519d9b4e2f7b3601feb3f"
+    },
+    "panel-state.mjs": {
+      "bytes": 8101,
+      "sha256": "7d298b8728822a1bb4d0145ce40ebe6a9cdfe5d915abb1e9493f33a908adeda6"
+    },
+    "read.mjs": {
+      "bytes": 1423,
+      "sha256": "c1d8983dd20f5abb31f0fcb366a756bbe207a41bce2485f64dca0158b519a31b"
+    },
+    "reason.schema.json": {
+      "bytes": 1064,
+      "sha256": "11dbe796c379dce9ee669aa724e29a3f45b0e5823902a8f3f68d2d3f82c65916"
+    },
+    "results.schema.json": {
+      "bytes": 13236,
+      "sha256": "66850a078813484a7ada7cf83dd2bd9479839e1d5c02314ff34695ab37f91ee3"
+    },
+    "schema-validator.mjs": {
+      "bytes": 4007,
+      "sha256": "a251176cf1c815fb767a323bb740a76c954481d36c082b10981d07ba7de58bf8"
+    },
+    "semantics.mjs": {
+      "bytes": 12877,
+      "sha256": "29e28436ec1400a27507308206591c64342890a6bf56c056589373b3a20dd6fc"
+    },
+    "vienna-date.mjs": {
+      "bytes": 1065,
+      "sha256": "6b6a57dbc52c62eb64a6b876a71fcaa7a4ea1a19e1460e466519b2cb23642439"
+    }
+  }
+}
