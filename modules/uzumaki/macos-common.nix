@@ -115,7 +115,8 @@ in
   # Conservative ports of WezTerm choices: Hack Nerd Font Mono @ 12pt, Tokyo Night,
   # macOS-blurred translucent window, blinking bar cursor, Option-as-Alt for special
   # chars. Defaults inherited where Ghostty's defaults already do the right thing
-  # (cmd+c/v copy/paste, cmd+plus/minus font-size, cmd+t tabs — no custom keybinds).
+  # (cmd+c/v copy/paste, cmd+plus/minus font-size, cmd+t tabs). Cmd+arrows use
+  # Home/End below to avoid our zellij Ctrl A/Ctrl E bindings.
   # Login shell intentionally NOT set — Ghostty inherits from chsh, which respects
   # each user's per-host shell choice (fish on mbp0; whatever elsewhere).
   ghosttyConfig = ''
@@ -150,6 +151,12 @@ in
     # Must be `false` so macOS generates layout chars natively; `true` turns
     # Option into the Alt modifier and fish's default Alt+L lists files.
     macos-option-as-alt = false
+
+    # ── Keybinds ──
+    # Ghostty defaults send Ctrl A/Ctrl E, bound to tab/session actions in zellij.
+    # Home/End reach fish and Claude Code as beginning/end of line.
+    keybind = super+arrow_left=text:\x1b[H
+    keybind = super+arrow_right=text:\x1b[F
 
     # ── Quality-of-life ──
     confirm-close-surface = false
