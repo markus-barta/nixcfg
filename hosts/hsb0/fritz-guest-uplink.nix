@@ -55,7 +55,9 @@ let
   ];
   # NTP: the wallbox asks pool.ntp.org and ts1.univie.ac.at. Every NTP request from the
   # transit is redirected to time1.google.com (fixed anycast address), so the clock is right
-  # and no other server can be reached on port 123.
+  # and no other server can be reached on port 123. A mangle FORWARD guard (after DNAT)
+  # drops any transit udp/123 not going to that address: it covers the reload window before
+  # the DNAT is back and conntrack entries made in it, and it is never removed (fail-closed).
   ntpServer = "216.239.35.0";
   # The only place the guest network may reach besides NTP (Markus: only the two wallboxes
   # online). Resolved 2026-10-20: cert.prod.devices.elli.eco -> 34.22.219.237 (single A,
@@ -99,6 +101,8 @@ in
     extraCommands = ''
       iptables -t raw -C PREROUTING ! -i lo -s ${transitNet} -j DROP 2>/dev/null || \
         iptables -t raw -A PREROUTING ! -i lo -s ${transitNet} -j DROP
+      iptables -t mangle -C FORWARD -s ${transitNet} -p udp --dport 123 ! -d ${ntpServer} -j DROP 2>/dev/null || \
+        iptables -t mangle -I FORWARD -s ${transitNet} -p udp --dport 123 ! -d ${ntpServer} -j DROP
       iptables -t raw -N ${chain} 2>/dev/null || true
       iptables -t raw -N ${publicChain} 2>/dev/null || true
       iptables -t raw -F ${chain}
