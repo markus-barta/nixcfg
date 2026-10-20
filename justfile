@@ -1661,3 +1661,21 @@ codex-doctor *args:
 [group('ci')]
 mbp2606-builder action='status' *args='':
     ./scripts/mbp2606-builder.sh {{ quote(action) }} {{ args }}
+
+# OPS-354: private rollback record, exact previous pins/data and human switch.
+[group('ops')]
+rollback-joedesk record='/var/lib/joedesk-rollback/record.json':
+    node scripts/rollback-joedesk.mjs --record {{ quote(record) }}
+
+# Workstation only; --dry-run prints the volume plan and runs offline swap tests.
+[group('tests')]
+rehearse-joedesk source *args='':
+    node scripts/rehearse-joedesk.mjs --source {{ quote(source) }} {{ args }}
+
+# Static routing, immutable release/host functions and real offline swap tests.
+[group('tests')]
+test-joedesk source:
+    python3 tests/T76-joe-slash-routing.py --labels-only
+    python3 tests/T100-joedesk-release.py --joedesk-source {{ quote(source) }}
+    node tests/T102-joedesk-host-gate.mjs --joedesk-source {{ quote(source) }}
+    JOEDESK_TEST_SOURCE={{ quote(source) }} node --test tests/T101-joedesk-operations.mjs

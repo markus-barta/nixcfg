@@ -1,0 +1,123 @@
+{
+  "schema": "nixcfg.joedesk-release-set.v1",
+  "active": "current",
+  "sets": {
+    "current": {
+      "board": {
+        "rev": "db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
+        "version_scheme": "calendar",
+        "version": "26.09.21.12.00",
+        "release_sequence": 23,
+        "tag": null,
+        "image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
+        "data_schema": "v1",
+        "public_health": false
+      },
+      "pusher": {
+        "nixcfg_rev": "096cc37fb8579e94915d89fb5eef305fb497fa06",
+        "source_tree": "4258cfee86aac796c226f93d23b4f38289cbcc6a",
+        "source_path": "hosts/hsb0/docker/joe-board-pusher",
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800"
+      },
+      "executor": {
+        "nixcfg_rev": "096cc37fb8579e94915d89fb5eef305fb497fa06",
+        "source_tree": "d77428b41e00faa71d6cb52f0ace23ba487a4b9d",
+        "source_path": "modules/paper-desk-executor",
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800"
+      },
+      "contracts": null,
+      "backup_schema": "v1",
+      "retention": {
+        "board_image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
+        "csb0_generation": null,
+        "hsb0_generation": null,
+        "note": "OPS records exact local image IDs, retained generations and private verified backup before cutover."
+      }
+    },
+    "v2": {
+      "board": {
+        "rev": "d36b5295295a6901e36fdf2dc0d64353ddf88d0e",
+        "version_scheme": "inspr-calver-3",
+        "version": "261019102825.0.0",
+        "release_sequence": 25,
+        "tag": null,
+        "image": null,
+        "data_schema": "v2",
+        "public_health": true
+      },
+      "pusher": null,
+      "executor": null,
+      "contracts": {
+        "schema": "joedesk.release-contracts.v1",
+        "contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+        "manifest_revision": 9,
+        "compatibility": {
+          "data": ["inspr.joe.household.v2"],
+          "history": ["inspr.joe.household.history.v2"],
+          "results": ["inspr.joe.household.results.v2"],
+          "fleet-config": ["inspr.joe.fleet-config.v1"],
+          "healthz": ["inspr.joe.healthz.v2"]
+        },
+        "participants": {
+          "board": {
+            "accepts": {
+              "data": ["inspr.joe.household.v2"],
+              "history": ["inspr.joe.household.history.v2"],
+              "results": ["inspr.joe.household.results.v2"],
+              "fleet-config": ["inspr.joe.fleet-config.v1"],
+              "healthz": ["inspr.joe.healthz.v2"]
+            },
+            "evidence": "test/release.mjs + test/server-contract.mjs"
+          },
+          "pusher": {
+            "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+            "required_data_schema": "inspr.joe.household.v2",
+            "deployment_pin": null,
+            "status": "Amy JOED-20 real producer rehearsal/sign-off required"
+          },
+          "executor": {
+            "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+            "reports_via": "pusher data.safety.executor",
+            "deployment_pin": null,
+            "status": "Amy executor/broker reconciliation required"
+          }
+        },
+        "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"
+      },
+      "backup_schema": "v2",
+      "status": "main candidate (PR #58, JOED-50); inactive pending JOED-20 producer/executor evidence, OPS rehearsal, review and owner cutover"
+    },
+    "previous": {
+      "board": {
+        "rev": "db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
+        "version_scheme": "calendar",
+        "version": "26.09.21.12.00",
+        "release_sequence": 23,
+        "tag": null,
+        "image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
+        "data_schema": "v1",
+        "public_health": false
+      },
+      "pusher": {
+        "nixcfg_rev": "ed5e43d6600b6b610a8c4483eba2627f00b4fd58",
+        "source_tree": "181d98dfe04333aecd9bbb5b262666209904ef4f",
+        "source_path": "hosts/hsb0/docker/joe-board-pusher",
+        "image": "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310"
+      },
+      "executor": {
+        "nixcfg_rev": "ed5e43d6600b6b610a8c4483eba2627f00b4fd58",
+        "source_tree": "4eab4a9fa87021b088b86a040e85d73546021aaf",
+        "source_path": "modules/paper-desk-executor",
+        "image": "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310"
+      },
+      "contracts": null,
+      "backup_schema": "v1",
+      "retention": {
+        "board_image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
+        "csb0_generation": null,
+        "hsb0_generation": null,
+        "note": "OPS records exact local image IDs, retained generations and private verified backup before cutover."
+      }
+    }
+  }
+}
