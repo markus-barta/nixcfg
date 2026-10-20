@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The Phase A candidate image is `hsb0-joe-board-pusher:household-v2-phase-a-202610190715`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-202610201110` (pusher, stager and executor runtime; OPS-392). Rollback tag: Phase A `hsb0-joe-board-pusher:household-v2-phase-a-202610190715`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
