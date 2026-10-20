@@ -1737,21 +1737,25 @@ in
       ];
     };
     inspr-auth = {
-      # Go OIDC session backend for inspr.at/{enter,login,welcome,logout}.
+      # Go OIDC sessions for inspr.at/{enter,login,welcome,logout} and
+      # paimos.com/admin (INSPR-576, inspr-site #82).
       # Source: inspr-at/inspr-site `auth/`, built and published by its
       # auth-image workflow (INSPR-253): BuildKit provenance + SPDX SBOM,
       # cosign-signed with the workflow OIDC identity, Trivy-gated since 0.2.0.
+      # 4c0466b = isolated paimos.com/admin sign-in scope (inspr-site #82).
+      # First rollback: restore 0.3.0 and remove the admin env_file below.
+      #   ghcr.io/inspr-at/inspr-site/inspr-auth:0.3.0@sha256:568eccb310c58b12d64b329007ec483fcfed0b7688ad9b87b9cce80cdd74dfd0
       # 0.3.0 = edge-attested passwordless registration (INSPR-310/NIX-405).
-      # Roll back to the last live 0.2.0 artifact if the attended cutover fails:
+      # Older rollback artifacts:
       #   ghcr.io/inspr-at/inspr-site/inspr-auth:0.2.0@sha256:d1fc446ff49f03617d574b775fc9435f035f24ad7b280b9024f1b6b53560838f
-      # The earlier 2026-05-11 rescue build remains a second-line target (same
+      # The earlier 2026-05-11 rescue build remains a last-resort target (same
       # manifest digest,
       # re-homed into this private package, cosign custody-signed):
       #   ghcr.io/inspr-at/inspr-site/inspr-auth:legacy-20260511@sha256:090c82cff2dd3c5efddfb73c445f22c34898d8e9653abd9cbb746ca26125d59f
       # The units pull this private package through composeStack.registryLogins
       # (NIX-384); the old public ghcr.io/inspr-at/inspr-auth package is being
       # deleted (INSPR-253).
-      image = "ghcr.io/inspr-at/inspr-site/inspr-auth:0.3.0@sha256:568eccb310c58b12d64b329007ec483fcfed0b7688ad9b87b9cce80cdd74dfd0";
+      image = "ghcr.io/inspr-at/inspr-site/inspr-auth:sha-4c0466b59e23d3bc31670007899888e4129a79f7@sha256:1de76e53c2984ec1417f1415a45ff2f3451476c07c3ff92909a7ae380451a460";
       container_name = "inspr-auth";
       restart = "unless-stopped";
       networks = [
@@ -1772,6 +1776,11 @@ in
         # inspr-edge-config.service; there is one secret source, not two
         # independently rotatable copies.
         "/run/agenix/csb1-inspr-auth-env"
+        # INSPR-576: ADMIN_BASE_URL, ADMIN_OIDC_CLIENT_ID,
+        # ADMIN_OIDC_CLIENT_SECRET, ADMIN_COOKIE_KEY, ADMIN_ALLOWED_SUBJECTS.
+        # Partly set ADMIN_* prevents startup; an empty allowlist denies all.
+        # Only inspr-auth loads this file; the edge renderer keeps the first.
+        "/run/agenix/csb1-inspr-auth-admin-env"
       ];
       labels = [
         "traefik.enable=true"
