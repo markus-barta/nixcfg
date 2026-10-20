@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700` (pusher, stager and executor runtime; OPS-404). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (pusher, stager and executor runtime; OPS-404). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -20,13 +20,30 @@ reviewed host promotion; keep `flat-net-reconcile-perf-202610010310` intact for
 rollback. Never rebuild over either published tag. The base image digests,
 package manifests and `npm ci` remain unchanged.
 
+R16d refreshes the read-only position subscription with `cancelPositions` then
+`reqPositions` every 120 seconds on the existing five-second tick, while the
+session is ready. One reply stays in flight until `positionEnd` or retirement of
+its connection generation. Each reply starts a fresh accumulator and atomically
+replaces the previous position set at completion, so omitted contracts disappear.
+Partial callbacks retain the last completed rows and clock. Only that completed
+reply advances position coverage; `updatePortfolio` and `accountDownloadEnd`
+cannot prove a complete position set and never renew its clock. Both all-desk
+and J family activity use this clock, independently of accounting/mark ages.
+A missing end ages coverage out after 420 seconds (stale at 421 seconds).
+KEEP classification and v1 projection/POST bytes for identical inputs stay unchanged.
+
+R16d → R16 rollback needs no pair move-aside: the stager, persisted sequence
+state, pair schema and source-clock semantics are unchanged. Preserve pairs,
+the current pointer, sequence high-water, lock, receipt log and v1 bodies.
+The separate R16 → R15 move-aside procedure remains required in the host runbook.
+
 ## household.v2 switch-set staging (OPS-392)
 
 The existing `joeHouseholdV2StageEnabled` flag enables the independent
 `joe-household-v2-stage` service in the Phase A candidate. The Results producer
 remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
 adds useful account and position evidence to local staging; it adds no v2 POST
-selector. PAPER only; live remains locked. All v1 accounting, subscriptions,
+selector. PAPER only; live remains locked. All v1 accounting,
 token source, POST bytes and interval remain unchanged. Desk money and totals
 stay null with `not_exact_yet`. Desk activity uses the existing read-only broker
 replies; no executor API request or executor change is added. Historical evidence
@@ -103,7 +120,7 @@ values become null with `source_unavailable`. Rev 9 uses `brokerAccount.reason`
 for equity and `brokerAccount.reasons.cash` for cash. Both cover the entire paper
 account including KEEP; no conversion or numeric FIFO value enters them.
 The private `sourceObservedAt` clocks come from the individual NAV/cash summary
-callbacks and complete position/account-download replies. An unrelated callback
+callbacks and completed position replies. An unrelated callback
 cannot renew another source. Legacy frames without those clocks still use book
 time. `brokerAccount.observedAt` is the oldest source of the money actually
 emitted (or the oldest known account source when both values are null);
@@ -582,8 +599,8 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r16-202610201700`; the retained
-rollback image is `household-v2-switch-set-r15-202610201500`.
+The candidate image is `household-v2-switch-set-r16d-202610201800`; the retained
+rollback image is `household-v2-switch-set-r16-202610201700`.
 
 R15 attributes executor-route executions through the executor's own intent
 ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same

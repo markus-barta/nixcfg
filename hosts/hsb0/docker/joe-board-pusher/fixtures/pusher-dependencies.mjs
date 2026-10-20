@@ -57,7 +57,9 @@ export const createOfficialHistoryRefresher = () => ({ start: noop, stop: noop }
 export const createStageHandoff = () => state.handoff;
 export function createBrokerSessionAdapter() {
   const current = state;
-  return { connected: current.variant !== "outage", snapshot: () => current.variant === "incomplete" ? null : current.book, refreshOpenOrders: noop, retire: noop };
+  return { connected: current.variant !== "outage", snapshot: () => current.variant === "incomplete" ? null : current.book,
+    refreshOpenOrders: () => { (current.refreshCalls ??= []).push("orders"); },
+    refreshPositions: () => { (current.refreshCalls ??= []).push("positions"); }, retire: noop };
 }
 export function createFamilySessionAdapter() {
   const current = state;

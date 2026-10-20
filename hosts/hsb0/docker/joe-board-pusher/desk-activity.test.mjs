@@ -150,14 +150,17 @@ function orderSession() {
   let epoch = Date.parse(instant);
   const events = Object.fromEntries(["connected", "disconnected", "error", "info", "managedAccounts", "accountSummary", "accountSummaryEnd", "position", "positionEnd", "updatePortfolio", "accountDownloadEnd", "openOrder", "openOrderEnd"].map(name => [name, name]));
   const adapter = createBrokerSessionAdapter({ targetAccount: "DUFIXTURE", eventNames: events, now: () => new Date(epoch).toISOString() });
-  const make = () => Object.assign(new EventEmitter(), { requests: [], ...Object.fromEntries(["reqManagedAccts", "reqPositions", "reqAllOpenOrders", "reqAccountSummary", "reqAccountUpdates"].map(name => [name, function (...args) { this.requests.push([name, ...args]); }])) });
+  const make = () => Object.assign(new EventEmitter(), { requests: [], ...Object.fromEntries(["reqManagedAccts", "reqPositions", "cancelPositions", "reqAllOpenOrders", "reqAccountSummary", "reqAccountUpdates"].map(name => [name, function (...args) { this.requests.push([name, ...args]); }])) });
   const api = make(); adapter.attach(api); api.emit("connected"); api.emit("managedAccounts", "DUFIXTURE");
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "1", "EUR");
   api.emit("accountSummaryEnd", 9501); api.emit("positionEnd"); api.emit("accountDownloadEnd", "DUFIXTURE");
   return {
     adapter, api, make,
     at: () => new Date(epoch).toISOString(),
-    advance(ms) { epoch += ms; api.emit("accountDownloadEnd", "DUFIXTURE"); },
+    advance(ms) {
+      epoch += ms; api.emit("accountDownloadEnd", "DUFIXTURE");
+      if (adapter.refreshPositions()) api.emit("positionEnd");
+    },
     order(clientId = 22, symbol = "SYNTH", orderId = 1, account = "DUFIXTURE") {
       api.emit("openOrder", orderId, { symbol }, { account, clientId }, { status: "Submitted" });
     },
