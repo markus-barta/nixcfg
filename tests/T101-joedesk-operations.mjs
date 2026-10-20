@@ -474,6 +474,10 @@ test("rollback plan binds exact set, images, generations and cross-host commands
   const record = {
     previous_set_sha256: setDigest(release.sets.previous),
     rollback_nixcfg_rev: "a".repeat(40),
+    pre_cutover_hsb0_nixcfg_rev: "e".repeat(40),
+    pre_cutover_pusher_source_tree: "f".repeat(40),
+    pre_cutover_executor_source_tree: "1".repeat(40),
+    pre_cutover_pusher_image: "fixture:recorded",
     board_image_id: "sha256:" + "b".repeat(64),
     pusher_image_id: "sha256:" + "c".repeat(64),
     backup_manifest_sha256: "d".repeat(64),
@@ -526,7 +530,7 @@ test("rollback plan binds exact set, images, generations and cross-host commands
   const plan = rollbackPlan(record, release);
   assert.match(
     plan.crossStop.join("\n"),
-    /stop joe-board-pusher paper-desk-executor/,
+    /stop joe-board-pusher joe-household-v2-stage/,
   );
   assert.match(plan.crossSwitch.join("\n"), /just switch/);
   assert.ok(
@@ -1193,24 +1197,58 @@ test("rollback resolves the exact fetched fast-forward target before stopping wr
   );
   const fixture = runtimeRepo();
   const previous = { ...fixture.previous, board: { rev: "b".repeat(40) } };
+  for (const name of ["pusher", "executor"])
+    previous[name].image = "fixture:recorded";
   const record = {
     rollback_nixcfg_rev: "a".repeat(40),
     previous_set_sha256: setDigest(previous),
+    pre_cutover_hsb0_nixcfg_rev: fixture.previous.pusher.nixcfg_rev,
+    pre_cutover_pusher_source_tree: fixture.previous.pusher.source_tree,
+    pre_cutover_executor_source_tree: fixture.previous.executor.source_tree,
+    pre_cutover_pusher_image: "fixture:recorded",
   };
+  // Variant B: historical previous has different runtime bytes. The record
+  // names the runtime actually running immediately before phase1.
+  put(
+    path.join(fixture.dir, "pusher"),
+    "runtime.mjs",
+    "export const r16d = true;\n",
+  );
+  put(
+    path.join(fixture.dir, "executor"),
+    "runtime.mjs",
+    "export const r16d = true;\n",
+  );
+  record.pre_cutover_hsb0_nixcfg_rev = fixture.snapshot();
+  record.pre_cutover_pusher_source_tree = fixture.git(
+    "rev-parse",
+    "HEAD:pusher",
+  );
+  record.pre_cutover_executor_source_tree = fixture.git(
+    "rev-parse",
+    "HEAD:executor",
+  );
   const calls = [];
   const runGit = (...args) => {
     calls.push(args);
     if (args[0] === "rev-parse" && args[1].endsWith("^{commit}"))
       return record.rollback_nixcfg_rev;
     if (args[0] === "merge-base") return "";
+    if (args[0] === "show" && /configuration.nix|default.nix/.test(args[1]))
+      return "joeSet = joeRelease.sets.${joeRelease.active};";
     if (args[0] === "show")
       return JSON.stringify(
         args[1].endsWith("flake.lock")
           ? { nodes: { joedesk: { locked: { rev: previous.board.rev } } } }
           : { active: "previous", sets: { previous } },
       );
+    const mapped = args.map((arg) =>
+      arg
+        .replace("hosts/hsb0/docker/joe-board-pusher", "pusher")
+        .replace("modules/paper-desk-executor", "executor"),
+    );
     return fixture.git(
-      ...args.map((arg) =>
+      ...mapped.map((arg) =>
         arg === record.rollback_nixcfg_rev
           ? "HEAD"
           : arg.startsWith(record.rollback_nixcfg_rev + ":")
@@ -1241,5 +1279,52 @@ test("rollback resolves the exact fetched fast-forward target before stopping wr
           : runGit(...args),
       ),
     /previous_pins_not_selected/,
+  );
+});
+
+test("recorded pre-cutover B runtime accepted; mismatched trees and implicit A refused", async () => {
+  const { verifyRecordedRuntimeSource } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
+  const f = runtimeRepo();
+  const record = {
+    pre_cutover_hsb0_nixcfg_rev: f.previous.pusher.nixcfg_rev,
+    pre_cutover_pusher_source_tree: f.previous.pusher.source_tree,
+    pre_cutover_executor_source_tree: f.previous.executor.source_tree,
+  };
+  const git = (...args) =>
+    f.git(
+      ...args.map((arg) =>
+        arg
+          .replace("hosts/hsb0/docker/joe-board-pusher", "pusher")
+          .replace("modules/paper-desk-executor", "executor"),
+      ),
+    );
+  verifyRecordedRuntimeSource(record, "HEAD", git);
+  for (const key of [
+    "pre_cutover_pusher_source_tree",
+    "pre_cutover_executor_source_tree",
+  ]) {
+    assert.throws(
+      () =>
+        verifyRecordedRuntimeSource(
+          { ...record, [key]: "0".repeat(40) },
+          "HEAD",
+          git,
+        ),
+      /recorded_runtime_source_mismatch/,
+    );
+    const absent = { ...record };
+    delete absent[key];
+    assert.throws(
+      () => verifyRecordedRuntimeSource(absent, "HEAD", git),
+      /recorded_pre_cutover_runtime_required/,
+    );
+  }
+  put(path.join(f.dir, "pusher"), "runtime.mjs", "different runtime\n");
+  f.snapshot();
+  assert.throws(
+    () => verifyRecordedRuntimeSource(record, "HEAD", git),
+    /previous_runtime_source_mismatch/,
   );
 });

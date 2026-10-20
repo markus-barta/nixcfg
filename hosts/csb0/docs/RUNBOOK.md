@@ -812,13 +812,14 @@ JOED-20 must still supply compatible downstream pins and real evidence.
    source containing `scripts/prepare-data.mjs`; that CLI is not copied into
    the application image. Do not GC or prune these rollback artifacts.
 3. Freeze Fleet Config edits and stop **all** board writers, hsb0 pusher and
-   executor, including other producer jobs. Pause both hosts' compose update
+   stager, including other producer jobs. The executor keeps running: its own
+   `/var/lib/paper-desk-executor` is rw, pusher state is ro; it is not a board writer. Pause both hosts' compose update
    timers/services and reconcile units; verify no relevant writer container
    runs. Use each host's existing rendered Compose file only for `stop` and
    status checks. Leave the paper Gateway untouched. On csb0, stop `joe-board`
    with `sudo docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml stop joe-board`.
    On hsb0, use project `docker`, file `/etc/compose/hsb0/docker-compose.yml`,
-   project directory `hosts/hsb0/docker`, and stop `joe-board-pusher paper-desk-executor`.
+   project directory `hosts/hsb0/docker`, and stop `joe-board-pusher joe-household-v2-stage`.
    Pause `compose-csb0-update.timer`, `compose-csb0-update.service`,
    `compose-csb0.service` and the corresponding `compose-hsb0*` units first.
 4. With retained immutable v2 SOURCE and Node 22+, create a **new private**
@@ -877,6 +878,12 @@ keys: `previous_set_sha256` (the exported `setDigest` of release.sets.previous),
 `csb0_generation`, `hsb0_generation` (retained positive generation numbers),
 `v1_backup`, `prepare_source`, `cookie_jar`, `hsb0_checkout` (absolute private
 paths), and `rollback_nixcfg_rev` (the full reviewed rollback commit).
+Also require `pre_cutover_hsb0_nixcfg_rev`, `pre_cutover_pusher_source_tree`,
+`pre_cutover_executor_source_tree` (full Git object IDs captured before phase1),
+and `pre_cutover_pusher_image` (the shared pre-cutover runtime tag).
+`pusher_image_id` is the retained image ID for that recorded runtime, not an
+assumption that the historical previous tag was running. Record these facts
+from the pre-phase1 checkout and running image; never infer them at rollback.
 `prepare_source` must be the retained immutable `/nix/store/` v2 source,
 including its own preparation CLI. The cookie jar is a private signed-in
 SSO session for legacy version/data checks; the command never prints it.
@@ -885,13 +892,17 @@ needed, then update this private record before running the command. A missing
 record, generation, local image or exact commit is a hard stop.
 
 The rollback commit selects `active = previous`, restores the recorded
-board flake URL/lock and the previous pusher/executor **runtime source bytes**,
+board flake URL/lock and the recorded pre-phase1 hsb0 **runtime source bytes**,
 while retaining unrelated nixcfg changes. csb0's declarative previous selector
 uses `pull_policy = never` so the normal switch reuses the retained exact
 image; it does not rebuild legacy's floating base into a different image.
 Pusher and executor already use never. Never restore the entire old nixcfg
 revision or silently discard intervening host changes. Review the affected
-source paths from the release set and check their recorded source trees.
+source paths and check the private record's trees against its recorded hsb0
+revision. Variant B retains r16d while csb0 selects previous. Variant A (flat-net)
+is allowed only when the record explicitly names those trees and image.
+Both hosts must return to their actual pre-phase1 state; never rewind or
+restore the running executor ledger from a backup or live copy.
 
 On csb0, run `just rollback-joedesk` (or `--record` another `.json` file directly in `/var/lib/joedesk-rollback/`). The
 command refuses every other host and noninteractive use, asks y/N before
@@ -904,7 +915,9 @@ stopped remote writers, it pauses local reconciliation/update jobs, stops the
 board, and uses `git merge --ff-only <recorded-rev>` rather than pulling a
 possibly newer main. It rechecks HEAD, selected set, lock and runtime bytes.
 Pusher source must match the full recorded tree, including additions; executor
-runtime file lists and bytes must match both the pin and HEAD. It calls the
+runtime file lists and bytes must match the recorded pre-cutover revision and
+HEAD (Nix wiring may differ). Runtime image selectors must match the recorded
+tag. Pusher/stager stop; the executor keeps running throughout. It calls the
 **same** swap script in rollback mode, which runs
 `node SOURCE/scripts/prepare-data.mjs restore --offline BACKUP NEW_RESTORE v1`
 into a new sibling, applies ownership/modes and performs the stopped-service
