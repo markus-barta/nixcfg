@@ -58,7 +58,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   const state = syntheticState(variant);
   const before = JSON.stringify({ book: state.book, retained: state.retained });
   const requests = [], observations = [], trace = [], errors = [], logs = [], timers = [];
-  state.handoff = { offer(bookTs) { trace.push("handoff"); observations.push(bookTs); return socket?.offer(bookTs); }, stop() {} };
+  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); return socket?.offer(source); }, stop() {} };
   const url = pathToFileURL(realpathSync(fileURLToPath(moduleURL))); url.searchParams.set("fixture", String(++generation));
   const hooks = installPusherDoubles(url.href, state);
   const saved = { fetch: globalThis.fetch, Date: globalThis.Date, setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, log: console.log, warn: console.warn, error: console.error };
