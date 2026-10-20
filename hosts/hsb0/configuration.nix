@@ -131,7 +131,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@1aefc0c3 nix/module.nix:44-278.
+  # Options: hausnetz@41063ad3 nix/module.nix:44-278.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
   # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
   # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
@@ -231,7 +231,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
     # OPS-392 switch set (2026-10-20): a fresh immutable candidate shared with the executor
-    # (rollback: household-v2-phase-a-202610190715); the
+    # (rollback: household-v2-switch-set-r15-202610201500); the
     # previous tag remains available for flag-off rollback. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
@@ -245,11 +245,14 @@ assert joeSet.pusher != null && joeSet.executor != null;
               else
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
+            environment =
+              joeComposeBase.services.joe-board-pusher.environment
+              ++ [
+                "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
+              ]
+              ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock";
           }
           // lib.optionalAttrs joeHouseholdV2StageEnabled {
-            environment = joeComposeBase.services.joe-board-pusher.environment ++ [
-              "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
-            ];
             volumes = joeComposeBase.services.joe-board-pusher.volumes ++ [
               "/run/joe-household-v2:/run/joe-household-v2:rw"
             ];
@@ -264,7 +267,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330";
+                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700";
                   pull_policy = "never";
                 };
               }

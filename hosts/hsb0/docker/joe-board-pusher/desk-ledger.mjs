@@ -5,6 +5,7 @@ import { J_DATED_CLIENT_ASSIGNMENTS, normalizeEconomicCommission, normalizeEcono
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
+import { EXECUTOR_ATTRIBUTION_METHOD, EXECUTOR_CLIENT_IDS, EXECUTOR_DESK_ROLLUP, executorExecution, executorClientCounts } from "./executor-attribution.mjs";
 
 const PERIOD_START = "2026-09-10T04:00:00Z";
 const METHOD = "owned-lots-current-mark-fx";
@@ -26,6 +27,7 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
   method: POLICY_METHOD,
   periodStart: PERIOD_START,
   scope: SCOPE,
+  executorClientIds: EXECUTOR_CLIENT_IDS,
   excludedSymbols: Object.freeze(["SXR8", "TSLA"]),
   keepPositions: Object.freeze([
     Object.freeze({ symbol: "SXR8", quantity: 1401 }),
@@ -129,7 +131,12 @@ function canonicalPolicy(value = CURRENT_DESK_OWNERSHIP_POLICY) {
       throw new Error(`${desk} has neither an ownership assignment nor an explicit empty declaration`);
     }
   }
-  return { method: POLICY_METHOD, periodStart, scope: SCOPE, excludedSymbols, keepPositions, assignments, emptyDesks };
+  const executorClientIds = [...new Set(value.executorClientIds ?? EXECUTOR_CLIENT_IDS)].sort((a, b) => a - b);
+  if (!executorClientIds.length || executorClientIds.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    throw new Error("executor client configuration is invalid");
+  }
+  return { method: POLICY_METHOD, periodStart, scope: SCOPE, excludedSymbols, keepPositions, assignments, emptyDesks, executorClientIds,
+    executorAttribution: EXECUTOR_ATTRIBUTION_METHOD, executorDeskRollup: EXECUTOR_DESK_ROLLUP };
 }
 
 /** Canonical contract callers can persist before any valuation evidence exists. */
@@ -144,21 +151,30 @@ export function deskOwnershipPolicyContract(policy = CURRENT_DESK_OWNERSHIP_POLI
   };
 }
 
-function classify(row, policy) {
+function classify(row, policy, executorAttribution) {
+  if (policy.executorClientIds.includes(row.execution.clientId)) return executorExecution(row.execution, executorAttribution);
   const matches = policy.assignments.filter((rule) => rule.clientId === row.execution.clientId &&
     rule.fromInclusive <= row.execution.time && (rule.toExclusive === null || row.execution.time < rule.toExclusive));
   if (matches.length !== 1) {
     throw new Error(matches.length ? `client ${row.execution.clientId} has conflicting desk ownership` :
       `execution client ${row.execution.clientId} is unclaimed by the desk ownership policy`);
   }
-  return matches[0].desk;
+  return { ...row.execution, desk: matches[0].desk };
 }
 
 function effectiveRows(rows) {
-  return mergeExecutionRecords([], rows).map(normalizeEconomicExecution);
+  return mergeExecutionRecords([], rows).map(normalizeDeskExecution);
 }
 
-function economicHistory({ rows, commissions, policy, cutoff, inclusive = true, account }) {
+function normalizeDeskExecution(row) {
+  const normalized = normalizeEconomicExecution(row);
+  // Routing is used only for the intent join; historical economic digests keep
+  // their original normalized shape and captured artifacts are never rewritten.
+  if (Number.isSafeInteger(row.execution.orderId) && row.execution.orderId > 0) normalized.execution.orderId = row.execution.orderId;
+  return normalized;
+}
+
+function economicHistory({ rows, commissions, policy, cutoff, inclusive = true, account, executorAttribution }) {
   const through = instant(cutoff, "history cutoff");
   const fees = new Map(commissions.map((row) => {
     const fee = normalizeEconomicCommission(row);
@@ -170,21 +186,22 @@ function economicHistory({ rows, commissions, policy, cutoff, inclusive = true, 
     .sort((left, right) => left.execution.time.localeCompare(right.execution.time) || left.execution.execId.localeCompare(right.execution.execId))) {
     if (row.execution.acctNumber !== account) throw new Error("execution account does not match the all-desk source");
     if (excluded.has(row.contract.symbol)) continue;
-    const desk = classify(row, policy);
+    const attributed = classify(row, policy, executorAttribution);
     const fee = fees.get(row.execution.execId);
     if (!fee) throw new Error(`missing commission for classified execution ${row.execution.execId}`);
     economics.push({
-      desk,
+      desk: attributed.desk,
+      ...(attributed.subDesk ? { subDesk: attributed.subDesk } : {}),
       contract: row.contract,
-      execution: row.execution,
+      execution: normalizeEconomicExecution(row).execution,
       fee: { execId: fee.execId, commission: fee.commission, currency: fee.currency },
     });
   }
   return economics;
 }
 
-function historyRevision(source, policy, cutoff, inclusive = true) {
-  const economics = economicHistory({ ...source, policy, cutoff, inclusive });
+function historyRevision(source, policy, cutoff, inclusive = true, executorAttribution = null) {
+  const economics = economicHistory({ ...source, policy, cutoff, inclusive, executorAttribution });
   return digest({ method: HISTORY_REVISION_METHOD, policy, economics });
 }
 
@@ -258,18 +275,22 @@ function canonicalHistorySource(state, account) {
   if (effective.some((row) => row?.execution?.pendingPriceRevision === true)) {
     throw new Error("authoritative history contains a pending execution correction");
   }
-  return { rows: effective.map(normalizeEconomicExecution), commissions: state.commissions, account };
+  return { rows: effective.map(normalizeDeskExecution), commissions: state.commissions, account };
 }
 
-function remapForDesk(rows, policy, desk) {
+function remapForDesk(rows, policy, desk, executorAttribution) {
   const excluded = new Set(policy.excludedSymbols);
-  return rows.map((row) => ({
-    contract: structuredClone(row.contract),
-    execution: {
-      ...structuredClone(row.execution),
-      clientId: excluded.has(row.contract.symbol) || classify(row, policy) !== desk ? 2 : 1,
-    },
-  }));
+  return rows.map((row) => {
+    const attributed = excluded.has(row.contract.symbol) ? null : classify(row, policy, executorAttribution);
+    return {
+      contract: structuredClone(row.contract),
+      execution: {
+        ...structuredClone(row.execution),
+        ...(attributed?.subDesk ? { subDesk: attributed.subDesk } : {}),
+        clientId: attributed?.desk === desk ? 1 : 2,
+      },
+    };
+  });
 }
 
 function observedKeep(positions, account, policy) {
@@ -301,7 +322,7 @@ function roundEur(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function currentDayDirectCoverage(ledgerState, ledger, policy, cutoff) {
+function currentDayDirectCoverage(ledgerState, ledger, policy, cutoff, executorAttribution) {
   const day = newYorkDay(cutoff);
   const dayStart = newYorkPeriodStart(cutoff);
   if (!day || !dayStart || ledgerState?.coverageTradingDay !== day ||
@@ -321,7 +342,7 @@ function currentDayDirectCoverage(ledgerState, ledger, policy, cutoff) {
   const excluded = new Set(policy.excludedSymbols);
   for (const row of currentRows) {
     if (excluded.has(row.contract.symbol)) continue;
-    classify(row, policy);
+    classify(row, policy, executorAttribution);
     if (!commissionIds.has(row.execution.execId)) {
       throw new Error("direct current-day execution is missing its commission");
     }
@@ -340,7 +361,10 @@ export function calculateDeskEquities({
   policy = CURRENT_DESK_OWNERSHIP_POLICY,
   observedAt,
   jResult = null,
+  executorAttribution = null,
 } = {}) {
+  const executorClients = executorClientCounts(ledgerState?.executions, executorAttribution);
+  const diagnostics = executorClients.length ? { executorClients } : {};
   try {
     if (typeof account !== "string" || !account.trim()) throw new Error("target account is invalid");
     const canonical = canonicalPolicy(policy);
@@ -353,20 +377,20 @@ export function calculateDeskEquities({
       throw new Error("live ledger contains an execution after its coverage boundary");
     }
     const proofAt = instant(verifiedHistoryState.updatedAt, "authoritative history updatedAt");
-    const directCoverage = currentDayDirectCoverage(ledgerState, ledger, canonical, cutoff);
+    const directCoverage = currentDayDirectCoverage(ledgerState, ledger, canonical, cutoff, executorAttribution);
     completeCoverage(verifiedHistoryState.receipts, canonical.periodStart, directCoverage.dayStart, proofAt);
     assertOfficialIdentities(verifiedHistoryState, history, canonical, directCoverage.dayStart, proofAt, false);
-    const priorLedgerRevision = historyRevision(ledger, canonical, directCoverage.dayStart, false);
-    const priorOfficialRevision = historyRevision(history, canonical, directCoverage.dayStart, false);
+    const priorLedgerRevision = historyRevision(ledger, canonical, directCoverage.dayStart, false, executorAttribution);
+    const priorOfficialRevision = historyRevision(history, canonical, directCoverage.dayStart, false, executorAttribution);
     if (priorLedgerRevision !== priorOfficialRevision) {
       throw new Error("live ledger historical economics do not match authoritative all-account history");
     }
-    const ledgerEconomics = economicHistory({ ...ledger, policy: canonical, cutoff });
-    const ledgerRevision = historyRevision(ledger, canonical, cutoff);
+    const ledgerEconomics = economicHistory({ ...ledger, policy: canonical, cutoff, executorAttribution });
+    const ledgerRevision = historyRevision(ledger, canonical, cutoff, true, executorAttribution);
     observedKeep(positions || [], account, canonical);
 
     const calculate = (desk) => calculateFamily({
-      executions: remapForDesk(ledger.rows, canonical, desk),
+      executions: remapForDesk(ledger.rows, canonical, desk, executorAttribution),
       commissions: structuredClone(ledgerState.commissions),
       portfolio: structuredClone(portfolio || []),
       positions: structuredClone(positions || []),
@@ -381,8 +405,10 @@ export function calculateDeskEquities({
     });
     const j = calculate("j");
     const joe = calculate("joe");
+    const joel = calculate("joel");
     if (!j.ok) throw new Error(`J desk calculation unavailable: ${j.reason}`);
     if (!joe.ok) throw new Error(`Joe desk calculation unavailable: ${joe.reason}`);
+    if (!joel.ok) throw new Error(`Joel desk calculation unavailable: ${joel.reason}`);
     const compatibleJ = (result) => ({
       ...deskValue(result), accounting: result.accounting, openPnlEvidence: result.openPnlEvidence,
       executionCount: result.executionCount,
@@ -390,9 +416,7 @@ export function calculateDeskEquities({
     if (jResult && stable(compatibleJ(j)) !== stable(compatibleJ(jResult))) {
       throw new Error("all-desk J result differs from the existing family result");
     }
-    if (!canonical.emptyDesks.includes("joel")) throw new Error("Joel empty ownership is not explicitly declared");
-    const joel = { equity: 5000, totalPnl: 0, realizedPnl: 0, unrealizedPnl: 0, positions: [] };
-    const desks = { j: deskValue(j), joe: deskValue(joe), joel };
+    const desks = { j: deskValue(j), joe: deskValue(joe), joel: deskValue(joel) };
     const equity = {
       j: desks.j.equity,
       joe: desks.joe.equity,
@@ -408,7 +432,7 @@ export function calculateDeskEquities({
       if (!Number.isFinite(fx?.rates?.[currency])) throw new Error(`explicit ${currency}→EUR FX rate is unavailable`);
       return instant(fx?.rateObservedAt?.[currency], `${currency} FX observedAt`);
     });
-    const markTimes = [...j.positions, ...joe.positions].map((row) => instant(row.updatedAt, "position mark observedAt"));
+    const markTimes = [...j.positions, ...joe.positions, ...joel.positions].map((row) => instant(row.updatedAt, "position mark observedAt"));
     const freshnessTimes = [cutoff, ...rateTimes, ...markTimes];
     if (freshnessTimes.some((value) => value > sourceAt)) throw new Error("all-desk source observation predates an economic input");
     const oldestSourceObservedAt = [...freshnessTimes].sort()[0];
@@ -416,6 +440,7 @@ export function calculateDeskEquities({
     const policyHash = sourceContract.policyHash;
     return {
       ok: true,
+      ...diagnostics,
       desks,
       equity,
       sourceObservedAt: sourceAt,
@@ -432,19 +457,19 @@ export function calculateDeskEquities({
       },
     };
   } catch (error) {
-    return { ok: false, reason: String(error?.message || error) };
+    return { ok: false, reason: String(error?.message || error), ...diagnostics };
   }
 }
 
 /** Revision captured with the live family ledger at a valuation candidate. */
-export function deskLedgerRevisionAt({ ledgerState, account, policy = CURRENT_DESK_OWNERSHIP_POLICY, throughInclusive } = {}) {
+export function deskLedgerRevisionAt({ ledgerState, account, policy = CURRENT_DESK_OWNERSHIP_POLICY, throughInclusive, executorAttribution = null } = {}) {
   try {
     const canonical = canonicalPolicy(policy);
     const source = canonicalLedgerSource(ledgerState, account);
     return {
       ok: true,
       historyRevisionMethod: HISTORY_REVISION_METHOD,
-      historyRevision: historyRevision(source, canonical, throughInclusive),
+      historyRevision: historyRevision(source, canonical, throughInclusive, true, executorAttribution),
       policyHash: digest(canonical),
     };
   } catch (error) {
@@ -483,6 +508,7 @@ export function buildDeskDayBoundaryEvidence({
   candidateHistoryRevision,
   periodStart,
   proofObservedAt,
+  executorAttribution = null,
 } = {}) {
   try {
     const canonical = canonicalPolicy(policy);
@@ -500,7 +526,7 @@ export function buildDeskDayBoundaryEvidence({
     if (typeof candidateHistoryRevision !== "string" || !/^[0-9a-f]{64}$/.test(candidateHistoryRevision)) {
       throw new Error("candidateHistoryRevision is invalid");
     }
-    const boundaryHistoryRevision = historyRevision(history, canonical, boundary, false);
+    const boundaryHistoryRevision = historyRevision(history, canonical, boundary, false, executorAttribution);
     if (candidateHistoryRevision !== boundaryHistoryRevision) {
       throw new Error("effective all-desk economic history changed before the day boundary");
     }

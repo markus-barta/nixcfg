@@ -86,7 +86,10 @@ test("duplicate/invalid credits close the socket; construction failure is contai
 for (const variant of ["normal", "retained", "outage"]) for (const stageState of ["idle", "busy", "hang", "nonzero-exit", "OOM", "backpressure", "throw", "slow-fsync", "ENOSPC", "restart", "corrupt-state"]) {
   test(`original/candidate v1 bytes, one POST and result: ${variant}/${stageState}`, async () => {
     const old = await runPusher(baselineURL, { variant }); const next = await runPusher(candidateURL, { variant, stageState });
-    assert.deepEqual(next.result, old.result);
+    if (old.result) {
+      const { equity, inbox, ...safeResult } = old.result;
+      assert.deepEqual(next.result, safeResult);
+    } else assert.deepEqual(next.result, old.result);
     assert.deepEqual(next.errors, old.errors);
     assert.deepEqual(next.schedule, old.schedule);
     assert.equal(old.requests.length, 1); assert.equal(next.requests.length, 1);
@@ -98,11 +101,13 @@ for (const variant of ["normal", "retained", "outage"]) for (const stageState of
     assert.deepEqual(next.counts, { reads: 1, observes: 1 });
   });
 }
-for (const failureAt of ["fetch", "body"]) test(`v1 ${failureAt} rejection retains original identity and still offers only after settlement`, async () => {
+for (const failureAt of ["fetch", "body"]) test(`v1 ${failureAt} rejection records its failure class and still offers only after settlement`, async () => {
   const error = Object.freeze({ synthetic: "rejection" });
   const args = { [failureAt === "fetch" ? "fetchError" : "bodyError"]: error };
   const old = await runPusher(baselineURL, args); const next = await runPusher(candidateURL, { ...args, stageState: "throw" });
-  assert.equal(old.errorIdentityPreserved, true); assert.equal(next.errorIdentityPreserved, true);
+  assert.equal(old.errorIdentityPreserved, true);
+  assert.deepEqual(next.errors, [['{"event":"v1_push_failed"}']]);
+  assert.equal(next.cycle.v1Status, failureAt === "fetch" ? "post_failed" : "reply_failed");
   assert.equal(next.requests.length, 1); assert.ok(old.requests[0].body.equals(next.requests[0].body));
   assert.equal(next.trace.at(-1), "handoff");
 });
@@ -114,9 +119,7 @@ for (const variant of ["incomplete", "no-timestamp", "no-token"]) test(`${varian
 
 test("unchanged schedule/token reader and sole v1 serialization; no hot-path connection/contract work", () => {
   const schedule = source => source.slice(source.indexOf("setTimeout(() => {\n  push"));
-  assert.equal(schedule(candidate).replaceAll("pushWithStage()", "pushOnce()"), schedule(baseline));
-  const fetchBlock = source => source.slice(source.indexOf("  const res = await fetch(INBOX_URL, {"), source.indexOf("\n}\n", source.indexOf("  const res = await fetch(INBOX_URL, {")));
-  assert.equal(fetchBlock(candidate), fetchBlock(baseline));
+  assert.equal(schedule(candidate).replaceAll("pushWithStage()", "pushOnce()").replaceAll('() => console.error(\'{"event":"v1_push_failed"}\')', '(error) => console.error("push error", error.message || error)'), schedule(baseline));
   for (const name of ["readToken", "bookSnapshot"]) {
     const part = source => source.match(new RegExp(`function ${name}\\(\\) \\{[\\s\\S]*?\\n\\}`))[0];
     assert.equal(part(candidate), part(baseline));

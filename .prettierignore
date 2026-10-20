@@ -12,3 +12,6 @@ modules/joe-results-producer/contracts/
 
 # OPS-392: preserve the independently verified JoeDesk closure bytes.
 hosts/hsb0/docker/joe-board-pusher/contracts/
+
+# OPS-404: immutable r15 rollback fixture; provenance.json records source/hashes.
+hosts/hsb0/docker/joe-board-pusher/fixtures/r15/

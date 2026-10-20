@@ -42,6 +42,7 @@ function emptyWorkingState() {
   return {
     accounts: null,
     summary: {},
+    summaryObservedAt: {},
     netLiquidationSeen: false,
     accountComplete: false,
     summaryComplete: false,
@@ -83,6 +84,7 @@ export function createBrokerSessionAdapter({
   let lastError = null;
   let gatewayLastSeenAt = null;
   let apiReplyCheckedAt = null;
+  let positionsObservedAt = null;
   let ordersObservedAt = null;
   let pendingOpenOrders = null;
   let nextOrdersRequestAt = 0;
@@ -102,11 +104,13 @@ export function createBrokerSessionAdapter({
       ts: observedAt,
       accounts: working.accounts,
       summary: { ...working.summary },
+      summaryObservedAt: { ...working.summaryObservedAt },
       positions: cloneRows(rows),
       portfolio,
       openOrders: working.openOrders.map((row) => ({ ...row })),
       positionsCoverage: {
         status: "complete",
+        observedAt: positionsObservedAt,
         rows: cloneRows(rows),
       },
     };
@@ -129,6 +133,7 @@ export function createBrokerSessionAdapter({
 
   function markFinancialUnavailable(reason) {
     apiReplyCheckedAt = null;
+    positionsObservedAt = null;
     ordersObservedAt = null;
     pendingOpenOrders = null;
     nextOrdersRequestAt = 0;
@@ -352,13 +357,14 @@ export function createBrokerSessionAdapter({
 
     api.on(eventNames.accountSummary, guard("accountSummary", (reqId, account, tag, value, currency) => {
       if (!working || reqId !== accountSummaryRequestId || account !== targetAccount) return;
+      const observedAt = now();
       working.summary[tag] = { account, value, currency };
+      working.summaryObservedAt[tag] = observedAt;
       // Keep both NetLiquidation and TotalCashValue as the broker's raw text.
       working.targetSummarySeen = true;
       if (tag === "NetLiquidation" && validSummaryNumber(value)) {
         working.netLiquidationSeen = true;
       }
-      const observedAt = now();
       publishIfReady(observedAt);
     }));
 
@@ -394,6 +400,7 @@ export function createBrokerSessionAdapter({
       if (!tracker.onPositionEnd(trackerEpoch)) return;
       const observedAt = now();
       apiReplyCheckedAt = observedAt;
+      positionsObservedAt = observedAt;
       publishIfReady(observedAt);
     }));
 
@@ -443,6 +450,7 @@ export function createBrokerSessionAdapter({
       if (!working || account !== targetAccount) return;
       working.accountComplete = true;
       const observedAt = now();
+      if (tracker.status === "complete") positionsObservedAt = observedAt;
       publishIfReady(observedAt);
     }));
 
@@ -529,11 +537,13 @@ export function createBrokerSessionAdapter({
         ...published,
         accounts: published.accounts,
         summary: { ...published.summary },
+        summaryObservedAt: { ...published.summaryObservedAt },
         positions: cloneRows(published.positions),
         portfolio: cloneRows(published.portfolio),
         openOrders: published.openOrders.map((row) => ({ ...row })),
         positionsCoverage: {
           status: coverageAccepted ? "complete" : "unavailable",
+          observedAt: coverageAccepted ? published.positionsCoverage.observedAt : null,
           rows: coverageAccepted ? cloneRows(published.positionsCoverage.rows) : [],
         },
         gateway: upstreamConnected,

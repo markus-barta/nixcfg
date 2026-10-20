@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { copyDeskActivity, createDeskStateReporter, deskState, deskStateDetails, executionActivity } from "./desk-activity.mjs";
+import { copyDeskActivity, createDeskStateReporter, deskState, deskStateDetails, executionActivity, ACTIVITY_FRESH_MS, ACTIVITY_FUTURE_SKEW_MS } from "./desk-activity.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate, validObservation } from "./v2-stage-worker.mjs";
 import { validateContract } from "./contracts/index.mjs";
 import { runPusher } from "./fixtures/pusher-harness.mjs";
 
 const instant = "2026-10-19T15:00:00.000Z";
-const old = "2026-10-19T14:54:59.999Z";
+const offset = ms => new Date(Date.parse(instant) + ms).toISOString();
+const old = offset(-ACTIVITY_FRESH_MS - 1);
 const future = "2026-10-19T15:00:00.001Z";
 const execution = (clientId = 22, time = instant) => ({ contract: { symbol: "SYNTH" }, execution: { clientId, time } });
 const completed = (executions = []) => ({ coverageThrough: instant, coverageTradingDay: "2026-10-19", executions });
@@ -130,7 +131,8 @@ test("positions failures retain J family fallback and stable reader precedence",
 
 test("diagnostic details preserve deskState decisions at generation/receipt bounds and day rollover", () => {
   const base = copyDeskActivity(source()).joe;
-  for (const field of ["positionsAt", "ordersAt", "executionsAt"]) for (const at of [null, "invalid", old, future, instant, "2026-10-19T14:55:00.000Z"]) {
+  for (const field of ["positionsAt", "ordersAt", "executionsAt"]) for (const at of [null, "invalid", old, future, instant,
+    offset(-ACTIVITY_FRESH_MS), offset(ACTIVITY_FUTURE_SKEW_MS), offset(ACTIVITY_FUTURE_SKEW_MS + 1000)]) {
     const row = { ...base, [field]: at };
     for (const receivedAt of [instant, future, "2026-10-20T04:00:00.000Z"]) {
       assert.equal(deskStateDetails(row, instant, receivedAt).state, deskState(row, instant, receivedAt));
@@ -142,7 +144,7 @@ test("diagnostic details preserve deskState decisions at generation/receipt boun
     [{ executionDay: "2026-10-18" }, "execution_day_mismatch"],
   ]) assert.deepEqual(deskStateDetails({ ...base, ...change }, instant, instant), { state: "stuck", cause });
   for (const field of ["positionsAt", "ordersAt", "executionsAt"]) {
-    assert.equal(deskStateDetails({ ...base, [field]: future }, instant, instant).cause, `${field.slice(0, -2)}_stale`);
+    assert.equal(deskStateDetails({ ...base, [field]: offset(ACTIVITY_FUTURE_SKEW_MS + 1000) }, instant, instant).cause, `${field.slice(0, -2)}_stale`);
   }
 });
 
@@ -166,6 +168,7 @@ for (const stageState of ["idle", "busy", "throw"]) test(`actual pusher stdout s
 test("v1 rejection still emits diagnostic events after settlement", async () => {
   const result = await runPusher(new URL("./pusher.mjs", import.meta.url), { fetchError: { synthetic: "rejection" }, cycles: 2 });
   assert.equal(result.deskEvents.length, 3);
-  assert.equal(result.errorIdentityPreserved, true);
+  assert.equal(result.cycle.v1Status, "post_failed");
+  assert.deepEqual(result.errors, Array.from({ length: 2 }, () => ['{"event":"v1_push_failed"}']));
   assert.equal(result.observations.length, 2);
 });

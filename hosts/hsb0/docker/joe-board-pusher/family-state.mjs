@@ -589,6 +589,7 @@ export function createFamilySessionAdapter({
   getVerifiedHistoryState = null,
   getFlatNetMarks = null,
   summarizeActivity = null,
+  getExecutorAttribution = () => null,
 }) {
   if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
     throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
@@ -812,7 +813,10 @@ export function createFamilySessionAdapter({
 
   function isFamilyExecution(row) {
     const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
-    return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments);
+    // Filtering discovers required fees/FX; the calculator below refuses the
+    // entire projection if an executor row still has no unique intent owner.
+    try { return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments, getExecutorAttribution()); }
+    catch { return false; }
   }
 
   function missingFamilyCommissions(cycle) {
@@ -1192,6 +1196,7 @@ export function createFamilySessionAdapter({
         account: targetAccount,
         familyClientIds: [...familyIds],
         familyClientAssignments,
+        executorAttribution: getExecutorAttribution(),
         excludedSymbols: [...excluded],
         periodStart,
         virtualEquity: 5000,
@@ -1294,6 +1299,7 @@ export function createFamilySessionAdapter({
         },
         account: targetAccount,
         policy,
+        executorAttribution: getExecutorAttribution(),
         // A complete execution cycle is evidence used by the all-desk vector
         // even when it discovers no new fills. Keep that actual observation
         // time in the vector clock; mark/FX freshness remains independently

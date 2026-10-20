@@ -69,6 +69,7 @@ export function contractsNeedingFlatNetMarks({
   account,
   familyClientIds = [],
   familyClientAssignments = [],
+  executorAttribution = null,
   excludedSymbols = [],
 } = {}) {
   const excluded = new Set([...ALWAYS_EXCLUDED, ...excludedSymbols.map((value) => String(value).trim().toUpperCase())]);
@@ -95,7 +96,7 @@ export function contractsNeedingFlatNetMarks({
     const signed = signedQuantity(record.execution);
     if (!key || signed === null) continue;
     const bucket = nets.get(key) || { contract, family: 0, other: 0 };
-    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments)) bucket.family += signed;
+    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments, executorAttribution)) bucket.family += signed;
     else bucket.other += signed;
     bucket.contract = contract;
     nets.set(key, bucket);
