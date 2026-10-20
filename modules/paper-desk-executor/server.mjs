@@ -348,9 +348,9 @@ export function createServer(options) {
           }
           if (parsed.reason) reason = parsed.reason;
         }
-        ledger.setHalt(reason);
-        const halt = activeHalt(ledger.haltBody());
-        send(response, 200, { status: "halted", ...halt });
+        const halt = activeHalt(ledger.setHalt(reason));
+        const { durability, durabilityCode } = ledger.captureDiagnostics();
+        send(response, 200, { status: "halted", ...halt, ...(durability ? { durability, durabilityCode } : {}) });
         return;
       }
 

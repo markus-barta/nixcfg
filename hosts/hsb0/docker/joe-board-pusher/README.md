@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The Phase A candidate image is `hsb0-joe-board-pusher:household-v2-phase-a-202610190715`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-202610201110` (pusher, stager and executor runtime; OPS-392). Rollback tag: Phase A `hsb0-joe-board-pusher:household-v2-phase-a-202610190715`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -20,25 +20,98 @@ reviewed host promotion; keep `flat-net-reconcile-perf-202610010310` intact for
 rollback. Never rebuild over either published tag. The base image digests,
 package manifests and `npm ci` remain unchanged.
 
-## Phase A household.v2 staging (OPS-392)
+## household.v2 switch-set staging (OPS-392)
 
-`joeHouseholdV2StageEnabled = true` enables an independent
-`joe-household-v2-stage` service. This is local staging evidence, never a switch
-snapshot or an inbox payload. PAPER only; live remains locked. Existing KEEP
-exclusions and all v1 accounting, subscriptions, token source, POST bytes and
-interval remain unchanged. Every money cell is null with
-`source_not_authoritative`; desk states are `sit-out` with a fixed action.
-Gateway, executor, positions, raw NAV, historical evidence and accounting are
-omitted. The legal non-money `haltReason: null` accompanies `halt: false`.
+The existing `joeHouseholdV2StageEnabled` flag enables the independent
+`joe-household-v2-stage` service in the Phase A candidate. The Results producer
+remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
+adds useful account and position evidence to local staging; it adds no v2 POST
+selector. PAPER only; live remains locked. All v1 accounting, subscriptions,
+token source, POST bytes and interval remain unchanged. Desk money and totals
+stay null with `not_exact_yet`. Desk activity uses the existing read-only broker
+replies; no executor API request or executor change is added. Historical evidence
+and accounting remain omitted.
 
 The pusher constructs its optional Unix client once at startup and reconnects
-from `setImmediate` after close. Only the fixed `/run/joe-household-v2/stage.sock`
-setting is accepted. After its one v1 fetch/response has settled
-(including rejection), it offers only the cycle's `book.ts`. An idle worker
-issues one `0x01` credit; one frame is uint32-be byte length followed by UTF-8
-JSON `{format:"ops392.phase-a-observation.v1",bookTs}`, at most 4096 bytes,
-with a string at most 64 characters. Busy/disconnected/backpressured opportunities
-are dropped. There is no awaiting the worker, second POST or queued retry.
+from `setImmediate` after close. Only `/run/joe-household-v2/stage.sock` is accepted.
+After the v1 fetch/response settles (including rejection), the client may copy
+already available source scalars and identities. An idle worker issues one
+`0x01` credit. A frame is uint32-be byte length followed by UTF-8 JSON, at most
+**16384 payload bytes** (16388 including the prefix):
+
+```text
+{format:"ops392.switch-set-observation.v2", bookTs,
+ equity:{value,currency}|null, cash:{value,currency}|null,
+ apiReplyCheckedAt:string|null, positions:[{symbol,side,desk,scope}],
+ deskActivity:{j,joe,joel}}
+```
+
+There are at most 256 broker identities before encoding; oversize observations
+are dropped whole and keep the unused credit. Busy/disconnected/backpressured
+opportunities are dropped. There is no ledger traversal in the handoff, contract import,
+fsync, awaiting the worker, second POST or queued retry in the pusher.
+
+NAV (`NetLiquidation`) and cash (`TotalCashValue`) retain raw account-summary
+strings and currencies, including scale, negative signs and signed zero. Only
+valid EUR decimal lexemes pass through; missing, non-EUR or unrepresentable
+values become null with `source_unavailable`. Rev 8 uses `brokerAccount.reason`
+for equity and `brokerAccount.reasons.cash` for cash. Both cover the entire paper
+account including KEEP; no conversion or numeric FIFO value enters them.
+
+Gateway readiness requires a completed account-matched account-summary or
+positions API reply. TCP, account download, login and currentTime activity are
+insufficient. `checkedAt` is that callback's local receipt instant. Both its age
+at source generation and at staging receipt must be nonnegative and under 60s.
+Old, future and stale replies are not ready; account money is then withheld.
+With no completed reply, omit gateway rather than fabricate a timestamp.
+The worker mirrors the board's post-acceptance checkedAt regression gate and
+fsyncs its nonfuture high-water before publishing; equal checks are accepted.
+Future replies never advance this durable watermark. A check ahead of receipt
+but within a skewed generation skips the whole pair to avoid disagreeing with
+the board's generatedAt-relative watermark. Gateway readiness still requires a
+completed positions or account-summary reply; the read-only order refresh below
+does not renew it. Readiness expires when no qualifying reply renews it.
+
+SXR8 and TSLA always appear with `scope:keep`, `desk:null`. Missing KEEP rows use
+`side:long` from the existing long-only KEEP policy and `source_unavailable` for
+every valuation field. Reported rows preserve side; all five values remain null
+with `not_exact_yet`. Other broker rows copy ownership from the already computed
+dated desk/family projection, including its existing partial J projection when
+available. A split or ambiguous identity has no guessed desk. The legacy symbol
+map is not used. Unmapped stage0 rows retain `desk:null` and
+`reasons.desk:desk_unmapped`; rev 9 accepts these observations and the worker
+stages the complete pair with all five valuation fields null and individually
+reasoned `not_exact_yet`. KEEP and mapped stage0 rows carry no desk reason.
+
+Desk rows use exactly `desks[].state` from [rev 9 data.schema.json](./contracts/data.schema.json):
+`stuck` if a position, order or execution reader is unavailable, has unknown
+ownership, or its observation is older than the existing five-minute pusher
+bound (future evidence also fails closed); otherwise `working` if that desk has
+positions, active open orders or executions on the executor's current New York
+day, and `sit-out` if empty. Read-only `reqAllOpenOrders` runs on connect and
+every 60 seconds, checked by the existing 5-second maintenance tick, with at
+most one reply in flight. Each reply collects a fresh set keyed by
+`(orderId, clientId)`; `openOrderEnd` atomically replaces the previous set,
+including an empty set, and stamps its generation-scoped completion clock.
+While a reply is in flight the last completed set and clock remain unchanged;
+a missing end marker blocks overlapping requests and the old clock expires
+after five minutes, yielding `stuck`. Unsolicited callbacks, publication and
+cached executor order rows cannot renew this clock. A new connection generation
+discards any pending reply. Execution evidence is summarized when the family
+reader completes its existing read-only `reqExecutions` cycle, scheduled 30
+seconds after each completion (20-second request timeout, existing retry backoff).
+Identical completed replays renew execution observation time without restamping
+unchanged money; missing `execDetailsEnd` cannot prove absence. Both use the same dated client ownership policy as
+the desk projection; unclaimed clients are unavailable rather than guessed from
+an order reference. Reader errors/disconnects invalidate evidence. The execution
+summary must cover the current NY day, including weekends; midnight needs a new
+completed reply. The mirrored `newYorkDay` function is tested against executor
+`brakeUsage` around both midnight offsets and DST changes. The optional summary runs only with staging enabled and its failures cannot
+change v1 reader availability. `desks[].action` says "Valuation is not exact yet."; all desk money
+stays null with individual `not_exact_yet` reasons. KEEP rows are unaffected.
+
+No desk subtotal is presented as a household total. The producer also requires
+individual null reasons where the ready-session schema permits omission.
 
 The service has no networking, credentials or broker mounts, a separate 128m
 memory/swap limit, 0.25 CPU and 32 processes. It runs as 1000:1000 with a read-only
@@ -59,23 +132,38 @@ The supervisor never enrolls. An absent or corrupt state fails closed; do not
 reset it to recover service. The first reserved sequence is 1. Other hosts or
 reenrollment need a separate operator floor record and reviewed procedure.
 
-The worker verifies the exact 17-file revision-7 closure before importing any
+The worker verifies the exact 17-file revision-9 closure before importing any
 contracts. Source time is calendar-validated UTC from `book.ts`; missing or
 regressing time suppresses staging. Repeated observations retain generation
 and local generation-progress time. Each sequence is fsynced, renamed and
 parent-directory-fsynced before use; crashes may burn numbers, never reuse them.
 The stable `.allocator.lock` inode is never replaced. A second writer cannot
-acquire it.
+acquire it. The observation identity is `["ops392.switch-set.v2",bookTs]`;
+legacy Phase A reservation identities with a null gateway watermark remain
+readable. Older contract-set staged pairs fail closed and require coordinator
+review before promotion; never reset enrollment or sequence state to migrate.
 
 Readers follow only `current.json` to an immutable `pair-<seq>` directory.
 `snapshot.json` holds exact validated ingress bytes without `receivedAt`;
 `receipt.json` records the real local staging receipt, sequence/generation,
 `generatedAdvancedAt`, snapshot SHA256 and contract-set SHA256. Receipt is not
 proof of live board acceptance. Pair files and directory become durable before
-the pointer's own atomic replacement. At most one current and one orphan/next
-pair plus one state/pointer temp exist. Recovery checks all recognized residue
-before retiring it; unknown files, wrong ownership/modes, inconsistent sequences
-or digests disable staging and preserve evidence. v1 state is untouched.
+the pointer's own atomic replacement. `RETAIN_PAIRS` defaults to **10**; the
+`StageStore.retainPairs` constant override permits 10–1024. Keep the newest N
+pairs by sequence count only, never age; the current pointer is protected.
+Recovery validates retained and orphan pairs before pruning. Pruning atomically
+renames an old pair to a recognized `.retired-<seq>` tombstone so interrupted
+cleanup remains recoverable. `receipts.jsonl` is a separate fsynced append-only
+0600 log with one record per staged/resolved sequence: `seq`, outcome
+(`committed`, `rejected`, or recovered `staged`), source/staging/record timestamps,
+and `pairSha256` (the snapshot byte hash from the pair receipt), plus its format.
+It contains no payload values and outlives pair pruning; restart never appends a
+duplicate. A crash can burn an unbuilt reservation without a staged pair/record.
+A durable orphan is recorded as `staged`; the pointed-to pair is `committed`,
+meaning local pointer publication only. The supervisor emits exactly
+`{event:"v2_stage_committed",seq}` for a completed commit. Unknown files, wrong
+ownership/modes, inconsistent sequences/digests or torn log lines disable staging
+and preserve evidence. v1 state is untouched.
 
 For rollback, set `joeHouseholdV2StageEnabled = false` through the normal
 reviewed configuration workflow. The service, socket env/mount and updater
@@ -91,10 +179,10 @@ death at persistence boundaries, contract acceptance/replay/clocks, corruption,
 ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
 synthetic/masked. The pinned verifier checks every closure file against its
 independent hash/size manifest; offline handoff evidence also compares the
-17 files and lock directly against the reviewed producer closure. The pusher-local
+17 files directly against JoeDesk 84c47b647cf06a38a3f61ce7f928a10ed10eeef3
+(set 000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5). The pusher-local
 verifier exports a fixed-path `verify()`; `node verify-contracts-entry.mjs`
-is the unconditional Docker build entry. Its pass/fail verdicts are compared
-with the original producer verifier on identical valid and damaged trees. Linux
+is the unconditional Docker build entry. It is tested on valid and damaged rev 9 closures. Linux
 flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
 those separately and does not claim container isolation has been live-verified.
 
