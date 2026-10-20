@@ -1135,8 +1135,8 @@ publication in the pusher only when the selected release set's
 `board.data_schema == "v2"`. The current v1 set retains r16d images and its exact
 environment/mounts; the source build context/restart trigger still changes with
 production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
-`joeSet.executor.image`. The separate OPS activation must select all matching
-r17 images; this change does not edit the release set or lock file.
+`joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
+r17 images in the release set and moves the joedesk lock to d36b5295.
 
 In v2 mode, only the `current.json` committed pair is eligible. The existing
 stager reader validates it and returns the exact snapshot bytes for POST.

@@ -33,14 +33,63 @@ def require(value, reason):
         raise AssertionError(reason)
 
 
+def hsb0_runtime(release, hsb0_config, tree_of):
+    # The stager image must equal the effective pusher image of the deployed selection.
+    stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = ([^;]+);', hsb0_config, re.S)[1]
+    if 'joeRelease' in hsb0_config:
+        # hsb0 follows the release set (current or v2): stager, pusher and executor read joeSet.
+        require(stage_image == 'joeSet.pusher.image', 'stager must follow the release-set pusher pin')
+        return 'release-set'
+    # OPS-354 variant B rollback: hsb0 and the executor are restored to the recorded
+    # pre-cutover tree, which pins the r16d switch set literally. Only the v1 rollback
+    # (active = previous) may do this, and the restored trees must be the recorded ones.
+    require(release['active'] == 'previous', 'only the v1 rollback may restore hsb0 to the pre-cutover tree')
+    require(stage_image == json.dumps(HSB0_IMAGE), 'variant B stager must be the recorded r16d image')
+    for name in ('pusher', 'executor'):
+        pin = release['sets']['current'][name]
+        require(pin['image'] == HSB0_IMAGE, 'variant B ' + name + ' record must be the r16d switch set')
+        require(tree_of(pin['source_path']) == pin['source_tree'], 'variant B must restore the recorded pre-cutover ' + name + ' tree')
+    return 'variant-b'
+
+
+def variant_b_regressions():
+    # OPS-354 (c): the rollback commit restores hsb0 to its pre-cutover tree; T100 runs in
+    # rollback-joedesk's cross-host switch before `just switch` and must accept exactly that state.
+    release = json.loads(RELEASE.read_text())
+    current = release['sets']['current']
+    trees = {current['pusher']['source_path']: current['pusher']['source_tree'],
+             current['executor']['source_path']: current['executor']['source_tree']}
+    restored = 'services.joe-household-v2-stage = {\n  build = "x";\n  image = ' + json.dumps(HSB0_IMAGE) + ';\n};'
+    following = 'let joeRelease = x; in services.joe-household-v2-stage = { image = joeSet.pusher.image; };'
+    rollback = copy.deepcopy(release); rollback['active'] = 'previous'
+    require(hsb0_runtime(rollback, restored, trees.get) == 'variant-b', 'variant B rollback state rejected')
+    for selected in ('current', 'v2', 'previous'):
+        fixture = copy.deepcopy(release); fixture['active'] = selected
+        require(hsb0_runtime(fixture, following, trees.get) == 'release-set', 'release-set hsb0 rejected')
+    negatives = [
+        (dict(release, active='v2'), restored, trees.get),
+        (dict(release, active='current'), restored, trees.get),
+        (rollback, restored.replace('r16d-202610201800', 'r17-202610202300'), trees.get),
+        (rollback, restored, lambda rel: '0' * 40),
+        (rollback, 'let joeRelease = x; in services.joe-household-v2-stage = { image = "literal"; };', trees.get),
+    ]
+    for fixture, config, tree_of in negatives:
+        try:
+            hsb0_runtime(fixture, config, tree_of)
+        except AssertionError:
+            continue
+        raise AssertionError('invalid hsb0 runtime state passed')
+    print('variant_b_rollback=accepted negatives=5')
+
+
 def check(source=None):
     release = json.loads(RELEASE.read_text())
     require(release['schema'] == 'nixcfg.joedesk-release-set.v1', 'release set schema')
     require(set(release['sets']) == {'current', 'v2', 'previous'}, 'three explicit release sets')
     for name in ('pusher', 'executor'):
         require(release['sets']['current'][name]['image'] == HSB0_IMAGE, name + ': current image must be the r16d switch set')
-    stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = ([^;]+);', (ROOT / 'hosts/hsb0/configuration.nix').read_text(), re.S)[1]
-    require(stage_image == 'joeSet.pusher.image', 'stager must follow the release-set pusher pin')
+    hsb0_config = (ROOT / 'hosts/hsb0/configuration.nix').read_text()
+    hsb0_runtime(release, hsb0_config, lambda rel: subprocess.check_output(['git', 'rev-parse', 'HEAD:' + rel], cwd=ROOT, text=True).strip())
     fixture = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
     require('release.sets.${release.active}.pusher.image' in fixture and CANDIDATE_IMAGE in fixture, 'executor fixture must follow the release set and identify r17')
     active = release['sets'][release['active']]
@@ -332,6 +381,7 @@ if __name__ == '__main__':
     parser.add_argument('--prove-current', action='store_true', help='pre-cutover byte equality against baseline HEAD')
     args = parser.parse_args()
     check(args.joedesk_source)
+    variant_b_regressions()
     selector_regressions()
     if args.prove_current:
         evaluation_proof()

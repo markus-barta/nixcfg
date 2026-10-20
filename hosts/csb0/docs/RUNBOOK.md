@@ -686,9 +686,11 @@ above remains a separate OPS gate; T100 does not claim it passed.
 
 ### OPS-354 cutover order and stopped-writer swap
 
-This is preparation, not permission to switch. Current active board remains
-db621bf (legacy `calendar`, 26.09.21.12.00, sequence 23, no matching tag). The
-inactive v2 source is main d36b5295295a6901e36fdf2dc0d64353ddf88d0e
+The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
+it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
+itself permission to switch. The rollback board is db621bf (legacy `calendar`,
+26.09.21.12.00, sequence 23, no matching tag). The
+active v2 source is main d36b5295295a6901e36fdf2dc0d64353ddf88d0e
 (PR #58), tree ba066aaeebf193eab93154ca9e0335f7dbba9d28,
 `inspr-calver-3` / 261019102825.0.0 / sequence 25. Version and sequence come
 from that checkout's `release.json` and `release/preparation.json` (JOED-50).
@@ -698,10 +700,10 @@ Contracts manifest revision 9 has set SHA256
 `5c20c38be4602f6c142ece1c1abc65172306d504aa0a74d098e10bb15f78ef17`.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
-the exact main commit and hashes identify this inactive candidate.
+the exact main commit and hashes identify this activated source.
 JOED-20 producer/executor activation and evidence remain separately owned.
 
-The active v1 board stays on db621bf; the current pusher/executor records now
+The `current` set keeps the v1 board db621bf; its pusher/executor records
 match main 096cc37fb8579e94915d89fb5eef305fb497fa06 (#1063, including #1061/#1062) and image
 `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800`. Main's staging,
 local-mailbox wiring and source closure are retained. `previous` preserves
