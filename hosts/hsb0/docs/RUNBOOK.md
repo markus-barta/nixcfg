@@ -1073,14 +1073,14 @@ Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/
 active orders or executions on the executor's current NY day, and `sit-out`
 otherwise. Evidence comes from the pusher's existing broker position/all-open-order
 replies and completed family execution cycles, using the same dated ownership
-policy and five-minute freshness bound as its readers; unknown ownership is
+policy and shared 420-second freshness bound as its readers; unknown ownership is
 unavailable, never inferred. Read-only `reqAllOpenOrders` runs on connect and
 every 60 seconds via the existing 5-second maintenance tick, with one reply
 in flight. Each reply starts a fresh `(orderId, clientId)` set; `openOrderEnd`
 atomically replaces the previous set (even when empty) and stamps its own
 completion clock. Pending replies retain the last completed set and clock;
 without an end marker no overlapping request is sent, and the old clock expires
-after five minutes to `stuck`. Publication and cached executor order rows never
+after 420 seconds to `stuck`. Publication and cached executor order rows never
 renew it. A new connection generation discards the pending reply. Executions
 already use read-only `reqExecutions` 30 seconds after each completed cycle,
 with a 20-second request timeout and existing retry backoff; identical completed
@@ -1128,19 +1128,22 @@ restart without changing the sequence-state format. A rollback exceeding the
 five-second clock-skew allowance suppresses staging until the clock catches up;
 preserve sequence state, prior pairs and receipts.
 
-Desk reader times are fresh inclusively from v2 generation minus 300 seconds
-through generation plus five seconds. Missing times are unavailable; older
-times or times beyond the future allowance are stale. Reader observations newer
+Desk reader times are fresh inclusively from v2 generation minus 420 seconds
+through generation plus 30 seconds. Missing or unparseable times are unavailable;
+older times or times beyond the future allowance are stale. Reader observations newer
 than the book stay fresh, and diagnostics use the observation clock. NAV/cash
 summary callbacks and complete position/account-download replies keep separate
 source clocks in the private handoff, so unrelated callbacks cannot renew them.
 Account `observedAt` is the oldest emitted money source; positions retain their
-coverage observation time. Legacy frames fall back to book time. A source older than 300
+coverage observation time. Legacy frames fall back to book time. A source older than 420
 seconds at generation withholds NAV/cash with `source_unavailable`; stale
 positions keep values null with that reason and clear unproven desk ownership.
 Readiness still requires a completed API reply younger than 60 seconds. At over
-300 seconds its reason is `snapshot_stale`, with `apiSessionReady:false` because
+420 seconds its reason is `snapshot_stale`, with `apiSessionReady:false` because
 rev 9 requires a boolean rather than null. Contracts remain revision 9.
+The shared 420-second freshness bound covers desk readers and source honesty,
+about twice IB's 180-second cadence plus margin. The separate board-side
+five-second generation allowance remains unchanged.
 
 The ownership change selects
 `/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.

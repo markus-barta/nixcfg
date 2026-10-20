@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { newYorkDay, deskState, copyDeskActivity, executionActivity, DESK_ACTION } from "./desk-activity.mjs";
+import { newYorkDay, deskState, copyDeskActivity, executionActivity, DESK_ACTION, ACTIVITY_FRESH_MS, ACTIVITY_FUTURE_SKEW_MS } from "./desk-activity.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate, validObservation } from "./v2-stage-worker.mjs";
 import { createBrokerSessionAdapter } from "./pusher-state.mjs";
@@ -9,6 +9,7 @@ import { EventEmitter } from "node:events";
 import { validateContract } from "./contracts/index.mjs";
 
 const instant = "2026-10-19T15:00:00.000Z";
+const offset = ms => new Date(Date.parse(instant) + ms).toISOString();
 const evidence = (at = instant) => ({ positionsAt: at, hasPositions: false, ordersAt: at, hasOrders: false,
   executionsAt: at, executionDay: newYorkDay(Date.parse(at)), lastExecutionAt: null });
 const activity = (at = instant) => Object.fromEntries(["j", "joe", "joel"].map(id => [id, evidence(at)]));
@@ -17,9 +18,9 @@ for (const [label, change, expected] of [
   ["empty", {}, "sit-out"], ["positions-only", { hasPositions: true }, "working"],
   ["orders-only", { hasOrders: true }, "working"], ["executions-only", { lastExecutionAt: instant }, "working"],
   ["unavailable", { ordersAt: null, hasPositions: true }, "stuck"],
-  ["stale", { ordersAt: "2026-10-19T14:54:59.999Z", hasOrders: true }, "stuck"],
-  ["future-within-skew", { executionsAt: "2026-10-19T15:00:05.000Z" }, "sit-out"],
-  ["future-beyond-skew", { executionsAt: "2026-10-19T15:00:06.000Z" }, "stuck"],
+  ["stale", { ordersAt: offset(-ACTIVITY_FRESH_MS - 1), hasOrders: true }, "stuck"],
+  ["future-within-skew", { executionsAt: offset(ACTIVITY_FUTURE_SKEW_MS) }, "sit-out"],
+  ["future-beyond-skew", { executionsAt: offset(ACTIVITY_FUTURE_SKEW_MS + 1000) }, "stuck"],
   ["future-fill", { lastExecutionAt: "2026-10-19T15:00:00.001Z" }, "stuck"],
 ]) test(`desk state ${label} maps to rev 9 desks[].state and leaves KEEP untouched`, () => {
   const deskActivity = activity(); Object.assign(deskActivity.j, change);
@@ -35,13 +36,17 @@ for (const [label, change, expected] of [
   assert.equal(validateContract("data", value, { stage: "ingress" }).ok, true);
 });
 
-test("each reader's freshness uses generation at the inclusive five-minute bound", () => {
+test(`each reader's freshness uses generation at the inclusive ${ACTIVITY_FRESH_MS / 1000}-second bound`, () => {
   for (const field of ["positionsAt", "ordersAt", "executionsAt"]) {
-    const row = evidence(); row[field] = "2026-10-19T14:55:00.000Z";
+    const row = evidence(); row[field] = offset(-ACTIVITY_FRESH_MS);
     assert.equal(deskState(row, instant, instant), "sit-out");
     assert.equal(deskState(row, instant, "2026-10-19T15:00:00.001Z"), "sit-out");
     assert.equal(deskState(row, "2026-10-19T15:00:00.001Z", "2026-10-19T15:00:00.001Z"), "stuck");
-    row[field] = null; assert.equal(deskState(row, instant, instant), "stuck");
+    row[field] = offset(-ACTIVITY_FRESH_MS - 1000);
+    assert.equal(deskState(row, instant, instant), "stuck", `${field}: ${ACTIVITY_FRESH_MS / 1000 + 1} seconds is stale`);
+    for (const unavailable of [null, "not-a-time"]) {
+      row[field] = unavailable; assert.equal(deskState(row, instant, instant), "stuck");
+    }
   }
 });
 
@@ -185,7 +190,7 @@ test("broker order completion clock is generation scoped, preserves client-scope
   assert.equal(adapter.snapshot().ordersObservedAt, null);
 });
 
-for (const hasOrders of [false, true]) test(`60-second read-only order requests keep desks fresh beyond five minutes (${hasOrders ? "working" : "sit-out"})`, () => {
+for (const hasOrders of [false, true]) test(`60-second read-only order requests keep desks fresh for ten minutes (${hasOrders ? "working" : "sit-out"})`, () => {
   const session = orderSession();
   const { adapter, api, at, advance, order, requests, desks } = session;
   if (hasOrders) order();
@@ -230,7 +235,7 @@ for (const completedBefore of [false, true]) test(`missing openOrderEnd stays st
     assert.equal(adapter.refreshOpenOrders(), true);
   }
   order(); // A partial reply proves neither a complete order set nor absence.
-  advance(300_001);
+  advance(ACTIVITY_FRESH_MS + 1);
   for (let i = 0; i < 20; i++) assert.equal(adapter.refreshOpenOrders(), false, "never overlap an uncorrelated reply");
   assert.equal(requests(), completedBefore ? 2 : 1);
   assert.equal(adapter.snapshot().ordersObservedAt, completedBefore ? instant : null);

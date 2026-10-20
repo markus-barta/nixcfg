@@ -109,7 +109,9 @@ time. `brokerAccount.observedAt` is the oldest source of the money actually
 emitted (or the oldest known account source when both values are null);
 `positions.observedAt` retains the position-coverage source time. These clocks
 are independent of v2 generation. At generation, sources older than
-300 seconds (or in the future) withhold NAV/cash with `source_unavailable`.
+420 seconds (or in the future) withhold NAV/cash with `source_unavailable`.
+This shared 420-second freshness bound covers desk readers, NAV, cash, position
+coverage and gateway staleness: about twice IB's 180-second cadence plus margin.
 Expired position coverage leaves all values null with `source_unavailable`,
 clears unproven desk ownership, and sets the coverage reason accordingly.
 
@@ -126,7 +128,7 @@ but within a skewed generation skips the whole pair to avoid disagreeing with
 the board's generatedAt-relative watermark. Gateway readiness still requires a
 completed positions or account-summary reply; the read-only order refresh below
 does not renew it. Readiness expires when no qualifying reply renews it.
-Checks older than 300 seconds use `snapshot_stale`. Rev 9 requires a boolean
+Checks older than 420 seconds use `snapshot_stale`. Rev 9 requires a boolean
 `apiSessionReady`, so unavailable readiness is represented by `false` plus its
 reason; the contract does not allow a null readiness flag. The stricter existing
 60-second readiness rule still applies.
@@ -144,13 +146,13 @@ reasoned `not_exact_yet`. KEEP and mapped stage0 rows carry no desk reason.
 
 Desk rows use exactly `desks[].state` from [rev 9 data.schema.json](./contracts/data.schema.json):
 `stuck` if a position, order or execution reader is unavailable, has unknown
-ownership, or its observation is older than the existing five-minute pusher
+ownership, or its observation is older than the shared 420-second pusher
 bound; otherwise `working` if that desk has
 positions, active open orders or executions on the executor's current New York
 day, and `sit-out` if empty. Each reader timestamp is fresh exactly in the
-inclusive interval `generatedAt - 300s` through `generatedAt + 5s`; a missing
-timestamp is unavailable and a timestamp beyond either bound is stale. Readers
-newer than the book remain fresh. Diagnostics use the post-v1 observation time
+inclusive interval `generatedAt - 420s` through `generatedAt + 30s`; a missing
+or unparseable timestamp is unavailable and a timestamp beyond either bound is
+stale. Readers newer than the book remain fresh. Diagnostics use the post-v1 observation time
 instead of book time. Read-only `reqAllOpenOrders` runs on connect and
 every 60 seconds, checked by the existing 5-second maintenance tick, with at
 most one reply in flight. Each reply collects a fresh set keyed by
@@ -158,7 +160,7 @@ most one reply in flight. Each reply collects a fresh set keyed by
 including an empty set, and stamps its generation-scoped completion clock.
 While a reply is in flight the last completed set and clock remain unchanged;
 a missing end marker blocks overlapping requests and the old clock expires
-after five minutes, yielding `stuck`. Unsolicited callbacks, publication and
+after 420 seconds, yielding `stuck`. Unsolicited callbacks, publication and
 cached executor order rows cannot renew this clock. A new connection generation
 discards any pending reply. Execution evidence is summarized when the family
 reader completes its existing read-only `reqExecutions` cycle, scheduled 30

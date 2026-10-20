@@ -3,9 +3,12 @@ import { executionTime } from "./execution-history.mjs";
 import { executorDesk, isExecutorClient, executorClientCounts } from "./executor-attribution.mjs";
 
 export const DESK_IDS = ["j", "joe", "joel"];
-// Same bound as project.mjs and the family reader's fxFreshMs (five minutes).
-export const ACTIVITY_FRESH_MS = 300_000;
-export const ACTIVITY_FUTURE_SKEW_MS = 5_000;
+// Amy via JOED 2026-10-20 (OPS-392/OPS-404): ONE shared freshness bound for desk-state readers AND source honesty
+// (NAV, cash, positions coverage, gateway readiness): 420 s = about 2x IB's 180 s account-update cadence plus margin.
+export const ACTIVITY_FRESH_MS = 420_000;
+// A reader time up to 30 s after the generation instant is clock skew, not "future". Missing/unparseable stays fail-closed.
+// (The stager's own "generatedAt at most 5 s ahead of the server clock" rule is separate and unchanged.)
+export const ACTIVITY_FUTURE_SKEW_MS = 30_000;
 export const DESK_ACTION = "Valuation is not exact yet.";
 export const EXECUTION_CAUSES = ["executions_unavailable", "execution_day_mismatch", "execution_unowned", "execution_after_coverage"];
 const KEEP = ["SXR8", "TSLA"];
