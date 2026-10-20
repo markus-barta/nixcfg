@@ -53,12 +53,16 @@ def main():
                  && builtins.isAttrs value
               then recursiveUpdate left.${name} value else value
             ) right;
-          evaluate = { ciphertext, generated, legacySalt ? "" }:
+          evaluate = { ciphertext, adminCiphertext, generated, legacySalt ? "" }:
             let
               host = import ./hosts/csb1/configuration.nix {
                 config = {
                   age.secrets = {
-                    csb1-inspr-auth-env = { file = ciphertext; };
+                    csb1-inspr-auth-env = {
+                      file = ciphertext;
+                      path = "/run/agenix/csb1-inspr-auth-env";
+                    };
+                    csb1-inspr-auth-admin-env.file = adminCiphertext;
                     traefik-variables.file = "fixture-traefik-ciphertext";
                     csb1-aeon-review-app-key.file = "fixture-review-key";
                     csb1-aeon-review-webhook-secret.file = "fixture-review-webhook";
@@ -85,12 +89,19 @@ def main():
               inherit (traefik) labels volumes command env_file;
               entrypoint = traefik.entrypoint or null;
               edgeInputs = map toString host.systemd.services.inspr-edge-config.restartTriggers;
+              edgeEnvironmentFile = host.systemd.services.inspr-edge-config.serviceConfig.EnvironmentFile;
+              adminSecret = host.age.secrets.csb1-inspr-auth-admin-env // {
+                file = toString host.age.secrets.csb1-inspr-auth-admin-env.file;
+              };
               flowInputs = map toString host.systemd.services.inspr-shared-flow-config.restartTriggers;
+              authTriggersReconcile = builtins.elem ciphertext stack.extraRestartTriggers;
+              adminTriggersReconcile = builtins.elem adminCiphertext stack.extraRestartTriggers;
               credentialTriggersReconcile = builtins.elem "fixture-traefik-ciphertext"
                 stack.extraRestartTriggers;
             };
           baseline = {
             ciphertext = ./hosts/csb1/docker/traefik/static.yml;
+            adminCiphertext = "fixture-admin-ciphertext";
             generated = "/nix/store/fixture-generated-routing.json";
           };
         in map evaluate [
@@ -98,6 +109,7 @@ def main():
           (baseline // { ciphertext = ./hosts/csb1/docker/traefik/dynamic.yml; })
           (baseline // { generated = "/nix/store/fixture-changed-routing.json"; })
           (baseline // { legacySalt = "changed-legacy-fragment"; })
+          (baseline // { adminCiphertext = "fixture-rotated-admin-ciphertext"; })
         ]
         """,
     ])
@@ -108,6 +120,17 @@ def main():
         )
         assert candidate["credentialTriggersReconcile"], (
             "Traefik credential ciphertext must trigger same-switch reconciliation"
+        )
+        assert candidate["authTriggersReconcile"] and candidate["adminTriggersReconcile"], (
+            "Both auth ciphertexts must trigger same-switch Compose reconciliation"
+        )
+        assert candidate["adminSecret"] == {
+            "file": str(ROOT / "secrets/csb1-inspr-auth-admin-env.age"),
+            "path": "/run/agenix/csb1-inspr-auth-admin-env",
+            "owner": "root", "group": "root", "mode": "0400",
+        }, "Admin environment must have a dedicated root-only age declaration"
+        assert candidate["edgeEnvironmentFile"] == "/run/agenix/csb1-inspr-auth-env", (
+            "Traefik edge renderer must load only the primary auth environment"
         )
         check_label(candidate["labels"], "ops.static-config-sha256=", file_digest(STATIC))
         check_label(candidate["labels"], "ops.dynamic-config-sha256=", file_digest(DYNAMIC))
@@ -133,6 +156,9 @@ def main():
         assert [key + "=" for key in before if before[key] != after[key]] == [changed_prefix], (
             "Changing one renderer input must change only its recreate label"
         )
+    assert contracts[4] == contract, (
+        "Rotating admin credentials must not change Traefik or its renderer inputs"
+    )
 
     # Guard expressions too: frozen digests and extra file/ACME reads must fail.
     source = (ROOT / "hosts/csb1/docker/compose-spec.nix").read_text()
