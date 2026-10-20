@@ -42,7 +42,7 @@ async function fixture(t, options = {}) {
   return { root, v2, file, store, stateStore, sent, events, publisher, push };
 }
 function exportBaseline(root) {
-  const names = execFileSync("git", ["ls-tree", "-r", "--name-only", `${revision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
+  const names = execFileSync("git", ["ls-tree", "-r", "--full-tree", "--name-only", `${revision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
   for (const name of names.filter(n => (/^[^/]+\.mjs$/.test(n) && !n.endsWith(".test.mjs")) || n === "contracts.lock.json" || n.startsWith("contracts/"))) {
     const file = path.join(root, name); fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, execFileSync("git", ["show", `${revision}:${tree}/${name}`]));
