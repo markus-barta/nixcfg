@@ -78,6 +78,20 @@ in
     }
   ];
 
+  # ARP flux: enp2s0f0 and fritzwan0 share one wire, and by default Linux answers ARP for any
+  # local address on any interface. enp2s0f0 then also answers the 7530's "who has
+  # 10.255.5.1", the 7530 caches enp2s0f0's MAC, and from then on ignores fritzwan0's ARP
+  # requests for 10.255.5.2, so nothing reaches the 7530 any more (seen 2026-10-20 21:15:
+  # INCOMPLETE on fritzwan0, Elli replies answered with ICMP unreachable). arp_ignore=1 answers
+  # only for addresses on the receiving interface; arp_announce=2 uses the outgoing
+  # interface's own address in ARP requests. Also keeps fritzwan0 from answering for
+  # 192.168.1.99 on the home LAN. "all", because fritzwan0's per-interface keys do not
+  # exist yet when systemd-sysctl runs at boot.
+  boot.kernel.sysctl = {
+    "net.ipv4.conf.all.arp_ignore" = 1;
+    "net.ipv4.conf.all.arp_announce" = 2;
+  };
+
   networking.nat = {
     enable = true;
     internalIPs = [ transitNet ];
