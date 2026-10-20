@@ -56,7 +56,7 @@ The active `v2` set records main d36b5295 (PR #58), CalVer3
 261019102825.0.0, sequence 25 from that checkout's `release.json` and
 `release/preparation.json` (JOED-50) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
-the RUNBOOK. Its downstream deployment pins are the r17 commit adb3bcd4 (OPS-408). Fixtures do not
+the RUNBOOK. Its downstream deployment pins are the r17b commit 93a5c9c2 (OPS-408; image `household-v2-switch-set-r17b-202610202315`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,

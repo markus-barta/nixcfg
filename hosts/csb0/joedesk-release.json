@@ -31,6 +31,7 @@
         "board_image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
         "csb0_generation": null,
         "hsb0_generation": null,
+        "hsb0_pre_cutover_nixcfg_rev": "0cff3a6f33af0712845255e0e198bc7169fcb112",
         "note": "OPS records exact local image IDs, retained generations and private verified backup before cutover."
       }
     },
