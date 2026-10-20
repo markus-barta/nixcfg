@@ -1,0 +1,47 @@
+{
+  "observation": {
+    "format": "ops392.switch-set-observation.v2",
+    "bookTs": "2026-10-18T21:59:59.950Z",
+    "equity": {
+      "value": "12345.67000000",
+      "currency": "EUR"
+    },
+    "cash": {
+      "value": "-0.0000",
+      "currency": "EUR"
+    },
+    "apiReplyCheckedAt": "2026-10-18T21:59:59.900Z",
+    "positions": [
+      {
+        "symbol": "SXR8",
+        "side": "long",
+        "desk": null,
+        "scope": "keep"
+      },
+      {
+        "symbol": "TSLA",
+        "side": "long",
+        "desk": null,
+        "scope": "keep"
+      },
+      {
+        "symbol": "SYNTHJ",
+        "side": "short",
+        "desk": "j",
+        "scope": "stage0"
+      },
+      {
+        "symbol": "SYNTHJOE",
+        "side": "long",
+        "desk": "joe",
+        "scope": "stage0"
+      }
+    ]
+  },
+  "receivedAt": "2026-10-18T22:00:00.025Z",
+  "syntheticCoverage": {
+    "date": "2026-10-18",
+    "coverage": "partial",
+    "partialReasons": ["unattributed_activity"]
+  }
+}

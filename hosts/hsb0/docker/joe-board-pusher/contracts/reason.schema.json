@@ -34,6 +34,9 @@
     "history_write_failed",
     "halt_on",
     "executor_broker_disagreement",
-    "results_capture_failed"
+    "results_capture_failed",
+    "not_exact_yet",
+    "source_unavailable",
+    "desk_unmapped"
   ]
 }

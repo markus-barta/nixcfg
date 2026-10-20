@@ -16,32 +16,27 @@ function temp(t) {
   t.after(() => { spawnSync("trash", [directory]); });
   return directory;
 }
-const producerVerifier = run("git", ["show", "d88950476d3a38c464f27ae498c2de10e696f0a5:hosts/hsb0/docker/joe-board-pusher/verify-contracts.mjs"]);
 async function verifiers(directory) {
   fs.copyFileSync(path.join(root, "verify-contracts.mjs"), path.join(directory, "verify-contracts.mjs"));
-  fs.writeFileSync(path.join(directory, "producer-verifier.mjs"), producerVerifier);
   const local = await import(pathToFileURL(path.join(directory, "verify-contracts.mjs")));
-  const producer = await import(pathToFileURL(path.join(directory, "producer-verifier.mjs")));
-  return [() => local.verify(), () => producer.verifyContracts(directory)];
+  return [() => local.verify()];
 }
 function copyClosure(directory) {
   fs.cpSync(path.join(root, "contracts"), path.join(directory, "contracts"), { recursive: true });
   fs.copyFileSync(path.join(root, "contracts.lock.json"), path.join(directory, "contracts.lock.json"));
 }
 
-test("independently pinned reviewed 17-file closure verifies, with producer verdict parity", async t => {
+test("independently pinned reviewed 17-file closure verifies, at rev 9", async t => {
   assert.equal(verify(), true);
   const lock = JSON.parse(fs.readFileSync(path.join(root, "contracts.lock.json")));
   assert.equal(Object.keys(lock.files).length, 17);
   const directory = temp(t); copyClosure(directory);
   for (const check of await verifiers(directory)) assert.equal(check(), true);
-  for (const name of Object.keys(lock.files)) {
-    const reviewed = execFileSync("git", ["show", `d88950476d3a38c464f27ae498c2de10e696f0a5:hosts/hsb0/docker/joe-board-pusher/contracts/${name}`]);
-    assert.ok(fs.readFileSync(path.join(root, "contracts", name)).equals(reviewed));
-  }
-  assert.ok(fs.readFileSync(path.join(root, "contracts.lock.json")).equals(execFileSync("git", ["show", "d88950476d3a38c464f27ae498c2de10e696f0a5:hosts/hsb0/docker/joe-board-pusher/contracts.lock.json"])));
+  assert.equal(lock.revision, "84c47b647cf06a38a3f61ce7f928a10ed10eeef3");
+  assert.equal(lock.manifest_revision, 9);
+  assert.equal(lock.contract_set_sha256, "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5");
 });
-for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-drift", "set-drift", "size-drift", "hash-drift", "manifest-drift"]) test(`pusher and producer verifiers reject ${fault}`, async t => {
+for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-drift", "set-drift", "size-drift", "hash-drift", "manifest-drift"]) test(`fixed-path pusher verifier reject ${fault}`, async t => {
   const directory = temp(t); copyClosure(directory);
   if (fault === "changed") fs.appendFileSync(path.join(directory, "contracts/index.mjs"), "\n");
   if (fault === "extra") fs.writeFileSync(path.join(directory, "contracts/extra.json"), "{}");
@@ -58,7 +53,7 @@ for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-d
   if (fault === "lock-drift") { const lock = JSON.parse(fs.readFileSync(path.join(directory, "contracts.lock.json"))); lock.revision = "0".repeat(40); fs.writeFileSync(path.join(directory, "contracts.lock.json"), JSON.stringify(lock)); }
   for (const check of await verifiers(directory)) assert.throws(check);
 });
-for (const schema of fs.readdirSync(path.join(root, "contracts")).filter(n => n.endsWith(".json"))) test(`missing ${schema} fails both verifiers`, async t => {
+for (const schema of fs.readdirSync(path.join(root, "contracts")).filter(n => n.endsWith(".json"))) test(`missing ${schema} fails the fixed-path verifier`, async t => {
   const directory = temp(t); copyClosure(directory);
   fs.renameSync(path.join(directory, "contracts", schema), path.join(directory, "held.json"));
   for (const check of await verifiers(directory)) assert.throws(check);

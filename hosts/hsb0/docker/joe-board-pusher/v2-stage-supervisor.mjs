@@ -45,7 +45,10 @@ export function createStageSupervisor({
         phase = "busy"; watch();
       } else if (message.event === "job_done" && phase === "busy" && ["committed", "skipped"].includes(message.outcome)) {
         phase = "idle"; attempt = 0; clearTimer(watchdog);
-        event(message.outcome === "committed" ? "v2_stage_committed" : "v2_stage_skipped", message.outcome === "skipped" ? "observation_rejected" : undefined);
+        if (message.outcome === "committed") {
+          if (!Number.isSafeInteger(message.seq) || message.seq <= 0) { kill("worker_protocol"); return; }
+          emit({ event: "v2_stage_committed", seq: message.seq });
+        } else event("v2_stage_skipped", "observation_rejected");
       } else kill("worker_protocol");
     });
     current.on("error", () => kill("worker_unavailable"));

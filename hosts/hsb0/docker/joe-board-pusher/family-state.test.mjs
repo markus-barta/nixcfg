@@ -20,6 +20,7 @@ import { CURRENT_DESK_OWNERSHIP_POLICY, DESK_HISTORY_REVISION_METHOD, calculateD
   deskOwnershipPolicyContract, buildDeskDayBoundaryEvidence } from "./desk-ledger.mjs";
 import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 import { createOfficialHistoryRefresher } from "./family-history-session.mjs";
+import { deskState, executionActivity } from "./desk-activity.mjs";
 import { waitForExecutionCycle } from "./pusher-state.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
@@ -136,12 +137,14 @@ function setup({
   retryMaxMs = 20_000,
   getVerifiedHistoryState = null,
   onReplayIncomplete,
+  summarizeActivity = null,
 } = {}) {
   let current = at;
   const timers = fakeTimers();
   const unavailable = [];
   const adapter = createFamilySessionAdapter({
     targetAccount: ACCOUNT,
+    summarizeActivity,
     familyClientIds,
     excludedSymbols,
     periodStart: FAMILY_BASELINE_PERIOD_START,
@@ -1599,4 +1602,68 @@ test("idle accounting publication does not wait, and disconnect cannot become ac
     sleep: async () => { api.emit(EVENTS.disconnected); },
   }), true);
   assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
+});
+
+test("desk execution activity comes from completed live replies, is copied as scalars and invalidates on reader loss", () => {
+  const session = setup({ at: "2026-09-10T15:00:00.000Z", summarizeActivity: executionActivity });
+  assert.equal(session.adapter.activitySnapshot(), null);
+  const api = connect(session);
+  assert.equal(session.adapter.activitySnapshot(), null);
+  complete(api, [execution("activity-j.01", 27, { time: "2026-09-10T14:59:00.000Z" })]);
+  const first = session.adapter.activitySnapshot();
+  assert.deepEqual(first, { observedAt: "2026-09-10T15:00:00.000Z", day: "2026-09-10",
+    latest: { j: "2026-09-10T14:59:00.000Z", joe: null, joel: null } });
+  first.latest.j = null;
+  assert.equal(session.adapter.activitySnapshot().latest.j, "2026-09-10T14:59:00.000Z");
+  api.emit(EVENTS.disconnected); assert.equal(session.adapter.activitySnapshot(), null);
+});
+
+function executionDeskState(adapter, at, id = "j") {
+  const activity = adapter.activitySnapshot();
+  return deskState({ positionsAt: at, hasPositions: false, ordersAt: at, hasOrders: false,
+    executionsAt: activity?.observedAt ?? null, executionDay: activity?.day ?? null,
+    lastExecutionAt: activity?.latest[id] ?? null }, at, at);
+}
+
+test("existing 30-second execution polling renews same-day fill evidence over ten minutes even on identical replays", () => {
+  const start = Date.parse("2026-09-10T15:00:00.000Z");
+  const session = setup({ at: new Date(start).toISOString(), summarizeActivity: executionActivity });
+  const api = connect(session);
+  const fill = execution("periodic-activity-j.01", 27, { time: "2026-09-10T14:59:00.000Z" });
+  complete(api, [fill]);
+  const ledgerAt = session.store.state.ledgerObservedAt;
+  for (let elapsed = 30_000; elapsed <= 10 * 60_000; elapsed += 30_000) {
+    const at = new Date(start + elapsed).toISOString(); session.setNow(at);
+    session.timers.runDelay(30_000);
+    assert.equal(session.adapter.activitySnapshot(), null, "an incomplete execution cycle cannot prove absence");
+    complete(api, [fill]);
+    assert.equal(session.adapter.activitySnapshot().observedAt, at);
+    assert.equal(session.store.state.ledgerObservedAt, ledgerAt, "reader freshness does not restamp unchanged money");
+    assert.equal(executionDeskState(session.adapter, at), "working");
+    for (const id of ["joe", "joel"]) assert.equal(executionDeskState(session.adapter, at, id), "sit-out");
+    assert.equal(api.requests.filter(([name]) => name === "executions").length, 1 + elapsed / 30_000);
+  }
+});
+
+test("missing execDetailsEnd cannot renew activity or turn a same-day fill into sit-out", () => {
+  const session = setup({ at: "2026-09-10T15:00:00.000Z", summarizeActivity: executionActivity });
+  const api = connect(session);
+  const fill = execution("missing-end-activity-j.01", 27, { time: "2026-09-10T14:59:00.000Z" });
+  complete(api, [fill]);
+  session.setNow("2026-09-10T15:00:30.000Z"); session.timers.runDelay(30_000);
+  api.emit(EVENTS.execDetails, requestId(api), fill.contract, fill.execution);
+  assert.equal(executionDeskState(session.adapter, "2026-09-10T15:00:30.000Z"), "stuck");
+  session.timers.runDelay(20_000);
+  session.setNow("2026-09-10T15:05:00.001Z");
+  assert.equal(session.adapter.activitySnapshot(), null);
+  assert.equal(session.store.state.coverageThrough, "2026-09-10T15:00:00.000Z");
+  for (const id of ["j", "joe", "joel"]) assert.equal(executionDeskState(session.adapter, "2026-09-10T15:05:00.001Z", id), "stuck");
+});
+
+test("optional staging summary failure cannot change execution cycle or v1 reader availability", () => {
+  const session = setup({ summarizeActivity: () => { throw new Error("synthetic staging failure"); } });
+  const api = connect(session); complete(api, []);
+  assert.equal(session.adapter.blockedReason, null); assert.equal(session.adapter.retryReason, null);
+  assert.equal(session.adapter.activitySnapshot(), null); assert.ok(session.store.state);
+  assert.equal(session.timers.count(30_000), 1);
 });

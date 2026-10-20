@@ -4,7 +4,7 @@ import { gatewayReason, gatewayCheckAgeMs, GATEWAY_CHECK_MAX_AGE_MS } from './ga
 
 export const MONEY_FIELDS = Object.freeze(['equity', 'dayPnl', 'openPnl', 'totalPnl']);
 export const DATA_PANELS = Object.freeze([
-  ...MONEY_FIELDS.map(f => `today.${f}`), 'paperAccount',
+  ...MONEY_FIELDS.map(f => `today.${f}`), 'paperAccount', 'paperCash',
   ...['j', 'joe', 'joel'].flatMap(id => MONEY_FIELDS.map(f => `desks.${id}.${f}`)),
   'positions', 'kept', 'gateway', 'halt', 'executor',
 ]);
@@ -88,6 +88,7 @@ export function panelStates(feeds, now, previousValues = {}, keepSymbols = feeds
   for (const field of MONEY_FIELDS) select(`today.${field}`, feeds.data, sessionReason || scopeReason ? null : data?.totals[field],
     sessionReason || scopeReason || data?.totals.reasons?.[field] || sourceReason(field));
   select('paperAccount', feeds.data, sessionReason ? null : data?.brokerAccount?.equity, sessionReason || data?.brokerAccount?.reason);
+  select('paperCash', feeds.data, sessionReason ? null : data?.brokerAccount?.cash, sessionReason || data?.brokerAccount?.reasons?.cash);
   for (const id of ['j', 'joe', 'joel']) {
     const desk = data?.desks.find(d => d.id === id);
     for (const field of MONEY_FIELDS) select(`desks.${id}.${field}`, feeds.data, sessionReason || affectedDesks.has(id) ? null : desk?.money[field],
