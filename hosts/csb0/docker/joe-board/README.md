@@ -66,7 +66,7 @@ d36b5295 commit and revision-9 contract hashes rather than treating that field a
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against ed5e43d6 (routing held constant) and
-hsb0 against main ca598b9a: image, full Compose spec, executor service, units,
+hsb0 against main 096cc37f: image, full Compose spec, executor service, units,
 firewall, users and real source derivation paths. The hsb0 evaluator uses a
 disposable local Nix store, evaluates Linux packages and never builds. OPS
 must also compare Linux `config.system.build.toplevel.drvPath` on the states
