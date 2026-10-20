@@ -587,6 +587,7 @@ export function createFamilySessionAdapter({
   hooks = {},
   getVerifiedHistoryState = null,
   getFlatNetMarks = null,
+  summarizeActivity = null,
 }) {
   if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
     throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
@@ -842,6 +843,8 @@ export function createFamilySessionAdapter({
     return { executions: chain.executions, commissions: chain.commissions, through: chain.through };
   }
 
+  let activity = null;
+
   function finishCycle() {
     if (!activeCycle?.ended || missingFamilyCommissions(activeCycle).length) return false;
     stopTimer("timeout");
@@ -921,6 +924,9 @@ export function createFamilySessionAdapter({
       retryReason = null;
       retryScheduler.reset();
       executionReady = true;
+      // Optional staging evidence cannot change the v1 reader's availability.
+      try { activity = typeof summarizeActivity === "function" ? summarizeActivity(next) : null; }
+      catch { activity = null; }
       hooks.onLedgerUpdated?.({ changed, observedAt: next.ledgerObservedAt });
       schedulePoll();
       return true;
@@ -1336,6 +1342,9 @@ export function createFamilySessionAdapter({
     get requestInFlight() { return Boolean(activeCycle); },
     get blockedReason() { return blockedReason; },
     get retryReason() { return retryReason; },
+    activitySnapshot() {
+      return connected && executionReady && !blockedReason && !retryReason && activity ? clone(activity) : null;
+    },
     inspectState() { return state ? clone(state) : null; },
   };
 }
