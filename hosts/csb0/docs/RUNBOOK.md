@@ -679,7 +679,7 @@ a configurationRevision change from different commits does not confound the
 comparison. Include the new JSON with `git add -N` for Git-backed flake
 evaluation. This is an evaluation comparison, with no build or switch.
 T100 compares the csb0 static spec against ed5e43d6, and hsb0 against main
-ca598b9a (#1058): image, full Compose spec, executor service, units, firewall, users
+68a8e9aa (#1062): image, full Compose spec, executor service, units, firewall, users
 and real source derivation paths. It evaluates Linux packages in a disposable
 local store without building. The whole-host toplevel derivation comparison
 above remains a separate OPS gate; T100 does not claim it passed.
@@ -702,18 +702,34 @@ the exact main commit and hashes identify this inactive candidate.
 JOED-20 producer/executor activation and evidence remain separately owned.
 
 The active v1 board stays on db621bf; the current pusher/executor records now
-match main ca598b9aa26e907334bb5f1511e348d4cb5ad152 (#1058) and image
-`hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330`. Main's staging,
+match main 68a8e9aaca483c72b23c8da6c6fc0085291ca9db (#1062, including #1061) and image
+`hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700`. Main's staging,
 local-mailbox wiring and source closure are retained. `previous` preserves
 the older flat-net downstream pins; it is historical rollback metadata.
 
-As in r6 (commit 327079f0acfcaacf480a6b1714742c216a32cc8e), compute each
-`source_tree` from the exact main commit with `git rev-parse REV:SOURCE_PATH`,
-using the recorded `source_path`. At ca598b9a this yields pusher tree
-`71a1546fa5abdf60786c54856a7fe904c29b8c83` and executor tree
-`a7c8ee9f05c4cec133753ddc4f684a07538d80d7`. These are Git tree IDs from
+As in r6 (commit 327079f0acfcaacf480a6b1714742c216a32cc8e) and r7c
+(commit 36a8d06bec1b76a4f078f3ca8d8b0d3f06a12477), compute each `source_tree`
+from the exact main commit with `git rev-parse REV:SOURCE_PATH`, using the
+recorded `source_path`. At 68a8e9aa this yields pusher tree
+`7d8b3457b1b1478cef3c8e6e03220bf434890dfa` and executor tree
+`d091721de4c3e97bad14838a92ccd879879bdef2`. These are Git tree IDs from
 main, including its literal executor image; T100 separately proves the
-release-set indirection evaluates identically.
+release-set indirection evaluates identically. The retained r16 rollback image
+is `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500`.
+
+R7e local preparation passed T100 with `--prove-current` and the exact d36b5295
+source, including full hsb0 main equality and explicit r16 images; T101 passed
+29/29 and T93 passed 851/851. The pusher suite passed 548/550 with two explicit
+Linux-only skips (real flock and memory-cgroup/OOM isolation); its Python reader
+suite passed 14/14. Image import closure and the actual r16-to-r15 rollback
+fixture passed. The pusher Nix fixture now preserves the sibling csb0 release
+JSON required by the host's release-set indirection. T102, T76 labels-only,
+executor evaluation, the Bash 5 guard and the exact-source rehearsal dry-run
+passed. T76's full offline flake check could not access the Nix daemon from
+the macOS sandbox; it is not passed. The rehearsal used a temporary lab root
+and recorded a non-Docker plan; Linux ownership, Docker/image smokes, whole-host
+evaluation, live checks, review and cutover remain OPS gates. No push, SSH,
+build or deployment was performed.
 
 Compared with dafe7909, revision 9 adds optional paper-account cash with a
 per-field unavailability reason, per-field position reasons (including an
