@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700` (pusher, stager and executor runtime; OPS-404). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -42,6 +42,7 @@ already available source scalars and identities. An idle worker issues one
 ```text
 {format:"ops392.switch-set-observation.v2", bookTs,
  equity:{value,currency}|null, cash:{value,currency}|null,
+ sourceObservedAt:{equity:string|null,cash:string|null,positions:string|null},
  apiReplyCheckedAt:string|null, positions:[{symbol,side,desk,scope}],
  deskActivity:{j,joe,joel},
  v1Cycle:{v1Sha256,v1Status,v1RepliedAt,observationId}}
@@ -89,12 +90,28 @@ Unknown entries, symlinks, ownership or mode mismatches stop body cleanup and
 emit a value-free event. Legacy receipts without cycle metadata remain readable
 and do not establish v1 provenance.
 
+R16 uses the worker's local observation-receipt instant for v2 `generatedAt`,
+captured when reserving the sequence before the optional body-store handshake.
+It advances each staging cycle even during IB's roughly three-minute book cadence.
+The exact v1 body hash (`v1Sha256`) binds a pair; generation equality is not
+pairing evidence. V1's `generatedAt` remains inside its stored body.
+
 NAV (`NetLiquidation`) and cash (`TotalCashValue`) retain raw account-summary
 strings and currencies, including scale, negative signs and signed zero. Only
 valid EUR decimal lexemes pass through; missing, non-EUR or unrepresentable
-values become null with `source_unavailable`. Rev 8 uses `brokerAccount.reason`
+values become null with `source_unavailable`. Rev 9 uses `brokerAccount.reason`
 for equity and `brokerAccount.reasons.cash` for cash. Both cover the entire paper
 account including KEEP; no conversion or numeric FIFO value enters them.
+The private `sourceObservedAt` clocks come from the individual NAV/cash summary
+callbacks and complete position/account-download replies. An unrelated callback
+cannot renew another source. Legacy frames without those clocks still use book
+time. `brokerAccount.observedAt` is the oldest source of the money actually
+emitted (or the oldest known account source when both values are null);
+`positions.observedAt` retains the position-coverage source time. These clocks
+are independent of v2 generation. At generation, sources older than
+300 seconds (or in the future) withhold NAV/cash with `source_unavailable`.
+Expired position coverage leaves all values null with `source_unavailable`,
+clears unproven desk ownership, and sets the coverage reason accordingly.
 
 Gateway readiness requires a completed account-matched account-summary or
 positions API reply. TCP, account download, login and currentTime activity are
@@ -109,6 +126,10 @@ but within a skewed generation skips the whole pair to avoid disagreeing with
 the board's generatedAt-relative watermark. Gateway readiness still requires a
 completed positions or account-summary reply; the read-only order refresh below
 does not renew it. Readiness expires when no qualifying reply renews it.
+Checks older than 300 seconds use `snapshot_stale`. Rev 9 requires a boolean
+`apiSessionReady`, so unavailable readiness is represented by `false` plus its
+reason; the contract does not allow a null readiness flag. The stricter existing
+60-second readiness rule still applies.
 
 SXR8 and TSLA always appear with `scope:keep`, `desk:null`. Missing KEEP rows use
 `side:long` from the existing long-only KEEP policy and `source_unavailable` for
@@ -124,9 +145,13 @@ reasoned `not_exact_yet`. KEEP and mapped stage0 rows carry no desk reason.
 Desk rows use exactly `desks[].state` from [rev 9 data.schema.json](./contracts/data.schema.json):
 `stuck` if a position, order or execution reader is unavailable, has unknown
 ownership, or its observation is older than the existing five-minute pusher
-bound (future evidence also fails closed); otherwise `working` if that desk has
+bound; otherwise `working` if that desk has
 positions, active open orders or executions on the executor's current New York
-day, and `sit-out` if empty. Read-only `reqAllOpenOrders` runs on connect and
+day, and `sit-out` if empty. Each reader timestamp is fresh exactly in the
+inclusive interval `generatedAt - 300s` through `generatedAt + 5s`; a missing
+timestamp is unavailable and a timestamp beyond either bound is stale. Readers
+newer than the book remain fresh. Diagnostics use the post-v1 observation time
+instead of book time. Read-only `reqAllOpenOrders` runs on connect and
 every 60 seconds, checked by the existing 5-second maintenance tick, with at
 most one reply in flight. Each reply collects a fresh set keyed by
 `(orderId, clientId)`; `openOrderEnd` atomically replaces the previous set,
@@ -183,19 +208,25 @@ reenrollment need a separate operator floor record and reviewed procedure.
 
 The worker verifies the exact 17-file revision-9 closure before importing any
 contracts. Source time is calendar-validated UTC from `book.ts`; missing or
-regressing time suppresses staging. Repeated observations retain generation
-and local generation-progress time. Each sequence is fsynced, renamed and
+invalid source time suppresses staging. Generation uses the worker's receipt
+clock and is clamped to the durable `lastGeneratedAt` floor. That existing field
+keeps the current state format backward compatible, including r15 state and
+unpublished reservations recovered after a crash. A clock rollback that would
+put generation more than five seconds ahead suppresses staging until the clock
+catches up; generation never regresses. Each sequence is fsynced, renamed and
 parent-directory-fsynced before use; crashes may burn numbers, never reuse them.
 The stable `.allocator.lock` inode is never replaced. A second writer cannot
 acquire it. New reservation identities use the unique v1 cycle ID; legacy
-`["ops392.switch-set.v2",bookTs]` identities and Phase A reservation identities
+`["ops392.switch-set.v2",generationInstant]` identities and Phase A reservation identities
 with a null gateway watermark remain readable. Older contract-set staged pairs fail closed and require coordinator
 review before promotion; never reset enrollment or sequence state to migrate.
 
 Readers follow only `current.json` to an immutable `pair-<seq>` directory.
 `snapshot.json` holds exact validated ingress bytes without `receivedAt`;
 `receipt.json` records the real local staging receipt, sequence/generation,
-`generatedAdvancedAt`, snapshot SHA256 and contract-set SHA256. Receipt is not
+`generatedAdvancedAt`, snapshot SHA256 and contract-set SHA256. On each advancing
+v2 generation, `generatedAdvancedAt` is the staging receipt instant, independent
+of v1's generation. Receipt is not
 proof of live board acceptance. Pair files and directory become durable before
 the pointer's own atomic replacement. `RETAIN_PAIRS` defaults to **10**; the
 `StageStore.retainPairs` constant override permits 10–1024. Keep the newest N
@@ -204,7 +235,7 @@ Recovery validates retained and orphan pairs before pruning. Pruning atomically
 renames an old pair to a recognized `.retired-<seq>` tombstone so interrupted
 cleanup remains recoverable. `receipts.jsonl` is a separate fsynced append-only
 0600 log with one record per staged/resolved sequence: `seq`, outcome
-(`committed`, `rejected`, or recovered `staged`), source/staging/record timestamps,
+(`committed`, `rejected`, or recovered `staged`), generation/staging/record timestamps,
 and `pairSha256` (the snapshot byte hash from the pair receipt), plus its format.
 It contains no payload values and outlives pair pruning; restart never appends a
 duplicate. A crash can burn an unbuilt reservation without a staged pair/record.
@@ -549,8 +580,8 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r15-202610201500`; the retained
-rollback image is `household-v2-switch-set-r14-202610201330`.
+The candidate image is `household-v2-switch-set-r16-202610201700`; the retained
+rollback image is `household-v2-switch-set-r15-202610201500`.
 
 R15 attributes executor-route executions through the executor's own intent
 ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same

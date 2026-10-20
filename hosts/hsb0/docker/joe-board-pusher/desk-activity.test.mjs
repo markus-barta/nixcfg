@@ -18,7 +18,8 @@ for (const [label, change, expected] of [
   ["orders-only", { hasOrders: true }, "working"], ["executions-only", { lastExecutionAt: instant }, "working"],
   ["unavailable", { ordersAt: null, hasPositions: true }, "stuck"],
   ["stale", { ordersAt: "2026-10-19T14:54:59.999Z", hasOrders: true }, "stuck"],
-  ["future", { executionsAt: "2026-10-19T15:00:00.001Z" }, "stuck"],
+  ["future-within-skew", { executionsAt: "2026-10-19T15:00:05.000Z" }, "sit-out"],
+  ["future-beyond-skew", { executionsAt: "2026-10-19T15:00:06.000Z" }, "stuck"],
   ["future-fill", { lastExecutionAt: "2026-10-19T15:00:00.001Z" }, "stuck"],
 ]) test(`desk state ${label} maps to rev 9 desks[].state and leaves KEEP untouched`, () => {
   const deskActivity = activity(); Object.assign(deskActivity.j, change);
@@ -34,11 +35,12 @@ for (const [label, change, expected] of [
   assert.equal(validateContract("data", value, { stage: "ingress" }).ok, true);
 });
 
-test("each reader's freshness is checked independently at the five-minute bound and staging receipt", () => {
+test("each reader's freshness uses generation at the inclusive five-minute bound", () => {
   for (const field of ["positionsAt", "ordersAt", "executionsAt"]) {
     const row = evidence(); row[field] = "2026-10-19T14:55:00.000Z";
     assert.equal(deskState(row, instant, instant), "sit-out");
-    assert.equal(deskState(row, instant, "2026-10-19T15:00:00.001Z"), "stuck");
+    assert.equal(deskState(row, instant, "2026-10-19T15:00:00.001Z"), "sit-out");
+    assert.equal(deskState(row, "2026-10-19T15:00:00.001Z", "2026-10-19T15:00:00.001Z"), "stuck");
     row[field] = null; assert.equal(deskState(row, instant, instant), "stuck");
   }
 });

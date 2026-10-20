@@ -142,7 +142,7 @@ test("diagnostic details preserve deskState decisions at generation/receipt boun
     [{ executionDay: "2026-10-18" }, "execution_day_mismatch"],
   ]) assert.deepEqual(deskStateDetails({ ...base, ...change }, instant, instant), { state: "stuck", cause });
   for (const field of ["positionsAt", "ordersAt", "executionsAt"]) {
-    assert.equal(deskStateDetails({ ...base, [field]: future }, instant, instant).cause, `${field.slice(0, -2)}_stale`);
+    assert.equal(deskStateDetails({ ...base, [field]: "2026-10-19T15:00:06.000Z" }, instant, instant).cause, `${field.slice(0, -2)}_stale`);
   }
 });
 
