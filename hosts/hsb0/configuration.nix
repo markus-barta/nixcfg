@@ -238,7 +238,7 @@ in
             build = "${joeBoardPusherSource}";
             image =
               if joeHouseholdV2StageEnabled then
-                "hsb0-joe-board-pusher:household-v2-switch-set-202610201110"
+                "hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330"
               else
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
@@ -261,7 +261,7 @@ in
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-switch-set-202610201110";
+                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330";
                   pull_policy = "never";
                 };
               }

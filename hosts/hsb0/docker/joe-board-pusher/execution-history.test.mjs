@@ -450,6 +450,23 @@ test("CLI previews without writes, imports atomically, and reruns idempotently",
   assert.equal(JSON.parse(second.stdout).receiptCount, 1);
 });
 
+test("CLI preview includes raw legacy client 229 only from its dated ownership boundary", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "execution-history-dated-cli-test-"));
+  const state = path.join(directory, "history.json");
+  for (const [time, count] of [["20261006 09:40:46 US/Eastern", 0], ["20261006 09:40:47 US/Eastern", 1]]) {
+    const execId = "cli.dated.01";
+    const source = writeJson(directory, "ledger.json", { account: ACCOUNT, coverageThrough: "2026-10-06T20:30:00Z",
+      executions: [{ contract: { conId: 1001, symbol: "SYNTH", secType: "STK", currency: "USD", multiplier: 1 },
+        execution: { execId, time, acctNumber: ACCOUNT, clientId: 229, side: "BOT", shares: 1, price: 10 } }],
+      commissions: [{ execId, commission: 0.1, currency: "USD" }] });
+    const preview = spawnSync(process.execPath, [CLI, "preview", "--source-type", "family-ledger", "--source", source,
+      "--state", state, "--from", "2026-10-06T04:00:00Z", "--to", "2026-10-07T04:00:00Z"], { encoding: "utf8" });
+    assert.equal(preview.status, 0, preview.stderr);
+    assert.equal(JSON.parse(preview.stdout).familyExecutionCount, count);
+    assert.equal(fs.existsSync(state), false);
+  }
+});
+
 test("executionTime cheap-path keeps canonical UTC ISO and Eastern conversion semantics", () => {
   const isoRow = {
     contract: { conId: 1001, symbol: "MSFT", secType: "STK", currency: "USD", multiplier: 1 },

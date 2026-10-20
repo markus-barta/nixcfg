@@ -84,7 +84,7 @@ test("raw completed reader evidence attributes by existing dated policy, exclude
   const state = { coverageThrough: instant, coverageTradingDay: "2026-10-19", executions: [exec("SYNTH", 22), exec("TSLA", 999)] };
   const executions = executionActivity(state);
   assert.deepEqual(executions.latest, { j: null, joe: instant, joel: null });
-  state.executions.push(exec("UNCLAIMED", 999)); assert.equal(executionActivity(state), null);
+  state.executions.push(exec("UNCLAIMED", 999)); assert.deepEqual(executionActivity(state), { cause: "execution_unowned", clientId: 999 });
   const source = { book: { ts: instant, gateway: true, positionsCoverage: { status: "complete" },
     positions: [{ symbol: "TSLA", pos: 1 }], openOrders: [{ symbol: "SYNTH", clientId: 22, status: "Submitted" }], ordersObservedAt: instant },
   deskEquities: { ok: true, desks: { j: { positions: [] }, joe: { positions: [] }, joel: { positions: [] } } }, executions };
@@ -101,6 +101,42 @@ test("raw completed reader evidence attributes by existing dated policy, exclude
   assert.equal(copyDeskActivity(source).joe.hasOrders, false);
   delete source.executions;
   assert.equal(deskState(copyDeskActivity(source).joe, instant, instant), "stuck");
+});
+
+test("a raw same-day IB fill for family client 27 proves working without normalization", () => {
+  const executions = executionActivity({ coverageThrough: instant, coverageTradingDay: "2026-10-19",
+    executions: [{ contract: { symbol: "SYNTH" }, execution: { clientId: 27, time: "20261019 11:00:00 US/Eastern" } }] });
+  assert.deepEqual(executions.latest, { j: instant, joe: null, joel: null });
+  const desks = copyDeskActivity({
+    book: { ts: instant, gateway: true, positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: instant },
+    deskEquities: { ok: true, oldestSourceObservedAt: instant,
+      desks: { j: { positions: [] }, joe: { positions: [] }, joel: { positions: [] } } }, executions,
+  });
+  assert.equal(deskState(desks.j, instant, instant), "working");
+  assert.equal(deskState(desks.joe, instant, instant), "sit-out");
+});
+
+test("mixed raw, offset and ISO execution times select the latest epoch regardless of row order", () => {
+  const rows = ["2026-10-19T16:00:00+02:00", "20261019 11:00:00 US/Eastern",
+    "2026-10-19T15:00:00.001Z", "2026-10-19T15:00:00Z"]
+    .map(time => ({ contract: { symbol: "SYNTH" }, execution: { clientId: 27, time } }));
+  for (const executions of [rows, [...rows].reverse()]) {
+    assert.deepEqual(executionActivity({ coverageThrough: "2026-10-19T15:01:00.000Z",
+      coverageTradingDay: "2026-10-19", executions }).latest,
+    { j: "2026-10-19T15:00:00.001Z", joe: null, joel: null });
+  }
+});
+
+test("raw IB fills use New York day boundaries and invalid or ambiguous clocks fail closed", () => {
+  const state = { coverageThrough: "2026-10-20T04:00:01.000Z", coverageTradingDay: "2026-10-20" };
+  const row = time => ({ contract: { symbol: "SYNTH" }, execution: { clientId: 27, time } });
+  assert.deepEqual(executionActivity({ ...state, executions: [row("20261019 23:59:59 US/Eastern")] }).latest,
+    { j: null, joe: null, joel: null });
+  assert.deepEqual(executionActivity({ ...state, executions: [row("20261020 00:00:00 US/Eastern")] }).latest,
+    { j: "2026-10-20T04:00:00.000Z", joe: null, joel: null });
+  for (const time of [undefined, "not-a-time", "20261101 01:30:00 US/Eastern", "20260308 02:30:00 US/Eastern"]) {
+    assert.deepEqual(executionActivity({ ...state, executions: [row(time)] }), { cause: "executions_unavailable" });
+  }
 });
 
 function orderSession() {

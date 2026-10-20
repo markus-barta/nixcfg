@@ -1,5 +1,7 @@
 /** Pure, deterministic J-family execution ledger. No broker or wall-clock access. */
 
+import { isFamilyClientExecution } from "./execution-history.mjs";
+
 const BASE_CURRENCY = "EUR";
 const FIXED_PERIOD_START = "2026-09-10T04:00:00Z";
 const METHOD = "execution-fifo-net-current-fx";
@@ -426,6 +428,7 @@ export function calculateFamily({
   fx,
   account,
   familyClientIds,
+  familyClientAssignments = [],
   excludedSymbols,
   periodStart,
   virtualEquity = 5000,
@@ -468,7 +471,8 @@ export function calculateFamily({
       const contract = registerContract(registry, contractDescription(record.contract));
       const signedQuantity = sideQuantity(execution);
       const price = positiveNumber(execution.price, "execution price");
-      const included = familyIds.has(executionClientId(execution.clientId));
+      executionClientId(execution.clientId);
+      const included = isFamilyClientExecution(execution, familyIds, familyClientAssignments);
       if (included && execution.pendingPriceRevision === true) {
         fail("included execution has a pending price revision");
       }
