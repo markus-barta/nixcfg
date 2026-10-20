@@ -679,7 +679,7 @@ a configurationRevision change from different commits does not confound the
 comparison. Include the new JSON with `git add -N` for Git-backed flake
 evaluation. This is an evaluation comparison, with no build or switch.
 T100 compares the csb0 static spec against ed5e43d6, and hsb0 against main
-9b00f745: image, full Compose spec, executor service, units, firewall, users
+ca598b9a (#1058): image, full Compose spec, executor service, units, firewall, users
 and real source derivation paths. It evaluates Linux packages in a disposable
 local store without building. The whole-host toplevel derivation comparison
 above remains a separate OPS gate; T100 does not claim it passed.
@@ -702,10 +702,18 @@ the exact main commit and hashes identify this inactive candidate.
 JOED-20 producer/executor activation and evidence remain separately owned.
 
 The active v1 board stays on db621bf; the current pusher/executor records now
-match main 9b00f745 and image
-`hsb0-joe-board-pusher:household-v2-phase-a-202610190715`. Main's staging,
+match main ca598b9aa26e907334bb5f1511e348d4cb5ad152 (#1058) and image
+`hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330`. Main's staging,
 local-mailbox wiring and source closure are retained. `previous` preserves
 the older flat-net downstream pins; it is historical rollback metadata.
+
+As in r6 (commit 327079f0acfcaacf480a6b1714742c216a32cc8e), compute each
+`source_tree` from the exact main commit with `git rev-parse REV:SOURCE_PATH`,
+using the recorded `source_path`. At ca598b9a this yields pusher tree
+`71a1546fa5abdf60786c54856a7fe904c29b8c83` and executor tree
+`a7c8ee9f05c4cec133753ddc4f684a07538d80d7`. These are Git tree IDs from
+main, including its literal executor image; T100 separately proves the
+release-set indirection evaluates identically.
 
 Compared with dafe7909, revision 9 adds optional paper-account cash with a
 per-field unavailability reason, per-field position reasons (including an
