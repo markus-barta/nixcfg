@@ -40,7 +40,8 @@ export function createPostStateStore({ file = POST_STATE, io = fs, uid = process
   }
   return {
     load() {
-      check(io.lstatSync(root), true);
+      const dir = io.openSync(root, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY);
+      try { check(io.fstatSync(dir), true); } finally { io.closeSync(dir); }
       let fd;
       try {
         // No lstat-then-open (TOCTOU): O_NOFOLLOW refuses links; the opened fd is checked.
@@ -58,20 +59,23 @@ export function createPostStateStore({ file = POST_STATE, io = fs, uid = process
     },
     save(state) {
       validate(state);
-      check(io.lstatSync(root), true);
       const bytes = Buffer.from(JSON.stringify(state));
       if (bytes.length > MAX_STATE_BYTES) fail();
-      // A crashed pre-rename temporary file is ours; the opened fd is validated before replacing.
-      let fd;
+      // One directory fd is validated and later fsynced: no lstat-then-open race on the root.
+      const dir = io.openSync(root, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY);
       try {
-        fd = io.openSync(temp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, 0o600);
-        check(io.fstatSync(fd));
-        io.ftruncateSync(fd, 0);
-        io.writeFileSync(fd, bytes); io.fsyncSync(fd);
-      } finally { if (fd !== undefined) io.closeSync(fd); }
-      io.renameSync(temp, file);
-      const dir = io.openSync(root, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-      try { io.fsyncSync(dir); } finally { io.closeSync(dir); }
+        check(io.fstatSync(dir), true);
+        // A crashed pre-rename temporary file is ours; the opened fd is validated before replacing.
+        let fd;
+        try {
+          fd = io.openSync(temp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, 0o600);
+          check(io.fstatSync(fd));
+          io.ftruncateSync(fd, 0);
+          io.writeFileSync(fd, bytes); io.fsyncSync(fd);
+        } finally { if (fd !== undefined) io.closeSync(fd); }
+        io.renameSync(temp, file);
+        io.fsyncSync(dir);
+      } finally { io.closeSync(dir); }
     },
   };
 }
