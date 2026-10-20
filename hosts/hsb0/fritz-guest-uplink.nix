@@ -14,13 +14,13 @@
 # enp2s0f0's address unit, which a switch restarts (DNS/DHCP blip for the whole house).
 # And AdGuard's DHCP would hand the extra address to every client as a second DNS server.
 #
-# Guests reach the internet only. The raw-table chain below drops anything from the
-# transit to private, CGNAT/tailnet, link-local and multicast ranges, and to hsb0
-# itself except DNS and ICMP. raw PREROUTING runs before the filter chains that
-# Tailscale and Docker re-order, so their restarts cannot reopen it. AdGuard answers
-# the transit only for the allowlisted wallbox, NTP and AVM names
-# (guestUplinkDnsRules in configuration.nix), so phones on the guest Wi-Fi get no
-# usable internet.
+# Guests reach only the wallbox cloud and its NTP servers (an IP allowlist, below), plus
+# DNS and ICMP on hsb0. Everything else from the transit is dropped: the home LAN, the
+# tailnet, hsb0's other services and the rest of the internet. So phones on the guest Wi-Fi
+# get nothing, not even with their own DNS or a VPN. raw PREROUTING runs before the filter
+# chains that Tailscale and Docker re-order, so their restarts cannot reopen it. AdGuard
+# also answers the transit only for the allowlisted names (guestUplinkDnsRules in
+# configuration.nix).
 { lib, ... }:
 let
   lanIf = "enp2s0f0";
@@ -29,16 +29,19 @@ let
   # Must match guestUplinkDnsRules ($client=10.255.5.0/30) in configuration.nix.
   transitNet = "10.255.5.0/30";
   chain = "fritz-guest-uplink";
-  blockedDestinations = [
-    "0.0.0.0/8"
-    "10.0.0.0/8" # includes the transit itself; DNS + ICMP to hsb0 return above
-    "100.64.0.0/10" # CGNAT + tailnet
-    "127.0.0.0/8"
-    "169.254.0.0/16"
-    "172.16.0.0/12" # Docker networks
-    "192.168.0.0/16" # home LAN + guest LAN
-    "224.0.0.0/4"
-    "240.0.0.0/4"
+  # The only places the guest network may reach (Markus: only the two wallboxes online).
+  # Everything else is dropped, so a phone gets nothing, not even with its own DNS or a VPN.
+  # Resolved 2026-10-20: cert.prod.devices.elli.eco -> 34.22.219.237 (single A, Google Cloud);
+  # time1-4.google.com -> 216.239.35.0/.4/.8/.12 (Google's fixed NTP anycast addresses).
+  # A wallbox endpoint missing here shows up as "fritz-guest-drop" in the kernel log
+  # (journalctl -k) and as an allowed *.elli.eco lookup from the transit in AdGuard's querylog.
+  # Add its address here.
+  wallboxCloud = [ "34.22.219.237" ];
+  wallboxNtp = [
+    "216.239.35.0"
+    "216.239.35.4"
+    "216.239.35.8"
+    "216.239.35.12"
   ];
 in
 {
@@ -76,9 +79,13 @@ in
       iptables -t raw -A ${chain} -d ${hsb0Addr} -p tcp --dport 53 -j ACCEPT
       iptables -t raw -A ${chain} -d ${hsb0Addr} -p icmp -j ACCEPT
       ${lib.concatMapStringsSep "\n" (
-        net: "iptables -t raw -A ${chain} -d ${net} -j DROP"
-      ) blockedDestinations}
-      iptables -t raw -A ${chain} -j ACCEPT
+        ip: "iptables -t raw -A ${chain} -d ${ip} -p tcp -j ACCEPT"
+      ) wallboxCloud}
+      ${lib.concatMapStringsSep "\n" (
+        ip: "iptables -t raw -A ${chain} -d ${ip} -p udp --dport 123 -j ACCEPT"
+      ) wallboxNtp}
+      iptables -t raw -A ${chain} -m limit --limit 6/min --limit-burst 10 -j LOG --log-prefix "fritz-guest-drop "
+      iptables -t raw -A ${chain} -j DROP
       iptables -t raw -C PREROUTING ! -i lo -s ${transitNet} -j ${chain} 2>/dev/null || \
         iptables -t raw -I PREROUTING ! -i lo -s ${transitNet} -j ${chain}
     '';
