@@ -2,7 +2,7 @@ import {
   chmodSync, closeSync, constants, fstatSync, fsyncSync, futimesSync, lstatSync,
   mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync,
 } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { failure, ID_PATTERN, parseMessage, parseStoredMessage, validIdentity } from "./security.mjs";
 
@@ -126,14 +126,28 @@ export function openMailbox(stateDir, identities, now = Date.now) {
 
   function unread(identity) { return files("inbox", identity).length; }
 
-  function send(sender, message) {
+  function send(sender, message, localDeliveryKey) {
     // Keep the capacity check and publication synchronous: concurrent HTTP
     // bodies cannot interleave an admission and its committed message file.
     const parsed = parseMessage({ to: message.to, body: message.body, ...(message.ticket === null ? {} : { ticket: message.ticket }) }, sender, identities);
     if (!identities.includes(sender)) throw failure(403, "source is not allowed");
+    // Only the Unix listener supplies this key. The message itself is the
+    // durable dedupe receipt, including after Amy acknowledges it.
+    let deliveryId;
+    if (localDeliveryKey !== undefined) {
+      if (sender !== "paper-desk-executor" || !/^[a-f0-9]{64}$/.test(localDeliveryKey)) throw failure(400, "delivery key is invalid");
+      deliveryId = `0000000000000-${createHash("sha256").update(localDeliveryKey).digest("hex").slice(0, 32)}`;
+      for (const kind of ["inbox", "archive"]) {
+        try {
+          const prior = readJSON(directory(kind, parsed.to), deliveryId, 128 * 1024, true);
+          if (prior.from !== sender || prior.to !== parsed.to || prior.ticket !== parsed.ticket || prior.body !== parsed.body) throw failure(400, "delivery key conflict");
+          return { id: prior.id, createdAt: prior.createdAt };
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+    }
     if (unread(parsed.to) >= UNREAD_LIMIT) throw failure(429, "recipient unread limit reached");
     const epoch = now();
-    const id = `${String(epoch).padStart(13, "0")}-${randomBytes(16).toString("hex")}`;
+    const id = deliveryId ?? `${String(epoch).padStart(13, "0")}-${randomBytes(16).toString("hex")}`;
     const createdAt = new Date(epoch).toISOString();
     const row = { id, from: sender, to: parsed.to, ticket: parsed.ticket, createdAt, body: parsed.body };
     writeAtomic(directory("inbox", row.to), id, row, true);

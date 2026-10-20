@@ -26,6 +26,22 @@ let
       readonly guard_reservation_ttl_seconds=${toString cfg.reservationTtlSeconds}
       readonly guard_default_max_load=${lib.escapeShellArg (toString cfg.defaultMaxLoad)}
       readonly guard_stale_seconds=${toString cfg.staleSeconds}
+      readonly guard_units_total=${toString cfg.unitsTotal}
+      readonly guard_units_new_max=${toString cfg.unitsNewMax}
+      readonly guard_units_finishing_reserve=${toString cfg.unitsFinishingReserve}
+      readonly guard_aeon_new_max=${toString cfg.aeonNewMax}
+      readonly guard_ait_new_max=${toString cfg.aitNewMax}
+      readonly guard_ops_new_max=${toString cfg.opsNewMax}
+      readonly guard_browser_max=${toString cfg.browserMax}
+      readonly guard_units_new_max_during_browser=${toString cfg.unitsNewMaxDuringBrowser}
+      readonly guard_yellow_units_new_max=${toString cfg.yellowUnitsNewMax}
+      readonly guard_yellow_browser_max=${toString cfg.yellowBrowserMax}
+      readonly guard_red_units_new_max=${toString cfg.redUnitsNewMax}
+      readonly guard_red_browser_max=${toString cfg.redBrowserMax}
+      readonly guard_finish_window_seconds=${toString cfg.finishWindowSeconds}
+      readonly guard_recent_round_limit=${toString cfg.recentRoundLimit}
+      readonly guard_budget_file=${lib.escapeShellArg cfg.budgetFile}
+      readonly guard_allow_unknown_lane=${lib.boolToString cfg.allowUnknownLane}
       ${builtins.readFile ./guard.sh}
     '';
   };
@@ -78,6 +94,86 @@ in
       default = 120;
       description = "Lifetime of reservations without a client pid; also the start window during which a run directory counts.";
     };
+    budgetFile = lib.mkOption {
+      type = lib.types.nonEmptyStr;
+      default = "${home}/.aeon-remote-budget";
+      description = "OPS tighten-only joint-budget override: whitelisted cap key=value tokens and epoch=<unix> on one line; invalid/stale files use pinned defaults.";
+    };
+    allowUnknownLane = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Admit legacy callers without a lane; harness-install will disable this after migrating callers.";
+    };
+    unitsTotal = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 4;
+      description = "Maximum live joint units across all lanes.";
+    };
+    unitsNewMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 3;
+      description = "Maximum new units across all lanes.";
+    };
+    unitsFinishingReserve = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 1;
+      description = "Maximum simultaneous finishing units for a previously active round.";
+    };
+    aeonNewMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 2;
+      description = "Maximum new units in the aeon lane.";
+    };
+    aitNewMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 1;
+      description = "Maximum new units in the ait lane.";
+    };
+    opsNewMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 1;
+      description = "Maximum new units in the ops lane.";
+    };
+    browserMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 1;
+      description = "Maximum browser units across all lanes and phases.";
+    };
+    unitsNewMaxDuringBrowser = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 2;
+      description = "Maximum new units while any browser unit is live, including the browser.";
+    };
+    yellowUnitsNewMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 1;
+      description = "Additional new-unit cap under a fresh YELLOW policy.";
+    };
+    yellowBrowserMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      description = "Additional browser cap under a fresh YELLOW policy.";
+    };
+    redUnitsNewMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      description = "Additional new-unit cap under a fresh RED policy.";
+    };
+    redBrowserMax = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      description = "Additional browser cap under a fresh RED policy.";
+    };
+    finishWindowSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 1800;
+      description = "Maximum age of proof a round held a live unit for finishing admission.";
+    };
+    recentRoundLimit = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 128;
+      description = "Bound on the recent-round history stored under the lease directory.";
+    };
     staleSeconds = lib.mkOption {
       type = lib.types.ints.unsigned;
       default = 900;
@@ -96,6 +192,10 @@ in
         message = "services.aeonRemoteGuard.defaultMaxLoad must be nonnegative.";
       }
       {
+        assertion = cfg.unitsNewMax < cfg.unitsTotal;
+        message = "services.aeonRemoteGuard.unitsNewMax must be less than unitsTotal.";
+      }
+      {
         assertion = lib.hasPrefix "/" cfg.repo;
         message = "services.aeonRemoteGuard.repo must be an absolute path.";
       }
@@ -110,6 +210,10 @@ in
       {
         assertion = lib.hasPrefix "/" cfg.maxRunsFile;
         message = "services.aeonRemoteGuard.maxRunsFile must be an absolute path.";
+      }
+      {
+        assertion = lib.hasPrefix "/" cfg.budgetFile;
+        message = "services.aeonRemoteGuard.budgetFile must be an absolute path.";
       }
       {
         assertion = lib.hasPrefix "/" cfg.leaseDir;

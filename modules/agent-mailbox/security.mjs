@@ -1,4 +1,30 @@
 import { isIP } from "node:net";
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+export const LOCAL_SOCKET_PATH = "/run/agent-mailbox-local/sender/mailbox.sock";
+
+// Environment configuration can select only this constant, never a test path.
+export function configuredLocalSocketPath(value) {
+  if (value === undefined || value === "") return undefined;
+  if (value !== LOCAL_SOCKET_PATH) throw new Error("local mailbox socket path is invalid");
+  return LOCAL_SOCKET_PATH;
+}
+
+export function assertLocalSocketPath(value, testSocketDir) {
+  if (value === undefined || value === "" || value === LOCAL_SOCKET_PATH) return configuredLocalSocketPath(value);
+  const validPath = candidate => typeof candidate === "string" && path.isAbsolute(candidate)
+    && !candidate.includes("\0") && !candidate.split(path.sep).includes("..");
+  const beneath = (root, candidate) => candidate.startsWith(`${root}${path.sep}`);
+  if (!validPath(testSocketDir) || !validPath(value)) throw new Error("local mailbox socket path is invalid");
+  const root = path.resolve(testSocketDir), socket = path.resolve(value);
+  if (!beneath(path.resolve(tmpdir()), root) || !beneath(root, socket)) throw new Error("local mailbox socket path is invalid");
+  const temporary = realpathSync(tmpdir()), realRoot = realpathSync(root), parent = realpathSync(path.dirname(socket));
+  if (!beneath(temporary, realRoot) || (parent !== realRoot && !beneath(realRoot, parent))) throw new Error("local mailbox socket path is invalid");
+  // Pin the validated parent rather than following the caller's alias later.
+  return path.join(parent, path.basename(socket));
+}
 
 export const LISTEN_HOST = "100.64.0.6";
 export const LISTEN_PORT = 8471;

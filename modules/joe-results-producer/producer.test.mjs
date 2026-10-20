@@ -169,6 +169,25 @@ test('true fill/broker mismatch emits exact disagreement code; gateway flaps do 
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).status, 'degraded');
 });
 
+test('capture degradation projects executor health without changing trading brakes or the pinned board contract', () => {
+  const running = executorHealth(health, at);
+  assert.equal(running.status, 'running');
+  for (const status of ['ok', 'degraded']) {
+    const degraded = executorHealth({ ...health, status, resultsCapture: { ok: false,
+      ledgerBytes: 15099494, ledgerMaxBytes: 16777216, admissionThresholdBytes: 15099494,
+    } }, at);
+    assert.deepEqual(degraded, { ...running, status: 'degraded' });
+    assert.equal(degraded.halt, running.halt);
+    assert.equal(degraded.brakes, running.brakes);
+    assert.equal(degraded.reason, undefined);
+    const producer = open(temp());
+    producer.ingest(source());
+    assert.equal(producer.health({ ...health, status, resultsCapture: { ok: false } }, at).status, 'degraded');
+    producer.close();
+  }
+  assert.deepEqual(executorHealth({ ...health, resultsCapture: { ok: true } }, at), running);
+});
+
 test('fractional KEEP positions cannot suppress disagreement; unusable non-KEEP quantities emit evidence', () => {
   const positions = [{ conId: 123, symbol: 'ACME', position: '0' }, { conId: 456, symbol: 'TSLA', position: 0.5 }];
   const state = { ownershipComplete: true, executions: [rawFill('owned')],
@@ -210,12 +229,17 @@ test('capture is durable before pruning, never writes raw identifiers, and persi
   capture.close();
 });
 
-test('capture failure prevents compaction and pre-admission pruning without rewriting ledger', () => {
+test('capture failure preserves evidence and persists the ledger without blocking a save', t => {
+  t.mock.method(console, 'error', () => {});
   const dir = temp(), ledger = openLedger(dir), initial = ledger.load();
-  const before = readFileSync(path.join(dir, 'ledger.json'));
+  initial.intents.set('expired-recon', { action: 'recon', status: 'done', finishedAt: '2020-01-01T00:00:00Z', result: { executions: ['synthetic-evidence'] } });
   const failing = openLedger(dir, { beforePrune: () => { throw new Error('capture_disk_full'); } });
-  assert.throws(() => failing.save(initial), /capture_disk_full/);
-  assert.equal(readFileSync(path.join(dir, 'ledger.json')).equals(before), true);
+  failing.save(initial);
+  const disk = JSON.parse(readFileSync(path.join(dir, 'ledger.json')));
+  assert.deepEqual(disk.intents, Object.fromEntries(initial.intents));
+  assert.equal(disk.intents['expired-recon'].result.resultCompacted, undefined);
+  assert.equal(disk.resultsCapture.ok, false);
+  assert.equal(disk.resultsCapture.code, 'unavailable');
 });
 
 test('capture excludes KEEP fills before financial conversion', () => {

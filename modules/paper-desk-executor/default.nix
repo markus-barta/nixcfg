@@ -13,6 +13,7 @@ let
   joeSet = joeRelease.sets.${joeRelease.active};
   cfg = config.nixcfg.paperDeskExecutor;
   stack = config.nixcfg.composeStack;
+  localMailbox = config.nixcfg.agentMailbox.enable or false;
   ledgerName = baseNameOf cfg.ownershipLedgerFile;
   ledgerDir = dirOf cfg.ownershipLedgerFile;
   allPeers = lib.unique (cfg.peerAllowlist ++ cfg.adminPeerAllowlist);
@@ -32,6 +33,9 @@ let
     cp ${./book.mjs} "$out/book.mjs"
     cp ${./attribution.mjs} "$out/attribution.mjs"
     cp ${./state.mjs} "$out/state.mjs"
+    cp ${./local-mailbox-client.mjs} "$out/local-mailbox-client.mjs"
+    cp ${./mailbox-alerts.mjs} "$out/mailbox-alerts.mjs"
+    cp ${./send-test-alert.mjs} "$out/send-test-alert.mjs"
     cp ${./executor.mjs} "$out/executor.mjs"
     cp ${./server.mjs} "$out/server.mjs"
     substituteInPlace "$out/server.mjs" --replace-fail '"../tailnet-peers/peers.mjs"' '"./peers.mjs"'
@@ -67,6 +71,9 @@ let
     "PAPER_DESK_RESULTS_CAPTURE=${lib.boolToString cfg.resultsCaptureEnabled}"
     "PAPER_DESK_RESULTS_KEEP=${builtins.toJSON cfg.resultsKeepSymbols}"
     "IB_DESK_MAX_DELAYED_MARK_AGE_SECONDS=${toString cfg.maxDelayedMarkAgeSeconds}"
+  ]
+  ++ lib.optionals localMailbox [
+    "PAPER_DESK_MAILBOX_SOCKET=/run/agent-mailbox-local/sender/mailbox.sock"
   ];
   peerRules =
     action:
@@ -430,7 +437,8 @@ in
         "${source}:/executor:ro"
         "/var/lib/paper-desk-executor:/state:rw"
         "${ledgerDir}:/pusher-state:ro"
-      ];
+      ]
+      ++ lib.optionals localMailbox [ "/run/agent-mailbox-local:/run/agent-mailbox-local:ro" ];
       env_file = [ config.age.secrets.hsb0-ib-desk-env.path ];
       inherit environment;
       entrypoint = [ "node" ];

@@ -1,6 +1,7 @@
 # Agent mailbox (OPS-272, OPS-290)
 
-Tailnet-only, dependency-free Node mailbox on hsb0 (`100.64.0.6:8471`).
+Dependency-free Node mailbox on hsb0 (`100.64.0.6:8471` on the tailnet),
+with an optional send-only host-local Unix listener.
 The host resolves `tag:paper-desk` plus `grok-amy-box` to Amy and keeps OPS
 (`100.64.0.14`) static. The mailbox maps the socket source through the
 read-only `/run/tailnet-peers/peers.json` snapshot on each request. Missing or
@@ -30,6 +31,57 @@ These checks limit terminal/shell injection, but ordinary text can still
 attempt prompt injection. A compromised allowed peer can send misleading
 data, and anyone with host-level access can read plaintext state. Consumers
 must keep peer content separate from trusted prompts and authorisation.
+
+## Host-local capture sender (JOED-43)
+
+When both mailbox and executor modules are enabled, a separate Unix listener
+at `/run/agent-mailbox-local/sender/mailbox.sock` assigns identity
+`paper-desk-executor` by construction. This identity passes the usual safe
+identity checks and cannot be claimed through the TCP listener, forwarded
+headers or message fields. It is send-only: only `POST /v1/messages` to `amy`
+with JSON `ticket: "JOED-43"` and header `X-Ticket: JOED-43` is allowed.
+Every local read, health, ack and events route returns 403; ordinary message
+size, UTF-8, control and bidi checks remain in force. Network peers cannot
+send to this identity. TCP source mapping, listen address, port and firewall
+rules retain their existing behaviour.
+
+The root-owned parent directory is 0750 root:1000, its socket directory is
+0700 1000:1000 and the socket is 0660. Only the mailbox (read-write) and executor
+(read-only) containers bind-mount this directory. Both run as 1000:1000; this
+is a host/container filesystem boundary, not isolation from trusted host root
+or other host processes running with that UID. No network credential is added.
+The restrictive socket-creation umask remains active until asynchronous listen
+and the final chmod finish; success and failure both restore the prior mask.
+The test-only socket override resolves the temporary directory, private test
+root and socket parent through `realpath`. The test root must stay strictly
+inside the real temporary directory, and the parent must stay within that test
+root. The listener uses the resolved parent so a caller's symlink alias cannot
+redirect it later. Production configuration accepts only the constant above.
+
+Capture sends run in the background with a one-second absolute timeout and
+at most five attempts with backoff. Each class outage and its resolution has
+a stable `Idempotency-Key`; durable inbox/archive rows deduplicate retries,
+even after an acknowledgement or lost HTTP reply. The archive retains the
+existing 30-day policy. The executor persists delivery markers and retry
+budgets on capture receipts across restarts. The local test sender omits a
+key so each explicit test invocation creates exactly one new test message.
+Ledger rename/link publication anchors the receipt before directory fsync or
+cleanup can fail. Pending diagnostics adopt the on-disk class identity and
+delivery record, keeping the same key through partial publication and restart.
+
+Executor peer and loopback health expose `resultsCapture.state` (`ok` or
+`degraded`), optional `reason` (`results_capture_failed` or `ledger_size_limit`),
+`ledgerBytes`, `ledgerCapBytes` (16 MiB, keeping `ledgerMaxBytes`), and
+`newAdmissionsBlocked`. `resultsCapture.alertDelivery` is `pending`,
+`delivered`, `failed`, or `unconfigured` when the mailbox is disabled;
+`lastAttemptAt` is the latest UTC attempt, when one exists. These diagnostics
+carry no exception messages, paths, account identifiers or broker values.
+The board producer keeps its rev-6 `safety.executor` fields and reason enum.
+
+OPS's separately reviewed live verification command is documented in the
+[hsb0 RUNBOOK](../../hosts/hsb0/docs/RUNBOOK.md):
+`sudo docker exec paper-desk-executor node /executor/send-test-alert.mjs`.
+It sends one fixed `[TEST]` message without reading or changing executor state.
 
 ## Push and long poll
 

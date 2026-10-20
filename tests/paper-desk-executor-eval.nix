@@ -7,6 +7,7 @@
   marketDataClientId ? null,
   bookClientId ? null,
   tailnetContract ? false,
+  mailboxEnabled ? true,
 }:
 let
   lib = import <nixpkgs/lib>;
@@ -75,7 +76,7 @@ let
           };
         };
         config = {
-          nixcfg.agentMailbox.enable = true;
+          nixcfg.agentMailbox.enable = mailboxEnabled;
           nixcfg.paperDeskExecutor = {
             enable = true;
           }
@@ -92,7 +93,7 @@ let
                 environment = [ "TRADING_MODE=paper" ];
                 ports = [ "100.64.0.6:4002:4002" ];
               };
-              joe-board-pusher.image = "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
+              joe-board-pusher.image = "hsb0-joe-board-pusher:household-v2-phase-a-202610190715";
             };
           };
           virtualisation.docker.package = "/fixture/docker";
@@ -113,7 +114,7 @@ assert lib.assertMsg (failed == [ ]) (lib.concatMapStringsSep "; " (item: item.m
 if tailnetContract then
   {
     executor = cfg.nixcfg.paperDeskExecutor.serviceSpec;
-    mailbox = cfg.nixcfg.agentMailbox.serviceSpec;
+    mailbox = if mailboxEnabled then cfg.nixcfg.agentMailbox.serviceSpec else null;
     sync = cfg.systemd.services.tailnet-peer-sync;
     timer = cfg.systemd.timers.tailnet-peer-sync;
     tmpfiles = cfg.systemd.tmpfiles.rules;
