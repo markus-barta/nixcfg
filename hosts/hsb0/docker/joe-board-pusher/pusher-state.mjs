@@ -433,7 +433,8 @@ export function createBrokerSessionAdapter({
         status: orderState?.status,
         account: order.account,
       };
-      working.openOrders = working.openOrders.filter((item) => item.orderId !== orderId);
+      ordersObservedAt = null; // An incomplete/new reply cannot prove absence.
+      working.openOrders = working.openOrders.filter((item) => item.orderId !== orderId || item.clientId !== order.clientId);
       working.openOrders.push(row);
     }));
 

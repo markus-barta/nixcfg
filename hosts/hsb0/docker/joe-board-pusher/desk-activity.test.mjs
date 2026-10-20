@@ -114,6 +114,11 @@ test("broker order completion clock is generation scoped and invalidated on upst
   api.emit("openOrder", 1, { symbol: "SYNTH" }, { account: "DUFIXTURE", clientId: 22 }, { status: "Submitted" });
   api.emit("openOrderEnd");
   assert.equal(adapter.snapshot().ordersObservedAt, instant); assert.equal(adapter.snapshot().openOrders[0].clientId, 22);
+  // Order IDs are scoped to the broker client. Equal IDs must not erase a desk.
+  api.emit("openOrder", 1, { symbol: "OTHER" }, { account: "DUFIXTURE", clientId: 27 }, { status: "Submitted" });
+  assert.equal(adapter.snapshot().ordersObservedAt, null, "incomplete updates cannot retain an old completeness clock");
+  api.emit("openOrderEnd");
+  assert.deepEqual(adapter.snapshot().openOrders.map(row => row.clientId), [22, 27]);
   api.emit("info", "synthetic", 1100); assert.equal(adapter.snapshot().ordersObservedAt, null);
   const next = make(); adapter.attach(next); api.emit("openOrderEnd");
   assert.equal(adapter.snapshot().ordersObservedAt, null);
