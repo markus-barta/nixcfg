@@ -195,7 +195,9 @@ export function createBrokerSessionAdapter({
       tracker: fresh, epoch, endedAt: null,
       previousRows: initial ? null : cloneRows(tracker.listRows()),
     };
-    nextPositionsRequestAt = at + 120_000;
+    // A completed, account-matched positionEnd also checks the gateway. Leave
+    // 20 s of reply headroom below its independent 60 s freshness bound.
+    nextPositionsRequestAt = at + 40_000;
     const requestedGeneration = generation;
     try {
       if (!initial) api.cancelPositions();

@@ -155,7 +155,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      default = "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800";
+      default = "hsb0-joe-board-pusher:household-v2-switch-set-r16e-202610201900";
       description = "Pinned local image used only for Node and @stoqey/ib. The pusher service is unchanged.";
     };
 

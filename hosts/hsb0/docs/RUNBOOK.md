@@ -1130,7 +1130,31 @@ account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
 source times. R15 validates every retained pair on open; leaving even one such
 pair causes `stage_storage_invalid` / `startup_invalid`.
 
-R16d candidate (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
+R16e candidate (`household-v2-switch-set-r16e-202610201900`; OPS-404) refreshes
+read-only positions every 40 seconds on the existing five-second maintenance
+tick while ready. It reuses the non-overlapping, generation-guarded
+`cancelPositions` → `reqPositions` lifecycle described below; only a completed,
+account-matched `positionEnd` stamps positions coverage and `apiReplyCheckedAt`.
+IB's initial full reply ends with `positionEnd`; later subscription updates are
+change-only ([IB TWS API: Positions](https://interactivebrokers.github.io/tws-api/positions.html)).
+Cancel/re-request obtains a new full reply for unchanged or empty holdings.
+This avoids another request lifecycle and leaves 20 seconds of reply headroom
+below the gateway's independent 60-second freshness bound. Requests and partial
+position, portfolio or account-value callbacks never renew the gateway check.
+A missing completion leaves its clock untouched: gateway readiness becomes
+`gateway_unconfirmed` at 60 seconds, while positions keep the 420-second bound.
+KEEP and identical-input v1 POST bytes remain unchanged.
+
+The R16e rollback image is `household-v2-switch-set-r16d-202610201800`.
+**R16e → R16d rollback needs no pair move-aside**: the stager, pair/store format,
+source-clock semantics and sequence-state keys are unchanged. Select the
+retained R16d image through the normal reviewed rollback path, preserving all
+`v2/pair-*`, `v2/current.json`, `v2/sequence-state.json`, `v2/.allocator.lock`,
+`v2/receipts.jsonl` and `v1-cycles` in place. Verify retained pairs open and the
+next sequence exceeds the saved high-water. R16d restores the 120-second
+positions cadence, so the gateway OK/unsure flap can return.
+
+Historical R16d (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
 read-only positions every 120 seconds on the existing five-second tick while
 the session is ready, issuing `cancelPositions` then `reqPositions`. Requests
 never overlap, even when an end is overdue. A fresh accumulator replaces the

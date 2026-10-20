@@ -37,35 +37,37 @@ test("rollback fixture preserves the exact r15 worker and complete import/contra
   assert.equal(verify(), true);
 });
 
-test("actual r16 opens r16d pairs in place and continues above the saved high-water", async t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops404-r16d-rollback-"));
+for (const [label, revision] of [
+  ["r16", "68a8e9aaca483c72b23c8da6c6fc0085291ca9db"],
+  ["r16d", "096cc37fb8579e94915d89fb5eef305fb497fa06"],
+]) test(`actual ${label} opens r16e pairs in place and continues above the saved high-water`, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops404-r16e-rollback-"));
   t.after(() => spawnSync("trash", [root]));
-  const runtime = path.join(root, "r16"), v2 = path.join(root, "v2");
+  const runtime = path.join(root, label), v2 = path.join(root, "v2");
   const tree = "hosts/hsb0/docker/joe-board-pusher";
-  const r16Revision = "68a8e9aaca483c72b23c8da6c6fc0085291ca9db";
-  const files = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", `${r16Revision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
+  const files = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", `${revision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
   for (const name of files.filter(name => (/^[^/]+\.mjs$/.test(name) && !name.endsWith(".test.mjs"))
     || name === "contracts.lock.json" || name.startsWith("contracts/"))) {
     const destination = path.join(runtime, name);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, execFileSync("git", ["show", `${r16Revision}:${tree}/${name}`]));
+    fs.writeFileSync(destination, execFileSync("git", ["show", `${revision}:${tree}/${name}`]));
   }
-  const { StageStore: R16Store } = await import(pathToFileURL(path.join(runtime, "v2-stage-worker.mjs")));
+  const { StageStore: RollbackStore } = await import(pathToFileURL(path.join(runtime, "v2-stage-worker.mjs")));
   fs.mkdirSync(v2, { mode: 0o700 });
   const options = { root: v2, uid: process.getuid(), gid: process.getgid() };
   prepareLock(v2, options.uid, options.gid);
-  const r16d = new StageStore(options); r16d.enroll(); await r16d.open();
+  const candidate = new StageStore(options); candidate.enroll(); await candidate.open();
   const observation = {
     format: FRAME_FORMAT, bookTs: instant,
     equity: { value: "100.00", currency: "EUR" }, cash: { value: "10.00", currency: "EUR" },
     sourceObservedAt: { equity: instant, cash: instant, positions: at(120) },
     apiReplyCheckedAt: at(120), positions: [],
   };
-  assert.equal(r16d.stage(observation, () => at(150)).status, 200);
+  assert.equal(candidate.stage(observation, () => at(150)).status, 200);
   const before = new Map(["sequence-state.json", "current.json", "receipts.jsonl", "pair-1/snapshot.json", "pair-1/receipt.json"]
     .map(name => [name, fs.readFileSync(path.join(v2, name))]));
   const lockInode = fs.statSync(path.join(v2, ".allocator.lock")).ino;
-  const rollback = await new R16Store(options).open();
+  const rollback = await new RollbackStore(options).open();
   assert.deepEqual(rollback.retainedSeqs(), [1]);
   assert.equal(rollback.previous.value.positions.observedAt, at(120));
   for (const [name, bytes] of before) assert.deepEqual(fs.readFileSync(path.join(v2, name)), bytes, name);
