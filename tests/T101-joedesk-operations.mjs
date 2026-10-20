@@ -478,6 +478,9 @@ test("rollback plan binds exact set, images, generations and cross-host commands
     pre_cutover_pusher_source_tree: "f".repeat(40),
     pre_cutover_executor_source_tree: "1".repeat(40),
     pre_cutover_pusher_image: "fixture:recorded",
+    pre_cutover_stage_image: "fixture:recorded",
+    pre_cutover_executor_image: "fixture:recorded",
+    pre_cutover_stage_enabled: true,
     board_image_id: "sha256:" + "b".repeat(64),
     pusher_image_id: "sha256:" + "c".repeat(64),
     backup_manifest_sha256: "d".repeat(64),
@@ -1206,6 +1209,9 @@ test("rollback resolves the exact fetched fast-forward target before stopping wr
     pre_cutover_pusher_source_tree: fixture.previous.pusher.source_tree,
     pre_cutover_executor_source_tree: fixture.previous.executor.source_tree,
     pre_cutover_pusher_image: "fixture:recorded",
+    pre_cutover_stage_image: "fixture:recorded",
+    pre_cutover_executor_image: "fixture:recorded",
+    pre_cutover_stage_enabled: true,
   };
   // Variant B: historical previous has different runtime bytes. The record
   // names the runtime actually running immediately before phase1.
@@ -1235,7 +1241,7 @@ test("rollback resolves the exact fetched fast-forward target before stopping wr
       return record.rollback_nixcfg_rev;
     if (args[0] === "merge-base") return "";
     if (args[0] === "show" && /configuration.nix|default.nix/.test(args[1]))
-      return "joeSet = joeRelease.sets.${joeRelease.active};";
+      throw Error("source text must not determine deployed images");
     if (args[0] === "show")
       return JSON.stringify(
         args[1].endsWith("flake.lock")
@@ -1257,7 +1263,32 @@ test("rollback resolves the exact fetched fast-forward target before stopping wr
       ),
     );
   };
-  verifyRollbackTarget(record, previous, runGit);
+  const evaluate = () => ({
+    pusher_image: "fixture:recorded",
+    stage_image: "fixture:recorded",
+    executor_image: "fixture:recorded",
+    executor_option_image: "fixture:recorded",
+    stage_enabled: true,
+  });
+  verifyRollbackTarget(
+    record,
+    previous,
+    runGit,
+    record.rollback_nixcfg_rev,
+    evaluate,
+  );
+  assert.throws(
+    () =>
+      verifyRollbackTarget(
+        record,
+        previous,
+        runGit,
+        record.rollback_nixcfg_rev,
+        () => ({ ...evaluate(), pusher_image: "fixture:flat-net" }),
+      ),
+    /recorded_pre_cutover_image_mismatch/,
+    "matching source trees cannot hide a different effective image",
+  );
   assert.deepEqual(calls.slice(0, 3), [
     ["rev-parse", record.rollback_nixcfg_rev + "^{commit}"],
     ["merge-base", "--is-ancestor", "HEAD", record.rollback_nixcfg_rev],
@@ -1326,5 +1357,188 @@ test("recorded pre-cutover B runtime accepted; mismatched trees and implicit A r
   assert.throws(
     () => verifyRecordedRuntimeSource(record, "HEAD", git),
     /previous_runtime_source_mismatch/,
+  );
+});
+
+test("evaluated rollback images reject flat-net against an r16d record in every wiring direction", async () => {
+  const { verifyRecordedRuntimeImage, runtimeRecordKeys } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
+  const record = {
+    pre_cutover_pusher_image: "fixture:r16d",
+    pre_cutover_stage_image: "fixture:r16d",
+    pre_cutover_executor_image: "fixture:r16d",
+    pre_cutover_stage_enabled: true,
+  };
+  const good = {
+    pusher_image: "fixture:r16d",
+    stage_image: "fixture:r16d",
+    executor_image: "fixture:r16d",
+    executor_option_image: "fixture:r16d",
+    stage_enabled: true,
+  };
+  const revision = "a".repeat(40);
+  const evaluate = (result) => (rev) => {
+    assert.equal(rev, revision);
+    return result;
+  };
+  verifyRecordedRuntimeImage(record, revision, evaluate(good));
+  const cases = [
+    [
+      "flat-net image with r16d record",
+      {
+        pusher_image: "fixture:flat-net",
+        executor_image: "fixture:flat-net",
+        executor_option_image: "fixture:flat-net",
+      },
+    ],
+    [
+      "(a) stage flag false forces flat-net",
+      {
+        stage_enabled: false,
+        stage_image: null,
+        pusher_image: "fixture:flat-net",
+        executor_image: "fixture:flat-net",
+        executor_option_image: "fixture:flat-net",
+      },
+    ],
+    [
+      "(b) commented current selector above real previous binding",
+      {
+        pusher_image: "fixture:flat-net",
+        executor_image: "fixture:flat-net",
+        executor_option_image: "fixture:flat-net",
+      },
+    ],
+    [
+      "(c) literal pusher image bypasses joeSet",
+      { pusher_image: "fixture:flat-net" },
+    ],
+    [
+      "(c) literal executor default bypasses joeSet",
+      {
+        executor_image: "fixture:flat-net",
+        executor_option_image: "fixture:flat-net",
+      },
+    ],
+    [
+      "effective executor override differs from option",
+      { executor_image: "fixture:flat-net" },
+    ],
+    ["stage image drift", { stage_image: "fixture:flat-net" }],
+    ["stage presence drift alone", { stage_enabled: false }],
+  ];
+  for (const [name, patch] of cases)
+    assert.throws(
+      () =>
+        verifyRecordedRuntimeImage(
+          record,
+          revision,
+          evaluate({ ...good, ...patch }),
+        ),
+      /image_mismatch/,
+      name,
+    );
+  for (const key of runtimeRecordKeys) {
+    const absent = { ...record };
+    delete absent[key];
+    assert.throws(
+      () =>
+        verifyRecordedRuntimeImage(absent, revision, () => {
+          throw Error("must validate record first");
+        }),
+      /image_required/,
+    );
+  }
+  for (const key of Object.keys(good)) {
+    const absent = { ...good };
+    delete absent[key];
+    assert.throws(
+      () => verifyRecordedRuntimeImage(record, revision, evaluate(absent)),
+      /image_mismatch/,
+    );
+  }
+  assert.throws(
+    () =>
+      verifyRecordedRuntimeImage(record, revision, () => {
+        throw Error("evaluation failed");
+      }),
+    /evaluation failed/,
+  );
+  // Explicit variant A remains possible only with an equally explicit record.
+  const flat = {
+    ...record,
+    pre_cutover_pusher_image: "fixture:flat-net",
+    pre_cutover_executor_image: "fixture:flat-net",
+    pre_cutover_stage_image: null,
+    pre_cutover_stage_enabled: false,
+  };
+  verifyRecordedRuntimeImage(
+    flat,
+    revision,
+    evaluate({
+      pusher_image: "fixture:flat-net",
+      executor_image: "fixture:flat-net",
+      executor_option_image: "fixture:flat-net",
+      stage_image: null,
+      stage_enabled: false,
+    }),
+  );
+});
+
+test("runtime evaluator refuses Darwin before commands and projects only pinned Linux metadata without builds", async () => {
+  const { evaluateHsb0Runtime } = await import(
+    "../scripts/rollback-joedesk.mjs"
+  );
+  const calls = [],
+    rev = "a".repeat(40);
+  const run = (command, args, options) => {
+    calls.push([command, args]);
+    assert.deepEqual(options.stdio, ["ignore", "pipe", "pipe"]);
+    return command === "git" ? rev : JSON.stringify({ fixture: true });
+  };
+  assert.throws(
+    () => evaluateHsb0Runtime(rev, { platform: "darwin", run }),
+    /requires_linux_no_darwin/,
+  );
+  assert.equal(calls.length, 0);
+  assert.deepEqual(
+    evaluateHsb0Runtime(rev, { platform: "linux", repo: "/fixture/repo", run }),
+    { fixture: true },
+  );
+  assert.deepEqual(calls[0], [
+    "git",
+    ["-C", "/fixture/repo", "rev-parse", rev + "^{commit}"],
+  ]);
+  const [command, args] = calls[1];
+  assert.equal(command, "nix");
+  assert.equal(args[0], "eval");
+  assert.ok(
+    args.includes("--offline") && args.includes("--no-write-lock-file"),
+  );
+  assert.ok(
+    args.includes("allow-import-from-derivation") && args.includes("false"),
+  );
+  const expr = args.at(-1);
+  assert.ok(expr.includes("?rev=" + rev));
+  for (const option of [
+    "nixosConfigurations.hsb0.config",
+    "s.joe-board-pusher.image",
+    "s.joe-household-v2-stage.image",
+    "s.paper-desk-executor.image",
+    "c.nixcfg.paperDeskExecutor.image",
+    "builtins.hasAttr",
+    "c.system.build.toplevel.outPath",
+  ])
+    assert.ok(expr.includes(option), option);
+  assert.throws(
+    () =>
+      evaluateHsb0Runtime(rev, {
+        platform: "linux",
+        run: () => {
+          throw Error("private diagnostic");
+        },
+      }),
+    { message: "hsb0_runtime_evaluation_failed" },
   );
 });

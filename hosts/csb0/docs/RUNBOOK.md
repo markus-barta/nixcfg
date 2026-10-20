@@ -880,7 +880,13 @@ keys: `previous_set_sha256` (the exported `setDigest` of release.sets.previous),
 paths), and `rollback_nixcfg_rev` (the full reviewed rollback commit).
 Also require `pre_cutover_hsb0_nixcfg_rev`, `pre_cutover_pusher_source_tree`,
 `pre_cutover_executor_source_tree` (full Git object IDs captured before phase1),
-and `pre_cutover_pusher_image` (the shared pre-cutover runtime tag).
+and `pre_cutover_pusher_image`, `pre_cutover_stage_image`,
+`pre_cutover_executor_image`, `pre_cutover_stage_enabled` (a boolean).
+Phase1 captures all three tags from live `docker ps --format` metadata on
+hsb0 and compares them to Linux-only `nix eval` of the exact current revision.
+The evaluated system output must equal `/run/current-system`; revision and
+generation drift during capture fail closed. A disabled stage requires an
+explicit null stage image and absence from the running container list.
 `pusher_image_id` is the retained image ID for that recorded runtime, not an
 assumption that the historical previous tag was running. Record these facts
 from the pre-phase1 checkout and running image; never infer them at rollback.
@@ -916,8 +922,12 @@ board, and uses `git merge --ff-only <recorded-rev>` rather than pulling a
 possibly newer main. It rechecks HEAD, selected set, lock and runtime bytes.
 Pusher source must match the full recorded tree, including additions; executor
 runtime file lists and bytes must match the recorded pre-cutover revision and
-HEAD (Nix wiring may differ). Runtime image selectors must match the recorded
-tag. Pusher/stager stop; the executor keeps running throughout. It calls the
+HEAD (Nix wiring may differ). Before stopping and again before switching,
+Linux-only `nix eval` at the exact rollback commit checks the effective Compose
+pusher, stage and executor images, executor option and stage presence against
+every recorded field. Comments and selector text cannot satisfy this check.
+Missing fields, evaluation errors and Darwin execution refuse. No build or
+lock-file update is performed. Pusher/stager stop; the executor keeps running throughout. It calls the
 **same** swap script in rollback mode, which runs
 `node SOURCE/scripts/prepare-data.mjs restore --offline BACKUP NEW_RESTORE v1`
 into a new sibling, applies ownership/modes and performs the stopped-service

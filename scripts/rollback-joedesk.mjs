@@ -79,43 +79,113 @@ export function verifyRecordedRuntimeSource(
   );
   verifyPreviousRuntimeSource(pins, revision, runGit);
 }
+// Project only image metadata, never the full config/environment. The same
+// evaluator is used by phase1 on hsb0 and by rollback on either Linux host.
+export function evaluateHsb0Runtime(
+  revision = "HEAD",
+  {
+    repo = process.cwd(),
+    platform = process.platform,
+    run = execFileSync,
+  } = {},
+) {
+  if (platform !== "linux")
+    throw new Error("hsb0_runtime_eval_requires_linux_no_darwin_evaluation");
+  const options = {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 120000,
+  };
+  try {
+    const rev = run(
+      "git",
+      ["-C", repo, "rev-parse", revision + "^{commit}"],
+      options,
+    ).trim();
+    if (!/^[0-9a-f]{40}$/.test(rev)) throw new Error("revision");
+    const flake =
+      "git+" + pathToFileURL(path.resolve(repo)).href + "?rev=" + rev;
+    const expr = `let
+      c = (builtins.getFlake ${JSON.stringify(flake)}).nixosConfigurations.hsb0.config;
+      s = c.nixcfg.composeStack.spec.services;
+      enabled = builtins.hasAttr "joe-household-v2-stage" s;
+    in {
+      pusher_image = s.joe-board-pusher.image;
+      stage_image = if enabled then s.joe-household-v2-stage.image else null;
+      executor_image = s.paper-desk-executor.image;
+      executor_option_image = c.nixcfg.paperDeskExecutor.image;
+      stage_enabled = enabled;
+      generation_store = c.system.build.toplevel.outPath;
+    }`;
+    return JSON.parse(
+      run(
+        "nix",
+        [
+          "eval",
+          "--json",
+          "--offline",
+          "--no-write-lock-file",
+          "--option",
+          "allow-import-from-derivation",
+          "false",
+          "--expr",
+          expr,
+        ],
+        options,
+      ),
+    );
+  } catch {
+    // Nix/Git stderr may contain private paths or values; never relay it.
+    throw new Error("hsb0_runtime_evaluation_failed");
+  }
+}
+export const runtimeRecordKeys = [
+  "pre_cutover_pusher_image",
+  "pre_cutover_stage_image",
+  "pre_cutover_executor_image",
+  "pre_cutover_stage_enabled",
+];
+export function requireRuntimeRecord(record) {
+  const image = (value) =>
+    typeof value === "string" && /^[a-z0-9][a-z0-9:._/-]+$/.test(value);
+  if (
+    !runtimeRecordKeys.every((key) => Object.hasOwn(record, key)) ||
+    !image(record.pre_cutover_pusher_image) ||
+    !image(record.pre_cutover_executor_image) ||
+    typeof record.pre_cutover_stage_enabled !== "boolean" ||
+    (record.pre_cutover_stage_enabled
+      ? !image(record.pre_cutover_stage_image)
+      : record.pre_cutover_stage_image !== null)
+  )
+    throw new Error("recorded_pre_cutover_image_required");
+}
 export function verifyRecordedRuntimeImage(
   record,
   revision = "HEAD",
-  runGit = git,
+  evaluate = evaluateHsb0Runtime,
 ) {
-  if (!/^[a-z0-9][a-z0-9:._/-]+$/.test(record.pre_cutover_pusher_image || ""))
-    throw new Error("recorded_pre_cutover_image_required");
-  const release = JSON.parse(
-    runGit("show", revision + ":hosts/csb0/joedesk-release.json"),
-  );
-  for (const [name, file] of [
-    ["pusher", "hosts/hsb0/configuration.nix"],
-    ["executor", "modules/paper-desk-executor/default.nix"],
-  ]) {
-    const text = runGit("show", revision + ":" + file);
-    // These are the two reviewed selector forms. Unknown wiring fails closed.
-    const selector = text.match(
-      /joeSet\s*=\s*joeRelease\.sets\.(current|\$\{joeRelease\.active\});/,
-    );
-    const selected =
-      selector?.[1] === "current"
-        ? "current"
-        : selector
-          ? release.active
-          : undefined;
+  requireRuntimeRecord(record);
+  const evaluated = evaluate(revision);
+  for (const key of [
+    "pusher_image",
+    "stage_image",
+    "executor_image",
+    "stage_enabled",
+  ])
     if (
-      !selected ||
-      release.sets[selected]?.[name]?.image !== record.pre_cutover_pusher_image
+      !Object.hasOwn(evaluated, key) ||
+      evaluated[key] !== record["pre_cutover_" + key]
     )
       throw new Error("recorded_pre_cutover_image_mismatch");
-  }
+  if (evaluated.executor_option_image !== record.pre_cutover_executor_image)
+    throw new Error("recorded_pre_cutover_image_mismatch");
 }
 export function verifyRollbackTarget(
   record,
   previous,
   runGit = git,
   revision = record.rollback_nixcfg_rev,
+  evaluate = evaluateHsb0Runtime,
 ) {
   try {
     if (
@@ -144,7 +214,7 @@ export function verifyRollbackTarget(
   )
     throw new Error("reviewed_previous_pins_not_selected");
   verifyRecordedRuntimeSource(record, revision, runGit);
-  verifyRecordedRuntimeImage(record, revision, runGit);
+  verifyRecordedRuntimeImage(record, revision, evaluate);
 }
 export function rollbackPlan(record, release) {
   const previous = release.sets.previous;
@@ -179,8 +249,7 @@ export function rollbackPlan(record, release) {
   for (const key of ["v1_backup", "prepare_source", "hsb0_checkout"])
     if (!path.isAbsolute(record[key] || "") || /[\r\n]/.test(record[key]))
       throw new Error("absolute_private_paths_required");
-  if (!/^[a-z0-9][a-z0-9:._/-]+$/.test(record.pre_cutover_pusher_image || ""))
-    throw new Error("recorded_pre_cutover_image_required");
+  requireRuntimeRecord(record);
   const runtimeRecord = Object.fromEntries(
     [
       "rollback_nixcfg_rev",
@@ -188,7 +257,7 @@ export function rollbackPlan(record, release) {
       "pre_cutover_hsb0_nixcfg_rev",
       "pre_cutover_pusher_source_tree",
       "pre_cutover_executor_source_tree",
-      "pre_cutover_pusher_image",
+      ...runtimeRecordKeys,
     ].map((key) => [key, record[key]]),
   );
   const hsbCompose =
