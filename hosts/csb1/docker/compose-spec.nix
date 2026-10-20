@@ -243,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261020180411.0.0@sha256:63073a5616bc5c71c491dbacab700c7e51ee70527a5dce0228c02fc4c92dafc6"; # release 137 Busy Blip (AEON-1579): see the release notes (51 public items)
+      image = "ghcr.io/inspr-at/aeon:261020201224.0.0@sha256:006356592e7e1bc8b5d86752b791841ed75c2b7dbadc541d74ee7a0f7722a249"; # release 137 Busy Blip (AEON-1579; hotfix coordinate, AEON-1584 signing): see the release notes (51 public items)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
