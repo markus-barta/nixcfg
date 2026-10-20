@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isFamilyClientExecution } from "./execution-history.mjs";
 
 import {
   bestAvailableHistoryDigest,
@@ -63,11 +64,12 @@ function contractKey(contract) {
   return symbol && type && currency ? `${symbol}:${type}:${currency}` : "unknown-contract";
 }
 
-function includedFamilyRows(state) {
+function includedFamilyRows(state, familyClientAssignments) {
   const ids = new Set(state.classifier.familyClientIds);
   const excluded = new Set(state.classifier.excludedSymbols);
   return effectiveExecutionRecords(state).filter((row) =>
-    ids.has(row.execution.clientId) && !excluded.has(String(row.contract.symbol || "").trim().toUpperCase()));
+    !excluded.has(String(row.contract.symbol || "").trim().toUpperCase())
+    && isFamilyClientExecution(row.execution, ids, familyClientAssignments));
 }
 
 function latestVerifiedPeriod(coverage) {
@@ -220,9 +222,9 @@ function capturedOpenQuantities(rows) {
 }
 
 /** Calculate a native-currency subtotal; no caller-supplied PnL or FX is accepted. */
-export function calculateCapturedRealizedSubtotal(state) {
+export function calculateCapturedRealizedSubtotal(state, familyClientAssignments = []) {
   validateBestAvailableHistoryState(state);
-  const rows = includedFamilyRows(state)
+  const rows = includedFamilyRows(state, familyClientAssignments)
     .sort((left, right) => (executionInstant(left.execution.time) || "").localeCompare(executionInstant(right.execution.time) || "") ||
       left.execution.execId.localeCompare(right.execution.execId));
   const fees = new Map(state.commissions.map((row) => [row.execId, row]));
@@ -245,9 +247,9 @@ export function calculateCapturedRealizedSubtotal(state) {
  * Project only claims supported by durable capture receipts. A captured subtotal
  * is deliberately separate from complete J equity and must bind this exact state.
  */
-export function projectBestAvailableHistory({ state, fullAccounting = null } = {}) {
+export function projectBestAvailableHistory({ state, fullAccounting = null, familyClientAssignments = [] } = {}) {
   validateBestAvailableHistoryState(state);
-  const familyRows = includedFamilyRows(state);
+  const familyRows = includedFamilyRows(state, familyClientAssignments);
   const familyIds = new Set(familyRows.map((row) => row.execution.execId));
   const matchingFees = state.commissions.filter((row) => familyIds.has(row.execId));
   const executionIds = new Set(state.executions.map((row) => row.execution.execId));
@@ -256,7 +258,7 @@ export function projectBestAvailableHistory({ state, fullAccounting = null } = {
     .map((row) => row.execId)
     .sort();
   const times = familyRows.map((row) => executionInstant(row.execution.time)).filter(Boolean).sort();
-  const calculatedSubtotal = calculateCapturedRealizedSubtotal(state);
+  const calculatedSubtotal = calculateCapturedRealizedSubtotal(state, familyClientAssignments);
   const singleCurrency = calculatedSubtotal.nativeRealizedPnl.length === 1
     ? calculatedSubtotal.nativeRealizedPnl[0]
     : null;

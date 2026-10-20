@@ -84,6 +84,25 @@ let
     "||csb0^$dnsrewrite=NOERROR;CNAME;cs0.barta.cm"
     "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
   ];
+
+  # OPS-401: the 7530's guest network reaches DNS from the transit /30 (fritz-guest-uplink.nix).
+  # Only the neighbour wallboxes' cloud, their NTP and the 7530's own AVM checks resolve; every
+  # other name is blocked, so phones on the guest Wi-Fi get no usable internet. $important: the
+  # block-all must also beat the global @@ exceptions above (dnsAllowlist), which apply to every
+  # client; an $important exception still beats an $important block, so the guest allowlist
+  # works. The /30 also covers hsb0's 10.255.5.1, so `dig -b 10.255.5.1 @10.255.5.1` on hsb0 tests
+  # the rules. Source of the allowlist: the querylog for 192.168.1.5 (the 7530 forwarding guest
+  # DNS before the uplink existed).
+  guestUplinkDnsRules = map (rule: "${rule}$important,client=10.255.5.0/30") [
+    "||*^"
+    "@@||elli.eco^" # Elli wallboxes (cert.prod.devices.elli.eco)
+    "@@||time1.google.com^" # wallbox NTP
+    "@@||time2.google.com^"
+    "@@||time3.google.com^"
+    "@@||time4.google.com^"
+    "@@||pool.ntp.org^"
+    "@@||avm.de^" # the 7530's own update and service checks
+  ];
 in
 assert joeSet.pusher != null && joeSet.executor != null;
 {
@@ -91,6 +110,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
     ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
+    ./fritz-guest-uplink.nix # OPS-401 — transit uplink for the 7530's guest network (wallboxes)
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
@@ -210,7 +230,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-392: a fresh immutable candidate shared with the executor; the
+    # OPS-392 switch set (2026-10-20): a fresh immutable candidate shared with the executor
+    # (rollback: household-v2-phase-a-202610190715); the
     # previous tag remains available for flag-off rollback. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
@@ -625,7 +646,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       rewrites = [ ];
 
       # Custom filtering rules: allowlist + DNS rewrites
-      user_rules = dnsAllowlist ++ dnsRewrites;
+      user_rules = dnsAllowlist ++ dnsRewrites ++ guestUplinkDnsRules;
 
       # Admin users are injected from the root-only agenix secret at startup.
 

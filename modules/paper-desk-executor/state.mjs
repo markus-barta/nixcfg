@@ -416,6 +416,10 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   }
 
   function audit(event) {
+    // Reads the whole file and atomically rewrites up to 1 MiB, plus fsync per row.
+    // Safe only with synchronous callers in this single executor Node process:
+    // no second process (CLI or tool) may write audit.jsonl. Near a full volume,
+    // the rewrite needs about 1 MiB free where an append needed only one row.
     let row = `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`;
     if (Buffer.byteLength(row) > 65536) row = `${JSON.stringify({ at: new Date().toISOString(), event: event.event, intentId: event.intentId, status: event.status, resultOmitted: "large result retained in ledger" })}\n`;
     let current = "";
@@ -628,7 +632,12 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     if (text.length > 240) throw new Error("halt reason is too long");
     const body = `${JSON.stringify({ at: new Date().toISOString(), reason: text })}\n`;
     publish(haltPath, body);
-    audit({ event: "halt_set", reason: text });
+    try { audit({ event: "halt_set", reason: text }); }
+    catch (error) {
+      // HALT is already visible. An audit failure cannot undo or retry it.
+      durabilityWarning = { durability: "uncertain", durabilityCode: CAPTURE_ERROR_CODES.has(error?.code) ? error.code : "unavailable" };
+      durabilityRevision++;
+    }
     return body;
   }
 

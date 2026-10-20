@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
 import { validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
-import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { isFamilyClientExecution, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
 import { mergeFlatNetMarks } from "./flat-net-marks.mjs";
 
@@ -565,6 +565,7 @@ export function officialReceiptChain(history, fromInclusive, observedAt) {
 export function createFamilySessionAdapter({
   targetAccount,
   familyClientIds,
+  familyClientAssignments = [],
   excludedSymbols = ["SXR8", "TSLA"],
   periodStart = BASELINE_PERIOD_START,
   calculateFamily,
@@ -587,6 +588,7 @@ export function createFamilySessionAdapter({
   hooks = {},
   getVerifiedHistoryState = null,
   getFlatNetMarks = null,
+  summarizeActivity = null,
 }) {
   if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
     throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
@@ -810,7 +812,7 @@ export function createFamilySessionAdapter({
 
   function isFamilyExecution(row) {
     const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
-    return familyIds.has(Number(row?.execution?.clientId)) && !excluded.has(symbol);
+    return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments);
   }
 
   function missingFamilyCommissions(cycle) {
@@ -841,6 +843,8 @@ export function createFamilySessionAdapter({
     mergeEconomicExecutions(chain.executions, cycle.executions, "replay for execution");
     return { executions: chain.executions, commissions: chain.commissions, through: chain.through };
   }
+
+  let activity = null;
 
   function finishCycle() {
     if (!activeCycle?.ended || missingFamilyCommissions(activeCycle).length) return false;
@@ -921,6 +925,9 @@ export function createFamilySessionAdapter({
       retryReason = null;
       retryScheduler.reset();
       executionReady = true;
+      // Optional staging evidence cannot change the v1 reader's availability.
+      try { activity = typeof summarizeActivity === "function" ? summarizeActivity(next) : null; }
+      catch { activity = null; }
       hooks.onLedgerUpdated?.({ changed, observedAt: next.ledgerObservedAt });
       schedulePoll();
       return true;
@@ -1184,6 +1191,7 @@ export function createFamilySessionAdapter({
         fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
         account: targetAccount,
         familyClientIds: [...familyIds],
+        familyClientAssignments,
         excludedSymbols: [...excluded],
         periodStart,
         virtualEquity: 5000,
@@ -1336,6 +1344,9 @@ export function createFamilySessionAdapter({
     get requestInFlight() { return Boolean(activeCycle); },
     get blockedReason() { return blockedReason; },
     get retryReason() { return retryReason; },
+    activitySnapshot() {
+      return connected && executionReady && !blockedReason && !retryReason && activity ? clone(activity) : null;
+    },
     inspectState() { return state ? clone(state) : null; },
   };
 }
