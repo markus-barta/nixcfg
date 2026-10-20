@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
 import { validCycle, cycleId, cycleReceipt, validCycleReceipt, receiptBinding, frame } from "./v1-cycle.mjs";
-import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, deskState } from "./desk-activity.mjs";
+import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, ACTIVITY_FRESH_MS, deskState } from "./desk-activity.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
@@ -58,7 +58,10 @@ export function validObservation(value) {
       && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));
   }));
   return validActivity && (value?.v1Cycle === undefined || validCycle(value.v1Cycle))
+    && (value?.sourceObservedAt === undefined || (exactKeys(value.sourceObservedAt, "equity,cash,positions")
+      && Object.values(value.sourceObservedAt).every(at => at === null || canonical(at))))
     && exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions"
+      + (value.sourceObservedAt === undefined ? "" : ",sourceObservedAt")
       + (activity === undefined ? "" : ",deskActivity") + (value.v1Cycle === undefined ? "" : ",v1Cycle")) && value.format === FRAME_FORMAT
     && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
     && (value.apiReplyCheckedAt === null || canonical(value.apiReplyCheckedAt))
@@ -70,6 +73,14 @@ export function validObservation(value) {
 }
 
 export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = generatedAt, highWater = null) {
+  // The source clock stays separate from the advancing envelope clock.
+  const bookAt = normalizeBookTs(observation.bookTs);
+  const sourceAt = field => observation.sourceObservedAt === undefined ? bookAt
+    : normalizeBookTs(observation.sourceObservedAt?.[field]);
+  const sourceFresh = at => {
+    const age = Date.parse(generatedAt) - Date.parse(at);
+    return Number.isFinite(age) && age >= 0 && age <= ACTIVITY_FRESH_MS;
+  };
   const checkedAt = observation.apiReplyCheckedAt;
   let gateway;
   if (canonical(checkedAt)) {
@@ -77,20 +88,28 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
     const receiptAge = Date.parse(receivedAt) - Date.parse(checkedAt);
     const reason = (age < 0 || receiptAge < 0) ? "clock_ahead"
       : highWater && checkedAt < highWater ? "clock_regressed"
-        : age >= 60000 || receiptAge >= 60000 ? "gateway_unconfirmed" : null;
+        : age > ACTIVITY_FRESH_MS || receiptAge > ACTIVITY_FRESH_MS ? "snapshot_stale"
+          : age >= 60000 || receiptAge >= 60000 ? "gateway_unconfirmed" : null;
     gateway = { apiSessionReady: !reason, checkedAt, ...(reason ? { reason } : {}) };
   }
-  const accountMoney = item => gateway?.apiSessionReady && item?.currency === "EUR" && typeof item.value === "string"
+  const accountMoney = (item, at) => sourceFresh(at) && gateway?.apiSessionReady && item?.currency === "EUR" && typeof item.value === "string"
     && item.value.length <= 32 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,8})?$/.test(item.value)
     ? { amount: item.value, currency: item.currency } : null;
-  const equity = accountMoney(observation.equity);
-  const cash = accountMoney(observation.cash);
+  const equity = accountMoney(observation.equity, sourceAt("equity"));
+  const cash = accountMoney(observation.cash, sourceAt("cash"));
+  const oldest = times => times.filter(Boolean).sort()[0];
+  // One account observation field in rev 9: use the oldest emitted money source.
+  const accountAt = oldest([equity && sourceAt("equity"), cash && sourceAt("cash")])
+    || oldest([sourceAt("equity"), sourceAt("cash")]) || bookAt || generatedAt;
+  const positionsAt = sourceAt("positions");
+  const positionsFresh = sourceFresh(positionsAt);
   const fields = ["quantity", "mark", "marketValue", "dayPnl", "openPnl"];
   const row = (identity, reason) => ({ ...identity, ...Object.fromEntries(fields.map(f => [f, null])),
     reasons: { ...Object.fromEntries(fields.map(f => [f, reason])),
       ...(identity.scope !== "keep" && identity.desk === null ? { desk: "desk_unmapped" } : {}) } });
   const reported = observation.positions || [];
-  const rows = reported.map(identity => row({ ...identity, ...(identity.scope === "keep" ? { desk: null } : {}) }, "not_exact_yet"));
+  const rows = reported.map(identity => row({ ...identity, ...(identity.scope === "keep" || !positionsFresh ? { desk: null } : {}) },
+    positionsFresh ? "not_exact_yet" : "source_unavailable"));
   for (const symbol of ["SXR8", "TSLA"]) {
     if (!rows.some(item => item.symbol === symbol)) rows.push(row({ symbol, side: "long", desk: null, scope: "keep" }, "source_unavailable"));
   }
@@ -106,10 +125,11 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
       id, label, state: deskState(observation.deskActivity?.[id], generatedAt, receivedAt), action: DESK_ACTION, money: money(),
     })),
     totals: money(),
-    brokerAccount: { scope: "paper-account-including-keep", observedAt: generatedAt, equity, cash,
+    brokerAccount: { scope: "paper-account-including-keep", observedAt: accountAt, equity, cash,
       ...(!equity ? { reason: "source_unavailable" } : {}), ...(!cash ? { reasons: { cash: "source_unavailable" } } : {}) },
-    positions: { source: "live-ib-api", observedAt: generatedAt, rows,
-      ...(!gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
+    positions: { source: "live-ib-api", observedAt: positionsAt || bookAt || generatedAt, rows,
+      ...(!positionsFresh ? { reason: "source_unavailable" }
+        : !gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
   };
 }
 
@@ -264,11 +284,19 @@ export class StageStore {
     if (!exactKeys(snapshot.safety, snapshot.safety.gateway ? "halt,haltReason,gateway" : "halt,haltReason")
       || snapshot.safety.halt !== false || snapshot.safety.haltReason !== null) return false;
     const account = snapshot.brokerAccount;
-    if (account.scope !== expected.brokerAccount.scope || account.observedAt !== snapshot.generatedAt
+    const sourceFresh = at => {
+      const age = Date.parse(snapshot.generatedAt) - Date.parse(at);
+      return canonical(at) && age >= 0 && age <= ACTIVITY_FRESH_MS;
+    };
+    if (account.scope !== expected.brokerAccount.scope || !canonical(account.observedAt)
       || Object.hasOwn(account, "accountHint") || (!account.equity && account.reason !== "source_unavailable")
-      || (!account.cash && account.reasons?.cash !== "source_unavailable")) return false;
+      || (!account.cash && account.reasons?.cash !== "source_unavailable")
+      || (!sourceFresh(account.observedAt) && (account.equity !== null || account.cash !== null))) return false;
     const positions = snapshot.positions;
-    return positions.source === "live-ib-api" && positions.observedAt === snapshot.generatedAt
+    return positions.source === "live-ib-api" && canonical(positions.observedAt)
+      && (sourceFresh(positions.observedAt) || (positions.reason === "source_unavailable"
+        && positions.rows.every(row => row.desk === null
+          && ["quantity", "mark", "marketValue", "dayPnl", "openPnl"].every(field => row.reasons?.[field] === "source_unavailable"))))
       && ["SXR8", "TSLA"].every(symbol => positions.rows.some(row => row.symbol === symbol && row.scope === "keep" && row.desk === null))
       && positions.rows.every(row => exactKeys(row, "symbol,side,desk,scope,quantity,mark,marketValue,dayPnl,openPnl,reasons")
         && ["quantity", "mark", "marketValue", "dayPnl", "openPnl"].every(field => row[field] === null
@@ -416,11 +444,16 @@ export class StageStore {
   retainedSeqs() {
     return this.names().filter(name => /^pair-[1-9]\d{0,15}$/.test(name)).map(name => Number(name.slice(5))).sort((a, b) => a - b);
   }
-  reserve(observation) {
+  reserve(observation, receivedAt = new Date().toISOString()) {
     if (this.disabled) fail();
     if (typeof observation === "string") observation = { bookTs: observation };
-    const generatedAt = normalizeBookTs(observation?.bookTs);
-    if (!generatedAt || (this.state.lastGeneratedAt && generatedAt < this.state.lastGeneratedAt)) return { status: 422, reason: "source_time_invalid" };
+    if (!normalizeBookTs(observation?.bookTs)) return { status: 422, reason: "source_time_invalid" };
+    if (!canonical(receivedAt)) return { status: 422, reason: "source_time_invalid" };
+    // Persist the observation-receipt instant before the body-store handshake.
+    // The existing state format already contains this high water, including r15.
+    const generatedAt = this.state.lastGeneratedAt && this.state.lastGeneratedAt > receivedAt
+      ? this.state.lastGeneratedAt : receivedAt;
+    if (Date.parse(generatedAt) - Date.parse(receivedAt) > 5000) return { status: 422, reason: "clock_ahead" };
     if (observation.v1Cycle?.observationId === this.state.lastObservationId) return { status: 422, reason: "cycle_replayed" };
     if (this.state.lastReservedSeq === Number.MAX_SAFE_INTEGER) { this.disabled = true; fail(); }
     try {
@@ -434,15 +467,15 @@ export class StageStore {
   stage(observation, now = () => new Date().toISOString(), reservation = null, stored = false) {
     if (this.disabled) fail();
     if (typeof observation === "string") observation = { bookTs: observation };
-    reservation ||= this.reserve(observation);
+    const stagedReceivedAt = now();
+    reservation ||= this.reserve(observation, stagedReceivedAt);
     if (reservation.status !== 200) return reservation;
     try {
       const state = this.state;
-      const generatedAt = normalizeBookTs(observation.bookTs);
-      if (reservation.seq !== state.lastReservedSeq || generatedAt !== state.lastGeneratedAt
+      const generatedAt = state.lastGeneratedAt;
+      if (reservation.seq !== state.lastReservedSeq
         || state.lastObservationId !== (observation.v1Cycle?.observationId || observationId(generatedAt))) fail();
       const binding = observation.v1Cycle ? cycleReceipt(observation.v1Cycle, stored) : {};
-      const stagedReceivedAt = now();
       if (!canonical(stagedReceivedAt)) fail();
       const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt);
       const bytes = Buffer.from(JSON.stringify(candidate));
