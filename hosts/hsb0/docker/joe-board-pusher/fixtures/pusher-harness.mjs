@@ -43,7 +43,7 @@ export async function runPusher(moduleURL, options = {}) {
     worker.once("exit", code => { if (code) reject(new Error("pusher_fixture_failed")); });
   });
 }
-async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0, pushSchema } = {}) {
+async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0 } = {}) {
   const { createStageHandoff } = await import("../v2-stage-handoff.mjs");
   class Socket extends EventEmitter {
     writable = true; writableLength = 0; destroyed = false; connecting = false;
@@ -58,12 +58,10 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   const state = syntheticState(variant);
   const before = JSON.stringify({ book: state.book, retained: state.retained });
   const requests = [], observations = [], trace = [], errors = [], logs = [], timers = [];
-  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.cycle = source.v1Cycle; state.v1Body = source.v1Body; return socket?.offer(source); }, stop() {} };
+  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.cycle = source.v1Cycle; return socket?.offer(source); }, stop() {} };
   const url = pathToFileURL(realpathSync(fileURLToPath(moduleURL))); url.searchParams.set("fixture", String(++generation));
   const hooks = installPusherDoubles(url.href, state);
   const saved = { fetch: globalThis.fetch, Date: globalThis.Date, setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, log: console.log, warn: console.warn, error: console.error };
-  const oldSchema = process.env.JOE_PUSH_SCHEMA;
-  if (pushSchema === undefined) delete process.env.JOE_PUSH_SCHEMA; else process.env.JOE_PUSH_SCHEMA = pushSchema;
   const oldSocket = process.env.JOE_V2_STAGE_SOCKET, oldMarks = process.env.JOE_FLAT_NET_MARKS;
   process.env.JOE_V2_STAGE_SOCKET = "/run/joe-household-v2/stage.sock";
   process.env.JOE_FLAT_NET_MARKS = "0";
@@ -97,7 +95,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
     return {
       requests, observations, trace, errors,
       errorIdentityPreserved: errors.at(-1)?.[1] === (fetchError || bodyError),
-      cycle: state.cycle, v1Body: state.v1Body, v2Calls: state.v2Calls ?? 0, logs,
+      cycle: state.cycle, logs,
       result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "status")),
       inputsUnchanged: before === JSON.stringify({ book: state.book, retained: state.retained }),
       counts: { reads: state.reads, observes: state.observes },
@@ -110,7 +108,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
     hooks.deregister();
     Object.assign(globalThis, { fetch: saved.fetch, Date: saved.Date, setTimeout: saved.setTimeout, setInterval: saved.setInterval });
     Object.assign(console, { log: saved.log, warn: saved.warn, error: saved.error });
-    for (const [key, value] of [["JOE_PUSH_SCHEMA", oldSchema], ["JOE_V2_STAGE_SOCKET", oldSocket], ["JOE_FLAT_NET_MARKS", oldMarks]]) {
+    for (const [key, value] of [["JOE_V2_STAGE_SOCKET", oldSocket], ["JOE_FLAT_NET_MARKS", oldMarks]]) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
     for (const [signal, previous] of listeners) {
