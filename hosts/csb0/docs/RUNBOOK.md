@@ -868,6 +868,12 @@ JOED-20 must still supply compatible downstream pins and real evidence.
    Complete the signed-in actor replacement/restoration check above and
    Tick/owner signed-in UI verification before claiming the cutover complete.
 
+**After a v2 activation (OPS-408 r17), run the v2 archive pre-step on hsb0 first:** with the pusher and
+stager stopped, move every `v2/pair-*`, `v2/current.json` and `v2/receipts.jsonl` into a dated 0700
+sibling archive and copy `v1-cycles` there (keep `sequence-state.json`, the `.allocator.lock` inode and
+the posting state). r16d rejects r17's `not_posted_v2_active` receipts. The OPS cut-over package does
+this inside the hsb0 `hold` step that every guarded rollback requires; see the hsb0 RUNBOOK (r17).
+
 ### One-command v1 rollback
 
 Before cutover, retain a root/operator-owned mode-0600 JSON record at
