@@ -150,7 +150,7 @@ test("unrelated book and readiness callbacks cannot renew NAV, cash or position 
   const events = Object.fromEntries(["connected", "disconnected", "error", "info", "managedAccounts", "accountSummary",
     "accountSummaryEnd", "position", "positionEnd", "updatePortfolio", "accountDownloadEnd", "openOrder"].map(name => [name, name]));
   const adapter = createBrokerSessionAdapter({ targetAccount: "DUFIXTURE", eventNames: events, now: () => at(seconds) });
-  const api = Object.assign(new EventEmitter(), Object.fromEntries(["reqManagedAccts", "reqPositions", "reqAllOpenOrders",
+  const api = Object.assign(new EventEmitter(), Object.fromEntries(["reqManagedAccts", "reqPositions", "cancelPositions", "reqAllOpenOrders",
     "reqAccountSummary", "reqAccountUpdates"].map(name => [name, () => {}])));
   adapter.attach(api); api.emit("connected"); api.emit("managedAccounts", "DUFIXTURE");
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "12345.67000000", "EUR");
@@ -170,6 +170,7 @@ test("unrelated book and readiness callbacks cannot renew NAV, cash or position 
   assert.ok(value.desks.every(desk => desk.state === "stuck"));
   // A fresh NAV callback and complete positions reply prove only those sources.
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "12345.67000000", "EUR");
+  assert.equal(adapter.refreshPositions(), true);
   api.emit("positionEnd");
   value = buildCandidate(2, at(seconds), copyObservation({ book: adapter.snapshot() }));
   assert.equal(value.brokerAccount.equity.amount, "12345.67000000");
