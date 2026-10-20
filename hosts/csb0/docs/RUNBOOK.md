@@ -878,8 +878,10 @@ this inside the hsb0 `hold` step that every guarded rollback requires; see the h
 
 ### One-command v1 rollback
 
-**After a real rollback:** merge the rollback commit to main through the normal PR path (green CI),
-so main matches reality. Otherwise main still selects `v2` and the next csb0 switch re-applies it.
+**Rolling back after a v2 activation:** the rollback commit must be on main FIRST. rollback-joedesk
+fetches origin/main and refuses a rollback commit that is not its ancestor. Keep the rollback PR
+("ROLLBACK ONLY") open with green CI during the cut-over, merge it (`gh pr merge --match-head-commit`)
+to abort, then run `just rollback-joedesk`. This also keeps main matching reality.
 
 Before cutover, retain a root/operator-owned mode-0600 JSON record at
 `/var/lib/joedesk-rollback/record.json` (private directory mode 0700). Required
