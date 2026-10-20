@@ -18,7 +18,7 @@ BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
 # OPS-408: exact pre-r17 runtime, including the release-set wiring.
 HSB0_BASELINE = "2eb3953e076b5b35769ddc1418080cd17e35d2ff"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
-CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r17b-202610202315'
+CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
 PUBLISHED = 'd36b5295295a6901e36fdf2dc0d64353ddf88d0e'
 PUBLISHED_TREE = 'ba066aaeebf193eab93154ca9e0335f7dbba9d28'
@@ -76,13 +76,13 @@ def variant_b_regressions():
     for selected in ('current', 'v2'):
         fixture = copy.deepcopy(release); fixture['active'] = selected
         require(hsb0_runtime(fixture, following, restored_module, same) == 'release-set', 'release-set hsb0 rejected')
-    r17 = restored.replace('r16d-202610201800', 'r17b-202610202315')
+    r17 = restored.replace('r16d-202610201800', 'r17c-202610202345')
     negatives = [
         (rollback, following, restored_module, same),  # release-set hsb0 under previous = flat-net pins
         (dict(release, active='v2'), restored, restored_module, same),
         (dict(release, active='current'), restored, restored_module, same),
         (rollback, r17, restored_module, same),
-        (rollback, restored, restored_module.replace('r16d-202610201800', 'r17b-202610202315'), same),
+        (rollback, restored, restored_module.replace('r16d-202610201800', 'r17c-202610202345'), same),
         (rollback, restored.replace('joeHouseholdV2StageEnabled = true;', 'joeHouseholdV2StageEnabled = false;'), restored_module, same),
         (rollback, restored, restored_module, lambda spec: ('0' * 40) if spec.startswith('HEAD:') else spec),
         (rollback, 'let joeRelease = x; in services.joe-household-v2-stage = { image = "literal"; };', restored_module, same),
@@ -106,7 +106,7 @@ def check(source=None):
     executor_module = (ROOT / 'modules/paper-desk-executor/default.nix').read_text()
     hsb0_runtime(release, hsb0_config, executor_module, lambda spec: subprocess.check_output(['git', 'rev-parse', spec], cwd=ROOT, text=True).strip())
     fixture = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
-    require(CANDIDATE_IMAGE in fixture, 'executor fixture must identify r17b')
+    require(CANDIDATE_IMAGE in fixture, 'executor fixture must identify the r17 candidate')
     # The executor eval fixture must evaluate to the EFFECTIVE hsb0 pusher image of this release state.
     block = re.search(r'joe-board-pusher\.image =\s*(let.*?in\s*release\.sets\.\$\{selected\}\.pusher\.image);', fixture, re.S)
     require(block, 'executor fixture must select the effective hsb0 runtime set')
