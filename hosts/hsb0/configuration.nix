@@ -243,7 +243,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-phase-a-202610190715";
+                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330";
                   pull_policy = "never";
                 };
               }

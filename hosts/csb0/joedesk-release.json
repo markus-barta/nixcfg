@@ -17,13 +17,13 @@
         "nixcfg_rev": "9b00f745c85be3a5afc1678c1b814530f9555fe3",
         "source_tree": "26347f9887fe89338a2947fb1e8b61ee76d92137",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
-        "image": "hsb0-joe-board-pusher:household-v2-phase-a-202610190715"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330"
       },
       "executor": {
         "nixcfg_rev": "9b00f745c85be3a5afc1678c1b814530f9555fe3",
         "source_tree": "9a4885f69b41d8b4ee4b4a457dc09018b5f4badb",
         "source_path": "modules/paper-desk-executor",
-        "image": "hsb0-joe-board-pusher:household-v2-phase-a-202610190715"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330"
       },
       "contracts": null,
       "backup_schema": "v1",
