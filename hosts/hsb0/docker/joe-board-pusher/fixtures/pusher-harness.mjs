@@ -43,7 +43,7 @@ export async function runPusher(moduleURL, options = {}) {
     worker.once("exit", code => { if (code) reject(new Error("pusher_fixture_failed")); });
   });
 }
-async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200 } = {}) {
+async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0 } = {}) {
   const { createStageHandoff } = await import("../v2-stage-handoff.mjs");
   class Socket extends EventEmitter {
     writable = true; writableLength = 0; destroyed = false; connecting = false;
@@ -83,6 +83,9 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   const listeners = new Map(["SIGINT", "SIGTERM"].map(signal => [signal, process.listeners(signal)]));
   try {
     await import(url.href);
+    for (let tick = 0; tick < refreshTicks; tick++) {
+      timers.find(timer => timer.kind === "interval" && timer.delay === 5_000).fn();
+    }
     timers.find(timer => timer.kind === "timeout" && timer.delay === 8000).fn();
     await nextTurn(); // Drain the actual push promise and its caller's handlers.
     for (let cycle = 1; cycle < cycles; cycle++) {
@@ -96,6 +99,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
       result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "status")),
       inputsUnchanged: before === JSON.stringify({ book: state.book, retained: state.retained }),
       counts: { reads: state.reads, observes: state.observes },
+      refreshCalls: state.refreshCalls ?? [],
       deskEvents: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).filter(line => line.event === "v2_desk_state"),
       schedule: timers.map(({ kind, delay }) => ({ kind, delay })),
     };

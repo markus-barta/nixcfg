@@ -231,7 +231,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
     # OPS-392 switch set (2026-10-20): a fresh immutable candidate shared with the executor
-    # (rollback: household-v2-switch-set-r15-202610201500); the
+    # (rollback: household-v2-switch-set-r16-202610201700); the
     # previous tag remains available for flag-off rollback. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
@@ -267,7 +267,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700";
+                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800";
                   pull_policy = "never";
                 };
               }

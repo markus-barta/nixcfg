@@ -492,6 +492,7 @@ function syncFlatNetMarks() {
 // Independent of both publisher cadence and unrelated healthy socket traffic.
 const portfolioRefreshTimer = setInterval(() => {
   adapter.refreshOpenOrders(); // Read-only, at most once per 60s; one reply in flight.
+  adapter.refreshPositions(); // Read-only cancel/re-request every 120s; one reply in flight.
   portfolioRefresh.tick(adapter.snapshot());
   syncFlatNetMarks();
 }, 5_000);

@@ -44,7 +44,7 @@ test("KEEP and prior-day executions retain their existing exclusion rules", () =
 
 const cases = [
   ["positions_unavailable", s => { s.deskEquities = { ok: false, reason: "execution client 230 is unclaimed by the desk ownership policy" }; }],
-  ["positions_stale", s => { s.deskEquities.oldestSourceObservedAt = old; }],
+  ["positions_stale", s => { s.book.positionsCoverage.observedAt = old; }],
   ["orders_unavailable", s => { s.book.openOrders = null; }],
   ["orders_stale", s => { s.book.ordersObservedAt = old; }],
   ["executions_unavailable", s => { s.executions = executionActivity(undefined); }],

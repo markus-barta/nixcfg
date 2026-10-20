@@ -119,7 +119,7 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.deepEqual(pusher.environment, [...baselinePusher.environment, executorEnvironment, "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"]);
   assert.deepEqual(pusher.volumes, [...baselinePusher.volumes, "/run/joe-household-v2:/run/joe-household-v2:rw"]);
   assert.equal(service.image, pusher.image);
-  assert.equal(pusher.image, "hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700");
+  assert.equal(pusher.image, "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800");
   assert.equal(enabled.executorImage, pusher.image);
   assert.equal(service.network_mode, "none"); assert.equal(service.mem_limit, "128m"); assert.equal(service.memswap_limit, "128m");
   assert.equal(service.cpus, 0.25); assert.equal(service.pids_limit, 32); assert.equal(service.user, "1000:1000");
