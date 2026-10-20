@@ -111,7 +111,7 @@ in
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
-    ../../modules/joe-results-producer # JOED-20 — disabled pending ingress + paper proof
+    ../../modules/joe-results-producer # JOED-39 — paper only; Amy approval pending at switch
     ../../modules/agent-mailbox # OPS-272 — Amy/OPS tailnet text mailbox
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -184,9 +184,17 @@ in
   nixcfg.paperDeskExecutor.image = lib.mkIf (
     !joeHouseholdV2StageEnabled
   ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
-  nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
+  # JOED-39: config enabled; OPS-354 ingress + Amy's approval gate the host switch.
+  nixcfg.joeResultsProducer = {
+    enable = true;
+    endpoint = "https://cs0.barta.cm/joe/inbox/results";
+    ingressHost = "cs0.barta.cm";
+    # csb0's declarative public IPv4: hosts/csb0/configuration.nix, ens3.
+    ingressAddress = "89.58.63.96";
+    # Default KEEP policy and existing household token (systemd LoadCredential).
+  };
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
-  # capture runs fail-open in the executor while the producer stays off.
+  # capture remains fail-open in the executor and shares the producer's KEEP set.
   nixcfg.paperDeskExecutor.resultsCaptureEnabled = true;
 
   # OPS-272 — caller identity comes from the tailnet source address.
