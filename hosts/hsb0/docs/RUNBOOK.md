@@ -1054,6 +1054,20 @@ still fail closed: preserve state and obtain coordinator review before promotion
 See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
 recovery and rollback. Local staging is not board acceptance or deployment.
 
+OPS-392 cycle binding keeps the stager isolated: only the pusher stores exact v1
+POST bytes under `/var/lib/joe-board-pusher/v1-cycles/<seq>.json` (0600; directory
+0700), after v1 settles and the stager reserves the sequence. Pair receipts and
+the value-free append-only receipt log bind that sequence to a unique
+`observationId`, `v1Sha256`, `v1RepliedAt` and POST outcome. A failed write or
+1500 ms acknowledgement timeout records `v1Status: "v1_unbound"`, preserving
+the POST result in `v1PostStatus`; v1 publication remains independent. The
+stager has no body mount or body frame. The pusher prunes bodies using the
+stager's retained pair sequence set (10 by default), including after reconnect;
+preserve both stores and sequence high water on rollback. The executor's
+existing read-only `/pusher-state` mount exposes `v2` and `v1-cycles` for the
+operator collector. Matching timestamps alone never establish cycle proof;
+require matching digest, sequence, observation and a successful POST receipt.
+
 Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
 `stuck` when any desk evidence is unavailable/stale, `working` for positions,
 active orders or executions on the executor's current NY day, and `sit-out`
@@ -1082,6 +1096,26 @@ times with the family classifier's `executionTime` path, compares epochs and
 stores canonical ISO activity times. Client 229 belongs to J from
 `2026-10-06T13:40:47Z` inclusive; one second earlier remains unowned.
 
+R15 (`household-v2-switch-set-r15-202610201500`, rollback
+`household-v2-switch-set-r14-202610201330`) adds intent-only
+attribution for the configured executor clients (700/705). The pusher reads
+`/var/lib/paper-desk-executor/ledger.json` through a read-only directory mount;
+the executor source and authority stay unchanged. Exactly one place intent's
+`result.bracket` client/parent-or-stop key, or flatten intent's submitted
+`result.flattened` client/order key, must match the execution's `(clientId,
+orderId)`. Retained rows without that key require an exact execution-ID/client/
+account lookup in the executor's own executions first. Missing/pruned evidence,
+ambiguity and desks outside the explicit table stay unclaimed; orderRef prefixes
+never assign ownership. OPS-403 applies Amy's fixed intent-desk table:
+`j → j`, `j2 → j`, `j5 → j`, `joe → joe`, `joel → joel`. The original intent
+desk is kept on the internal attributed execution as `subDesk` and in history
+evidence, with no rev 9 output field. Unknown desks emit the value-free
+`executor_intent_desk_unclaimed` event with the desk token and fixed cause only.
+KEEP is excluded first, and dated/static assignments including 229 are unchanged.
+The shared rule covers v1 valuation and v2 activity; `v2_desk_state` includes
+value-free matched/unmatched counts per executor client when available. Its
+policy hash selects a new baseline without changing retained history or files.
+
 The ownership change selects
 `/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.
 Preserve legacy `day-baseline.json` and all other policy files; no retirement
@@ -1098,7 +1132,7 @@ midnight can promote exact SOD only with a candidate no more than five minutes
 old, continuous authoritative execution coverage and the matching boundary
 history digest. Otherwise the next valid new-day sample supplies a new proxy.
 V2 `dayPnl` remains null with `not_exact_yet` through either v1 recovery path.
-Rollback stays `household-v2-switch-set-202610201110`; preserve the legacy file
+Rollback stays `household-v2-switch-set-r14-202610201330`; preserve the legacy file
 that the old image reads and every policy-keyed file.
 
 Staging retains the newest **N=10 pairs by sequence count**, never age; the

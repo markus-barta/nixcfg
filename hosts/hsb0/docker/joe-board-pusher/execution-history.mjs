@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { executorDesk, isExecutorClient } from "./executor-attribution.mjs";
 
 import { EXECUTION_CAPTURE_SCHEMA } from "./execution-reconciliation.mjs";
 
@@ -23,7 +24,8 @@ export const J_DATED_CLIENT_ASSIGNMENTS = Object.freeze([
   }),
 ]);
 
-export function isFamilyClientExecution(execution, familyIds, assignments = []) {
+export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null) {
+  if (isExecutorClient(execution.clientId, executorAttribution)) return executorDesk(execution, executorAttribution) === "j";
   const rules = assignments.filter(rule => rule.clientId === execution.clientId);
   if (!rules.length) return familyIds.has(execution.clientId);
   const time = Date.parse(executionTime(execution.time));

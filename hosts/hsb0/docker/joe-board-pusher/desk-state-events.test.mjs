@@ -166,6 +166,7 @@ for (const stageState of ["idle", "busy", "throw"]) test(`actual pusher stdout s
 test("v1 rejection still emits diagnostic events after settlement", async () => {
   const result = await runPusher(new URL("./pusher.mjs", import.meta.url), { fetchError: { synthetic: "rejection" }, cycles: 2 });
   assert.equal(result.deskEvents.length, 3);
-  assert.equal(result.errorIdentityPreserved, true);
+  assert.equal(result.cycle.v1Status, "post_failed");
+  assert.deepEqual(result.errors, Array.from({ length: 2 }, () => ['{"event":"v1_push_failed"}']));
   assert.equal(result.observations.length, 2);
 });

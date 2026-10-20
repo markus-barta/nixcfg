@@ -373,6 +373,8 @@
         "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
         # Durable execution state: /var/lib/joe-board-pusher/family-ledger.json.
         "/var/lib/joe-board-pusher:/var/lib/joe-board-pusher:rw"
+        # OPS-392: intent ownership evidence only; follow atomic ledger replacement.
+        "/var/lib/paper-desk-executor:/var/lib/paper-desk-executor:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
