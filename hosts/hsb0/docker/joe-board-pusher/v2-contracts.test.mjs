@@ -59,11 +59,20 @@ for (const schema of fs.readdirSync(path.join(root, "contracts")).filter(n => n.
   for (const check of await verifiers(directory)) assert.throws(check);
 });
 
-function hostEval(t, source, enabled, filtered = false) {
-  const directory = path.join(temp(t), "hsb0");
+function hostEval(t, source, enabled, filtered = false, active = "current") {
+  // OPS-354: host and executor module both read the release set; pin `active` for the
+  // fixture (the stage-flag semantics below are the v1-set ones; v2 is tested separately).
+  const base = temp(t);
+  const directory = path.join(base, "hsb0");
   fs.mkdirSync(directory);
   fs.mkdirSync(path.join(directory, "../csb0"));
-  fs.copyFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), path.join(directory, "../csb0/joedesk-release.json"));
+  const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
+  release.active = active;
+  fs.writeFileSync(path.join(directory, "../csb0/joedesk-release.json"), JSON.stringify(release));
+  fs.mkdirSync(path.join(base, "hosts/csb0"), { recursive: true });
+  fs.writeFileSync(path.join(base, "hosts/csb0/joedesk-release.json"), JSON.stringify(release));
+  fs.mkdirSync(path.join(base, "modules/paper-desk-executor"), { recursive: true });
+  fs.copyFileSync(path.join(repo, "modules/paper-desk-executor/default.nix"), path.join(base, "modules/paper-desk-executor/default.nix"));
   const host = path.join(directory, "configuration.nix");
   fs.writeFileSync(host, source.replace("joeHouseholdV2StageEnabled = true;", `joeHouseholdV2StageEnabled = ${enabled};`));
   fs.mkdirSync(path.join(directory, "docker/joe-board-pusher"), { recursive: true });
@@ -84,7 +93,7 @@ function hostEval(t, source, enabled, filtered = false) {
       inputs = {};
       config.nixcfg = { paperDeskExecutor = { serviceSpec = { image = "fixture"; }; clientIds = { executor = 705; recon = 700; }; }; agentMailbox.enable = true; agentMailbox.serviceSpec = { image = "mailbox-fixture"; }; };
     };
-    executorDefault = (import ${repo}/modules/paper-desk-executor/default.nix {
+    executorDefault = (import ${base}/modules/paper-desk-executor/default.nix {
       lib = baseLib; config = {}; pkgs = {};
     }).options.nixcfg.paperDeskExecutor.image.default;
     executor = baseLib.evalModules { modules = [{
@@ -140,6 +149,27 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.equal(Object.hasOwn(lab.services.pusher, "env_file"), false);
   assert.deepEqual(lab.services.stage.volumes.slice(0, 2), ["state:/var/lib/joe-board-pusher/v2:rw", "ipc:/run/joe-household-v2:rw"]);
   assert.ok(!JSON.stringify(lab).includes("/run/agenix"));
+});
+
+test("active v2 set (OPS-354/OPS-408): r17 everywhere, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
+  const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
+  const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
+  const r17 = release.sets.v2.pusher.image;
+  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r17b-202610202315");
+  assert.equal(release.sets.v2.executor.image, r17);
+  for (const enabled of [true, false]) {
+    const v2 = hostEval(t, source, enabled, false, "v2");
+    const pusher = v2.spec.services["joe-board-pusher"];
+    assert.equal(pusher.image, r17);
+    assert.equal(v2.executorImage, r17);
+    assert.ok(pusher.environment.includes("JOE_PUSH_SCHEMA=inspr.joe.household.v2"));
+    assert.ok(pusher.volumes.includes("/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro"));
+    assert.equal(Object.hasOwn(v2.spec.services, "joe-household-v2-stage"), enabled);
+    if (enabled) assert.equal(v2.spec.services["joe-household-v2-stage"].image, r17);
+  }
+  const v1 = hostEval(t, source, true, false, "current").spec.services["joe-board-pusher"];
+  assert.ok(!v1.environment.some(e => e.startsWith("JOE_PUSH_SCHEMA=")));
+  assert.ok(!v1.volumes.some(v => v.startsWith("/var/lib/joe-board-pusher/v2:")));
 });
 
 test("real Nix relative-path source filter preserves full verified closure and excludes test/fixture JSON", async t => {

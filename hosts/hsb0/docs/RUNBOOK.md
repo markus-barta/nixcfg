@@ -1130,7 +1130,7 @@ account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
 source times. R15 validates every retained pair on open; leaving even one such
 pair causes `stage_storage_invalid` / `startup_invalid`.
 
-R17 candidate (`household-v2-switch-set-r17-202610202300`; OPS-408) flips
+R17 candidate (`household-v2-switch-set-r17b-202610202315`; OPS-408) flips
 publication in the pusher only when the selected release set's
 `board.data_schema == "v2"`. The current v1 set retains r16d images and its exact
 environment/mounts; the source build context/restart trigger still changes with

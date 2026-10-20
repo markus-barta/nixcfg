@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The candidate switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r17-202610202300` (pusher, stager and executor runtime; OPS-408). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800`. The active v1 release set still selects r16d; activation is a separate OPS change.
+The candidate switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r17b-202610202315` (pusher, stager and executor runtime; OPS-408). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800`. The active v1 release set still selects r16d; activation is a separate OPS change.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -673,7 +673,7 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r17-202610202300`; the retained
+The candidate image is `household-v2-switch-set-r17b-202610202315`; the retained
 rollback image is `household-v2-switch-set-r16d-202610201800`.
 
 R15 attributes executor-route executions through the executor's own intent
