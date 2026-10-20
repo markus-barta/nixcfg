@@ -686,6 +686,9 @@ above remains a separate OPS gate; T100 does not claim it passed.
 
 ### OPS-354 cutover order and stopped-writer swap
 
+**Rollback state (this commit):** `active = previous`, v2 is inactive, hsb0 runs the restored
+pre-cutover tree (r16d). The prose below describes the activated state.
+
 The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,

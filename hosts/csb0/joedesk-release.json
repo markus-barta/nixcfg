@@ -1,6 +1,6 @@
 {
   "schema": "nixcfg.joedesk-release-set.v1",
-  "active": "v2",
+  "active": "previous",
   "sets": {
     "current": {
       "board": {
@@ -96,7 +96,7 @@
         "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"
       },
       "backup_schema": "v2",
-      "status": "ACTIVE (OPS-354 cutover; OPS-408 r17 v2 producer flip); rollback = previous (v1 board db621bf) with hsb0 variant B (pre-cutover r16d runtime)"
+      "status": "ROLLED BACK (OPS-354 variant B): active = previous (v1 board db621bf); hsb0 restored to the pre-cutover tree (r16d); v2 pins kept for the record"
     },
     "previous": {
       "board": {
