@@ -43,7 +43,7 @@ export async function runPusher(moduleURL, options = {}) {
     worker.once("exit", code => { if (code) reject(new Error("pusher_fixture_failed")); });
   });
 }
-async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError } = {}) {
+async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1 } = {}) {
   const { createStageHandoff } = await import("../v2-stage-handoff.mjs");
   class Socket extends EventEmitter {
     writable = true; writableLength = 0; destroyed = false; connecting = false;
@@ -85,12 +85,17 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
     await import(url.href);
     timers.find(timer => timer.kind === "timeout" && timer.delay === 8000).fn();
     await nextTurn(); // Drain the actual push promise and its caller's handlers.
+    for (let cycle = 1; cycle < cycles; cycle++) {
+      timers.find(timer => timer.kind === "interval" && timer.delay === 30_000).fn();
+      await nextTurn();
+    }
     return {
       requests, observations, trace, errors,
       errorIdentityPreserved: errors.at(-1)?.[1] === (fetchError || bodyError),
       result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "inbox")),
       inputsUnchanged: before === JSON.stringify({ book: state.book, retained: state.retained }),
       counts: { reads: state.reads, observes: state.observes },
+      deskEvents: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).filter(line => line.event === "v2_desk_state"),
       schedule: timers.map(({ kind, delay }) => ({ kind, delay })),
     };
   } finally {

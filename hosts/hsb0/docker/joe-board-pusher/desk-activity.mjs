@@ -1,9 +1,11 @@
 import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
+import { executionTime } from "./execution-history.mjs";
 
 export const DESK_IDS = ["j", "joe", "joel"];
 // Same bound as project.mjs and the family reader's fxFreshMs (five minutes).
 export const ACTIVITY_FRESH_MS = 300_000;
 export const DESK_ACTION = "Valuation is not exact yet.";
+export const EXECUTION_CAUSES = ["executions_unavailable", "execution_day_mismatch", "execution_unowned", "execution_after_coverage"];
 const KEEP = ["SXR8", "TSLA"];
 
 // Mirrored verbatim from paper-desk-executor/policy.mjs; parity is tested
@@ -19,9 +21,9 @@ export function newYorkDay(epoch = Date.now()) {
   return `${found.year}-${found.month}-${found.day}`;
 }
 
-function owner(clientId, time) {
+function owner(clientId, at) {
   const matches = CURRENT_DESK_OWNERSHIP_POLICY.assignments.filter(rule => rule.clientId === clientId
-    && rule.fromInclusive <= time && (rule.toExclusive === null || time < rule.toExclusive));
+    && Date.parse(rule.fromInclusive) <= at && (rule.toExclusive === null || at < Date.parse(rule.toExclusive)));
   return matches.length === 1 ? matches[0].desk : null;
 }
 
@@ -30,18 +32,26 @@ function owner(clientId, time) {
 // An unclaimed client cannot prove absence for any desk; never infer orderRef ownership.
 export function executionActivity(state) {
   const at = Date.parse(state?.coverageThrough);
-  if (!Number.isFinite(at) || !Array.isArray(state?.executions)
-    || state.coverageTradingDay !== newYorkDay(at)) return null;
+  if (!Number.isFinite(at) || !Array.isArray(state?.executions)) return { cause: "executions_unavailable" };
+  if (state.coverageTradingDay !== newYorkDay(at)) return { cause: "execution_day_mismatch" };
   const latest = Object.fromEntries(DESK_IDS.map(id => [id, null]));
+  const latestEpoch = Object.fromEntries(DESK_IDS.map(id => [id, -Infinity]));
   for (const row of state.executions) {
-    if (KEEP.includes(row.contract?.symbol)) continue;
-    const time = row.execution?.time;
+    if (KEEP.includes(row?.contract?.symbol)) continue;
+    let time;
+    try { time = executionTime(row?.execution?.time); }
+    catch { return { cause: "executions_unavailable" }; }
     const epoch = Date.parse(time);
-    if (!Number.isFinite(epoch) || epoch > at) return null;
+    if (!Number.isFinite(epoch)) return { cause: "executions_unavailable" };
+    if (epoch > at) return { cause: "execution_after_coverage" };
     if (epoch < at - 26 * 60 * 60 * 1000 || newYorkDay(epoch) !== state.coverageTradingDay) continue;
-    const desk = owner(row.execution.clientId, time);
-    if (!desk) return null;
-    if (!latest[desk] || time > latest[desk]) latest[desk] = time;
+    const desk = owner(row.execution.clientId, epoch);
+    if (!desk) return { cause: "execution_unowned",
+      ...(Number.isSafeInteger(row.execution.clientId) && row.execution.clientId >= 0 ? { clientId: row.execution.clientId } : {}) };
+    if (epoch > latestEpoch[desk]) {
+      latestEpoch[desk] = epoch;
+      latest[desk] = time;
+    }
   }
   return { observedAt: state.coverageThrough, day: state.coverageTradingDay, latest };
 }
@@ -55,7 +65,7 @@ export function copyDeskActivity({ book, family, deskEquities, executions } = {}
   const orders = Object.fromEntries(DESK_IDS.map(id => [id, false]));
   if (ordersKnown) for (const row of book.openOrders) {
     if (KEEP.includes(row.symbol) || ["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())) continue;
-    const desk = owner(row.clientId, book.ordersObservedAt);
+    const desk = owner(row.clientId, Date.parse(book.ordersObservedAt));
     if (!desk) { ordersKnown = false; break; }
     orders[desk] = true;
   }
@@ -70,6 +80,11 @@ export function copyDeskActivity({ book, family, deskEquities, executions } = {}
       executionsAt: executions?.observedAt ?? null,
       executionDay: executions?.day ?? null,
       lastExecutionAt: executions?.latest?.[id] ?? null,
+      ...(EXECUTION_CAUSES.includes(executions?.cause) ? { executionCause: {
+        cause: executions.cause,
+        ...(executions.cause === "execution_unowned" && Number.isSafeInteger(executions.clientId) && executions.clientId >= 0
+          ? { clientId: executions.clientId } : {}),
+      } } : {}),
     };
   }
   return result;
@@ -89,4 +104,48 @@ export function deskState(evidence, generatedAt, receivedAt) {
     || Date.parse(evidence.lastExecutionAt) > Date.parse(evidence.executionsAt))) return "stuck";
   return evidence.hasPositions || evidence.hasOrders || (evidence.lastExecutionAt !== null
     && newYorkDay(Date.parse(evidence.lastExecutionAt)) === newYorkDay(epoch)) ? "working" : "sit-out";
+}
+
+// Diagnostics describe the existing decision; they never participate in it.
+// Missing/invalid clocks are unavailable, while old or future clocks are stale.
+export function deskStateDetails(evidence, generatedAt, receivedAt) {
+  const state = deskState(evidence, generatedAt, receivedAt);
+  if (state !== "stuck") return { state, cause: null };
+  const stuck = cause => ({ state, cause });
+  for (const [reader, field] of [["positions", "positionsAt"], ["orders", "ordersAt"], ["executions", "executionsAt"]]) {
+    const at = Date.parse(evidence?.[field]);
+    if (!Number.isFinite(at)) {
+      const failure = evidence?.executionCause;
+      if (reader === "executions" && EXECUTION_CAUSES.includes(failure?.cause)) return {
+        ...stuck(failure.cause),
+        ...(failure.cause === "execution_unowned" && Number.isSafeInteger(failure.clientId) && failure.clientId >= 0
+          ? { client: failure.clientId } : {}),
+      };
+      return stuck(`${reader}_unavailable`);
+    }
+    if ([generatedAt, receivedAt].some(time => {
+      const age = Date.parse(time) - at;
+      return !Number.isFinite(age) || age < 0 || age > ACTIVITY_FRESH_MS;
+    })) return stuck(`${reader}_stale`);
+  }
+  const epoch = Date.parse(receivedAt);
+  if (evidence.executionDay !== newYorkDay(epoch)
+    || evidence.executionDay !== newYorkDay(Date.parse(evidence.executionsAt))) return stuck("execution_day_mismatch");
+  return stuck(Number.isFinite(Date.parse(evidence.lastExecutionAt)) ? "execution_after_coverage" : "executions_unavailable");
+}
+
+// One bounded entry per desk. A changed client alone does not repeat the event.
+// Called by the pusher after its v1 request settles, independently of IPC credit.
+export function createDeskStateReporter({ onEvent = event => console.log(JSON.stringify(event)) } = {}) {
+  const previous = new Map();
+  return (observation, receivedAt) => {
+    const activity = copyDeskActivity(observation);
+    for (const desk of DESK_IDS) {
+      const details = deskStateDetails(activity[desk], observation.book?.ts, receivedAt);
+      const key = JSON.stringify([details.state, details.cause]);
+      if (previous.get(desk) === key) continue;
+      onEvent({ event: "v2_desk_state", desk, ...details });
+      previous.set(desk, key);
+    }
+  };
 }

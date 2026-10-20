@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
 import { validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
-import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { isFamilyClientExecution, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
 import { mergeFlatNetMarks } from "./flat-net-marks.mjs";
 
@@ -565,6 +565,7 @@ export function officialReceiptChain(history, fromInclusive, observedAt) {
 export function createFamilySessionAdapter({
   targetAccount,
   familyClientIds,
+  familyClientAssignments = [],
   excludedSymbols = ["SXR8", "TSLA"],
   periodStart = BASELINE_PERIOD_START,
   calculateFamily,
@@ -811,7 +812,7 @@ export function createFamilySessionAdapter({
 
   function isFamilyExecution(row) {
     const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
-    return familyIds.has(Number(row?.execution?.clientId)) && !excluded.has(symbol);
+    return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments);
   }
 
   function missingFamilyCommissions(cycle) {
@@ -1190,6 +1191,7 @@ export function createFamilySessionAdapter({
         fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
         account: targetAccount,
         familyClientIds: [...familyIds],
+        familyClientAssignments,
         excludedSymbols: [...excluded],
         periodStart,
         virtualEquity: 5000,

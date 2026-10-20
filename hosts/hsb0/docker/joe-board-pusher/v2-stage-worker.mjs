@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
-import { DESK_IDS, DESK_ACTION, deskState } from "./desk-activity.mjs";
+import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, deskState } from "./desk-activity.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
@@ -45,7 +45,13 @@ export function validObservation(value) {
   const activity = value?.deskActivity;
   const validActivity = activity === undefined || (exactKeys(activity, "j,joe,joel") && DESK_IDS.every(id => {
     const row = activity[id];
-    return exactKeys(row, "positionsAt,hasPositions,ordersAt,hasOrders,executionsAt,executionDay,lastExecutionAt")
+    const failure = row?.executionCause;
+    const validFailure = failure === undefined || (EXECUTION_CAUSES.includes(failure?.cause)
+      && exactKeys(failure, failure.clientId === undefined ? "cause" : "cause,clientId")
+      && (failure.clientId === undefined || (failure.cause === "execution_unowned"
+        && Number.isSafeInteger(failure.clientId) && failure.clientId >= 0)));
+    return validFailure && exactKeys(row, "positionsAt,hasPositions,ordersAt,hasOrders,executionsAt,executionDay,lastExecutionAt"
+      + (failure === undefined ? "" : ",executionCause"))
       && [row.positionsAt, row.ordersAt, row.executionsAt, row.lastExecutionAt].every(at => at === null || canonical(at))
       && typeof row.hasPositions === "boolean" && typeof row.hasOrders === "boolean"
       && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));

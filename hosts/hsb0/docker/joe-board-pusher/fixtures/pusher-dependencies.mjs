@@ -1,6 +1,8 @@
 // Synthetic boundary doubles for importing the complete, unmodified pusher.
 // Only direct pusher dependencies are replaced; its real projection is loaded.
 import { EventEmitter } from "node:events";
+export { createDeskStateReporter } from "../desk-activity.mjs";
+export { J_DATED_CLIENT_ASSIGNMENTS } from "../execution-history.mjs";
 
 let state;
 export function configure(next) { state = next; }
@@ -36,8 +38,9 @@ export const calculateFamily = noop;
 export const executionActivity = noop;
 export const buildDeskDayBoundaryEvidence = noop;
 export const calculateDeskEquities = noop;
-export const deskOwnershipPolicyContract = noop;
+export const deskOwnershipPolicyContract = () => ({ policyHash: "c".repeat(64) });
 export const createFileDayBaselineStore = noop;
+export const createPolicyDayBaselineStore = noop;
 export const createFileFamilyHistoryStore = noop;
 export const projectBestAvailableHistory = noop;
 export const readOfficialExecutionWindow = noop;
