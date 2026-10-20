@@ -5,6 +5,7 @@ import { executorDesk, isExecutorClient, executorClientCounts } from "./executor
 export const DESK_IDS = ["j", "joe", "joel"];
 // Same bound as project.mjs and the family reader's fxFreshMs (five minutes).
 export const ACTIVITY_FRESH_MS = 300_000;
+export const ACTIVITY_FUTURE_SKEW_MS = 5_000;
 export const DESK_ACTION = "Valuation is not exact yet.";
 export const EXECUTION_CAUSES = ["executions_unavailable", "execution_day_mismatch", "execution_unowned", "execution_after_coverage"];
 const KEEP = ["SXR8", "TSLA"];
@@ -79,9 +80,11 @@ export function copyDeskActivity({ book, family, deskEquities, executions, execu
   }
   for (const id of DESK_IDS) {
     const known = positionsKnown || (id === "j" && family?.ok && Array.isArray(family.positions));
+    const coverageAt = book?.positionsCoverage?.observedAt === undefined ? book?.ts : book.positionsCoverage.observedAt;
+    const projectionAt = (positionsKnown ? deskEquities.oldestSourceObservedAt : family?.observedAt) ?? book?.ts;
     result[id] = {
-      positionsAt: known && book?.gateway === true && book.positionsCoverage?.status === "complete"
-        ? (positionsKnown ? deskEquities.oldestSourceObservedAt : family.observedAt) ?? book.ts : null,
+      positionsAt: known && book?.gateway === true && book.positionsCoverage?.status === "complete" && coverageAt && projectionAt
+        ? [coverageAt, projectionAt].sort()[0] : null,
       hasPositions: known ? (positionsKnown ? deskEquities.desks[id].positions : family.positions).length > 0 : false,
       ordersAt: ordersKnown && book?.gateway === true ? book.ordersObservedAt : null,
       hasOrders: ordersKnown ? orders[id] : false,
@@ -100,18 +103,19 @@ export function copyDeskActivity({ book, family, deskEquities, executions, execu
 
 export function deskState(evidence, generatedAt, receivedAt) {
   const epoch = Date.parse(receivedAt);
-  const fresh = value => {
-    const at = Date.parse(value);
-    return Number.isFinite(at) && at <= epoch && epoch - at <= ACTIVITY_FRESH_MS
-      && at <= Date.parse(generatedAt) && Date.parse(generatedAt) - at <= ACTIVITY_FRESH_MS;
-  };
-  if (!evidence || ![evidence.positionsAt, evidence.ordersAt, evidence.executionsAt].every(fresh)
+  if (!evidence || ![evidence.positionsAt, evidence.ordersAt, evidence.executionsAt]
+    .every(at => freshActivity(at, generatedAt))
     || evidence.executionDay !== newYorkDay(epoch)
     || evidence.executionDay !== newYorkDay(Date.parse(evidence.executionsAt))) return "stuck";
   if (evidence.lastExecutionAt !== null && (!Number.isFinite(Date.parse(evidence.lastExecutionAt))
     || Date.parse(evidence.lastExecutionAt) > Date.parse(evidence.executionsAt))) return "stuck";
   return evidence.hasPositions || evidence.hasOrders || (evidence.lastExecutionAt !== null
     && newYorkDay(Date.parse(evidence.lastExecutionAt)) === newYorkDay(epoch)) ? "working" : "sit-out";
+}
+
+function freshActivity(value, generatedAt) {
+  const age = Date.parse(generatedAt) - Date.parse(value);
+  return Number.isFinite(age) && age >= -ACTIVITY_FUTURE_SKEW_MS && age <= ACTIVITY_FRESH_MS;
 }
 
 // Diagnostics describe the existing decision; they never participate in it.
@@ -131,10 +135,7 @@ export function deskStateDetails(evidence, generatedAt, receivedAt) {
       };
       return stuck(`${reader}_unavailable`);
     }
-    if ([generatedAt, receivedAt].some(time => {
-      const age = Date.parse(time) - at;
-      return !Number.isFinite(age) || age < 0 || age > ACTIVITY_FRESH_MS;
-    })) return stuck(`${reader}_stale`);
+    if (!freshActivity(evidence[field], generatedAt)) return stuck(`${reader}_stale`);
   }
   const epoch = Date.parse(receivedAt);
   if (evidence.executionDay !== newYorkDay(epoch)
@@ -149,7 +150,7 @@ export function createDeskStateReporter({ onEvent = event => console.log(JSON.st
   return (observation, receivedAt) => {
     const activity = copyDeskActivity(observation);
     for (const desk of DESK_IDS) {
-      const details = deskStateDetails(activity[desk], observation.book?.ts, receivedAt);
+      const details = deskStateDetails(activity[desk], receivedAt, receivedAt);
       const key = JSON.stringify([details.state, details.cause]);
       if (previous.get(desk) === key) continue;
       const counts = observation.deskEquities?.executorClients ?? observation.executions?.executorClients;

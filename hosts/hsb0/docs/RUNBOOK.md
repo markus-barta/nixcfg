@@ -1116,6 +1116,32 @@ The shared rule covers v1 valuation and v2 activity; `v2_desk_state` includes
 value-free matched/unmatched counts per executor client when available. Its
 policy hash selects a new baseline without changing retained history or files.
 
+R16 (`household-v2-switch-set-r16-202610201700`, rollback
+`household-v2-switch-set-r15-202610201500`; OPS-404) generates v2 at the worker's
+observation-receipt instant, captured at sequence reservation before the v1
+body-store handshake. Each roughly 30-second cycle advances `generatedAt` even
+when the book stays unchanged for roughly three minutes. Pair v1 and v2 by
+`v1Sha256`, never timestamp equality; v1 generation remains inside the stored v1
+body. The receipt's `generatedAdvancedAt` tracks advancing v2 generations.
+The existing durable `lastGeneratedAt` clamps the generation floor across
+restart without changing the sequence-state format. A rollback exceeding the
+five-second clock-skew allowance suppresses staging until the clock catches up;
+preserve sequence state, prior pairs and receipts.
+
+Desk reader times are fresh inclusively from v2 generation minus 300 seconds
+through generation plus five seconds. Missing times are unavailable; older
+times or times beyond the future allowance are stale. Reader observations newer
+than the book stay fresh, and diagnostics use the observation clock. NAV/cash
+summary callbacks and complete position/account-download replies keep separate
+source clocks in the private handoff, so unrelated callbacks cannot renew them.
+Account `observedAt` is the oldest emitted money source; positions retain their
+coverage observation time. Legacy frames fall back to book time. A source older than 300
+seconds at generation withholds NAV/cash with `source_unavailable`; stale
+positions keep values null with that reason and clear unproven desk ownership.
+Readiness still requires a completed API reply younger than 60 seconds. At over
+300 seconds its reason is `snapshot_stale`, with `apiSessionReady:false` because
+rev 9 requires a boolean rather than null. Contracts remain revision 9.
+
 The ownership change selects
 `/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.
 Preserve legacy `day-baseline.json` and all other policy files; no retirement
@@ -1132,7 +1158,7 @@ midnight can promote exact SOD only with a candidate no more than five minutes
 old, continuous authoritative execution coverage and the matching boundary
 history digest. Otherwise the next valid new-day sample supplies a new proxy.
 V2 `dayPnl` remains null with `not_exact_yet` through either v1 recovery path.
-Rollback stays `household-v2-switch-set-r14-202610201330`; preserve the legacy file
+Rollback stays `household-v2-switch-set-r15-202610201500`; preserve the legacy file
 that the old image reads and every policy-keyed file.
 
 Staging retains the newest **N=10 pairs by sequence count**, never age; the

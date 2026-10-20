@@ -136,7 +136,8 @@ test("gateway high-water is durable; equal passes, older rejects after local acc
 
 test("a reply ahead of receipt but within a skewed generation cannot diverge from the board watermark", async t => {
   const { store, options } = fixture(t); await store.open();
-  assert.equal(store.stage(source(later), () => instant).reason, "clock_ahead");
+  const reservation = store.reserve(source(later), later);
+  assert.equal(store.stage(source(later), () => instant, reservation).reason, "clock_ahead");
   assert.equal(store.state.lastGatewayCheckedAt, null);
   assert.equal(store.current, null);
   const recovered = await new StageStore(options).open();

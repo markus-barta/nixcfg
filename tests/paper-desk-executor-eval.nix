@@ -93,7 +93,7 @@ let
                 environment = [ "TRADING_MODE=paper" ];
                 ports = [ "100.64.0.6:4002:4002" ];
               };
-              joe-board-pusher.image = "hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500";
+              joe-board-pusher.image = "hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700";
             };
           };
           virtualisation.docker.package = "/fixture/docker";
