@@ -1088,16 +1088,53 @@ A local commit emits `{event:"v2_stage_committed",seq}`; it proves local staging
 not board acceptance. Recovery validates retained pairs and log integrity before
 pruning; torn logs or unknown files fail closed and preserve evidence for review.
 
-## JoeDesk Results producer (JOED-20, disabled)
+## JoeDesk Results producer (JOED-39, enabled in config; switch pending)
 
-`nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
-does not change the board deployment pin or enable a writer. The module requires
-a separately reviewed ingress endpoint and pinned ingress IP/TLS hostname.
+On 2026-10-20, JOED-39 sets `nixcfg.joeResultsProducer.enable = true` in hsb0's
+configuration. This is local preparation; Amy's approval and the OPS-354 csb0
+cutover remain gates before a host switch. No live enablement is claimed.
+The endpoint is exactly `https://cs0.barta.cm/joe/inbox/results`, on the board's
+`https://cs0.barta.cm/joe/` origin (csb0 RUNBOOK and JoeDesk README).
+`ingressHost = "cs0.barta.cm"` and `ingressAddress = "89.58.63.96"` pin TLS and
+egress to csb0's declarative `networking.interfaces.ens3.ipv4.addresses` address.
+The module retains the default KEEP set (`SXR8`, `TSLA`) and applies it to the
+already enabled executor capture. It uses the existing
+`age.secrets.joe-board-push-token.path`, from the same agenix file as the
+household pusher's read-only token mount. Systemd `LoadCredential` supplies a
+private raw-token copy; there is no new secret or format conversion.
+
+Local gates on 2026-10-20 passed: T100's 277 producer tests, its 10 module
+evaluations and actual hsb0 wiring evaluation; T93's 850 executor tests and its
+module/guard checks; and all six applicable pre-commit hooks (the justfile hook
+had no matching file). T100 also verifies the IP against csb0's configuration,
+the shared agenix file/path, capture KEEP agreement and the systemd sandbox.
+Full hsb0 `nix eval` of `system.build.toplevel.drvPath` was attempted offline,
+but the worker sandbox denied Nix daemon/store access; that gate remains
+unverified and must pass outside this sandbox before activation. No NixOS build
+ran. The operator must also complete the paper proof and approval gates at the
+end of this section. The board deployment pin is unchanged.
+
+Until OPS-354 makes the exact token-only `POST /joe/inbox/results` route live,
+non-200 responses and refused redirects count as delivery failures. The producer
+keeps both journals, logs value-free diagnostics and retries with a fresh,
+durably reserved sequence and recomputed snapshot. Failure backoff grows through
+1, 2, 4, 8 and 16 seconds to a 25-second ceiling, bounded by the normal
+25-second cadence. No failed delivery becomes accepted output. Capture continues;
+the append-only producer journal grows with sequence reservations, source events
+and changed health, so monitor disk space during a prolonged outage. Never
+truncate either journal or reset sequence state to clear a delivery failure.
+
+Rollback: set `nixcfg.joeResultsProducer.enable = false` through the reviewed
+configuration and perform the separately approved hsb0 switch. Retain
+`/var/lib/joe-results-producer/results.jsonl` and
+`/var/lib/paper-desk-executor/results-input.jsonl`; executor capture remains
+explicitly enabled. Keep the prior generation and compatible pins for recovery.
+
 Household v2 health/account and equity fragments are outside v1 scope: the
 service neither reads nor mounts the household producer directory. No fixtures
 are selected by the service. No LIVE mode or Gateway client exists in the producer.
 
-When separately enabled, the executor's optional capture writes
+The already enabled executor capture writes
 `/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
 recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0

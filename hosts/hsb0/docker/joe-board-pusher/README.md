@@ -23,8 +23,9 @@ package manifests and `npm ci` remain unchanged.
 ## household.v2 switch-set staging (OPS-392)
 
 The existing `joeHouseholdV2StageEnabled` flag enables the independent
-`joe-household-v2-stage` service in the Phase A candidate. The Results producer
-remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
+`joe-household-v2-stage` service in the Phase A candidate. JOED-39 separately
+enables the paper-only Results producer in hsb0's configuration; the host switch
+still requires OPS-354 ingress and Amy's approval (see the hsb0 RUNBOOK). This build
 adds useful account and position evidence to local staging; it adds no v2 POST
 selector. PAPER only; live remains locked. All v1 accounting, subscriptions,
 token source, POST bytes and interval remain unchanged. Desk money and totals
