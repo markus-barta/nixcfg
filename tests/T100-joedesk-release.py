@@ -9,14 +9,16 @@ import subprocess
 import tempfile
 import copy
 import importlib.util
+import shutil
 from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
 BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
-# The recorded source revision is the exact main merge of #1063 (096cc37f).
-HSB0_BASELINE = json.loads(RELEASE.read_text())['sets']['current']['executor']['nixcfg_rev']
+# OPS-408: exact pre-r17 runtime, including the release-set wiring.
+HSB0_BASELINE = "2eb3953e076b5b35769ddc1418080cd17e35d2ff"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
+CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
 PUBLISHED = 'd36b5295295a6901e36fdf2dc0d64353ddf88d0e'
 PUBLISHED_TREE = 'ba066aaeebf193eab93154ca9e0335f7dbba9d28'
@@ -31,16 +33,87 @@ def require(value, reason):
         raise AssertionError(reason)
 
 
+def hsb0_runtime(release, hsb0_config, executor_module, tree_of):
+    # The stager image must equal the effective pusher image of the deployed selection.
+    stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = ([^;]+);', hsb0_config, re.S)[1]
+    current = release['sets']['current']
+    if 'joeRelease' in hsb0_config:
+        # hsb0 follows the release set: allowed only for current or v2. Under `previous`
+        # it would select the flat-net downstream pins, so the v1 rollback must be variant B.
+        require(release['active'] in ('current', 'v2'), 'with active = previous hsb0 must be the variant B pre-cutover tree')
+        require(stage_image == 'joeSet.pusher.image', 'stager must follow the release-set pusher pin')
+        return 'release-set'
+    # OPS-354 variant B rollback: hosts/hsb0 and modules/paper-desk-executor are restored to the
+    # recorded pre-cutover revision, which pins the recorded r16d switch set literally.
+    require(release['active'] == 'previous', 'only the v1 rollback may restore hsb0 to the pre-cutover tree')
+    recorded = current['pusher']['image']
+    require(recorded == current['executor']['image'] == HSB0_IMAGE, 'variant B record must be the r16d switch set')
+    pusher = re.search(r'services\.joe-board-pusher = \{\s*build = [^;]+;\s*image =\s*if joeHouseholdV2StageEnabled then\s*"([^"]+)"', hsb0_config)
+    executor_default = re.search(r'image = lib\.mkOption \{[^}]*?default = "([^"]+)";', executor_module, re.S)
+    require('joeHouseholdV2StageEnabled = true;' in hsb0_config, 'variant B keeps the r16d stager enabled')
+    require(pusher and pusher[1] == recorded, 'variant B pusher must be the recorded r16d image')
+    require(stage_image == json.dumps(recorded), 'variant B stager must be the recorded r16d image')
+    require(executor_default and executor_default[1] == recorded, 'variant B executor default must be the recorded r16d image')
+    rev = current.get('retention', {}).get('hsb0_pre_cutover_nixcfg_rev', '')
+    require(REV.fullmatch(rev or ''), 'variant B needs the recorded pre-cutover hsb0 revision')
+    for rel in ('hosts/hsb0', 'modules/paper-desk-executor'):
+        require(tree_of('HEAD:' + rel) == tree_of(rev + ':' + rel), 'variant B must restore the recorded pre-cutover ' + rel + ' tree')
+    return 'variant-b'
+
+
+def variant_b_regressions():
+    # OPS-354 (c): the rollback commit restores hsb0 to its pre-cutover tree; T100 runs in
+    # rollback-joedesk's cross-host switch before `just switch` and must accept exactly that state.
+    release = json.loads(RELEASE.read_text())
+    rev = release['sets']['current']['retention']['hsb0_pre_cutover_nixcfg_rev']
+    git = lambda *a: subprocess.check_output(['git', *a], cwd=ROOT, text=True)
+    restored = git('show', rev + ':hosts/hsb0/configuration.nix')
+    restored_module = git('show', rev + ':modules/paper-desk-executor/default.nix')
+    same = lambda spec: spec.split(':', 1)[1]
+    following = 'let joeRelease = x; in services.joe-household-v2-stage = { image = joeSet.pusher.image; };'
+    rollback = copy.deepcopy(release); rollback['active'] = 'previous'
+    require(hsb0_runtime(rollback, restored, restored_module, same) == 'variant-b', 'variant B rollback state rejected')
+    for selected in ('current', 'v2'):
+        fixture = copy.deepcopy(release); fixture['active'] = selected
+        require(hsb0_runtime(fixture, following, restored_module, same) == 'release-set', 'release-set hsb0 rejected')
+    r17 = restored.replace('r16d-202610201800', 'r17c-202610202345')
+    negatives = [
+        (rollback, following, restored_module, same),  # release-set hsb0 under previous = flat-net pins
+        (dict(release, active='v2'), restored, restored_module, same),
+        (dict(release, active='current'), restored, restored_module, same),
+        (rollback, r17, restored_module, same),
+        (rollback, restored, restored_module.replace('r16d-202610201800', 'r17c-202610202345'), same),
+        (rollback, restored.replace('joeHouseholdV2StageEnabled = true;', 'joeHouseholdV2StageEnabled = false;'), restored_module, same),
+        (rollback, restored, restored_module, lambda spec: ('0' * 40) if spec.startswith('HEAD:') else spec),
+        (rollback, 'let joeRelease = x; in services.joe-household-v2-stage = { image = "literal"; };', restored_module, same),
+    ]
+    for fixture, config, module, tree_of in negatives:
+        try:
+            hsb0_runtime(fixture, config, module, tree_of)
+        except AssertionError:
+            continue
+        raise AssertionError('invalid hsb0 runtime state passed')
+    print('variant_b_rollback=accepted negatives=%d' % len(negatives))
+
+
 def check(source=None):
     release = json.loads(RELEASE.read_text())
     require(release['schema'] == 'nixcfg.joedesk-release-set.v1', 'release set schema')
     require(set(release['sets']) == {'current', 'v2', 'previous'}, 'three explicit release sets')
     for name in ('pusher', 'executor'):
         require(release['sets']['current'][name]['image'] == HSB0_IMAGE, name + ': current image must be the r16d switch set')
-    stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = "([^"]+)";', (ROOT / 'hosts/hsb0/configuration.nix').read_text(), re.S)[1]
-    require(stage_image == HSB0_IMAGE, 'stage image must be the r16d switch set')
-    fixture_image = re.search(r'joe-board-pusher\.image = "([^"]+)";', (ROOT / 'tests/paper-desk-executor-eval.nix').read_text())[1]
-    require(fixture_image == HSB0_IMAGE, 'executor eval fixture must use the r16d switch set')
+    hsb0_config = (ROOT / 'hosts/hsb0/configuration.nix').read_text()
+    executor_module = (ROOT / 'modules/paper-desk-executor/default.nix').read_text()
+    hsb0_runtime(release, hsb0_config, executor_module, lambda spec: subprocess.check_output(['git', 'rev-parse', spec], cwd=ROOT, text=True).strip())
+    fixture = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
+    require(CANDIDATE_IMAGE in fixture, 'executor fixture must identify the r17 candidate')
+    # The executor eval fixture must evaluate to the EFFECTIVE hsb0 pusher image of this release state.
+    block = re.search(r'joe-board-pusher\.image =\s*(let.*?in\s*release\.sets\.\$\{selected\}\.pusher\.image);', fixture, re.S)
+    require(block, 'executor fixture must select the effective hsb0 runtime set')
+    expr = block[1].replace('../hosts/csb0/joedesk-release.json', str(RELEASE))
+    fixture_image = subprocess.check_output(['nix', 'eval', '--impure', '--raw', '--expr', expr], cwd=ROOT, text=True).strip()
+    effective = release['sets']['current' if release['active'] == 'previous' else release['active']]['pusher']['image']
+    require(fixture_image == effective, 'executor fixture image differs from the effective hsb0 pusher image')
     active = release['sets'][release['active']]
     lock = json.loads((ROOT / 'flake.lock').read_text())
     require(active['board']['rev'] == lock['nodes']['joedesk']['locked']['rev'], 'active board disagrees with lock')
@@ -110,7 +183,7 @@ def evaluation_proof():
         tree = subprocess.check_output(['git', 'rev-parse', pin['nixcfg_rev'] + ':' + pin['source_path']], cwd=ROOT, text=True).strip()
         require(tree == pin['source_tree'], 'recorded source tree mismatch')
     # Compare hsb0 with the recorded exact main, including its stage and local
-    # mailbox, pinned at the #1063 merge and its live r16d switch set.
+    # mailbox, against 2eb3953e and its live r16d switch set.
     hsb0_evaluation_proof()
     print('release_refactor=byte-identical-static-specs executor_default=r16d-main-equal linux_toplevel_drvPath=pending')
 
@@ -120,16 +193,21 @@ def hsb0_evaluation_proof():
     # local store. This only evaluates derivations; it never builds or contacts
     # the daemon, network or any host. Source drvPaths bind the closure bytes.
     harness = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
-    baseline_executor = subprocess.check_output(['git', 'show', HSB0_BASELINE + ':modules/paper-desk-executor/default.nix'], cwd=ROOT, text=True)
-    baseline_image = re.search(r'image = lib.mkOption \{.*?default = "([^"]+)";', baseline_executor, re.S)[1]
     start = harness.index('    specialArgs.pkgs = {')
     end = harness.index('    modules = [', start)
     harness = harness[:start] + '    specialArgs.pkgs = import <nixpkgs> { system = "x86_64-linux"; };\n' + harness[end:]
     harness = harness.replace(
         'extraRestartTriggers = lib.mkOption { type = lib.types.listOf lib.types.str; };',
         'extraRestartTriggers = lib.mkOption { type = lib.types.listOf lib.types.anything; };')
+    # Feed the actual host executor options into the real module evaluator too.
+    harness = harness.replace('''          nixcfg.paperDeskExecutor = {
+            enable = true;
+          }''', '''          nixcfg.paperDeskExecutor = (import @ROOT@/hosts/hsb0/configuration.nix {
+            inherit lib; pkgs = import <nixpkgs> { system = "x86_64-linux"; }; config = cfg; inputs = {};
+          }).nixcfg.paperDeskExecutor''')
     harness = harness[:harness.index('if tailnetContract then\n')] + '''{
       image = cfg.nixcfg.paperDeskExecutor.image;
+      executorOptions = builtins.removeAttrs cfg.nixcfg.paperDeskExecutor [ "serviceSpec" ];
       service = cfg.nixcfg.paperDeskExecutor.serviceSpec;
       systemd = cfg.systemd;
       firewall = cfg.networking.firewall;
@@ -141,10 +219,10 @@ def hsb0_evaluation_proof():
     }
     '''
     with tempfile.TemporaryDirectory(prefix='ops354-hsb0-eval-') as folder:
-        folder = pathlib.Path(folder)
+        folder = pathlib.Path(folder).resolve()
         main = folder / 'main'
         main.mkdir()
-        paths = ['modules/paper-desk-executor', 'modules/tailnet-peers',
+        paths = ['hosts/csb0/joedesk-release.json', 'modules/paper-desk-executor', 'modules/tailnet-peers',
                  'modules/agent-mailbox', 'modules/joe-results-producer',
                  'modules/ib-gateway-session', 'hosts/hsb0/configuration.nix',
                  'hosts/hsb0/docker/compose-spec.nix', 'hosts/hsb0/docker/joe-board-pusher']
@@ -153,11 +231,7 @@ def hsb0_evaluation_proof():
         values = []
         for name, source in (('main', main), ('merged', ROOT)):
             expression = folder / (name + '.nix')
-            source_harness = harness
-            if name == 'main':
-                # Give each side its own real runtime in the module assertion;
-                # the complete evaluated results must still compare equal.
-                source_harness = source_harness.replace('joe-board-pusher.image = "' + HSB0_IMAGE + '";', 'joe-board-pusher.image = "' + baseline_image + '";')
+            source_harness = harness.replace('../hosts/', str(source / 'hosts') + '/')
             expression.write_text(source_harness.replace('../modules/', str(source / 'modules') + '/').replace('@ROOT@', str(source)))
             values.append(subprocess.check_output([
                 'nix', 'eval', '--offline', '--store', str(folder / 'store'), '--impure',
@@ -166,9 +240,77 @@ def hsb0_evaluation_proof():
         for name in ('joe-board-pusher', 'paper-desk-executor', 'joe-household-v2-stage'):
             require(actual['hostCompose']['services'][name]['image'] == HSB0_IMAGE, name + ': evaluated host image must be the r16d switch set')
         require(actual['image'] == HSB0_IMAGE, 'evaluated executor image must be the r16d switch set')
-        require(values[0] == values[1], 'hsb0 differs from main: image, service, units, firewall, users, source derivations or compose')
+        baseline = json.loads(values[0])
+        # The unchanged build-context policy necessarily captures new .mjs bytes.
+        # Nothing else may change while current.data_schema remains v1.
+        build_changes = []
+        for name, service in actual['hostCompose']['services'].items():
+            previous = baseline['hostCompose']['services'][name]
+            if service.get('build') != previous.get('build'):
+                build_changes.append(name)
+            service.pop('build', None)
+            previous.pop('build', None)
+        require(sorted(build_changes) == ['joe-board-pusher', 'joe-household-v2-stage'], 'only pusher-source build contexts may change')
+        require(baseline == actual, 'v1 runtime differs from 2eb3953e: image, service, units, firewall, users, executor derivations or compose')
+        pusher = actual['hostCompose']['services']['joe-board-pusher']
+        require(pusher == {
+            'container_name': 'joe-board-pusher', 'restart': 'unless-stopped', 'network_mode': 'host',
+            'env_file': ['/run/agenix/hsb0-ib-desk-env'], 'image': HSB0_IMAGE, 'pull_policy': 'never',
+            'labels': ['com.centurylinklabs.watchtower.enable=false', 'traefik.enable=false'],
+            'environment': ['TZ=Europe/Vienna', 'JOE_PUSH_INTERVAL_SEC=30',
+                'JOE_EXECUTOR_CLIENT_IDS=[705,700]', 'JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock'],
+            'volumes': ['/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro',
+                '/var/lib/joe-board-pusher:/var/lib/joe-board-pusher:rw', '/var/lib/paper-desk-executor:/var/lib/paper-desk-executor:ro',
+                '/run/joe-household-v2:/run/joe-household-v2:rw'],
+        }, 'v1 complete pusher runtime golden changed')
+        candidate = folder / 'candidate'
+        for relative in paths:
+            source_path, target = ROOT / relative, candidate / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source_path.is_dir():
+                shutil.copytree(source_path, target, ignore=shutil.ignore_patterns('node_modules', '__pycache__'))
+            else:
+                shutil.copy2(source_path, target)
+        selected = check()
+        selected['active'] = 'v2'
+        for participant in ('pusher', 'executor'):
+            selected['sets']['v2'][participant] = copy.deepcopy(selected['sets']['current'][participant])
+            selected['sets']['v2'][participant]['image'] = CANDIDATE_IMAGE
+        (candidate / 'hosts/csb0/joedesk-release.json').write_text(json.dumps(selected))
+        expression = folder / 'v2.nix'
+        expression.write_text(harness.replace('../modules/', str(candidate / 'modules') + '/')
+                              .replace('../hosts/', str(candidate / 'hosts') + '/').replace('@ROOT@', str(candidate)))
+        activated = json.loads(subprocess.check_output([
+            'nix', 'eval', '--offline', '--store', str(folder / 'store'), '--impure',
+            '--json', '--file', str(expression), '--apply', 'f: f {}'], cwd=ROOT))
+        services = activated['hostCompose']['services']
+        for name in ('joe-board-pusher', 'paper-desk-executor', 'joe-household-v2-stage'):
+            require(services[name]['image'] == CANDIDATE_IMAGE, name + ': v2 must select r17')
+        require(activated['image'] == CANDIDATE_IMAGE, 'v2 executor option must select r17')
+        require('JOE_PUSH_SCHEMA=inspr.joe.household.v2' in services['joe-board-pusher']['environment'], 'v2 schema activation missing')
+        require(services['joe-board-pusher']['volumes'] == pusher['volumes'] + [
+            '/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro'], 'v2 exact nested read-only mount missing')
+        stage = services['joe-household-v2-stage']
+        require(stage['network_mode'] == 'none' and stage['read_only'] is True
+                and '/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw' in stage['volumes'], 'stager isolation changed')
+        expected_stage = copy.deepcopy(actual['hostCompose']['services']['joe-household-v2-stage'])
+        expected_stage['image'] = CANDIDATE_IMAGE
+        require({k: v for k, v in stage.items() if k != 'build'} == expected_stage, 'v2 stager behavior changed beyond its selected image')
+        # Disabling staging while v2 is active must not select an old v1 sender
+        # or remove the read-only bind. The committed cursor still governs POSTs.
+        host_path = candidate / 'hosts/hsb0/configuration.nix'
+        host_path.write_text(host_path.read_text().replace('joeHouseholdV2StageEnabled = true;', 'joeHouseholdV2StageEnabled = false;'))
+        disabled = json.loads(subprocess.check_output([
+            'nix', 'eval', '--offline', '--store', str(folder / 'store'), '--impure',
+            '--json', '--file', str(expression), '--apply', 'f: f {}'], cwd=ROOT))
+        services = disabled['hostCompose']['services']
+        require('joe-household-v2-stage' not in services, 'disabled stager remains present')
+        require(services['joe-board-pusher']['image'] == disabled['image'] == CANDIDATE_IMAGE, 'disabled stager selected a v1-only runtime')
+        require('JOE_PUSH_SCHEMA=inspr.joe.household.v2' in services['joe-board-pusher']['environment'], 'disabled stager removed v2 mode')
+        require('/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro' in services['joe-board-pusher']['volumes'], 'disabled stager removed read-only mount')
+        print('ops408_v1_runtime=2eb3953e-identical_except_build v2_images=r17 schema=v2 pusher_v2_mount=ro stager_v2_mount=rw disabled_stager=v2_fail_closed')
         require(actual['hostCompose']['services']['paper-desk-executor'] == actual['service'], 'host executor service mismatch')
-        print('hsb0_main_equality=image,service,units,firewall,users,source_drvPaths,compose sha256=' + hashlib.sha256(values[1]).hexdigest())
+        print('hsb0_v1_runtime_equality=image,options,service,units,firewall,users,executor_source_drvPaths,compose_except_build sha256=' + hashlib.sha256(json.dumps(actual, sort_keys=True).encode()).hexdigest())
 
 
 def selector_regressions():
@@ -190,7 +332,7 @@ def selector_regressions():
             for name in ('pusher', 'executor'):
                 active[name] = copy.deepcopy(fixture['sets']['current'][name])
         with tempfile.TemporaryDirectory(prefix='ops354-selector-') as folder:
-            folder = pathlib.Path(folder)
+            folder = pathlib.Path(folder).resolve()
             release_path = folder / 'release.json'
             release_path.write_text(json.dumps(fixture))
             config = (ROOT / 'hosts/csb0/configuration.nix').read_text()
@@ -261,6 +403,7 @@ if __name__ == '__main__':
     parser.add_argument('--prove-current', action='store_true', help='pre-cutover byte equality against baseline HEAD')
     args = parser.parse_args()
     check(args.joedesk_source)
+    variant_b_regressions()
     selector_regressions()
     if args.prove_current:
         evaluation_proof()
