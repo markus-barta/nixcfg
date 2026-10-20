@@ -20,8 +20,8 @@ const DESKS = ["j", "joe", "joel"];
 // first-seen instant is durable, so each assignment starts at the stage-0
 // baseline and covers every retained fill. Read-only clients 92 and 94 place
 // no orders and stay unassigned; any other client ID still fails loud.
-// Adding these assignments changes the ownership policy hash. Retire the
-// persisted day-baseline file on deploy; the J-family classifier is unchanged.
+// Adding assignments changes the ownership policy hash. Day baselines use
+// separate files per policy; the J-family classifier is unchanged.
 export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
   method: POLICY_METHOD,
   periodStart: PERIOD_START,

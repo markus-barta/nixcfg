@@ -30,7 +30,7 @@ import {
 } from "./desk-ledger.mjs";
 import {
   createDeskDayPnlProducer,
-  createFileDayBaselineStore,
+  createPolicyDayBaselineStore,
 } from "./day-baseline.mjs";
 import {
   createFileFamilyHistoryStore,
@@ -240,12 +240,13 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   },
 });
 
+const deskProviderContract = deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY);
 const dayPnlProducer = createDeskDayPnlProducer({
   account: ACCOUNT,
   policy: CURRENT_DESK_OWNERSHIP_POLICY,
-  providerContract: deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY),
+  providerContract: deskProviderContract,
   historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
-  store: createFileDayBaselineStore(DAY_BASELINE_PATH),
+  store: createPolicyDayBaselineStore(DAY_BASELINE_PATH, deskProviderContract.policyHash),
   buildBoundaryEvidence: buildDeskDayBoundaryEvidence,
   getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
   // Live FX observations are valid for five minutes in the family adapter, so

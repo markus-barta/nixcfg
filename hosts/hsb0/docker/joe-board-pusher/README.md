@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r12-202610201200` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-202610201110`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-202610201110`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -456,8 +456,12 @@ Complete official intervals must have no gap across
 revision, ownership completeness, persistence, freshness, or coverage disagreement
 rejects the affected evidence; an independently valid fixed proxy may remain
 available while exact-boundary proof is pending. Runtime
-state is stored atomically at `/var/lib/joe-board-pusher/day-baseline.json` beside
-the existing family ledger and history sidecar on the same persistent mount.
+state is stored atomically at
+`/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` beside the existing
+family ledger and history sidecar on the same persistent mount. The full
+lowercase SHA-256 ownership-policy hash selects the file. Legacy
+`day-baseline.json` and other policies' files are preserved for rollback and
+never copied into the active policy's baseline.
 
 Stage-0 desks share one paper account and may both hold one contract.
 `calculateFamily` defaults to exclusive ownership and fails with
@@ -489,9 +493,15 @@ claims a client. The executor already normalizes only the desk prefix and
 retains its separate executor-provenance/admin-attribution ownership gate;
 this valuation assignment grants no broker action authority.
 
-This assignment changes the desk policy hash, so the previous day baseline
-fails closed and must be retired through the existing deployment procedure.
-The candidate image is `household-v2-switch-set-r13-202610201300`; the retained
+Raw IB fill times such as `20261006 09:40:47 US/Eastern` use the same
+`executionTime` parser as the family classifier. Activity ownership and latest
+fill selection compare epochs, and the summary stores canonical UTC ISO times.
+The inclusive 229 boundary is enforced before activity is assigned to J;
+invalid or ambiguous clocks and unowned fills still fail closed.
+
+This assignment changes the desk policy hash. R14 selects a separate baseline
+file automatically; no manual retirement or deletion is needed on switch.
+The candidate image is `household-v2-switch-set-r14-202610201330`; the retained
 rollback image is `household-v2-switch-set-202610201110`.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
@@ -502,14 +512,31 @@ Read-only clients 92 and 94 place no orders and stay unassigned. The J-family
 classifier is unchanged, so `family-ledger.json` and `family-history.json`
 remain valid.
 
-Those Joe assignments change the desk ownership policy hash. A persisted
-`/var/lib/joe-board-pusher/day-baseline.json` bound to the previous hash fails
-closed on load (`day baseline source method or classifier mismatch`) and is
-not rewritten. Retire that file when deploying this policy. The next complete
-virtual-equity observation seeds a new session proxy, and the next New York
-midnight can prove an exact SOD baseline. This is the same ownership-hash
-class as the 2026-09-22 J client claim for 76, 78, 79, 80, and 83. That claim
-changed the family classifier; this one does not.
+Those Joe assignments also changed the desk ownership policy hash. Before R14,
+loading a mismatched `day-baseline.json` blocked the adapter for its entire
+lifetime (`day baseline source method or classifier mismatch`). Neither the
+next NY day nor a restart with the same file cleared that failure.
+
+With R14, a new policy's file starts empty. V1 DAY remains unavailable/null
+(`day_pnl_unavailable`) until the existing calculator supplies a complete fresh
+KEEP-excluded equity vector proven against retained execution/fee history,
+the active ownership policy, current marks and FX. Its first durable sample
+establishes an explicitly approximate `session_open_proxy` today: the initial
+delta is zero relative to that actual sample, and earlier day change is excluded.
+The fixed reference survives restart. No prior-policy value is reused and no
+historical midnight mark or FX value is invented. Invalid/stale evidence,
+corrupt active-policy state, and failed persistence remain unavailable.
+
+At the next NY calendar-day midnight, an observation from at most five minutes
+before the boundary plus authoritative continuous execution coverage and an
+unchanged boundary economic-history digest can promote an exact SOD baseline.
+This is conditional on those proofs, not trading-day opening; without them the
+first valid new-day observation supplies another approximate session proxy.
+V2 still stages every desk's `dayPnl:null` with `not_exact_yet`, including after
+v1 proxy or exact recovery; the bounded v2 handoff does not carry this money.
+Preserve both legacy and policy-keyed files during switch and rollback. This
+ownership-hash change leaves the family classifier and its retained captures
+unchanged, unlike the 2026-09-22 J claim for clients 76, 78, 79, 80, and 83.
 
 The same accepted all-desk vector supplies each desk's displayed equity,
 since-start PnL, and execution-owned OPEN PnL. This includes Joe closed roundtrips
