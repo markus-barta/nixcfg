@@ -8,6 +8,7 @@ import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { createStageHandoff } from "./v2-stage-handoff.mjs";
 import { executionActivity, createDeskStateReporter } from "./desk-activity.mjs";
+import { EXECUTOR_CLIENT_IDS, readExecutorAttribution } from "./executor-attribution.mjs";
 import { IBApi, EventName } from "@stoqey/ib";
 import {
   EXECUTION_CAPTURE_SCHEMA,
@@ -58,6 +59,10 @@ const LIVE_PORT = 4001;
 const CLIENT_ID = 92;
 const OFFICIAL_HISTORY_CLIENT_ID = 94;
 const ACCOUNT = configuredPaperAccount();
+const executorClientIds = process.env.JOE_EXECUTOR_CLIENT_IDS === undefined
+  ? EXECUTOR_CLIENT_IDS : JSON.parse(process.env.JOE_EXECUTOR_CLIENT_IDS);
+let executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds });
+const deskOwnershipPolicy = { ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds };
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
 const FAMILY_HISTORY_PATH = "/var/lib/joe-board-pusher/family-history.json";
@@ -146,7 +151,11 @@ const adapter = createBrokerSessionAdapter({
 const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
 
 const familyAdapter = createFamilySessionAdapter({
-  summarizeActivity: v2StageHandoff ? executionActivity : null,
+  summarizeActivity: state => {
+    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds });
+    return executionActivity(state, executorAttribution);
+  },
+  getExecutorAttribution: () => executorAttribution,
   targetAccount: ACCOUNT,
   familyClientIds: FAMILY_CLIENT_IDS,
   familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
@@ -183,7 +192,7 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   normalizeExecutionRow: normalizeEconomicExecution,
   normalizeCommissionReport: normalizeEconomicCommission,
   reconcileCapture: reconcileExecutionCapture,
-  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS }),
+  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, executorAttribution }),
   eventNames: EventName,
   store: createFileFamilyHistoryStore(FAMILY_HISTORY_PATH),
   loadBootstrapCapture({ targetAccount, classifier, historyStart }) {
@@ -240,14 +249,14 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   },
 });
 
-const deskProviderContract = deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY);
+const deskProviderContract = deskOwnershipPolicyContract(deskOwnershipPolicy);
 const dayPnlProducer = createDeskDayPnlProducer({
   account: ACCOUNT,
-  policy: CURRENT_DESK_OWNERSHIP_POLICY,
+  policy: deskOwnershipPolicy,
   providerContract: deskProviderContract,
   historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
   store: createPolicyDayBaselineStore(DAY_BASELINE_PATH, deskProviderContract.policyHash),
-  buildBoundaryEvidence: buildDeskDayBoundaryEvidence,
+  buildBoundaryEvidence: args => buildDeskDayBoundaryEvidence({ ...args, executorAttribution }),
   getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
   // Live FX observations are valid for five minutes in the family adapter, so
   // the boundary candidate declares and enforces the same maximum source age.
@@ -337,7 +346,7 @@ async function pushOnce(stageObservation) {
   }
   const deskEquities = familyAdapter.projectDeskEquities(book, {
     calculateDeskEquities,
-    policy: CURRENT_DESK_OWNERSHIP_POLICY,
+    policy: deskOwnershipPolicy,
   });
   if (!deskEquities.ok) {
     console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
@@ -354,6 +363,7 @@ async function pushOnce(stageObservation) {
     family,
     familyHistory,
     deskEquities,
+    deskOwnershipPolicy,
     retainedDeskEquity,
     dayPnl,
   });
@@ -367,7 +377,7 @@ async function pushOnce(stageObservation) {
     return { ok: false, error: "no token" };
   }
 
-  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, executions: familyAdapter.activitySnapshot() });
+  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, executions: familyAdapter.activitySnapshot(), executorAttribution });
 
   const res = await fetch(INBOX_URL, {
     method: "POST",
@@ -465,15 +475,16 @@ function syncFlatNetMarks() {
   const book = adapter.snapshot();
   const state = familyAdapter.inspectState();
   if (!book || !state) return;
-  flatNetMarks.sync(contractsNeedingFlatNetMarks({
+  try { flatNetMarks.sync(contractsNeedingFlatNetMarks({
     executions: state.executions,
     positions: book.positionsCoverage?.rows || [],
     portfolio: book.portfolio || [],
     account: ACCOUNT,
     familyClientIds: FAMILY_CLIENT_IDS,
     familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    executorAttribution,
     excludedSymbols: ["SXR8", "TSLA"],
-  }));
+  })); } catch { flatNetMarks.reset(); }
 }
 // Independent of both publisher cadence and unrelated healthy socket traffic.
 const portfolioRefreshTimer = setInterval(() => {
