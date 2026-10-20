@@ -454,16 +454,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1792400856,
-        "narHash": "sha256-WVPbVRg/Nq18Puy1wt9fsu1hAH7jMpWAXlMnEIZHgd8=",
+        "lastModified": 1792437678,
+        "narHash": "sha256-4iMeUbJj2dCbpuIEf7aK2X/jAJ9LpnfW4Grc9lQymi0=",
         "ref": "refs/heads/main",
-        "rev": "645bcb25698a1ca9eb57e5739e17cab55ff39e6f",
-        "revCount": 313,
+        "rev": "1aefc0c30a8e001b6bf907ed3eb3ece3864e5ac6",
+        "revCount": 328,
         "type": "git",
         "url": "ssh://git@github.com/markus-barta/hausnetz"
       },
       "original": {
-        "rev": "645bcb25698a1ca9eb57e5739e17cab55ff39e6f",
+        "rev": "1aefc0c30a8e001b6bf907ed3eb3ece3864e5ac6",
         "type": "git",
         "url": "ssh://git@github.com/markus-barta/hausnetz"
       }

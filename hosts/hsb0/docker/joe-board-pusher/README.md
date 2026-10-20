@@ -12,13 +12,122 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-A switch keeps the pinned pusher image (`pull_policy = "never"`); the env-reading
-pusher source takes effect only after an image promotion. Promote it with a new
-image tag, bumped in one follow-up PR across `hosts/hsb0/configuration.nix`,
-`modules/paper-desk-executor/default.nix` and `tests/paper-desk-executor-eval.nix`.
-OPS tracks that follow-up; this PR leaves the tag unchanged. Never run
-`docker compose build` over the pinned tag: it would destroy the validated
-rollback image and replace the executor's runtime image too.
+The Phase A candidate image is `hsb0-joe-board-pusher:household-v2-phase-a-202610190715`.
+The pusher, isolated stager and executor runtime use that same immutable image;
+the executor source remains on its existing mount. `pull_policy = "never"`
+prevents an automatic rebuild or pull. Build this new tag during the separately
+reviewed host promotion; keep `flat-net-reconcile-perf-202610010310` intact for
+rollback. Never rebuild over either published tag. The base image digests,
+package manifests and `npm ci` remain unchanged.
+
+## Phase A household.v2 staging (OPS-392)
+
+`joeHouseholdV2StageEnabled = true` enables an independent
+`joe-household-v2-stage` service. This is local staging evidence, never a switch
+snapshot or an inbox payload. PAPER only; live remains locked. Existing KEEP
+exclusions and all v1 accounting, subscriptions, token source, POST bytes and
+interval remain unchanged. Every money cell is null with
+`source_not_authoritative`; desk states are `sit-out` with a fixed action.
+Gateway, executor, positions, raw NAV, historical evidence and accounting are
+omitted. The legal non-money `haltReason: null` accompanies `halt: false`.
+
+The pusher constructs its optional Unix client once at startup and reconnects
+from `setImmediate` after close. Only the fixed `/run/joe-household-v2/stage.sock`
+setting is accepted. After its one v1 fetch/response has settled
+(including rejection), it offers only the cycle's `book.ts`. An idle worker
+issues one `0x01` credit; one frame is uint32-be byte length followed by UTF-8
+JSON `{format:"ops392.phase-a-observation.v1",bookTs}`, at most 4096 bytes,
+with a string at most 64 characters. Busy/disconnected/backpressured opportunities
+are dropped. There is no awaiting the worker, second POST or queued retry.
+
+The service has no networking, credentials or broker mounts, a separate 128m
+memory/swap limit, 0.25 CPU and 32 processes. It runs as 1000:1000 with a read-only
+root, no capabilities and no-new-privileges. Only the private v2 state and IPC
+directories are writable. The supervisor discards child stdout/stderr, enforces
+a five-second startup/job watchdog, kills the actual `flock --no-fork` worker,
+and restarts with 1/2/4/8/16/30-second bounded backoff. Its logs contain only
+closed, value-free control events.
+
+Host tmpfiles create `/var/lib/joe-board-pusher/v2` and
+`/run/joe-household-v2` as 0700, owned by 1000:1000; files/socket are 0600.
+**Enrollment is explicit and one-shot**, after the operator's recorded empty
+staged/accepted history. In the isolated service context, run
+`node v2-stage-worker.mjs --enroll` with those same two mounts and user. It takes
+the lifetime allocator lock, requires absent state and pairs, and persists
+`format:"ops392.v2-sequence-state.v1"`, immutable `floor: 0`, and high water 0.
+The supervisor never enrolls. An absent or corrupt state fails closed; do not
+reset it to recover service. The first reserved sequence is 1. Other hosts or
+reenrollment need a separate operator floor record and reviewed procedure.
+
+The worker verifies the exact 17-file revision-7 closure before importing any
+contracts. Source time is calendar-validated UTC from `book.ts`; missing or
+regressing time suppresses staging. Repeated observations retain generation
+and local generation-progress time. Each sequence is fsynced, renamed and
+parent-directory-fsynced before use; crashes may burn numbers, never reuse them.
+The stable `.allocator.lock` inode is never replaced. A second writer cannot
+acquire it.
+
+Readers follow only `current.json` to an immutable `pair-<seq>` directory.
+`snapshot.json` holds exact validated ingress bytes without `receivedAt`;
+`receipt.json` records the real local staging receipt, sequence/generation,
+`generatedAdvancedAt`, snapshot SHA256 and contract-set SHA256. Receipt is not
+proof of live board acceptance. Pair files and directory become durable before
+the pointer's own atomic replacement. At most one current and one orphan/next
+pair plus one state/pointer temp exist. Recovery checks all recognized residue
+before retiring it; unknown files, wrong ownership/modes, inconsistent sequences
+or digests disable staging and preserve evidence. v1 state is untouched.
+
+For rollback, set `joeHouseholdV2StageEnabled = false` through the normal
+reviewed configuration workflow. The service, socket env/mount and updater
+exclusion disappear; matching pusher/executor pins return to the previous image.
+Keep durable v2 state/pairs intact. The flag-off Nix evaluation compares the
+entire serialized pusher declaration to the baseline, using the same inert
+build-context path in both evaluations (the real source-store hash necessarily
+changes with source content).
+
+Run `node --test` for all pusher tests. New tests cover exact baseline v1 bytes,
+fetch/body rejection identity, skips, the credit/frame protocol, real child
+death at persistence boundaries, contract acceptance/replay/clocks, corruption,
+ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
+synthetic/masked. The pinned verifier checks every closure file against its
+independent hash/size manifest; offline handoff evidence also compares the
+17 files and lock directly against the reviewed producer closure. The pusher-local
+verifier exports a fixed-path `verify()`; `node verify-contracts-entry.mjs`
+is the unconditional Docker build entry. Its pass/fail verdicts are compared
+with the original producer verifier on identical valid and damaged trees. Linux
+flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
+those separately and does not claim container isolation has been live-verified.
+
+### Linux isolation rehearsal
+
+On a workstation with Docker/Colima, Nix (`<nixpkgs/lib>`), Node 22.23+ and
+`trash` available, run from the repository root:
+
+```sh
+node scripts/rehearse-household-v2-stage.mjs
+```
+
+This builds a unique local image from the actual Nix-filtered source. It refuses
+fleet workstation/engine names and non-Unix Docker endpoints, pins the checked
+endpoint, and proves the daemon can see a unique local marker. It creates only
+unique lab containers and volumes; it never opens credentials, a real account
+or a broker. The pusher imports its real code and projection with synthetic
+broker/token boundaries and a loopback stub inbox; its original 30-second
+interval and v1 fetch block execute unchanged. The stager keeps the actual
+Compose memory/swap/CPU/PID limits, network isolation and security settings.
+A read-only lab mount injects OOM and hang faults into the lock-holding worker's
+fsync; runtime code and the filtered image contain no fault hook. A one-shot
+root initializer grants CHOWN solely to initialize fresh lab volumes; both
+runtime services use the image's uid 1000.
+
+The rehearsal checks distinct memory-cgroup inodes, the 128m limit, kernel OOM
+evidence, watchdog recovery from a blocked job, forced worker death, continuing
+identical v1 POST bytes/cadence, an unchanged pusher boot identity and a valid
+new staged pair after each fault. Pair inspection is read-only. It removes only
+its own Compose project, volumes, image and temporary directory. A final
+`{"result":"ok",...}` is the runtime verdict; failure is nonzero. Allow roughly
+four minutes plus image build time. CI runs `node --test` on Ubuntu/Node 22,
+including real flock; this longer Docker rehearsal remains a workstation gate.
 
 ## Board health
 
