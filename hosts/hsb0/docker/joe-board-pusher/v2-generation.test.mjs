@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate, StageStore, prepareLock, validObservation } from "./v2-stage-worker.mjs";
-import { createDeskStateReporter, deskStateDetails, newYorkDay } from "./desk-activity.mjs";
+import { createDeskStateReporter, deskStateDetails, newYorkDay, ACTIVITY_FRESH_MS, ACTIVITY_FUTURE_SKEW_MS } from "./desk-activity.mjs";
 import { startCycle } from "./v1-cycle.mjs";
 import { createBrokerSessionAdapter } from "./pusher-state.mjs";
 import { validateContract } from "./contracts/index.mjs";
@@ -15,6 +15,8 @@ import { acceptSnapshot } from "./contracts/accept.mjs";
 
 const epoch = Date.parse("2026-10-20T14:00:00.000Z");
 const at = seconds => new Date(epoch + seconds * 1000).toISOString();
+const freshSeconds = ACTIVITY_FRESH_MS / 1000;
+const skewSeconds = ACTIVITY_FUTURE_SKEW_MS / 1000;
 const read = name => JSON.parse(fs.readFileSync(name));
 function source(bookSeconds = 0, readerSeconds = bookSeconds) {
   return {
@@ -84,30 +86,32 @@ test("ten minutes of 3-minute books and 30-second readers advances every generat
   assert.equal(restarted.state.lastGeneratedAt, at(600));
 });
 
-test("all reader clocks accept gen-300 through gen+5, including after the book, and reject gen+6", () => {
+test(`all reader clocks accept gen-${freshSeconds} through gen+${skewSeconds}, including after the book, and reject gen+${skewSeconds + 1} and age ${freshSeconds + 1}s`, () => {
   const observation = copyObservation(source(0, 150));
   for (const reader of ["positions", "orders", "executions"]) {
     const field = `${reader}At`, base = observation.deskActivity.j;
-    for (const seconds of [-150, 150, 155]) {
+    for (const seconds of [150 - freshSeconds, 150, 150 + skewSeconds]) {
       assert.deepEqual(deskStateDetails({ ...base, [field]: at(seconds) }, at(150), at(150)),
         { state: "working", cause: null });
     }
-    for (const seconds of [-151, 156]) {
+    for (const seconds of [150 - freshSeconds - 1, 150 + skewSeconds + 1]) {
       assert.deepEqual(deskStateDetails({ ...base, [field]: at(seconds) }, at(150), at(150)),
         { state: "stuck", cause: `${reader}_stale` });
     }
-    assert.deepEqual(deskStateDetails({ ...base, [field]: null }, at(150), at(150)),
-      { state: "stuck", cause: `${reader}_unavailable` });
+    for (const unavailable of [null, "not-a-time"]) {
+      assert.deepEqual(deskStateDetails({ ...base, [field]: unavailable }, at(150), at(150)),
+        { state: "stuck", cause: `${reader}_unavailable` });
+    }
   }
 });
 
-for (const age of [180, 300, 301]) test(`account and positions source age ${age}s is independent of fresh readiness`, () => {
+for (const age of [180, freshSeconds, freshSeconds + 1]) test(`account and positions source age ${age}s is independent of fresh readiness`, () => {
   const copied = copyObservation(source(0, age));
   const value = buildCandidate(1, at(age), copied);
   assert.equal(value.safety.gateway.apiSessionReady, true);
   assert.equal(value.brokerAccount.observedAt, at(0));
   assert.equal(value.positions.observedAt, at(0));
-  if (age <= 300) {
+  if (age <= freshSeconds) {
     assert.equal(value.brokerAccount.equity.amount, "12345.67000000");
     assert.equal(value.brokerAccount.cash.amount, "-0.0000");
     assert.equal(value.positions.rows[0].reasons.quantity, "not_exact_yet");
@@ -132,8 +136,8 @@ for (const age of [180, 300, 301]) test(`account and positions source age ${age}
   assert.equal(acceptSnapshot("data", value, null, at(age)).status, 200);
 });
 
-test("a 301-second-old gateway reply is unconfirmed with snapshot_stale and withholds money", () => {
-  const value = buildCandidate(1, at(301), copyObservation(source(0, 0)));
+test(`a ${freshSeconds + 1}-second-old gateway reply is unconfirmed with snapshot_stale and withholds money`, () => {
+  const value = buildCandidate(1, at(freshSeconds + 1), copyObservation(source(0, 0)));
   // Rev 9 requires a boolean readiness flag; false plus a reason represents unavailable.
   assert.deepEqual(value.safety.gateway, { apiSessionReady: false, checkedAt: at(0), reason: "snapshot_stale" });
   assert.equal(value.brokerAccount.equity, null);
@@ -152,13 +156,13 @@ test("unrelated book and readiness callbacks cannot renew NAV, cash or position 
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "12345.67000000", "EUR");
   api.emit("accountSummary", 9501, "DUFIXTURE", "TotalCashValue", "-0.0000", "EUR");
   api.emit("accountSummaryEnd", 9501); api.emit("positionEnd"); api.emit("accountDownloadEnd", "DUFIXTURE");
-  seconds = 301;
+  seconds = freshSeconds + 1;
   api.emit("accountSummary", 9501, "DUFIXTURE", "BuyingPower", "1", "EUR");
   api.emit("accountSummaryEnd", 9501);
-  const observation = copyObservation({ ...source(301, 301), book: adapter.snapshot() });
-  assert.equal(observation.bookTs, at(301));
+  const observation = copyObservation({ ...source(seconds, seconds), book: adapter.snapshot() });
+  assert.equal(observation.bookTs, at(seconds));
   assert.deepEqual(observation.sourceObservedAt, { equity: at(0), cash: at(0), positions: at(0) });
-  let value = buildCandidate(1, at(301), observation);
+  let value = buildCandidate(1, at(seconds), observation);
   assert.equal(value.safety.gateway.apiSessionReady, true);
   assert.equal(value.brokerAccount.equity, null);
   assert.equal(value.brokerAccount.cash, null);
@@ -167,14 +171,14 @@ test("unrelated book and readiness callbacks cannot renew NAV, cash or position 
   // A fresh NAV callback and complete positions reply prove only those sources.
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "12345.67000000", "EUR");
   api.emit("positionEnd");
-  value = buildCandidate(2, at(301), copyObservation({ book: adapter.snapshot() }));
+  value = buildCandidate(2, at(seconds), copyObservation({ book: adapter.snapshot() }));
   assert.equal(value.brokerAccount.equity.amount, "12345.67000000");
   assert.equal(value.brokerAccount.cash, null);
   assert.equal(value.brokerAccount.reasons.cash, "source_unavailable");
-  assert.equal(value.brokerAccount.observedAt, at(301));
-  assert.equal(value.positions.observedAt, at(301));
+  assert.equal(value.brokerAccount.observedAt, at(seconds));
+  assert.equal(value.positions.observedAt, at(seconds));
   assert.equal(new StageStore().validProjection(value), true);
-  assert.equal(acceptSnapshot("data", value, null, at(301)).status, 200);
+  assert.equal(acceptSnapshot("data", value, null, at(seconds)).status, 200);
 });
 
 test("private source clocks are closed, calendar validated and optional for old frames", () => {
