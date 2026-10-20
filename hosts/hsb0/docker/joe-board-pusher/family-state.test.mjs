@@ -22,7 +22,7 @@ import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 import { createOfficialHistoryRefresher } from "./family-history-session.mjs";
 import { deskState, executionActivity } from "./desk-activity.mjs";
 import { waitForExecutionCycle } from "./pusher-state.mjs";
-import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { J_DATED_CLIENT_ASSIGNMENTS, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const FAMILY_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
@@ -132,6 +132,7 @@ function setup({
   store = memoryStore(),
   calculate = calculator,
   familyClientIds = FAMILY_IDS,
+  familyClientAssignments = [],
   excludedSymbols = ["SXR8", "TSLA"],
   retryBaseMs = 5_000,
   retryMaxMs = 20_000,
@@ -146,6 +147,7 @@ function setup({
     targetAccount: ACCOUNT,
     summarizeActivity,
     familyClientIds,
+    familyClientAssignments,
     excludedSymbols,
     periodStart: FAMILY_BASELINE_PERIOD_START,
     calculateFamily: calculate,
@@ -242,6 +244,35 @@ function book(observedAt = "2026-09-10T12:00:01Z") {
     positionsCoverage: { status: "complete", rows: [{ contract: contract(), pos: 1, observedAt }] },
   };
 }
+
+test("dated J client 229 waits for its fee and reaches the family calculator with the canonical assignment", () => {
+  let received;
+  const at = "2026-10-06T13:41:00Z";
+  const row = execution("synthetic.mac.01", 229, { time: "20261006 09:40:47 US/Eastern" });
+  row.contract.multiplier = 0;
+  const store = memoryStore();
+  const baseline = setup({ store });
+  complete(connect(baseline), []);
+  const history = verifiedHistory([], [], { through: "2026-10-06T04:00:00Z", capturedAt: at });
+  const session = setup({ at, store, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    getVerifiedHistoryState: () => history,
+    calculate(args) { received = args; return calculateFamily(args); } });
+  const api = connect(session);
+  complete(api, [row], []);
+  assert.equal(session.adapter.requestInFlight, true, "dated J fills need the same commission proof as existing J fills");
+  api.emit(EVENTS.commissionReport, commission(row.execution.execId));
+  assert.equal(session.adapter.requestInFlight, false);
+  emitFx(api, "EUR", 1); emitFx(api, "USD", 0.9);
+  const currentBook = book(at);
+  currentBook.portfolio[0].contract.multiplier = 0;
+  currentBook.positionsCoverage.rows[0].contract.multiplier = 0;
+  const result = session.adapter.project(currentBook);
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(received.familyClientAssignments, J_DATED_CLIENT_ASSIGNMENTS);
+  assert.equal(result.executionCount, 1);
+  assert.equal(result.positions[0].quantity, 1);
+  assert.deepEqual(session.store.state.classifier, CLASSIFIER, "retained capture metadata is unchanged");
+});
 
 test("adapter uses only bounded read requests and waits for all family commissions", () => {
   const session = setup();

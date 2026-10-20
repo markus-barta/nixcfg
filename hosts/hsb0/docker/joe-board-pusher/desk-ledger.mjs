@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { newYorkPeriodStart } from "./day-baseline.mjs";
-import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { J_DATED_CLIENT_ASSIGNMENTS, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
@@ -35,6 +35,7 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
     ...[27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83].map((clientId) => Object.freeze({
       desk: "j", clientId, fromInclusive: PERIOD_START, toExclusive: null, basis: "existing-j-family-policy",
     })),
+    ...J_DATED_CLIENT_ASSIGNMENTS,
     Object.freeze({
       desk: "joe", clientId: 22, fromInclusive: PERIOD_START, toExclusive: null,
       basis: "broker-executions-and-desk-journals-2026-09-10-11",

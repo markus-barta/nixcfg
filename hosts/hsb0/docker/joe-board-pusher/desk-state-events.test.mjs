@@ -29,27 +29,27 @@ for (const [label, input, expected] of [
   ["invalid execution time", completed([execution(22, "invalid")]), { cause: "executions_unavailable" }],
   ["missing execution row", completed([null]), { cause: "executions_unavailable" }],
   ["execution after coverage", completed([execution(22, future)]), { cause: "execution_after_coverage" }],
-  ["unclaimed client", completed([execution(229)]), { cause: "execution_unowned", clientId: 229 }],
+  ["unclaimed client", completed([execution(230)]), { cause: "execution_unowned", clientId: 230 }],
   ["non-numeric unclaimed client", completed([execution("private-identity")]), { cause: "execution_unowned" }],
 ]) test(`execution summary cause: ${label}`, () => {
   assert.deepEqual(executionActivity(input), expected);
 });
 
 test("KEEP and prior-day executions retain their existing exclusion rules", () => {
-  const keep = { contract: { symbol: "TSLA" }, execution: { clientId: 229, time: future } };
-  const summary = executionActivity(completed([keep, execution(229, "2026-10-18T15:00:00.000Z")]));
+  const keep = { contract: { symbol: "TSLA" }, execution: { clientId: 230, time: future } };
+  const summary = executionActivity(completed([keep, execution(230, "2026-10-18T15:00:00.000Z")]));
   assert.deepEqual(summary, { observedAt: instant, day: "2026-10-19", latest: { j: null, joe: null, joel: null } });
 });
 
 const cases = [
-  ["positions_unavailable", s => { s.deskEquities = { ok: false, reason: "execution client 229 is unclaimed by the desk ownership policy" }; }],
+  ["positions_unavailable", s => { s.deskEquities = { ok: false, reason: "execution client 230 is unclaimed by the desk ownership policy" }; }],
   ["positions_stale", s => { s.deskEquities.oldestSourceObservedAt = old; }],
   ["orders_unavailable", s => { s.book.openOrders = null; }],
   ["orders_stale", s => { s.book.ordersObservedAt = old; }],
   ["executions_unavailable", s => { s.executions = executionActivity(undefined); }],
   ["executions_stale", s => { s.executions.observedAt = old; }],
   ["execution_day_mismatch", s => { s.executions = executionActivity({ ...completed(), coverageTradingDay: "2026-10-18" }); }],
-  ["execution_unowned", s => { s.executions = executionActivity(completed([execution(229)])); }, { client: 229 }],
+  ["execution_unowned", s => { s.executions = executionActivity(completed([execution(230)])); }, { client: 230 }],
   ["execution_after_coverage", s => { s.executions = executionActivity(completed([execution(22, future)])); }],
 ];
 for (const [cause, change, extra = {}] of cases) test(`${cause} emits once per desk until state or cause changes, with a closed event shape`, () => {
@@ -76,7 +76,7 @@ for (const [cause, change, extra = {}] of cases) test(`${cause} emits once per d
 test("cause changes while stuck emit; changed client IDs or timestamps alone do not", () => {
   const events = [], observation = source();
   const report = createDeskStateReporter({ onEvent: event => events.push(event) });
-  observation.executions = executionActivity(completed([execution(229)]));
+  observation.executions = executionActivity(completed([execution(230)]));
   report(observation, instant);
   observation.executions = executionActivity(completed([execution(999)]));
   observation.book.ts = future;
@@ -102,15 +102,29 @@ test("healthy working/sit-out transitions emit only for the changed desk", () =>
   assert.deepEqual(events[4], { event: "v2_desk_state", desk: "joe", state: "sit-out", cause: null });
 });
 
+test("client 229 produces J working diagnostics from executions and from fallback orders", () => {
+  const observation = source();
+  const events = [];
+  const report = createDeskStateReporter({ onEvent: event => events.push(event) });
+  observation.executions = executionActivity(completed([execution(229)]));
+  report(observation, instant);
+  assert.deepEqual(events[0], { event: "v2_desk_state", desk: "j", state: "working", cause: null });
+  observation.executions = executionActivity(completed());
+  observation.book.openOrders = [{ symbol: "SYNTH", clientId: 229, status: "Submitted" }];
+  report(observation, instant);
+  assert.equal(events.length, 3, "fallback orders keep J working without repeating its diagnostic");
+  assert.equal(copyDeskActivity(observation).j.hasOrders, true);
+});
+
 test("positions failures retain J family fallback and stable reader precedence", () => {
   const observation = source();
   observation.deskEquities = { ok: false, reason: "arbitrary private reader reason" };
   observation.family = { ok: true, observedAt: instant, positions: [] };
-  observation.executions = executionActivity(completed([execution(229)]));
+  observation.executions = executionActivity(completed([execution(230)]));
   const activity = copyDeskActivity(observation);
-  assert.deepEqual(deskStateDetails(activity.j, instant, instant), { state: "stuck", cause: "execution_unowned", client: 229 });
+  assert.deepEqual(deskStateDetails(activity.j, instant, instant), { state: "stuck", cause: "execution_unowned", client: 230 });
   assert.deepEqual(deskStateDetails(activity.joe, instant, instant), { state: "stuck", cause: "positions_unavailable" });
-  observation.book.openOrders = [{ symbol: "SYNTH", clientId: 229 }];
+  observation.book.openOrders = [{ symbol: "SYNTH", clientId: 230 }];
   assert.equal(deskStateDetails(copyDeskActivity(observation).j, instant, instant).cause, "orders_unavailable");
 });
 
@@ -135,9 +149,9 @@ test("diagnostic details preserve deskState decisions at generation/receipt boun
 test("private handoff cause validation rejects arbitrary data; old frames remain valid", () => {
   const frame = copyObservation(source());
   assert.equal(validObservation(frame), true);
-  for (const executionCause of [null, { cause: "private-value" }, { cause: "execution_unowned", clientId: "229" },
+  for (const executionCause of [null, { cause: "private-value" }, { cause: "execution_unowned", clientId: "230" },
     { cause: "execution_unowned", clientId: -1 }, { cause: "execution_unowned", clientId: 1.5 },
-    { cause: "execution_unowned", clientId: 229, symbol: "PRIVATE" }, { cause: "executions_unavailable", clientId: 229 }]) {
+    { cause: "execution_unowned", clientId: 230, symbol: "PRIVATE" }, { cause: "executions_unavailable", clientId: 230 }]) {
     frame.deskActivity.j.executionCause = executionCause;
     assert.equal(validObservation(frame), false);
   }

@@ -13,6 +13,24 @@ export const J_FAMILY_CLASSIFIER = Object.freeze({
   excludedSymbols: Object.freeze(["SXR8", "TSLA"]),
 });
 
+// OPS-392: desk-owner-confirmed legacy Mac route, including future fallback use.
+// Keep the retained capture classifier stable; apply this dated supplement to
+// J accounting and the shared all-desk policy from this one canonical assignment.
+export const J_DATED_CLIENT_ASSIGNMENTS = Object.freeze([
+  Object.freeze({
+    desk: "j", clientId: 229, fromInclusive: "2026-10-06T13:40:47Z", toExclusive: null,
+    basis: "desk-owner-confirmed-legacy-mac-route-2026-10-20",
+  }),
+]);
+
+export function isFamilyClientExecution(execution, familyIds, assignments = []) {
+  const rules = assignments.filter(rule => rule.clientId === execution.clientId);
+  if (!rules.length) return familyIds.has(execution.clientId);
+  const time = Date.parse(executionTime(execution.time));
+  return rules.filter(rule => Date.parse(rule.fromInclusive) <= time
+    && (rule.toExclusive === null || time < Date.parse(rule.toExclusive))).length === 1;
+}
+
 function fail(message) {
   throw new Error(message);
 }

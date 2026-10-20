@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   ACCOUNT,
   activeHalt,
+  activityAttribution,
   belongsToDesk,
   brakeUsage,
   evaluatePlacement,
@@ -61,6 +62,22 @@ test("desk identity normalizes any case without changing date or thesis", () => 
   assert.throws(() => parseIntent(valid({ orderRef: "JOE|261006|S1-AVGO" })), /another desk/);
   assert.equal(thesisKey("J|261006|S1-AVGO"), "j|S1-AVGO");
   assert.notEqual(thesisKey("J|261006|S1-AVGO"), thesisKey("j|261006|s1-avgo"));
+});
+
+test("legacy client 229 tags remain case-insensitive hints without granting executor ownership", () => {
+  for (const prefix of ["J", "j"]) {
+    const orderRef = `${prefix}|261006|synthetic`;
+    assert.equal(parseIntent(valid({ desk: "j", orderRef })).orderRef, "j|261006|synthetic");
+    for (const time of ["2026-10-06T13:40:46Z", "2026-10-06T13:40:47Z", "2026-10-20T13:40:47Z"]) {
+      const row = { execution: { clientId: 229, time, orderRef } };
+      const result = activityAttribution(row, { ownership: { j: [229] }, executorClientId: 705 });
+      assert.equal(result.desk, null);
+      assert.equal(result.suggestedDesk, "j");
+      assert.equal(result.needsAttribution, true);
+      assert.equal(belongsToDesk(row, "j", [229], 705), false);
+      assert.equal(belongsToDesk(row, "joe", [229], 705), false);
+    }
+  }
 });
 
 test("uppercase broker tags preserve desk and client ownership boundaries", () => {
