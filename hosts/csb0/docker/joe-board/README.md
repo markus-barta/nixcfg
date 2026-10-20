@@ -45,7 +45,7 @@ executor. `active = current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
-main 9b00f745 and its live OPS-392 Phase A image; `previous` preserves the
+main ca598b9a (#1058) and its live OPS-392 r14 switch-set image; `previous` preserves the
 earlier flat-net runtime and the same legacy board. Preserve that rollback
 history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
@@ -66,7 +66,7 @@ d36b5295 commit and revision-9 contract hashes rather than treating that field a
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against ed5e43d6 (routing held constant) and
-hsb0 against main 9b00f745: image, full Compose spec, executor service, units,
+hsb0 against main ca598b9a: image, full Compose spec, executor service, units,
 firewall, users and real source derivation paths. The hsb0 evaluator uses a
 disposable local Nix store, evaluates Linux packages and never builds. OPS
 must also compare Linux `config.system.build.toplevel.drvPath` on the states

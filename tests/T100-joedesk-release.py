@@ -14,8 +14,7 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
 BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
-# OPS updates the recorded source revision to the exact main merge of #1058.
-# Until then the equality proof deliberately compares against the older main.
+# The recorded source revision is the exact main merge of #1058 (ca598b9a).
 HSB0_BASELINE = json.loads(RELEASE.read_text())['sets']['current']['executor']['nixcfg_rev']
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
@@ -111,7 +110,7 @@ def evaluation_proof():
         tree = subprocess.check_output(['git', 'rev-parse', pin['nixcfg_rev'] + ':' + pin['source_path']], cwd=ROOT, text=True).strip()
         require(tree == pin['source_tree'], 'recorded source tree mismatch')
     # Compare hsb0 with the recorded exact main, including its stage and local
-    # mailbox. OPS advances this pin after merging #1058 into main.
+    # mailbox, pinned at the #1058 merge and its live r14 switch set.
     hsb0_evaluation_proof()
     print('release_refactor=byte-identical-static-specs executor_default=r14-main-equal linux_toplevel_drvPath=pending')
 
