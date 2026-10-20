@@ -814,6 +814,40 @@ joint_home
 request 0 '' a aeon test shared
 request 0 '' b ait test shared
 request 3 'new cap during browser' c ops browser shared
+# OPS-409: mbp2606 overrides only browserMax; generic defaults stay at one.
+export guard_browser_max=2
+joint_home
+request 0 '' browser-a aeon browser shared
+request 0 '' browser-b ait browser shared
+request 3 'browser cap' browser-c ops browser shared
+request 3 'new cap during browser' test-c ops test shared
+request 3 'browser cap' browser-finish aeon browser shared phase=finish
+request 0 '' test-finish aeon test shared phase=finish
+request 3 'finishing reserve cap' extra-finish ait test shared phase=finish
+check 0 0 'two browsers can refresh' '' reserve browser-a
+check 0 0 'two browsers can adopt' '' adopt browser-b "$$"
+joint_home
+request 0 '' test-first aeon test shared
+request 0 '' browser-second ait browser shared
+request 3 'new cap during browser' browser-third ops browser shared
+joint_home
+request 0 '' new-browser aeon browser shared
+request 0 '' finish-browser aeon browser shared phase=finish
+request 3 'browser cap' third-browser ait browser shared
+request 0 '' second-new ait test shared
+request 3 'new cap during browser' third-new ops test shared
+for level in YELLOW RED; do
+  joint_home
+  request 0 '' seed aeon test shared
+  policy "block=0 maxload=50 level=$level epoch=$(date +%s)"
+  request 3 'browser cap' new-browser ait browser shared
+  request 3 'browser cap' finish-browser aeon browser shared phase=finish
+done
+joint_home
+printf 'browser_max=1 epoch=%s\n' "$(date +%s)" >"$guard_home/.aeon-remote-budget"
+request 0 '' tightened-first aeon browser shared
+request 3 'browser cap' tightened-second ait browser shared
+unset guard_browser_max
 # Missing lane bypasses only the lane cap, including kind=browser requests.
 joint_home
 for id in a b c; do check 0 0 'legacy new unit' '' reserve "$id"; done
