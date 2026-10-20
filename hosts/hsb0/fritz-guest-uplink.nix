@@ -14,8 +14,9 @@
 # enp2s0f0's address unit, which a switch restarts (DNS/DHCP blip for the whole house).
 # And AdGuard's DHCP would hand the extra address to every client as a second DNS server.
 #
-# Guests reach only the wallbox cloud (an IP allowlist, below), NTP on any public server
-# (plain 76-byte NTP requests only, so UDP 123 cannot carry a VPN), and DNS and ICMP on hsb0. Everything else they send is dropped: the home LAN, the tailnet,
+# Guests reach only the wallbox cloud (an IP allowlist, below), NTP (whatever server they
+# ask, the request goes to Google's time1, so port 123 cannot carry a tunnel), and DNS and
+# ICMP on hsb0. Everything else they send is dropped: the home LAN, the tailnet,
 # hsb0's other services and the rest of the internet. So phones on the guest Wi-Fi get
 # nothing, not even with their own DNS or a VPN. raw PREROUTING runs before the filter
 # chains that Tailscale and Docker re-order, so their restarts cannot reopen it.
@@ -23,8 +24,12 @@
 # The 7530's own traffic (AVM updates, MyFRITZ, its clock) is not limited: it may reach any
 # public address. It shares the transit address with the guests (the 7530 NATs them), so it
 # is told apart by TTL. The 7530 sends with TTL 64 and decrements forwarded guest packets,
-# which therefore arrive with at most 63 (measured 2026-10-20: AVM 64, wallbox 63). A guest
-# could only pass by deliberately sending with TTL 65.
+# which arrive one below their sender's initial TTL: 63, 127 or 254 (measured 2026-10-20:
+# AVM 64, guests 63 and 254). Only a guest deliberately sending with TTL 65 arrives with 64.
+# Guest DNS does not pass the 7530 this way: its forwarder asks AdGuard from its LAN side.
+# No public address leads back home: hsb0 has only private addresses (its Docker DNAT
+# matches only those), and the Omada sits behind Starlink CGNAT (no inbound path; probed
+# from hsb0 on 2026-10-20).
 #
 # There is no MAC filter, because none is possible: FRITZ!OS does not apply its MAC filter
 # to guest access (AVM KB 250), and hsb0 never sees the guests' MACs behind the 7530's NAT.
@@ -48,13 +53,14 @@ let
     "192.168.0.0/16" # home LAN
     "224.0.0.0/3" # multicast, reserved, broadcast
   ];
-  # NTP: every guest NTP request seen on 2026-10-20 was 76 bytes (IP + UDP + a 48-byte NTPv4
-  # packet without extensions). The wallbox asks pool.ntp.org and ts1.univie.ac.at, so the
-  # destination is open; the length match keeps a tunnel on port 123 from passing.
+  # NTP: the wallbox asks pool.ntp.org and ts1.univie.ac.at. Every NTP request from the
+  # transit is redirected to time1.google.com (fixed anycast address), so the clock is right
+  # and no other server can be reached on port 123.
+  ntpServer = "216.239.35.0";
   # The only place the guest network may reach besides NTP (Markus: only the two wallboxes
   # online). Resolved 2026-10-20: cert.prod.devices.elli.eco -> 34.22.219.237 (single A,
-  # Google Cloud). A wallbox endpoint missing here shows up as "fritz-guest-drop" with TTL<64
-  # in the kernel log (journalctl -k). Guest DNS reaches AdGuard as client 192.168.1.5 (the
+  # Google Cloud). A wallbox endpoint missing here shows up as "fritz-guest-drop" with a TTL
+  # other than 64 in the kernel log (journalctl -k). Guest DNS reaches AdGuard as client 192.168.1.5 (the
   # 7530's LAN side), not from the transit. Add the address here.
   wallboxCloud = [ "34.22.219.237" ];
 in
@@ -74,6 +80,10 @@ in
     enable = true;
     internalIPs = [ transitNet ];
     externalInterface = lanIf;
+    # Runs after the raw chain below has let the request through (raw comes before nat).
+    extraCommands = ''
+      iptables -t nat -A nixos-nat-pre -s ${transitNet} -p udp --dport 123 -j DNAT --to-destination ${ntpServer}
+    '';
   };
 
   # Fail closed. raw PREROUTING holds two transit rules: the jump into the chain at the top,
@@ -104,7 +114,7 @@ in
       ${lib.concatMapStringsSep "\n" (
         ip: "iptables -t raw -A ${chain} -d ${ip} -p tcp -j ACCEPT"
       ) wallboxCloud}
-      iptables -t raw -A ${chain} -p udp --dport 123 -m length --length 76 -j ${publicChain}
+      iptables -t raw -A ${chain} -p udp --dport 123 -j ${publicChain}
       iptables -t raw -A ${chain} -m limit --limit 6/min --limit-burst 10 -j LOG --log-prefix "fritz-guest-drop "
       iptables -t raw -A ${chain} -j DROP
       iptables -t raw -C PREROUTING ! -i lo -s ${transitNet} -j ${chain} 2>/dev/null || \
