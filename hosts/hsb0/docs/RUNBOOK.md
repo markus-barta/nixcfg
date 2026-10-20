@@ -1124,9 +1124,57 @@ when the book stays unchanged for roughly three minutes. Pair v1 and v2 by
 `v1Sha256`, never timestamp equality; v1 generation remains inside the stored v1
 body. The receipt's `generatedAdvancedAt` tracks advancing v2 generations.
 The existing durable `lastGeneratedAt` clamps the generation floor across
-restart without changing the sequence-state format. A rollback exceeding the
-five-second clock-skew allowance suppresses staging until the clock catches up;
-preserve sequence state, prior pairs and receipts.
+restart. The sequence-state keys stay unchanged, but **r16 pairs with source
+times different from `generatedAt` are not readable by r15**: r15 requires
+account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
+source times. R15 validates every retained pair on open; leaving even one such
+pair causes `stage_storage_invalid` / `startup_invalid`.
+
+For an authorized **r16 → r15 rollback**, first confirm the previous NixOS
+generation selects `household-v2-switch-set-r15-202610201500`, then perform these
+steps on hsb0 (never run the rebuild on macOS):
+
+1. Stop the stager and pusher so no pair or v1 body changes during the move:
+   `sudo docker stop joe-household-v2-stage joe-board-pusher`.
+2. Move **every** `v2/pair-*` directory and `v2/current.json` into a new dated
+   backup **outside `v2`**. Keep `v2/sequence-state.json`, `v2/receipts.jsonl`,
+   `v2/.allocator.lock` and `v1-cycles` in place; never reset or re-enroll the
+   allocator. Also copy `v1-cycles` into the backup: the pusher's normal reconnect
+   pruning follows the now-empty pair set, so the archived bodies preserve the
+   moved pairs' provenance. In a root Bash shell, with both containers stopped:
+
+   ```bash
+   set -euo pipefail
+   state_root=/var/lib/joe-board-pusher
+   backup_dir="$state_root/rollback-r16-$(date -u +%Y%m%dT%H%M%SZ)"
+   mkdir -m 0700 -- "$backup_dir"
+   if [[ -d "$state_root/v1-cycles" ]]; then
+     cp -a -- "$state_root/v1-cycles" "$backup_dir/"
+   fi
+   shopt -s nullglob
+   pairs=("$state_root/v2"/pair-*)
+   if ((${#pairs[@]})); then
+     mv -- "${pairs[@]}" "$backup_dir/"
+   fi
+   if [[ -e "$state_root/v2/current.json" ]]; then
+     mv -- "$state_root/v2/current.json" "$backup_dir/"
+   fi
+   sync
+   ```
+
+   Never delete the backup or put it inside `v2`: unknown entries there fail
+   closed. Preserve any unexpected residue for coordinator review.
+
+3. Run `sudo nixos-rebuild switch --rollback`. Verify the r15 stager opens with
+   no retained pairs and continues above the saved sequence high-water; keep the
+   dated backup as evidence. No sequence or receipt-log edit is required.
+4. Accept the bounded source-clock transient: r15 uses retained `lastGeneratedAt`
+   as a floor on `book.ts`. It returns `source_time_invalid` until `book.ts`
+   reaches or passes the r16 wall-clock floor, normally within one IB account
+   update cycle (about 180 seconds with a healthy source and clock). Do not reset
+   `lastGeneratedAt`; verify a new pair commits at a higher sequence once the
+   source catches up. If the source does not advance within that cycle, investigate
+   source/clock health rather than changing the allocator.
 
 Desk reader times are fresh inclusively from v2 generation minus 420 seconds
 through generation plus 30 seconds. Missing or unparseable times are unavailable;
@@ -1167,7 +1215,9 @@ that the old image reads and every policy-keyed file.
 Staging retains the newest **N=10 pairs by sequence count**, never age; the
 reviewable `StageStore.retainPairs` constant override supports 10–1024. Preserve
 `current.json`, `sequence-state.json`, `.allocator.lock` and `receipts.jsonl` on
-restart/rollback. The 0600 append-only log records one sequence/outcome
+restart. For r16 → r15 rollback, use the move-aside procedure above: preserve
+the pairs and pointer in the backup, and keep sequence state, lock and log in
+place. The 0600 append-only log records one sequence/outcome
 (`committed`, `rejected` or crash-recovered `staged`), timestamps and snapshot hash
 per staged/resolved sequence, without payload values; pruning never removes log
 records. Pruning uses checked `.retired-<seq>` tombstones for interrupted cleanup.
