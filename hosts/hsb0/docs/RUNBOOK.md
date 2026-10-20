@@ -1054,6 +1054,29 @@ still fail closed: preserve state and obtain coordinator review before promotion
 See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
 recovery and rollback. Local staging is not board acceptance or deployment.
 
+Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
+`stuck` when any desk evidence is unavailable/stale, `working` for positions,
+active orders or executions on the executor's current NY day, and `sit-out`
+otherwise. Evidence comes from the pusher's existing broker position/all-open-order
+replies and completed family execution cycles, using the same dated ownership
+policy and five-minute freshness bound as its readers; unknown ownership is
+unavailable, never inferred. NY midnight requires a new current-day execution
+reply, and the mirrored day function is tested against executor `brakeUsage`,
+including DST and weekends. No executor API or code change is added. Desk action
+says "Valuation is not exact yet."; money remains null with `not_exact_yet`.
+KEEP rows retain their existing scope and reasons.
+
+Staging retains the newest **N=10 pairs by sequence count**, never age; the
+reviewable `StageStore.retainPairs` constant override supports 10–1024. Preserve
+`current.json`, `sequence-state.json`, `.allocator.lock` and `receipts.jsonl` on
+restart/rollback. The 0600 append-only log records one sequence/outcome
+(`committed`, `rejected` or crash-recovered `staged`), timestamps and snapshot hash
+per staged/resolved sequence, without payload values; pruning never removes log
+records. Pruning uses checked `.retired-<seq>` tombstones for interrupted cleanup.
+A local commit emits `{event:"v2_stage_committed",seq}`; it proves local staging,
+not board acceptance. Recovery validates retained pairs and log integrity before
+pruning; torn logs or unknown files fail closed and preserve evidence for review.
+
 ## JoeDesk Results producer (JOED-20, disabled)
 
 `nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery

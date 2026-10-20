@@ -33,6 +33,7 @@ export const capturesFromOfficialWindowEvidence = noop;
 export const normalizeEconomicCommission = noop;
 export const normalizeEconomicExecution = noop;
 export const calculateFamily = noop;
+export const executionActivity = noop;
 export const buildDeskDayBoundaryEvidence = noop;
 export const calculateDeskEquities = noop;
 export const deskOwnershipPolicyContract = noop;
@@ -55,7 +56,7 @@ export function createBrokerSessionAdapter() {
 }
 export function createFamilySessionAdapter() {
   const current = state;
-  return { requestInFlight: false, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
+  return { requestInFlight: false, activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
 }
 export function createFamilyHistorySessionAdapter() {
   const current = state;

@@ -83,6 +83,7 @@ export function createBrokerSessionAdapter({
   let lastError = null;
   let gatewayLastSeenAt = null;
   let apiReplyCheckedAt = null;
+  let ordersObservedAt = null;
 
   function isCurrent(api, attachedGeneration) {
     return activeApi === api && generation === attachedGeneration;
@@ -126,6 +127,7 @@ export function createBrokerSessionAdapter({
 
   function markFinancialUnavailable(reason) {
     apiReplyCheckedAt = null;
+    ordersObservedAt = null;
     upstreamConnected = false;
     resyncing = false;
     working = null;
@@ -272,6 +274,7 @@ export function createBrokerSessionAdapter({
     working = null;
     trackerEpoch = tracker.onDisconnected();
     apiReplyCheckedAt = null;
+    ordersObservedAt = null;
 
     const guard = (event, handler) => (...args) => {
       if (!isCurrent(api, attachedGeneration)) return;
@@ -422,6 +425,7 @@ export function createBrokerSessionAdapter({
       if (!working || order?.account !== targetAccount) return;
       const row = {
         orderId,
+        clientId: order.clientId,
         symbol: contract?.symbol,
         action: order.action,
         qty: order.totalQuantity,
@@ -431,6 +435,13 @@ export function createBrokerSessionAdapter({
       };
       working.openOrders = working.openOrders.filter((item) => item.orderId !== orderId);
       working.openOrders.push(row);
+    }));
+
+    if (eventNames.openOrderEnd) api.on(eventNames.openOrderEnd, guard("openOrderEnd", () => {
+      if (!working) return;
+      ordersObservedAt = now();
+      // A completed reply may follow financial publication; keep its own clock.
+      if (publishedGeneration === generation) published.openOrders = working.openOrders.map(row => ({ ...row }));
     }));
 
     if (eventNames.currentTime) {
@@ -498,6 +509,7 @@ export function createBrokerSessionAdapter({
         localSocket: socketConnected,
         gatewayLastSeenAt,
         apiReplyCheckedAt,
+        ordersObservedAt,
         lastError,
       };
     },

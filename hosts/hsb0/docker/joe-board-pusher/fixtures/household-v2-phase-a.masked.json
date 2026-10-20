@@ -20,8 +20,8 @@
     {
       "id": "j",
       "label": "J",
-      "state": "sit-out",
-      "action": "Valuation unavailable pending exact source validation.",
+      "state": "stuck",
+      "action": "Valuation is not exact yet.",
       "money": {
         "equity": null,
         "dayPnl": null,
@@ -38,8 +38,8 @@
     {
       "id": "joe",
       "label": "Joe",
-      "state": "sit-out",
-      "action": "Valuation unavailable pending exact source validation.",
+      "state": "stuck",
+      "action": "Valuation is not exact yet.",
       "money": {
         "equity": null,
         "dayPnl": null,
@@ -56,8 +56,8 @@
     {
       "id": "joel",
       "label": "Joel",
-      "state": "sit-out",
-      "action": "Valuation unavailable pending exact source validation.",
+      "state": "stuck",
+      "action": "Valuation is not exact yet.",
       "money": {
         "equity": null,
         "dayPnl": null,
