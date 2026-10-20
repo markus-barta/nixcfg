@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET-253/254: v261019112623.0.0 (tab row fits phone widths; Help works before the first scan; UI + one Go JSON-shape fix, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
+    # HNET-256: v261019185746.0.0 (toolbars go compact when they don't fit their pane; UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=1adff7e7d6231045ac2f3e6b50d129d54d82c08d";
+      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=1aefc0c30a8e001b6bf907ed3eb3ece3864e5ac6";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

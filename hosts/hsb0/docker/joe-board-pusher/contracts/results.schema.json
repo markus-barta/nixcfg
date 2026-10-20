@@ -1,0 +1,413 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:joedesk:results:v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "seq",
+    "generatedAt",
+    "currency",
+    "timeZone",
+    "trackingStart",
+    "days",
+    "trades",
+    "benchmark"
+  ],
+  "properties": {
+    "schema": {
+      "const": "inspr.joe.household.results.v2",
+      "x-owner": "paper executor 8470"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "x-owner": "paper executor 8470"
+    },
+    "generatedAt": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "paper executor 8470"
+    },
+    "receivedAt": {
+      "$ref": "urn:joedesk:common:v2#/$defs/instant",
+      "x-owner": "server"
+    },
+    "missingDays": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 100000,
+      "items": { "$ref": "urn:joedesk:common:v2#/$defs/date" },
+      "description": "Server-owned sorted unique past Vienna dates with closed trades but no days[] entry, computed at acceptance. Omitted when empty.",
+      "x-owner": "server"
+    },
+    "currency": {
+      "const": "EUR",
+      "x-owner": "paper executor 8470"
+    },
+    "timeZone": {
+      "const": "Europe/Vienna",
+      "x-owner": "paper executor 8470"
+    },
+    "trackingStart": {
+      "$ref": "urn:joedesk:common:v2#/$defs/date",
+      "x-owner": "paper executor 8470"
+    },
+    "days": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "desks"
+        ],
+        "properties": {
+          "date": {
+            "$ref": "urn:joedesk:common:v2#/$defs/date",
+            "x-owner": "paper executor 8470"
+          },
+          "coverage": {
+            "type": "string",
+            "enum": ["full", "partial"],
+            "description": "Defaults to full when omitted. Partial means this day's numbers are incomplete; skip day/trade reconciliation. Closed partial Vienna days require partialReasons; the open day at server receipt may omit them unless a real cause exists.",
+            "x-owner": "paper executor 8470"
+          },
+          "partialReasons": {
+            "type": "array",
+            "uniqueItems": true,
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "description": "avg_cost_mismatch is reserved: accepted and rendered, not yet emitted by the producer.",
+              "enum": ["capture_gap", "history_gap", "broker_trade_count_mismatch", "broker_realised_pnl_mismatch", "unattributed_activity", "avg_cost_mismatch", "fx_disabled", "fx_missing", "broker_evidence_missing"]
+            },
+            "description": "Why this Vienna day's numbers are incomplete. Allowed only with coverage 'partial', in canonical enum order. The open Vienna day (the server receipt's Vienna date) may omit partialReasons unless a real cause exists (e.g. fx_missing), in which case emit at least one. Closed partial days (date before the server receipt's Vienna date) require at least one reason. capture_gap is reserved for a real mid-day tracking start.",
+            "x-owner": "paper executor 8470"
+          },
+          "unattributedCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional positive count, only when known and partialReasons contains unattributed_activity.",
+            "x-owner": "paper executor 8470"
+          },
+          "desks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "j": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "equityClose",
+                  "realisedNet",
+                  "fees",
+                  "trades"
+                ],
+                "properties": {
+                  "equityClose": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "realisedNet": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "fees": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "trades": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "x-owner": "paper executor 8470"
+                  }
+                },
+                "x-owner": "paper executor 8470"
+              },
+              "joe": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "equityClose",
+                  "realisedNet",
+                  "fees",
+                  "trades"
+                ],
+                "properties": {
+                  "equityClose": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "realisedNet": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "fees": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "trades": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "x-owner": "paper executor 8470"
+                  }
+                },
+                "x-owner": "paper executor 8470"
+              },
+              "joel": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "equityClose",
+                  "realisedNet",
+                  "fees",
+                  "trades"
+                ],
+                "properties": {
+                  "equityClose": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "realisedNet": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "fees": {
+                    "anyOf": [
+                      {
+                        "$ref": "urn:joedesk:common:v2#/$defs/money"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "x-owner": "paper executor 8470"
+                  },
+                  "trades": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "x-owner": "paper executor 8470"
+                  }
+                },
+                "x-owner": "paper executor 8470"
+              }
+            },
+            "x-owner": "paper executor 8470"
+          }
+        }
+      },
+      "maxItems": 40000,
+      "x-owner": "paper executor 8470"
+    },
+    "trades": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "desk",
+          "symbol",
+          "side",
+          "quantity",
+          "openedAt",
+          "closedAt",
+          "entryPrice",
+          "exitPrice",
+          "grossEur",
+          "feesEur",
+          "netEur",
+          "fx",
+          "method"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^rt-[a-z0-9-]+$",
+            "x-owner": "paper executor 8470"
+          },
+          "desk": {
+            "enum": [
+              "j",
+              "joe",
+              "joel"
+            ],
+            "x-owner": "paper executor 8470"
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[A-Z0-9][A-Z0-9._-]{0,15}$",
+            "x-owner": "paper executor 8470"
+          },
+          "company": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-owner": "paper executor 8470"
+          },
+          "side": {
+            "enum": [
+              "long",
+              "short"
+            ],
+            "x-owner": "paper executor 8470"
+          },
+          "quantity": {
+            "$ref": "urn:joedesk:common:v2#/$defs/decimal",
+            "x-owner": "paper executor 8470"
+          },
+          "openedAt": {
+            "$ref": "urn:joedesk:common:v2#/$defs/instant",
+            "x-owner": "paper executor 8470"
+          },
+          "closedAt": {
+            "$ref": "urn:joedesk:common:v2#/$defs/instant",
+            "x-owner": "paper executor 8470"
+          },
+          "entryPrice": {
+            "$ref": "urn:joedesk:common:v2#/$defs/money",
+            "x-owner": "paper executor 8470"
+          },
+          "exitPrice": {
+            "$ref": "urn:joedesk:common:v2#/$defs/money",
+            "x-owner": "paper executor 8470"
+          },
+          "grossEur": {
+            "$ref": "urn:joedesk:common:v2#/$defs/money",
+            "x-owner": "paper executor 8470"
+          },
+          "feesEur": {
+            "$ref": "urn:joedesk:common:v2#/$defs/money",
+            "x-owner": "paper executor 8470"
+          },
+          "netEur": {
+            "$ref": "urn:joedesk:common:v2#/$defs/money",
+            "x-owner": "paper executor 8470"
+          },
+          "fx": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "base",
+              "quote",
+              "rate",
+              "source",
+              "observedAt"
+            ],
+            "properties": {
+              "base": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 3,
+                "pattern": "^[A-Z]{3}$",
+                "x-owner": "paper executor 8470"
+              },
+              "quote": {
+                "const": "EUR",
+                "x-owner": "paper executor 8470"
+              },
+              "rate": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "pattern": "^(?:0\\.[0-9]{1,8}|[1-9][0-9]*(?:\\.[0-9]{1,8})?)$",
+                "x-owner": "paper executor 8470"
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "x-owner": "paper executor 8470"
+              },
+              "observedAt": {
+                "$ref": "urn:joedesk:common:v2#/$defs/instant",
+                "x-owner": "paper executor 8470"
+              }
+            },
+            "x-owner": "paper executor 8470"
+          },
+          "method": {
+            "const": "execution-fifo-net-current-fx",
+            "x-owner": "paper executor 8470"
+          }
+        }
+      },
+      "maxItems": 100000,
+      "x-owner": "paper executor 8470"
+    },
+    "benchmark": {
+      "type": "null",
+      "x-owner": "paper executor 8470"
+    },
+    "reason": {
+      "$ref": "urn:joedesk:reason:v2",
+      "x-owner": "paper executor 8470"
+    }
+  },
+  "x-owner": "paper executor 8470"
+}
