@@ -45,6 +45,7 @@ function emptyWorkingState() {
     netLiquidationSeen: false,
     accountComplete: false,
     summaryComplete: false,
+    targetSummarySeen: false,
     openOrders: [],
     portfolio: new Map(),
   };
@@ -81,6 +82,10 @@ export function createBrokerSessionAdapter({
   let publishedGeneration = null;
   let lastError = null;
   let gatewayLastSeenAt = null;
+  let apiReplyCheckedAt = null;
+  let ordersObservedAt = null;
+  let pendingOpenOrders = null;
+  let nextOrdersRequestAt = 0;
 
   function isCurrent(api, attachedGeneration) {
     return activeApi === api && generation === attachedGeneration;
@@ -123,6 +128,10 @@ export function createBrokerSessionAdapter({
   }
 
   function markFinancialUnavailable(reason) {
+    apiReplyCheckedAt = null;
+    ordersObservedAt = null;
+    pendingOpenOrders = null;
+    nextOrdersRequestAt = 0;
     upstreamConnected = false;
     resyncing = false;
     working = null;
@@ -148,13 +157,32 @@ export function createBrokerSessionAdapter({
     try {
       api.reqManagedAccts();
       api.reqPositions();
-      api.reqAllOpenOrders();
+      if (!requestOpenOrders(api)) return false;
       api.reqAccountSummary(
         accountSummaryRequestId,
         "All",
         "NetLiquidation,TotalCashValue,BuyingPower,AccountType"
       );
       api.reqAccountUpdates(true, targetAccount);
+    } catch (error) {
+      const detail = String(error?.message || error);
+      hooks.onError?.(detail);
+      invalidate(api, detail, true);
+      return false;
+    }
+    return true;
+  }
+
+  function requestOpenOrders(api) {
+    const at = Date.parse(now());
+    // IB has no request ID for openOrderEnd. Never overlap replies, including
+    // an overdue one: only its end or a new connection generation can retire it.
+    if (api !== activeApi || !socketConnected || !working || pendingOpenOrders ||
+        !Number.isFinite(at) || at < nextOrdersRequestAt) return false;
+    pendingOpenOrders = new Map();
+    nextOrdersRequestAt = at + 60_000;
+    try {
+      api.reqAllOpenOrders();
     } catch (error) {
       const detail = String(error?.message || error);
       hooks.onError?.(detail);
@@ -268,6 +296,10 @@ export function createBrokerSessionAdapter({
     upstreamLossObserved = false;
     working = null;
     trackerEpoch = tracker.onDisconnected();
+    apiReplyCheckedAt = null;
+    ordersObservedAt = null;
+    pendingOpenOrders = null;
+    nextOrdersRequestAt = 0;
 
     const guard = (event, handler) => (...args) => {
       if (!isCurrent(api, attachedGeneration)) return;
@@ -321,6 +353,8 @@ export function createBrokerSessionAdapter({
     api.on(eventNames.accountSummary, guard("accountSummary", (reqId, account, tag, value, currency) => {
       if (!working || reqId !== accountSummaryRequestId || account !== targetAccount) return;
       working.summary[tag] = { account, value, currency };
+      // Keep both NetLiquidation and TotalCashValue as the broker's raw text.
+      working.targetSummarySeen = true;
       if (tag === "NetLiquidation" && validSummaryNumber(value)) {
         working.netLiquidationSeen = true;
       }
@@ -332,6 +366,7 @@ export function createBrokerSessionAdapter({
       if (!working || reqId !== accountSummaryRequestId) return;
       working.summaryComplete = true;
       const observedAt = now();
+      if (working.targetSummarySeen) apiReplyCheckedAt = observedAt;
       publishIfReady(observedAt);
     }));
 
@@ -358,6 +393,7 @@ export function createBrokerSessionAdapter({
       if (!working) return;
       if (!tracker.onPositionEnd(trackerEpoch)) return;
       const observedAt = now();
+      apiReplyCheckedAt = observedAt;
       publishIfReady(observedAt);
     }));
 
@@ -411,9 +447,10 @@ export function createBrokerSessionAdapter({
     }));
 
     api.on(eventNames.openOrder, guard("openOrder", (orderId, contract, order, orderState) => {
-      if (!working || order?.account !== targetAccount) return;
+      if (!working || !pendingOpenOrders || order?.account !== targetAccount) return;
       const row = {
         orderId,
+        clientId: order.clientId,
         symbol: contract?.symbol,
         action: order.action,
         qty: order.totalQuantity,
@@ -421,8 +458,16 @@ export function createBrokerSessionAdapter({
         status: orderState?.status,
         account: order.account,
       };
-      working.openOrders = working.openOrders.filter((item) => item.orderId !== orderId);
-      working.openOrders.push(row);
+      pendingOpenOrders.set(`${orderId}:${order.clientId}`, row);
+    }));
+
+    if (eventNames.openOrderEnd) api.on(eventNames.openOrderEnd, guard("openOrderEnd", () => {
+      if (!working || !pendingOpenOrders) return;
+      working.openOrders = [...pendingOpenOrders.values()];
+      pendingOpenOrders = null;
+      ordersObservedAt = now();
+      // A completed reply may follow financial publication; keep its own clock.
+      if (publishedGeneration === generation) published.openOrders = working.openOrders.map(row => ({ ...row }));
     }));
 
     if (eventNames.currentTime) {
@@ -434,6 +479,11 @@ export function createBrokerSessionAdapter({
 
   return {
     attach,
+
+    refreshOpenOrders() {
+      if (!upstreamConnected) return false;
+      return requestOpenOrders(activeApi);
+    },
 
     refreshPortfolio() {
       if (!activeApi || !socketConnected || !upstreamConnected || !working?.accountComplete) return false;
@@ -489,6 +539,8 @@ export function createBrokerSessionAdapter({
         gateway: upstreamConnected,
         localSocket: socketConnected,
         gatewayLastSeenAt,
+        apiReplyCheckedAt,
+        ordersObservedAt,
         lastError,
       };
     },

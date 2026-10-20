@@ -1,6 +1,8 @@
 // Synthetic boundary doubles for importing the complete, unmodified pusher.
 // Only direct pusher dependencies are replaced; its real projection is loaded.
 import { EventEmitter } from "node:events";
+export { createDeskStateReporter } from "../desk-activity.mjs";
+export { J_DATED_CLIENT_ASSIGNMENTS } from "../execution-history.mjs";
 
 let state;
 export function configure(next) { state = next; }
@@ -33,10 +35,12 @@ export const capturesFromOfficialWindowEvidence = noop;
 export const normalizeEconomicCommission = noop;
 export const normalizeEconomicExecution = noop;
 export const calculateFamily = noop;
+export const executionActivity = noop;
 export const buildDeskDayBoundaryEvidence = noop;
 export const calculateDeskEquities = noop;
-export const deskOwnershipPolicyContract = noop;
+export const deskOwnershipPolicyContract = () => ({ policyHash: "c".repeat(64) });
 export const createFileDayBaselineStore = noop;
+export const createPolicyDayBaselineStore = noop;
 export const createFileFamilyHistoryStore = noop;
 export const projectBestAvailableHistory = noop;
 export const readOfficialExecutionWindow = noop;
@@ -51,11 +55,11 @@ export const createOfficialHistoryRefresher = () => ({ start: noop, stop: noop }
 export const createStageHandoff = () => state.handoff;
 export function createBrokerSessionAdapter() {
   const current = state;
-  return { connected: current.variant !== "outage", snapshot: () => current.variant === "incomplete" ? null : current.book, retire: noop };
+  return { connected: current.variant !== "outage", snapshot: () => current.variant === "incomplete" ? null : current.book, refreshOpenOrders: noop, retire: noop };
 }
 export function createFamilySessionAdapter() {
   const current = state;
-  return { requestInFlight: false, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
+  return { requestInFlight: false, activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
 }
 export function createFamilyHistorySessionAdapter() {
   const current = state;

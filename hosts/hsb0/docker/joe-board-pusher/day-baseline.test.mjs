@@ -11,6 +11,7 @@ import {
   createDayBaselineAdapter,
   createDeskDayPnlProducer,
   createFileDayBaselineStore,
+  createPolicyDayBaselineStore,
   newYorkPeriodStart,
 } from "./day-baseline.mjs";
 
@@ -350,6 +351,96 @@ test("an atomic file store survives restart with its SOD proof and rejects chang
   });
   assert.match(changed.adapter.blockedReason, /method or classifier mismatch/);
   assert.equal(changed.adapter.project().ok, false);
+});
+
+test("policy-keyed baselines recover today, preserve rollback files and still require exact boundary proof", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "joe-day-baseline-policy-test-"));
+  const file = path.join(directory, "day-baseline.json");
+  const changedContract = { ...PROVIDER_CONTRACT, policyHash: "d".repeat(64) };
+  const keyedFile = path.join(directory, `day-baseline.${changedContract.policyHash}.json`);
+  let currentNow = "2026-09-12T16:00:10.000Z";
+  let proofAvailable = false;
+  const make = (contract, store) => createDeskDayPnlProducer({
+    account: "SYNTHETIC-PAPER", policy: {}, providerContract: contract,
+    historyRevisionMethod: DESK_REVISION_METHOD, store, now: () => currentNow,
+    getVerifiedHistoryState: () => ({ schema: "verified-history" }),
+    buildBoundaryEvidence: input => proofAvailable ? {
+      ok: true, periodStart: input.periodStart, proofObservedAt: input.proofObservedAt,
+      historyRevisionMethod: DESK_REVISION_METHOD, policyHash: contract.policyHash,
+      boundaryHistoryRevision: input.candidateHistoryRevision,
+      executionCoverage: { status: "complete", fromInclusive: input.candidateSourceObservedAt,
+        throughExclusive: input.proofObservedAt },
+    } : { ok: false, reason: "exact cutoff coverage is pending" },
+  });
+  const legacy = make(PROVIDER_CONTRACT, createFileDayBaselineStore(file));
+  const prior = make(PROVIDER_CONTRACT, createPolicyDayBaselineStore(file, POLICY_HASH));
+  const initial = deskEvidence({ at: "2026-09-12T16:00:00.000Z" });
+  assert.equal(legacy.observe(initial).ok, true);
+  assert.equal(prior.observe(initial).ok, true);
+  const oldFiles = [file, path.join(directory, `day-baseline.${POLICY_HASH}.json`)];
+  const oldBytes = oldFiles.map(name => fs.readFileSync(name, "utf8"));
+
+  const blocked = make(changedContract, createFileDayBaselineStore(file));
+  assert.match(blocked.observe(deskEvidence({ at: "2026-09-12T16:00:00.000Z", contract: changedContract })).reason, /classifier mismatch/);
+  currentNow = "2026-09-13T16:00:10.000Z";
+  assert.match(blocked.observe(deskEvidence({ at: "2026-09-13T16:00:00.000Z", contract: changedContract })).reason,
+    /classifier mismatch/, "midnight cannot clear a rejected persisted contract");
+
+  currentNow = "2026-09-12T16:01:10.000Z";
+  const store = () => createPolicyDayBaselineStore(file, changedContract.policyHash);
+  const fresh = make(changedContract, store());
+  assert.equal(fresh.project().ok, false);
+  assert.equal(fresh.observe(initial).ok, false, "old policy evidence cannot seed the new policy");
+  assert.equal(fs.existsSync(keyedFile), false);
+  assert.equal(fresh.observe(deskEvidence({ at: "2026-09-12T16:01:00.000Z",
+    oldest: "2026-09-12T15:50:00.000Z", contract: changedContract })).ok, false);
+  assert.equal(fresh.inspectState().proxy, null, "stale evidence cannot establish a proxy");
+
+  currentNow = "2026-09-12T16:02:10.000Z";
+  const recovered = fresh.observe(deskEvidence({ at: "2026-09-12T16:02:00.000Z",
+    equity: vector({ j: 6000 }), contract: changedContract }));
+  assert.equal(recovered.ok, true, recovered.reason);
+  assert.equal(recovered.source.sodSource, "session_open_proxy");
+  assert.equal(recovered.source.approximate, true);
+  assert.deepEqual(recovered.values, vector({ j: 0, joe: 0, joel: 0 }));
+  assert.equal(fs.statSync(keyedFile).mode & 0o777, 0o600);
+  currentNow = "2026-09-12T16:03:10.000Z";
+  assert.equal(fresh.observe(deskEvidence({ at: "2026-09-12T16:03:00.000Z",
+    equity: vector({ j: 6004 }), contract: changedContract })).values.j, 4);
+  const restarted = make(changedContract, store());
+  assert.equal(restarted.project().values.j, 4);
+  assert.equal(restarted.project().source.referenceAt, recovered.source.referenceAt);
+
+  currentNow = "2026-09-13T03:59:50.000Z";
+  restarted.observe(deskEvidence({ at: "2026-09-13T03:59:40.000Z",
+    equity: vector({ j: 6005 }), contract: changedContract }));
+  currentNow = "2026-09-13T04:00:30.000Z";
+  const nextDay = deskEvidence({ at: "2026-09-13T04:00:25.000Z",
+    equity: vector({ j: 6007 }), contract: changedContract });
+  const pending = restarted.observe(nextDay);
+  assert.equal(pending.source.sodSource, "session_open_proxy");
+  assert.equal(pending.values.j, 0);
+  proofAvailable = true;
+  const exact = restarted.observe(nextDay);
+  assert.equal(exact.source.sodSource, "new_york_midnight_exact");
+  assert.equal(exact.source.approximate, false);
+  assert.equal(exact.values.j, 2);
+  assert.deepEqual(oldFiles.map(name => fs.readFileSync(name, "utf8")), oldBytes);
+});
+
+test("policy-keyed stores reject invalid hashes and keep corrupt current-policy state blocked", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "joe-day-baseline-policy-corrupt-test-"));
+  const file = path.join(directory, "day-baseline.json");
+  for (const hash of [null, "../escape", "c".repeat(63), "C".repeat(64)]) {
+    assert.throws(() => createPolicyDayBaselineStore(file, hash), /policy hash/);
+  }
+  assert.throws(() => createPolicyDayBaselineStore("relative.json", POLICY_HASH), /absolute/);
+  const keyedFile = path.join(directory, `day-baseline.${POLICY_HASH}.json`);
+  fs.writeFileSync(keyedFile, "{broken", { mode: 0o600 });
+  const h = harness({ store: createPolicyDayBaselineStore(file, POLICY_HASH) });
+  assert.match(h.adapter.blockedReason, /corrupt JSON/);
+  assert.equal(h.adapter.observe(observation({ at: "2026-09-12T04:00:00.000Z" })).ok, false);
+  assert.equal(fs.readFileSync(keyedFile, "utf8"), "{broken");
 });
 
 test("restart preserves a pre-boundary candidate until asynchronous coverage proof arrives", () => {

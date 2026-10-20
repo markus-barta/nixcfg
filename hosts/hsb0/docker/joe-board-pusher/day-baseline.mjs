@@ -418,6 +418,16 @@ function readBoundedFile(filePath, fsImpl) {
   }
 }
 
+// Never reinterpret or overwrite a baseline from another ownership policy.
+// A new policy starts with verified current observations through the usual
+// fail-closed adapter, retaining every older file for rollback.
+export function createPolicyDayBaselineStore(filePath, policyHash, fsImpl = fs) {
+  if (typeof policyHash !== "string" || !SHA256.test(policyHash)) fail("day baseline policy hash is invalid");
+  if (typeof filePath !== "string" || !path.isAbsolute(filePath)) fail("day baseline state path must be absolute");
+  const parsed = path.parse(filePath);
+  return createFileDayBaselineStore(path.join(parsed.dir, `${parsed.name}.${policyHash}${parsed.ext}`), fsImpl);
+}
+
 /** Bounded, no-follow, fsync+rename+directory-fsync persistence. */
 export function createFileDayBaselineStore(filePath, fsImpl = fs) {
   if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {

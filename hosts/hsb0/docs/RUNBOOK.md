@@ -1041,6 +1041,77 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 - [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Full OpenClaw operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
 
+## JoeDesk household v2 local staging (OPS-392)
+
+The pusher vendors the exact 17-file JoeDesk contracts rev 9 closure from
+`84c47b647cf06a38a3f61ce7f928a10ed10eeef3`, set digest
+`000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`.
+Unmapped stage0 rows now stage a complete pair with `desk:null`,
+`reasons.desk:desk_unmapped`, and all five valuation fields null with individual
+`not_exact_yet` reasons. KEEP rows retain `scope:keep`, `desk:null` and no desk
+reason; mapped stage0 rows also have no desk reason. Older contract-set pairs
+still fail closed: preserve state and obtain coordinator review before promotion.
+See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
+recovery and rollback. Local staging is not board acceptance or deployment.
+
+Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
+`stuck` when any desk evidence is unavailable/stale, `working` for positions,
+active orders or executions on the executor's current NY day, and `sit-out`
+otherwise. Evidence comes from the pusher's existing broker position/all-open-order
+replies and completed family execution cycles, using the same dated ownership
+policy and five-minute freshness bound as its readers; unknown ownership is
+unavailable, never inferred. Read-only `reqAllOpenOrders` runs on connect and
+every 60 seconds via the existing 5-second maintenance tick, with one reply
+in flight. Each reply starts a fresh `(orderId, clientId)` set; `openOrderEnd`
+atomically replaces the previous set (even when empty) and stamps its own
+completion clock. Pending replies retain the last completed set and clock;
+without an end marker no overlapping request is sent, and the old clock expires
+after five minutes to `stuck`. Publication and cached executor order rows never
+renew it. A new connection generation discards the pending reply. Executions
+already use read-only `reqExecutions` 30 seconds after each completed cycle,
+with a 20-second request timeout and existing retry backoff; identical completed
+replays renew activity evidence, missing `execDetailsEnd` cannot prove absence,
+and unchanged money keeps its original timestamp. NY midnight requires a new
+current-day execution reply, and the mirrored day function is tested against
+executor `brakeUsage`, including DST and weekends. No executor API or code change is added. Desk action
+says "Valuation is not exact yet."; money remains null with `not_exact_yet`.
+KEEP rows retain their existing scope and reasons.
+
+R14 (`household-v2-switch-set-r14-202610201330`) parses completed raw IB fill
+times with the family classifier's `executionTime` path, compares epochs and
+stores canonical ISO activity times. Client 229 belongs to J from
+`2026-10-06T13:40:47Z` inclusive; one second earlier remains unowned.
+
+The ownership change selects
+`/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.
+Preserve legacy `day-baseline.json` and all other policy files; no retirement
+command is required on switch. Before R14, a policy mismatch blocked v1 DAY
+permanently, including across NY midnight and restart. R14 starts the new policy
+without reusing old values. V1 DAY is unavailable/null until a complete fresh
+KEEP-excluded equity vector is proven from retained execution/fee history,
+ownership, marks and FX and saved durably. That sample supplies today's fixed,
+explicitly approximate `session_open_proxy`, initially zero relative to its
+actual sample time; earlier day change is excluded. A restart keeps that
+reference. Bad/stale evidence, corrupt active-policy files and persistence
+failures stay unavailable (`day_pnl_unavailable`). The next NY calendar-day
+midnight can promote exact SOD only with a candidate no more than five minutes
+old, continuous authoritative execution coverage and the matching boundary
+history digest. Otherwise the next valid new-day sample supplies a new proxy.
+V2 `dayPnl` remains null with `not_exact_yet` through either v1 recovery path.
+Rollback stays `household-v2-switch-set-202610201110`; preserve the legacy file
+that the old image reads and every policy-keyed file.
+
+Staging retains the newest **N=10 pairs by sequence count**, never age; the
+reviewable `StageStore.retainPairs` constant override supports 10–1024. Preserve
+`current.json`, `sequence-state.json`, `.allocator.lock` and `receipts.jsonl` on
+restart/rollback. The 0600 append-only log records one sequence/outcome
+(`committed`, `rejected` or crash-recovered `staged`), timestamps and snapshot hash
+per staged/resolved sequence, without payload values; pruning never removes log
+records. Pruning uses checked `.retired-<seq>` tombstones for interrupted cleanup.
+A local commit emits `{event:"v2_stage_committed",seq}`; it proves local staging,
+not board acceptance. Recovery validates retained pairs and log integrity before
+pruning; torn logs or unknown files fail closed and preserve evidence for review.
+
 ## JoeDesk Results producer (JOED-20, disabled)
 
 `nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
@@ -1090,26 +1161,31 @@ the pinned board contract belong to JoeDesk. The executor endpoints expose
 the following fields for that consumer; size diagnostics are not added to the
 pinned Results wire contract here:
 
-| Field                                                  | Meaning                                                                                                                                                   |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                                               |
-| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                                                |
-| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked                           |
-| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                                      |
-| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                                          |
-| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                                      |
-| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                                            |
-| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                                                 |
-| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                                          |
-| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present                     |
-| `resultsCapture.durability`, `durabilityCode`          | `uncertain` plus a fixed error class after publication succeeds but directory fsync, cleanup or close fails; cleared by a complete successful publication |
+| Field                                                  | Meaning                                                                                                                                                         |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resultsCapture.ok`, `resultsCapture.degraded`         | False/true during an unresolved capture or catch-up failure                                                                                                     |
+| `resultsCapture.persisted`                             | False while capture/delivery diagnostics live only in memory; true after their ledger publication succeeds                                                      |
+| `resultsCapture.state`, `reason`                       | `ok` with no reason; otherwise `degraded` with `results_capture_failed`, or `ledger_size_limit` when new admissions are blocked                                 |
+| `resultsCapture.since`, `lastErrorAt`, `code`, `count` | Outage start, latest failure, fixed value-free error class, cumulative failure count                                                                            |
+| `ledgerBytes`, `ledgerMaxBytes`, `ledgerPercent`       | Current on-disk ledger bytes, 16 MiB cap (16,777,216 bytes), percent used; also repeated inside `resultsCapture`                                                |
+| `resultsCapture.ledgerCapBytes`                        | Alias of the existing `ledgerMaxBytes`; both remain 16,777,216 bytes                                                                                            |
+| `resultsCapture.admissionThresholdBytes`               | 15,099,494 bytes: 90% of the existing ledger cap, rounded down                                                                                                  |
+| `resultsCapture.newAdmissionsBlocked`                  | Capture degraded and ledger at/above that threshold; new placement admissions are refused                                                                       |
+| `resultsCapture.lastRecoveredAt`                       | Most recent successful capture, catch-up compaction/prune and ledger publication                                                                                |
+| `resultsCapture.alertDelivery`, `lastAttemptAt`        | `unconfigured` without the local mailbox; otherwise `pending`, `delivered` or `failed`, plus latest UTC delivery attempt when present                           |
+| `resultsCapture.durability`, `durabilityCode`          | `uncertain` plus a fixed code (allowlisted, otherwise `unavailable`) while a capture-durability warning is held (set/cleared: see 'Capture-durability warning') |
 
 The allowed-peer `GET /v1/health` on port 8470 exposes these names, as does
-loopback Results health. The producer keeps the vendored rev-6 board shape:
-capture failure maps to `safety.executor.status: "degraded"` without a reason;
-the admission cap maps to `degraded` with `reason: "ledger_size_limit"`.
-`executor_broker_disagreement` takes priority over that cap reason. No ledger
-byte fields or `results_capture_failed` reason enter `safety.executor`.
+loopback Results health. JOED-45 replaces the JOED-43 interim board mapping
+with the vendored rev-9 contract: capture failure below the admission bound maps
+to `safety.executor.status: "degraded"` with `reason: "results_capture_failed"`;
+`newAdmissionsBlocked` or `reason: "ledger_size_limit"` maps to `degraded` with
+`reason: "ledger_size_limit"`. `executor_broker_disagreement` takes priority
+over both. The producer includes `ledgerBytes` and `ledgerCapBytes` together
+when both are known safe integers (bytes ≥ 0, cap ≥ 1); otherwise it omits both.
+Bytes above the cap remain valid telemetry. No cap is sent without bytes, and
+byte counts alone never infer an admission block. The data contract id remains
+`inspr.joe.household.v2`.
 
 At the threshold, NEW placement intents fail closed with HTTP 422 and both
 `code` and `reason` equal to `results_capture_degraded_ledger_cap`. They receive
@@ -1178,6 +1254,19 @@ a published exclusive migration backup permits migration. An existing regular
 backup is validated and kept immutable on `EEXIST`. HALT and both audit
 generations use the same writer; audit rotation copies the complete old generation
 before publishing the new one. The attribution journal publishes in the ledger.
+
+Capture-durability warning: a published-but-uncertain ledger-store publication, or an audit failure after HALT is published, sets `durability: "uncertain"` with a fixed `durabilityCode` (an allowlisted error code, otherwise `unavailable`). It is held in memory only: a later ledger.json publication that completes with durability ok clears it, provided no other warning arose during that save, migration or single ledger.json write. Publications of other files never clear it, and a restart starts without it. `/halt` 200 reports it whenever it is set; health reports the same value under `resultsCapture` whenever the ledger has `resultsCapture` or capture is on.
+
+`audit()` reads the whole file and atomically rewrites up to 1 MiB, plus fsync
+per row. This is safe only while every caller is synchronous and runs in the
+single executor Node process. No second process (CLI or tool) may ever write
+`audit.jsonl`. Near a full volume, the rewrite needs about 1 MiB free where an
+append needed only one row.
+After HALT is published, an audit failure still returns HTTP 200 with
+`status: "halted"`, `active: true`, `source: "local"`, plus
+`durability: "uncertain"` and a fixed `durabilityCode` (an allowlisted capture error code, otherwise `unavailable`); see 'Capture-durability warning'. The halt response reports the current capture-durability warning (see 'Capture-durability warning'), so a healthy halt can carry a warning from an earlier publication or halt. The visible halt is retained;
+a failure before HALT publication keeps the existing error response. Repeated
+halt requests keep the halt active.
 Once a ledger rename or initial hard link succeeds, its published body becomes
 the in-memory state, including capture recovery, resolved receipts and delivery
 records. Initialization, migration, normal saves, delivery updates and OPS re-arm
@@ -1399,7 +1488,7 @@ is used because containment creates that scoped gap. No provisional FX reason is
 Changing that basis requires a manifest revision bump and matching contract
 review; `backstop.test.mjs` preserves the approved close-basis baseline. A per-desk
 close-basis wire field remains P3, requiring a future JoeDesk contract revision.
-Pinned Results at `26a5d2ac04fad707ea63e49a91a348b2a49035cc` (revision 6)
+Pinned Results at `84c47b647cf06a38a3f61ce7f928a10ed10eeef3` (revision 9)
 forbids adding an unversioned basis field to `days[]`.
 
 KEEP fills are excluded at capture and again at FIFO, including pre-existing
@@ -1444,11 +1533,20 @@ an allowlisted reason and up to 20 safe `{path, rule}` pairs. 400/401/413/503
 and network failures also back off with value-free diagnostics. The board is
 stale after 60 seconds without an accepted push; retries do not fake freshness.
 
-JOED-34 rev 6 is merged at `26a5d2ac04fad707ea63e49a91a348b2a49035cc`.
-The complete self-contained `contracts/` directory (manifest revision 6,
+JOED-45 vendors JOED-52 rev 9 from `84c47b647cf06a38a3f61ce7f928a10ed10eeef3`,
+superseding the JOED-49 rev-8 pin `dcdf850d06a5087b674a533875ebaec6127e9819`.
+The complete self-contained `contracts/` directory (manifest revision 9,
 including `vienna-date.mjs`) is vendored byte-for-byte. `contracts.lock.json`
 pins its source revision, each file's byte count and SHA-256, and set digest
-`f092c0f1f6223f965486f6f1b072e6c305b3fafd2ce34b1b551fb6dbed0ddf80`.
+`000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`.
+Rev 9 adds household `positions.rows[].reasons.desk` and `desk_unmapped`.
+A `stage0` row may have a null desk only with a desk reason (`deskRequired`
+otherwise); a desk reason with a non-null desk or on any KEEP row is rejected
+as `contradictoryDesk`. KEEP remains `scope: keep`, with a null desk and no desk
+reason. Rev-8 payloads remain valid, including nullable household cash/position
+quantity with per-field reasons and `not_exact_yet` / `source_unavailable`.
+The `results.v2` schema and executor safety mapping remain unchanged: this
+producer emits Results snapshots, not household positions rows.
 A round-12b producer against the rev-6 board gets 422s on closed reasonless
 days; the contract pin mismatch already blocks activation.
 `verify-contracts.mjs` checks the complete file set and reproduces JoeDesk's

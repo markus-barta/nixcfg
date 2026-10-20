@@ -16,11 +16,18 @@ export function executorHealth(health, checkedAt, disagreement = false) {
   if (!validInstant(checkedAt)) throw unavailable();
   const valid = ['ok', 'degraded'].includes(health?.status) && typeof health.halt?.active === 'boolean' && health.brakes && typeof health.gatewayReachable === 'boolean';
   const ledgerCap = health?.resultsCapture?.newAdmissionsBlocked === true || health?.resultsCapture?.reason === 'ledger_size_limit';
-  const captureDegraded = ledgerCap || health?.resultsCapture?.ok === false || health?.resultsCapture?.state === 'degraded' || health?.status === 'degraded';
+  const captureFailed = health?.resultsCapture?.ok === false || health?.resultsCapture?.state === 'degraded' || health?.resultsCapture?.reason === 'results_capture_failed';
+  const captureDegraded = ledgerCap || captureFailed || health?.status === 'degraded';
   const brakes = valid && !health.brakes.placementBlockedOnInitDay && Number.isFinite(health.brakes.newPerDay) && Number.isFinite(health.brakes.notionalEur) && health.brakes.newPerDay > 0 && health.brakes.notionalEur > 0;
   const result = { status: !valid ? 'down' : captureDegraded || disagreement || !brakes || !health.gatewayReachable ? 'degraded' : 'running', halt: health?.halt?.active === true, brakes: !!brakes, gatewayReachable: health?.gatewayReachable === true, checkedAt };
   if (disagreement) result.reason = 'executor_broker_disagreement';
   else if (ledgerCap) result.reason = 'ledger_size_limit';
+  else if (captureFailed) result.reason = 'results_capture_failed';
+  const { ledgerBytes, ledgerCapBytes } = health?.resultsCapture || {};
+  if (Number.isSafeInteger(ledgerBytes) && ledgerBytes >= 0 && Number.isSafeInteger(ledgerCapBytes) && ledgerCapBytes >= 1) {
+    result.ledgerBytes = ledgerBytes;
+    result.ledgerCapBytes = ledgerCapBytes;
+  }
   return result;
 }
 

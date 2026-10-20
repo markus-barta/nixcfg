@@ -280,6 +280,63 @@ for (const post of posts) test(`HALT route publication: ${post} retains the stop
   assert.equal(ledger.captureDiagnostics().durability, "uncertain");
 });
 
+for (const pre of ["writeFileSync", "renameSync"]) test(`HALT route: audit ${pre} EIO after halt publication reports halted`, async t => {
+  const app = publicationApp(t, { beforePrune() {} }), ledger = app.ledger;
+  const faults = storageFaults(t, ledger.root, pre, "none", "audit.jsonl");
+  const expected = { status: "halted", active: true, source: "local", durability: "uncertain", durabilityCode: "EIO" };
+  const result = await request(app, "POST", "/v1/halt", { reason: "operator stop" });
+  assert.deepEqual(result, { status: 200, body: expected });
+  assert.equal(faults.counts.preErrors, 1, "the audit failure must actually fire");
+  const body = readFileSync(ledger.haltPath, "utf8");
+  assert.equal(JSON.parse(body).reason, "operator stop");
+  const health = (await request(app, "GET", "/v1/health")).body;
+  assert.deepEqual(health.halt, { active: true, source: "local" });
+  assert.equal(health.resultsCapture.durability, "uncertain");
+  assert.equal(health.resultsCapture.durabilityCode, "EIO");
+  assert.equal(readFileSync(ledger.haltPath, "utf8"), body, "no recovery rewrite of the published halt");
+  assert.deepEqual(await request(app, "POST", "/v1/halt", { reason: "operator stop" }), { status: 200, body: expected });
+  assert.equal(faults.counts.preErrors, 2);
+  assert.equal(JSON.parse(ledger.haltBody()).reason, "operator stop");
+});
+
+for (const pre of ["writeFileSync", "renameSync"]) test(`HALT route: ${pre} EIO before halt publication keeps the error`, async t => {
+  const app = publicationApp(t), ledger = app.ledger;
+  const faults = storageFaults(t, ledger.root, pre, "none", "HALT");
+  const result = await request(app, "POST", "/v1/halt", { reason: "operator stop" });
+  assert.equal(result.status, 500);
+  assert.equal(result.body.status, "rejected");
+  assert.equal(result.body.durability, undefined);
+  assert.equal(faults.counts.preErrors, 1);
+  assert.equal(faults.counts.publications, 0);
+  assert.equal(ledger.haltBody(), "");
+});
+
+test("HALT route: healthy halt reports an earlier capture durability warning", async t => {
+  const app = publicationApp(t, { beforePrune() {} }), ledger = app.ledger;
+  const faults = storageFaults(t, ledger.root, "none", "directory-fsync", "ledger.json", { once: true });
+  assert.throws(() => ledger.save(readState(ledger)), { code: "EIO", published: true });
+  assert.equal(faults.counts.postErrors, 1, "the earlier publication fault must actually fire");
+  faults.restore();
+  const { durability, durabilityCode } = ledger.captureDiagnostics();
+  assert.deepEqual({ durability, durabilityCode }, { durability: "uncertain", durabilityCode: "EIO" });
+  assert.equal(ledger.haltBody(), "");
+  const result = await request(app, "POST", "/v1/halt", { reason: "operator stop" });
+  assert.deepEqual(result, { status: 200, body: { status: "halted", active: true, source: "local", durability, durabilityCode } });
+  assert.equal(faults.counts.postErrors, 1, "the halt must not inject another fault");
+  assert.equal(JSON.parse(readFileSync(ledger.haltPath, "utf8")).reason, "operator stop");
+  const health = (await request(app, "GET", "/v1/health")).body;
+  assert.equal(health.resultsCapture.durability, durability);
+  assert.equal(health.resultsCapture.durabilityCode, durabilityCode);
+});
+
+test("HALT route: repeated healthy requests keep the normal success shape", async t => {
+  const app = publicationApp(t);
+  const expected = { status: 200, body: { status: "halted", active: true, source: "local" } };
+  assert.deepEqual(await request(app, "POST", "/v1/halt", { reason: "operator stop" }), expected);
+  assert.deepEqual(await request(app, "POST", "/v1/halt", { reason: "operator stop" }), expected);
+  assert.equal(JSON.parse(app.ledger.haltBody()).reason, "operator stop");
+});
+
 for (const post of posts) test(`loopback health publication: ${post} returns 503 without re-marking initialization`, async t => {
   t.mock.method(console, "error", () => {});
   const root = temporary(t), app = createExecutor({ testMode: true, stateDir: root,
