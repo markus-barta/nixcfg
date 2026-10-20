@@ -157,8 +157,10 @@ function executorFamily(input) {
   });
 }
 
-for (const [clientId, desk] of [[705, "j"], [705, "joe"], [705, "joel"], [700, "j"], [812, "j"]]) test(`${clientId} exact intent owns ${desk}; J FIFO, all-desk v1 and v2 agree on raw IB rows`, () => {
-  const input = executorFixture(desk, "j2|masked", clientId);
+for (const [clientId, intentDesk] of [[705, "j"], [705, "j2"], [705, "j5"], [705, "joe"], [705, "joel"], [700, "j"], [812, "j"]]) test(`${clientId} exact intent ${intentDesk}; J FIFO, all-desk v1 and v2 agree on raw IB rows`, () => {
+  const desk = ["j2", "j5"].includes(intentDesk) ? "j" : intentDesk;
+  const input = executorFixture(intentDesk, "joel|masked", clientId);
+  assert.equal(input.executorAttribution.attribute(input.ledgerState.executions[0].execution).subDesk, intentDesk);
   const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
   assert.equal(input.jResult.ok, true, input.jResult.reason);
   assert.equal(result.ok, true, result.reason);
@@ -176,6 +178,7 @@ for (const [clientId, desk] of [[705, "j"], [705, "joe"], [705, "joel"], [700, "
     executions: executionActivity(input.ledgerState, input.executorAttribution), executorAttribution: input.executorAttribution }));
   assert.equal(v2.positions.rows.find(value => value.symbol === "ACME").desk, desk);
   assert.equal(v2.desks.find(value => value.id === desk).state, "working");
+  assert.equal(JSON.stringify(v2).includes('"subDesk"'), false, "rev 9 has no internal sub-desk field");
 });
 
 test("executor configuration changes the baseline policy hash while client ordering does not", () => {
@@ -184,7 +187,7 @@ test("executor configuration changes the baseline policy hash while client order
   assert.notEqual(deskOwnershipPolicyContract({ ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: [700, 705, 812] }).policyHash, baseline.policyHash);
 });
 
-test("j2/j5 sub-theses require the intent's literal j desk; bad desks and ambiguous/unmatched routes fail closed everywhere", () => {
+test("only explicit intent desks roll up; bad desks and ambiguous/unmatched routes fail closed everywhere", () => {
   for (const prefix of ["j2", "j5"]) {
     const valid = executorFixture("j", `${prefix}|masked`);
     assert.equal(calculateDeskEquities({ ...valid, account: ACCOUNT, observedAt: OBSERVED }).ok, true);
@@ -193,7 +196,7 @@ test("j2/j5 sub-theses require the intent's literal j desk; bad desks and ambigu
     const input = executorFixture();
     if (condition === "unmatched") input.executorLedger.intents = {};
     if (condition === "duplicate") input.executorLedger.intents.second = structuredClone(input.executorLedger.intents["masked-intent"]);
-    if (condition === "invalid-desk") input.executorLedger.intents["masked-intent"].desk = "j2";
+    if (condition === "invalid-desk") input.executorLedger.intents["masked-intent"].desk = "j20";
     input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT });
     const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, jResult: null });
     assert.equal(result.ok, false);
@@ -203,6 +206,19 @@ test("j2/j5 sub-theses require the intent's literal j desk; bad desks and ambigu
     assert.equal(executionActivity(input.ledgerState, input.executorAttribution).cause, "execution_unowned");
     assert.throws(() => projectBestAvailableHistory({ state: input.verifiedHistoryState, executorAttribution: input.executorAttribution }), /unclaimed/);
   }
+});
+
+test("internal sub-desk attribution changes history evidence even when the parent desk stays J", () => {
+  const input = executorFixture("j2");
+  const before = structuredClone(input.ledgerState.executions);
+  const first = deskLedgerRevisionAt({ ...input, account: ACCOUNT, throughInclusive: CUTOFF });
+  assert.equal(first.ok, true, first.reason);
+  input.executorLedger.intents["masked-intent"].desk = "j5";
+  input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT });
+  const second = deskLedgerRevisionAt({ ...input, account: ACCOUNT, throughInclusive: CUTOFF });
+  assert.equal(second.ok, true, second.reason);
+  assert.notEqual(second.historyRevision, first.historyRevision);
+  assert.deepEqual(input.ledgerState.executions, before, "retained broker rows stay unchanged");
 });
 
 test("unmatched KEEP executions on 705 are excluded before intent matching, including missing commissions", () => {

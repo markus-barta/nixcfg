@@ -1090,8 +1090,12 @@ the executor source and authority stay unchanged. Exactly one place intent's
 `result.flattened` client/order key, must match the execution's `(clientId,
 orderId)`. Retained rows without that key require an exact execution-ID/client/
 account lookup in the executor's own executions first. Missing/pruned evidence,
-ambiguity and desks outside `j`/`joe`/`joel` stay unclaimed; orderRef prefixes
-never assign ownership. `j2`/`j5` sub-theses require a literal `j` intent desk.
+ambiguity and desks outside the explicit table stay unclaimed; orderRef prefixes
+never assign ownership. OPS-403 applies Amy's fixed intent-desk table:
+`j → j`, `j2 → j`, `j5 → j`, `joe → joe`, `joel → joel`. The original intent
+desk is kept on the internal attributed execution as `subDesk` and in history
+evidence, with no rev 9 output field. Unknown desks emit the value-free
+`executor_intent_desk_unclaimed` event with the desk token and fixed cause only.
 KEEP is excluded first, and dated/static assignments including 229 are unchanged.
 The shared rule covers v1 valuation and v2 activity; `v2_desk_state` includes
 value-free matched/unmatched counts per executor client when available. Its
