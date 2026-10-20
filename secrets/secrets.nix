@@ -384,6 +384,11 @@ in
   # private Traefik renderer consume this one age-backed source. Never put the
   # value in Nix, Docker labels, a command argument, logs, workflows, or PPM.
   "csb1-inspr-auth-env.age".publicKeys = markus ++ csb1;
+  # inspr-auth paimos.com/admin scope (INSPR-576) — ADMIN_BASE_URL,
+  # ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET, ADMIN_COOKIE_KEY (64 hex,
+  # independent of COOKIE_KEY), ADMIN_ALLOWED_SUBJECTS. A second env_file of
+  # inspr-auth; written from the ZITADEL paimos_admin outputs straight into age.
+  "csb1-inspr-auth-admin-env.age".publicKeys = markus ++ csb1;
 
   # Docmost — Postgres credentials
   "csb1-docmost-postgres-env.age".publicKeys = markus ++ csb1;
