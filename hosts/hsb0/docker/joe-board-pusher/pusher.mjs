@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { createStageHandoff } from "./v2-stage-handoff.mjs";
+import { executionActivity } from "./desk-activity.mjs";
 import { IBApi, EventName } from "@stoqey/ib";
 import {
   EXECUTION_CAPTURE_SCHEMA,
@@ -143,6 +144,7 @@ const adapter = createBrokerSessionAdapter({
 const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
 
 const familyAdapter = createFamilySessionAdapter({
+  summarizeActivity: v2StageHandoff ? executionActivity : null,
   targetAccount: ACCOUNT,
   familyClientIds: FAMILY_CLIENT_IDS,
   excludedSymbols: ["SXR8", "TSLA"],
@@ -361,7 +363,7 @@ async function pushOnce(stageObservation) {
     return { ok: false, error: "no token" };
   }
 
-  if (stageObservation) stageObservation.bookTs = book.ts;
+  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, executions: familyAdapter.activitySnapshot() });
 
   const res = await fetch(INBOX_URL, {
     method: "POST",
@@ -391,12 +393,12 @@ async function pushOnce(stageObservation) {
   return line;
 }
 
-// Each promise owns its scalar observation, including overlapping push cycles.
+// Each promise owns its source references, including overlapping push cycles.
 function pushWithStage() {
   if (!v2StageHandoff) return pushOnce();
   const observation = {};
   return pushOnce(observation).finally(() => {
-    if (observation.bookTs) v2StageHandoff.offer(observation.bookTs);
+    if (observation.book) v2StageHandoff.offer(observation);
   });
 }
 
@@ -466,6 +468,7 @@ function syncFlatNetMarks() {
 }
 // Independent of both publisher cadence and unrelated healthy socket traffic.
 const portfolioRefreshTimer = setInterval(() => {
+  adapter.refreshOpenOrders(); // Read-only, at most once per 60s; one reply in flight.
   portfolioRefresh.tick(adapter.snapshot());
   syncFlatNetMarks();
 }, 5_000);
