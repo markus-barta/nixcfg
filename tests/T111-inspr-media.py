@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""INSPR-572: evaluate media and paimos.com ingress offline, without builds."""
+"""INSPR-572/576: evaluate media, admin uploads and ingress offline, without builds."""
 
 from copy import deepcopy
 import json
@@ -8,6 +8,11 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ADMIN_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJn7weE26GvDJ5RmNV2WgWpmNddlvQrywDxurwialSdU vid-admin-upload"
+RRSYNC = "/nix/store/fixture-rrsync/bin/rrsync"
+ADMIN_COMMAND = f'command="{RRSYNC} -no-del /home/mba/docker/inspr-at/admin",restrict '
+ADMIN_MOUNT = "/home/mba/docker/inspr-at/admin:/srv/admin:ro"
+ADMIN_RULE = "d /home/mba/docker/inspr-at/admin 0755 mba users -"
 
 
 def evaluate(expression):
@@ -86,6 +91,43 @@ def self_check_paimos(services):
         raise AssertionError(f"self-check accepted broken label: {key}")
 
 
+def check_admin(volumes, rules, keys):
+    # Exact options preserve the forced command, directory boundary and restrict.
+    matching = [key for key in keys if ADMIN_KEY.split()[1] in key.split()]
+    assert matching == [ADMIN_COMMAND + ADMIN_KEY], "unsafe or duplicate VID key"
+    mounts = [volume for volume in volumes if volume.split(":")[1] == "/srv/admin"]
+    assert mounts == [ADMIN_MOUNT], "admin must have exactly one read-only mount"
+    assert rules.count(ADMIN_RULE) == 1, "admin tmpfiles ownership/mode missing"
+
+
+def self_check_admin(volumes, rules, keys):
+    upload = ADMIN_COMMAND + ADMIN_KEY
+    mutations = [
+        (volumes, rules, [key for key in keys if key != upload]),
+        (volumes, rules, keys + [upload]),
+        (volumes, rules, keys + [ADMIN_KEY]),
+        ([volume for volume in volumes if volume != ADMIN_MOUNT], rules, keys),
+        (volumes + [ADMIN_MOUNT.replace(":ro", ":rw")], rules, keys),
+        (volumes, [rule for rule in rules if rule != ADMIN_RULE], keys),
+    ]
+    for replacement in (
+        ADMIN_KEY,
+        upload.replace(" -no-del", ""),
+        upload.replace(",restrict", ""),
+        upload.replace(",restrict", ",restrict,port-forwarding"),
+        upload.replace("/inspr-at/admin", "/inspr-at"),
+    ):
+        mutations.append((volumes, rules, [
+            replacement if key == upload else key for key in keys
+        ]))
+    for broken in mutations:
+        try:
+            check_admin(*broken)
+        except AssertionError:
+            continue
+        raise AssertionError("self-check accepted unsafe admin upload configuration")
+
+
 def main():
     service = evaluate('(import ./hosts/csb1/docker/compose-spec.nix).services.inspr-www')
     labels = dict(label.split("=", 1) for label in service["labels"])
@@ -135,11 +177,19 @@ def main():
       pkgs = {}; lib = {}; inputs = {}; config = {};
     }).systemd.tmpfiles.rules''')
     assert rules.count("d /home/mba/docker/inspr-at/media 0755 mba users -") == 1
+    # Select extraKeys lazily, with only rrsync substituted; no credentials needed.
+    keys = evaluate('''(import ./hosts/csb1/configuration.nix {
+      pkgs.rrsync = "/nix/store/fixture-rrsync";
+      lib = {}; inputs = {}; config = {};
+    }).inspr.ssh.authorized.users.mba.extraKeys''')
+    assert len(keys) == 3, "update the csb1 extraKeys inventory when changing keys"
+    check_admin(service["volumes"], rules, keys)
+    self_check_admin(service["volumes"], rules, keys)
     workflow = (ROOT / ".github/workflows/check.yml").read_text()
     assert workflow.count("run: python3 tests/T111-inspr-media.py") == 1, (
         "CI wiring missing or duplicated"
     )
-    print("T111: media ingress, paimos.com routing ownership, redirects, idle legacy container, mutation self-checks and CI wiring OK")
+    print("T111: media ingress, admin rrsync restrictions/read-only mount/tmpfiles, paimos.com routing ownership, redirects, idle legacy container, mutation self-checks and CI wiring OK")
 
 
 if __name__ == "__main__":
