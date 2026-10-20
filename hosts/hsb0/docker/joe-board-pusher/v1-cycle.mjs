@@ -4,7 +4,7 @@ export const exactKeys = (value, keys) => value && typeof value === "object" && 
   && JSON.stringify(Object.keys(value).sort()) === JSON.stringify(keys.split(",").sort());
 export const cycleId = value => typeof value === "string" && /^ops392\.v1-cycle\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 export const postStatus = value => (Number.isInteger(value) && value >= 100 && value <= 599)
-  || ["post_failed", "reply_failed", "not_posted_v2_active"].includes(value);
+  || ["post_failed", "reply_failed"].includes(value);
 const instant = value => typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 export const validCycle = value => exactKeys(value, "v1Sha256,v1Status,v1RepliedAt,observationId")

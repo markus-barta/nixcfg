@@ -1,6 +1,6 @@
 {
   "schema": "nixcfg.joedesk-release-set.v1",
-  "active": "v2",
+  "active": "previous",
   "sets": {
     "current": {
       "board": {

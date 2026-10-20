@@ -1130,65 +1130,7 @@ account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
 source times. R15 validates every retained pair on open; leaving even one such
 pair causes `stage_storage_invalid` / `startup_invalid`.
 
-R17 candidate (`household-v2-switch-set-r17-202610202300`; OPS-408) flips
-publication in the pusher only when the selected release set's
-`board.data_schema == "v2"`. The current v1 set retains r16d images and its exact
-environment/mounts; the source build context/restart trigger still changes with
-production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
-`joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
-r17 images in the release set and moves the joedesk lock to d36b5295.
-
-In v2 mode, only the `current.json` committed pair is eligible. The existing
-stager reader validates it and returns the exact snapshot bytes for POST.
-The pusher gets a nested read-only bind of exactly `v2`; staging stays
-network-none with a writable v2 mount. No new committed sequence means no POST,
-with no v1 fallback. V1 still produces stored evidence with
-`v1PostStatus: "not_posted_v2_active"`; only a real body-store failure uses
-`v1Status: "v1_unbound"`. OPS-392 collectors must not count either as successful
-v1 board acceptance; require a numeric successful HTTP outcome. Match v2
-acceptance by seq/body hash in the pusher-owned posting state.
-
-Preserve `/var/lib/joe-board-pusher/v2-post-state.json` (0600) outside `v2`.
-It atomically stores the last-posted sequence/hash, uncertain attempt and the
-latest 128 value-free POST outcomes, bounded to 65536 bytes. ReceivedAt is null
-when no board receipt is available; recordedAt still records the local outcome
-time. Only a greater committed sequence can advance the cursor. A 422
-`sequence_replayed` records a terminal outcome for retry/migrated-pair handling;
-OPS must migrate from the same retained bytes and preserve the allocator,
-because the response itself does not attest remote byte identity.
-
-The r17 rollback image is `household-v2-switch-set-r16d-202610201800`.
-**Before activation, r17 → r16d needs no move-aside. After activation, it does:**
-r16d's receipt validator rejects `not_posted_v2_active`, including in the
-append-only stager log. The new sibling posting-state file and its `.tmp` are
-ignored by r16d and need no move. Use the normal separately authorized,
-coordinated release-set/board rollback, with a verified private backup:
-
-1. Apply the existing executor restart guards: **0 claimed intents** and healthy
-   executor before restart, then verify health/reconciliation after it. All three
-   services share the image, so r17 selection also restarts the executor. No
-   executor admission, replay, health or ownership guard changes in r17.
-2. With pusher and stager stopped, archive **all** `v2/pair-*`, `v2/current.json`
-   and `v2/receipts.jsonl` into a new dated sibling directory outside `v2`.
-   Also copy `v1-cycles` into that archive before pruning can resume. Preserve
-   unexpected residue for review. Never put the archive inside `v2`.
-3. Keep `v2/sequence-state.json` and `v2/.allocator.lock` untouched, including
-   the lock inode, `lastReservedSeq`, `lastGeneratedAt` and gateway high-water.
-   Keep the new posting-state file and v1 evidence in place. r16d opens the
-   empty retained-pair set, creates a fresh receipt log and reserves strictly
-   above the saved high-water; no re-enrollment or log rewriting is needed.
-4. Select the retained r16d image and matching v1 board/release set through the
-   reviewed rollback path. r16d posts v1, so it cannot publish to a v2-only board.
-   Verify the new stager pair exceeds the high-water and executor health is
-   sound. Preserve the archive and posting-state file as evidence.
-
-After migrate-v2 seeds board seq N, a first flip POST can be N with identical
-bytes if no newer pair committed, or greater than N otherwise. Strictly greater
-is not guaranteed: `StageStore.reserve` durably increments `lastReservedSeq`
-before staging; `open` restores it. Preserve this allocator and migrate the
-exact retained pair. Do not claim that an independent board seed is synchronized.
-
-R16d (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
+R16d candidate (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
 read-only positions every 120 seconds on the existing five-second tick while
 the session is ready, issuing `cancelPositions` then `reqPositions`. Requests
 never overlap, even when an end is overdue. A fresh accumulator replaces the
