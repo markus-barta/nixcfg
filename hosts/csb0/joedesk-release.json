@@ -1,6 +1,6 @@
 {
   "schema": "nixcfg.joedesk-release-set.v1",
-  "active": "current",
+  "active": "v2",
   "sets": {
     "current": {
       "board": {
@@ -31,6 +31,7 @@
         "board_image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
         "csb0_generation": null,
         "hsb0_generation": null,
+        "hsb0_pre_cutover_nixcfg_rev": "0cff3a6f33af0712845255e0e198bc7169fcb112",
         "note": "OPS records exact local image IDs, retained generations and private verified backup before cutover."
       }
     },
@@ -41,12 +42,22 @@
         "version": "261019102825.0.0",
         "release_sequence": 25,
         "tag": null,
-        "image": null,
+        "image": "csb0-joe-board:source-d36b5295295a6901e36fdf2dc0d64353ddf88d0e",
         "data_schema": "v2",
         "public_health": true
       },
-      "pusher": null,
-      "executor": null,
+      "pusher": {
+        "nixcfg_rev": "82321916b301c2741c4a659443563d24a2da49f9",
+        "source_tree": "f4f34fcd7ae172f7a096ccd3575195b1a09ae08f",
+        "source_path": "hosts/hsb0/docker/joe-board-pusher",
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345"
+      },
+      "executor": {
+        "nixcfg_rev": "82321916b301c2741c4a659443563d24a2da49f9",
+        "source_tree": "6c43492f74bc0da4e9c3b013188980e4c7bc0b63",
+        "source_path": "modules/paper-desk-executor",
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345"
+      },
       "contracts": {
         "schema": "joedesk.release-contracts.v1",
         "contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
@@ -85,7 +96,7 @@
         "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"
       },
       "backup_schema": "v2",
-      "status": "main candidate (PR #58, JOED-50); inactive pending JOED-20 producer/executor evidence, OPS rehearsal, review and owner cutover"
+      "status": "ACTIVE (OPS-354 cutover; OPS-408 r17 v2 producer flip); rollback = previous (v1 board db621bf) with hsb0 variant B (pre-cutover r16d runtime)"
     },
     "previous": {
       "board": {
