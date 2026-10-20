@@ -1077,6 +1077,30 @@ executor `brakeUsage`, including DST and weekends. No executor API or code chang
 says "Valuation is not exact yet."; money remains null with `not_exact_yet`.
 KEEP rows retain their existing scope and reasons.
 
+R14 (`household-v2-switch-set-r14-202610201330`) parses completed raw IB fill
+times with the family classifier's `executionTime` path, compares epochs and
+stores canonical ISO activity times. Client 229 belongs to J from
+`2026-10-06T13:40:47Z` inclusive; one second earlier remains unowned.
+
+The ownership change selects
+`/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.
+Preserve legacy `day-baseline.json` and all other policy files; no retirement
+command is required on switch. Before R14, a policy mismatch blocked v1 DAY
+permanently, including across NY midnight and restart. R14 starts the new policy
+without reusing old values. V1 DAY is unavailable/null until a complete fresh
+KEEP-excluded equity vector is proven from retained execution/fee history,
+ownership, marks and FX and saved durably. That sample supplies today's fixed,
+explicitly approximate `session_open_proxy`, initially zero relative to its
+actual sample time; earlier day change is excluded. A restart keeps that
+reference. Bad/stale evidence, corrupt active-policy files and persistence
+failures stay unavailable (`day_pnl_unavailable`). The next NY calendar-day
+midnight can promote exact SOD only with a candidate no more than five minutes
+old, continuous authoritative execution coverage and the matching boundary
+history digest. Otherwise the next valid new-day sample supplies a new proxy.
+V2 `dayPnl` remains null with `not_exact_yet` through either v1 recovery path.
+Rollback stays `household-v2-switch-set-202610201110`; preserve the legacy file
+that the old image reads and every policy-keyed file.
+
 Staging retains the newest **N=10 pairs by sequence count**, never age; the
 reviewable `StageStore.retainPairs` constant override supports 10–1024. Preserve
 `current.json`, `sequence-state.json`, `.allocator.lock` and `receipts.jsonl` on

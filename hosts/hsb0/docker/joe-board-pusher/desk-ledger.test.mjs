@@ -8,7 +8,7 @@ import {
   deskOwnershipPolicyContract,
   deskLedgerRevisionAt,
 } from "./desk-ledger.mjs";
-import { J_DATED_CLIENT_ASSIGNMENTS, J_FAMILY_CLASSIFIER, normalizeEconomicExecution } from "./execution-history.mjs";
+import { J_DATED_CLIENT_ASSIGNMENTS, J_FAMILY_CLASSIFIER, executionTime } from "./execution-history.mjs";
 import { copyDeskActivity, deskState, executionActivity, newYorkDay } from "./desk-activity.mjs";
 import { projectBestAvailableHistory } from "./family-history.mjs";
 import { contractsNeedingFlatNetMarks } from "./flat-net-marks.mjs";
@@ -152,7 +152,7 @@ function asynchronousHistoricalFixture() {
 
 function legacyMacFixture(clientId, time, prefix = "j") {
   const input = fixture();
-  const observedAt = new Date(Date.parse(time) + 60_000).toISOString();
+  const observedAt = new Date(Date.parse(executionTime(time)) + 60_000).toISOString();
   const row = input.ledgerState.executions[0];
   Object.assign(row.execution, { clientId, time, orderRef: `${prefix}|261006|synthetic` });
   Object.assign(input.ledgerState, {
@@ -186,6 +186,7 @@ test("J's dated legacy route has one canonical open-ended assignment shared by a
 });
 
 for (const prefix of ["J", "j"]) for (const time of [
+  "20261006 09:40:47 US/Eastern",
   "2026-10-06T13:40:47Z", "2026-10-06T13:40:47.000Z", "2026-10-20T13:40:47.000Z", "2027-10-20T13:40:47.000Z",
 ]) test(`legacy client 229 belongs to J at ${time} with ${prefix}| and keeps v1/v2 aligned`, () => {
   const input = legacyMacFixture(229, time, prefix);
@@ -196,10 +197,8 @@ for (const prefix of ["J", "j"]) for (const time of [
   assert.deepEqual(result.equity, { j: 5000.81, joe: 4998.92, joel: 5000, total: 14999.73 });
   assert.equal(result.ownershipEvidence.unclaimedExecutionCount, 0);
   assert.equal(result.desks.j.positions[0].symbol, "ACME");
-  const executions = executionActivity({
-    ...input.ledgerState, executions: input.ledgerState.executions.map(normalizeEconomicExecution),
-  });
-  assert.deepEqual(executions.latest, { j: new Date(time).toISOString(), joe: null, joel: null });
+  const executions = executionActivity(input.ledgerState);
+  assert.deepEqual(executions.latest, { j: executionTime(time), joe: null, joel: null });
   const activity = copyDeskActivity({
     book: { ts: input.observedAt, gateway: true, positionsCoverage: { status: "complete" },
       ordersObservedAt: input.observedAt, openOrders: [] }, deskEquities: result, executions,
@@ -213,15 +212,14 @@ for (const prefix of ["J", "j"]) for (const time of [
 });
 
 for (const [clientId, time] of [
+  [229, "20261006 09:40:46 US/Eastern"],
   [229, "2026-10-06T13:40:46Z"], [229, "2026-10-06T13:40:46.999Z"], [230, "2026-10-06T13:40:47Z"],
 ]) test(`client ${clientId} at ${time} fails closed even with a J| tag`, () => {
   const input = legacyMacFixture(clientId, time, "J");
   const result = calculateDeskEquities(input);
   assert.equal(result.ok, false);
   assert.match(result.reason, /unclaimed/);
-  const executions = executionActivity({
-    ...input.ledgerState, executions: input.ledgerState.executions.map(normalizeEconomicExecution),
-  });
+  const executions = executionActivity(input.ledgerState);
   assert.deepEqual(executions, { cause: "execution_unowned", clientId });
   const activity = copyDeskActivity({
     book: { ts: input.observedAt, gateway: true, ordersObservedAt: input.observedAt, openOrders: [] },

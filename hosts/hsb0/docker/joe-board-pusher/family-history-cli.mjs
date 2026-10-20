@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {
+  J_DATED_CLIENT_ASSIGNMENTS,
   captureFromFamilyLedgerFile,
   captureFromOfficialProbeFile,
   capturesFromOfficialWindowFile,
@@ -62,7 +63,7 @@ function argumentsFrom(argv) {
 }
 
 function summary(state, importedReceiptId) {
-  const projection = projectBestAvailableHistory({ state });
+  const projection = projectBestAvailableHistory({ state, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS });
   return {
     ok: true,
     status: projection.status,

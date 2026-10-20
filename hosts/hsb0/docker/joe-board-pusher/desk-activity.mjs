@@ -1,4 +1,5 @@
 import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
+import { executionTime } from "./execution-history.mjs";
 
 export const DESK_IDS = ["j", "joe", "joel"];
 // Same bound as project.mjs and the family reader's fxFreshMs (five minutes).
@@ -20,8 +21,7 @@ export function newYorkDay(epoch = Date.now()) {
   return `${found.year}-${found.month}-${found.day}`;
 }
 
-function owner(clientId, time) {
-  const at = Date.parse(time);
+function owner(clientId, at) {
   const matches = CURRENT_DESK_OWNERSHIP_POLICY.assignments.filter(rule => rule.clientId === clientId
     && Date.parse(rule.fromInclusive) <= at && (rule.toExclusive === null || at < Date.parse(rule.toExclusive)));
   return matches.length === 1 ? matches[0].desk : null;
@@ -35,17 +35,23 @@ export function executionActivity(state) {
   if (!Number.isFinite(at) || !Array.isArray(state?.executions)) return { cause: "executions_unavailable" };
   if (state.coverageTradingDay !== newYorkDay(at)) return { cause: "execution_day_mismatch" };
   const latest = Object.fromEntries(DESK_IDS.map(id => [id, null]));
+  const latestEpoch = Object.fromEntries(DESK_IDS.map(id => [id, -Infinity]));
   for (const row of state.executions) {
     if (KEEP.includes(row?.contract?.symbol)) continue;
-    const time = row?.execution?.time;
+    let time;
+    try { time = executionTime(row?.execution?.time); }
+    catch { return { cause: "executions_unavailable" }; }
     const epoch = Date.parse(time);
     if (!Number.isFinite(epoch)) return { cause: "executions_unavailable" };
     if (epoch > at) return { cause: "execution_after_coverage" };
     if (epoch < at - 26 * 60 * 60 * 1000 || newYorkDay(epoch) !== state.coverageTradingDay) continue;
-    const desk = owner(row.execution.clientId, time);
+    const desk = owner(row.execution.clientId, epoch);
     if (!desk) return { cause: "execution_unowned",
       ...(Number.isSafeInteger(row.execution.clientId) && row.execution.clientId >= 0 ? { clientId: row.execution.clientId } : {}) };
-    if (!latest[desk] || time > latest[desk]) latest[desk] = time;
+    if (epoch > latestEpoch[desk]) {
+      latestEpoch[desk] = epoch;
+      latest[desk] = time;
+    }
   }
   return { observedAt: state.coverageThrough, day: state.coverageTradingDay, latest };
 }
@@ -59,7 +65,7 @@ export function copyDeskActivity({ book, family, deskEquities, executions } = {}
   const orders = Object.fromEntries(DESK_IDS.map(id => [id, false]));
   if (ordersKnown) for (const row of book.openOrders) {
     if (KEEP.includes(row.symbol) || ["filled", "cancelled", "inactive", "apicancelled"].includes(String(row.status).toLowerCase())) continue;
-    const desk = owner(row.clientId, book.ordersObservedAt);
+    const desk = owner(row.clientId, Date.parse(book.ordersObservedAt));
     if (!desk) { ordersKnown = false; break; }
     orders[desk] = true;
   }

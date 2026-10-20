@@ -142,7 +142,7 @@ function executionTimeUncached(source) {
   return new Date(candidates[0]).toISOString();
 }
 
-function executionTime(value) {
+export function executionTime(value) {
   const source = text(value, "execution time");
   const cached = executionTimeCache.get(source);
   if (cached !== undefined) return cached;
