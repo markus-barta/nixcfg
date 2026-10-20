@@ -10,8 +10,11 @@
 }:
 
 let
+  joeRelease = builtins.fromJSON (builtins.readFile ./joedesk-release.json);
+  joeSet = joeRelease.sets.${joeRelease.active};
   hostdashCsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb0;
 in
+assert inputs.joedesk.rev == joeSet.board.rev;
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -69,8 +72,9 @@ in
     spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
       services.joe-board = {
         build = "${inputs.joedesk}";
-        image = "csb0-joe-board:source-${inputs.joedesk.rev}";
-        pull_policy = "build";
+        image = joeSet.board.image;
+        # Rollback selects the retained exact image through this declaration.
+        pull_policy = if joeRelease.active == "previous" then "never" else "build";
       };
     };
   };
