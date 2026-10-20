@@ -59,22 +59,32 @@ in
     externalInterface = lanIf;
   };
 
+  # Fail closed. raw PREROUTING holds two transit rules: the jump into the chain at the top,
+  # and a backstop DROP at the end. The chain ACCEPTs what may pass. Anything else, including
+  # every packet while the chain is being flushed and refilled on a firewall reload, falls
+  # through to the backstop. Stopping or failing the firewall removes only the jump and keeps
+  # the backstop, so the transit closes instead of opening. An older generation without this
+  # module never removes the backstop either. (Rollback: unplug the 7530's LAN 1 first.)
+  # `! -i lo`: hsb0's own traffic from 10.255.5.1 to itself must not hit any of this.
   networking.firewall = {
-    # `! -i lo`: hsb0's own traffic from 10.255.5.1 to itself must not hit the drops.
     extraCommands = ''
+      iptables -t raw -C PREROUTING ! -i lo -s ${transitNet} -j DROP 2>/dev/null || \
+        iptables -t raw -A PREROUTING ! -i lo -s ${transitNet} -j DROP
       iptables -t raw -N ${chain} 2>/dev/null || true
       iptables -t raw -F ${chain}
-      iptables -t raw -A ${chain} -d ${hsb0Addr} -p udp --dport 53 -j RETURN
-      iptables -t raw -A ${chain} -d ${hsb0Addr} -p tcp --dport 53 -j RETURN
-      iptables -t raw -A ${chain} -d ${hsb0Addr} -p icmp -j RETURN
+      iptables -t raw -A ${chain} -d ${hsb0Addr} -p udp --dport 53 -j ACCEPT
+      iptables -t raw -A ${chain} -d ${hsb0Addr} -p tcp --dport 53 -j ACCEPT
+      iptables -t raw -A ${chain} -d ${hsb0Addr} -p icmp -j ACCEPT
       ${lib.concatMapStringsSep "\n" (
         net: "iptables -t raw -A ${chain} -d ${net} -j DROP"
       ) blockedDestinations}
-      iptables -t raw -A ${chain} -j RETURN
+      iptables -t raw -A ${chain} -j ACCEPT
       iptables -t raw -C PREROUTING ! -i lo -s ${transitNet} -j ${chain} 2>/dev/null || \
         iptables -t raw -I PREROUTING ! -i lo -s ${transitNet} -j ${chain}
     '';
     extraStopCommands = ''
+      iptables -t raw -C PREROUTING ! -i lo -s ${transitNet} -j DROP 2>/dev/null || \
+        iptables -t raw -A PREROUTING ! -i lo -s ${transitNet} -j DROP
       iptables -t raw -D PREROUTING ! -i lo -s ${transitNet} -j ${chain} 2>/dev/null || true
       iptables -t raw -F ${chain} 2>/dev/null || true
       iptables -t raw -X ${chain} 2>/dev/null || true
