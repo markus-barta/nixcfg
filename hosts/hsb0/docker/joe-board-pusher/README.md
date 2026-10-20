@@ -266,6 +266,16 @@ its own Compose project, volumes, image and temporary directory. A final
 four minutes plus image build time. CI runs `node --test` on Ubuntu/Node 22,
 including real flock; this longer Docker rehearsal remains a workstation gate.
 
+`image-import-closure.test.mjs` runs through that same CI discovery path. It
+parses every Dockerfile COPY, follows relative imports, re-exports and literal
+dynamic imports from all Node entrypoints, and checks the executor's declared
+mounted source separately. Missing modules are named; removing
+`executor-attribution.mjs` from COPY reproduces the pre-fix failure. The masked
+705 inventory fixture covers 30 fills: j5 ×10 and j2 ×6 roll up to J ×16 with
+each internal `subDesk` retained, while joe ×14 stays Joe. Duplicate order keys
+and unknown intent desks fail closed; unknown-desk events contain only the desk
+token and fixed cause.
+
 ## Board health
 
 Every complete household snapshot includes the optional consumer-compatible
@@ -539,8 +549,8 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r14-202610201330`; the retained
-rollback image is `household-v2-switch-set-202610201110`.
+The candidate image is `household-v2-switch-set-r15-202610201500`; the retained
+rollback image is `household-v2-switch-set-r14-202610201330`.
 
 R15 attributes executor-route executions through the executor's own intent
 ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same
@@ -574,7 +584,7 @@ source are unchanged. `v2_desk_state` adds only per-executor-client matched and
 unmatched execution counts when available; it exposes no ledger identities.
 The intent attribution method and explicit table bind the policy hash and select a fresh
 policy-keyed baseline while preserving every old baseline and capture. R15
-rollback uses the immutable R14 image above; the earlier R14 notes remain
+rollback uses `household-v2-switch-set-r14-202610201330`; the earlier R14 notes remain
 historical rollout evidence.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
