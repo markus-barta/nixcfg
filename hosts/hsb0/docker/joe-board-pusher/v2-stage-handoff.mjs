@@ -1,12 +1,15 @@
 import net from "node:net";
 import { copyDeskActivity } from "./desk-activity.mjs";
+import { exactKeys, validCycle, frame } from "./v1-cycle.mjs";
 
 export const FRAME_FORMAT = "ops392.switch-set-observation.v2";
 export const MAX_FRAME_BYTES = 16 * 1024;
+const MAX_CONTROL_BYTES = 32 * 1024;
 
 // Copy only existing scalar evidence, after v1 settles. Never inspect a ledger.
 // A symbol/side shared by desks or broker contracts cannot prove a single owner.
-export function copyObservation({ book, family, deskEquities, executions, executorAttribution } = {}) {
+export function copyObservation({ book, family, deskEquities, executions, executorAttribution, v1Cycle } = {}) {
+  if (v1Cycle !== undefined && !validCycle(v1Cycle)) return null;
   if (!book || typeof book.ts !== "string" || book.ts.length > 64) return null;
   if (book.apiReplyCheckedAt != null && (typeof book.apiReplyCheckedAt !== "string" || book.apiReplyCheckedAt.length > 24)) return null;
   const rows = book.positions || [];
@@ -58,38 +61,77 @@ export function copyObservation({ book, family, deskEquities, executions, execut
   };
   return { format: FRAME_FORMAT, bookTs: book.ts, equity: raw("NetLiquidation"), cash: raw("TotalCashValue"),
     apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
-    deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }) };
+    deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }),
+    ...(v1Cycle === undefined ? {} : { v1Cycle: { ...v1Cycle } }) };
 }
 
-// This module deliberately has no filesystem, contract, timer or broker work.
+// No direct filesystem, contract, timer or broker work. The injected body
+// writer starts only on the later sequence assignment, after v1 settlement.
 export function createStageHandoff({
   socketPath,
   makeSocket = () => new net.Socket(),
   defer = setImmediate,
+  cycleStore,
 } = {}) {
   if (socketPath !== "/run/joe-household-v2/stage.sock") return { offer: () => false, stop() {} };
   let socket;
   let credit = false;
   let stopped = false;
+  let pending;
   function connect() {
     if (stopped) return;
     let next;
     try { next = makeSocket(); } catch { return; }
     socket = next;
     credit = false;
+    pending = undefined;
+    let incoming = Buffer.alloc(0);
     next.on("error", () => { credit = false; next.destroy(); });
     next.on("close", () => {
       if (socket !== next) return;
       credit = false;
+      pending = undefined;
       socket = undefined;
       if (!stopped) defer(connect).unref?.();
     });
+    const invalid = () => { credit = false; pending = undefined; next.destroy(); };
     next.on("data", bytes => {
       if (socket !== next) return;
-      if (credit || bytes.length !== 1 || bytes[0] !== 0x01) {
-        credit = false;
-        next.destroy();
-      } else credit = true;
+      if (incoming.length + bytes.length > MAX_CONTROL_BYTES + 5) { invalid(); return; }
+      incoming = Buffer.concat([incoming, bytes]);
+      while (incoming.length) {
+        if (incoming[0] !== 0 && incoming[0] !== 0x01) { invalid(); return; }
+        if (incoming[0] === 0x01) {
+          if (credit || pending) { invalid(); return; }
+          credit = true; incoming = incoming.subarray(1); continue;
+        }
+        if (incoming.length < 4) return;
+        const length = incoming.readUInt32BE();
+        if (length < 1 || length > MAX_CONTROL_BYTES) { invalid(); return; }
+        if (incoming.length < length + 4) return;
+        let control;
+        try { control = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(incoming.subarray(4, length + 4))); }
+        catch { invalid(); return; }
+        incoming = incoming.subarray(length + 4);
+        if (exactKeys(control, "event,retainedSeqs") && control.event === "v1_retained"
+          && Array.isArray(control.retainedSeqs) && control.retainedSeqs.length <= 1024
+          && new Set(control.retainedSeqs).size === control.retainedSeqs.length
+          && control.retainedSeqs.every(seq => Number.isSafeInteger(seq) && seq > 0)) {
+          pending = undefined;
+          // Serialize behind any in-flight body write, including late writes.
+          try { Promise.resolve(cycleStore?.prune(control.retainedSeqs)).catch(() => {}); } catch {}
+        } else if (exactKeys(control, "event,seq,observationId") && control.event === "v1_store"
+          && pending && !pending.assigned && control.observationId === pending.cycle.observationId
+          && Number.isSafeInteger(control.seq) && control.seq > 0) {
+          const job = pending; job.assigned = true;
+          Promise.resolve().then(() => cycleStore?.write(control.seq, job.body, job.cycle.v1Sha256))
+            .catch(() => false).then(stored => {
+              if (socket !== next || pending !== job || next.destroyed) return;
+              try { next.write(frame({ seq: control.seq, observationId: control.observationId, stored: stored === true })); }
+              catch { invalid(); }
+            });
+        } else { invalid(); return; }
+      }
     });
     next.unref?.();
     try { next.connect("/run/joe-household-v2/stage.sock"); } catch { next.destroy(); }
@@ -109,6 +151,7 @@ export function createStageHandoff({
         bytes.copy(frame, 4);
         // A false return still owns the one outstanding frame. Never retry.
         credit = false;
+        if (observation.v1Cycle) pending = { body: source.v1Body, cycle: observation.v1Cycle, assigned: false };
         return current.write(frame);
       } catch {
         current.destroy();

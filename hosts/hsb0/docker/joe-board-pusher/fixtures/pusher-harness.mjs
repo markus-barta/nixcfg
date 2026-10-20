@@ -23,7 +23,7 @@ export function installPusherDoubles(moduleURL, state, realHandoff = false) {
   configure(state);
   return registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (context.parentURL === moduleURL && specifier !== "./project.mjs" && !(realHandoff && specifier === "./v2-stage-handoff.mjs")) {
+      if (context.parentURL === moduleURL && !["./project.mjs", "./v1-cycle.mjs", "./v1-cycle-store.mjs"].includes(specifier) && !(realHandoff && specifier === "./v2-stage-handoff.mjs")) {
         return { url: new URL("./pusher-dependencies.mjs", import.meta.url).href, shortCircuit: true };
       }
       return nextResolve(specifier, context);
@@ -43,7 +43,7 @@ export async function runPusher(moduleURL, options = {}) {
     worker.once("exit", code => { if (code) reject(new Error("pusher_fixture_failed")); });
   });
 }
-async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1 } = {}) {
+async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200 } = {}) {
   const { createStageHandoff } = await import("../v2-stage-handoff.mjs");
   class Socket extends EventEmitter {
     writable = true; writableLength = 0; destroyed = false; connecting = false;
@@ -58,7 +58,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   const state = syntheticState(variant);
   const before = JSON.stringify({ book: state.book, retained: state.retained });
   const requests = [], observations = [], trace = [], errors = [], logs = [], timers = [];
-  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); return socket?.offer(source); }, stop() {} };
+  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.cycle = source.v1Cycle; return socket?.offer(source); }, stop() {} };
   const url = pathToFileURL(realpathSync(fileURLToPath(moduleURL))); url.searchParams.set("fixture", String(++generation));
   const hooks = installPusherDoubles(url.href, state);
   const saved = { fetch: globalThis.fetch, Date: globalThis.Date, setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, log: console.log, warn: console.warn, error: console.error };
@@ -72,7 +72,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
     fetch: async (destination, options) => {
       requests.push({ url: destination, ...options, body: Buffer.from(options.body) }); trace.push("fetch");
       if (fetchError) { trace.push("fetch-rejected"); throw fetchError; }
-      return { ok: true, status: 200, text: async () => {
+      return { ok: httpStatus >= 200 && httpStatus < 300, status: httpStatus, text: async () => {
         trace.push("response-settled"); if (bodyError) throw bodyError; return '{"ok":true}';
       } };
     },
@@ -92,7 +92,8 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
     return {
       requests, observations, trace, errors,
       errorIdentityPreserved: errors.at(-1)?.[1] === (fetchError || bodyError),
-      result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "inbox")),
+      cycle: state.cycle, logs,
+      result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "status")),
       inputsUnchanged: before === JSON.stringify({ book: state.book, retained: state.retained }),
       counts: { reads: state.reads, observes: state.observes },
       deskEvents: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).filter(line => line.event === "v2_desk_state"),

@@ -7,6 +7,8 @@ import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { createStageHandoff } from "./v2-stage-handoff.mjs";
+import { startCycle } from "./v1-cycle.mjs";
+import { createCycleStore } from "./v1-cycle-store.mjs";
 import { executionActivity, createDeskStateReporter } from "./desk-activity.mjs";
 import { EXECUTOR_CLIENT_IDS, readExecutorAttribution } from "./executor-attribution.mjs";
 import { IBApi, EventName } from "@stoqey/ib";
@@ -86,7 +88,7 @@ function parseIntervalSec() {
 
 const INTERVAL_SEC = parseIntervalSec();
 const v2StageHandoff = process.env.JOE_V2_STAGE_SOCKET
-  ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET })
+  ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET, cycleStore: createCycleStore() })
   : null;
 const reportDeskStates = createDeskStateReporter();
 let connectionSupervisor = null;
@@ -379,32 +381,33 @@ async function pushOnce(stageObservation) {
 
   if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, executions: familyAdapter.activitySnapshot(), executorAttribution });
 
-  const res = await fetch(INBOX_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": "joe-board-pusher/1.0",
-    },
-    body: JSON.stringify(snap),
-  });
-  const text = await res.text();
-  let body;
+  const requestBody = JSON.stringify(snap);
+  const settleCycle = startCycle(requestBody);
+  let status = "post_failed";
   try {
-    body = JSON.parse(text);
-  } catch {
-    body = { raw: text.slice(0, 200) };
+    const res = await fetch(INBOX_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": "joe-board-pusher/1.0",
+      },
+      body: requestBody,
+    });
+    status = "reply_failed";
+    await res.text();
+    status = res.status;
+    const line = {
+      ok: res.ok,
+      status: res.status,
+      generatedAt: snap.generatedAt,
+      gateway: adapter.connected,
+    };
+    console.log(JSON.stringify(line));
+    return line;
+  } finally {
+    if (stageObservation) Object.assign(stageObservation, { v1Cycle: settleCycle(status), v1Body: requestBody });
   }
-  const line = {
-    ok: res.ok,
-    status: res.status,
-    equity: snap.totals.equity,
-    generatedAt: snap.generatedAt,
-    gateway: adapter.connected,
-    inbox: body,
-  };
-  console.log(JSON.stringify(line));
-  return line;
 }
 
 // Each promise owns its source references, including overlapping push cycles.
@@ -512,11 +515,11 @@ connectionSupervisor.start();
 officialHistoryRefresher.start();
 
 setTimeout(() => {
-  pushWithStage().catch((error) => console.error("push error", error.message || error));
+  pushWithStage().catch(() => console.error('{"event":"v1_push_failed"}'));
 }, 8000);
 
 setInterval(() => {
-  pushWithStage().catch((error) => console.error("push error", error.message || error));
+  pushWithStage().catch(() => console.error('{"event":"v1_push_failed"}'));
 }, INTERVAL_SEC * 1000);
 
 console.log(

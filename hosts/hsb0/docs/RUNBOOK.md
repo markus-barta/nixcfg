@@ -1054,6 +1054,20 @@ still fail closed: preserve state and obtain coordinator review before promotion
 See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
 recovery and rollback. Local staging is not board acceptance or deployment.
 
+OPS-392 cycle binding keeps the stager isolated: only the pusher stores exact v1
+POST bytes under `/var/lib/joe-board-pusher/v1-cycles/<seq>.json` (0600; directory
+0700), after v1 settles and the stager reserves the sequence. Pair receipts and
+the value-free append-only receipt log bind that sequence to a unique
+`observationId`, `v1Sha256`, `v1RepliedAt` and POST outcome. A failed write or
+1500 ms acknowledgement timeout records `v1Status: "v1_unbound"`, preserving
+the POST result in `v1PostStatus`; v1 publication remains independent. The
+stager has no body mount or body frame. The pusher prunes bodies using the
+stager's retained pair sequence set (10 by default), including after reconnect;
+preserve both stores and sequence high water on rollback. The executor's
+existing read-only `/pusher-state` mount exposes `v2` and `v1-cycles` for the
+operator collector. Matching timestamps alone never establish cycle proof;
+require matching digest, sequence, observation and a successful POST receipt.
+
 Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
 `stuck` when any desk evidence is unavailable/stale, `working` for positions,
 active orders or executions on the executor's current NY day, and `sit-out`

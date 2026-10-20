@@ -43,13 +43,51 @@ already available source scalars and identities. An idle worker issues one
 {format:"ops392.switch-set-observation.v2", bookTs,
  equity:{value,currency}|null, cash:{value,currency}|null,
  apiReplyCheckedAt:string|null, positions:[{symbol,side,desk,scope}],
- deskActivity:{j,joe,joel}}
+ deskActivity:{j,joe,joel},
+ v1Cycle:{v1Sha256,v1Status,v1RepliedAt,observationId}}
 ```
 
 There are at most 256 broker identities before encoding; oversize observations
 are dropped whole and keep the unused credit. Busy/disconnected/backpressured
-opportunities are dropped. There is no ledger traversal in the handoff, contract import,
-fsync, awaiting the worker, second POST or queued retry in the pusher.
+opportunities are dropped. POST settlement and the initial offer do no ledger
+traversal, contract import, fsync, worker wait, second POST or queued retry.
+
+Each attempted POST hashes the exact serialized v1 request once and gets a
+unique `ops392.v1-cycle.<uuid>` observation ID. After response consumption, the
+handoff carries a closed `v1Cycle` envelope: the SHA256, HTTP status (100–599),
+local reply-completion time and observation ID. A rejected fetch uses
+`post_failed`; failed response consumption uses `reply_failed`. Neither failure
+drops the available observation. Request bodies, reply bodies, financial values
+and raw POST exceptions are excluded from publication logs.
+
+Body storage runs asynchronously **after v1 has settled**, with at most one
+body write outstanding; a hung write refuses further bodies as unbound and
+coalesces retention controls to the latest set instead of accumulating payloads.
+Bodies above 256 KiB are unbound. The lock-holding
+stager durably reserves a sequence and sends a bounded `v1_store` control frame
+with that sequence and observation ID. The pusher alone writes the exact body
+to `/var/lib/joe-board-pusher/v1-cycles/<seq>.json` (0600, directory 0700), fsyncs
+the file and directory, then acknowledges only the sequence, ID and success bit.
+The stager has no mount of `v1-cycles`, never receives a body, and keeps
+`network_mode = "none"`. No new service permissions or mounts are required.
+
+Both `receipt.json` and its `receipts.jsonl` row record `v1Sha256`, `v1Status`,
+`v1RepliedAt`, `observationId` and `v1PostStatus`. The latter preserves the POST
+outcome even when a failed body write changes `v1Status` to `v1_unbound`.
+After 1500 ms without a storage acknowledgement, the stager records an unbound
+pair and disconnects; the five-second supervisor watchdog remains independent.
+Unbound and failed POSTs cannot prove v1 acceptance. Storage failures emit only
+closed `v1_cycle_unbound` events. Storage can neither delay nor fail a v1 POST.
+
+After pair pruning, the stager returns the retained sequence set (default N=10).
+The pusher serializes body pruning behind its writes and keeps exactly the
+existing bodies for those pair sequences, by count rather than age. A reconnect
+repeats the set, removing recognized bodies orphaned by a crash or rejected pair.
+Recovery after an interrupted exchange converges on that same set; missing or
+failed-write bodies remain visibly unbound rather than being reconstructed.
+Unknown entries, symlinks, ownership or mode mismatches stop body cleanup and
+emit a value-free event. Legacy receipts without cycle metadata remain readable
+and do not establish v1 provenance.
 
 NAV (`NetLiquidation`) and cash (`TotalCashValue`) retain raw account-summary
 strings and currencies, including scale, negative signs and signed zero. Only
@@ -149,9 +187,9 @@ regressing time suppresses staging. Repeated observations retain generation
 and local generation-progress time. Each sequence is fsynced, renamed and
 parent-directory-fsynced before use; crashes may burn numbers, never reuse them.
 The stable `.allocator.lock` inode is never replaced. A second writer cannot
-acquire it. The observation identity is `["ops392.switch-set.v2",bookTs]`;
-legacy Phase A reservation identities with a null gateway watermark remain
-readable. Older contract-set staged pairs fail closed and require coordinator
+acquire it. New reservation identities use the unique v1 cycle ID; legacy
+`["ops392.switch-set.v2",bookTs]` identities and Phase A reservation identities
+with a null gateway watermark remain readable. Older contract-set staged pairs fail closed and require coordinator
 review before promotion; never reset enrollment or sequence state to migrate.
 
 Readers follow only `current.json` to an immutable `pair-<seq>` directory.

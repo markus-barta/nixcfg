@@ -39,6 +39,9 @@ export function createStageSupervisor({
     watch();
     current.on("message", message => {
       if (current !== child || stopped || !message || typeof message !== "object") return;
+      if (message.event === "v1_unbound") {
+        event("v1_cycle_unbound", "store_unavailable"); return;
+      }
       if (message.event === "ready" && phase === "starting") {
         phase = "idle"; clearTimer(watchdog);
       } else if (message.event === "job_start" && phase === "idle") {
