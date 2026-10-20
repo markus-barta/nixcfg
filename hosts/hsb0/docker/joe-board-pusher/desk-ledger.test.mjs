@@ -14,6 +14,10 @@ import { projectBestAvailableHistory } from "./family-history.mjs";
 import { contractsNeedingFlatNetMarks } from "./flat-net-marks.mjs";
 import { EXECUTION_CAPTURE_SCHEMA, reconcileExecutionCapture } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily } from "./family-ledger.mjs";
+import { createExecutorAttribution } from "./executor-attribution.mjs";
+import { copyObservation } from "./v2-stage-handoff.mjs";
+import { buildCandidate } from "./v2-stage-worker.mjs";
+import { projectBook } from "./project.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const START = "2026-09-10T04:00:00Z";
@@ -129,6 +133,111 @@ function fixture() {
   });
   return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult };
 }
+
+function executorFixture(desk = "j", orderRef = "j2|masked", clientId = 705) {
+  const input = fixture();
+  Object.assign(input.ledgerState.executions[0].execution, { clientId, orderId: 101, orderRef });
+  const record = { action: "place", desk, result: { bracket: { clientId, parentOrderId: 101, stopOrderId: 102 } } };
+  input.executorLedger = { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT,
+    intents: { "masked-intent": record }, executions: structuredClone(input.ledgerState.executions) };
+  const clientIds = [...new Set([700, 705, clientId])];
+  input.policy = { ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: clientIds };
+  input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT, clientIds });
+  input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  input.jResult = executorFamily(input);
+  return input;
+}
+
+function executorFamily(input) {
+  return calculateFamily({ ...input,
+    executions: input.ledgerState.executions, commissions: input.ledgerState.commissions,
+    account: ACCOUNT, familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, periodStart: START, observedAt: OBSERVED,
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
+  });
+}
+
+for (const [clientId, desk] of [[705, "j"], [705, "joe"], [705, "joel"], [700, "j"], [812, "j"]]) test(`${clientId} exact intent owns ${desk}; J FIFO, all-desk v1 and v2 agree on raw IB rows`, () => {
+  const input = executorFixture(desk, "j2|masked", clientId);
+  const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(input.jResult.ok, true, input.jResult.reason);
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(result.desks.j.positions, input.jResult.positions);
+  assert.equal(result.desks.j.equity, input.jResult.equity);
+  assert.equal(result.desks[desk].positions[0].symbol, "ACME");
+  assert.equal(Object.values(result.desks).flatMap(value => value.positions).length, 1);
+  assert.deepEqual(result.executorClients, [{ client: clientId, matched: 1, unmatched: 0 }]);
+  const book = { ts: OBSERVED, gateway: true, gatewayLastSeenAt: OBSERVED,
+    summary: {}, positions: input.positions.map(row => ({ ...row, currency: row.contract.currency })), portfolio: input.portfolio,
+    positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: OBSERVED };
+  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities: result, deskOwnershipPolicy: input.policy });
+  assert.equal(v1.desks.find(value => value.id === desk).money.equity, result.desks[desk].equity);
+  const v2 = buildCandidate(1, OBSERVED, copyObservation({ book, family: input.jResult, deskEquities: result,
+    executions: executionActivity(input.ledgerState, input.executorAttribution), executorAttribution: input.executorAttribution }));
+  assert.equal(v2.positions.rows.find(value => value.symbol === "ACME").desk, desk);
+  assert.equal(v2.desks.find(value => value.id === desk).state, "working");
+});
+
+test("executor configuration changes the baseline policy hash while client ordering does not", () => {
+  const baseline = deskOwnershipPolicyContract();
+  assert.equal(deskOwnershipPolicyContract({ ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: [705, 700] }).policyHash, baseline.policyHash);
+  assert.notEqual(deskOwnershipPolicyContract({ ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: [700, 705, 812] }).policyHash, baseline.policyHash);
+});
+
+test("j2/j5 sub-theses require the intent's literal j desk; bad desks and ambiguous/unmatched routes fail closed everywhere", () => {
+  for (const prefix of ["j2", "j5"]) {
+    const valid = executorFixture("j", `${prefix}|masked`);
+    assert.equal(calculateDeskEquities({ ...valid, account: ACCOUNT, observedAt: OBSERVED }).ok, true);
+  }
+  for (const condition of ["unmatched", "duplicate", "invalid-desk"]) {
+    const input = executorFixture();
+    if (condition === "unmatched") input.executorLedger.intents = {};
+    if (condition === "duplicate") input.executorLedger.intents.second = structuredClone(input.executorLedger.intents["masked-intent"]);
+    if (condition === "invalid-desk") input.executorLedger.intents["masked-intent"].desk = "j2";
+    input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT });
+    const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, jResult: null });
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /unclaimed by executor intent ledger/);
+    assert.deepEqual(result.executorClients, [{ client: 705, matched: 0, unmatched: 1 }]);
+    assert.equal(executorFamily(input).ok, false);
+    assert.equal(executionActivity(input.ledgerState, input.executorAttribution).cause, "execution_unowned");
+    assert.throws(() => projectBestAvailableHistory({ state: input.verifiedHistoryState, executorAttribution: input.executorAttribution }), /unclaimed/);
+  }
+});
+
+test("unmatched KEEP executions on 705 are excluded before intent matching, including missing commissions", () => {
+  const input = fixture();
+  for (const symbol of ["SXR8", "TSLA"]) {
+    const row = execution(`keep.${symbol}.01`, 705, symbol, symbol === "SXR8" ? 201 : 202, { currency: symbol === "SXR8" ? "EUR" : "USD" });
+    input.ledgerState.executions.push(row);
+    input.ledgerState.queryExecutionIdentities.push(row.execution.execId);
+  }
+  const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(result.desks.j.positions, input.jResult.positions);
+  assert.equal(result.executorClients, undefined);
+});
+
+test("normalized retained 705 history and NY boundary proofs require the same executor intent key", () => {
+  const input = executorFixture();
+  const revision = deskLedgerRevisionAt({ ...input, account: ACCOUNT, throughInclusive: CUTOFF });
+  assert.equal(revision.ok, true, revision.reason);
+  const periodStart = "2026-09-12T04:00:00Z";
+  const proofObservedAt = "2026-09-12T04:02:00Z";
+  const verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions, {
+    toExclusive: periodStart, capturedAt: proofObservedAt,
+  });
+  const options = { verifiedHistoryState, account: ACCOUNT, candidateSourceObservedAt: CUTOFF,
+    candidateHistoryRevision: revision.historyRevision, periodStart, proofObservedAt,
+    executorAttribution: input.executorAttribution };
+  const proof = buildDeskDayBoundaryEvidence(options);
+  assert.equal(proof.ok, true, proof.reason);
+  assert.equal(proof.boundaryHistoryRevision, revision.historyRevision);
+  assert.equal(buildDeskDayBoundaryEvidence({ ...options, executorAttribution: null }).ok, false);
+  input.executorLedger.intents["masked-intent"].desk = "joe";
+  const changed = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT });
+  assert.match(buildDeskDayBoundaryEvidence({ ...options, executorAttribution: changed }).reason, /economic history changed/);
+});
 
 function asynchronousHistoricalFixture() {
   const input = fixture();

@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-202610201110`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r14-202610201330`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -503,6 +503,36 @@ This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
 The candidate image is `household-v2-switch-set-r14-202610201330`; the retained
 rollback image is `household-v2-switch-set-202610201110`.
+
+R15 attributes executor-route executions through the executor's own intent
+ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same
+path and reads a bounded snapshot of `ledger.json` on completed execution
+cycles. `JOE_EXECUTOR_CLIENT_IDS` comes from the executor's declared `clientIds`
+(currently 700 and 705). Those clients bypass static assignments and require
+exactly one intent owning the `(clientId, orderId)` pair: a place intent's
+`result.bracket` records its client plus parent/stop order IDs, and a flatten
+intent's `result.flattened` records the submitted client/order pairs. Cancel,
+modify-stop and recon records do not create ownership. Multiple matching
+intents fail closed even if they name the same desk.
+
+For retained economic captures without routing fields, an exact execution-ID,
+client and account match in the executor ledger's `executions` must first
+recover one unambiguous order ID. Missing ledger data, missing keys, no intent,
+duplicate intents, conflicting execution identities or an intent desk outside
+`j`/`joe`/`joel` leave the execution unclaimed. No orderRef inference is used:
+J's `j2`/`j5` sub-theses require an intent whose desk is literally `j`; other
+desk values are never mapped. Pruned intent evidence also remains unavailable.
+
+The same resolver feeds J FIFO/history/fee/FX/flat-net evidence, all-desk equity,
+and v2 execution/open-order activity. Joel is valued from its proven executions
+when present. KEEP SXR8/TSLA is excluded before matching; 229 and every dated or
+static assignment keep their boundaries. The executor's trading authority and
+source are unchanged. `v2_desk_state` adds only per-executor-client matched and
+unmatched execution counts when available; it exposes no ledger identities.
+The intent attribution method changes the policy hash and selects a fresh
+policy-keyed baseline while preserving every old baseline and capture. R15
+rollback uses the immutable R14 image above; the earlier R14 notes remain
+historical rollout evidence.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
 22, 89, 90, 91, 119, 130, 131, 148, 151, and 152. The 2026-09-23 ledger listed

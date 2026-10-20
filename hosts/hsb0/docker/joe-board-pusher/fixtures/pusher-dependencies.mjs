@@ -3,6 +3,9 @@
 import { EventEmitter } from "node:events";
 export { createDeskStateReporter } from "../desk-activity.mjs";
 export { J_DATED_CLIENT_ASSIGNMENTS } from "../execution-history.mjs";
+export { CURRENT_DESK_OWNERSHIP_POLICY } from "../desk-ledger.mjs";
+export { EXECUTOR_CLIENT_IDS, createExecutorAttribution } from "../executor-attribution.mjs";
+export const readExecutorAttribution = () => null;
 
 let state;
 export function configure(next) { state = next; }
@@ -25,7 +28,6 @@ export const configuredPaperAccount = () => "DUFIXTURE";
 export class IBApi {}
 export const EventName = {};
 export const EXECUTION_CAPTURE_SCHEMA = "synthetic";
-export const CURRENT_DESK_OWNERSHIP_POLICY = {};
 export const DESK_HISTORY_REVISION_METHOD = "synthetic";
 export const FAMILY_BASELINE_PERIOD_START = "2026-01-01T00:00:00.000Z";
 const noop = () => {};

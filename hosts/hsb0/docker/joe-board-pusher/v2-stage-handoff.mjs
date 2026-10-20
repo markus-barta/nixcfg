@@ -6,7 +6,7 @@ export const MAX_FRAME_BYTES = 16 * 1024;
 
 // Copy only existing scalar evidence, after v1 settles. Never inspect a ledger.
 // A symbol/side shared by desks or broker contracts cannot prove a single owner.
-export function copyObservation({ book, family, deskEquities, executions } = {}) {
+export function copyObservation({ book, family, deskEquities, executions, executorAttribution } = {}) {
   if (!book || typeof book.ts !== "string" || book.ts.length > 64) return null;
   if (book.apiReplyCheckedAt != null && (typeof book.apiReplyCheckedAt !== "string" || book.apiReplyCheckedAt.length > 24)) return null;
   const rows = book.positions || [];
@@ -58,7 +58,7 @@ export function copyObservation({ book, family, deskEquities, executions } = {})
   };
   return { format: FRAME_FORMAT, bookTs: book.ts, equity: raw("NetLiquidation"), cash: raw("TotalCashValue"),
     apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
-    deskActivity: copyDeskActivity({ book, family, deskEquities, executions }) };
+    deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }) };
 }
 
 // This module deliberately has no filesystem, contract, timer or broker work.

@@ -1082,6 +1082,21 @@ times with the family classifier's `executionTime` path, compares epochs and
 stores canonical ISO activity times. Client 229 belongs to J from
 `2026-10-06T13:40:47Z` inclusive; one second earlier remains unowned.
 
+R15 (`household-v2-switch-set-r15-202610201500`, rollback R14) adds intent-only
+attribution for the configured executor clients (700/705). The pusher reads
+`/var/lib/paper-desk-executor/ledger.json` through a read-only directory mount;
+the executor source and authority stay unchanged. Exactly one place intent's
+`result.bracket` client/parent-or-stop key, or flatten intent's submitted
+`result.flattened` client/order key, must match the execution's `(clientId,
+orderId)`. Retained rows without that key require an exact execution-ID/client/
+account lookup in the executor's own executions first. Missing/pruned evidence,
+ambiguity and desks outside `j`/`joe`/`joel` stay unclaimed; orderRef prefixes
+never assign ownership. `j2`/`j5` sub-theses require a literal `j` intent desk.
+KEEP is excluded first, and dated/static assignments including 229 are unchanged.
+The shared rule covers v1 valuation and v2 activity; `v2_desk_state` includes
+value-free matched/unmatched counts per executor client when available. Its
+policy hash selects a new baseline without changing retained history or files.
+
 The ownership change selects
 `/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.
 Preserve legacy `day-baseline.json` and all other policy files; no retirement
