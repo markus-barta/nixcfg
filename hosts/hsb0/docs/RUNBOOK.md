@@ -1130,6 +1130,28 @@ account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
 source times. R15 validates every retained pair on open; leaving even one such
 pair causes `stage_storage_invalid` / `startup_invalid`.
 
+R16d candidate (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
+read-only positions every 120 seconds on the existing five-second tick while
+the session is ready, issuing `cancelPositions` then `reqPositions`. Requests
+never overlap, even when an end is overdue. A fresh accumulator replaces the
+last completed position set only at `positionEnd`; missing rows disappear.
+During a reply, retain the previous completed rows and coverage clock. Partial
+positions, portfolio updates and account-download completion never refresh
+coverage. A missing end therefore fails closed at age 421 seconds. Both the
+all-desk and J family activity paths use the completed coverage clock, rather
+than accounting/mark ages. A reconnect retires the pending reply and rejects
+its late callbacks. KEEP classification and identical-input v1 POST bytes stay
+unchanged.
+
+The R16d rollback image is `household-v2-switch-set-r16-202610201700`.
+**R16d → R16 rollback needs no pair move-aside**: the stager, pair/store format,
+source-clock semantics and sequence-state keys are unchanged. Select the
+retained R16 image through the normal reviewed rollback path and preserve all
+`v2/pair-*`, `v2/current.json`, `v2/sequence-state.json`, `v2/.allocator.lock`,
+`v2/receipts.jsonl` and `v1-cycles` in place. Verify retained pairs open and the
+next sequence exceeds the saved high-water. The R16 positions-age bug returns
+on rollback; it does not justify editing source clocks or resetting the store.
+
 For an authorized **r16 → r15 rollback**, first confirm the previous NixOS
 generation selects `household-v2-switch-set-r15-202610201500`, then perform these
 steps on hsb0 (never run the rebuild on macOS):
@@ -1180,7 +1202,7 @@ Desk reader times are fresh inclusively from v2 generation minus 420 seconds
 through generation plus 30 seconds. Missing or unparseable times are unavailable;
 older times or times beyond the future allowance are stale. Reader observations newer
 than the book stay fresh, and diagnostics use the observation clock. NAV/cash
-summary callbacks and complete position/account-download replies keep separate
+summary callbacks and completed position replies keep separate
 source clocks in the private handoff, so unrelated callbacks cannot renew them.
 Account `observedAt` is the oldest emitted money source; positions retain their
 coverage observation time. Legacy frames fall back to book time. A source older than 420
@@ -1209,7 +1231,7 @@ midnight can promote exact SOD only with a candidate no more than five minutes
 old, continuous authoritative execution coverage and the matching boundary
 history digest. Otherwise the next valid new-day sample supplies a new proxy.
 V2 `dayPnl` remains null with `not_exact_yet` through either v1 recovery path.
-Rollback stays `household-v2-switch-set-r15-202610201500`; preserve the legacy file
+R16d rollback uses `household-v2-switch-set-r16-202610201700`; preserve the legacy file
 that the old image reads and every policy-keyed file.
 
 Staging retains the newest **N=10 pairs by sequence count**, never age; the
