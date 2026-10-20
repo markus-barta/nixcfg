@@ -69,7 +69,7 @@ export function createBrokerSessionAdapter({
   now = () => new Date().toISOString(),
   hooks = {},
 }) {
-  const tracker = createPositionTracker(targetAccount);
+  let tracker = createPositionTracker(targetAccount);
   let trackerEpoch = tracker.epoch;
   let activeApi = null;
   let generation = 0;
@@ -85,6 +85,8 @@ export function createBrokerSessionAdapter({
   let gatewayLastSeenAt = null;
   let apiReplyCheckedAt = null;
   let positionsObservedAt = null;
+  let pendingPositions = null;
+  let nextPositionsRequestAt = 0;
   let ordersObservedAt = null;
   let pendingOpenOrders = null;
   let nextOrdersRequestAt = 0;
@@ -98,7 +100,7 @@ export function createBrokerSessionAdapter({
         !working.accountComplete || !working.summaryComplete) {
       return false;
     }
-    const rows = cloneRows(tracker.listRows());
+    const rows = cloneRows(pendingPositions?.previousRows ?? tracker.listRows());
     const portfolio = cloneRows([...working.portfolio.values()]);
     published = {
       ts: observedAt,
@@ -134,6 +136,8 @@ export function createBrokerSessionAdapter({
   function markFinancialUnavailable(reason) {
     apiReplyCheckedAt = null;
     positionsObservedAt = null;
+    pendingPositions = null;
+    nextPositionsRequestAt = 0;
     ordersObservedAt = null;
     pendingOpenOrders = null;
     nextOrdersRequestAt = 0;
@@ -161,7 +165,7 @@ export function createBrokerSessionAdapter({
     resyncing = true;
     try {
       api.reqManagedAccts();
-      api.reqPositions();
+      if (!requestPositions(api, true)) return false;
       if (!requestOpenOrders(api)) return false;
       api.reqAccountSummary(
         accountSummaryRequestId,
@@ -176,6 +180,59 @@ export function createBrokerSessionAdapter({
       return false;
     }
     return true;
+  }
+
+  function requestPositions(api, initial = false) {
+    const at = Date.parse(now());
+    // positionEnd has no request ID. An overdue reply stays in flight until
+    // its end or a new connection generation; partial rows never replace it.
+    if (api !== activeApi || !socketConnected || !working || pendingPositions ||
+        !Number.isFinite(at) || at < nextPositionsRequestAt) return false;
+    const fresh = initial ? tracker : createPositionTracker(targetAccount);
+    const epoch = initial ? trackerEpoch : fresh.onConnected();
+    if (!initial) fresh.onManagedAccounts(epoch, working.accounts);
+    pendingPositions = {
+      tracker: fresh, epoch, endedAt: null,
+      previousRows: initial ? null : cloneRows(tracker.listRows()),
+    };
+    nextPositionsRequestAt = at + 120_000;
+    const requestedGeneration = generation;
+    try {
+      if (!initial) api.cancelPositions();
+      if (!isCurrent(api, requestedGeneration)) return false;
+      api.reqPositions();
+    } catch (error) {
+      const detail = String(error?.message || error);
+      hooks.onError?.(detail);
+      invalidate(api, detail, true);
+      return false;
+    }
+    return true;
+  }
+
+  function completePositions() {
+    const reply = pendingPositions;
+    if (!reply?.endedAt || reply.tracker.status !== "complete") return;
+    if (reply.tracker !== tracker) {
+      // Keep real mark values and their clocks, but only for contracts present
+      // in this completed reply. Portfolio callbacks cannot add missing rows.
+      const marks = new Map(tracker.listRows().map(row => [contractKey(row.contract), row]));
+      for (const row of reply.tracker.listRows()) {
+        const mark = marks.get(contractKey(row.contract));
+        if (!mark) continue;
+        reply.tracker.onPortfolio(reply.epoch, targetAccount, row.contract, row.pos,
+          mark.marketPrice, mark.marketValue, row.avgCost ?? mark.avgCost,
+          mark.unrealizedPNL, mark.realizedPNL, mark.markObservedAt);
+        reply.tracker.onPosition(reply.epoch, targetAccount, row.contract, row.pos,
+          row.avgCost ?? mark.avgCost, row.positionObservedAt);
+      }
+    }
+    tracker = reply.tracker;
+    trackerEpoch = reply.epoch;
+    positionsObservedAt = reply.endedAt;
+    apiReplyCheckedAt = reply.endedAt;
+    pendingPositions = null;
+    publishIfReady(reply.endedAt);
   }
 
   function requestOpenOrders(api) {
@@ -302,6 +359,9 @@ export function createBrokerSessionAdapter({
     working = null;
     trackerEpoch = tracker.onDisconnected();
     apiReplyCheckedAt = null;
+    positionsObservedAt = null;
+    pendingPositions = null;
+    nextPositionsRequestAt = 0;
     ordersObservedAt = null;
     pendingOpenOrders = null;
     nextOrdersRequestAt = 0;
@@ -351,6 +411,10 @@ export function createBrokerSessionAdapter({
       if (!working) return;
       working.accounts = accounts;
       if (!tracker.onManagedAccounts(trackerEpoch, accounts)) return;
+      if (pendingPositions) {
+        pendingPositions.tracker.onManagedAccounts(pendingPositions.epoch, accounts);
+        completePositions();
+      }
       const observedAt = now();
       publishIfReady(observedAt);
     }));
@@ -379,8 +443,8 @@ export function createBrokerSessionAdapter({
     api.on(eventNames.position, guard("position", (account, contract, pos, avgCost) => {
       if (!working || account !== targetAccount) return;
       const observedAt = now();
-      const result = tracker.onPosition(
-        trackerEpoch,
+      const result = (pendingPositions?.tracker ?? tracker).onPosition(
+        pendingPositions?.epoch ?? trackerEpoch,
         account,
         contract,
         pos,
@@ -396,12 +460,10 @@ export function createBrokerSessionAdapter({
     }));
 
     api.on(eventNames.positionEnd, guard("positionEnd", () => {
-      if (!working) return;
-      if (!tracker.onPositionEnd(trackerEpoch)) return;
-      const observedAt = now();
-      apiReplyCheckedAt = observedAt;
-      positionsObservedAt = observedAt;
-      publishIfReady(observedAt);
+      if (!working || !pendingPositions || pendingPositions.endedAt) return;
+      pendingPositions.endedAt = now();
+      pendingPositions.tracker.onPositionEnd(pendingPositions.epoch);
+      completePositions();
     }));
 
     api.on(eventNames.updatePortfolio, guard("updatePortfolio", (
@@ -450,7 +512,8 @@ export function createBrokerSessionAdapter({
       if (!working || account !== targetAccount) return;
       working.accountComplete = true;
       const observedAt = now();
-      if (tracker.status === "complete") positionsObservedAt = observedAt;
+      // This ends account updates, not reqPositions. It cannot prove a fresh
+      // complete position set, even when an earlier position reply completed.
       publishIfReady(observedAt);
     }));
 
@@ -491,6 +554,11 @@ export function createBrokerSessionAdapter({
     refreshOpenOrders() {
       if (!upstreamConnected) return false;
       return requestOpenOrders(activeApi);
+    },
+
+    refreshPositions() {
+      if (!upstreamConnected) return false;
+      return requestPositions(activeApi);
     },
 
     refreshPortfolio() {

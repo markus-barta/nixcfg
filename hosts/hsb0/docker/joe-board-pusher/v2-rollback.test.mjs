@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { StageStore, prepareLock } from "./v2-stage-worker.mjs";
 import { FRAME_FORMAT } from "./v2-stage-handoff.mjs";
@@ -34,6 +35,43 @@ test("rollback fixture preserves the exact r15 worker and complete import/contra
   verifyR15();
   const { verify } = await import("./fixtures/r15/verify-contracts.mjs");
   assert.equal(verify(), true);
+});
+
+test("actual r16 opens r16d pairs in place and continues above the saved high-water", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops404-r16d-rollback-"));
+  t.after(() => spawnSync("trash", [root]));
+  const runtime = path.join(root, "r16"), v2 = path.join(root, "v2");
+  const tree = "hosts/hsb0/docker/joe-board-pusher";
+  const r16Revision = "68a8e9aaca483c72b23c8da6c6fc0085291ca9db";
+  const files = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", `${r16Revision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
+  for (const name of files.filter(name => (/^[^/]+\.mjs$/.test(name) && !name.endsWith(".test.mjs"))
+    || name === "contracts.lock.json" || name.startsWith("contracts/"))) {
+    const destination = path.join(runtime, name);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, execFileSync("git", ["show", `${r16Revision}:${tree}/${name}`]));
+  }
+  const { StageStore: R16Store } = await import(pathToFileURL(path.join(runtime, "v2-stage-worker.mjs")));
+  fs.mkdirSync(v2, { mode: 0o700 });
+  const options = { root: v2, uid: process.getuid(), gid: process.getgid() };
+  prepareLock(v2, options.uid, options.gid);
+  const r16d = new StageStore(options); r16d.enroll(); await r16d.open();
+  const observation = {
+    format: FRAME_FORMAT, bookTs: instant,
+    equity: { value: "100.00", currency: "EUR" }, cash: { value: "10.00", currency: "EUR" },
+    sourceObservedAt: { equity: instant, cash: instant, positions: at(120) },
+    apiReplyCheckedAt: at(120), positions: [],
+  };
+  assert.equal(r16d.stage(observation, () => at(150)).status, 200);
+  const before = new Map(["sequence-state.json", "current.json", "receipts.jsonl", "pair-1/snapshot.json", "pair-1/receipt.json"]
+    .map(name => [name, fs.readFileSync(path.join(v2, name))]));
+  const lockInode = fs.statSync(path.join(v2, ".allocator.lock")).ino;
+  const rollback = await new R16Store(options).open();
+  assert.deepEqual(rollback.retainedSeqs(), [1]);
+  assert.equal(rollback.previous.value.positions.observedAt, at(120));
+  for (const [name, bytes] of before) assert.deepEqual(fs.readFileSync(path.join(v2, name)), bytes, name);
+  assert.equal(fs.statSync(path.join(v2, ".allocator.lock")).ino, lockInode);
+  assert.deepEqual(rollback.stage({ ...observation, apiReplyCheckedAt: at(151) }, () => at(151)), { status: 200, reason: null, seq: 2 });
+  assert.deepEqual((await new StageStore(options).open()).retainedSeqs(), [1, 2]);
 });
 
 test("actual r15 rejects r16 pairs; move-aside preserves evidence and resumes above high-water within one IB cycle", async t => {

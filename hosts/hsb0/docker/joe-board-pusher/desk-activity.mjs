@@ -85,10 +85,11 @@ export function copyDeskActivity({ book, family, deskEquities, executions, execu
   for (const id of DESK_IDS) {
     const known = positionsKnown || (id === "j" && family?.ok && Array.isArray(family.positions));
     const coverageAt = book?.positionsCoverage?.observedAt === undefined ? book?.ts : book.positionsCoverage.observedAt;
-    const projectionAt = (positionsKnown ? deskEquities.oldestSourceObservedAt : family?.observedAt) ?? book?.ts;
+    // Projection ages describe accounting/marks, not position-set coverage.
+    // Both desk and family paths use only the completed reqPositions clock.
     result[id] = {
-      positionsAt: known && book?.gateway === true && book.positionsCoverage?.status === "complete" && coverageAt && projectionAt
-        ? [coverageAt, projectionAt].sort()[0] : null,
+      positionsAt: known && book?.gateway === true && book.positionsCoverage?.status === "complete"
+        ? coverageAt ?? null : null,
       hasPositions: known ? (positionsKnown ? deskEquities.desks[id].positions : family.positions).length > 0 : false,
       ordersAt: ordersKnown && book?.gateway === true ? book.ordersObservedAt : null,
       hasOrders: ordersKnown ? orders[id] : false,
