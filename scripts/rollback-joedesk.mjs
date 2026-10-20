@@ -50,6 +50,67 @@ export function verifyPreviousRuntimeSource(
     }
   }
 }
+// The private record is authoritative: never substitute release.sets.previous
+// for the runtime that was actually running before phase1.
+export function verifyRecordedRuntimeSource(
+  record,
+  revision = "HEAD",
+  runGit = git,
+) {
+  for (const key of [
+    "pre_cutover_hsb0_nixcfg_rev",
+    "pre_cutover_pusher_source_tree",
+    "pre_cutover_executor_source_tree",
+  ])
+    if (!/^[0-9a-f]{40}$/.test(record[key] || ""))
+      throw new Error("recorded_pre_cutover_runtime_required");
+  const pins = Object.fromEntries(
+    ["pusher", "executor"].map((name) => [
+      name,
+      {
+        nixcfg_rev: record.pre_cutover_hsb0_nixcfg_rev,
+        source_tree: record["pre_cutover_" + name + "_source_tree"],
+        source_path:
+          name === "pusher"
+            ? "hosts/hsb0/docker/joe-board-pusher"
+            : "modules/paper-desk-executor",
+      },
+    ]),
+  );
+  verifyPreviousRuntimeSource(pins, revision, runGit);
+}
+export function verifyRecordedRuntimeImage(
+  record,
+  revision = "HEAD",
+  runGit = git,
+) {
+  if (!/^[a-z0-9][a-z0-9:._/-]+$/.test(record.pre_cutover_pusher_image || ""))
+    throw new Error("recorded_pre_cutover_image_required");
+  const release = JSON.parse(
+    runGit("show", revision + ":hosts/csb0/joedesk-release.json"),
+  );
+  for (const [name, file] of [
+    ["pusher", "hosts/hsb0/configuration.nix"],
+    ["executor", "modules/paper-desk-executor/default.nix"],
+  ]) {
+    const text = runGit("show", revision + ":" + file);
+    // These are the two reviewed selector forms. Unknown wiring fails closed.
+    const selector = text.match(
+      /joeSet\s*=\s*joeRelease\.sets\.(current|\$\{joeRelease\.active\});/,
+    );
+    const selected =
+      selector?.[1] === "current"
+        ? "current"
+        : selector
+          ? release.active
+          : undefined;
+    if (
+      !selected ||
+      release.sets[selected]?.[name]?.image !== record.pre_cutover_pusher_image
+    )
+      throw new Error("recorded_pre_cutover_image_mismatch");
+  }
+}
 export function verifyRollbackTarget(
   record,
   previous,
@@ -82,7 +143,8 @@ export function verifyRollbackTarget(
     lock.nodes.joedesk.locked.rev !== previous.board.rev
   )
     throw new Error("reviewed_previous_pins_not_selected");
-  verifyPreviousRuntimeSource(previous, revision, runGit);
+  verifyRecordedRuntimeSource(record, revision, runGit);
+  verifyRecordedRuntimeImage(record, revision, runGit);
 }
 export function rollbackPlan(record, release) {
   const previous = release.sets.previous;
@@ -92,7 +154,12 @@ export function rollbackPlan(record, release) {
     record.previous_set_sha256 !== setDigest(previous)
   )
     throw new Error("previous_release_record_mismatch");
-  for (const key of ["rollback_nixcfg_rev"])
+  for (const key of [
+    "rollback_nixcfg_rev",
+    "pre_cutover_hsb0_nixcfg_rev",
+    "pre_cutover_pusher_source_tree",
+    "pre_cutover_executor_source_tree",
+  ])
     if (!/^[0-9a-f]{40}$/.test(record[key] || ""))
       throw new Error("reviewed_rollback_commit_required");
   for (const key of ["board_image_id", "pusher_image_id"])
@@ -112,6 +179,18 @@ export function rollbackPlan(record, release) {
   for (const key of ["v1_backup", "prepare_source", "hsb0_checkout"])
     if (!path.isAbsolute(record[key] || "") || /[\r\n]/.test(record[key]))
       throw new Error("absolute_private_paths_required");
+  if (!/^[a-z0-9][a-z0-9:._/-]+$/.test(record.pre_cutover_pusher_image || ""))
+    throw new Error("recorded_pre_cutover_image_required");
+  const runtimeRecord = Object.fromEntries(
+    [
+      "rollback_nixcfg_rev",
+      "previous_set_sha256",
+      "pre_cutover_hsb0_nixcfg_rev",
+      "pre_cutover_pusher_source_tree",
+      "pre_cutover_executor_source_tree",
+      "pre_cutover_pusher_image",
+    ].map((key) => [key, record[key]]),
+  );
   const hsbCompose =
     "sudo docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory hosts/hsb0/docker";
   return {
@@ -128,18 +207,15 @@ export function rollbackPlan(record, release) {
       "node --input-type=module -e " +
         q(
           "import {verifyRollbackTarget} from './scripts/rollback-joedesk.mjs'; verifyRollbackTarget(" +
-            JSON.stringify({
-              rollback_nixcfg_rev: record.rollback_nixcfg_rev,
-              previous_set_sha256: record.previous_set_sha256,
-            }) +
+            JSON.stringify(runtimeRecord) +
             "," +
             JSON.stringify(previous) +
             ");",
         ),
       "sudo systemctl stop compose-hsb0-update.timer compose-hsb0-update.service compose-hsb0.service",
-      hsbCompose + " stop joe-board-pusher paper-desk-executor",
+      hsbCompose + " stop joe-board-pusher joe-household-v2-stage",
       hsbCompose +
-        " ps --status running -q joe-board-pusher paper-desk-executor",
+        " ps --status running -q joe-board-pusher joe-household-v2-stage",
     ],
     crossSwitch: [
       "cd " + q(record.hsb0_checkout),
@@ -147,21 +223,21 @@ export function rollbackPlan(record, release) {
       'test "$(git rev-parse HEAD)" = ' + q(record.rollback_nixcfg_rev),
       "node --input-type=module -e " +
         q(
-          "import {verifyPreviousRuntimeSource} from './scripts/rollback-joedesk.mjs'; verifyPreviousRuntimeSource(" +
-            JSON.stringify(previous) +
-            ");",
+          "import {verifyRecordedRuntimeSource,verifyRecordedRuntimeImage} from './scripts/rollback-joedesk.mjs'; const r=" +
+            JSON.stringify(runtimeRecord) +
+            "; verifyRecordedRuntimeSource(r); verifyRecordedRuntimeImage(r);",
         ),
       "python3 tests/T100-joedesk-release.py",
       'test "$(docker image ls --no-trunc --quiet ' +
-        q(previous.pusher.image) +
+        q(record.pre_cutover_pusher_image) +
         ')" = ' +
         q(record.pusher_image_id),
       "test -e /nix/var/nix/profiles/system-" +
         record.hsb0_generation +
         "-link",
       "just switch",
-      // Both services share this exact retained runtime. The executor application
-      // source must also be restored from its declared nixcfg source revision.
+      // The executor keeps running: its own state is rw, pusher state is ro.
+      // Verify the retained pre-cutover runtime; never rewind its ledger.
       hsbCompose + " ps --status running joe-board-pusher paper-desk-executor",
       "sudo systemctl start compose-hsb0-update.timer",
     ],
@@ -283,7 +359,7 @@ async function main() {
         plan.crossStop.join("\n"),
     );
     await confirm(
-      "hsb0 pusher/executor and every other writer/editor are stopped; reconciliation and update jobs are paused",
+      "hsb0 pusher/stager and every other board writer/editor are stopped; executor keeps running; reconciliation and update jobs are paused",
     );
     await step("Pause csb0 reconciliation and update jobs", "sudo", [
       "systemctl",
