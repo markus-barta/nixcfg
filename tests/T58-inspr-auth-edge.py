@@ -24,7 +24,6 @@ from typing import Any
 import yaml
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-COMPOSE_SPEC = REPO / "hosts/csb1/docker/compose-spec.nix"
 CONFIGURATION = REPO / "hosts/csb1/configuration.nix"
 RENDERER = REPO / "hosts/csb1/scripts/render-inspr-edge-config.sh"
 RANGE_PIN = REPO / "hosts/csb1/docker/traefik/inspr-auth-edge-contract.json"
@@ -56,8 +55,32 @@ def require(condition: bool, message: str) -> None:
 
 
 def load_compose_spec() -> dict[str, Any]:
+    # Keep this contract offline and never read credential ciphertext. Aeon's
+    # unrelated rotation labels use synthetic hashes here; T95 covers those
+    # hashes with its own fixtures. Public routing/config hashes stay real.
+    expression = r'''
+      let
+        fixtureBuiltins = builtins // {
+          hashFile = algorithm: path:
+            if builtins.match ".*[.]age" (toString path) != null then
+              builtins.hashString algorithm "synthetic ciphertext fixture"
+            else builtins.hashFile algorithm path;
+        };
+        spec = builtins.scopedImport { builtins = fixtureBuiltins; }
+          ./hosts/csb1/docker/compose-spec.nix;
+      in {
+        # Evaluate the boundary fields and every service's labels. Unrelated
+        # store-backed volumes need a daemon and are outside this contract.
+        services = builtins.mapAttrs (name: service:
+          if name == "inspr-auth" then service
+          else { labels = service.labels or []; }
+            // (if name == "traefik" then { inherit (service) volumes; } else {})
+        ) spec.services;
+      }
+    '''
     result = subprocess.run(
-        ["nix", "eval", "--json", "--file", str(COMPOSE_SPEC)],
+        ["nix", "eval", "--offline", "--impure", "--json", "--expr", expression],
+        cwd=REPO,
         text=True,
         capture_output=True,
         check=False,
@@ -403,8 +426,19 @@ def main() -> int:
         "cloudflarewarp runtime trust configuration changed",
     )
     require(
-        auth.get("env_file") == ["/run/agenix/csb1-inspr-auth-env"],
-        "inspr-auth must consume the same age-backed environment as the renderer",
+        auth.get("env_file") == [
+            "/run/agenix/csb1-inspr-auth-env",
+            "/run/agenix/csb1-inspr-auth-admin-env",
+        ],
+        "inspr-auth must load the primary and admin age-backed environments in order",
+    )
+    require(
+        auth.get("image") == (
+            "ghcr.io/inspr-at/inspr-site/inspr-auth:"
+            "sha-4c0466b59e23d3bc31670007899888e4129a79f7@sha256:"
+            "1de76e53c2984ec1417f1415a45ff2f3451476c07c3ff92909a7ae380451a460"
+        ),
+        "inspr-auth must pin the reviewed INSPR-576 admin-scope artifact",
     )
     require(
         auth.get("environment", {}).get("ENTER_TRUSTED_PROXY_HOST")
