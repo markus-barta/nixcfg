@@ -477,6 +477,23 @@ After the first accepted last/close tick the market-data subscription is cancell
 KEEP names are never requested. Exact KEEP stays SXR8×1401 and TSLA×1. A
 client ID outside the dated ownership policy still fails loud.
 
+OPS-392 adds J's legacy Mac client 229 from `2026-10-06T13:40:47Z`, inclusive,
+with no end date. `J_DATED_CLIENT_ASSIGNMENTS` in `execution-history.mjs` is
+the canonical assignment; `desk-ledger.mjs` composes it into the policy used
+by v1 equity and v2 activity. The pusher supplies that same dated supplement
+to J's FIFO, fee/FX readiness, captured history and flat-net mark selection.
+The persisted family classifier stays unchanged; existing all-account captures
+and ledgers remain usable. Earlier 229 activity and unknown clients still
+block all-desk ownership. Both `J|` and `j|` prefixes work; a tag alone never
+claims a client. The executor already normalizes only the desk prefix and
+retains its separate executor-provenance/admin-attribution ownership gate;
+this valuation assignment grants no broker action authority.
+
+This assignment changes the desk policy hash, so the previous day baseline
+fails closed and must be retired through the existing deployment procedure.
+The candidate image is `household-v2-switch-set-r13-202610201300`; the retained
+rollback image is `household-v2-switch-set-202610201110`.
+
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
 22, 89, 90, 91, 119, 130, 131, 148, 151, and 152. The 2026-09-23 ledger listed
 the IDs other than 22 and did not keep a separate first-seen instant, so each

@@ -5,6 +5,8 @@
  * a SOD baseline, or a DAY value. Exclusive-mode callers never use this path.
  */
 
+import { isFamilyClientExecution } from "./execution-history.mjs";
+
 const ALWAYS_EXCLUDED = new Set(["SXR8", "TSLA"]);
 const QUANTITY_EPSILON = 1e-9;
 // Broker-published last/close prices only. Bid/ask midpoints are not observed marks.
@@ -66,6 +68,7 @@ export function contractsNeedingFlatNetMarks({
   portfolio = [],
   account,
   familyClientIds = [],
+  familyClientAssignments = [],
   excludedSymbols = [],
 } = {}) {
   const excluded = new Set([...ALWAYS_EXCLUDED, ...excludedSymbols.map((value) => String(value).trim().toUpperCase())]);
@@ -92,8 +95,7 @@ export function contractsNeedingFlatNetMarks({
     const signed = signedQuantity(record.execution);
     if (!key || signed === null) continue;
     const bucket = nets.get(key) || { contract, family: 0, other: 0 };
-    const clientId = record.execution.clientId;
-    if (familyIds.has(clientId)) bucket.family += signed;
+    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments)) bucket.family += signed;
     else bucket.other += signed;
     bucket.contract = contract;
     nets.set(key, bucket);

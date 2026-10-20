@@ -14,6 +14,7 @@ import {
   reconcileExecutionCapture,
 } from "./execution-reconciliation.mjs";
 import {
+  J_DATED_CLIENT_ASSIGNMENTS,
   captureFromFamilyLedgerFile,
   capturesFromOfficialWindowEvidence,
   normalizeEconomicCommission,
@@ -148,6 +149,7 @@ const familyAdapter = createFamilySessionAdapter({
   summarizeActivity: v2StageHandoff ? executionActivity : null,
   targetAccount: ACCOUNT,
   familyClientIds: FAMILY_CLIENT_IDS,
+  familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
   excludedSymbols: ["SXR8", "TSLA"],
   periodStart: FAMILY_BASELINE_PERIOD_START,
   calculateFamily,
@@ -181,7 +183,7 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   normalizeExecutionRow: normalizeEconomicExecution,
   normalizeCommissionReport: normalizeEconomicCommission,
   reconcileCapture: reconcileExecutionCapture,
-  projectHistory: projectBestAvailableHistory,
+  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS }),
   eventNames: EventName,
   store: createFileFamilyHistoryStore(FAMILY_HISTORY_PATH),
   loadBootstrapCapture({ targetAccount, classifier, historyStart }) {
@@ -468,6 +470,7 @@ function syncFlatNetMarks() {
     portfolio: book.portfolio || [],
     account: ACCOUNT,
     familyClientIds: FAMILY_CLIENT_IDS,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
     excludedSymbols: ["SXR8", "TSLA"],
   }));
 }

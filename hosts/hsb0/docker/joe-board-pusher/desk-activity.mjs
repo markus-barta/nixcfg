@@ -21,8 +21,9 @@ export function newYorkDay(epoch = Date.now()) {
 }
 
 function owner(clientId, time) {
+  const at = Date.parse(time);
   const matches = CURRENT_DESK_OWNERSHIP_POLICY.assignments.filter(rule => rule.clientId === clientId
-    && rule.fromInclusive <= time && (rule.toExclusive === null || time < rule.toExclusive));
+    && Date.parse(rule.fromInclusive) <= at && (rule.toExclusive === null || at < Date.parse(rule.toExclusive)));
   return matches.length === 1 ? matches[0].desk : null;
 }
 
