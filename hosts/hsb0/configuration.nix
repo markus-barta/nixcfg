@@ -85,11 +85,13 @@ let
 
   # OPS-401: the 7530's guest network reaches DNS from the transit /30 (fritz-guest-uplink.nix).
   # Only the neighbour wallboxes' cloud, their NTP and the 7530's own AVM checks resolve; every
-  # other name is blocked, so phones on the guest Wi-Fi get no usable internet. Plain @@ exceptions
-  # beat plain block rules (no $important here). The /30 also covers hsb0's 10.255.5.1, so
-  # `dig -b 10.255.5.1 @10.255.5.1` on hsb0 tests the rules. Source of the allowlist: the
-  # querylog for 192.168.1.5 (the 7530 forwarding guest DNS before the uplink existed).
-  guestUplinkDnsRules = map (rule: "${rule}$client=10.255.5.0/30") [
+  # other name is blocked, so phones on the guest Wi-Fi get no usable internet. $important: the
+  # block-all must also beat the global @@ exceptions above (dnsAllowlist), which apply to every
+  # client; an $important exception still beats an $important block, so the guest allowlist
+  # works. The /30 also covers hsb0's 10.255.5.1, so `dig -b 10.255.5.1 @10.255.5.1` on hsb0 tests
+  # the rules. Source of the allowlist: the querylog for 192.168.1.5 (the 7530 forwarding guest
+  # DNS before the uplink existed).
+  guestUplinkDnsRules = map (rule: "${rule}$important,client=10.255.5.0/30") [
     "||*^"
     "@@||elli.eco^" # Elli wallboxes (cert.prod.devices.elli.eco)
     "@@||time1.google.com^" # wallbox NTP
