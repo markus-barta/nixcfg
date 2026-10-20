@@ -40,6 +40,9 @@ no app-origin stamp. Use no production credentials in this check.
 
 ## One compatible release set
 
+**Rollback state (this commit):** `active = previous` selects the v1 board db621bf; v2 is inactive
+and hsb0 runs the restored pre-cutover tree (r16d). The text below describes the activated state.
+
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
 executor. `active = v2` (OPS-354 activation) selects d36b5295 with the r17
 pusher/executor pins (OPS-408); `current` retains db621bf, legacy `calendar`
