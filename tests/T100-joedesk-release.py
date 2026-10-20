@@ -106,7 +106,14 @@ def check(source=None):
     executor_module = (ROOT / 'modules/paper-desk-executor/default.nix').read_text()
     hsb0_runtime(release, hsb0_config, executor_module, lambda spec: subprocess.check_output(['git', 'rev-parse', spec], cwd=ROOT, text=True).strip())
     fixture = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
-    require('release.sets.${release.active}.pusher.image' in fixture and CANDIDATE_IMAGE in fixture, 'executor fixture must follow the release set and identify r17')
+    require(CANDIDATE_IMAGE in fixture, 'executor fixture must identify r17b')
+    # The executor eval fixture must evaluate to the EFFECTIVE hsb0 pusher image of this release state.
+    block = re.search(r'joe-board-pusher\.image =\s*(let.*?in\s*release\.sets\.\$\{selected\}\.pusher\.image);', fixture, re.S)
+    require(block, 'executor fixture must select the effective hsb0 runtime set')
+    expr = block[1].replace('../hosts/csb0/joedesk-release.json', str(RELEASE))
+    fixture_image = subprocess.check_output(['nix', 'eval', '--impure', '--raw', '--expr', expr], cwd=ROOT, text=True).strip()
+    effective = release['sets']['current' if release['active'] == 'previous' else release['active']]['pusher']['image']
+    require(fixture_image == effective, 'executor fixture image differs from the effective hsb0 pusher image')
     active = release['sets'][release['active']]
     lock = json.loads((ROOT / 'flake.lock').read_text())
     require(active['board']['rev'] == lock['nodes']['joedesk']['locked']['rev'], 'active board disagrees with lock')

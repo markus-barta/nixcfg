@@ -878,6 +878,9 @@ this inside the hsb0 `hold` step that every guarded rollback requires; see the h
 
 ### One-command v1 rollback
 
+**After a real rollback:** merge the rollback commit to main through the normal PR path (green CI),
+so main matches reality. Otherwise main still selects `v2` and the next csb0 switch re-applies it.
+
 Before cutover, retain a root/operator-owned mode-0600 JSON record at
 `/var/lib/joedesk-rollback/record.json` (private directory mode 0700). Required
 keys: `previous_set_sha256` (the exported `setDigest` of release.sets.previous),
