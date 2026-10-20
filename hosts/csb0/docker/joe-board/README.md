@@ -45,7 +45,7 @@ executor. `active = current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
-main 68a8e9aa (#1062, including #1061) and its live OPS-404 r16 switch-set image; `previous` preserves the
+main 096cc37f (#1063, including #1061/#1062) and its live OPS-404 r16d switch-set image; `previous` preserves the
 earlier flat-net runtime and the same legacy board. Preserve that rollback
 history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private

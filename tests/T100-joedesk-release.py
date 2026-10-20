@@ -14,9 +14,9 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
 BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
-# The recorded source revision is the exact main merge of #1062 (68a8e9aa).
+# The recorded source revision is the exact main merge of #1063 (096cc37f).
 HSB0_BASELINE = json.loads(RELEASE.read_text())['sets']['current']['executor']['nixcfg_rev']
-HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700'
+HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
 PUBLISHED = 'd36b5295295a6901e36fdf2dc0d64353ddf88d0e'
 PUBLISHED_TREE = 'ba066aaeebf193eab93154ca9e0335f7dbba9d28'
@@ -36,11 +36,11 @@ def check(source=None):
     require(release['schema'] == 'nixcfg.joedesk-release-set.v1', 'release set schema')
     require(set(release['sets']) == {'current', 'v2', 'previous'}, 'three explicit release sets')
     for name in ('pusher', 'executor'):
-        require(release['sets']['current'][name]['image'] == HSB0_IMAGE, name + ': current image must be the r16 switch set')
+        require(release['sets']['current'][name]['image'] == HSB0_IMAGE, name + ': current image must be the r16d switch set')
     stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = "([^"]+)";', (ROOT / 'hosts/hsb0/configuration.nix').read_text(), re.S)[1]
-    require(stage_image == HSB0_IMAGE, 'stage image must be the r16 switch set')
+    require(stage_image == HSB0_IMAGE, 'stage image must be the r16d switch set')
     fixture_image = re.search(r'joe-board-pusher\.image = "([^"]+)";', (ROOT / 'tests/paper-desk-executor-eval.nix').read_text())[1]
-    require(fixture_image == HSB0_IMAGE, 'executor eval fixture must use the r16 switch set')
+    require(fixture_image == HSB0_IMAGE, 'executor eval fixture must use the r16d switch set')
     active = release['sets'][release['active']]
     lock = json.loads((ROOT / 'flake.lock').read_text())
     require(active['board']['rev'] == lock['nodes']['joedesk']['locked']['rev'], 'active board disagrees with lock')
@@ -104,15 +104,15 @@ def evaluation_proof():
             require(values[0] == values[1], relative + ': rendered spec changed in release refactor')
     current = check()['sets']['current']
     actual_image = subprocess.check_output(['nix', 'eval', '--impure', '--raw', '--expr', '(import ' + str(ROOT / 'modules/paper-desk-executor/default.nix') + ' { config = {}; pkgs = {}; lib.mkOption = x: x; }).options.nixcfg.paperDeskExecutor.image.default'], cwd=ROOT, text=True)
-    require(current['executor']['image'] == actual_image == HSB0_IMAGE, 'executor default must use the r16 switch set')
+    require(current['executor']['image'] == actual_image == HSB0_IMAGE, 'executor default must use the r16d switch set')
     for name in ('pusher', 'executor'):
         pin = current[name]
         tree = subprocess.check_output(['git', 'rev-parse', pin['nixcfg_rev'] + ':' + pin['source_path']], cwd=ROOT, text=True).strip()
         require(tree == pin['source_tree'], 'recorded source tree mismatch')
     # Compare hsb0 with the recorded exact main, including its stage and local
-    # mailbox, pinned at the #1062 merge and its live r16 switch set.
+    # mailbox, pinned at the #1063 merge and its live r16d switch set.
     hsb0_evaluation_proof()
-    print('release_refactor=byte-identical-static-specs executor_default=r16-main-equal linux_toplevel_drvPath=pending')
+    print('release_refactor=byte-identical-static-specs executor_default=r16d-main-equal linux_toplevel_drvPath=pending')
 
 
 def hsb0_evaluation_proof():
@@ -164,8 +164,8 @@ def hsb0_evaluation_proof():
                 '--json', '--file', str(expression), '--apply', 'f: f {}'], cwd=ROOT))
         actual = json.loads(values[1])
         for name in ('joe-board-pusher', 'paper-desk-executor', 'joe-household-v2-stage'):
-            require(actual['hostCompose']['services'][name]['image'] == HSB0_IMAGE, name + ': evaluated host image must be the r16 switch set')
-        require(actual['image'] == HSB0_IMAGE, 'evaluated executor image must be the r16 switch set')
+            require(actual['hostCompose']['services'][name]['image'] == HSB0_IMAGE, name + ': evaluated host image must be the r16d switch set')
+        require(actual['image'] == HSB0_IMAGE, 'evaluated executor image must be the r16d switch set')
         require(values[0] == values[1], 'hsb0 differs from main: image, service, units, firewall, users, source derivations or compose')
         require(actual['hostCompose']['services']['paper-desk-executor'] == actual['service'], 'host executor service mismatch')
         print('hsb0_main_equality=image,service,units,firewall,users,source_drvPaths,compose sha256=' + hashlib.sha256(values[1]).hexdigest())

@@ -679,7 +679,7 @@ a configurationRevision change from different commits does not confound the
 comparison. Include the new JSON with `git add -N` for Git-backed flake
 evaluation. This is an evaluation comparison, with no build or switch.
 T100 compares the csb0 static spec against ed5e43d6, and hsb0 against main
-68a8e9aa (#1062): image, full Compose spec, executor service, units, firewall, users
+096cc37f (#1063): image, full Compose spec, executor service, units, firewall, users
 and real source derivation paths. It evaluates Linux packages in a disposable
 local store without building. The whole-host toplevel derivation comparison
 above remains a separate OPS gate; T100 does not claim it passed.
@@ -702,20 +702,20 @@ the exact main commit and hashes identify this inactive candidate.
 JOED-20 producer/executor activation and evidence remain separately owned.
 
 The active v1 board stays on db621bf; the current pusher/executor records now
-match main 68a8e9aaca483c72b23c8da6c6fc0085291ca9db (#1062, including #1061) and image
-`hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700`. Main's staging,
+match main 096cc37fb8579e94915d89fb5eef305fb497fa06 (#1063, including #1061/#1062) and image
+`hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800`. Main's staging,
 local-mailbox wiring and source closure are retained. `previous` preserves
 the older flat-net downstream pins; it is historical rollback metadata.
 
 As in r6 (commit 327079f0acfcaacf480a6b1714742c216a32cc8e) and r7c
 (commit 36a8d06bec1b76a4f078f3ca8d8b0d3f06a12477), compute each `source_tree`
 from the exact main commit with `git rev-parse REV:SOURCE_PATH`, using the
-recorded `source_path`. At 68a8e9aa this yields pusher tree
-`7d8b3457b1b1478cef3c8e6e03220bf434890dfa` and executor tree
-`d091721de4c3e97bad14838a92ccd879879bdef2`. These are Git tree IDs from
+recorded `source_path`. At 096cc37f this yields pusher tree
+`4258cfee86aac796c226f93d23b4f38289cbcc6a` and executor tree
+`d77428b41e00faa71d6cb52f0ace23ba487a4b9d`. These are Git tree IDs from
 main, including its literal executor image; T100 separately proves the
-release-set indirection evaluates identically. The retained r16 rollback image
-is `hsb0-joe-board-pusher:household-v2-switch-set-r15-202610201500`.
+release-set indirection evaluates identically. The retained r16d rollback image
+is `hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700`.
 
 R7e local preparation passed T100 with `--prove-current` and the exact d36b5295
 source, including full hsb0 main equality and explicit r16 images; T101 passed
@@ -730,6 +730,30 @@ the macOS sandbox; it is not passed. The rehearsal used a temporary lab root
 and recorded a non-Docker plan; Linux ownership, Docker/image smokes, whole-host
 evaluation, live checks, review and cutover remain OPS gates. No push, SSH,
 build or deployment was performed.
+
+R7f local preparation merged exact main 096cc37f (#1063) while retaining
+`joeSet` indirection and main's literal r16d stage image. The r6/r7c tree-pin
+method above records the exact main trees, with no change to the active board,
+`previous`, or the inactive v2 candidate. The existing JOED-26 adoption scope
+and its pending live gates remain in force; this preparation does not migrate
+the deployed board or reserve a new version.
+
+T100 passed fully with `--prove-current` and exact d36b5295 source, including
+hsb0 main equality and explicit r16d tags. T101 passed 29/29; T93 passed 851/851.
+The pusher suite passed 560/562 with the same two Linux-only skips (real flock
+and memory-cgroup/OOM isolation); its Python reader suite passed 14/14. Image
+import closure, actual r16d-to-r16 retained-pair rollback, and the r16-to-r15
+move-aside fixture passed. T102, T76 labels-only, executor evaluation, Bash 5
+suite-runnability checks (101 entries), and the exact-source rehearsal dry-run
+passed. Nix's disposable store needs a canonical temporary path on macOS;
+the storage tests passed with the normal per-user temporary directory and its
+matching group ownership. Full T76 remains unpassed: the macOS sandbox denies
+the Nix daemon socket. Docker/image smokes, Linux ownership, whole-host
+comparison, live checks and cutover remain separate OPS gates. Product review
+remains pending: the read-only Claude attempt was unauthenticated and the Grok
+fallback could not create its session under the sandbox. Paimos model routing
+also could not resolve its API host. No product merge approval, push, SSH,
+build or deployment is claimed.
 
 Compared with dafe7909, revision 9 adds optional paper-account cash with a
 per-field unavailability reason, per-field position reasons (including an
