@@ -36,10 +36,10 @@
     },
     "v2": {
       "board": {
-        "rev": "dafe7909af04ba5ded3c4b55504ea10970e07e4d",
+        "rev": "d36b5295295a6901e36fdf2dc0d64353ddf88d0e",
         "version_scheme": "inspr-calver-3",
-        "version": "261016151218.0.0",
-        "release_sequence": 24,
+        "version": "261019102825.0.0",
+        "release_sequence": 25,
         "tag": null,
         "image": null,
         "data_schema": "v2",
@@ -49,8 +49,8 @@
       "executor": null,
       "contracts": {
         "schema": "joedesk.release-contracts.v1",
-        "contract_set_sha256": "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d",
-        "manifest_revision": 7,
+        "contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+        "manifest_revision": 9,
         "compatibility": {
           "data": ["inspr.joe.household.v2"],
           "history": ["inspr.joe.household.history.v2"],
@@ -70,13 +70,13 @@
             "evidence": "test/release.mjs + test/server-contract.mjs"
           },
           "pusher": {
-            "required_contract_set_sha256": "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d",
+            "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
             "required_data_schema": "inspr.joe.household.v2",
             "deployment_pin": null,
             "status": "Amy JOED-20 real producer rehearsal/sign-off required"
           },
           "executor": {
-            "required_contract_set_sha256": "3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d",
+            "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
             "reports_via": "pusher data.safety.executor",
             "deployment_pin": null,
             "status": "Amy executor/broker reconciliation required"
@@ -85,7 +85,7 @@
         "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"
       },
       "backup_schema": "v2",
-      "status": "published source (JOED-41); inactive pending JOED-20 producer/executor evidence, OPS rehearsal, review and owner cutover"
+      "status": "main candidate (PR #58, JOED-50); inactive pending JOED-20 producer/executor evidence, OPS rehearsal, review and owner cutover"
     },
     "previous": {
       "board": {

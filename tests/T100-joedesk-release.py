@@ -14,11 +14,12 @@ from unittest.mock import patch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
 BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
+HSB0_BASELINE = '9b00f745c85be3a5afc1678c1b814530f9555fe3'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
-PUBLISHED = 'dafe7909af04ba5ded3c4b55504ea10970e07e4d'
-PUBLISHED_TREE = '6b614bb7cc14a2773a38b39fe3bde522ca522969'
-CONTRACT_SET_SHA256 = '3eaf443cf06579ab93d4ed32c0752f8a6fd6978b6086ba50a97f74faa00b0b9d'
-CONTRACTS_JSON_SHA256 = 'c48587f34ebbda801bd609d3a79efbe9257d497266198554554885175d0812a4'
+PUBLISHED = 'd36b5295295a6901e36fdf2dc0d64353ddf88d0e'
+PUBLISHED_TREE = 'ba066aaeebf193eab93154ca9e0335f7dbba9d28'
+CONTRACT_SET_SHA256 = '000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5'
+CONTRACTS_JSON_SHA256 = '5c20c38be4602f6c142ece1c1abc65172306d504aa0a74d098e10bb15f78ef17'
 SHA = re.compile(r'[0-9a-f]{64}')
 REV = re.compile(r'[0-9a-f]{40}')
 
@@ -46,11 +47,11 @@ def check(source=None):
         else:
             require(board['data_schema'] == 'v2', 'unknown board data schema')
             require(board['rev'] == PUBLISHED, 'published v2 revision mismatch')
-            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261016151218.0.0' and board['release_sequence'] == 24, 'published canonical CalVer3 metadata mismatch')
+            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261019102825.0.0' and board['release_sequence'] == 25, 'published canonical CalVer3 metadata mismatch')
             contracts = item['contracts']
             digest = contracts['contract_set_sha256']
             require(SHA.fullmatch(digest) and digest == CONTRACT_SET_SHA256, 'published contract digest mismatch')
-            require(contracts['manifest_revision'] == 7, 'published contract manifest revision mismatch')
+            require(contracts['manifest_revision'] == 9, 'published contract manifest revision mismatch')
             expected = {'data': ['inspr.joe.household.v2'], 'history': ['inspr.joe.household.history.v2'], 'results': ['inspr.joe.household.results.v2'], 'fleet-config': ['inspr.joe.fleet-config.v1'], 'healthz': ['inspr.joe.healthz.v2']}
             require(contracts['compatibility'] == expected and contracts['participants']['board']['accepts'] == expected, 'exact compatibility IDs required')
             for participant in ('pusher', 'executor'):
@@ -81,7 +82,7 @@ def evaluation_proof():
     # Stubs affect only external source/service paths, identically on both sides.
     update = 'update = a: b: a // builtins.mapAttrs (n: v: if builtins.hasAttr n a && builtins.isAttrs a.${n} && builtins.isAttrs v then update a.${n} v else v) b;'
     args = '''{ lib = { recursiveUpdate = update; cleanSourceWith = _: "/nix/store/pusher-stand-in"; mkOption = x: x; }; pkgs = {}; config.nixcfg = { paperDeskExecutor.serviceSpec = {}; agentMailbox.serviceSpec = {}; }; inputs.joedesk = { outPath = "/nix/store/joedesk-stand-in"; rev = "''' + LEGACY + '''"; }; }'''
-    for relative in ('hosts/csb0/configuration.nix', 'hosts/hsb0/configuration.nix'):
+    for relative in ('hosts/csb0/configuration.nix',):
         path = ROOT / relative
         before = subprocess.check_output(['git', 'show', BASELINE + ':' + relative], cwd=ROOT, text=True)
         before = before.replace('import ./docker/compose-spec.nix', 'import ' + str(path.parent / 'docker/compose-spec.nix'))
@@ -93,7 +94,10 @@ def evaluation_proof():
                 expr = 'let ' + update + ' in (import ' + str(file) + ' ' + args + ').nixcfg.composeStack.spec'
                 values.append(subprocess.check_output(['nix', 'eval', '--impure', '--json', '--expr', expr], cwd=ROOT))
             require(values[0] == values[1], relative + ': rendered spec changed in release refactor')
-    old_executor = subprocess.check_output(['git', 'show', BASELINE + ':modules/paper-desk-executor/default.nix'], cwd=ROOT, text=True)
+    # Main advanced the active v1 board's downstream runtime to OPS-392 Phase A.
+    # Compare hsb0 with that exact main, preserving its stage and local mailbox.
+    hsb0_evaluation_proof()
+    old_executor = subprocess.check_output(['git', 'show', HSB0_BASELINE + ':modules/paper-desk-executor/default.nix'], cwd=ROOT, text=True)
     old_image = re.search(r'image = lib.mkOption \{.*?default = "([^"]+)";', old_executor, re.S)[1]
     current = check()['sets']['current']
     actual_image = subprocess.check_output(['nix', 'eval', '--impure', '--raw', '--expr', '(import ' + str(ROOT / 'modules/paper-desk-executor/default.nix') + ' { config = {}; pkgs = {}; lib.mkOption = x: x; }).options.nixcfg.paperDeskExecutor.image.default'], cwd=ROOT, text=True)
@@ -102,7 +106,53 @@ def evaluation_proof():
         pin = current[name]
         tree = subprocess.check_output(['git', 'rev-parse', pin['nixcfg_rev'] + ':' + pin['source_path']], cwd=ROOT, text=True).strip()
         require(tree == pin['source_tree'], 'recorded source tree mismatch')
-    print('release_refactor=byte-identical-static-specs executor_default=unchanged linux_drvPath=pending')
+    print('release_refactor=byte-identical-static-specs executor_default=unchanged linux_toplevel_drvPath=pending')
+
+
+def hsb0_evaluation_proof():
+    # Reuse the real module evaluator with real Linux packages in a disposable
+    # local store. This only evaluates derivations; it never builds or contacts
+    # the daemon, network or any host. Source drvPaths bind the closure bytes.
+    harness = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
+    start = harness.index('    specialArgs.pkgs = {')
+    end = harness.index('    modules = [', start)
+    harness = harness[:start] + '    specialArgs.pkgs = import <nixpkgs> { system = "x86_64-linux"; };\n' + harness[end:]
+    harness = harness.replace(
+        'extraRestartTriggers = lib.mkOption { type = lib.types.listOf lib.types.str; };',
+        'extraRestartTriggers = lib.mkOption { type = lib.types.listOf lib.types.anything; };')
+    harness = harness[:harness.index('if tailnetContract then\n')] + '''{
+      image = cfg.nixcfg.paperDeskExecutor.image;
+      service = cfg.nixcfg.paperDeskExecutor.serviceSpec;
+      systemd = cfg.systemd;
+      firewall = cfg.networking.firewall;
+      users = cfg.users;
+      triggers = map (drv: { sourcePath = toString drv; drvPath = drv.drvPath; }) cfg.nixcfg.composeStack.extraRestartTriggers;
+      hostCompose = (import @ROOT@/hosts/hsb0/configuration.nix {
+        inherit lib; pkgs = import <nixpkgs> { system = "x86_64-linux"; }; config = cfg; inputs = {};
+      }).nixcfg.composeStack.spec;
+    }
+    '''
+    with tempfile.TemporaryDirectory(prefix='ops354-hsb0-eval-') as folder:
+        folder = pathlib.Path(folder)
+        main = folder / 'main'
+        main.mkdir()
+        paths = ['modules/paper-desk-executor', 'modules/tailnet-peers',
+                 'modules/agent-mailbox', 'modules/joe-results-producer',
+                 'modules/ib-gateway-session', 'hosts/hsb0/configuration.nix',
+                 'hosts/hsb0/docker/compose-spec.nix', 'hosts/hsb0/docker/joe-board-pusher']
+        archive = subprocess.check_output(['git', 'archive', HSB0_BASELINE, *paths], cwd=ROOT)
+        subprocess.run(['tar', '-xf', '-', '-C', str(main)], input=archive, check=True)
+        values = []
+        for name, source in (('main', main), ('merged', ROOT)):
+            expression = folder / (name + '.nix')
+            expression.write_text(harness.replace('../modules/', str(source / 'modules') + '/').replace('@ROOT@', str(source)))
+            values.append(subprocess.check_output([
+                'nix', 'eval', '--offline', '--store', str(folder / 'store'), '--impure',
+                '--json', '--file', str(expression), '--apply', 'f: f {}'], cwd=ROOT))
+        require(values[0] == values[1], 'hsb0 differs from main: image, service, units, firewall, users, source derivations or compose')
+        actual = json.loads(values[1])
+        require(actual['hostCompose']['services']['paper-desk-executor'] == actual['service'], 'host executor service mismatch')
+        print('hsb0_main_equality=image,service,units,firewall,users,source_drvPaths,compose sha256=' + hashlib.sha256(values[1]).hexdigest())
 
 
 def selector_regressions():
