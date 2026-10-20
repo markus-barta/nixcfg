@@ -236,11 +236,21 @@ journalctl -u github-runner-csb1-hausv.service --since today
 | csb1-excalidraw-1           | Whiteboard (draw.barta.cm)                                   |
 | ppm                         | PAIMOS PM (pm.barta.cm)                                      |
 | minio                       | S3 for ppm attachments                                       |
-| paimos-www                  | paimos.com static (caddy)                                    |
-| inspr-www                   | inspr.at family edge (caddy: www/janus/paimos/pharos/v1)     |
+| paimos-www                  | Idle caddy; Traefik off, pending separate retirement         |
+| inspr-www                   | inspr.at family edge + paimos.com (caddy)                    |
 | inspr-auth                  | OIDC session backend (inspr.at/{enter,login,welcome,logout}) |
 | zitadel                     | 🔴 Identity provider (auth.inspr.at)                         |
 | zitadel-postgres            | 🔴 IdP database (volume inspr-at_zitadel_postgres_data)      |
+
+`inspr-www` also serves `paimos.com` and `www.paimos.com` (Cloudflare-proxied). The `paimos` TLS router retains `cloudflarewarp@file` and `paimos-www-redirect@docker` for the permanent www-to-apex redirect, and uses the shared `inspr-sites` service. Both hosts join `inspr-sites-http` for permanent HTTP-to-HTTPS upgrades. `paimos-www` remains idle with `traefik.enable=false` and no HTTP router, middleware, or service labels, pending retirement in a separate ticket (INSPR-572).
+
+`inspr-www` mounts `/home/mba/docker/inspr-at/media:/srv/media:ro`; tmpfiles creates the host directory as `0755 mba:users`. The inspr-site-owned Caddyfile serves `media.inspr.at` from `/srv/media` once inspr-site's INSPR-572 release deploys; until then Caddy answers 404. This hostname is DNS-only; its Traefik router omits `cloudflarewarp` and limits in-flight requests to 16 per source IP using an explicit `ipStrategy` with depth 0: the connection address, which Docker port forwarding preserves. Viewers behind a shared NAT/CGNAT share one bucket (about 8 concurrent viewers). Excess requests receive an immediate 429, with no `Retry-After` and no queueing.
+
+OPS is the writer: the operator uses rsync as `mba`; film files are write-once per version (`films/<ep>/v<n>/...`). Only `films/manifest.json` is replaced in place; rsync's temp file plus rename inside `media/` is fine. `deploy.sh` never touches `media/`. Write inside `media/` and never replace or rename the directory itself, because the bind mount keeps the old inode.
+
+Media is deliberately included in the nightly restic backup: the immutable files are deduplicated. There is no media exclude (INSPR-572).
+
+INSPR-576: tmpfiles creates `/home/mba/docker/inspr-at/admin` as `0755 mba:users`; `inspr-www` mounts it read-only at `/srv/admin`. VID's `vid-admin-upload` SSH key runs only nixpkgs `rrsync -no-del` within that directory: no deletion, shell, PTY, forwarding or user rc (`restrict`). Upload inside `admin/` without replacing or renaming the directory, so the bind mount keeps the same inode. Serving `paimos.com/admin` is gated on inspr-site #82's Caddyfile deployment and must remain behind the `inspr-auth` sign-in; this host change only prepares the write path and mount.
 
 ### Quick Commands
 
