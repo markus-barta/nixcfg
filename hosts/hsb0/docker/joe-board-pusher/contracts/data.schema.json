@@ -811,6 +811,30 @@
           ],
           "x-owner": "pusher"
         },
+        "cash": {
+          "description": "IB account summary TotalCashValue in base currency EUR, preserving the raw decimal lexeme at account level (the same scope as NAV, including KEEP) and the same observation as equity. Missing or non-EUR means null with reasons.cash; never derived, converted, rounded or passed through a float.",
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "reasons": {
+          "description": "Per-field reasons; cash uses reasons.cash. The existing reason field continues to describe equity only.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cash": {
+              "$ref": "urn:joedesk:reason:v2",
+              "x-owner": "pusher"
+            }
+          },
+          "x-owner": "pusher"
+        },
         "accountHint": {
           "type": "string",
           "minLength": 1,
@@ -899,7 +923,46 @@
                 "x-owner": "pusher"
               },
               "quantity": {
-                "$ref": "urn:joedesk:common:v2#/$defs/decimal",
+                "anyOf": [
+                  {
+                    "$ref": "urn:joedesk:common:v2#/$defs/decimal"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "x-owner": "pusher"
+              },
+              "reasons": {
+                "description": "Per-field null reasons. The existing positions.reason exception applies only while the API session is unconfirmed.",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "quantity": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "mark": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "marketValue": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "dayPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "openPnl": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  },
+                  "desk": {
+                    "$ref": "urn:joedesk:reason:v2",
+                    "x-owner": "pusher"
+                  }
+                },
                 "x-owner": "pusher"
               },
               "mark": {

@@ -1041,6 +1041,53 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 - [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Full OpenClaw operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
 
+## JoeDesk household v2 local staging (OPS-392)
+
+The pusher vendors the exact 17-file JoeDesk contracts rev 9 closure from
+`84c47b647cf06a38a3f61ce7f928a10ed10eeef3`, set digest
+`000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`.
+Unmapped stage0 rows now stage a complete pair with `desk:null`,
+`reasons.desk:desk_unmapped`, and all five valuation fields null with individual
+`not_exact_yet` reasons. KEEP rows retain `scope:keep`, `desk:null` and no desk
+reason; mapped stage0 rows also have no desk reason. Older contract-set pairs
+still fail closed: preserve state and obtain coordinator review before promotion.
+See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
+recovery and rollback. Local staging is not board acceptance or deployment.
+
+Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
+`stuck` when any desk evidence is unavailable/stale, `working` for positions,
+active orders or executions on the executor's current NY day, and `sit-out`
+otherwise. Evidence comes from the pusher's existing broker position/all-open-order
+replies and completed family execution cycles, using the same dated ownership
+policy and five-minute freshness bound as its readers; unknown ownership is
+unavailable, never inferred. Read-only `reqAllOpenOrders` runs on connect and
+every 60 seconds via the existing 5-second maintenance tick, with one reply
+in flight. Each reply starts a fresh `(orderId, clientId)` set; `openOrderEnd`
+atomically replaces the previous set (even when empty) and stamps its own
+completion clock. Pending replies retain the last completed set and clock;
+without an end marker no overlapping request is sent, and the old clock expires
+after five minutes to `stuck`. Publication and cached executor order rows never
+renew it. A new connection generation discards the pending reply. Executions
+already use read-only `reqExecutions` 30 seconds after each completed cycle,
+with a 20-second request timeout and existing retry backoff; identical completed
+replays renew activity evidence, missing `execDetailsEnd` cannot prove absence,
+and unchanged money keeps its original timestamp. NY midnight requires a new
+current-day execution reply, and the mirrored day function is tested against
+executor `brakeUsage`, including DST and weekends. No executor API or code change is added. Desk action
+says "Valuation is not exact yet."; money remains null with `not_exact_yet`.
+KEEP rows retain their existing scope and reasons.
+
+Staging retains the newest **N=10 pairs by sequence count**, never age; the
+reviewable `StageStore.retainPairs` constant override supports 10–1024. Preserve
+`current.json`, `sequence-state.json`, `.allocator.lock` and `receipts.jsonl` on
+restart/rollback. The 0600 append-only log records one sequence/outcome
+(`committed`, `rejected` or crash-recovered `staged`), timestamps and snapshot hash
+per staged/resolved sequence, without payload values; pruning never removes log
+records. Pruning uses checked `.retired-<seq>` tombstones for interrupted cleanup.
+A local commit emits `{event:"v2_stage_committed",seq}`; it proves local staging,
+not board acceptance. Recovery validates retained pairs and log integrity before
+pruning; torn logs or unknown files fail closed and preserve evidence for review.
+
 ## JoeDesk Results producer (JOED-20, disabled)
 
 `nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
