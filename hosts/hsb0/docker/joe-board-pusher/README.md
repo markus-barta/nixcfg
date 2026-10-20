@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-202610201110` (pusher, stager and executor runtime; OPS-392). Rollback tag: Phase A `hsb0-joe-board-pusher:household-v2-phase-a-202610190715`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r12-202610201200` (pusher, stager and executor runtime; OPS-392). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-202610201110`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -109,6 +109,17 @@ completed reply. The mirrored `newYorkDay` function is tested against executor
 `brakeUsage` around both midnight offsets and DST changes. The optional summary runs only with staging enabled and its failures cannot
 change v1 reader availability. `desks[].action` says "Valuation is not exact yet."; all desk money
 stays null with individual `not_exact_yet` reasons. KEEP rows are unaffected.
+
+After v1 settlement, the pusher emits `v2_desk_state` on each desk's first
+observation and whenever its state or cause changes, independently of stager
+credit. Events contain only `event`, `desk`, `state`, `cause`, and optionally
+a numeric `client` for an unowned execution. Healthy states use `cause:null`.
+Unavailable or stale positions/orders/executions, execution day mismatch,
+unowned executions and executions after coverage have distinct closed causes.
+When several readers fail, positions take precedence, then orders, then
+executions; all-desk equity failures map to `positions_unavailable` unless
+J still has its existing valid family evidence. Execution failure causes cross
+only the private OPS observation frame; rev 9 desk rows gain no fields.
 
 No desk subtotal is presented as a household total. The producer also requires
 individual null reasons where the ready-session schema permits omission.

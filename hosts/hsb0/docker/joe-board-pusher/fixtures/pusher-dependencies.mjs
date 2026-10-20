@@ -1,6 +1,7 @@
 // Synthetic boundary doubles for importing the complete, unmodified pusher.
 // Only direct pusher dependencies are replaced; its real projection is loaded.
 import { EventEmitter } from "node:events";
+export { createDeskStateReporter } from "../desk-activity.mjs";
 
 let state;
 export function configure(next) { state = next; }

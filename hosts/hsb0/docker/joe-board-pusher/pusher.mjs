@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { createStageHandoff } from "./v2-stage-handoff.mjs";
-import { executionActivity } from "./desk-activity.mjs";
+import { executionActivity, createDeskStateReporter } from "./desk-activity.mjs";
 import { IBApi, EventName } from "@stoqey/ib";
 import {
   EXECUTION_CAPTURE_SCHEMA,
@@ -82,6 +82,7 @@ const INTERVAL_SEC = parseIntervalSec();
 const v2StageHandoff = process.env.JOE_V2_STAGE_SOCKET
   ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET })
   : null;
+const reportDeskStates = createDeskStateReporter();
 let connectionSupervisor = null;
 let portfolioRefresh = null;
 let flatNetMarks = null;
@@ -398,7 +399,11 @@ function pushWithStage() {
   if (!v2StageHandoff) return pushOnce();
   const observation = {};
   return pushOnce(observation).finally(() => {
-    if (observation.book) v2StageHandoff.offer(observation);
+    if (observation.book) {
+      // Diagnostics must not affect v1 settlement or the independent handoff.
+      try { reportDeskStates(observation, new Date().toISOString()); } catch {}
+      v2StageHandoff.offer(observation);
+    }
   });
 }
 

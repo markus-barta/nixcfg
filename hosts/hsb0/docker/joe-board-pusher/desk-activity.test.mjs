@@ -84,7 +84,7 @@ test("raw completed reader evidence attributes by existing dated policy, exclude
   const state = { coverageThrough: instant, coverageTradingDay: "2026-10-19", executions: [exec("SYNTH", 22), exec("TSLA", 999)] };
   const executions = executionActivity(state);
   assert.deepEqual(executions.latest, { j: null, joe: instant, joel: null });
-  state.executions.push(exec("UNCLAIMED", 999)); assert.equal(executionActivity(state), null);
+  state.executions.push(exec("UNCLAIMED", 999)); assert.deepEqual(executionActivity(state), { cause: "execution_unowned", clientId: 999 });
   const source = { book: { ts: instant, gateway: true, positionsCoverage: { status: "complete" },
     positions: [{ symbol: "TSLA", pos: 1 }], openOrders: [{ symbol: "SYNTH", clientId: 22, status: "Submitted" }], ordersObservedAt: instant },
   deskEquities: { ok: true, desks: { j: { positions: [] }, joe: { positions: [] }, joel: { positions: [] } } }, executions };
