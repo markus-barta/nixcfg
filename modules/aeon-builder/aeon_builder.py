@@ -22,6 +22,7 @@ import http.client
 import ipaddress
 import json
 import os
+import pwd
 import re
 import secrets
 import signal
@@ -2072,6 +2073,45 @@ def cmd_pf_install(cfg, args):
     print(rules or "warning: anchor shows no rules")
 
 
+BUSY_DAEMON = "at.inspr.aeon-builder-busy"
+
+
+def busy_daemon_plist(user, home):
+    # OPS-409 (Desk e79ff740, 2026-10-21): the per-user agent never runs while another account holds
+    # the console, so a system LaunchDaemon refreshes the busy file as the builder user instead.
+    state = f"{home}/.local/state/aeon-builder"
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>{BUSY_DAEMON}</string>
+  <key>ProgramArguments</key><array><string>{home}/.nix-profile/bin/aeon-builder</string><string>busy-file</string></array>
+  <key>UserName</key><string>{user}</string>
+  <key>GroupName</key><string>staff</string>
+  <key>EnvironmentVariables</key><dict><key>HOME</key><string>{home}</string></dict>
+  <key>StartInterval</key><integer>60</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>{state}/busy-file.daemon.out</string>
+  <key>StandardErrorPath</key><string>{state}/busy-file.daemon.err</string>
+</dict></plist>
+"""
+
+
+def cmd_busy_install(cfg, args):
+    if os.geteuid() != 0:
+        raise BuilderError("run with sudo: sudo aeon-builder busy-install")
+    try:
+        home = pwd.getpwnam(args.user).pw_dir
+    except KeyError:
+        raise BuilderError(f"unknown builder user {args.user}")
+    if not re.fullmatch(r"/Users/[a-z][a-z0-9_-]*", home):
+        raise BuilderError(f"unexpected home for {args.user}: {home}")
+    plist = Path(f"/Library/LaunchDaemons/{BUSY_DAEMON}.plist")
+    atomic_write(plist, busy_daemon_plist(args.user, home), mode=0o644)
+    subprocess.run(["/bin/launchctl", "bootout", "system", str(plist)], capture_output=True)
+    subprocess.run(["/bin/launchctl", "bootstrap", "system", str(plist)], check=True)
+    print(f"{BUSY_DAEMON} loaded: refreshes {cfg.get('busyFile', '/Users/Shared/ci-pool-busy')} every 60 s as {args.user}")
+
+
 def cmd_controller(cfg, args):
     Controller(cfg).run_forever()
 
@@ -2085,7 +2125,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="aeon-builder", description="mbp2606 runner pool for inspr-at/paimos (NIX-600)")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     sub = parser.add_subparsers(dest="command", required=True,
-                               metavar="{on,off,status,rebuild-base,pf-rules,pf-install}")
+                               metavar="{on,off,status,rebuild-base,pf-rules,pf-install,busy-install}")
     on = sub.add_parser("on", help="build the base if needed and start serving verified jobs")
     on.add_argument("--resume", action="store_true", help="clear a pause after investigating its alert")
     on.add_argument("--force", action="store_true", help="start even while a lab VM runs")
@@ -2098,6 +2138,8 @@ def main(argv=None):
     pf.add_argument("--user", default="ci")
     pfi = sub.add_parser("pf-install", help="install the pf anchor and its boot loader (sudo)")
     pfi.add_argument("--user", default="ci")
+    bi = sub.add_parser("busy-install", help="install the system busy-slot refresh daemon (sudo)")
+    bi.add_argument("--user", default="ci")
     sub.add_parser("controller", help=argparse.SUPPRESS)
     sub.add_parser("busy-file")
     args = parser.parse_args(argv)
@@ -2107,7 +2149,7 @@ def main(argv=None):
             prepare_base(cfg, Lima(cfg), force=True)
         else:
             code = {"on": cmd_on, "off": cmd_off, "status": cmd_status, "pf-rules": cmd_pf_rules,
-                    "pf-install": cmd_pf_install, "controller": cmd_controller,
+                    "pf-install": cmd_pf_install, "busy-install": cmd_busy_install, "controller": cmd_controller,
                     "busy-file": cmd_busy_file}[args.command](cfg, args)
             return code or 0
     except BuilderError as err:

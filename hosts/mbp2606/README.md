@@ -118,7 +118,7 @@ It runs as `ci` whenever the builder module is enabled, regardless of pool mode;
 an off pool with no occupied slots reports `0/4 <unix-epoch>`, using the same
 state snapshot and slot count as `aeon-builder status`. No GitHub credentials,
 API calls or Lima inspection are needed by the refresh command.
-Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the
+That per-user agent only runs inside ci's launchd GUI domain, and on mbp2606 another account normally holds the console. So since OPS-409 (Markus, Decision Desk e79ff740, 2026-10-21) a system LaunchDaemon `at.inspr.aeon-builder-busy` runs the same `busy-file` refresh every 60 seconds and at load **as ci** (UserName ci, HOME /Users/ci, ci's profile binary). It writes only the busy file and ci's own state dir. Install it once on mbp2606 with `sudo /Users/ci/.nix-profile/bin/aeon-builder busy-install`, the same pattern as `pf-install`; repeat that only if the plist itself changes. Remove it with `sudo launchctl bootout system /Library/LaunchDaemons/at.inspr.aeon-builder-busy.plist` and delete the plist. Logs: `~ci/.local/state/aeon-builder/busy-file.daemon.{out,err}`. Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the
 controller logs in `~/.local/state/aeon-builder`. The last write error is saved
 in `busy-file.lasterror`; repeated failures log only when the error changes,
 including across refresh processes, and a successful write clears the error.
