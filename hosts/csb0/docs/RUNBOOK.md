@@ -773,7 +773,7 @@ JOED-20 must still supply compatible downstream pins and real evidence.
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
    `just rehearse-joedesk SOURCE` using the exact published checkout with the
-   legacy Git object available. The second command builds db621bf and d36b5295
+   legacy Git object available. The second command builds db621bf and 6eacd6c7
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
@@ -975,7 +975,7 @@ item 1's exact GET/HEAD health.
 ### Separate Results ingress proposal — pending LEAD confirmation
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. Main candidate d36b5295
+droppable review item; do not deploy it until LEAD confirms. The retry candidate 6eacd6c7 (like d36b5295 before it)
 includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
