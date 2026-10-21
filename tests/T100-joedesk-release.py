@@ -2,6 +2,7 @@
 """OPS-354 release-set consistency and evaluation-only refactor proof."""
 import argparse
 import json
+import os
 import hashlib
 import pathlib
 import re
@@ -33,11 +34,46 @@ def require(value, reason):
         raise AssertionError(reason)
 
 
-JOEDESK_TOKENS = re.compile(r'joe|paper-desk|paperdesk|joed', re.I)
-JOEDESK_HSB0 = ('hosts/hsb0/configuration.nix', 'hosts/hsb0/docker/joe-board-pusher/')
+# A changed hosts/hsb0 file outside the pins may move on under variant B only if neither version names JoeDesk
+# or the LIVE gateway surface (TRADING_MODE, the live/paper-live ports, the gateway, stager socket, mailbox).
+JOEDESK_TOKENS = re.compile(r'joe|paper-desk|paperdesk|joed|trading_mode|(?<![0-9])400[13](?![0-9])|ib-gateway|ibgateway'
+                            r'|stage\.sock|agent-mailbox|agentmailbox', re.I)
+# Pinned byte-equal to the recorded revision: the JoeDesk services, the pusher tree, and every imported hsb0
+# module (composeStack.spec is a deep-merged attrset, so any of them could add a second gateway service).
+JOEDESK_HSB0 = ('hosts/hsb0/configuration.nix', 'hosts/hsb0/docker/joe-board-pusher/', 'hosts/hsb0/docker/compose-spec.nix',
+                'hosts/hsb0/hardware-configuration.nix', 'hosts/hsb0/disk-config.zfs.nix', 'hosts/hsb0/lg-devmode-renew.nix',
+                'hosts/hsb0/lg-devmode-renew.py', 'hosts/hsb0/runbook-secrets.age')
 
 
-def hsb0_runtime(release, hsb0_config, executor_module, tree_of, changed_paths=lambda rel, rev: [], read_blob=lambda spec: ''):
+def git_changed_paths(root, rel, rev):
+    # -z: NUL-terminated, never quoted. --no-renames: a rename is a delete plus an add, so a file that leaves
+    # a pinned tree is listed under its source path too. Literal pathspec, paths relative to the repo root.
+    out = subprocess.check_output(['git', '--literal-pathspecs', 'diff', '-z', '--no-renames', '--no-relative', '--no-ext-diff',
+                                   '--name-only', rev, 'HEAD', '--', rel], cwd=root)
+    return [p.decode('utf-8', 'surrogateescape') for p in out.split(b'\0') if p]
+
+
+def git_read_blob(root, spec):
+    # The file's text, or None only when the path is absent from a valid commit; anything else fails.
+    rev, path = spec.split(':', 1)
+    subprocess.run(['git', 'rev-parse', '--verify', '--quiet', rev + '^{commit}'], cwd=root, check=True, stdout=subprocess.DEVNULL)
+    out = subprocess.check_output(['git', '--literal-pathspecs', 'ls-tree', '-z', '--full-tree', rev, '--', path], cwd=root)
+    entries = [e for e in out.split(b'\0') if e]
+    if not entries:
+        # No tree entry in a valid commit; `cat-file -e` must agree, or the lookup itself is broken.
+        absent = subprocess.run(['git', 'cat-file', '-e', spec], cwd=root, stderr=subprocess.DEVNULL).returncode != 0
+        require(absent, 'blob lookup disagrees for ' + path)
+        return None
+    require(len(entries) == 1, 'ambiguous tree entry for ' + path)
+    meta, name = entries[0].split(b'\t', 1)
+    mode, kind, oid = meta.decode().split(' ')
+    require(name.decode('utf-8', 'surrogateescape') == path, 'tree entry path mismatch for ' + path)
+    require(kind == 'blob' and mode in ('100644', '100755'), 'variant B cannot judge a ' + mode + ' ' + kind + ' entry: ' + path)
+    # Undecodable bytes become U+FFFD; the ASCII tokens still match, so a binary is judged, not a crash.
+    return subprocess.check_output(['git', 'cat-file', 'blob', oid], cwd=root).decode('utf-8', 'replace')
+
+
+def hsb0_runtime(release, hsb0_config, executor_module, tree_of, changed_paths=None, read_blob=None):
     # The stager image must equal the effective pusher image of the deployed selection.
     stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = ([^;]+);', hsb0_config, re.S)[1]
     current = release['sets']['current']
@@ -62,14 +98,18 @@ def hsb0_runtime(release, hsb0_config, executor_module, tree_of, changed_paths=l
     require(REV.fullmatch(rev or ''), 'variant B needs the recorded pre-cutover hsb0 revision')
     rel = 'modules/paper-desk-executor'
     require(tree_of('HEAD:' + rel) == tree_of(rev + ':' + rel), 'variant B must restore the recorded pre-cutover ' + rel + ' tree')
-    # hosts/hsb0: the JoeDesk surface (configuration.nix with the pusher/stager/executor services and the
-    # pusher source tree) must equal the recorded pre-cutover revision. Other hsb0 files may move on
-    # (e.g. OPS-407's fritz-guest-uplink.nix) only if neither version mentions JoeDesk at all.
+    # hosts/hsb0: the pinned surface (configuration.nix with the pusher/stager/executor services, the pusher
+    # source tree, the imported hsb0 modules) must equal the recorded pre-cutover revision. Other hsb0 files may
+    # move on (e.g. OPS-407's fritz-guest-uplink.nix) only if neither version mentions a JOEDESK_TOKENS token.
+    require(changed_paths is not None and read_blob is not None, 'variant B needs the hosts/hsb0 walker')
     for path in changed_paths('hosts/hsb0', rev):
         require(not any(path == p or (p.endswith('/') and path.startswith(p)) for p in JOEDESK_HSB0),
                 'variant B must restore the recorded pre-cutover JoeDesk surface: ' + path)
-        for version in ('HEAD', rev):
-            require(not JOEDESK_TOKENS.search(read_blob(version + ':' + path)),
+        require(not path.endswith('.age'), 'variant B never reads ciphertext; a changed .age file must be restored: ' + path)
+        blobs = [read_blob(version + ':' + path) for version in ('HEAD', rev)]
+        require(any(b is not None for b in blobs), 'variant B: changed path absent in both versions (walker mismatch): ' + path)
+        for text in blobs:
+            require(text is None or not JOEDESK_TOKENS.search(text),
                     'variant B: a changed hosts/hsb0 file mentions JoeDesk: ' + path)
     return 'variant-b'
 
@@ -85,7 +125,10 @@ def variant_b_regressions():
     same = lambda spec: spec.split(':', 1)[1]
     following = 'let joeRelease = x; in services.joe-household-v2-stage = { image = joeSet.pusher.image; };'
     rollback = copy.deepcopy(release); rollback['active'] = 'previous'
-    require(hsb0_runtime(rollback, restored, restored_module, same) == 'variant-b', 'variant B rollback state rejected')
+    changed = lambda *paths: (lambda rel, rev: list(paths))
+    blob = lambda text: (lambda spec: text)
+    unchanged = (changed(), blob(None))
+    require(hsb0_runtime(rollback, restored, restored_module, same, *unchanged) == 'variant-b', 'variant B rollback state rejected')
     for selected in ('current', 'v2'):
         fixture = copy.deepcopy(release); fixture['active'] = selected
         require(hsb0_runtime(fixture, following, restored_module, same) == 'release-set', 'release-set hsb0 rejected')
@@ -100,32 +143,112 @@ def variant_b_regressions():
         (rollback, restored, restored_module, lambda spec: ('0' * 40) if spec.startswith('HEAD:') else spec),
         (rollback, 'let joeRelease = x; in services.joe-household-v2-stage = { image = "literal"; };', restored_module, same),
     ]
-    changed = lambda *paths: (lambda rel, rev: list(paths))
-    blob = lambda text: (lambda spec: text)
-    scoped = [  # (changed paths, blob text): the JoeDesk surface or JoeDesk content must not move under previous
-        (changed('hosts/hsb0/configuration.nix'), blob('')),
-        (changed('hosts/hsb0/docker/joe-board-pusher/pusher.mjs'), blob('')),
-        (changed('hosts/hsb0/docker/joe-board-pusher/README.md'), blob('')),
-        (changed('hosts/hsb0/fritz-guest-uplink.nix'), blob('mounts /var/lib/joe-board-pusher')),
-        (changed('hosts/hsb0/new-unit.nix'), blob('paper-desk executor helper')),
-    ]
+    surface, content = 'JoeDesk surface', 'mentions JoeDesk'
+    scoped = [  # (changed paths, blob, reason): the pinned surface or JoeDesk/LIVE content must not move under previous
+        (changed('hosts/hsb0/configuration.nix'), blob(''), surface),
+        (changed('hosts/hsb0/docker/joe-board-pusher/pusher.mjs'), blob(''), surface),
+        (changed('hosts/hsb0/docker/joe-board-pusher/README.md'), blob(''), surface),
+        (changed('hosts/hsb0/docker/compose-spec.nix'), blob(''), surface),
+        (changed('hosts/hsb0/hardware-configuration.nix'), blob(''), surface),
+        (changed('hosts/hsb0/disk-config.zfs.nix'), blob(''), surface),
+        (changed('hosts/hsb0/lg-devmode-renew.nix'), blob(''), surface),
+        (changed('hosts/hsb0/lg-devmode-renew.py'), blob(''), surface),
+        (changed('hosts/hsb0/runbook-secrets.age'), blob(''), surface),
+        (changed('hosts/hsb0/archive/other.age'), blob(''), 'ciphertext'),
+        (changed('hosts/hsb0/fritz-guest-uplink.nix'), blob('mounts /var/lib/joe-board-pusher'), content),
+        (changed('hosts/hsb0/new-unit.nix'), blob('paper-desk executor helper'), content),
+        (changed('hosts/hsb0/new-unit.nix'), blob(None), 'absent in both'),
+    ] + [(changed('hosts/hsb0/fritz-guest-uplink.nix'), blob(text), content) for text in (
+        'environment = [ "TRADING_MODE=live" ];', 'ports = [ "4001:4001" ];', 'ports = [ "127.0.0.1:4003:4003" ];',
+        'services.ib-gateway-2 = {};', 'ibGateway.port = 1;', 'volumes = [ "/run/joe/stage.sock" ];',
+        'services.agent-mailbox = {};', 'agentMailbox.enable = true;')]
     for fixture, config, module, tree_of in negatives:
         try:
-            hsb0_runtime(fixture, config, module, tree_of)
+            hsb0_runtime(fixture, config, module, tree_of, *unchanged)
         except AssertionError:
             continue
         raise AssertionError('invalid hsb0 runtime state passed')
-    for changed_paths, read_blob in scoped:
-        try:
-            hsb0_runtime(rollback, restored, restored_module, same, changed_paths, read_blob)
-        except AssertionError:
-            continue
-        raise AssertionError('variant B accepted a moved JoeDesk surface')
+    rejects(lambda: hsb0_runtime(rollback, restored, restored_module, same), 'needs the hosts/hsb0 walker')
+    for changed_paths, read_blob, reason in scoped:
+        rejects(lambda: hsb0_runtime(rollback, restored, restored_module, same, changed_paths, read_blob), reason)
     # An unrelated hsb0 file (no JoeDesk content in either version) may move on under the v1 rollback.
-    require(hsb0_runtime(rollback, restored, restored_module, same, changed('hosts/hsb0/fritz-guest-uplink.nix'), blob('neigh pin for 10.255.5.2')) == 'variant-b',
-            'variant B must allow an unrelated hsb0 file to move on')
-    negatives += scoped
-    print('variant_b_rollback=accepted negatives=%d' % len(negatives))
+    for text in ('neigh pin for 10.255.5.2', 'port 14001 and 40010 are not the gateway'):
+        require(hsb0_runtime(rollback, restored, restored_module, same, changed('hosts/hsb0/fritz-guest-uplink.nix'), blob(text)) == 'variant-b',
+                'variant B must allow an unrelated hsb0 file to move on')
+    walked = walker_regressions(rollback, restored, restored_module)
+    print('variant_b_rollback=accepted negatives=%d walker_cases=%d' % (len(negatives) + len(scoped) + 1, walked))
+
+
+def rejects(call, reason):
+    try:
+        call()
+    except AssertionError as error:
+        require(reason in str(error), 'variant B rejected for the wrong reason: %s (expected %r)' % (error, reason))
+        return
+    raise AssertionError('variant B accepted a state it must reject: ' + reason)
+
+
+def walker_regressions(rollback, restored, restored_module):
+    # JOED gate (Medium): drive the production walker (git_changed_paths + git_read_blob) over a scratch repo,
+    # isolated from the user's git config, so renames, unquoted paths and absent blobs are proven, not stubbed.
+    same = lambda spec: spec.split(':', 1)[1]
+    with tempfile.TemporaryDirectory() as scratch:
+        repo = pathlib.Path(scratch)
+        env = {'PATH': os.environ['PATH'], 'HOME': scratch, 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1',
+               'GIT_AUTHOR_NAME': 't100', 'GIT_AUTHOR_EMAIL': 't100@invalid', 'GIT_COMMITTER_NAME': 't100', 'GIT_COMMITTER_EMAIL': 't100@invalid'}
+        git = lambda *a: subprocess.run(['git', *a], cwd=repo, env=env, check=True, capture_output=True).stdout.decode().strip()
+        def write(rel, data):
+            path = repo / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data if isinstance(data, bytes) else data.encode())
+        git('init', '-q')
+        base_files = {
+            'hosts/hsb0/docker/joe-board-pusher/paper-account.mjs': 'export const account = 1;\n',
+            'hosts/hsb0/docker/joe-board-pusher/pä.mjs': 'export const x = 1;\n',
+            'hosts/hsb0/old-helper.nix': '{ services.ib-gateway.ports = []; }\n',
+            'hosts/hsb0/ünrelated.txt': 'a\n',
+            'hosts/hsb0/fritz-guest-uplink.nix': 'neigh pin\n',
+        }
+        for rel, text in base_files.items():
+            write(rel, text)
+        git('add', '-A'); git('commit', '-q', '-m', 'recorded')
+        base = git('rev-parse', 'HEAD')
+        fixture = copy.deepcopy(rollback)
+        fixture['sets']['current']['retention']['hsb0_pre_cutover_nixcfg_rev'] = base
+        run = lambda: hsb0_runtime(fixture, restored, restored_module, same,
+                                   lambda rel, rev: git_changed_paths(repo, rel, rev), lambda spec: git_read_blob(repo, spec))
+        cases = [  # (name, mutation, expected rejection reason or None = accepted)
+            ('rename out of the pusher tree', lambda: git('mv', 'hosts/hsb0/docker/joe-board-pusher/paper-account.mjs', 'hosts/hsb0/docker/escaped-paper-account.mjs'), 'JoeDesk surface'),
+            ('non-ASCII rename out of the pusher tree', lambda: git('mv', 'hosts/hsb0/docker/joe-board-pusher/pä.mjs', 'hosts/hsb0/ä.mjs'), 'JoeDesk surface'),
+            ('token only in the recorded revision', lambda: git('rm', '-q', 'hosts/hsb0/old-helper.nix'), 'mentions JoeDesk'),
+            ('LIVE port added to an allowed file', lambda: write('hosts/hsb0/fritz-guest-uplink.nix', 'ports = [ "4001:4001" ];\n'), 'mentions JoeDesk'),
+            ('binary with a token', lambda: write('hosts/hsb0/blob.bin', b'\xff\xfe\x00TRADING_MODE=live\x00'), 'mentions JoeDesk'),
+            ('changed ciphertext', lambda: write('hosts/hsb0/archive/old.age', 'age-encryption.org/v1 placeholder\n'), 'ciphertext'),
+            ('symlink', lambda: (repo / 'hosts/hsb0/link').symlink_to('fritz-guest-uplink.nix'), 'cannot judge'),
+            ('unrelated non-ASCII edit', lambda: write('hosts/hsb0/ünrelated.txt', 'b\n'), None),
+            ('token-free binary', lambda: write('hosts/hsb0/logo.png', b'\x89PNG\r\n\x1a\n\xff\xfe\x00\x01'), None),
+            ('unrelated edit of the allowed file', lambda: write('hosts/hsb0/fritz-guest-uplink.nix', 'neigh pin for 10.255.5.2\n'), None),
+        ]
+        for name, mutate, reason in cases:
+            git('checkout', '-q', '--detach', base)
+            mutate()
+            git('add', '-A'); git('commit', '-q', '-m', name)
+            if reason:
+                rejects(run, reason)
+            else:
+                require(run() == 'variant-b', 'variant B must accept: ' + name)
+        # Without --no-renames the escaped file is listed only at its token-free destination (the gate's bypass).
+        git('checkout', '-q', '--detach', base); cases[0][1](); git('commit', '-q', '-m', 'rename')
+        require(git('diff', '--name-only', '-M', base, 'HEAD') == 'hosts/hsb0/docker/escaped-paper-account.mjs', 'rename fixture must exercise rename detection')
+        # A path in neither version, an unknown revision and a tree are walker errors, never an empty blob.
+        require(git_read_blob(repo, base + ':hosts/hsb0/never-there.nix') is None, 'absent path must read as None')
+        for spec in ('0' * 40 + ':hosts/hsb0/fritz-guest-uplink.nix', base + ':hosts/hsb0/docker'):
+            try:
+                git_read_blob(repo, spec)
+            except (subprocess.CalledProcessError, AssertionError):
+                continue
+            raise AssertionError('walker read an invalid spec as a blob: ' + spec)
+        return len(cases) + 3
 
 
 def check(source=None):
@@ -137,14 +260,8 @@ def check(source=None):
     hsb0_config = (ROOT / 'hosts/hsb0/configuration.nix').read_text()
     executor_module = (ROOT / 'modules/paper-desk-executor/default.nix').read_text()
     git_out = lambda *a: subprocess.check_output(['git', *a], cwd=ROOT, text=True)
-    def read_blob(spec):
-        try:
-            return subprocess.check_output(['git', 'show', spec], cwd=ROOT, text=True, stderr=subprocess.DEVNULL)
-        except subprocess.CalledProcessError:
-            return ''  # absent in that version (added or removed file)
     hsb0_runtime(release, hsb0_config, executor_module, lambda spec: git_out('rev-parse', spec).strip(),
-                 lambda rel, rev: [p for p in git_out('diff', '--name-only', rev, 'HEAD', '--', rel).splitlines() if p],
-                 read_blob)
+                 lambda rel, rev: git_changed_paths(ROOT, rel, rev), lambda spec: git_read_blob(ROOT, spec))
     fixture = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
     require(CANDIDATE_IMAGE in fixture, 'executor fixture must identify the r17 candidate')
     # The executor eval fixture must evaluate to the EFFECTIVE hsb0 pusher image of this release state.
