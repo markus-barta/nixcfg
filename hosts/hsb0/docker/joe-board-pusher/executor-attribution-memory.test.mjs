@@ -50,7 +50,8 @@ function fixture(t, rows = [row()]) {
   createFileFamilyStateStore(familyFile).save(state);
   fs.writeFileSync(executorFile, JSON.stringify(ledger(undefined, rows)));
   fs.writeFileSync(snapshotFile, JSON.stringify(ledger(undefined, rows)), { mode: 0o400 });
-  return { directory, familyFile, executorFile, memoryFile, snapshotFile, state, rows, account };
+  return { directory, familyFile, executorFile, memoryFile, snapshotFile, state, rows, account,
+    allowedRoots: [directory, path.join(directory, "temporary-recovery"), path.join(directory, "mounted-recovery")] };
 }
 
 test("exact intent proof persists privately; a new reader remembers after pruning without altering raw rows", t => {
@@ -60,8 +61,12 @@ test("exact intent proof persists privately; a new reader remembers after prunin
   const read = () => readExecutorAttribution({ account, file: input.executorFile, memoryFile: input.memoryFile,
     remember: true, onEvent() {} });
   assert.equal(read().attribute(execution).subDesk, "j5");
-  assert.equal(fs.statSync(input.memoryFile).mode & 0o777, 0o600);
-  const saved = JSON.parse(fs.readFileSync(input.memoryFile, "utf8"));
+  const handle = fs.openSync(input.memoryFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  let saved;
+  try {
+    assert.equal(fs.fstatSync(handle).mode & 0o777, 0o600);
+    saved = JSON.parse(fs.readFileSync(handle, "utf8"));
+  } finally { fs.closeSync(handle); }
   assert.equal(saved.schema, ATTRIBUTION_MEMORY_SCHEMA);
   assert.equal(saved.account, account);
   assert.deepEqual(Object.keys(saved.entries), [key()]);
@@ -71,7 +76,10 @@ test("exact intent proof persists privately; a new reader remembers after prunin
   fs.writeFileSync(input.executorFile, JSON.stringify(ledger({}, [])));
   assert.deepEqual(read().attribute(execution), { ...execution, desk: "j", subDesk: "j5", cause: "remembered" });
   assert.deepEqual(execution, before);
-  assert.deepEqual(JSON.parse(fs.readFileSync(input.memoryFile, "utf8")), saved, "remembering never renews proof time/source");
+  const rememberedHandle = fs.openSync(input.memoryFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    assert.deepEqual(JSON.parse(fs.readFileSync(rememberedHandle, "utf8")), saved, "remembering never renews proof time/source");
+  } finally { fs.closeSync(rememberedHandle); }
   assert.equal(fs.readdirSync(input.directory).some(name => name.endsWith(".lock") || name.endsWith(".tmp")), false);
 });
 
@@ -104,7 +112,8 @@ test("OPS tests create no proofs; remembered intent fills cannot become tests or
   const read = () => readExecutorAttribution({ account, file: input.executorFile, memoryFile: input.memoryFile,
     remember: true, executionRows: rows, onEvent() {} });
   for (const row of rows) assert.equal(read().attribute(row.execution).cause, "ops_test");
-  assert.equal(fs.existsSync(input.memoryFile), false, "test exceptions cannot create attribution memory");
+  assert.throws(() => fs.openSync(input.memoryFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW),
+    { code: "ENOENT" }, "test exceptions cannot create attribution memory");
   createFileExecutorAttributionMemory({ account, file: input.memoryFile }).record(entry());
   const attribution = read();
   assert.equal(attribution.attribute(rows[0].execution).cause, "remembered");
@@ -238,14 +247,66 @@ test("seed reports conflicts and exact-match failures without accepting inferred
   }
 });
 
-test("seed CLI input failures are fixed value-free JSON", () => {
-  const root = path.dirname(fileURLToPath(import.meta.url));
-  const result = spawnSync(process.execPath, ["seed-attribution-memory.mjs", "SENTINELMISSING"], {
-    cwd: root, encoding: "utf8", env: { ...process.env, IB_DESK_ACCOUNT: account },
+test("seed accepts all three fixed recovery roots and opens the checked resolved path", t => {
+  const input = fixture(t);
+  const open = fs.openSync;
+  const opened = [];
+  t.mock.method(fs, "openSync", (file, flags, ...args) => {
+    if (file === "/dev/shm/recovery/snapshot.json" || file === "/tmp/recovery/snapshot.json" || file === "/recovery/snapshot.json") {
+      opened.push(file);
+      assert.ok(flags & fs.constants.O_NOFOLLOW);
+      return open(input.snapshotFile, flags, ...args);
+    }
+    return open(file, flags, ...args);
   });
-  assert.equal(result.status, 1);
-  assert.equal(result.stderr, "");
-  assert.deepEqual(JSON.parse(result.stdout), { ok: false, cause: "seed_inputs_unavailable" });
+  for (const snapshotFile of ["/dev/shm/recovery/snapshot.json", "/tmp/recovery/snapshot.json", "/recovery/snapshot.json",
+    "/dev/shm/recovery/nested/../snapshot.json", "/tmp/recovery/nested/../snapshot.json", "/recovery/nested/../snapshot.json"]) {
+    assert.deepEqual(seedAttributionMemory({ ...input, snapshotFile, allowedRoots: undefined, now: () => instant }),
+      { seeded: opened.length === 1 ? 1 : 0, alreadyPresent: opened.length === 1 ? 0 : 1, conflicts: 0, unmatched: 0 });
+    assert.equal(opened.at(-1), path.resolve(snapshotFile));
+  }
+  assert.equal(opened.length, 6);
+});
+
+test("seed rejects root, sibling, traversal and relative paths before opening any file", t => {
+  const open = t.mock.method(fs, "openSync", () => { throw new Error("unexpected open"); });
+  for (const snapshotFile of [undefined, "", "/dev/shm/recovery", "/dev/shm/recovery/", "/tmp/recovery", "/tmp/recovery/", "/recovery", "/recovery/",
+    "/dev/shm/recoveryX/snapshot.json", "/tmp/recoveryX/snapshot.json", "/recoveryX/snapshot.json",
+    "/dev/shm/recovery/../etc/snapshot.json", "/tmp/recovery/../etc/snapshot.json",
+    "/recovery/../etc/snapshot.json", "snapshot.json", "dev/shm/recovery/snapshot.json", "tmp/recovery/snapshot.json",
+    path.relative(process.cwd(), "/tmp/recovery/snapshot.json")]) {
+    assert.throws(() => seedAttributionMemory({ snapshotFile, account }), /seed snapshot unavailable/);
+  }
+  assert.equal(open.mock.calls.length, 0);
+});
+
+test("seed rejects relative paths resolving inside an allowed root and refuses snapshot symlinks", t => {
+  const input = fixture(t);
+  const relative = path.relative(process.cwd(), input.snapshotFile);
+  assert.throws(() => seedAttributionMemory({ ...input, snapshotFile: relative }), /seed snapshot unavailable/);
+  const link = path.join(input.directory, "snapshot-link.json");
+  fs.symlinkSync(input.snapshotFile, link);
+  assert.throws(() => seedAttributionMemory({ ...input, snapshotFile: link }), { code: "ELOOP" });
+  assert.throws(() => fs.openSync(input.memoryFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW), { code: "ENOENT" });
+});
+
+test("seed CLI input failures are fixed value-free JSON with fixed recovery roots", t => {
+  const input = fixture(t);
+  const link = path.join(input.directory, "snapshot-link.json");
+  fs.symlinkSync(input.snapshotFile, link);
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  for (const args of [[], ["SENTINELMISSING"], ["/dev/shm/recovery"], ["/dev/shm/recovery/"], ["/tmp/recovery"], ["/tmp/recovery/"], ["/recovery"],
+    ["/dev/shm/recoveryX/snapshot.json"], ["/tmp/recoveryX/snapshot.json"], ["/recoveryX/snapshot.json"],
+    ["/dev/shm/recovery/../etc/snapshot.json"], ["/tmp/recovery/../etc/snapshot.json"],
+    ["/recovery/../etc/snapshot.json"], ["dev/shm/recovery/snapshot.json"], ["tmp/recovery/snapshot.json"], [input.snapshotFile], [link],
+    ["/tmp/recovery/snapshot.json", "/recovery/snapshot.json"]]) {
+    const result = spawnSync(process.execPath, ["seed-attribution-memory.mjs", ...args], {
+      cwd: root, encoding: "utf8", env: { ...process.env, IB_DESK_ACCOUNT: account },
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, `${JSON.stringify({ ok: false, cause: "seed_inputs_unavailable" })}\n`);
+  }
 });
 
 test("remembered and matched executions share the desk activity path and value-free diagnostic cause clocks", t => {

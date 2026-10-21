@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18d-202610211602` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18e-202610211645` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -763,20 +763,24 @@ that no writer is running before moving aside its own stale lock. Preserve the
 memory with the other pusher state across switches and rollbacks.
 
 For fills already orphaned by pruning, OPS can copy an executor ledger snapshot
-from a **pre-prune backup** into a private recovery directory and mount that
-directory read-only at `/recovery` in the pusher container during its reviewed
-promotion. Do not replace the live executor ledger. After the new image is
+from a **pre-prune backup** into `/dev/shm/recovery` in the pusher container.
+This is the preferred transport: tmpfs, gone on container stop. A private
+recovery directory mounted read-only at `/recovery` during its reviewed
+promotion is also supported. Do not replace the live executor ledger. After the new image is
 integrated and the read-only snapshot is available inside the container, run:
 
 ```sh
-docker exec <pusher> node /app/seed-attribution-memory.mjs /recovery/executor-ledger.json
+docker exec <pusher> node /app/seed-attribution-memory.mjs /dev/shm/recovery/executor-ledger.json
 docker exec <pusher> node /app/diag-executor-unclaimed.mjs
 ```
 
-The seed is read-only with respect to both input ledgers and the backup. It
-requires `barta.paper-desk-executor-state.v1` and the same configured
-`IB_DESK_ACCOUNT`, uses the pusher's validated family ledger and exact matcher,
-and writes only attribution memory (`source:seed`). It adds missing proofs in
+The seed accepts only absolute snapshot paths strictly below `/dev/shm/recovery/`,
+`/tmp/recovery/` or `/recovery/` after path resolution. Root directories themselves, sibling
+prefixes, paths escaping those roots, relative paths and snapshot symlinks are
+rejected before seeding. The seed is read-only with respect to both input
+ledgers and the backup. It requires `barta.paper-desk-executor-state.v1` and the
+same configured `IB_DESK_ACCOUNT`, uses the pusher's validated family ledger
+and exact matcher, and writes only attribution memory (`source:seed`). It adds missing proofs in
 one transaction, preserves existing proof times/sources, and is idempotent.
 It prints only `{seeded,alreadyPresent,conflicts,unmatched}`; input failures
 produce fixed value-free JSON and a nonzero exit. `unmatched` counts configured
