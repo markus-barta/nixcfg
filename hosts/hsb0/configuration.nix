@@ -227,7 +227,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-408 candidate: household-v2-switch-set-r17c-202610202345, selected
+    # JOED-39 candidate (after OPS-408 r17c): household-v2-switch-set-r18a-202610210946, selected
     # only by the release set (rollback: household-v2-switch-set-r16d-202610201800).
     # The current v1 set retains its exact runtime. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
