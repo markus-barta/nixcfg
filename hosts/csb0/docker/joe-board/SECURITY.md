@@ -76,7 +76,7 @@ images/generations/source GC roots until rollback is no longer required.
 ### Separate Results ingress proposal — pending LEAD confirmation
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. Main candidate d36b5295
+droppable review item; do not deploy it until LEAD confirms. The retry candidate 6eacd6c7 (like d36b5295 before it)
 includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
