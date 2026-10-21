@@ -76,7 +76,7 @@ const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 300_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 const COMPLETE_SNAPSHOT_TIMEOUT_MS = 60_000;
-const HEALTH_INTERVAL_MS = 60_000;
+const HEALTH_INTERVAL_MS = 20_000;
 const HEALTH_TIMEOUT_MS = 15_000;
 const UPSTREAM_LOSS_DEADLINE_MS = 300_000;
 
@@ -130,8 +130,8 @@ const adapter = createBrokerSessionAdapter({
     onAccountSubscriptionConflict(code) {
       portfolioRefresh?.subscriptionConflict(code);
     },
-    onSocketActivity({ api }) {
-      connectionSupervisor?.socketActivity(api);
+    onSocketActivity({ api, event }) {
+      connectionSupervisor?.socketActivity(api, event);
     },
     onStableData({ api, observedAt }) {
       connectionSupervisor?.stable(api);

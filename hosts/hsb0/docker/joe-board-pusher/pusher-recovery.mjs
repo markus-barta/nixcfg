@@ -164,23 +164,25 @@ export function createConnectionSupervisor({
   }
 
   function scheduleHealthProbe(api) {
-    clearNamedTimer("health");
-    clearNamedTimer("healthResponse");
-    if (stopped || api !== activeApi || connecting || upstreamLost) return;
+    // Keep a periodic probe even on a busy socket. Other callbacks must not
+    // postpone currentTime or satisfy its reply deadline.
+    if (stopped || api !== activeApi || connecting || upstreamLost || healthTimer !== null) return;
     healthTimer = setTimer(() => {
       healthTimer = null;
-      if (stopped || api !== activeApi || connecting || upstreamLost) return;
+      if (stopped || api !== activeApi || connecting || upstreamLost || healthResponseTimer !== null) return;
+      // Arm before sending so even a synchronous reply can clear the timeout.
+      healthResponseTimer = setTimer(() => {
+        healthResponseTimer = null;
+        if (stopped || api !== activeApi || connecting || upstreamLost) return;
+        fail(api, "broker socket health callback timed out");
+      }, healthTimeoutMs);
       try {
         requestHealth(api);
       } catch (error) {
         fail(api, `health request failed: ${error?.message || error}`);
         return;
       }
-      healthResponseTimer = setTimer(() => {
-        healthResponseTimer = null;
-        if (stopped || api !== activeApi || connecting || upstreamLost) return;
-        fail(api, "broker socket health callback timed out");
-      }, healthTimeoutMs);
+      scheduleHealthProbe(api);
     }, healthIntervalMs);
   }
 
@@ -269,9 +271,10 @@ export function createConnectionSupervisor({
       return true;
     },
 
-    socketActivity(api) {
+    socketActivity(api, event) {
       if (stopped || api !== activeApi || connecting) return false;
       if (upstreamLost) return true;
+      if (event === "currentTime") clearNamedTimer("healthResponse");
       scheduleHealthProbe(api);
       return true;
     },
