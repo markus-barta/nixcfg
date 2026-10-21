@@ -482,7 +482,7 @@ Stage 2 is active in the repository config: `policy.path: "/etc/headscale/policy
 
 The config directory is a bind mount of the git checkout. A pull updates the files on disk. Headscale reads `policy.path` at process start; SIGHUP reloads only the file at that same path. Switching the path requires `docker restart headscale`. `just switch` does not recreate the container for config-only changes when the compose spec is unchanged. Make path changes in the repository through the reviewed change flow, then pull on csb0; preserve `policy.hujson` as the stage-1 rollback file.
 
-OPS-412 (Markus, Decision Desk 3ec4b0b3, 2026-10-21, outcome "always"): the external dedicated CI host joins as `agm2-ci` with `tag:agm-ci` (tagOwner `markus@`). Only the two builder Macs (`builder-mbp2606` 100.64.0.13, `builder-mbp2607` 100.64.0.14) may open tcp **2222** on it. The markus@/gerhard@ rule lists its destinations explicitly (`markus@:*`, `gerhard@:*`, `amy@:*`, `tag:paper-desk:*`), which equals today's node-to-node reach and excludes `tag:agm-ci`; a new user or tag must be added there by review. `tag:agm-ci` has no source rule, and peer maps follow the ACL, so no other node sees it. Registration is interactive: the node prints a registration key, which OPS registers on csb0 (`headscale auth register --user markus --auth-id <id>`); no pre-auth key leaves this host. Re-check the builder aliases after a builder re-registers (sequential allocator). Rollback: revert the OPS-412 PR, pull, SIGHUP; `headscale nodes delete` removes the node.
+OPS-412 (Markus, Decision Desk 3ec4b0b3, 2026-10-21, outcome "always"): the external dedicated CI host joins as `agm2-ci` with `tag:agm-ci` (tagOwner `markus@`). Only the two builder Macs (`builder-mbp2606` 100.64.0.13, `builder-mbp2607` 100.64.0.14) may open tcp **2222** on it. The markus@/gerhard@ rule lists its destinations explicitly (`markus@:*`, `gerhard@:*`, `amy@:*`, `tag:paper-desk:*`), which equals today's node-to-node reach and excludes `tag:agm-ci`; a new user or tag must be added there by review. `tag:agm-ci` has no source rule, and peer maps follow the ACL, so no other node sees it. Registration is interactive: the node prints a registration key, which OPS registers on csb0 (`headscale auth register --user markus --auth-id <id>`); no pre-auth key leaves this host. Re-check the builder aliases after a builder re-registers (sequential allocator). **Rollback order (the CI node first):** any older policy (the pre-OPS-412 stage 2 with `markus@/gerhard@ → *:*`, or the stage-1 allow-all) would open the CI node more widely and let it initiate. So first have its owner stop the CI instance, then `docker exec headscale headscale nodes delete -i <id>` and confirm `nodes list` no longer shows `agm2-ci` / `tag:agm-ci`. Only then revert the OPS-412 PR, pull and SIGHUP, or switch to stage 1.
 
 Amy-box joins with a pre-auth key tagged `tag:paper-desk`, owned by `amy@` in `tagOwners`. A tagged node uses the tag identity rather than `amy@`; stage 2 therefore permits both identities only to tcp `paper-desk:8470` (`100.64.0.6`). Check user-owned and tagged nodes separately.
 
@@ -503,9 +503,12 @@ docker exec headscale headscale policy check --file /etc/headscale/policy.hujson
 docker restart headscale
 # A path change needs this restart; SIGHUP and config-only just switch are insufficient.
 docker exec headscale headscale nodes list
-# markus@ and gerhard@ still reach *:* (tailnet); routes need explicit CIDRs.
-# amy@ AND tag:paper-desk reach only tcp 100.64.0.6:8470 (paper desk).
+# markus@ and gerhard@ reach markus@:* gerhard@:* amy@:* tag:paper-desk:* (explicit, OPS-412);
+# routes need explicit CIDRs.
+# amy@ AND tag:paper-desk reach only tcp 100.64.0.6:8470 and :8471 (executor, mailbox).
 # Check both: not :4002, not ssh, not any other host.
+# tag:agm-ci (OPS-412): only builder-mbp2606/7 open tcp 2222 on it; any other port or source fails;
+# it initiates nothing and no other node lists it as a peer.
 # return traffic is stateful; hsb0 needs no rule towards amy
 
 # Rollback — restore policy.path in the repository, review, then pull:
