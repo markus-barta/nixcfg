@@ -157,7 +157,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      # JOED-57 candidate (after JOED-39 r18a): hsb0-joe-board-pusher:household-v2-switch-set-r18d-202610211602.
+      # JOED-62 candidate (after JOED-57 r18c): hsb0-joe-board-pusher:household-v2-switch-set-r18d-202610211602.
       # Activation and rollback select the executor pin from the same release set.
       default = joeSet.executor.image;
       description = "Pinned local image used only for Node and @stoqey/ib. The pusher service is unchanged.";
