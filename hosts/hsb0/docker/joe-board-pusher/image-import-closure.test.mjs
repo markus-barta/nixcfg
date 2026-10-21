@@ -94,7 +94,7 @@ function runtime(dockerfile) {
   publishedFiles(files, path.resolve(path.dirname(executorPath), results), "/executor/results");
 
   const entrypoints = new Set(["pusher.mjs", "v2-stage-supervisor.mjs", "v2-stage-worker.mjs",
-    "verify-contracts-entry.mjs", "family-history-cli.mjs", "diag-executor-unclaimed.mjs"].map(imagePath));
+    "verify-contracts-entry.mjs", "family-history-cli.mjs", "diag-executor-unclaimed.mjs", "seed-attribution-memory.mjs"].map(imagePath));
   assert.equal(cmd[0], "node");
   for (const token of cmd.slice(1).filter(token => token.endsWith(".mjs"))) entrypoints.add(imagePath(token));
   // Includes split entrypoint = [ "node" ]; command = [ "/executor/server.mjs" ].
@@ -139,6 +139,14 @@ test("image closure guard rejects the pre-fix missing executor-attribution COPY"
   const dockerfile = read(path.join(root, "Dockerfile")).replace(/\bexecutor-attribution\.mjs\s*/g, "");
   const { files, entrypoints } = runtime(dockerfile);
   assert.ok(missingImports(files, entrypoints).some(message => message.startsWith("/app/executor-attribution.mjs ")));
+});
+
+test("image closure guard requires the attribution memory and operator seed", () => {
+  for (const module of ["executor-attribution-memory.mjs", "seed-attribution-memory.mjs"]) {
+    const dockerfile = read(path.join(root, "Dockerfile")).replace(module, "");
+    const { files, entrypoints } = runtime(dockerfile);
+    assert.ok(missingImports(files, entrypoints).some(message => message.startsWith(`/app/${module} `)));
+  }
 });
 
 test("image closure follows re-exports, side-effect imports and literal dynamic imports transitively", () => {
