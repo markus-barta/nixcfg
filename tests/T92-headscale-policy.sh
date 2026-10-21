@@ -3,8 +3,10 @@
 #
 # Stage 1 (policy.hujson, retained for rollback) is allow-all: one accept
 # * -> *:*, the same reach as an empty path on this fleet.
-# Stage 2 (policy-stage2.hujson, active via policy.path) keeps markus@ and gerhard@
-# on *:* and lets amy@ and tag:paper-desk open exactly tcp 100.64.0.6:{8470,8471}.
+# Stage 2 (policy-stage2.hujson, active via policy.path) lets markus@ and gerhard@ reach
+# every user-owned node and tag:paper-desk (an explicit list, so OPS-412's tag:agm-ci is
+# excluded), lets amy@ and tag:paper-desk open exactly tcp 100.64.0.6:{8470,8471}, and lets
+# only the two builder Macs open tcp 2222 on tag:agm-ci; tag:agm-ci itself opens nothing.
 #
 # Run under bash 5. macOS /bin/bash is 3.2, and set -e does not abort on a
 # failing bare [[ ]] there (see T33). This script uses no bare [[ ]].
@@ -209,9 +211,22 @@ PAPER_PORTS = {"8470", "8471"}
 AMY = "amy@"
 PAPER_TAG = "tag:paper-desk"
 FULL_USERS = ("markus@", "gerhard@")
+# OPS-412: explicit full reach (all of today's owners); never "*" again, it would cover tag:agm-ci.
+FULL_REACH = ("markus@:*", "gerhard@:*", "amy@:*", "tag:paper-desk:*")
+CI_TAG = "tag:agm-ci"
+CI_DST = "tag:agm-ci:2222"
+BUILDERS = {"builder-mbp2606": "100.64.0.13/32", "builder-mbp2607": "100.64.0.14/32"}
+CI_RULE = {"action": "accept", "src": sorted(BUILDERS), "proto": "tcp", "dst": [CI_DST]}
 TAILNETS = tuple(ipaddress.ip_network(cidr) for cidr in (
     "100.64.0.0/10", "fd7a:115c:a1e0::/48",
 ))
+
+def is_ci_rule(rule):
+    """The one OPS-412 rule: exactly the two builder aliases -> tcp tag:agm-ci:2222."""
+    return (isinstance(rule, dict) and rule.get("action") == "accept"
+            and sorted(rule.get("src") or []) == CI_RULE["src"]
+            and rule.get("proto") == "tcp" and rule.get("dst") == [CI_DST]
+            and set(rule) == {"action", "src", "proto", "dst"})
 
 def assert_stage2_sources(doc):
     """Reject sources we cannot prove exclude either restricted identity."""
@@ -224,6 +239,8 @@ def assert_stage2_sources(doc):
     for rule in [*acls_of(doc), *grants_of(doc)]:
         if not isinstance(rule, dict):
             fail("stage-2 rule must be an object")
+        if is_ci_rule(rule):
+            continue
         src = rule.get("src")
         if not isinstance(src, list) or not src:
             fail("stage-2 src must be a nonempty list")
@@ -232,6 +249,8 @@ def assert_stage2_sources(doc):
         for item in src:
             if not isinstance(item, str):
                 fail("src entries must be strings")
+            if item == CI_TAG:
+                fail("tag:agm-ci must never be a source")
             if item in users or item == PAPER_TAG or item in groups:
                 continue
             try:
@@ -321,38 +340,43 @@ def assert_stage1(doc):
         if not src_hits(["*"], groups, user):
             fail(f"stage 1 wildcard did not cover {user}")
 
-def user_keeps_star(doc, user):
-    groups = groups_of(doc)
+def user_keeps_full_reach(doc, user):
+    """A literal-user rule (no proto) whose dst is exactly FULL_REACH: today's node-to-node reach."""
     for rule in acls_of(doc):
         if not isinstance(rule, dict) or rule.get("action") != "accept":
             continue
-        src = rule.get("src") or []
-        # Literal user@, not a wildcard that would also open amy@.
-        if user not in src:
-            continue
-        if "*:*" in (rule.get("dst") or []) and proto_of(rule) is None:
+        if user in (rule.get("src") or []) and proto_of(rule) is None \
+                and sorted(rule.get("dst") or []) == sorted(FULL_REACH):
             return True
-    # A group that contains the user and nobody else we have to exclude is
-    # still a keep, as long as the rule's src lists that group and not amy.
-    for rule in acls_of(doc):
-        if not isinstance(rule, dict) or rule.get("action") != "accept":
-            continue
-        if "*:*" not in (rule.get("dst") or []) or proto_of(rule) is not None:
-            continue
-        for item in rule.get("src") or []:
-            if item.startswith("group:") and user in groups.get(item, []):
-                if AMY in groups.get(item, []):
-                    continue
-                return True
     return False
 
+def assert_ci_isolated(doc):
+    """tag:agm-ci: reachable only through CI_RULE; no wildcard, CIDR, autogroup or other tag dst anywhere."""
+    hosts = hosts_of(doc)
+    for name, cidr in BUILDERS.items():
+        if hosts.get(name) != cidr:
+            fail(f"builder alias {name} must be exactly {cidr}")
+    if grants_of(doc):
+        fail("stage 2 uses acls only; grants could widen tag:agm-ci")
+    ci_rules = [rule for rule in acls_of(doc) if is_ci_rule(rule)]
+    if len(ci_rules) != 1:
+        fail("stage 2 must contain exactly one builder -> tag:agm-ci:2222 rule")
+    allowed = {*FULL_REACH, "paper-desk:8470", "paper-desk:8471", CI_DST}
+    for rule in acls_of(doc):
+        for spec in rule.get("dst") or []:
+            if spec not in allowed:
+                fail(f"destination {spec!r} is not on the stage-2 allow-list (it could cover tag:agm-ci)")
+            if spec == CI_DST and not is_ci_rule(rule):
+                fail("tag:agm-ci:2222 may only appear in the builder rule")
+
 def assert_stage2(doc):
-    if doc.get("tagOwners") != {PAPER_TAG: [AMY]}:
-        fail("stage 2 must assign tag:paper-desk only to amy@")
+    if doc.get("tagOwners") != {PAPER_TAG: [AMY], CI_TAG: ["markus@"]}:
+        fail("stage 2 must assign tag:paper-desk only to amy@ and tag:agm-ci only to markus@")
     assert_stage2_sources(doc)
+    assert_ci_isolated(doc)
     for user in FULL_USERS:
-        if not user_keeps_star(doc, user):
-            fail(f"stage 2 must keep {user} on *:*")
+        if not user_keeps_full_reach(doc, user):
+            fail(f"stage 2 must keep {user} on the full explicit reach {FULL_REACH}")
     for identity in (AMY, PAPER_TAG):
         found = restricted_destinations(doc, identity)
         if not found:
@@ -435,6 +459,42 @@ def negative_cases(stage2):
         doc["tagOwners"] = owners
         assert_rejected(doc, "missing or widened tag ownership")
         count += 1
+    # OPS-412: tag:agm-ci stays reachable only by the two builder Macs on tcp 2222, and opens nothing.
+    def ci_index(doc):
+        return next(i for i, rule in enumerate(doc["acls"]) if is_ci_rule(rule))
+    def full_index(doc):
+        return next(i for i, rule in enumerate(doc["acls"]) if "markus@" in rule.get("src", []) and rule.get("proto") is None)
+    mutations = [
+        ("tag:agm-ci as a source", lambda d: d["acls"].append({"action": "accept", "src": [CI_TAG], "dst": ["markus@:*"]})),
+        ("tag:agm-ci as a source to paper-desk", lambda d: d["acls"].append({"action": "accept", "src": [CI_TAG], "proto": "tcp", "dst": ["paper-desk:8470"]})),
+        ("full reach back to *:*", lambda d: d["acls"][full_index(d)].__setitem__("dst", ["*:*"])),
+        ("full reach plus tag:agm-ci:*", lambda d: d["acls"][full_index(d)]["dst"].append("tag:agm-ci:*")),
+        ("full reach plus tag:agm-ci:2222", lambda d: d["acls"][full_index(d)]["dst"].append(CI_DST)),
+        ("full reach plus autogroup:tagged", lambda d: d["acls"][full_index(d)]["dst"].append("autogroup:tagged:*")),
+        ("full reach plus the tailnet CIDR", lambda d: d["acls"][full_index(d)]["dst"].append("100.64.0.0/10:*")),
+        ("full reach missing amy@", lambda d: d["acls"][full_index(d)]["dst"].remove("amy@:*")),
+        ("full reach missing tag:paper-desk", lambda d: d["acls"][full_index(d)]["dst"].remove("tag:paper-desk:*")),
+        ("extra markus@ -> tag:agm-ci:2222", lambda d: d["acls"].append({"action": "accept", "src": ["markus@"], "proto": "tcp", "dst": [CI_DST]})),
+        ("ci rule port 22", lambda d: d["acls"][ci_index(d)].__setitem__("dst", ["tag:agm-ci:22"])),
+        ("ci rule any port", lambda d: d["acls"][ci_index(d)].__setitem__("dst", ["tag:agm-ci:*"])),
+        ("ci rule port range", lambda d: d["acls"][ci_index(d)].__setitem__("dst", ["tag:agm-ci:2222-2223"])),
+        ("ci rule udp", lambda d: d["acls"][ci_index(d)].__setitem__("proto", "udp")),
+        ("ci rule without proto", lambda d: d["acls"][ci_index(d)].pop("proto")),
+        ("ci rule src plus markus@", lambda d: d["acls"][ci_index(d)]["src"].append("markus@")),
+        ("ci rule src plus the tailnet", lambda d: d["acls"][ci_index(d)]["src"].append("100.64.0.0/10")),
+        ("ci rule src plus a third host", lambda d: (d["hosts"].__setitem__("builder-x", "100.64.0.20/32"), d["acls"][ci_index(d)]["src"].append("builder-x"))),
+        ("builder alias moved", lambda d: d["hosts"].__setitem__("builder-mbp2607", "100.64.0.15/32")),
+        ("builder alias widened", lambda d: d["hosts"].__setitem__("builder-mbp2606", "100.64.0.0/24")),
+        ("second ci rule", lambda d: d["acls"].append(copy.deepcopy(CI_RULE))),
+        ("grant to tag:agm-ci", lambda d: d.__setitem__("grants", [{"src": ["builder-mbp2607"], "dst": [CI_TAG], "ip": ["*"]}])),
+        ("tag:agm-ci owner widened", lambda d: d["tagOwners"].__setitem__(CI_TAG, ["markus@", AMY])),
+        ("tag:agm-ci owner missing", lambda d: d["tagOwners"].pop(CI_TAG)),
+    ]
+    for label, mutate in mutations:
+        doc = copy.deepcopy(stage2)
+        mutate(doc)
+        assert_rejected(doc, f"OPS-412 {label}")
+        count += 1
     return count
 
 with open(config_path) as fh:
@@ -450,7 +510,7 @@ assert_stage1(stage1)
 assert_stage2(stage2)
 count = negative_cases(stage2)
 print(f"T92: {count} negative cases rejected")
-print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk exactly tcp 100.64.0.6:{8470,8471}; markus@ and gerhard@ *:*")
+print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk exactly tcp 100.64.0.6:{8470,8471}; markus@ and gerhard@ full explicit reach without tag:agm-ci; tag:agm-ci only builders tcp 2222")
 PY
 
 printf 'T92 ok\n'

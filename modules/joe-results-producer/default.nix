@@ -60,6 +60,14 @@ in
       }
       {
         assertion =
+          let
+            group = config.systemd.services.joe-results-producer.serviceConfig.Group;
+          in
+          builtins.match "[0-9]+" group == null && builtins.hasAttr group config.users.groups;
+        message = "joeResultsProducer serviceConfig.Group must be a non-numeric group name declared in users.groups";
+      }
+      {
+        assertion =
           cfg.ingressHost != ""
           && cfg.endpoint == "https://${cfg.ingressHost}/joe/inbox/results"
           && builtins.match "[a-z0-9.-]+" cfg.ingressHost != null;
@@ -99,10 +107,10 @@ in
       serviceConfig = {
         Type = "simple";
         Environment = [ "JOE_RESULTS_INGRESS_ORIGIN=https://${cfg.ingressHost}" ];
-        # Same unprivileged identity as the executor container, with its state
-        # mounted read-only here. No added groups, Docker socket or capabilities.
+        # Owner uid reads the executor state mounted read-only here; the host
+        # group is declared by NixOS. No added groups, Docker socket or capabilities.
         User = "1000";
-        Group = "1000";
+        Group = "users";
         SupplementaryGroups = [ ];
         # systemd copies the existing raw household token before namespace
         # restrictions apply. The service cannot read the original secret dirs.

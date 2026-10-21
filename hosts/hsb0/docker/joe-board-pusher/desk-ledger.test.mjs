@@ -18,6 +18,7 @@ import { createExecutorAttribution } from "./executor-attribution.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate } from "./v2-stage-worker.mjs";
 import { projectBook } from "./project.mjs";
+import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const START = "2026-09-10T04:00:00Z";
@@ -156,6 +157,88 @@ function executorFamily(input) {
     ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
   });
 }
+
+function opsTestFixture({ flat = true, marker = "ops-test-ko", clientId = 705, mixed = false } = {}) {
+  const input = fixture();
+  const tests = ["BOT", "SLD"].map((side, index) => {
+    const row = execution(`ops.${index}.01`, clientId, "OPS-SYNTH", 303,
+      { side, shares: !flat && index ? 2 : 1, price: 50 + index,
+        time: `20260910 10:0${index}:00 US/Eastern` });
+    Object.assign(row.execution, { orderId: 900 + index, orderRef: `joe|261006|${marker}` });
+    return row;
+  });
+  if (mixed) tests.push({ ...structuredClone(tests[0]), contract: contract("OPS-OTHER", 304),
+    execution: { ...tests[0].execution, execId: "ops.other.01", orderId: 902 } });
+  input.ledgerState.executions.push(...tests);
+  input.ledgerState.commissions.push(...tests.map(row => commission(row.execution.execId, 123)));
+  input.executorAttribution = createExecutorAttribution({ account: ACCOUNT, executionRows: input.ledgerState.executions,
+    ledger: { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT, intents: {}, executions: tests }, onEvent() {} });
+  input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  input.jResult = executorFamily(input);
+  return input;
+}
+
+test("flat OPS tests leave valued desks, fees, history revisions, day-provider acceptance and published totals intact", () => {
+  const baseline = calculateDeskEquities({ ...fixture(), account: ACCOUNT, observedAt: OBSERVED });
+  const input = opsTestFixture();
+  const before = structuredClone(input.ledgerState);
+  const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(input.jResult.ok, true, input.jResult.reason);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.opsTestExecutionCount, 2);
+  assert.deepEqual(result.executorClients, [{ client: 705, matched: 0, unmatched: 0, opsTest: 2 }]);
+  for (const key of ["desks", "equity", "historyRevision", "ownershipEvidence", "sourceContract"]) {
+    assert.deepEqual(result[key], baseline[key], `${key} excludes OPS money, commissions and ownership`);
+  }
+  assert.deepEqual(Object.keys(result.ownershipEvidence).sort(), ["status", "policyHash", "unclaimedExecutionCount", "exactKeepPositions"].sort());
+  let saved;
+  const producer = createDeskDayPnlProducer({ account: ACCOUNT, providerContract: result.sourceContract,
+    historyRevisionMethod: result.historyRevisionMethod, store: { load: () => ({ ok: true, state: null }), save: state => { saved = state; } },
+    buildBoundaryEvidence: () => ({ ok: false }), getVerifiedHistoryState: () => input.verifiedHistoryState, now: () => OBSERVED });
+  producer.observe(result);
+  assert.deepEqual(saved.latest.equity, baseline.equity, "day-baseline exact provider contract accepts the separate diagnostic");
+  const book = { ts: OBSERVED, gateway: true, gatewayLastSeenAt: OBSERVED,
+    summary: {}, positions: input.positions.map(row => ({ ...row, currency: row.contract.currency })), portfolio: input.portfolio,
+    positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: OBSERVED };
+  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities: result });
+  assert.equal(v1.totals.equity, baseline.equity.total);
+  for (const desk of ["j", "joe", "joel"]) assert.equal(v1.desks.find(row => row.id === desk).money.equity, baseline.equity[desk]);
+  const v2 = buildCandidate(1, OBSERVED, copyObservation({ book, family: input.jResult, deskEquities: result,
+    executions: executionActivity(input.ledgerState, input.executorAttribution), executorAttribution: input.executorAttribution }));
+  assert.equal(v2.desks.some(row => row.state === "stuck"), false);
+  assert.equal(JSON.stringify(v2).includes("opsTestExecutionCount"), false, "rev 9 is unchanged");
+  assert.deepEqual(input.ledgerState, before, "raw broker records remain immutable");
+});
+
+for (const options of [{ flat: false }, { mixed: true }, { marker: "xops-test-ko" }, { clientId: 230 }]) {
+  test(`unclaimed OPS-looking set ${JSON.stringify(options)} still nulls published totals`, () => {
+    const input = opsTestFixture(options);
+    const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, jResult: null });
+    assert.equal(result.ok, false);
+    assert.match(result.reason, options.flat === false || options.mixed ? /ops_test_not_flat/ : /unclaimed/);
+    if (options.mixed) assert.equal(result.opsTestExecutionCount, 2, "flat instrument is independently excluded");
+    const projected = projectBook({ ts: OBSERVED, gateway: true, summary: {}, positions: input.positions },
+      { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities: result });
+    assert.equal(projected.totals.equity, null);
+  });
+}
+
+test("OPS exceptions preserve all-account historical coverage and receipt checks", () => {
+  const input = opsTestFixture();
+  input.verifiedHistoryState = officialHistory(fixture().ledgerState.executions, fixture().ledgerState.commissions,
+    { fromInclusive: "2026-09-11T04:00:00Z" });
+  assert.equal(calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED }).ok, false,
+    "missing baseline-to-current-day official coverage stays fail-closed");
+  const missingFee = opsTestFixture();
+  missingFee.ledgerState.commissions = missingFee.ledgerState.commissions.filter(row => row.execId !== "ops.0.01");
+  const feeResult = calculateDeskEquities({ ...missingFee, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(feeResult.ok, false);
+  assert.match(feeResult.reason, /missing commission/);
+  const missingReceipt = opsTestFixture();
+  missingReceipt.verifiedHistoryState = { ...missingReceipt.verifiedHistoryState, receipts: [] };
+  assert.equal(calculateDeskEquities({ ...missingReceipt, account: ACCOUNT, observedAt: OBSERVED }).ok, false,
+    "trusted official identities are still required");
+});
 
 for (const [clientId, intentDesk] of [[705, "j"], [705, "j2"], [705, "j5"], [705, "joe"], [705, "joel"], [700, "j"], [812, "j"]]) test(`${clientId} exact intent ${intentDesk}; J FIFO, all-desk v1 and v2 agree on raw IB rows`, () => {
   const desk = ["j2", "j5"].includes(intentDesk) ? "j" : intentDesk;
