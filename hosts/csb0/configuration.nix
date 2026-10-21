@@ -10,8 +10,11 @@
 }:
 
 let
+  joeRelease = builtins.fromJSON (builtins.readFile ./joedesk-release.json);
+  joeSet = joeRelease.sets.${joeRelease.active};
   hostdashCsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb0;
 in
+assert inputs.joedesk.rev == joeSet.board.rev;
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -63,14 +66,18 @@ in
     autoUpdate.enable = true;
     autoUpdate.excludeFromPull = [ "joe-board" ];
     # Build and tag the existing service from the immutable application revision.
-    # `pull_policy = "build"` prevents registry fallback or stale fixed-tag reuse;
-    # BuildKit may reuse layers while Compose revalidates this one pinned context.
+    # `pull_policy = "never"` in every set (OPS-354 attempt 3): the tag embeds the
+    # full source rev and is prestaged once from this exact flake store context;
+    # the cut-over plan pins that image ID. With "build", `just switch` rebuilt the
+    # tag (attempt 2: new ID, pins-running failed). No registry fallback; if the
+    # tag were ever missing, the plan's pinned-ID check refuses whatever runs.
     # OAuth routers, inbox token, persistent data and Compose identity stay in the spec.
     spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
       services.joe-board = {
         build = "${inputs.joedesk}";
-        image = "csb0-joe-board:source-${inputs.joedesk.rev}";
-        pull_policy = "build";
+        image = joeSet.board.image;
+        # Rollback selects the retained exact image through this declaration.
+        pull_policy = "never";
       };
     };
   };

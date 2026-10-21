@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { newYorkDay, deskState, copyDeskActivity, executionActivity, DESK_ACTION } from "./desk-activity.mjs";
+import { newYorkDay, deskState, copyDeskActivity, executionActivity, DESK_ACTION, ACTIVITY_FRESH_MS, ACTIVITY_FUTURE_SKEW_MS } from "./desk-activity.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate, validObservation } from "./v2-stage-worker.mjs";
 import { createBrokerSessionAdapter } from "./pusher-state.mjs";
@@ -9,6 +9,7 @@ import { EventEmitter } from "node:events";
 import { validateContract } from "./contracts/index.mjs";
 
 const instant = "2026-10-19T15:00:00.000Z";
+const offset = ms => new Date(Date.parse(instant) + ms).toISOString();
 const evidence = (at = instant) => ({ positionsAt: at, hasPositions: false, ordersAt: at, hasOrders: false,
   executionsAt: at, executionDay: newYorkDay(Date.parse(at)), lastExecutionAt: null });
 const activity = (at = instant) => Object.fromEntries(["j", "joe", "joel"].map(id => [id, evidence(at)]));
@@ -17,8 +18,9 @@ for (const [label, change, expected] of [
   ["empty", {}, "sit-out"], ["positions-only", { hasPositions: true }, "working"],
   ["orders-only", { hasOrders: true }, "working"], ["executions-only", { lastExecutionAt: instant }, "working"],
   ["unavailable", { ordersAt: null, hasPositions: true }, "stuck"],
-  ["stale", { ordersAt: "2026-10-19T14:54:59.999Z", hasOrders: true }, "stuck"],
-  ["future", { executionsAt: "2026-10-19T15:00:00.001Z" }, "stuck"],
+  ["stale", { ordersAt: offset(-ACTIVITY_FRESH_MS - 1), hasOrders: true }, "stuck"],
+  ["future-within-skew", { executionsAt: offset(ACTIVITY_FUTURE_SKEW_MS) }, "sit-out"],
+  ["future-beyond-skew", { executionsAt: offset(ACTIVITY_FUTURE_SKEW_MS + 1000) }, "stuck"],
   ["future-fill", { lastExecutionAt: "2026-10-19T15:00:00.001Z" }, "stuck"],
 ]) test(`desk state ${label} maps to rev 9 desks[].state and leaves KEEP untouched`, () => {
   const deskActivity = activity(); Object.assign(deskActivity.j, change);
@@ -34,12 +36,17 @@ for (const [label, change, expected] of [
   assert.equal(validateContract("data", value, { stage: "ingress" }).ok, true);
 });
 
-test("each reader's freshness is checked independently at the five-minute bound and staging receipt", () => {
+test(`each reader's freshness uses generation at the inclusive ${ACTIVITY_FRESH_MS / 1000}-second bound`, () => {
   for (const field of ["positionsAt", "ordersAt", "executionsAt"]) {
-    const row = evidence(); row[field] = "2026-10-19T14:55:00.000Z";
+    const row = evidence(); row[field] = offset(-ACTIVITY_FRESH_MS);
     assert.equal(deskState(row, instant, instant), "sit-out");
-    assert.equal(deskState(row, instant, "2026-10-19T15:00:00.001Z"), "stuck");
-    row[field] = null; assert.equal(deskState(row, instant, instant), "stuck");
+    assert.equal(deskState(row, instant, "2026-10-19T15:00:00.001Z"), "sit-out");
+    assert.equal(deskState(row, "2026-10-19T15:00:00.001Z", "2026-10-19T15:00:00.001Z"), "stuck");
+    row[field] = offset(-ACTIVITY_FRESH_MS - 1000);
+    assert.equal(deskState(row, instant, instant), "stuck", `${field}: ${ACTIVITY_FRESH_MS / 1000 + 1} seconds is stale`);
+    for (const unavailable of [null, "not-a-time"]) {
+      row[field] = unavailable; assert.equal(deskState(row, instant, instant), "stuck");
+    }
   }
 });
 
@@ -84,7 +91,7 @@ test("raw completed reader evidence attributes by existing dated policy, exclude
   const state = { coverageThrough: instant, coverageTradingDay: "2026-10-19", executions: [exec("SYNTH", 22), exec("TSLA", 999)] };
   const executions = executionActivity(state);
   assert.deepEqual(executions.latest, { j: null, joe: instant, joel: null });
-  state.executions.push(exec("UNCLAIMED", 999)); assert.equal(executionActivity(state), null);
+  state.executions.push(exec("UNCLAIMED", 999)); assert.deepEqual(executionActivity(state), { cause: "execution_unowned", clientId: 999 });
   const source = { book: { ts: instant, gateway: true, positionsCoverage: { status: "complete" },
     positions: [{ symbol: "TSLA", pos: 1 }], openOrders: [{ symbol: "SYNTH", clientId: 22, status: "Submitted" }], ordersObservedAt: instant },
   deskEquities: { ok: true, desks: { j: { positions: [] }, joe: { positions: [] }, joel: { positions: [] } } }, executions };
@@ -103,18 +110,57 @@ test("raw completed reader evidence attributes by existing dated policy, exclude
   assert.equal(deskState(copyDeskActivity(source).joe, instant, instant), "stuck");
 });
 
+test("a raw same-day IB fill for family client 27 proves working without normalization", () => {
+  const executions = executionActivity({ coverageThrough: instant, coverageTradingDay: "2026-10-19",
+    executions: [{ contract: { symbol: "SYNTH" }, execution: { clientId: 27, time: "20261019 11:00:00 US/Eastern" } }] });
+  assert.deepEqual(executions.latest, { j: instant, joe: null, joel: null });
+  const desks = copyDeskActivity({
+    book: { ts: instant, gateway: true, positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: instant },
+    deskEquities: { ok: true, oldestSourceObservedAt: instant,
+      desks: { j: { positions: [] }, joe: { positions: [] }, joel: { positions: [] } } }, executions,
+  });
+  assert.equal(deskState(desks.j, instant, instant), "working");
+  assert.equal(deskState(desks.joe, instant, instant), "sit-out");
+});
+
+test("mixed raw, offset and ISO execution times select the latest epoch regardless of row order", () => {
+  const rows = ["2026-10-19T16:00:00+02:00", "20261019 11:00:00 US/Eastern",
+    "2026-10-19T15:00:00.001Z", "2026-10-19T15:00:00Z"]
+    .map(time => ({ contract: { symbol: "SYNTH" }, execution: { clientId: 27, time } }));
+  for (const executions of [rows, [...rows].reverse()]) {
+    assert.deepEqual(executionActivity({ coverageThrough: "2026-10-19T15:01:00.000Z",
+      coverageTradingDay: "2026-10-19", executions }).latest,
+    { j: "2026-10-19T15:00:00.001Z", joe: null, joel: null });
+  }
+});
+
+test("raw IB fills use New York day boundaries and invalid or ambiguous clocks fail closed", () => {
+  const state = { coverageThrough: "2026-10-20T04:00:01.000Z", coverageTradingDay: "2026-10-20" };
+  const row = time => ({ contract: { symbol: "SYNTH" }, execution: { clientId: 27, time } });
+  assert.deepEqual(executionActivity({ ...state, executions: [row("20261019 23:59:59 US/Eastern")] }).latest,
+    { j: null, joe: null, joel: null });
+  assert.deepEqual(executionActivity({ ...state, executions: [row("20261020 00:00:00 US/Eastern")] }).latest,
+    { j: "2026-10-20T04:00:00.000Z", joe: null, joel: null });
+  for (const time of [undefined, "not-a-time", "20261101 01:30:00 US/Eastern", "20260308 02:30:00 US/Eastern"]) {
+    assert.deepEqual(executionActivity({ ...state, executions: [row(time)] }), { cause: "executions_unavailable" });
+  }
+});
+
 function orderSession() {
   let epoch = Date.parse(instant);
   const events = Object.fromEntries(["connected", "disconnected", "error", "info", "managedAccounts", "accountSummary", "accountSummaryEnd", "position", "positionEnd", "updatePortfolio", "accountDownloadEnd", "openOrder", "openOrderEnd"].map(name => [name, name]));
   const adapter = createBrokerSessionAdapter({ targetAccount: "DUFIXTURE", eventNames: events, now: () => new Date(epoch).toISOString() });
-  const make = () => Object.assign(new EventEmitter(), { requests: [], ...Object.fromEntries(["reqManagedAccts", "reqPositions", "reqAllOpenOrders", "reqAccountSummary", "reqAccountUpdates"].map(name => [name, function (...args) { this.requests.push([name, ...args]); }])) });
+  const make = () => Object.assign(new EventEmitter(), { requests: [], ...Object.fromEntries(["reqManagedAccts", "reqPositions", "cancelPositions", "reqAllOpenOrders", "reqAccountSummary", "reqAccountUpdates"].map(name => [name, function (...args) { this.requests.push([name, ...args]); }])) });
   const api = make(); adapter.attach(api); api.emit("connected"); api.emit("managedAccounts", "DUFIXTURE");
   api.emit("accountSummary", 9501, "DUFIXTURE", "NetLiquidation", "1", "EUR");
   api.emit("accountSummaryEnd", 9501); api.emit("positionEnd"); api.emit("accountDownloadEnd", "DUFIXTURE");
   return {
     adapter, api, make,
     at: () => new Date(epoch).toISOString(),
-    advance(ms) { epoch += ms; api.emit("accountDownloadEnd", "DUFIXTURE"); },
+    advance(ms) {
+      epoch += ms; api.emit("accountDownloadEnd", "DUFIXTURE");
+      if (adapter.refreshPositions()) api.emit("positionEnd");
+    },
     order(clientId = 22, symbol = "SYNTH", orderId = 1, account = "DUFIXTURE") {
       api.emit("openOrder", orderId, { symbol }, { account, clientId }, { status: "Submitted" });
     },
@@ -147,7 +193,7 @@ test("broker order completion clock is generation scoped, preserves client-scope
   assert.equal(adapter.snapshot().ordersObservedAt, null);
 });
 
-for (const hasOrders of [false, true]) test(`60-second read-only order requests keep desks fresh beyond five minutes (${hasOrders ? "working" : "sit-out"})`, () => {
+for (const hasOrders of [false, true]) test(`60-second read-only order requests keep desks fresh for ten minutes (${hasOrders ? "working" : "sit-out"})`, () => {
   const session = orderSession();
   const { adapter, api, at, advance, order, requests, desks } = session;
   if (hasOrders) order();
@@ -192,7 +238,7 @@ for (const completedBefore of [false, true]) test(`missing openOrderEnd stays st
     assert.equal(adapter.refreshOpenOrders(), true);
   }
   order(); // A partial reply proves neither a complete order set nor absence.
-  advance(300_001);
+  advance(ACTIVITY_FRESH_MS + 1);
   for (let i = 0; i < 20; i++) assert.equal(adapter.refreshOpenOrders(), false, "never overlap an uncorrelated reply");
   assert.equal(requests(), completedBefore ? 2 : 1);
   assert.equal(adapter.snapshot().ordersObservedAt, completedBefore ? instant : null);

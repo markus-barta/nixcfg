@@ -1,0 +1,135 @@
+{
+  "note": "Byte-exact r15 worker and complete local import/contract closure; do not reformat. Tests use these historical bytes without Git or network access.",
+  "revision": "059767b98dc94bc9143cda7fe2000473c48051f9",
+  "sourceDirectory": "hosts/hsb0/docker/joe-board-pusher",
+  "files": {
+    "contracts.lock.json": {
+      "bytes": 2575,
+      "sha256": "f622a2584fd71900312820e853f0d84e2e483d675ec376f45dbe7ad506211546"
+    },
+    "contracts/accept.mjs": {
+      "bytes": 2159,
+      "sha256": "2551167aabd6cf064501bf91e9de4ea7ee2a2a58b0481346bfe1b3c73d885849"
+    },
+    "contracts/common.schema.json": {
+      "bytes": 1920,
+      "sha256": "64f5e9187602d9b1d38b90210a90f51a4eda72df995acf2251cf0685731fe881"
+    },
+    "contracts/data.schema.json": {
+      "bytes": 28786,
+      "sha256": "84a9de4449d87a69ee620d0f37bd84d77b2de86cebb03fe2ef9e709161161d26"
+    },
+    "contracts/decimal.mjs": {
+      "bytes": 2397,
+      "sha256": "fb105a853b2e3212b4cb699287b25dd708b7a47b9d62273d4c3692497c95a5a5"
+    },
+    "contracts/fleet-config.schema.json": {
+      "bytes": 10186,
+      "sha256": "6405dd82726b5fd30913a6171c7cd0e648defb1aa7c0ce8ed6e30085a0ca4086"
+    },
+    "contracts/gateway.mjs": {
+      "bytes": 1040,
+      "sha256": "2021ebd9f9ca4ffce1236dfb7983f64bcd909edfbf5d7482354501fdf358700f"
+    },
+    "contracts/healthz.schema.json": {
+      "bytes": 6419,
+      "sha256": "ebf858e504535303096b8e10294af6017f758c3beb78a837ab9b81730e7dbd31"
+    },
+    "contracts/history.schema.json": {
+      "bytes": 16944,
+      "sha256": "9eb91eebe727a726439c44297708f7b7c2cb02122d2c40fc0fdad0aeb7620568"
+    },
+    "contracts/index.mjs": {
+      "bytes": 2873,
+      "sha256": "8d27098aab36bcb573c813dd9d2cc00872028cc74e46828c5d8f370a45a2e448"
+    },
+    "contracts/manifest.json": {
+      "bytes": 932,
+      "sha256": "3246d0979f790ed33aec2bd66efb195ffab4ac6d916519d9b4e2f7b3601feb3f"
+    },
+    "contracts/panel-state.mjs": {
+      "bytes": 8101,
+      "sha256": "7d298b8728822a1bb4d0145ce40ebe6a9cdfe5d915abb1e9493f33a908adeda6"
+    },
+    "contracts/read.mjs": {
+      "bytes": 1423,
+      "sha256": "c1d8983dd20f5abb31f0fcb366a756bbe207a41bce2485f64dca0158b519a31b"
+    },
+    "contracts/reason.schema.json": {
+      "bytes": 1064,
+      "sha256": "11dbe796c379dce9ee669aa724e29a3f45b0e5823902a8f3f68d2d3f82c65916"
+    },
+    "contracts/results.schema.json": {
+      "bytes": 13236,
+      "sha256": "66850a078813484a7ada7cf83dd2bd9479839e1d5c02314ff34695ab37f91ee3"
+    },
+    "contracts/schema-validator.mjs": {
+      "bytes": 4007,
+      "sha256": "a251176cf1c815fb767a323bb740a76c954481d36c082b10981d07ba7de58bf8"
+    },
+    "contracts/semantics.mjs": {
+      "bytes": 12877,
+      "sha256": "29e28436ec1400a27507308206591c64342890a6bf56c056589373b3a20dd6fc"
+    },
+    "contracts/vienna-date.mjs": {
+      "bytes": 1065,
+      "sha256": "6b6a57dbc52c62eb64a6b876a71fcaa7a4ea1a19e1460e466519b2cb23642439"
+    },
+    "day-baseline.mjs": {
+      "bytes": 37013,
+      "sha256": "6f12d990135d53d9fea2d3f6aef096bf159cd22916b13b4c486c66ed4af907c6"
+    },
+    "desk-activity.mjs": {
+      "bytes": 9046,
+      "sha256": "94726f1c77b70357d41043067373e700ac8a58f20799eeeb8eedb5b290e2e0f2"
+    },
+    "desk-ledger.mjs": {
+      "bytes": 27281,
+      "sha256": "99542b756ad861f743fdd2d90d33b40b6d4bae05fca90665f3a1db4ca816c4e8"
+    },
+    "execution-history.mjs": {
+      "bytes": 24097,
+      "sha256": "1e0fc2af6c67feca89844475059f85ca082847b302be48afa444a17cd35a33cf"
+    },
+    "execution-reconciliation.mjs": {
+      "bytes": 32302,
+      "sha256": "f0bcfae865c8ba2e7aa8650f19dfbc0dcddc9138d4000bf785b7717e9e7a41b9"
+    },
+    "executor-attribution.mjs": {
+      "bytes": 6475,
+      "sha256": "54acbe17b0fd9ee5d70f178191dbcfe95c0a0be6f2b2068d243e43e7339494ee"
+    },
+    "family-ledger.mjs": {
+      "bytes": 25748,
+      "sha256": "677ee46516209d7676d09f4ad7dc9df3a37447673a99ce90b33af1e3351552be"
+    },
+    "family-state.mjs": {
+      "bytes": 56392,
+      "sha256": "beb5ffed96b591e2f699dd60ad27e00711bbb3d7112e2ca1f36f0d54c80115e5"
+    },
+    "flat-net-marks.mjs": {
+      "bytes": 8988,
+      "sha256": "190600eb1421dd8e60edf7e310643e3dc279b5ae134407898b18fc72c1c10c8f"
+    },
+    "pusher-recovery.mjs": {
+      "bytes": 9624,
+      "sha256": "ce1586656ba500db3bcaa7c33ddca4f1eae728617f68f5b4c32312acdb30974e"
+    },
+    "v1-cycle.mjs": {
+      "bytes": 2302,
+      "sha256": "36791ef31ad65493717b161e26fead4c13b6c2009a4c3b640118506ac1fa1115"
+    },
+    "v2-stage-handoff.mjs": {
+      "bytes": 7809,
+      "sha256": "a1721d8797ae01f4e12dc7858ed7ed7916bc275aae3c809f1736bfddd8e370ab"
+    },
+    "v2-stage-worker.mjs": {
+      "bytes": 36499,
+      "sha256": "e336faaa88e9db31f0efad82496528b8bef1a7667a3563e861efebe15e06ca1d"
+    },
+    "verify-contracts.mjs": {
+      "bytes": 2309,
+      "sha256": "d313fffb3fe304387c7156ce39bd77f1ba911149b80241f52859fa6125457531"
+    }
+  }
+}

@@ -88,10 +88,10 @@ test("explicit enrollment emits seq 1; exact bytes/receipt/modes; restart and re
   const restarted = await new StageStore(options).open();
   assert.equal(restarted.stage(instant, () => later).status, 200);
   assert.equal(current(root).snapshot.seq, 2);
-  assert.equal(current(root).snapshot.generatedAt, instant);
-  assert.equal(current(root).receipt.generatedAdvancedAt, instant);
+  assert.equal(current(root).snapshot.generatedAt, later);
+  assert.equal(current(root).receipt.generatedAdvancedAt, later);
   assert.equal(fs.readdirSync(root).filter(n => n.startsWith("pair-")).length, 2);
-  assert.equal(restarted.stage("2026-10-19T06:00:00.000Z").reason, "source_time_invalid");
+  assert.equal(restarted.stage("2026-02-30T06:00:00.000Z").reason, "source_time_invalid");
   assert.equal(restarted.stage(undefined).reason, "source_time_invalid");
   assert.equal(json(path.join(root, "sequence-state.json")).lastReservedSeq, 2);
 });
@@ -159,7 +159,8 @@ for (const fault of ["ENOSPC", "fsync"]) test(`${fault} fails closed until resta
 test("allocator safe-integer exhaustion and clock-ahead burn without publish", async t => {
   const { root, store } = fixture(t);
   store.enroll(); await store.open();
-  assert.equal(store.stage(later, () => "2026-10-19T06:00:00.000Z").reason, "clock_ahead");
+  const reservation = store.reserve(observation(), later);
+  assert.equal(store.stage(observation(), () => "2026-10-19T06:00:00.000Z", reservation).reason, "clock_ahead");
   assert.equal(fs.existsSync(path.join(root, "current.json")), false);
   assert.equal(store.state.lastReservedSeq, 1);
   store.stage(later, () => later);
@@ -306,7 +307,8 @@ test("receipt log appends exactly one value-free outcome per sequence and outliv
   const { root, store, options } = fixture(t); store.enroll(); await store.open();
   const read = () => fs.readFileSync(path.join(root, "receipts.jsonl"), "utf8");
   store.stage(instant, () => instant); const prefix = read();
-  store.stage(later, () => "2026-10-19T06:00:00.000Z");
+  const reservation = store.reserve(observation(), later);
+  store.stage(observation(), () => "2026-10-19T06:00:00.000Z", reservation);
   for (let seq = 3; seq <= 13; seq++) store.stage(later, () => later);
   assert.ok(read().startsWith(prefix));
   const rows = read().trim().split("\n").map(JSON.parse);

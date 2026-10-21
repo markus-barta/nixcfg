@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { executorDesk, isExecutorClient } from "./executor-attribution.mjs";
 
 import { EXECUTION_CAPTURE_SCHEMA } from "./execution-reconciliation.mjs";
 
@@ -12,6 +13,25 @@ export const J_FAMILY_CLASSIFIER = Object.freeze({
   familyClientIds: Object.freeze([27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83]),
   excludedSymbols: Object.freeze(["SXR8", "TSLA"]),
 });
+
+// OPS-392: desk-owner-confirmed legacy Mac route, including future fallback use.
+// Keep the retained capture classifier stable; apply this dated supplement to
+// J accounting and the shared all-desk policy from this one canonical assignment.
+export const J_DATED_CLIENT_ASSIGNMENTS = Object.freeze([
+  Object.freeze({
+    desk: "j", clientId: 229, fromInclusive: "2026-10-06T13:40:47Z", toExclusive: null,
+    basis: "desk-owner-confirmed-legacy-mac-route-2026-10-20",
+  }),
+]);
+
+export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null) {
+  if (isExecutorClient(execution.clientId, executorAttribution)) return executorDesk(execution, executorAttribution) === "j";
+  const rules = assignments.filter(rule => rule.clientId === execution.clientId);
+  if (!rules.length) return familyIds.has(execution.clientId);
+  const time = Date.parse(executionTime(execution.time));
+  return rules.filter(rule => Date.parse(rule.fromInclusive) <= time
+    && (rule.toExclusive === null || time < Date.parse(rule.toExclusive))).length === 1;
+}
 
 function fail(message) {
   throw new Error(message);
@@ -124,7 +144,7 @@ function executionTimeUncached(source) {
   return new Date(candidates[0]).toISOString();
 }
 
-function executionTime(value) {
+export function executionTime(value) {
   const source = text(value, "execution time");
   const cached = executionTimeCache.get(source);
   if (cached !== undefined) return cached;

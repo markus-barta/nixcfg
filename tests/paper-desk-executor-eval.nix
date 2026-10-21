@@ -93,7 +93,15 @@ let
                 environment = [ "TRADING_MODE=paper" ];
                 ports = [ "100.64.0.6:4002:4002" ];
               };
-              joe-board-pusher.image = "hsb0-joe-board-pusher:household-v2-switch-set-202610201110";
+              # r17 candidate: hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345.
+              # Effective hsb0 runtime: under `previous` (the v1 rollback) hsb0 is the variant B
+              # pre-cutover tree, i.e. the recorded `current` (r16d) set; T100 enforces both.
+              joe-board-pusher.image =
+                let
+                  release = builtins.fromJSON (builtins.readFile ../hosts/csb0/joedesk-release.json);
+                  selected = if release.active == "previous" then "current" else release.active;
+                in
+                release.sets.${selected}.pusher.image;
             };
           };
           virtualisation.docker.package = "/fixture/docker";

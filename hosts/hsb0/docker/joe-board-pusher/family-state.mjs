@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
 import { validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
-import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { isFamilyClientExecution, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
 import { mergeFlatNetMarks } from "./flat-net-marks.mjs";
 
@@ -565,6 +565,7 @@ export function officialReceiptChain(history, fromInclusive, observedAt) {
 export function createFamilySessionAdapter({
   targetAccount,
   familyClientIds,
+  familyClientAssignments = [],
   excludedSymbols = ["SXR8", "TSLA"],
   periodStart = BASELINE_PERIOD_START,
   calculateFamily,
@@ -588,6 +589,7 @@ export function createFamilySessionAdapter({
   getVerifiedHistoryState = null,
   getFlatNetMarks = null,
   summarizeActivity = null,
+  getExecutorAttribution = () => null,
 }) {
   if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
     throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
@@ -811,7 +813,10 @@ export function createFamilySessionAdapter({
 
   function isFamilyExecution(row) {
     const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
-    return familyIds.has(Number(row?.execution?.clientId)) && !excluded.has(symbol);
+    // Filtering discovers required fees/FX; the calculator below refuses the
+    // entire projection if an executor row still has no unique intent owner.
+    try { return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments, getExecutorAttribution()); }
+    catch { return false; }
   }
 
   function missingFamilyCommissions(cycle) {
@@ -1190,6 +1195,8 @@ export function createFamilySessionAdapter({
         fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
         account: targetAccount,
         familyClientIds: [...familyIds],
+        familyClientAssignments,
+        executorAttribution: getExecutorAttribution(),
         excludedSymbols: [...excluded],
         periodStart,
         virtualEquity: 5000,
@@ -1292,6 +1299,7 @@ export function createFamilySessionAdapter({
         },
         account: targetAccount,
         policy,
+        executorAttribution: getExecutorAttribution(),
         // A complete execution cycle is evidence used by the all-desk vector
         // even when it discovers no new fills. Keep that actual observation
         // time in the vector clock; mark/FX freshness remains independently

@@ -8,6 +8,9 @@
   ...
 }:
 let
+  joeRelease = builtins.fromJSON (builtins.readFile ../csb0/joedesk-release.json);
+  joeSet = joeRelease.sets.${joeRelease.active};
+  joePushV2 = joeSet.board.data_schema == "v2";
   # OPS-392: disable only staging for rollback; preserve its durable high water.
   joeHouseholdV2StageEnabled = true;
   hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
@@ -82,26 +85,8 @@ let
     "||csb0^$dnsrewrite=NOERROR;CNAME;cs0.barta.cm"
     "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
   ];
-
-  # OPS-401: the 7530's guest network reaches DNS from the transit /30 (fritz-guest-uplink.nix).
-  # Only the neighbour wallboxes' cloud, their NTP and the 7530's own AVM checks resolve; every
-  # other name is blocked, so phones on the guest Wi-Fi get no usable internet. $important: the
-  # block-all must also beat the global @@ exceptions above (dnsAllowlist), which apply to every
-  # client; an $important exception still beats an $important block, so the guest allowlist
-  # works. The /30 also covers hsb0's 10.255.5.1, so `dig -b 10.255.5.1 @10.255.5.1` on hsb0 tests
-  # the rules. Source of the allowlist: the querylog for 192.168.1.5 (the 7530 forwarding guest
-  # DNS before the uplink existed).
-  guestUplinkDnsRules = map (rule: "${rule}$important,client=10.255.5.0/30") [
-    "||*^"
-    "@@||elli.eco^" # Elli wallboxes (cert.prod.devices.elli.eco)
-    "@@||time1.google.com^" # wallbox NTP
-    "@@||time2.google.com^"
-    "@@||time3.google.com^"
-    "@@||time4.google.com^"
-    "@@||pool.ntp.org^"
-    "@@||avm.de^" # the 7530's own update and service checks
-  ];
 in
+assert joeSet.pusher != null && joeSet.executor != null;
 {
   imports = [
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
@@ -111,7 +96,7 @@ in
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
-    ../../modules/joe-results-producer # JOED-39 — paper only; Amy approval pending at switch
+    ../../modules/joe-results-producer # JOED-39 — paper-only Results producer
     ../../modules/agent-mailbox # OPS-272 — Amy/OPS tailnet text mailbox
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -128,7 +113,7 @@ in
   ];
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
-  # Options: hausnetz@1aefc0c3 nix/module.nix:44-278.
+  # Options: hausnetz@41063ad3 nix/module.nix:44-278.
   # seed keeps its null default (:65-73). discovery.leasesFile defaults to
   # AdGuard's leases.json because AdGuard runs DHCP here (:30-38,154-174).
   # HNET-228 (approved 2026-10-17, see the ticket): a root hausnetz-leases unit
@@ -139,6 +124,10 @@ in
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
+    # HNET-236 (pin 23): the HostDash declaration for this host is read-only enrichment (GET only, no
+    # proxies, no redirects, 4 s timeout, 1 MiB/64 KiB caps, outside the instance lock); the key is
+    # the HostDash declaration name, the base keeps /config.js and /status/ at the root after OPS-413.
+    hostdashSources."hsb0" = "http://192.168.1.99/";
     firewallInterfaces = [
       "br-+"
       "docker0"
@@ -180,11 +169,11 @@ in
 
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
-  # Flag-off restores the previous matching pusher/executor image. Never retag it.
+  # In v1 mode, flag-off restores the previous matching image. Never retag it.
   nixcfg.paperDeskExecutor.image = lib.mkIf (
-    !joeHouseholdV2StageEnabled
+    !joeHouseholdV2StageEnabled && !joePushV2
   ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
-  # JOED-39: config enabled; OPS-354 ingress + Amy's approval gate the host switch.
+  # JOED-39: paper-only Results producer to csb0's v2 inbox (OPS-354); switch gates in the RUNBOOK.
   nixcfg.joeResultsProducer = {
     enable = true;
     endpoint = "https://cs0.barta.cm/joe/inbox/results";
@@ -218,7 +207,8 @@ in
     extraRestartTriggers = [
       hostdashHsb0
       joeBoardPusherSource
-      # Bind-mounted nginx snippets need container recreation after a switch.
+      # Bind-mounted nginx configuration needs container recreation after a switch.
+      ./docker/front-page-nginx.conf
       ./docker/hsb0-home-hausnetz.conf
       ./docker/hsb0-home-inflight.conf
       ./docker/hsb0-home-videos.conf
@@ -235,9 +225,9 @@ in
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-392 switch set (2026-10-20): a fresh immutable candidate shared with the executor
-    # (rollback: household-v2-phase-a-202610190715); the
-    # previous tag remains available for flag-off rollback. No rebuild on switch.
+    # OPS-408 candidate: household-v2-switch-set-r17c-202610202345, selected
+    # only by the release set (rollback: household-v2-switch-set-r16d-202610201800).
+    # The current v1 set retains its exact runtime. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
         {
@@ -245,19 +235,24 @@ in
           services.joe-board-pusher = {
             build = "${joeBoardPusherSource}";
             image =
-              if joeHouseholdV2StageEnabled then
-                "hsb0-joe-board-pusher:household-v2-switch-set-202610201110"
+              if joeHouseholdV2StageEnabled || joePushV2 then
+                joeSet.pusher.image
               else
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
+            environment =
+              joeComposeBase.services.joe-board-pusher.environment
+              ++ [
+                "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
+              ]
+              ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
+              ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2";
           }
-          // lib.optionalAttrs joeHouseholdV2StageEnabled {
-            environment = joeComposeBase.services.joe-board-pusher.environment ++ [
-              "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
-            ];
-            volumes = joeComposeBase.services.joe-board-pusher.volumes ++ [
-              "/run/joe-household-v2:/run/joe-household-v2:rw"
-            ];
+          // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
+            volumes =
+              joeComposeBase.services.joe-board-pusher.volumes
+              ++ lib.optional joeHouseholdV2StageEnabled "/run/joe-household-v2:/run/joe-household-v2:rw"
+              ++ lib.optional joePushV2 "/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro";
           };
         }
         (
@@ -269,7 +264,7 @@ in
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-switch-set-202610201110";
+                  image = joeSet.pusher.image;
                   pull_policy = "never";
                 };
               }
@@ -651,7 +646,7 @@ in
       rewrites = [ ];
 
       # Custom filtering rules: allowlist + DNS rewrites
-      user_rules = dnsAllowlist ++ dnsRewrites ++ guestUplinkDnsRules;
+      user_rules = dnsAllowlist ++ dnsRewrites;
 
       # Admin users are injected from the root-only agenix secret at startup.
 
@@ -1173,6 +1168,8 @@ in
   environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
   # OPS-380: /videos/ location (VID's video overview, AEON-1480), same pattern as /inflight/.
   environment.etc."hsb0-home-videos.conf".source = ./docker/hsb0-home-videos.conf;
+  # HNET-237: only this host moves the front page; other HostDash boards keep /.
+  environment.etc."hostdash-nginx.conf".source = lib.mkForce ./docker/front-page-nginx.conf;
   environment.etc."hsb0-home-hausnetz.conf".source = ./docker/hsb0-home-hausnetz.conf;
 
   # ============================================================================
