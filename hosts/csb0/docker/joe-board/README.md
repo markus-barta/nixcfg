@@ -41,7 +41,7 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects d36b5295 with the r17
+executor. `active = v2` (OPS-354 activation) selects 6eacd6c7 with the r17
 pusher/executor pins (OPS-408); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
@@ -52,8 +52,8 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The active `v2` set records main d36b5295 (PR #58), CalVer3
-261019102825.0.0, sequence 25 from that checkout's `release.json` and
+The active `v2` set records main 6eacd6c7 (PR #68, JOED-58 retry; supersedes d36b5295 / sequence 25), CalVer3
+261021015923.0.0, sequence 26 from that checkout's `release.json` and
 `release/preparation.json` (JOED-50) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
 the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (OPS-408 r17c; image `household-v2-switch-set-r17c-202610202345`). Fixtures do not
@@ -63,7 +63,7 @@ executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
 JOED-26 live adoption remains gated; current legacy metadata stays intact.
 The published source's `release.json` still says candidate; OPS uses the exact
-d36b5295 commit and revision-9 contract hashes rather than treating that field as activation.
+6eacd6c7 commit and revision-9 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against ed5e43d6 (routing held constant) and

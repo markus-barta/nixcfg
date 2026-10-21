@@ -690,10 +690,11 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main d36b5295295a6901e36fdf2dc0d64353ddf88d0e
-(PR #58), tree ba066aaeebf193eab93154ca9e0335f7dbba9d28,
-`inspr-calver-3` / 261019102825.0.0 / sequence 25. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-50).
+active v2 source is main 6eacd6c707386cabe8245e1f97df2ef93965b394
+(PR #68, the JOED-58 retry candidate; supersedes d36b5295 / 261019102825.0.0 / sequence 25,
+never deployed), tree f2080e9baf5e2eae59f663bbbc75a39a25bde493,
+`inspr-calver-3` / 261021015923.0.0 / sequence 26. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-50, JOED-58).
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
 `release/contracts.json` SHA256 is
