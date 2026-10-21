@@ -15,6 +15,7 @@ import { contractsNeedingFlatNetMarks } from "./flat-net-marks.mjs";
 import { EXECUTION_CAPTURE_SCHEMA, reconcileExecutionCapture } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily } from "./family-ledger.mjs";
 import { createExecutorAttribution } from "./executor-attribution.mjs";
+import { createExecutorAttributionMemory } from "./executor-attribution-memory.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate } from "./v2-stage-worker.mjs";
 import { projectBook } from "./project.mjs";
@@ -268,6 +269,31 @@ test("executor configuration changes the baseline policy hash while client order
   const baseline = deskOwnershipPolicyContract();
   assert.equal(deskOwnershipPolicyContract({ ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: [705, 700] }).policyHash, baseline.policyHash);
   assert.notEqual(deskOwnershipPolicyContract({ ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: [700, 705, 812] }).policyHash, baseline.policyHash);
+});
+
+test("remembered executor proofs preserve exact all-desk equity, J history and unstuck v2 states after intent retention", () => {
+  const input = executorFixture("j5");
+  const memory = createExecutorAttributionMemory({ account: ACCOUNT });
+  input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT, memory });
+  const matched = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(matched.ok, true, matched.reason);
+  const history = projectBestAvailableHistory({ state: input.verifiedHistoryState, executorAttribution: input.executorAttribution });
+  input.executorLedger.intents = {};
+  input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT, memory });
+  assert.equal(input.executorAttribution.attribute(input.ledgerState.executions[0].execution).cause, "remembered");
+  input.jResult = executorFamily(input);
+  const remembered = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.deepEqual(remembered, matched, "remembering changes no economics, ownership contract or history digest");
+  assert.deepEqual(projectBestAvailableHistory({ state: input.verifiedHistoryState, executorAttribution: input.executorAttribution }), history);
+  const book = { ts: OBSERVED, gateway: true, gatewayLastSeenAt: OBSERVED,
+    summary: {}, positions: input.positions.map(row => ({ ...row, currency: row.contract.currency })), portfolio: input.portfolio,
+    positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: OBSERVED };
+  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities: remembered });
+  assert.equal(v1.totals.equity, matched.equity.total);
+  const v2 = buildCandidate(1, OBSERVED, copyObservation({ book, family: input.jResult, deskEquities: remembered,
+    executions: executionActivity(input.ledgerState, input.executorAttribution), executorAttribution: input.executorAttribution }));
+  assert.equal(v2.desks.some(desk => desk.state === "stuck"), false);
+  assert.equal(v2.desks.find(desk => desk.id === "j").state, "working");
 });
 
 test("only explicit intent desks roll up; bad desks and ambiguous/unmatched routes fail closed everywhere", () => {
