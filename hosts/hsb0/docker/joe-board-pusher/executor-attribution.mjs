@@ -1,10 +1,12 @@
-import fs from "node:fs";
 import { executionTime } from "./execution-history.mjs";
 import { familyInstrument, familySignedQuantity, normalizeFamilyQuantity, mergeExecutionRecords } from "./family-ledger.mjs";
+import { createExecutorAttributionMemory, createFileExecutorAttributionMemory, EXECUTOR_DESK_ROLLUP,
+  readBoundedJson } from "./executor-attribution-memory.mjs";
+
+export { EXECUTOR_DESK_ROLLUP } from "./executor-attribution-memory.mjs";
 
 export const EXECUTOR_CLIENT_IDS = Object.freeze([700, 705]);
 export const EXECUTOR_ATTRIBUTION_METHOD = "exactly-one-executor-intent-client-order-v1";
-export const EXECUTOR_DESK_ROLLUP = Object.freeze({ j: "j", j2: "j", j5: "j", joe: "joe", joel: "joel" });
 export const EXECUTOR_LEDGER_PATH = "/var/lib/paper-desk-executor/ledger.json";
 const MAX_LEDGER_BYTES = 16 * 1024 * 1024;
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
@@ -70,11 +72,14 @@ export function executorExecution(execution, attribution) {
 // A bracket's two legs belong to one intent; duplicate keys in different intents
 // remain ambiguous even when their desk is identical.
 export function createExecutorAttribution({ ledger, account, clientIds = EXECUTOR_CLIENT_IDS, executionRows = [],
+  memory = typeof account === "string" && account ? createExecutorAttributionMemory({ account }) : null,
+  proofSource = "intent", now = () => new Date().toISOString(),
   onEvent = event => console.warn(JSON.stringify(event)) } = {}) {
   if (!Array.isArray(clientIds) || !clientIds.length || clientIds.some(id => !positiveId(id))) {
     throw new Error("executor client configuration is invalid");
   }
   clientIds = [...new Set(clientIds)].sort((a, b) => a - b);
+  if (memory?.account !== account) memory = null;
   const orders = new Map();
   const executions = new Map();
   const available = typeof account === "string" && !!account && ledger?.schema === "barta.paper-desk-executor-state.v1"
@@ -106,7 +111,7 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
       executions.get(key).add(execution.orderId);
     }
   }
-  const attributeIntent = execution => {
+  const executionOrderId = execution => {
     const client = execution?.clientId;
     const fail = cause => unclaimed(execution, cause);
     if (!available) return fail("ledger_unavailable");
@@ -117,6 +122,12 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
     if (known?.size > 1 || (positiveId(execution.orderId) && known?.size === 1 && !known.has(execution.orderId))) return fail("identity_ambiguous");
     const orderId = positiveId(execution.orderId) ? execution.orderId : known?.size === 1 ? [...known][0] : null;
     if (!positiveId(orderId)) return fail("order_key_missing");
+    return orderId;
+  };
+  const attributeIntent = execution => {
+    const orderId = executionOrderId(execution);
+    const client = execution.clientId;
+    const fail = cause => unclaimed(execution, cause);
     const matches = orders.get(`${client}:${orderId}`);
     if (matches?.size !== 1) return fail(matches?.size > 1 ? "intent_ambiguous" : "intent_unmatched");
     const [record] = matches.values();
@@ -125,7 +136,18 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
         desk: typeof record.desk === "string" ? record.desk : null });
       return fail("intent_desk_invalid");
     }
-    return { ...execution, desk: EXECUTOR_DESK_ROLLUP[record.desk], subDesk: record.desk };
+    return { attributed: { ...execution, desk: EXECUTOR_DESK_ROLLUP[record.desk], subDesk: record.desk }, orderId };
+  };
+  const memoryConflict = execution => {
+    onEvent({ event: "executor_attribution_memory_conflict", cause: "memory_conflict" });
+    return unclaimed(execution, "memory_conflict");
+  };
+  const remembered = execution => {
+    if (!memory) return unclaimed(execution, "ledger_unavailable");
+    if (memory.isConflict(execution.clientId, execution.execId)) return memoryConflict(execution);
+    const entry = memory.get(execution.clientId, execution.execId);
+    return entry && entry.orderId === executionOrderId(execution)
+      ? { ...execution, desk: entry.desk, subDesk: entry.subDesk, cause: "remembered" } : null;
   };
   // The complete family snapshot, not a per-desk/day subset, proves flatness.
   // Invalid/conflicting snapshots grant no exception. Corrections/replays use
@@ -141,6 +163,8 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
         !opsTestMarker(execution.orderRef)) continue;
     try { attributeIntent(execution); continue; }
     catch (error) { if (error.executorCause !== "intent_unmatched") continue; }
+    // Remembered fills and quarantined conflicts cannot balance OPS-test fills.
+    try { if (remembered(execution)) continue; } catch { continue; }
     const identity = economicIdentity(execution);
     if (!identity) continue;
     try {
@@ -162,15 +186,33 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
   const instrumentsNotFlat = [...instruments.values()].filter(group => !flat(group)).length;
   if (opsTestExecutionCount) onEvent({ event: "executor_ops_test", count: opsTestExecutionCount });
   const attribute = execution => {
-    try { return attributeIntent(execution); }
+    if (!memory) return unclaimed(execution, "ledger_unavailable");
+    let match;
+    try { match = attributeIntent(execution); }
     catch (error) {
       if (error.executorCause !== "intent_unmatched") throw error;
+      const prior = remembered(execution);
+      if (prior) return prior;
       const candidate = candidates.get(`${execution.clientId}:${execution.execId}`);
       if (!candidate || candidate.identity !== economicIdentity(execution) ||
           (positiveId(execution.orderId) && positiveId(candidate.orderId) && execution.orderId !== candidate.orderId)) throw error;
       if (!flat(candidate.group)) return unclaimed(execution, "ops_test_not_flat");
       return { ...execution, desk: null, cause: "ops_test" };
     }
+    // Open-order rows have no execId. Their exact live-intent attribution stays
+    // available, but they are never persisted as execution proofs.
+    if (typeof execution.execId === "string" && execution.execId) {
+      let status;
+      try {
+        status = memory.record({ clientId: execution.clientId, execId: execution.execId, orderId: match.orderId,
+          desk: match.attributed.desk, subDesk: match.attributed.subDesk, provenAt: now(), source: proofSource });
+      } catch {
+        onEvent({ event: "executor_attribution_memory_unavailable" });
+        return unclaimed(execution, "ledger_unavailable");
+      }
+      if (status === "conflict") return memoryConflict(execution);
+    }
+    return match.attributed;
   };
   const resolve = execution => attribute(execution).desk;
   return Object.freeze({ clientIds: Object.freeze(clientIds), resolve, attribute, opsTestExecutionCount, instrumentsNotFlat });
@@ -178,17 +220,16 @@ export function createExecutorAttribution({ ledger, account, clientIds = EXECUTO
 
 // The caller replaces this snapshot before valuation. Read failures expose a
 // fixed cause only; the separate unknown-desk event names only the desk token.
-export function readExecutorAttribution({ account, clientIds = EXECUTOR_CLIENT_IDS, file = EXECUTOR_LEDGER_PATH, executionRows, onEvent } = {}) {
-  let handle;
+export function readExecutorAttribution({ account, clientIds = EXECUTOR_CLIENT_IDS, file = EXECUTOR_LEDGER_PATH,
+  memoryFile, remember = false, executionRows, onEvent } = {}) {
   let ledger;
+  let memory;
   try {
-    handle = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    const stat = fs.fstatSync(handle);
-    if (!stat.isFile() || stat.size > MAX_LEDGER_BYTES) throw new Error("ledger_size");
-    ledger = JSON.parse(fs.readFileSync(handle, "utf8"));
+    ledger = readBoundedJson(file, MAX_LEDGER_BYTES);
   } catch { ledger = null; }
-  finally { if (handle !== undefined) fs.closeSync(handle); }
-  return createExecutorAttribution({ ledger, account, clientIds, executionRows, onEvent });
+  try { memory = createFileExecutorAttributionMemory({ account, file: memoryFile, readOnly: !remember }); }
+  catch { memory = null; }
+  return createExecutorAttribution({ ledger, account, clientIds, memory, executionRows, onEvent });
 }
 
 export function executorClientCounts(rows, attribution) {

@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18c-202610211235` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18d-202610211602` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -710,7 +710,8 @@ including `j2`/`j5`, and history evidence retains that distinction. Rev 9 output
 has no sub-desk field. Any other intent desk stays unclaimed and emits
 `executor_intent_desk_unclaimed` with only `cause:intent_desk_invalid` and the
 desk token (`null` for a missing/non-string desk), never account, order,
-execution or financial values. Pruned intent evidence also remains unavailable.
+execution or financial values. Pruned intent evidence without a previously saved
+exact proof remains unavailable.
 
 The same resolver feeds J FIFO/history/fee/FX/flat-net evidence, all-desk equity,
 and v2 execution/open-order activity. Joel is valued from its proven executions
@@ -722,6 +723,69 @@ The intent attribution method and explicit table bind the policy hash and select
 policy-keyed baseline while preserving every old baseline and capture. R15
 rollback uses `household-v2-switch-set-r14-202610201330`; the earlier R14 notes remain
 historical rollout evidence.
+
+### Exact attribution memory and retention recovery (JOED-62)
+
+The executor prunes finished intents after 14 days; the pusher retains execution
+history indefinitely. Without a saved proof, each pruned intent turns its fills
+into `intent_unmatched`, making all-desk equity unavailable and desk states
+`stuck`. The pusher now owns
+`/var/lib/joe-board-pusher/executor-attribution-memory.json`. Its schema is
+`inspr.joe.executor-attribution-memory.v1`, with the configured `account`, an
+`entries` object keyed by JSON `[account, clientId, execId]`, and a `conflicts`
+list of quarantined keys. Each entry contains only `clientId`, `execId`,
+`orderId`, `desk`, `subDesk`, `provenAt` (UTC ISO time), and `source` (`intent`
+or `seed`). No prices, quantities or orderRefs are stored.
+
+Every successful exact execution-to-intent join records its proof before claiming
+the fill. Live exact intent matches remain first. Only `intent_unmatched` may
+fall back to memory, and only for the same account, client, execution and order
+ID; the result carries `cause:remembered` and the original desk/subDesk. A
+retained row missing its order ID still needs the executor's exact unambiguous
+execution identity to recover that key. Other failure causes retain priority.
+This persists an earlier exact fact; no orderRef or desk inference is allowed.
+Open-order rows have no execution identity and are never recorded. OPS-test
+exceptions and remembered hits never create or renew a proof. KEEP and
+non-executor ownership policies are unchanged.
+
+The memory is created with mode 0600, written through an exclusive temporary
+file, file fsync, atomic rename and directory fsync. Reads use `O_NOFOLLOW`,
+reject non-regular files, and enforce both **100,000 entries** and **32 MiB**.
+An absent file starts empty; a corrupt, incompatible, wrong-account or oversized
+file fails closed and is never silently reset or pruned. A different desk,
+subDesk or order for an existing execution preserves the original entry and
+durably quarantines that key: it stays unclaimed as `memory_conflict`, including
+after restart/pruning, with only a value-free conflict event. Persistence
+failures leave attribution unavailable. A sibling `.lock` serializes pusher and
+seed writes; contention fails closed for that reader, retried on the next
+execution snapshot. A crash lock is never stolen automatically; OPS must verify
+that no writer is running before moving aside its own stale lock. Preserve the
+memory with the other pusher state across switches and rollbacks.
+
+For fills already orphaned by pruning, OPS can copy an executor ledger snapshot
+from a **pre-prune backup** into a private recovery directory and mount that
+directory read-only at `/recovery` in the pusher container during its reviewed
+promotion. Do not replace the live executor ledger. After the new image is
+integrated and the read-only snapshot is available inside the container, run:
+
+```sh
+docker exec <pusher> node /app/seed-attribution-memory.mjs /recovery/executor-ledger.json
+docker exec <pusher> node /app/diag-executor-unclaimed.mjs
+```
+
+The seed is read-only with respect to both input ledgers and the backup. It
+requires `barta.paper-desk-executor-state.v1` and the same configured
+`IB_DESK_ACCOUNT`, uses the pusher's validated family ledger and exact matcher,
+and writes only attribution memory (`source:seed`). It adds missing proofs in
+one transaction, preserves existing proof times/sources, and is idempotent.
+It prints only `{seeded,alreadyPresent,conflicts,unmatched}`; input failures
+produce fixed value-free JSON and a nonzero exit. `unmatched` counts configured
+non-KEEP executor fills without an exact snapshot proof, including OPS tests;
+it does not assign them. Conflicts quarantine the existing key without replacing
+its proof. A contended write can be rerun safely. No broker/API requests, orders,
+family-ledger changes or executor-ledger changes occur. Verify `remembered`
+increases, `intent_unmatched` clears for the restored fills, and
+`memory_conflict` remains zero. OPS owns the backup selection and release pins.
 
 Amy approved the OPS bring-up test exception on **2026-10-21 (JOED-39)**.
 Only a configured executor client's `intent_unmatched` fill can qualify. Its
@@ -771,7 +835,9 @@ It uses the same executor-ledger reader, `IB_DESK_ACCOUNT`,
 and writes neither input. One JSON object contains `ok`, `causes` (each cause's
 `count`, `first`, `last` ISO time; null bounds when absent/unparseable), and
 `instrumentsNotFlat` (a count). Causes include `matched`, `ops_test`,
-`ops_test_not_flat`, `intent_unmatched` and all existing attribution failures.
+`ops_test_not_flat`, `intent_unmatched`, `remembered`, `memory_conflict` and all
+existing attribution failures. The diagnostic also reads attribution memory
+without creating or changing it, including when live exact matches are present.
 KEEP and non-executor rows are excluded. Events are suppressed; symbols,
 financial values, account/order/execution/intent identities and orderRefs are
 never printed, including on input failures. OPS should confirm exactly two
