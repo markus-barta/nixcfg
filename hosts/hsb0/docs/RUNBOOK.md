@@ -1155,7 +1155,8 @@ publication in the pusher only when the selected release set's
 environment/mounts; the source build context/restart trigger still changes with
 production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
 `joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
-r17 images in the release set and moves the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
+r17 images in the release set and moved the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
+Since JOED-39 the v2 set pins r18a (ops_test), and since JOED-59 the joedesk lock is 040d6756 (sequence 27).
 
 In v2 mode, only the `current.json` committed pair is eligible. The existing
 stager reader validates it and returns the exact snapshot bytes for POST.
@@ -1324,16 +1325,60 @@ A local commit emits `{event:"v2_stage_committed",seq}`; it proves local staging
 not board acceptance. Recovery validates retained pairs and log integrity before
 pruning; torn logs or unknown files fail closed and preserve evidence for review.
 
-## JoeDesk Results producer (JOED-20, disabled)
+## JoeDesk Results producer (JOED-39, enabled in config; switch pending)
 
-`nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
-does not change the board deployment pin or enable a writer. The module requires
-a separately reviewed ingress endpoint and pinned ingress IP/TLS hostname.
+On 2026-10-20, JOED-39 sets `nixcfg.joeResultsProducer.enable = true` in hsb0's
+configuration. The OPS-354 csb0 cutover is live since 2026-10-21 (the token-only
+`POST /joe/inbox/results` answers 401 without a token); Amy's JOED-38 sign-off and
+the JOED gate remain before the host switch. No live enablement is claimed.
+The household pusher tree (`hosts/hsb0/docker/joe-board-pusher/`, its README
+included) stays byte-identical, so the pinned pusher source is unaffected.
+The endpoint is exactly `https://cs0.barta.cm/joe/inbox/results`, on the board's
+`https://cs0.barta.cm/joe/` origin (csb0 RUNBOOK and JoeDesk README).
+`ingressHost = "cs0.barta.cm"` and `ingressAddress = "89.58.63.96"` pin TLS and
+egress to csb0's declarative `networking.interfaces.ens3.ipv4.addresses` address.
+The module retains the default KEEP set (`SXR8`, `TSLA`) and applies it to the
+already enabled executor capture. It uses the existing
+`age.secrets.joe-board-push-token.path`, from the same agenix file as the
+household pusher's read-only token mount. Systemd `LoadCredential` supplies a
+private raw-token copy; there is no new secret or format conversion.
+The producer runs as uid 1000 with group `users`, reads executor files by owner-uid access through a read-only mount, and keeps its own state directory private (`0700`, umask `0077`).
+
+Local gates on 2026-10-20 passed: T100's 277 producer tests, its 10 module
+evaluations and actual hsb0 wiring evaluation; T93's 850 executor tests and its
+module/guard checks; and all six applicable pre-commit hooks (the justfile hook
+had no matching file). T100 also verifies the IP against csb0's configuration,
+the shared agenix file/path, capture KEEP agreement and the systemd sandbox.
+Full hsb0 `nix eval` of `system.build.toplevel.drvPath` was attempted offline,
+but the worker sandbox denied Nix daemon/store access; that gate remains
+unverified and must pass outside this sandbox before activation. No NixOS build
+ran. The operator must also complete the paper proof and approval gates at the
+end of this section. The board deployment pin is unchanged.
+
+Non-200 responses and refused redirects from `POST /joe/inbox/results` count as
+delivery failures. The producer
+keeps both journals, logs value-free diagnostics and retries with a fresh,
+durably reserved sequence and recomputed snapshot. Failure backoff grows through
+1, 2, 4, 8 and 16 seconds to a 25-second ceiling, bounded by the normal
+25-second cadence. No failed delivery becomes accepted output. Capture continues;
+the append-only producer journal grows with sequence reservations, source events
+and changed health, so monitor disk space during a prolonged outage. Never
+truncate either journal or reset sequence state to clear a delivery failure.
+
+Rollback, producer only: `git revert -m 1 <#1059 merge>` through a reviewed PR
+and the separately approved hsb0 switch. A JoeDesk v2 rollback (release set
+`active` away from `v2`) turns the producer off in the same switch, because
+`enable` follows `joeRelease.active == "v2"`; a variant B rollback also restores
+hsb0's configuration.nix to the pre-cutover bytes (T100). Retain
+`/var/lib/joe-results-producer/results.jsonl` and
+`/var/lib/paper-desk-executor/results-input.jsonl`; executor capture remains
+explicitly enabled. Keep the prior generation and compatible pins for recovery.
+
 Household v2 health/account and equity fragments are outside v1 scope: the
 service neither reads nor mounts the household producer directory. No fixtures
 are selected by the service. No LIVE mode or Gateway client exists in the producer.
 
-When separately enabled, the executor's optional capture writes
+The already enabled executor capture writes
 `/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
 recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
@@ -1872,9 +1917,9 @@ days skip day/trade reconciliation while schema and trade checks still apply;
 full days reconcile every trading desk with exact counts and decimal sums.
 KEEP contributes nothing to either array, including partial-day totals.
 The revision-4 closed reason enum no longer permits `results_not_wired`.
-The module remains disabled; paper rehearsal and coordinator sign-off are
-still required before a separately approved enablement/cutover.
-The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
+Since JOED-39 the module is enabled in hsb0's configuration while the v2 release
+set is active; the gates and switch procedure are in the JOED-39 section above.
+The systemd sandbox uses executor uid 1000 with group `users` and read-only input mounts,
 one writable state directory, empty capabilities, no added groups/Docker socket, and
 IP egress limited to loopback and the pinned ingress address. The private hosts
 file resolves the TLS hostname without DNS egress. Endpoint and health paths
@@ -1893,12 +1938,12 @@ Paper proof, for the operator **after** separate enablement approval:
    simulations in this lab; hsb0 remains a production paper host.
 2. Before the approved hsb0 switch, retain its previous generation and compatible
    board/pusher/executor pins plus private backups of both Results journals (if
-   present). Record the rollback path on JOED-20/OPS. Configure the board
-   endpoint, complete KEEP policy and IP/TLS pin in the reviewed Nix change.
+   present). Record the rollback path on JOED-20/OPS. The board endpoint, KEEP
+   policy and IP/TLS pin are in hsb0's configuration (JOED-39).
    Verify the revision-4 contract pin, exact decimal source evidence and broker
    report backstop with JoeDesk/Amy first. Follow the normal remote NixOS build
    and human-controlled switch procedure; no local NixOS build on macOS.
-   csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
+   csb0's exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007) is live since 2026-10-21.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
    Read `http://127.0.0.1:8472/v1/health` privately and verify paper Gateway
    configuration, halt and brakes. Do not copy its raw body/account into tickets,

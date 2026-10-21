@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18a-202610210946` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -710,6 +710,61 @@ The intent attribution method and explicit table bind the policy hash and select
 policy-keyed baseline while preserving every old baseline and capture. R15
 rollback uses `household-v2-switch-set-r14-202610201330`; the earlier R14 notes remain
 historical rollout evidence.
+
+Amy approved the OPS bring-up test exception on **2026-10-21 (JOED-39)**.
+Only a configured executor client's `intent_unmatched` fill can qualify. Its
+original `execution.orderRef` must contain a whole, case-sensitive `|`-delimited
+token matching `^ops-test(?:-[a-z0-9]+)*$`: `ops-test`, `ops-test-ko`, or e.g.
+`ops-test-round-trip-2`. Substrings, other separators, whitespace, uppercase,
+and empty suffix segments do not match. The marker never identifies a desk;
+an exact client/order intent match always wins, and every other failure cause
+keeps its existing meaning.
+
+Each candidate's original time must parse through `executionTime` and round-trip
+as a real civil time in its stated IANA zone or ISO offset. Rolled dates (30 Feb,
+non-leap 29 Feb, 31 Apr), hour 24, ambiguous/gap local times and invalid offsets
+stay `intent_unmatched`. This check precedes economic normalization, which can
+discard routing fields or roll ISO dates. Retained rows recover an exception
+only through the same exact execution/client/account/order identity and matching
+time, signed quantity and price from the raw snapshot.
+
+The complete family-ledger snapshot supplies all candidates across configured
+executor clients. Latest IB corrections and duplicate replays use the family
+ledger's merge rules; flatness uses its instrument key (`conId`, otherwise
+STK/symbol/currency), signed side and 1e-9 quantity tolerance. Each instrument
+must net flat independently. A flat set becomes `ops_test`, with no desk, desk
+money, desk fees, history economics or activity; it contributes no unclaimed
+executions. Non-flat sets stay unclaimed with `ops_test_not_flat` and still null
+the all-desk totals. KEEP SXR8/TSLA and non-executor clients keep their policies;
+raw captures, account replay, official coverage and receipt checks stay intact.
+Missing/conflicting snapshots grant no exception. No pre-ledger/cutoff exception
+is implemented.
+
+Internal valuation diagnostics carry `opsTestExecutionCount`, and per-client
+counts carry `opsTest` separately from `matched`/`unmatched`. Each snapshot with
+excluded test fills emits one value-free `{event:"executor_ops_test",count}`
+event. These diagnostics do not extend `ownershipEvidence`, the exact-key
+provider contract, JoeDesk rev 9 output or frozen r15 fixtures.
+
+After OPS integrates this proposal into the image, the read-only diagnostic is:
+
+```sh
+docker exec <pusher> node /app/diag-executor-unclaimed.mjs
+```
+
+It uses the same executor-ledger reader, `IB_DESK_ACCOUNT`,
+`JOE_EXECUTOR_CLIENT_IDS`, and family-state loader as the pusher, reading
+`/var/lib/paper-desk-executor/ledger.json` and
+`/var/lib/joe-board-pusher/family-ledger.json`. It makes no broker/API requests
+and writes neither input. One JSON object contains `ok`, `causes` (each cause's
+`count`, `first`, `last` ISO time; null bounds when absent/unparseable), and
+`instrumentsNotFlat` (a count). Causes include `matched`, `ops_test`,
+`ops_test_not_flat`, `intent_unmatched` and all existing attribution failures.
+KEEP and non-executor rows are excluded. Events are suppressed; symbols,
+financial values, account/order/execution/intent identities and orderRefs are
+never printed, including on input failures. OPS should confirm exactly two
+`ops_test` rows, first `2026-10-06T18:16:10.000Z`, last
+`2026-10-06T19:10:30.000Z`, and zero instruments not flat after the switch.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
 22, 89, 90, 91, 119, 130, 131, 148, 151, and 152. The 2026-09-23 ledger listed

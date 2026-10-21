@@ -157,7 +157,7 @@ const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
 
 const familyAdapter = createFamilySessionAdapter({
   summarizeActivity: state => {
-    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds });
+    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds, executionRows: state.executions });
     return executionActivity(state, executorAttribution);
   },
   getExecutorAttribution: () => executorAttribution,
