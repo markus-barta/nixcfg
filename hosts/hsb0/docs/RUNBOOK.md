@@ -1342,6 +1342,7 @@ already enabled executor capture. It uses the existing
 `age.secrets.joe-board-push-token.path`, from the same agenix file as the
 household pusher's read-only token mount. Systemd `LoadCredential` supplies a
 private raw-token copy; there is no new secret or format conversion.
+The producer runs as uid 1000 with group `users`, reads executor files by owner-uid access through a read-only mount, and keeps its own state directory private (`0700`, umask `0077`).
 
 Local gates on 2026-10-20 passed: T100's 277 producer tests, its 10 module
 evaluations and actual hsb0 wiring evaluation; T93's 850 executor tests and its
@@ -1918,7 +1919,7 @@ KEEP contributes nothing to either array, including partial-day totals.
 The revision-4 closed reason enum no longer permits `results_not_wired`.
 Since JOED-39 the module is enabled in hsb0's configuration while the v2 release
 set is active; the gates and switch procedure are in the JOED-39 section above.
-The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
+The systemd sandbox uses executor uid 1000 with group `users` and read-only input mounts,
 one writable state directory, empty capabilities, no added groups/Docker socket, and
 IP egress limited to loopback and the pinned ingress address. The private hosts
 file resolves the TLS hostname without DNS egress. Endpoint and health paths
