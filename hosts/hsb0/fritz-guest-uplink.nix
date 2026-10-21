@@ -34,11 +34,12 @@
 # There is no MAC filter, because none is possible: FRITZ!OS does not apply its MAC filter
 # to guest access (AVM KB 250), and hsb0 never sees the guests' MACs behind the 7530's NAT.
 # The wallboxes' SSID and password cannot change (Markus, 2026-10-20), so this lock stays.
-{ lib, ... }:
+{ lib, pkgs, ... }:
 let
   lanIf = "enp2s0f0";
   uplinkIf = "fritzwan0";
   hsb0Addr = "10.255.5.1";
+  fritzAddr = "10.255.5.2";
   transitNet = "10.255.5.0/30";
   chain = "fritz-guest-uplink";
   # RETURNs for every non-public destination, then ACCEPT: "the public internet only".
@@ -79,10 +80,8 @@ in
   ];
 
   # ARP flux: enp2s0f0 and fritzwan0 share one wire, and by default Linux answers ARP for any
-  # local address on any interface. enp2s0f0 then also answers the 7530's "who has
-  # 10.255.5.1", the 7530 caches enp2s0f0's MAC, and from then on ignores fritzwan0's ARP
-  # requests for 10.255.5.2, so nothing reaches the 7530 any more (seen 2026-10-20 21:15:
-  # INCOMPLETE on fritzwan0, Elli replies answered with ICMP unreachable). arp_ignore=1 answers
+  # local address on any interface. enp2s0f0 then also answered the 7530's "who has
+  # 10.255.5.1" (seen 2026-10-20), so the 7530 could cache either MAC. arp_ignore=1 answers
   # only for addresses on the receiving interface; arp_announce=2 uses the outgoing
   # interface's own address in ARP requests. Also keeps fritzwan0 from answering for
   # 192.168.1.99 on the home LAN. "all", because fritzwan0's per-interface keys do not
@@ -90,6 +89,61 @@ in
   boot.kernel.sysctl = {
     "net.ipv4.conf.all.arp_ignore" = 1;
     "net.ipv4.conf.all.arp_announce" = 2;
+  };
+
+  # The 7530 answers no ARP requests on its WAN port (measured 2026-10-20: arping for
+  # 10.255.5.2 from fritzwan0 and from enp2s0f0, 0 replies; FRITZ!OS or the switch, still
+  # open). hsb0 learns its MAC only when the 7530 itself asks for 10.255.5.1; the entry then
+  # expires, goes FAILED, and nothing reaches the guests any more (seen 2026-10-20 21:15:
+  # INCOMPLETE on fritzwan0, Elli replies answered with ICMP unreachable). So hsb0 keeps a
+  # permanent neighbour entry for the 7530. Its MAC stays out of this public repo: this service
+  # learns it from the 7530's own incoming frames on fritzwan0 (NTP, wallbox traffic and IGMP,
+  # at least about once a minute), pins it at start (no change when it is the same), and pins
+  # again whenever the entry is gone (reboot, fritzwan0 recreated). After swapping the 7530,
+  # restart this service. A home-LAN device sending as 10.255.5.2 before the 7530 does would
+  # get the guests' return traffic; without the pin it could get it by answering ARP.
+  systemd.services.fritz-transit-neigh = {
+    description = "Pin the FRITZ!Box 7530 as permanent neighbour on fritzwan0 (OPS-407)";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network.target" ];
+    path = [
+      pkgs.iproute2
+      pkgs.tcpdump
+      pkgs.gawk
+    ];
+    script = ''
+      pin() {
+        [ -e /sys/class/net/${uplinkIf} ] || return 0
+        mac=$(timeout 120 tcpdump -i ${uplinkIf} -p -Q in -n -e -t -c 1 -l 'src host ${fritzAddr}' 2>/dev/null | awk '{ print $1; exit }')
+        if [[ $mac =~ ^([0-9a-f]{2}:){5}[0-9a-f]{2}$ ]]; then
+          ip neigh replace ${fritzAddr} lladdr "$mac" dev ${uplinkIf} nud permanent
+          echo "pinned ${fritzAddr} to $mac on ${uplinkIf}"
+        else
+          echo "no frame from ${fritzAddr} on ${uplinkIf} within 120 s, trying again"
+        fi
+      }
+      pin
+      while sleep 30; do
+        ip neigh show to ${fritzAddr} dev ${uplinkIf} nud permanent 2>/dev/null | grep -q . || pin
+      done
+    '';
+    serviceConfig = {
+      Restart = "always";
+      RestartSec = 10;
+      CapabilityBoundingSet = [
+        "CAP_NET_RAW"
+        "CAP_NET_ADMIN"
+      ];
+      NoNewPrivileges = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      PrivateTmp = true;
+      RestrictAddressFamilies = [
+        "AF_PACKET"
+        "AF_NETLINK"
+        "AF_UNIX"
+      ];
+    };
   };
 
   networking.nat = {

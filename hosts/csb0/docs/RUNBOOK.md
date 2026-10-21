@@ -691,17 +691,15 @@ above remains a separate OPS gate; T100 does not claim it passed.
 
 ### OPS-354 cutover order and stopped-writer swap
 
-**Rollback state (this commit):** `active = previous`, v2 is inactive, hsb0 runs the restored
-pre-cutover tree (r16d). The prose below describes the activated state.
-
 The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main d36b5295295a6901e36fdf2dc0d64353ddf88d0e
-(PR #58), tree ba066aaeebf193eab93154ca9e0335f7dbba9d28,
-`inspr-calver-3` / 261019102825.0.0 / sequence 25. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-50).
+active v2 source is main 6eacd6c707386cabe8245e1f97df2ef93965b394
+(PR #68, the JOED-58 retry candidate; supersedes d36b5295 / 261019102825.0.0 / sequence 25,
+never deployed), tree f2080e9baf5e2eae59f663bbbc75a39a25bde493,
+`inspr-calver-3` / 261021015923.0.0 / sequence 26. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-50, JOED-58).
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
 `release/contracts.json` SHA256 is
@@ -780,7 +778,7 @@ JOED-20 must still supply compatible downstream pins and real evidence.
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
    `just rehearse-joedesk SOURCE` using the exact published checkout with the
-   legacy Git object available. The second command builds db621bf and d36b5295
+   legacy Git object available. The second command builds db621bf and 6eacd6c7
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
@@ -982,7 +980,7 @@ item 1's exact GET/HEAD health.
 ### Separate Results ingress proposal — pending LEAD confirmation
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. Main candidate d36b5295
+droppable review item; do not deploy it until LEAD confirms. The retry candidate 6eacd6c7 (like d36b5295 before it)
 includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests

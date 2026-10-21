@@ -244,7 +244,7 @@ export class StageStore {
     } else if (!canonical(state.lastGeneratedAt) || (state.lastObservationId !== observationId(state.lastGeneratedAt) && !cycleId(state.lastObservationId)
       && !(state.lastGatewayCheckedAt === null && state.lastObservationId === JSON.stringify(["ops392.phase-a.v1", state.lastGeneratedAt])))) fail();
   }
-  readPair(name) {
+  readPair(name, { withBytes = false } = {}) {
     if (!/^pair-[1-9]\d{0,15}$/.test(name)) fail();
     const names = this.names(name, 2).sort();
     if (JSON.stringify(names) !== JSON.stringify(["receipt.json", "snapshot.json"])) fail();
@@ -264,7 +264,17 @@ export class StageStore {
       || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
     return { value: { ...snapshot, receivedAt: receipt.stagedReceivedAt }, generatedAdvancedAt: receipt.generatedAdvancedAt,
-      observationId: receipt.observationId || null };
+      observationId: receipt.observationId || null, ...(withBytes ? { bytes } : {}) };
+  }
+  // Read-only publisher entry: current.json is the commit marker. Never scan
+  // reservations, residue or pair directories for a newer uncommitted body.
+  readCommittedPair() {
+    let pointer;
+    try { pointer = this.json("current.json"); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    if (!exactKeys(pointer, "format,pair") || pointer.format !== pointerFormat || typeof pointer.pair !== "string") fail();
+    const pair = this.readPair(pointer.pair, { withBytes: true });
+    return { bytes: pair.bytes, seq: pair.value.seq, generatedAt: pair.value.generatedAt };
   }
   validProjection(snapshot) {
     // Recovery verifies the closed switch-set shape without reclassifying old

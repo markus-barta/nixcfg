@@ -8,6 +8,9 @@
   ...
 }:
 let
+  joeRelease = builtins.fromJSON (builtins.readFile ../csb0/joedesk-release.json);
+  joeSet = joeRelease.sets.${joeRelease.active};
+  joePushV2 = joeSet.board.data_schema == "v2";
   # OPS-392: disable only staging for rollback; preserve its durable high water.
   joeHouseholdV2StageEnabled = true;
   hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
@@ -83,6 +86,7 @@ let
     "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
   ];
 in
+assert joeSet.pusher != null && joeSet.executor != null;
 {
   imports = [
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
@@ -120,6 +124,10 @@ in
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
+    # HNET-236 (pin 23): the HostDash declaration for this host is read-only enrichment (GET only, no
+    # proxies, no redirects, 4 s timeout, 1 MiB/64 KiB caps, outside the instance lock); the key is
+    # the HostDash declaration name, the base keeps /config.js and /status/ at the root after OPS-413.
+    hostdashSources."hsb0" = "http://192.168.1.99/";
     firewallInterfaces = [
       "br-+"
       "docker0"
@@ -161,9 +169,9 @@ in
 
   # OPS-266 — paper intents from tailnet desks. No token and no GitHub queue.
   nixcfg.paperDeskExecutor.enable = true;
-  # Flag-off restores the previous matching pusher/executor image. Never retag it.
+  # In v1 mode, flag-off restores the previous matching image. Never retag it.
   nixcfg.paperDeskExecutor.image = lib.mkIf (
-    !joeHouseholdV2StageEnabled
+    !joeHouseholdV2StageEnabled && !joePushV2
   ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
   nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
@@ -191,7 +199,8 @@ in
     extraRestartTriggers = [
       hostdashHsb0
       joeBoardPusherSource
-      # Bind-mounted nginx snippets need container recreation after a switch.
+      # Bind-mounted nginx configuration needs container recreation after a switch.
+      ./docker/front-page-nginx.conf
       ./docker/hsb0-home-hausnetz.conf
       ./docker/hsb0-home-inflight.conf
       ./docker/hsb0-home-videos.conf
@@ -208,9 +217,9 @@ in
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-392 switch set (2026-10-20): a fresh immutable candidate shared with the executor
-    # (rollback: household-v2-switch-set-r16-202610201700); the
-    # previous tag remains available for flag-off rollback. No rebuild on switch.
+    # OPS-408 candidate: household-v2-switch-set-r17c-202610202345, selected
+    # only by the release set (rollback: household-v2-switch-set-r16d-202610201800).
+    # The current v1 set retains its exact runtime. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
         {
@@ -218,8 +227,8 @@ in
           services.joe-board-pusher = {
             build = "${joeBoardPusherSource}";
             image =
-              if joeHouseholdV2StageEnabled then
-                "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800"
+              if joeHouseholdV2StageEnabled || joePushV2 then
+                joeSet.pusher.image
               else
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
@@ -228,12 +237,14 @@ in
               ++ [
                 "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
               ]
-              ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock";
+              ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
+              ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2";
           }
-          // lib.optionalAttrs joeHouseholdV2StageEnabled {
-            volumes = joeComposeBase.services.joe-board-pusher.volumes ++ [
-              "/run/joe-household-v2:/run/joe-household-v2:rw"
-            ];
+          // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
+            volumes =
+              joeComposeBase.services.joe-board-pusher.volumes
+              ++ lib.optional joeHouseholdV2StageEnabled "/run/joe-household-v2:/run/joe-household-v2:rw"
+              ++ lib.optional joePushV2 "/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro";
           };
         }
         (
@@ -245,7 +256,7 @@ in
               lib.optionalAttrs joeHouseholdV2StageEnabled {
                 services.joe-household-v2-stage = {
                   build = "${joeBoardPusherSource}";
-                  image = "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800";
+                  image = joeSet.pusher.image;
                   pull_policy = "never";
                 };
               }
@@ -1149,6 +1160,8 @@ in
   environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
   # OPS-380: /videos/ location (VID's video overview, AEON-1480), same pattern as /inflight/.
   environment.etc."hsb0-home-videos.conf".source = ./docker/hsb0-home-videos.conf;
+  # HNET-237: only this host moves the front page; other HostDash boards keep /.
+  environment.etc."hostdash-nginx.conf".source = lib.mkForce ./docker/front-page-nginx.conf;
   environment.etc."hsb0-home-hausnetz.conf".source = ./docker/hsb0-home-hausnetz.conf;
 
   # ============================================================================
