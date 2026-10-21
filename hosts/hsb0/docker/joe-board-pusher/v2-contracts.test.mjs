@@ -155,7 +155,7 @@ test("active v2 set (OPS-354/OPS-408): r17 everywhere, v2 POST schema and read-o
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
   const r17 = release.sets.v2.pusher.image;
-  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345");
+  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r18a-202610210946");
   assert.equal(release.sets.v2.executor.image, r17);
   for (const enabled of [true, false]) {
     const v2 = hostEval(t, source, enabled, false, "v2");

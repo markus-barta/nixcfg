@@ -163,6 +163,11 @@ function sideQuantity(execution) {
   fail("execution side is unsupported");
 }
 
+// Attribution's OPS-test flatness guard uses the ledger's exact instrument,
+// signed-side and quantity-tolerance rules without duplicating them.
+export { contractDescription as familyInstrument, sideQuantity as familySignedQuantity,
+  normalizedQuantity as normalizeFamilyQuantity };
+
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (value && typeof value === "object") {
