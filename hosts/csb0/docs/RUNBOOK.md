@@ -696,11 +696,14 @@ it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
 active v2 source is main 040d6756e92dc7c4e05fcf63b865242819b3d0ce
-(PR #69, JOED-59: fleet-config "fresh" while the stored config is valid, smoke-release waits up to
+(merge of PR #70, JOED-59: fleet-config "fresh" while the stored config is valid, smoke-release waits up to
 150 s for one gateway confirmation; supersedes 6eacd6c7 / 261021015923.0.0 / sequence 26, live
 2026-10-21 08:15Z, and d36b5295 / sequence 25, never deployed), tree 447a771342dfdaa58e37877ca32acee327c58db8,
 `inspr-calver-3` / 261021083537.0.0 / sequence 27. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-50, JOED-58, JOED-59).
+from that checkout's `release.json` and `release/preparation.json` (JOED-59; JOED-58 was the previous set).
+Board-only rollback of this re-pin: revert the JOED-59 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-6eacd6c707386cabe8245e1f97df2ef93965b394` (sequence 26) is reused, no build.
+db621bf stays the v1 rollback.
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
 `release/contracts.json` SHA256 is
@@ -779,7 +782,7 @@ JOED-20 must still supply compatible downstream pins and real evidence.
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
    `just rehearse-joedesk SOURCE` using the exact published checkout with the
-   legacy Git object available. The second command builds db621bf and 6eacd6c7
+   legacy Git object available. The second command builds db621bf and 040d6756
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
