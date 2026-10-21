@@ -1881,6 +1881,62 @@ ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
                 self.assertEqual(self.state.file.read_bytes(), previous_state)
                 self.assertEqual(set(self.tmp.iterdir()), original_files | {marker})
 
+    def test_busy_file_command_initial_off_state_is_atomic_without_a_controller(self):
+        config = self.tmp / "config.json"
+        config.write_text(json.dumps(self.cfg))
+        fresh_state = ab.State(self.tmp / "fresh")
+        path = Path(self.cfg["busyFile"])
+        path.write_text("stale\n")
+        real_replace = ab.os.replace
+
+        def replace(src, dst):
+            self.assertEqual(Path(dst), path)
+            self.assertEqual(Path(src).parent, path.parent)
+            self.assertNotEqual(Path(src), path)
+            self.assertEqual(path.read_text(), "stale\n")
+            self.assertEqual(Path(src).read_text(), "0/4 1000\n")
+            self.assertEqual(Path(src).stat().st_mode & 0o777, 0o640)
+            self.assertEqual(Path(src).stat().st_gid, os.getgid())
+            real_replace(src, dst)
+
+        with patch.object(ab, "State", return_value=fresh_state), \
+                patch.object(ab.os, "replace", side_effect=replace) as replaced, \
+                patch.object(ab, "Controller") as controller, \
+                patch.object(ab, "GitHub") as github, patch.object(ab, "Lima") as lima:
+            self.assertEqual(ab.main(["--config", str(config), "busy-file"]), 0)
+        replaced.assert_called_once()
+        controller.assert_not_called()
+        github.assert_not_called()
+        lima.assert_not_called()
+        self.assertFalse(fresh_state.root.exists(), "refresh must not create state or locks")
+        self.assertEqual(path.read_text(), "0/4 1000\n")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(path.stat().st_gid, os.getgid())
+
+    def test_busy_file_command_matches_status_and_controller_in_every_mode(self):
+        config = self.tmp / "config.json"
+        config.write_text(json.dumps(self.cfg))
+        for mode in ("on", "off", "paused", "draining", "stopping"):
+            for slots in ({}, {"0": {"jobId": 1, "phase": "running"}}):
+                with self.subTest(mode=mode, occupied=len(slots)):
+                    self.state.update(lambda d: d.update(mode=mode, slots=slots))
+                    with patch.object(ab, "State", return_value=self.state), \
+                            patch.object(ab, "controller_pid", return_value=None), \
+                            patch.object(ab, "Lima") as lima, \
+                            patch.object(ab, "lab_vms", return_value=[]), \
+                            patch.object(ab.subprocess, "run", return_value=Mock(stdout="")), \
+                            patch("sys.stdout", new_callable=io.StringIO) as output:
+                        lima.return_value.instances.return_value = {}
+                        ab.cmd_status(self.cfg, None)
+                        self.assertEqual(ab.main(["--config", str(config), "busy-file"]), 0)
+                    path = Path(self.cfg["busyFile"])
+                    count, epoch = path.read_text().split()
+                    self.assertIn(f"slots:       {count} busy", output.getvalue())
+                    self.assertEqual(epoch, "1000")
+                    before = path.read_bytes()
+                    self.controller(FakeGitHub([], {})).publish_once()
+                    self.assertEqual(path.read_bytes(), before)
+
     def test_busy_file_command_is_hidden_from_help(self):
         with patch("sys.stdout", new_callable=io.StringIO) as output, self.assertRaises(SystemExit) as exit:
             ab.main(["--help"])

@@ -54,7 +54,11 @@ assert '../../modules/joe-results-producer' in host
 host_options = f'''(let
   lib = import <nixpkgs/lib>;
   host = import {repo / "hosts/hsb0/configuration.nix"} {{ inherit lib; pkgs = {{}}; config = {{}}; inputs = {{}}; }};
-  csb0 = import {repo / "hosts/csb0/configuration.nix"} {{ inherit lib; pkgs = {{}}; config = {{}}; inputs = {{}}; }};
+  # csb0 asserts its flake joedesk input against the active release set (OPS-354); T100-joedesk-release.py
+  # owns that check, so this fixture supplies the active board rev and reads only csb0's public wiring.
+  joeRelease = builtins.fromJSON (builtins.readFile {repo / "hosts/csb0/joedesk-release.json"});
+  csb0 = import {repo / "hosts/csb0/configuration.nix"} {{ inherit lib; pkgs = {{}}; config = {{}};
+    inputs.joedesk.rev = joeRelease.sets.${{joeRelease.active}}.board.rev; }};
 in assert host.nixcfg.paperDeskExecutor.enable;
 assert host.nixcfg.paperDeskExecutor.resultsCaptureEnabled;
 assert host.nixcfg.joeResultsProducer.ingressAddress == (builtins.head csb0.networking.interfaces.ens3.ipv4.addresses).address;

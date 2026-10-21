@@ -69,6 +69,15 @@ for test_file in "$repo_root"/tests/T*.sh; do
   fi
 done
 
+# OPS-354: these interpreted tests also guard the deployment/rollback path.
+# They are invoked with their runtimes, so executable bits are not required.
+for name in T100-joedesk-release.py T101-joedesk-operations.mjs T102-joedesk-host-gate.mjs; do
+  checked+=("$name")
+  if ! grep -rqF "$name" "$repo_root"/.github/workflows/ 2>/dev/null; then
+    unwired+=("$name")
+  fi
+done
+
 if [ ${#not_executable[@]} -gt 0 ] || [ ${#unwired[@]} -gt 0 ]; then
   printf 'suite_runnability=failed\n' >&2
   if [ ${#not_executable[@]} -gt 0 ]; then

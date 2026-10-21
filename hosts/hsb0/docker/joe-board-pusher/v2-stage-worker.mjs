@@ -6,7 +6,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
-import { DESK_IDS, DESK_ACTION, deskState } from "./desk-activity.mjs";
+import { validCycle, cycleId, cycleReceipt, validCycleReceipt, receiptBinding, frame } from "./v1-cycle.mjs";
+import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, ACTIVITY_FRESH_MS, deskState } from "./desk-activity.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
@@ -45,12 +46,23 @@ export function validObservation(value) {
   const activity = value?.deskActivity;
   const validActivity = activity === undefined || (exactKeys(activity, "j,joe,joel") && DESK_IDS.every(id => {
     const row = activity[id];
-    return exactKeys(row, "positionsAt,hasPositions,ordersAt,hasOrders,executionsAt,executionDay,lastExecutionAt")
+    const failure = row?.executionCause;
+    const validFailure = failure === undefined || (EXECUTION_CAUSES.includes(failure?.cause)
+      && exactKeys(failure, failure.clientId === undefined ? "cause" : "cause,clientId")
+      && (failure.clientId === undefined || (failure.cause === "execution_unowned"
+        && Number.isSafeInteger(failure.clientId) && failure.clientId >= 0)));
+    return validFailure && exactKeys(row, "positionsAt,hasPositions,ordersAt,hasOrders,executionsAt,executionDay,lastExecutionAt"
+      + (failure === undefined ? "" : ",executionCause"))
       && [row.positionsAt, row.ordersAt, row.executionsAt, row.lastExecutionAt].every(at => at === null || canonical(at))
       && typeof row.hasPositions === "boolean" && typeof row.hasOrders === "boolean"
       && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));
   }));
-  return validActivity && exactKeys(value, activity === undefined ? "format,bookTs,equity,cash,apiReplyCheckedAt,positions" : "format,bookTs,equity,cash,apiReplyCheckedAt,positions,deskActivity") && value.format === FRAME_FORMAT
+  return validActivity && (value?.v1Cycle === undefined || validCycle(value.v1Cycle))
+    && (value?.sourceObservedAt === undefined || (exactKeys(value.sourceObservedAt, "equity,cash,positions")
+      && Object.values(value.sourceObservedAt).every(at => at === null || canonical(at))))
+    && exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions"
+      + (value.sourceObservedAt === undefined ? "" : ",sourceObservedAt")
+      + (activity === undefined ? "" : ",deskActivity") + (value.v1Cycle === undefined ? "" : ",v1Cycle")) && value.format === FRAME_FORMAT
     && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
     && (value.apiReplyCheckedAt === null || canonical(value.apiReplyCheckedAt))
     && Array.isArray(value.positions) && value.positions.length <= 256 && value.positions.every(row =>
@@ -61,6 +73,14 @@ export function validObservation(value) {
 }
 
 export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = generatedAt, highWater = null) {
+  // The source clock stays separate from the advancing envelope clock.
+  const bookAt = normalizeBookTs(observation.bookTs);
+  const sourceAt = field => observation.sourceObservedAt === undefined ? bookAt
+    : normalizeBookTs(observation.sourceObservedAt?.[field]);
+  const sourceFresh = at => {
+    const age = Date.parse(generatedAt) - Date.parse(at);
+    return Number.isFinite(age) && age >= 0 && age <= ACTIVITY_FRESH_MS;
+  };
   const checkedAt = observation.apiReplyCheckedAt;
   let gateway;
   if (canonical(checkedAt)) {
@@ -68,20 +88,28 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
     const receiptAge = Date.parse(receivedAt) - Date.parse(checkedAt);
     const reason = (age < 0 || receiptAge < 0) ? "clock_ahead"
       : highWater && checkedAt < highWater ? "clock_regressed"
-        : age >= 60000 || receiptAge >= 60000 ? "gateway_unconfirmed" : null;
+        : age > ACTIVITY_FRESH_MS || receiptAge > ACTIVITY_FRESH_MS ? "snapshot_stale"
+          : age >= 60000 || receiptAge >= 60000 ? "gateway_unconfirmed" : null;
     gateway = { apiSessionReady: !reason, checkedAt, ...(reason ? { reason } : {}) };
   }
-  const accountMoney = item => gateway?.apiSessionReady && item?.currency === "EUR" && typeof item.value === "string"
+  const accountMoney = (item, at) => sourceFresh(at) && gateway?.apiSessionReady && item?.currency === "EUR" && typeof item.value === "string"
     && item.value.length <= 32 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,8})?$/.test(item.value)
     ? { amount: item.value, currency: item.currency } : null;
-  const equity = accountMoney(observation.equity);
-  const cash = accountMoney(observation.cash);
+  const equity = accountMoney(observation.equity, sourceAt("equity"));
+  const cash = accountMoney(observation.cash, sourceAt("cash"));
+  const oldest = times => times.filter(Boolean).sort()[0];
+  // One account observation field in rev 9: use the oldest emitted money source.
+  const accountAt = oldest([equity && sourceAt("equity"), cash && sourceAt("cash")])
+    || oldest([sourceAt("equity"), sourceAt("cash")]) || bookAt || generatedAt;
+  const positionsAt = sourceAt("positions");
+  const positionsFresh = sourceFresh(positionsAt);
   const fields = ["quantity", "mark", "marketValue", "dayPnl", "openPnl"];
   const row = (identity, reason) => ({ ...identity, ...Object.fromEntries(fields.map(f => [f, null])),
     reasons: { ...Object.fromEntries(fields.map(f => [f, reason])),
       ...(identity.scope !== "keep" && identity.desk === null ? { desk: "desk_unmapped" } : {}) } });
   const reported = observation.positions || [];
-  const rows = reported.map(identity => row({ ...identity, ...(identity.scope === "keep" ? { desk: null } : {}) }, "not_exact_yet"));
+  const rows = reported.map(identity => row({ ...identity, ...(identity.scope === "keep" || !positionsFresh ? { desk: null } : {}) },
+    positionsFresh ? "not_exact_yet" : "source_unavailable"));
   for (const symbol of ["SXR8", "TSLA"]) {
     if (!rows.some(item => item.symbol === symbol)) rows.push(row({ symbol, side: "long", desk: null, scope: "keep" }, "source_unavailable"));
   }
@@ -97,10 +125,11 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
       id, label, state: deskState(observation.deskActivity?.[id], generatedAt, receivedAt), action: DESK_ACTION, money: money(),
     })),
     totals: money(),
-    brokerAccount: { scope: "paper-account-including-keep", observedAt: generatedAt, equity, cash,
+    brokerAccount: { scope: "paper-account-including-keep", observedAt: accountAt, equity, cash,
       ...(!equity ? { reason: "source_unavailable" } : {}), ...(!cash ? { reasons: { cash: "source_unavailable" } } : {}) },
-    positions: { source: "live-ib-api", observedAt: generatedAt, rows,
-      ...(!gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
+    positions: { source: "live-ib-api", observedAt: positionsAt || bookAt || generatedAt, rows,
+      ...(!positionsFresh ? { reason: "source_unavailable" }
+        : !gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
   };
 }
 
@@ -212,17 +241,20 @@ export class StageStore {
       || (state.lastGatewayCheckedAt !== null && (!canonical(state.lastGatewayCheckedAt) || state.lastGatewayCheckedAt > state.lastGeneratedAt))) fail();
     if (state.lastReservedSeq === 0) {
       if (state.lastObservationId !== null || state.lastGeneratedAt !== null || state.lastGatewayCheckedAt !== null) fail();
-    } else if (!canonical(state.lastGeneratedAt) || (state.lastObservationId !== observationId(state.lastGeneratedAt)
+    } else if (!canonical(state.lastGeneratedAt) || (state.lastObservationId !== observationId(state.lastGeneratedAt) && !cycleId(state.lastObservationId)
       && !(state.lastGatewayCheckedAt === null && state.lastObservationId === JSON.stringify(["ops392.phase-a.v1", state.lastGeneratedAt])))) fail();
   }
-  readPair(name) {
+  readPair(name, { withBytes = false } = {}) {
     if (!/^pair-[1-9]\d{0,15}$/.test(name)) fail();
     const names = this.names(name, 2).sort();
     if (JSON.stringify(names) !== JSON.stringify(["receipt.json", "snapshot.json"])) fail();
     const bytes = this.read(`${name}/snapshot.json`, 262144);
     const snapshot = JSON.parse(bytes);
     const receipt = this.json(`${name}/receipt.json`);
-    if (!exactKeys(receipt, "format,stagedReceivedAt,seq,generatedAt,generatedAdvancedAt,snapshotSha256,contractSetSha256")
+    const binding = receiptBinding(receipt);
+    if (!(Object.keys(binding).length === 0 || validCycleReceipt(binding))
+      || !exactKeys(receipt, "format,stagedReceivedAt,seq,generatedAt,generatedAdvancedAt,snapshotSha256,contractSetSha256"
+        + (Object.keys(binding).length ? ",v1Sha256,v1Status,v1RepliedAt,observationId,v1PostStatus" : ""))
       || receipt.format !== pairFormat || !positiveSeq(snapshot.seq) || name !== `pair-${snapshot.seq}`
       || receipt.seq !== snapshot.seq || receipt.generatedAt !== snapshot.generatedAt
       || !canonical(receipt.stagedReceivedAt) || !canonical(receipt.generatedAdvancedAt)
@@ -231,7 +263,18 @@ export class StageStore {
       || !this.validateContract("data", snapshot, { stage: "ingress" }).ok
       || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
-    return { value: { ...snapshot, receivedAt: receipt.stagedReceivedAt }, generatedAdvancedAt: receipt.generatedAdvancedAt };
+    return { value: { ...snapshot, receivedAt: receipt.stagedReceivedAt }, generatedAdvancedAt: receipt.generatedAdvancedAt,
+      observationId: receipt.observationId || null, ...(withBytes ? { bytes } : {}) };
+  }
+  // Read-only publisher entry: current.json is the commit marker. Never scan
+  // reservations, residue or pair directories for a newer uncommitted body.
+  readCommittedPair() {
+    let pointer;
+    try { pointer = this.json("current.json"); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    if (!exactKeys(pointer, "format,pair") || pointer.format !== pointerFormat || typeof pointer.pair !== "string") fail();
+    const pair = this.readPair(pointer.pair, { withBytes: true });
+    return { bytes: pair.bytes, seq: pair.value.seq, generatedAt: pair.value.generatedAt };
   }
   validProjection(snapshot) {
     // Recovery verifies the closed switch-set shape without reclassifying old
@@ -251,11 +294,19 @@ export class StageStore {
     if (!exactKeys(snapshot.safety, snapshot.safety.gateway ? "halt,haltReason,gateway" : "halt,haltReason")
       || snapshot.safety.halt !== false || snapshot.safety.haltReason !== null) return false;
     const account = snapshot.brokerAccount;
-    if (account.scope !== expected.brokerAccount.scope || account.observedAt !== snapshot.generatedAt
+    const sourceFresh = at => {
+      const age = Date.parse(snapshot.generatedAt) - Date.parse(at);
+      return canonical(at) && age >= 0 && age <= ACTIVITY_FRESH_MS;
+    };
+    if (account.scope !== expected.brokerAccount.scope || !canonical(account.observedAt)
       || Object.hasOwn(account, "accountHint") || (!account.equity && account.reason !== "source_unavailable")
-      || (!account.cash && account.reasons?.cash !== "source_unavailable")) return false;
+      || (!account.cash && account.reasons?.cash !== "source_unavailable")
+      || (!sourceFresh(account.observedAt) && (account.equity !== null || account.cash !== null))) return false;
     const positions = snapshot.positions;
-    return positions.source === "live-ib-api" && positions.observedAt === snapshot.generatedAt
+    return positions.source === "live-ib-api" && canonical(positions.observedAt)
+      && (sourceFresh(positions.observedAt) || (positions.reason === "source_unavailable"
+        && positions.rows.every(row => row.desk === null
+          && ["quantity", "mark", "marketValue", "dayPnl", "openPnl"].every(field => row.reasons?.[field] === "source_unavailable"))))
       && ["SXR8", "TSLA"].every(symbol => positions.rows.some(row => row.symbol === symbol && row.scope === "keep" && row.desk === null))
       && positions.rows.every(row => exactKeys(row, "symbol,side,desk,scope,quantity,mark,marketValue,dayPnl,openPnl,reasons")
         && ["quantity", "mark", "marketValue", "dayPnl", "openPnl"].every(field => row[field] === null
@@ -306,7 +357,10 @@ export class StageStore {
           if (newline > 1024) fail();
           const row = JSON.parse(pending.slice(0, newline));
           pending = pending.slice(newline + 1);
-          if (!exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256")
+          const binding = receiptBinding(row);
+          if (!(Object.keys(binding).length === 0 || validCycleReceipt(binding))
+            || !exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256"
+              + (Object.keys(binding).length ? ",v1Sha256,v1Status,v1RepliedAt,observationId,v1PostStatus" : ""))
             || row.format !== logFormat || !positiveSeq(row.seq) || row.seq <= this.lastReceiptSeq || row.seq > state.lastReservedSeq
             || !["staged", "committed", "rejected"].includes(row.outcome)
             || ![row.generatedAt, row.stagedReceivedAt, row.recordedAt].every(canonical)
@@ -315,7 +369,8 @@ export class StageStore {
           const pair = pairs.get(row.seq);
           if (pair) {
             if (row.outcome === "rejected" || row.pairSha256 !== pair.snapshotSha256
-              || row.generatedAt !== pair.generatedAt || row.stagedReceivedAt !== pair.stagedReceivedAt) fail();
+              || row.generatedAt !== pair.generatedAt || row.stagedReceivedAt !== pair.stagedReceivedAt
+              || JSON.stringify(binding) !== JSON.stringify(receiptBinding(pair))) fail();
             found.add(row.seq);
           }
         }
@@ -325,9 +380,9 @@ export class StageStore {
     } finally { this.io.closeSync(fd); }
     return found;
   }
-  appendReceipt(seq, outcome, generatedAt, stagedReceivedAt, pairSha256, recordedAt = new Date().toISOString()) {
+  appendReceipt(seq, outcome, generatedAt, stagedReceivedAt, pairSha256, recordedAt = new Date().toISOString(), binding = {}) {
     if (seq <= this.lastReceiptSeq) fail();
-    const bytes = Buffer.from(JSON.stringify({ format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256 }) + "\n");
+    const bytes = Buffer.from(JSON.stringify({ format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256, ...binding }) + "\n");
     const fd = this.io.openSync(this.check("receipts.jsonl", "file"), fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW);
     try {
       const stat = this.io.fstatSync(fd);
@@ -371,6 +426,8 @@ export class StageStore {
           && previous.value.safety.gateway.checkedAt <= previous.value.receivedAt
           && (!state.lastGatewayCheckedAt || previous.value.safety.gateway.checkedAt > state.lastGatewayCheckedAt))
         || (previous.value.seq === state.lastReservedSeq && previous.value.generatedAt !== state.lastGeneratedAt)) fail();
+      if (previous.value.seq === state.lastReservedSeq && cycleId(state.lastObservationId)
+        && previous.observationId !== state.lastObservationId) fail();
     }
     const residue = names.filter(name => ![".allocator.lock", "sequence-state.json", "current.json", "receipts.jsonl"].includes(name));
     const pairs = new Map();
@@ -386,7 +443,7 @@ export class StageStore {
     const found = this.openReceipts(state, pairs);
     for (const [seq, receipt] of [...pairs].sort((a, b) => a[0] - b[0])) {
       if (!found.has(seq)) this.appendReceipt(seq, `pair-${seq}` === current ? "committed" : "staged",
-        receipt.generatedAt, receipt.stagedReceivedAt, receipt.snapshotSha256);
+        receipt.generatedAt, receipt.stagedReceivedAt, receipt.snapshotSha256, undefined, receiptBinding(receipt));
     }
     Object.assign(this, { state, previous, current });
     for (const name of residue.filter(name => !name.startsWith("pair-"))) this.retire(name);
@@ -394,26 +451,47 @@ export class StageStore {
     this.prunePairs(names);
     return this;
   }
-  stage(observation, now = () => new Date().toISOString()) {
+  retainedSeqs() {
+    return this.names().filter(name => /^pair-[1-9]\d{0,15}$/.test(name)).map(name => Number(name.slice(5))).sort((a, b) => a - b);
+  }
+  reserve(observation, receivedAt = new Date().toISOString()) {
     if (this.disabled) fail();
-    // Scalar input remains useful to the allocator/crash tests; the wire only
-    // accepts the closed v2 frame through validObservation.
     if (typeof observation === "string") observation = { bookTs: observation };
-    const bookTs = observation?.bookTs;
-    const generatedAt = normalizeBookTs(bookTs);
-    if (!generatedAt || (this.state.lastGeneratedAt && generatedAt < this.state.lastGeneratedAt)) return { status: 422, reason: "source_time_invalid" };
+    if (!normalizeBookTs(observation?.bookTs)) return { status: 422, reason: "source_time_invalid" };
+    if (!canonical(receivedAt)) return { status: 422, reason: "source_time_invalid" };
+    // Persist the observation-receipt instant before the body-store handshake.
+    // The existing state format already contains this high water, including r15.
+    const generatedAt = this.state.lastGeneratedAt && this.state.lastGeneratedAt > receivedAt
+      ? this.state.lastGeneratedAt : receivedAt;
+    if (Date.parse(generatedAt) - Date.parse(receivedAt) > 5000) return { status: 422, reason: "clock_ahead" };
+    if (observation.v1Cycle?.observationId === this.state.lastObservationId) return { status: 422, reason: "cycle_replayed" };
     if (this.state.lastReservedSeq === Number.MAX_SAFE_INTEGER) { this.disabled = true; fail(); }
     try {
-      const state = { ...this.state, lastReservedSeq: this.state.lastReservedSeq + 1, lastObservationId: observationId(generatedAt), lastGeneratedAt: generatedAt };
+      const state = { ...this.state, lastReservedSeq: this.state.lastReservedSeq + 1,
+        lastObservationId: observation.v1Cycle?.observationId || observationId(generatedAt), lastGeneratedAt: generatedAt };
       this.atomic("sequence-state.json", state, "reserve");
       this.state = state;
-      const stagedReceivedAt = now();
+      return { status: 200, seq: state.lastReservedSeq };
+    } catch { this.disabled = true; fail(); }
+  }
+  stage(observation, now = () => new Date().toISOString(), reservation = null, stored = false) {
+    if (this.disabled) fail();
+    if (typeof observation === "string") observation = { bookTs: observation };
+    const stagedReceivedAt = now();
+    reservation ||= this.reserve(observation, stagedReceivedAt);
+    if (reservation.status !== 200) return reservation;
+    try {
+      const state = this.state;
+      const generatedAt = state.lastGeneratedAt;
+      if (reservation.seq !== state.lastReservedSeq
+        || state.lastObservationId !== (observation.v1Cycle?.observationId || observationId(generatedAt))) fail();
+      const binding = observation.v1Cycle ? cycleReceipt(observation.v1Cycle, stored) : {};
       if (!canonical(stagedReceivedAt)) fail();
       const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt);
       const bytes = Buffer.from(JSON.stringify(candidate));
       if (bytes.length > 262144) fail();
       const reject = (status, reason) => {
-        this.appendReceipt(candidate.seq, "rejected", generatedAt, stagedReceivedAt, sha(bytes));
+        this.appendReceipt(candidate.seq, "rejected", generatedAt, stagedReceivedAt, sha(bytes), undefined, binding);
         return { status, reason, seq: candidate.seq };
       };
       if (!this.validProjection(candidate) || !this.validateContract("data", candidate, { stage: "ingress" }).ok) return reject(422, "contract_invalid");
@@ -427,7 +505,7 @@ export class StageStore {
       }
       const receipt = {
         format: pairFormat, stagedReceivedAt, seq: candidate.seq, generatedAt,
-        generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes), contractSetSha256: CONTRACT_SHA,
+        generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes), contractSetSha256: CONTRACT_SHA, ...binding,
       };
       const next = `.next-${candidate.seq}`;
       const pair = `pair-${candidate.seq}`;
@@ -442,7 +520,7 @@ export class StageStore {
       this.atomic("current.json", { format: pointerFormat, pair }, "pointer");
       this.current = pair;
       this.previous = accepted;
-      this.appendReceipt(candidate.seq, "committed", generatedAt, stagedReceivedAt, receipt.snapshotSha256);
+      this.appendReceipt(candidate.seq, "committed", generatedAt, stagedReceivedAt, receipt.snapshotSha256, undefined, binding);
       this.prunePairs();
       return { status: 200, reason: null, seq: candidate.seq };
     } catch {
@@ -489,12 +567,35 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
     let used = 0;
     let length = null;
     let busy = false;
+    let awaiting;
     let timer;
     const clear = () => { clearTimer(timer); timer = undefined; };
+    const reset = () => { buffer = Buffer.alloc(MAX_FRAME_BYTES + 4); used = 0; length = null; };
+    const finish = (observation, reservation, stored) => {
+      clear();
+      try {
+        const result = store.stage(observation, undefined, reservation, stored);
+        notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped", ...(positiveSeq(result.seq) ? { seq: result.seq } : {}) });
+        if (observation.v1Cycle && stored !== true) notify({ event: "v1_unbound" });
+      } catch {
+        notify({ event: "disabled" });
+        awaiting = undefined;
+        socket.destroy(); server.close(); return;
+      }
+      awaiting = undefined; reset(); busy = false;
+      if (!socket.destroyed) {
+        if (observation.v1Cycle) socket.write(frame({ event: "v1_retained", retainedSeqs: store.retainedSeqs() }));
+        socket.write(Buffer.from([0x01]));
+      }
+    };
     socket.on("error", () => socket.destroy());
-    socket.on("close", () => { clear(); if (active === socket) active = undefined; });
+    socket.on("close", () => {
+      clear();
+      if (awaiting) { const job = awaiting; awaiting = undefined; finish(job.observation, job.reservation, false); }
+      if (active === socket) active = undefined;
+    });
     socket.on("data", chunk => {
-      if (busy || used + chunk.length > buffer.length) { socket.destroy(); return; }
+      if ((busy && !awaiting) || used + chunk.length > buffer.length) { socket.destroy(); return; }
       if (!timer) timer = setTimer(() => socket.destroy(), 5000);
       chunk.copy(buffer, used); used += chunk.length;
       if (length === null && used >= 4) {
@@ -504,27 +605,51 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
       if (length === null || used < length + 4) return;
       if (used !== length + 4) { socket.destroy(); return; }
       clear(); busy = true;
-      notify({ event: "job_start" });
+      if (!awaiting) notify({ event: "job_start" });
       let observation;
       try {
         const payload = buffer.subarray(4, used);
         const text = new TextDecoder("utf-8", { fatal: true }).decode(payload);
         observation = JSON.parse(text);
-      } catch { socket.destroy(); notify({ event: "job_done", outcome: "skipped" }); return; }
+      } catch {
+        if (awaiting) { const job = awaiting; finish(job.observation, job.reservation, false); }
+        else notify({ event: "job_done", outcome: "skipped" });
+        socket.destroy(); return;
+      }
+      if (awaiting) {
+        const job = awaiting;
+        if (!exactKeys(observation, "seq,observationId,stored") || typeof observation.stored !== "boolean"
+          || observation.seq !== job.reservation.seq || observation.observationId !== job.observation.v1Cycle.observationId) {
+          finish(job.observation, job.reservation, false); socket.destroy(); return;
+        }
+        finish(job.observation, job.reservation, observation.stored);
+        return;
+      }
       if (!validObservation(observation)) {
         socket.destroy(); notify({ event: "job_done", outcome: "skipped" }); return;
       }
-      try {
-        const result = store.stage(observation);
-        notify({ event: "job_done", outcome: result.status === 200 ? "committed" : "skipped", ...(positiveSeq(result.seq) ? { seq: result.seq } : {}) });
-      } catch {
-        notify({ event: "disabled" });
-        socket.destroy(); server.close();
-        return;
+      if (observation.v1Cycle) {
+        let reservation;
+        try { reservation = store.reserve(observation); }
+        catch { notify({ event: "disabled" }); socket.destroy(); server.close(); return; }
+        if (reservation.status === 200) {
+          awaiting = { observation, reservation }; reset();
+          timer = setTimer(() => {
+            // The POST has already settled. Preserve a receipt even if its
+            // optional local writer is stalled; late acks cannot bind it.
+            finish(observation, reservation, false);
+            socket.destroy();
+          }, 1500);
+          socket.write(frame({ event: "v1_store", seq: reservation.seq, observationId: observation.v1Cycle.observationId }));
+          return;
+        }
+        notify({ event: "job_done", outcome: "skipped" });
+        socket.write(frame({ event: "v1_retained", retainedSeqs: store.retainedSeqs() }));
+        reset(); busy = false; socket.write(Buffer.from([0x01])); return;
       }
-      buffer = Buffer.alloc(MAX_FRAME_BYTES + 4); used = 0; length = null; busy = false;
-      if (!socket.destroyed) socket.write(Buffer.from([0x01]));
+      finish(observation, null, false);
     });
+    if (store.state) socket.write(frame({ event: "v1_retained", retainedSeqs: store.retainedSeqs() }));
     socket.write(Buffer.from([0x01]));
   });
   await new Promise((resolve, reject) => {

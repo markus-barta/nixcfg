@@ -230,7 +230,7 @@ ssh mba@hsb0.lan
 
 ## HostDash
 
-**URL**: http://hsb0/ or http://hsb0.lan/
+**URL**: http://hsb0/hostdash/ or http://hsb0.lan/hostdash/
 **Container**: `hsb0-home` | **Unit**: `hsb0-home-dashboard` | **Source**: `github.com/markus-barta/hostdash`
 
 The dashboard is mounted from `/etc/hostdash/hsb0/share/hostdash-hsb0` and
@@ -242,18 +242,34 @@ sudo systemctl restart hsb0-home-dashboard
 
 ### hausnetz (OPS-207)
 
-After activation, hausnetz is served at `http://192.168.1.99/ops/` through
-`hsb0-home`. Its `/ops` redirect keeps relative UI, API and SSE requests under
-`/ops/`; nginx strips that prefix and disables buffering for the event stream.
-The container resolves `host.docker.internal` through Docker's `host-gateway`.
-Both `/ops` and `/ops/` allow only IPv4 LAN sources in `192.168.1.0/24`;
-tailnet, IPv6 and same-host/bridge clients receive **403 by design**. The
-slashless redirect runs after the access check. `/ops/` permits bodies up to
-13 MiB for the app's 12 MiB floor-plan uploads. The more specific
-exact `/ops/api/import` location permits 257 MiB for the raw application/zip
-body capped at 256 MiB, keeps the same LAN access rules and proxy settings, and
-forwards to exactly `/api/import`. nginx hides upstream
-Cache-Control and sends a single `no-store` policy.
+After HNET-237 activation, hausnetz is the front page at `http://hsb0.lan/`.
+The host-local `docker/front-page-nginx.conf` replaces the shared vhost only
+on this host. The existing container, host-gateway mapping and mounts remain.
+`/ops` and `/ops/...` GET/HEAD requests return 301 to `/` and `/...`, preserving
+the raw escaped path, query and browser fragment. Non-GET/HEAD requests are
+internally rewritten to the root API so a legacy POST retains its method and
+body; legacy imports reach the same exact `/api/import` location as new ones.
+Both root hausnetz and old-prefix entrypoints retain the IPv4 LAN-only
+`192.168.1.0/24` policy. Tailnet, IPv6 and same-host/bridge clients receive
+403 by design; redirects run after access checks. The app keeps its 13 MiB
+limit and `/api/import` keeps 257 MiB for the raw ZIP capped at 256 MiB.
+SSE buffering/cache stay disabled, the read timeout stays one hour, and nginx
+still emits no-store, noindex/nofollow and no-referrer.
+
+HostDash remains at `/hostdash/`, including its relative `config.js`, optional
+`manifest.json` and `status/status.json`. `/status/status.json`, `/config.js`
+and `/manifest.json` remain available for old consumers and already-open
+boards. `/inflight/` and `/videos/` keep their existing aliases and policies.
+Other hosts continue using the shared HostDash vhost at `/`.
+
+Deploy and verify the hausnetz release at `/ops/` first. Then apply this nginx
+change and recreate only the front-page container through compose reconciliation.
+Keep the prior NixOS generation and pinned hausnetz revision as the rollback
+path: revert this routing commit through a review PR and rebuild using that
+pin, preserving `/var/lib/private/hausnetz`. A cached 301 still lands at `/`
+after rollback, so verify both entrypoints during rollback. Archive the live
+nginx config, previous NixOS generation and exact pin on the OPS ticket before
+activation. This draft does not update the hausnetz release pin or deploy.
 
 The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
 only on `br-+` and `docker0`, never the LAN interface. mDNS discovery opens
@@ -272,8 +288,8 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `1aefc0c30a8e001b6bf907ed3eb3ece3864e5ac6`
-(`v261019185746.0.0`, HNET-256: toolbars go compact when they don't fit their pane, UI only; module unchanged since `v261017204833.0.0`, OPS-355; the web source HNET-238 and the Starlink dish status HNET-48 keep their module defaults (on, owner-approved 2026-10-17): outgoing only, no firewall or capability change; `discovery.webCheck = false` or `starlink = false` turns either off), with `discovery.passive = true` (ARP/DHCP
+The private flake input is pinned to `41063ad31a7a3911abb3172a741a311f8ff099af`
+(`v261020103312.0.0`, HNET-252/257/258: sidebar, keyboard and sheet-focus fixes, UI + QA tooling; module unchanged since `v261017204833.0.0`, OPS-355; the web source HNET-238 and the Starlink dish status HNET-48 keep their module defaults (on, owner-approved 2026-10-17): outgoing only, no firewall or capability change; `discovery.webCheck = false` or `starlink = false` turns either off), with `discovery.passive = true` (ARP/DHCP
 listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
@@ -309,7 +325,7 @@ commit(s), restoring the previous pin
 node and the T99 pin, and restoring the `webCheck = false` line (that release has
 no `starlink` option).
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
-download a state backup from `GET /ops/api/export` on the LAN before activation;
+download a state backup from `GET /api/export` (legacy `GET /ops/api/export` redirects) on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets
 (`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
 triggers, so a normal switch recreates `hsb0-home` when any of them changes.
@@ -373,14 +389,17 @@ nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
 
 The source-path contract uses `lib.hasSuffix` so checkout/store roots may
 differ. Before accepting a deployment,
-verify `/ops/` and its event stream from the LAN, that `/ops` answers 301 to
-`/ops/` from the LAN, and that direct LAN connections to port 8377 fail. From
-the LAN, POST an `application/zip` body larger than 13 MiB to
-`/ops/api/import?dry_run=1`: it must reach the app (for example, 422 for an
-invalid archive), rather than returning nginx's 413. This checks the live
-import location after container recreation. Roll back the OPS-207 commit and rebuild
-through the normal attended deployment workflow to remove this integration;
-existing state is retained. Preparing this configuration does not deploy it.
+verify `/`, its assets, API reads/writes and `/api/events` from the LAN.
+Check `GET /ops/api/meta?check=a%2Fb&check=two` returns a 301 Location of
+`/api/meta?check=a%2Fb&check=two`, and `/ops/?check=1#/devices` reaches
+`/?check=1#/devices`. Verify `/hostdash/`, `/hostdash/config.js`,
+`/hostdash/status/status.json`, `/status/status.json`, `/inflight/` and `/videos/`.
+Confirm both root and old-prefix app requests are refused off-LAN and direct
+LAN connections to port 8377 still fail. POST an invalid `application/zip`
+body larger than 13 MiB to both `/api/import?dry_run=1` and
+`/ops/api/import?dry_run=1`: both must reach the app (422 for invalid ZIP),
+with no redirect or nginx 413. Confirm another host's board is unchanged.
+Preparing this configuration does not deploy it.
 
 ### In-flight page (OPS-353)
 
@@ -1054,19 +1073,33 @@ still fail closed: preserve state and obtain coordinator review before promotion
 See the [pusher README](../docker/joe-board-pusher/README.md) for enrollment,
 recovery and rollback. Local staging is not board acceptance or deployment.
 
+OPS-392 cycle binding keeps the stager isolated: only the pusher stores exact v1
+POST bytes under `/var/lib/joe-board-pusher/v1-cycles/<seq>.json` (0600; directory
+0700), after v1 settles and the stager reserves the sequence. Pair receipts and
+the value-free append-only receipt log bind that sequence to a unique
+`observationId`, `v1Sha256`, `v1RepliedAt` and POST outcome. A failed write or
+1500 ms acknowledgement timeout records `v1Status: "v1_unbound"`, preserving
+the POST result in `v1PostStatus`; v1 publication remains independent. The
+stager has no body mount or body frame. The pusher prunes bodies using the
+stager's retained pair sequence set (10 by default), including after reconnect;
+preserve both stores and sequence high water on rollback. The executor's
+existing read-only `/pusher-state` mount exposes `v2` and `v1-cycles` for the
+operator collector. Matching timestamps alone never establish cycle proof;
+require matching digest, sequence, observation and a successful POST receipt.
+
 Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
 `stuck` when any desk evidence is unavailable/stale, `working` for positions,
 active orders or executions on the executor's current NY day, and `sit-out`
 otherwise. Evidence comes from the pusher's existing broker position/all-open-order
 replies and completed family execution cycles, using the same dated ownership
-policy and five-minute freshness bound as its readers; unknown ownership is
+policy and shared 420-second freshness bound as its readers; unknown ownership is
 unavailable, never inferred. Read-only `reqAllOpenOrders` runs on connect and
 every 60 seconds via the existing 5-second maintenance tick, with one reply
 in flight. Each reply starts a fresh `(orderId, clientId)` set; `openOrderEnd`
 atomically replaces the previous set (even when empty) and stamps its own
 completion clock. Pending replies retain the last completed set and clock;
 without an end marker no overlapping request is sent, and the old clock expires
-after five minutes to `stuck`. Publication and cached executor order rows never
+after 420 seconds to `stuck`. Publication and cached executor order rows never
 renew it. A new connection generation discards the pending reply. Executions
 already use read-only `reqExecutions` 30 seconds after each completed cycle,
 with a 20-second request timeout and existing retry backoff; identical completed
@@ -1077,10 +1110,213 @@ executor `brakeUsage`, including DST and weekends. No executor API or code chang
 says "Valuation is not exact yet."; money remains null with `not_exact_yet`.
 KEEP rows retain their existing scope and reasons.
 
+R14 (`household-v2-switch-set-r14-202610201330`) parses completed raw IB fill
+times with the family classifier's `executionTime` path, compares epochs and
+stores canonical ISO activity times. Client 229 belongs to J from
+`2026-10-06T13:40:47Z` inclusive; one second earlier remains unowned.
+
+R15 (`household-v2-switch-set-r15-202610201500`, rollback
+`household-v2-switch-set-r14-202610201330`) adds intent-only
+attribution for the configured executor clients (700/705). The pusher reads
+`/var/lib/paper-desk-executor/ledger.json` through a read-only directory mount;
+the executor source and authority stay unchanged. Exactly one place intent's
+`result.bracket` client/parent-or-stop key, or flatten intent's submitted
+`result.flattened` client/order key, must match the execution's `(clientId,
+orderId)`. Retained rows without that key require an exact execution-ID/client/
+account lookup in the executor's own executions first. Missing/pruned evidence,
+ambiguity and desks outside the explicit table stay unclaimed; orderRef prefixes
+never assign ownership. OPS-403 applies Amy's fixed intent-desk table:
+`j → j`, `j2 → j`, `j5 → j`, `joe → joe`, `joel → joel`. The original intent
+desk is kept on the internal attributed execution as `subDesk` and in history
+evidence, with no rev 9 output field. Unknown desks emit the value-free
+`executor_intent_desk_unclaimed` event with the desk token and fixed cause only.
+KEEP is excluded first, and dated/static assignments including 229 are unchanged.
+The shared rule covers v1 valuation and v2 activity; `v2_desk_state` includes
+value-free matched/unmatched counts per executor client when available. Its
+policy hash selects a new baseline without changing retained history or files.
+
+R16 (`household-v2-switch-set-r16-202610201700`, rollback
+`household-v2-switch-set-r15-202610201500`; OPS-404) generates v2 at the worker's
+observation-receipt instant, captured at sequence reservation before the v1
+body-store handshake. Each roughly 30-second cycle advances `generatedAt` even
+when the book stays unchanged for roughly three minutes. Pair v1 and v2 by
+`v1Sha256`, never timestamp equality; v1 generation remains inside the stored v1
+body. The receipt's `generatedAdvancedAt` tracks advancing v2 generations.
+The existing durable `lastGeneratedAt` clamps the generation floor across
+restart. The sequence-state keys stay unchanged, but **r16 pairs with source
+times different from `generatedAt` are not readable by r15**: r15 requires
+account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
+source times. R15 validates every retained pair on open; leaving even one such
+pair causes `stage_storage_invalid` / `startup_invalid`.
+
+R17 candidate (`household-v2-switch-set-r17c-202610202345`; OPS-408) flips
+publication in the pusher only when the selected release set's
+`board.data_schema == "v2"`. The current v1 set retains r16d images and its exact
+environment/mounts; the source build context/restart trigger still changes with
+production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
+`joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
+r17 images in the release set and moves the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
+
+In v2 mode, only the `current.json` committed pair is eligible. The existing
+stager reader validates it and returns the exact snapshot bytes for POST.
+The pusher gets a nested read-only bind of exactly `v2`; staging stays
+network-none with a writable v2 mount. No new committed sequence means no POST,
+with no v1 fallback. V1 still produces stored evidence with
+`v1PostStatus: "not_posted_v2_active"`; only a real body-store failure uses
+`v1Status: "v1_unbound"`. OPS-392 collectors must not count either as successful
+v1 board acceptance; require a numeric successful HTTP outcome. Match v2
+acceptance by seq/body hash in the pusher-owned posting state.
+
+Preserve `/var/lib/joe-board-pusher/v2-post-state.json` (0600) outside `v2`.
+It atomically stores the last-posted sequence/hash, uncertain attempt and the
+latest 128 value-free POST outcomes, bounded to 65536 bytes. ReceivedAt is null
+when no board receipt is available; recordedAt still records the local outcome
+time. Only a greater committed sequence can advance the cursor. A 422
+`sequence_replayed` records a terminal outcome for retry/migrated-pair handling;
+OPS must migrate from the same retained bytes and preserve the allocator,
+because the response itself does not attest remote byte identity.
+
+The r17 rollback image is `household-v2-switch-set-r16d-202610201800`.
+**Before activation, r17 → r16d needs no move-aside. After activation, it does:**
+r16d's receipt validator rejects `not_posted_v2_active`, including in the
+append-only stager log. The new sibling posting-state file and its `.tmp` are
+ignored by r16d and need no move. Use the normal separately authorized,
+coordinated release-set/board rollback, with a verified private backup:
+
+1. Apply the existing executor restart guards: **0 claimed intents** and healthy
+   executor before restart, then verify health/reconciliation after it. All three
+   services share the image, so r17 selection also restarts the executor. No
+   executor admission, replay, health or ownership guard changes in r17.
+2. With pusher and stager stopped, archive **all** `v2/pair-*`, `v2/current.json`
+   and `v2/receipts.jsonl` into a new dated sibling directory outside `v2`.
+   Also copy `v1-cycles` into that archive before pruning can resume. Preserve
+   unexpected residue for review. Never put the archive inside `v2`.
+3. Keep `v2/sequence-state.json` and `v2/.allocator.lock` untouched, including
+   the lock inode, `lastReservedSeq`, `lastGeneratedAt` and gateway high-water.
+   Keep the new posting-state file and v1 evidence in place. r16d opens the
+   empty retained-pair set, creates a fresh receipt log and reserves strictly
+   above the saved high-water; no re-enrollment or log rewriting is needed.
+4. Select the retained r16d image and matching v1 board/release set through the
+   reviewed rollback path. r16d posts v1, so it cannot publish to a v2-only board.
+   Verify the new stager pair exceeds the high-water and executor health is
+   sound. Preserve the archive and posting-state file as evidence.
+
+After migrate-v2 seeds board seq N, a first flip POST can be N with identical
+bytes if no newer pair committed, or greater than N otherwise. Strictly greater
+is not guaranteed: `StageStore.reserve` durably increments `lastReservedSeq`
+before staging; `open` restores it. Preserve this allocator and migrate the
+exact retained pair. Do not claim that an independent board seed is synchronized.
+
+R16d (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
+read-only positions every 120 seconds on the existing five-second tick while
+the session is ready, issuing `cancelPositions` then `reqPositions`. Requests
+never overlap, even when an end is overdue. A fresh accumulator replaces the
+last completed position set only at `positionEnd`; missing rows disappear.
+During a reply, retain the previous completed rows and coverage clock. Partial
+positions, portfolio updates and account-download completion never refresh
+coverage. A missing end therefore fails closed at age 421 seconds. Both the
+all-desk and J family activity paths use the completed coverage clock, rather
+than accounting/mark ages. A reconnect retires the pending reply and rejects
+its late callbacks. KEEP classification and identical-input v1 POST bytes stay
+unchanged.
+
+The R16d rollback image is `household-v2-switch-set-r16-202610201700`.
+**R16d → R16 rollback needs no pair move-aside**: the stager, pair/store format,
+source-clock semantics and sequence-state keys are unchanged. Select the
+retained R16 image through the normal reviewed rollback path and preserve all
+`v2/pair-*`, `v2/current.json`, `v2/sequence-state.json`, `v2/.allocator.lock`,
+`v2/receipts.jsonl` and `v1-cycles` in place. Verify retained pairs open and the
+next sequence exceeds the saved high-water. The R16 positions-age bug returns
+on rollback; it does not justify editing source clocks or resetting the store.
+
+For an authorized **r16 → r15 rollback**, first confirm the previous NixOS
+generation selects `household-v2-switch-set-r15-202610201500`, then perform these
+steps on hsb0 (never run the rebuild on macOS):
+
+1. Stop the stager and pusher so no pair or v1 body changes during the move:
+   `sudo docker stop joe-household-v2-stage joe-board-pusher`.
+2. Move **every** `v2/pair-*` directory and `v2/current.json` into a new dated
+   backup **outside `v2`**. Keep `v2/sequence-state.json`, `v2/receipts.jsonl`,
+   `v2/.allocator.lock` and `v1-cycles` in place; never reset or re-enroll the
+   allocator. Also copy `v1-cycles` into the backup: the pusher's normal reconnect
+   pruning follows the now-empty pair set, so the archived bodies preserve the
+   moved pairs' provenance. In a root Bash shell, with both containers stopped:
+
+   ```bash
+   set -euo pipefail
+   state_root=/var/lib/joe-board-pusher
+   backup_dir="$state_root/rollback-r16-$(date -u +%Y%m%dT%H%M%SZ)"
+   mkdir -m 0700 -- "$backup_dir"
+   if [[ -d "$state_root/v1-cycles" ]]; then
+     cp -a -- "$state_root/v1-cycles" "$backup_dir/"
+   fi
+   shopt -s nullglob
+   pairs=("$state_root/v2"/pair-*)
+   if ((${#pairs[@]})); then
+     mv -- "${pairs[@]}" "$backup_dir/"
+   fi
+   if [[ -e "$state_root/v2/current.json" ]]; then
+     mv -- "$state_root/v2/current.json" "$backup_dir/"
+   fi
+   sync
+   ```
+
+   Never delete the backup or put it inside `v2`: unknown entries there fail
+   closed. Preserve any unexpected residue for coordinator review.
+
+3. Run `sudo nixos-rebuild switch --rollback`. Verify the r15 stager opens with
+   no retained pairs and continues above the saved sequence high-water; keep the
+   dated backup as evidence. No sequence or receipt-log edit is required.
+4. Accept the bounded source-clock transient: r15 uses retained `lastGeneratedAt`
+   as a floor on `book.ts`. It returns `source_time_invalid` until `book.ts`
+   reaches or passes the r16 wall-clock floor, normally within one IB account
+   update cycle (about 180 seconds with a healthy source and clock). Do not reset
+   `lastGeneratedAt`; verify a new pair commits at a higher sequence once the
+   source catches up. If the source does not advance within that cycle, investigate
+   source/clock health rather than changing the allocator.
+
+Desk reader times are fresh inclusively from v2 generation minus 420 seconds
+through generation plus 30 seconds. Missing or unparseable times are unavailable;
+older times or times beyond the future allowance are stale. Reader observations newer
+than the book stay fresh, and diagnostics use the observation clock. NAV/cash
+summary callbacks and completed position replies keep separate
+source clocks in the private handoff, so unrelated callbacks cannot renew them.
+Account `observedAt` is the oldest emitted money source; positions retain their
+coverage observation time. Legacy frames fall back to book time. A source older than 420
+seconds at generation withholds NAV/cash with `source_unavailable`; stale
+positions keep values null with that reason and clear unproven desk ownership.
+Readiness still requires a completed API reply younger than 60 seconds. At over
+420 seconds its reason is `snapshot_stale`, with `apiSessionReady:false` because
+rev 9 requires a boolean rather than null. Contracts remain revision 9.
+The shared 420-second freshness bound covers desk readers and source honesty,
+about twice IB's 180-second cadence plus margin. The separate board-side
+five-second generation allowance remains unchanged.
+
+The ownership change selects
+`/var/lib/joe-board-pusher/day-baseline.<policyHash>.json` automatically.
+Preserve legacy `day-baseline.json` and all other policy files; no retirement
+command is required on switch. Before R14, a policy mismatch blocked v1 DAY
+permanently, including across NY midnight and restart. R14 starts the new policy
+without reusing old values. V1 DAY is unavailable/null until a complete fresh
+KEEP-excluded equity vector is proven from retained execution/fee history,
+ownership, marks and FX and saved durably. That sample supplies today's fixed,
+explicitly approximate `session_open_proxy`, initially zero relative to its
+actual sample time; earlier day change is excluded. A restart keeps that
+reference. Bad/stale evidence, corrupt active-policy files and persistence
+failures stay unavailable (`day_pnl_unavailable`). The next NY calendar-day
+midnight can promote exact SOD only with a candidate no more than five minutes
+old, continuous authoritative execution coverage and the matching boundary
+history digest. Otherwise the next valid new-day sample supplies a new proxy.
+V2 `dayPnl` remains null with `not_exact_yet` through either v1 recovery path.
+R16d rollback uses `household-v2-switch-set-r16-202610201700`; preserve the legacy file
+that the old image reads and every policy-keyed file.
+
 Staging retains the newest **N=10 pairs by sequence count**, never age; the
 reviewable `StageStore.retainPairs` constant override supports 10–1024. Preserve
 `current.json`, `sequence-state.json`, `.allocator.lock` and `receipts.jsonl` on
-restart/rollback. The 0600 append-only log records one sequence/outcome
+restart. For r16 → r15 rollback, use the move-aside procedure above: preserve
+the pairs and pointer in the backup, and keep sequence state, lock and log in
+place. The 0600 append-only log records one sequence/outcome
 (`committed`, `rejected` or crash-recovered `staged`), timestamps and snapshot hash
 per staged/resolved sequence, without payload values; pruning never removes log
 records. Pruning uses checked `.retired-<seq>` tombstones for interrupted cleanup.
@@ -1091,8 +1327,11 @@ pruning; torn logs or unknown files fail closed and preserve evidence for review
 ## JoeDesk Results producer (JOED-39, enabled in config; switch pending)
 
 On 2026-10-20, JOED-39 sets `nixcfg.joeResultsProducer.enable = true` in hsb0's
-configuration. This is local preparation; Amy's approval and the OPS-354 csb0
-cutover remain gates before a host switch. No live enablement is claimed.
+configuration. The OPS-354 csb0 cutover is live since 2026-10-21 (the token-only
+`POST /joe/inbox/results` answers 401 without a token); Amy's JOED-38 sign-off and
+the JOED gate remain before the host switch. No live enablement is claimed.
+The household pusher tree (`hosts/hsb0/docker/joe-board-pusher/`, its README
+included) stays byte-identical, so the pinned pusher source is unaffected.
 The endpoint is exactly `https://cs0.barta.cm/joe/inbox/results`, on the board's
 `https://cs0.barta.cm/joe/` origin (csb0 RUNBOOK and JoeDesk README).
 `ingressHost = "cs0.barta.cm"` and `ingressAddress = "89.58.63.96"` pin TLS and
@@ -1114,8 +1353,8 @@ unverified and must pass outside this sandbox before activation. No NixOS build
 ran. The operator must also complete the paper proof and approval gates at the
 end of this section. The board deployment pin is unchanged.
 
-Until OPS-354 makes the exact token-only `POST /joe/inbox/results` route live,
-non-200 responses and refused redirects count as delivery failures. The producer
+Non-200 responses and refused redirects from `POST /joe/inbox/results` count as
+delivery failures. The producer
 keeps both journals, logs value-free diagnostics and retries with a fresh,
 durably reserved sequence and recomputed snapshot. Failure backoff grows through
 1, 2, 4, 8 and 16 seconds to a 25-second ceiling, bounded by the normal

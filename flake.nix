@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
+      url = "github:markus-barta/joedesk/6eacd6c707386cabe8245e1f97df2ef93965b394";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET-256: v261019185746.0.0 (toolbars go compact when they don't fit their pane; UI only, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 23: v261021070202.0.0 (seq 93, release PR #170: HNET-260, HNET-236 declared-server source, HNET-237); repo moved to inspr-at; explicitly reviewed revision; automated updates skip this input. Rollback: pin 22 = 41063ad (v261020103312.0.0).
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=1aefc0c30a8e001b6bf907ed3eb3ece3864e5ac6";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b07b298adbad619e2057131f0b5e7b79f30b1cf1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

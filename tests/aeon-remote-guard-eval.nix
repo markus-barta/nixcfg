@@ -37,6 +37,15 @@ if moduleOnly then
         ];
       };
     evaluated = evaluate { };
+    hostPolicy =
+      (import (root + "/hosts/mbp2606/home.nix") {
+        config = { };
+        inherit lib pkgs;
+        inputs = { };
+      }).services.aeonRemoteGuard;
+    hostEvaluated = evaluate hostPolicy;
+    hostCfg = hostEvaluated.config.services.aeonRemoteGuard;
+    hostGuard = builtins.head hostEvaluated.config.home.packages;
     cfg = evaluated.config.services.aeonRemoteGuard;
     guard = builtins.head evaluated.config.home.packages;
     custom = evaluate {
@@ -96,6 +105,15 @@ if moduleOnly then
       opsNewMaxPinned = lib.hasInfix "readonly guard_ops_new_max=2" customGuard.text;
       opsNewMaxNegativeRejected = !evaluated.options.services.aeonRemoteGuard.opsNewMax.type.check (-1);
       browserMaxDefault = cfg.browserMax == 1;
+      mbp2606BrowserMax = hostCfg.enable && hostCfg.browserMax == 2;
+      mbp2606BrowserMaxPinned = lib.hasInfix "readonly guard_browser_max=2" hostGuard.text;
+      mbp2606OtherCaps =
+        hostCfg.unitsTotal == 4
+        && hostCfg.unitsNewMax == 3
+        && hostCfg.unitsFinishingReserve == 1
+        && hostCfg.unitsNewMaxDuringBrowser == 2
+        && hostCfg.yellowBrowserMax == 0
+        && hostCfg.redBrowserMax == 0;
       browserMaxPinned = lib.hasInfix "readonly guard_browser_max=2" customGuard.text;
       browserMaxNegativeRejected = !evaluated.options.services.aeonRemoteGuard.browserMax.type.check (-1);
       unitsNewMaxDuringBrowserDefault = cfg.unitsNewMaxDuringBrowser == 2;
@@ -174,7 +192,7 @@ else
       aeonNewMax = cfg.aeonNewMax == 2;
       aitNewMax = cfg.aitNewMax == 1;
       opsNewMax = cfg.opsNewMax == 1;
-      browserMax = cfg.browserMax == 1;
+      browserMax = cfg.browserMax == 2;
       unitsNewMaxDuringBrowser = cfg.unitsNewMaxDuringBrowser == 2;
       yellowUnitsNewMax = cfg.yellowUnitsNewMax == 1;
       yellowBrowserMax = cfg.yellowBrowserMax == 0;
