@@ -64,7 +64,7 @@ const OFFICIAL_HISTORY_CLIENT_ID = 94;
 const ACCOUNT = configuredPaperAccount();
 const executorClientIds = process.env.JOE_EXECUTOR_CLIENT_IDS === undefined
   ? EXECUTOR_CLIENT_IDS : JSON.parse(process.env.JOE_EXECUTOR_CLIENT_IDS);
-let executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds });
+let executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds, remember: true });
 const deskOwnershipPolicy = { ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds };
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
@@ -155,7 +155,7 @@ const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
 
 const familyAdapter = createFamilySessionAdapter({
   summarizeActivity: state => {
-    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds, executionRows: state.executions });
+    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds, remember: true, executionRows: state.executions });
     return executionActivity(state, executorAttribution);
   },
   getExecutorAttribution: () => executorAttribution,
