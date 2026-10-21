@@ -8,6 +8,15 @@
     "SXR8"
     "TSLA"
   ],
+  groups ? {
+    users.gid = 100;
+  },
+  users ? {
+    fixture-admin = {
+      uid = 1000;
+      group = "users";
+    };
+  },
 }:
 let
   lib = import <nixpkgs/lib>;
@@ -31,6 +40,16 @@ let
           systemd.services = lib.mkOption {
             type = lib.types.attrs;
             default = { };
+          };
+          users = {
+            groups = lib.mkOption {
+              type = lib.types.attrs;
+              default = groups;
+            };
+            users = lib.mkOption {
+              type = lib.types.attrs;
+              default = users;
+            };
           };
           age.secrets = lib.mkOption {
             type = lib.types.attrs;
@@ -71,4 +90,5 @@ assert lib.assertMsg (failures == [ ]) (lib.concatMapStringsSep "; " (item: item
   capture = cfg.nixcfg.paperDeskExecutor.resultsCaptureEnabled;
   captureKeep = cfg.nixcfg.paperDeskExecutor.resultsKeepSymbols;
   services = cfg.systemd.services;
+  users = cfg.users;
 }
