@@ -33,7 +33,11 @@ def require(value, reason):
         raise AssertionError(reason)
 
 
-def hsb0_runtime(release, hsb0_config, executor_module, tree_of):
+JOEDESK_TOKENS = re.compile(r'joe|paper-desk|paperdesk|joed', re.I)
+JOEDESK_HSB0 = ('hosts/hsb0/configuration.nix', 'hosts/hsb0/docker/joe-board-pusher/')
+
+
+def hsb0_runtime(release, hsb0_config, executor_module, tree_of, changed_paths=lambda rel, rev: [], read_blob=lambda spec: ''):
     # The stager image must equal the effective pusher image of the deployed selection.
     stage_image = re.search(r'services\.joe-household-v2-stage = \{.*?image = ([^;]+);', hsb0_config, re.S)[1]
     current = release['sets']['current']
@@ -56,8 +60,17 @@ def hsb0_runtime(release, hsb0_config, executor_module, tree_of):
     require(executor_default and executor_default[1] == recorded, 'variant B executor default must be the recorded r16d image')
     rev = current.get('retention', {}).get('hsb0_pre_cutover_nixcfg_rev', '')
     require(REV.fullmatch(rev or ''), 'variant B needs the recorded pre-cutover hsb0 revision')
-    for rel in ('hosts/hsb0', 'modules/paper-desk-executor'):
-        require(tree_of('HEAD:' + rel) == tree_of(rev + ':' + rel), 'variant B must restore the recorded pre-cutover ' + rel + ' tree')
+    rel = 'modules/paper-desk-executor'
+    require(tree_of('HEAD:' + rel) == tree_of(rev + ':' + rel), 'variant B must restore the recorded pre-cutover ' + rel + ' tree')
+    # hosts/hsb0: the JoeDesk surface (configuration.nix with the pusher/stager/executor services and the
+    # pusher source tree) must equal the recorded pre-cutover revision. Other hsb0 files may move on
+    # (e.g. OPS-407's fritz-guest-uplink.nix) only if neither version mentions JoeDesk at all.
+    for path in changed_paths('hosts/hsb0', rev):
+        require(not any(path == p or (p.endswith('/') and path.startswith(p)) for p in JOEDESK_HSB0),
+                'variant B must restore the recorded pre-cutover JoeDesk surface: ' + path)
+        for version in ('HEAD', rev):
+            require(not JOEDESK_TOKENS.search(read_blob(version + ':' + path)),
+                    'variant B: a changed hosts/hsb0 file mentions JoeDesk: ' + path)
     return 'variant-b'
 
 
@@ -87,12 +100,31 @@ def variant_b_regressions():
         (rollback, restored, restored_module, lambda spec: ('0' * 40) if spec.startswith('HEAD:') else spec),
         (rollback, 'let joeRelease = x; in services.joe-household-v2-stage = { image = "literal"; };', restored_module, same),
     ]
+    changed = lambda *paths: (lambda rel, rev: list(paths))
+    blob = lambda text: (lambda spec: text)
+    scoped = [  # (changed paths, blob text): the JoeDesk surface or JoeDesk content must not move under previous
+        (changed('hosts/hsb0/configuration.nix'), blob('')),
+        (changed('hosts/hsb0/docker/joe-board-pusher/pusher.mjs'), blob('')),
+        (changed('hosts/hsb0/docker/joe-board-pusher/README.md'), blob('')),
+        (changed('hosts/hsb0/fritz-guest-uplink.nix'), blob('mounts /var/lib/joe-board-pusher')),
+        (changed('hosts/hsb0/new-unit.nix'), blob('paper-desk executor helper')),
+    ]
     for fixture, config, module, tree_of in negatives:
         try:
             hsb0_runtime(fixture, config, module, tree_of)
         except AssertionError:
             continue
         raise AssertionError('invalid hsb0 runtime state passed')
+    for changed_paths, read_blob in scoped:
+        try:
+            hsb0_runtime(rollback, restored, restored_module, same, changed_paths, read_blob)
+        except AssertionError:
+            continue
+        raise AssertionError('variant B accepted a moved JoeDesk surface')
+    # An unrelated hsb0 file (no JoeDesk content in either version) may move on under the v1 rollback.
+    require(hsb0_runtime(rollback, restored, restored_module, same, changed('hosts/hsb0/fritz-guest-uplink.nix'), blob('neigh pin for 10.255.5.2')) == 'variant-b',
+            'variant B must allow an unrelated hsb0 file to move on')
+    negatives += scoped
     print('variant_b_rollback=accepted negatives=%d' % len(negatives))
 
 
@@ -104,7 +136,15 @@ def check(source=None):
         require(release['sets']['current'][name]['image'] == HSB0_IMAGE, name + ': current image must be the r16d switch set')
     hsb0_config = (ROOT / 'hosts/hsb0/configuration.nix').read_text()
     executor_module = (ROOT / 'modules/paper-desk-executor/default.nix').read_text()
-    hsb0_runtime(release, hsb0_config, executor_module, lambda spec: subprocess.check_output(['git', 'rev-parse', spec], cwd=ROOT, text=True).strip())
+    git_out = lambda *a: subprocess.check_output(['git', *a], cwd=ROOT, text=True)
+    def read_blob(spec):
+        try:
+            return subprocess.check_output(['git', 'show', spec], cwd=ROOT, text=True, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            return ''  # absent in that version (added or removed file)
+    hsb0_runtime(release, hsb0_config, executor_module, lambda spec: git_out('rev-parse', spec).strip(),
+                 lambda rel, rev: [p for p in git_out('diff', '--name-only', rev, 'HEAD', '--', rel).splitlines() if p],
+                 read_blob)
     fixture = (ROOT / 'tests/paper-desk-executor-eval.nix').read_text()
     require(CANDIDATE_IMAGE in fixture, 'executor fixture must identify the r17 candidate')
     # The executor eval fixture must evaluate to the EFFECTIVE hsb0 pusher image of this release state.
