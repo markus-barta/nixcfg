@@ -41,8 +41,8 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects a60f4c56 (sequence 28, JOED-60) with the r18c
-pusher/executor pins (JOED-57 gateway heartbeat + CodeQL timer bound, after JOED-39 r18a); `current` retains db621bf, legacy `calendar`
+executor. `active = v2` (OPS-354 activation) selects a60f4c56 (sequence 28, JOED-60) with the r18e
+pusher/executor pins (JOED-62 attribution memory, after JOED-57 r18c gateway heartbeat + CodeQL timer bound); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
