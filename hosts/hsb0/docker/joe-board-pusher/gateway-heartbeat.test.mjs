@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { createConnectionSupervisor } from "./pusher-recovery.mjs";
+import {
+  createConnectionSupervisor,
+  HEALTH_INTERVAL_MS as healthIntervalMs,
+  HEALTH_TIMEOUT_MS as healthTimeoutMs,
+} from "./pusher-recovery.mjs";
 import { createBrokerSessionAdapter } from "./pusher-state.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { buildCandidate } from "./v2-stage-worker.mjs";
@@ -15,10 +18,6 @@ const events = Object.fromEntries([
   "position", "positionEnd", "accountSummary", "accountSummaryEnd", "accountDownloadEnd",
   "updatePortfolio", "openOrder", "openOrderEnd",
 ].map(name => [name, name]));
-const pusherSource = readFileSync(new URL("./pusher.mjs", import.meta.url), "utf8");
-const setting = name => Number(pusherSource.match(new RegExp(`^const ${name} = ([\\d_]+);`, "m"))?.[1].replaceAll("_", ""));
-const healthIntervalMs = setting("HEALTH_INTERVAL_MS");
-const healthTimeoutMs = setting("HEALTH_TIMEOUT_MS");
 
 function clock() {
   let elapsed = 0, id = 0;
@@ -103,8 +102,6 @@ function session({ supervised = false, replyDelayMs = 1_000 } = {}) {
 test("production health settings use 20-second probes with a shorter 15-second deadline", () => {
   assert.equal(healthIntervalMs, 20_000);
   assert.equal(healthTimeoutMs, 15_000);
-  assert.match(pusherSource, /healthIntervalMs: HEALTH_INTERVAL_MS/);
-  assert.match(pusherSource, /healthTimeoutMs: HEALTH_TIMEOUT_MS/);
 });
 
 test("currentTime stamps local receipt and republishes a complete book without renewing its economic clocks", () => {

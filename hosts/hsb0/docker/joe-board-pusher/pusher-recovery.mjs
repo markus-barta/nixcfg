@@ -1,8 +1,14 @@
-function positiveNumber(value, name) {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new TypeError(`${name} must be a positive finite number`);
+export const HEALTH_INTERVAL_MS = 20_000;
+export const HEALTH_TIMEOUT_MS = 15_000;
+
+const MAX_TIMER_DURATION_MS = 600_000;
+
+function timerDurationMs(value, name) {
+  // Keep an explicit bound on the returned value used by every timer.
+  if (Number.isFinite(value) && Number.isInteger(value) && value >= 1 && value <= MAX_TIMER_DURATION_MS) {
+    return value;
   }
-  return value;
+  throw new TypeError(`${name} must be an integer between 1 and ${MAX_TIMER_DURATION_MS} ms`);
 }
 
 export function createReconnectScheduler({
@@ -15,8 +21,8 @@ export function createReconnectScheduler({
   setTimer = setTimeout,
   clearTimer = clearTimeout,
 }) {
-  const base = positiveNumber(baseDelayMs ?? retryMs, "baseDelayMs");
-  const maximum = positiveNumber(maxDelayMs, "maxDelayMs");
+  const base = timerDurationMs(baseDelayMs ?? retryMs, "baseDelayMs");
+  const maximum = timerDurationMs(maxDelayMs, "maxDelayMs");
   if (maximum < base) throw new TypeError("maxDelayMs must be at least baseDelayMs");
   if (!Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1) {
     throw new TypeError("jitterRatio must be between zero and one");
@@ -48,7 +54,7 @@ export function createReconnectScheduler({
         throw new RangeError("random must return a number between zero and one");
       }
       const factor = 1 + ((sample * 2) - 1) * jitterRatio;
-      const delay = Math.max(1, Math.min(maximum, Math.round(capped * factor)));
+      const delay = timerDurationMs(Math.max(1, Math.min(maximum, Math.round(capped * factor))), "retryDelayMs");
       const scheduledAttempt = attempt + 1;
       attempt = scheduledAttempt;
       lastDelayMs = delay;
@@ -104,11 +110,11 @@ export function createConnectionSupervisor({
       typeof requestHealth !== "function") {
     throw new TypeError("createApi, attachApi and requestHealth must be functions");
   }
-  positiveNumber(connectTimeoutMs, "connectTimeoutMs");
-  positiveNumber(snapshotTimeoutMs, "snapshotTimeoutMs");
-  positiveNumber(healthIntervalMs, "healthIntervalMs");
-  positiveNumber(healthTimeoutMs, "healthTimeoutMs");
-  positiveNumber(upstreamLossDeadlineMs, "upstreamLossDeadlineMs");
+  const connectDeadlineMs = timerDurationMs(connectTimeoutMs, "connectTimeoutMs");
+  const snapshotDeadlineMs = timerDurationMs(snapshotTimeoutMs, "snapshotTimeoutMs");
+  const healthProbeIntervalMs = timerDurationMs(healthIntervalMs, "healthIntervalMs");
+  const healthReplyTimeoutMs = timerDurationMs(healthTimeoutMs, "healthTimeoutMs");
+  const upstreamLossTimeoutMs = timerDurationMs(upstreamLossDeadlineMs, "upstreamLossDeadlineMs");
 
   let activeApi = null;
   let connecting = false;
@@ -158,7 +164,7 @@ export function createConnectionSupervisor({
       snapshotTimer = null;
       if (stopped || api !== activeApi || connecting || upstreamLost) return;
       fail(api, "broker complete snapshot timed out");
-    }, snapshotTimeoutMs);
+    }, snapshotDeadlineMs);
     snapshotTimer = timer;
     return true;
   }
@@ -175,7 +181,7 @@ export function createConnectionSupervisor({
         healthResponseTimer = null;
         if (stopped || api !== activeApi || connecting || upstreamLost) return;
         fail(api, "broker socket health callback timed out");
-      }, healthTimeoutMs);
+      }, healthReplyTimeoutMs);
       try {
         requestHealth(api);
       } catch (error) {
@@ -183,7 +189,7 @@ export function createConnectionSupervisor({
         return;
       }
       scheduleHealthProbe(api);
-    }, healthIntervalMs);
+    }, healthProbeIntervalMs);
   }
 
   function scheduleUpstreamLossDeadline(api) {
@@ -195,7 +201,7 @@ export function createConnectionSupervisor({
       upstreamLossTimer = null;
       if (stopped || api !== activeApi || connecting || !upstreamLost) return;
       fail(api, "broker upstream loss deadline expired");
-    }, upstreamLossDeadlineMs);
+    }, upstreamLossTimeoutMs);
     upstreamLossTimer = timer;
     return true;
   }
@@ -246,7 +252,7 @@ export function createConnectionSupervisor({
       connectTimer = setTimer(() => {
         connectTimer = null;
         fail(api, "broker socket connection attempt timed out");
-      }, connectTimeoutMs);
+      }, connectDeadlineMs);
       api.connect();
       return true;
     } catch (error) {

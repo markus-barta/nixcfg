@@ -74,6 +74,105 @@ function virtualTimers() {
   };
 }
 
+const invalidDurations = [0, -1, NaN, Infinity, -Infinity, 600_001, 1.5];
+const productionDurations = {
+  baseDelayMs: 5_000,
+  maxDelayMs: 300_000,
+  connectTimeoutMs: 15_000,
+  snapshotTimeoutMs: 60_000,
+  healthIntervalMs: 20_000,
+  healthTimeoutMs: 15_000,
+  upstreamLossDeadlineMs: 300_000,
+};
+const supervisorCallbacks = {
+  createApi() { assert.fail("construction must not create a socket"); },
+  attachApi() {},
+  requestHealth() {},
+  setTimer() { assert.fail("construction must not arm a timer"); },
+};
+
+for (const option of Object.keys(productionDurations)) {
+  test(`supervisor rejects invalid ${option} at construction`, () => {
+    for (const value of invalidDurations) {
+      assert.throws(() => createConnectionSupervisor({
+        ...supervisorCallbacks, baseDelayMs: 1, maxDelayMs: 600_000, [option]: value,
+      }), {
+        name: "TypeError",
+        message: `${option} must be an integer between 1 and 600000 ms`,
+      }, `${option}=${value}`);
+    }
+  });
+
+  test(`supervisor accepts inclusive ${option} bounds`, () => {
+    for (const value of [1, 600_000]) {
+      const supervisor = createConnectionSupervisor({
+        ...supervisorCallbacks, baseDelayMs: 1, maxDelayMs: 600_000, [option]: value,
+      });
+      supervisor.shutdown();
+    }
+  });
+}
+
+test("supervisor accepts default and production durations without socket or timer side effects", () => {
+  for (const options of [{}, productionDurations]) {
+    createConnectionSupervisor({ ...supervisorCallbacks, ...options }).shutdown();
+  }
+});
+
+for (const option of ["baseDelayMs", "maxDelayMs", "retryMs"]) {
+  test(`reconnect scheduler rejects invalid ${option} at construction`, () => {
+    for (const value of invalidDurations) {
+      assert.throws(() => createReconnectScheduler({
+        baseDelayMs: option === "retryMs" ? undefined : 1,
+        maxDelayMs: 600_000,
+        onRetry() {},
+        [option]: value,
+      }), {
+        name: "TypeError",
+        message: `${option === "retryMs" ? "baseDelayMs" : option} must be an integer between 1 and 600000 ms`,
+      }, `${option}=${value}`);
+    }
+  });
+}
+
+test("reconnect scheduler accepts inclusive bounds, production delays and the retryMs alias", () => {
+  for (const options of [
+    { baseDelayMs: 1, maxDelayMs: 1 },
+    { baseDelayMs: 600_000, maxDelayMs: 600_000 },
+    { baseDelayMs: 5_000, maxDelayMs: 300_000 },
+    { retryMs: 1 },
+    { retryMs: 600_000 },
+  ]) {
+    const timers = fakeTimers();
+    const scheduler = createReconnectScheduler({ ...options, onRetry() {}, setTimer: timers.set, clearTimer: timers.clear });
+    scheduler.schedule();
+    assert.equal(scheduler.lastDelayMs, options.baseDelayMs ?? options.retryMs);
+    assert.equal(timers.count(scheduler.lastDelayMs), 1);
+    scheduler.stop();
+    assert.equal(timers.count(), 0);
+  }
+});
+
+test("reconnect jitter and repeated backoff remain within the duration bounds", () => {
+  for (const baseDelayMs of [1, 600_000]) {
+    for (const sample of [0, 1]) {
+      const timers = fakeTimers();
+      const scheduler = createReconnectScheduler({
+        baseDelayMs, maxDelayMs: 600_000, jitterRatio: 1, random: () => sample,
+        setTimer: timers.set, clearTimer: timers.clear, onRetry() {},
+      });
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        scheduler.schedule();
+        const delay = scheduler.lastDelayMs;
+        assert.ok(Number.isInteger(delay) && delay >= 1 && delay <= 600_000, `delay ${delay}`);
+        timers.run(delay);
+      }
+      scheduler.stop();
+      assert.equal(timers.count(), 0);
+    }
+  }
+});
+
 test("reconnect scheduler deduplicates and ramps to its cap until stable reset", () => {
   const timers = fakeTimers();
   const fired = [];
