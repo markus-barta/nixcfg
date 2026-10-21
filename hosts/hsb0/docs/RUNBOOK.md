@@ -262,14 +262,32 @@ and `/manifest.json` remain available for old consumers and already-open
 boards. `/inflight/` and `/videos/` keep their existing aliases and policies.
 Other hosts continue using the shared HostDash vhost at `/`.
 
-Deploy and verify the hausnetz release at `/ops/` first. Then apply this nginx
-change and recreate only the front-page container through compose reconciliation.
+OPS-413 activated the root route on 2026-10-21. Verify subsequent hausnetz
+releases at `/`; `/ops/` remains a legacy redirect and compatibility test.
 Keep the prior NixOS generation and pinned hausnetz revision as the rollback
 path: revert this routing commit through a review PR and rebuild using that
 pin, preserving `/var/lib/private/hausnetz`. A cached 301 still lands at `/`
 after rollback, so verify both entrypoints during rollback. Archive the live
 nginx config, previous NixOS generation and exact pin on the OPS ticket before
 activation. This draft does not update the hausnetz release pin or deploy.
+
+HostDash's hsb0 package override keeps the hausnetz card's URL and same-host
+path at `/`. Runtime status adds `hausnetz.service`, `ncps-warmer.timer`,
+`ib-gateway-session.timer`, `uptime-kuma.service`, `compose-hsb0-update.timer`
+and `lg-devmode-renew.timer` to `services.hostdash.status.units`. Uptime Kuma
+is a native NixOS service here, not a compose container. These are lifecycle
+states; an active timer proves scheduling, not the success of its last run.
+In flight binds to its real serving container, `hsb0-home`, which the status
+generator already enumerates. Its HTTP check probes `http://127.0.0.1:80/inflight/`
+under `http.hsb0-home`, measuring the page separately from nginx's container state.
+No MQTT extra is needed.
+
+After switching, GET `/config.js` (also `/hostdash/config.js`): hausnetz must
+declare `url: "http://hsb0.lan/"` and `path: "/"`, and In flight must declare
+`container: "hsb0-home"`. After the next status tick (normally within 70 seconds),
+GET `/status/status.json`: check the six `units` entries above, the existing
+`containers.hsb0-home` entry and `http.hsb0-home` with the page's actual HTTP code.
+An inactive unit or HTTP failure must remain visible; presence is not health.
 
 The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
 only on `br-+` and `docker0`, never the LAN interface. mDNS discovery opens
