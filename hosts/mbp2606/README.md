@@ -114,6 +114,10 @@ occupied while off or paused. Mode and group are set before rename; group lookup
 or ownership failures skip the write. The
 `aeon-builder-busy` launchd agent runs the hidden `aeon-builder busy-file` command
 every 60 seconds and at load, keeping the timestamp fresh without a controller.
+It runs as `ci` whenever the builder module is enabled, regardless of pool mode;
+an off pool with no occupied slots reports `0/4 <unix-epoch>`, using the same
+state snapshot and slot count as `aeon-builder status`. No GitHub credentials,
+API calls or Lima inspection are needed by the refresh command.
 Set `busyFileRefresh = false` to disable that agent. Its logs live alongside the
 controller logs in `~/.local/state/aeon-builder`. The last write error is saved
 in `busy-file.lasterror`; repeated failures log only when the error changes,
@@ -293,7 +297,7 @@ and `phase` alongside `reserved` and live `pid` lines.
 | New units (`unitsNewMax`)                                        | 3                                             |
 | Finishing units (`unitsFinishingReserve`)                        | 1                                             |
 | New units per lane (`aeonNewMax`, `aitNewMax`, `opsNewMax`)      | 2 / 1 / 1                                     |
-| Browsers across lanes and phases (`browserMax`)                  | 1                                             |
+| Browsers across lanes and phases (`browserMax`)                  | 2 (mbp2606 override; module default 1)        |
 | New units while any browser is live (`unitsNewMaxDuringBrowser`) | 2, including a new browser                    |
 | Fresh YELLOW policy                                              | new ≤ 1, browsers = 0                         |
 | Fresh RED policy                                                 | new = 0, browsers = 0; finishing reserve only |
@@ -353,8 +357,12 @@ seconds discards the entire override. Stale files produce no warning.
 The wrapper pins all Nix options; caller
 environment variables cannot retune production admission.
 
-The browser counts as one of the two new units allowed by
-`units_new_max_during_browser`: a new browser can run beside one new pool test.
+Each browser counts as one of the two new units allowed by
+`units_new_max_during_browser`, which stays at 2: two new browsers can run
+together, or one new browser beside one new pool test. A third new unit is
+refused while a browser is live. Browsers in the finishing phase still count
+against `browserMax`; the total cap remains 4 and the finishing reserve stays at 1.
+Fresh YELLOW and RED policies still allow no browser admissions.
 `browser_hold_max_min` (20 minutes) is a client obligation, enforced by the
 harness timeout. The guard does not enforce browser duration; a live adopted
 browser holds its slot until the client stops and releases it.
@@ -377,7 +385,16 @@ nix run home-manager -- switch --flake ".#mba@mbp2606"
 
 # Mailina's account
 nix run home-manager -- switch --flake ".#mailina@mbp2606"
+
+# Dedicated runner account (run as ci)
+nix run home-manager -- switch --flake ".#ci@mbp2606"
 ```
+
+For OPS-409, switch Home Manager as both `mba` (browser cap) and `ci` (the
+independent busy-file writer and launchd agent). Run the commands from each
+user's owned checkout containing the reviewed commit. No nix-darwin switch or
+`mailina` switch is required for these changes. The writer refreshes at agent
+load even when the pool is off; it does not turn the pool on.
 
 ### First activation from a shared checkout (NIX-216)
 

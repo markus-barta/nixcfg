@@ -60,10 +60,7 @@ for (const schema of fs.readdirSync(path.join(root, "contracts")).filter(n => n.
 });
 
 function hostEval(t, source, enabled, filtered = false) {
-  const directory = path.join(temp(t), "hsb0");
-  fs.mkdirSync(directory);
-  fs.mkdirSync(path.join(directory, "../csb0"));
-  fs.copyFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), path.join(directory, "../csb0/joedesk-release.json"));
+  const directory = temp(t);
   const host = path.join(directory, "configuration.nix");
   fs.writeFileSync(host, source.replace("joeHouseholdV2StageEnabled = true;", `joeHouseholdV2StageEnabled = ${enabled};`));
   fs.mkdirSync(path.join(directory, "docker/joe-board-pusher"), { recursive: true });

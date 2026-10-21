@@ -8,8 +8,6 @@
   ...
 }:
 let
-  joeRelease = builtins.fromJSON (builtins.readFile ../csb0/joedesk-release.json);
-  joeSet = joeRelease.sets.${joeRelease.active};
   # OPS-392: disable only staging for rollback; preserve its durable high water.
   joeHouseholdV2StageEnabled = true;
   hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
@@ -85,7 +83,6 @@ let
     "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
   ];
 in
-assert joeSet.pusher != null && joeSet.executor != null;
 {
   imports = [
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
@@ -222,7 +219,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
             build = "${joeBoardPusherSource}";
             image =
               if joeHouseholdV2StageEnabled then
-                joeSet.pusher.image
+                "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800"
               else
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
