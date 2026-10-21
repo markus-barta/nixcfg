@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (pusher, stager and executor runtime; OPS-404). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700`.
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -37,88 +37,14 @@ state, pair schema and source-clock semantics are unchanged. Preserve pairs,
 the current pointer, sequence high-water, lock, receipt log and v1 bodies.
 The separate R16 → R15 move-aside procedure remains required in the host runbook.
 
-## household.v2 publication switch (OPS-408)
-
-Only the pusher can POST. hsb0 adds `JOE_PUSH_SCHEMA=inspr.joe.household.v2`
-iff the selected release set's `board.data_schema` is `v2`. An absent or any
-other value retains v1 POST bytes, logs and cycle records. Pusher, stager and
-executor images all follow that release set; the candidate tag alone activates
-nothing. The build context and restart trigger still capture every production
-`.mjs`; changing source changes the host derivation even before activation.
-`T100-joedesk-release.py --prove-current` compares the complete v1 runtime
-against `2eb3953e` with `build` removed, and evaluates a synthetic r17 v2 set.
-
-Each v2 cycle uses `StageStore.readCommittedPair()`: `current.json` is the
-stager's commit marker, and its existing `readPair` validates the closed pair,
-receipt, contract digest and snapshot hash. The publisher reads only the pair
-named by that marker, never reservations, `.next-*`, temporary files or a newer
-uncommitted `pair-*`. It sends the validated file's original Buffer, without
-JSON reserialization or field edits, with the existing Bearer/Content-Type
-headers. The pusher's nested bind of exactly `/var/lib/joe-board-pusher/v2` is
-read-only only in v2 mode, covering the existing writable parent mount. The
-stager retains its writable v2 mount and `network_mode = "none"`.
-
-The pusher owns `/var/lib/joe-board-pusher/v2-post-state.json` (0600, outside
-`v2`). One fsync/rename/directory-fsync transaction stores `lastPosted`, a
-pending sequence/body digest reserved before transmission, and the latest
-**128 POST outcomes**, with a hard **65536-byte** bound. Keeping receipts with
-the cursor makes their settlement atomic and independent of stager pruning.
-Outcomes contain only status, seq, generatedAt, receivedAt (null when absent),
-recordedAt, bodySha256 and a closed outcome. No body, token, raw response or
-account value is logged. Its recognized `.tmp` sibling is safely overwritten
-after ownership/mode/link checks following a pre-rename crash.
-
-A new process sends the newest committed pair; thereafter only a sequence above
-the durable cursor is eligible. One send stays in flight. Uncertain replies
-retry committed bytes, never regenerate them. A 422 `sequence_replayed` is a
-terminal recorded outcome, covering an identical retry or the exact pair seeded
-by migrate-v2. That response alone cannot prove remote byte identity; OPS must
-seed the board from this same retained pair and preserve the allocator. Other
-failures retain the pending fingerprint for retry. Missing/corrupt pairs or
-posting state fail closed; no new committed sequence means no POST and never a
-v1 fallback. An old pair's original generation stays old, so the board's own
-freshness expiry remains honest.
-
-V1 is still computed and stored in `v1-cycles/<seq>.json` through the existing
-handoff. Its receipt's `v1PostStatus` is `not_posted_v2_active`; after a successful
-body write `v1Status` has that same value. `v1_unbound` still means an actual
-storage/binding failure and never means intentional non-publication. The shared
-cycle validators accept the new status, so collector hash/sequence/observation
-binding still works. OPS-392 evidence collectors must require a numeric successful
-v1 HTTP status for v1 acceptance: `not_posted_v2_active` proves stored v1 evidence
-only, never board acceptance. V2 acceptance comes from the matching body hash and
-sequence in `v2-post-state.json` outcomes.
-
-After migrate-v2 seeds seq N from the retained committed pair, the first flip
-POST can be **N with identical bytes**, or **greater than N** if staging advanced.
-It is not guaranteed to be strictly greater. `StageStore.reserve` increments
-and durably writes `sequence-state.json.lastReservedSeq` before publishing a
-pair; `open` restores and validates that high-water. This requires preserving
-the same allocator and using the exact pair for migration, not an independent
-seed or re-enrollment.
-
-Run the real board contract test with `JOEDESK_CHECKOUT` pointing at the pinned
-read-only d36b5295 checkout. It skips explicitly when unset. The normal path
-starts a loopback HTTP server; where the sandbox denies listen, the explicit
-`JOEDESK_CONTRACT_TRANSPORT=in-process` path dispatches through the real
-`createJoeServer` request handler and storage. Report that path separately:
-it proves server acceptance/retention, not socket transport.
-
-R17 → r16d needs no move-aside before v2 activation. After activation, r16d
-rejects the new receipt status; archive all retained pairs, current pointer and
-stager receipt log outside `v2`, preserving sequence state and lock. See the
-host RUNBOOK for the coordinated rollback, including board schema and executor
-guards. The new posting-state file is ignored by r16d.
-
 ## household.v2 switch-set staging (OPS-392)
 
 The existing `joeHouseholdV2StageEnabled` flag enables the independent
 `joe-household-v2-stage` service in the Phase A candidate. The Results producer
 remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
-adds useful account and position evidence to local staging. The stager itself
-never POSTs; the separate pusher switch above controls publication. PAPER only;
-live remains locked. In v1 mode all accounting, token source, POST bytes and
-interval remain unchanged. Desk money and totals
+adds useful account and position evidence to local staging; it adds no v2 POST
+selector. PAPER only; live remains locked. All v1 accounting,
+token source, POST bytes and interval remain unchanged. Desk money and totals
 stay null with `not_exact_yet`. Desk activity uses the existing read-only broker
 replies; no executor API request or executor change is added. Historical evidence
 and accounting remain omitted.
@@ -673,8 +599,8 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r17c-202610202345`; the retained
-rollback image is `household-v2-switch-set-r16d-202610201800`.
+The candidate image is `household-v2-switch-set-r16d-202610201800`; the retained
+rollback image is `household-v2-switch-set-r16-202610201700`.
 
 R15 attributes executor-route executions through the executor's own intent
 ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same
