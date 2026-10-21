@@ -981,11 +981,12 @@ This client privacy stub does not replace SSO or private-port enforcement.
 README item 4 adds no route exemption beyond the existing token inbox and
 item 1's exact GET/HEAD health.
 
-### Separate Results ingress proposal — pending LEAD confirmation
+### Separate Results ingress (OPS-354 item 5) — live since 2026-10-21
 
-OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. The retry candidate 6eacd6c7 (like d36b5295 before it)
-includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
+OPS-354 item 5 deliberately exceeds README P6b item 4. It went live with the OPS-354
+cut-over on 2026-10-21 (a token-less POST answers 401) and is the JOED-39 Results producer's
+target. The live board 040d6756 (sequence 27; like 6eacd6c7 and d36b5295 before it)
+includes JOED-27's merged ingress implementation (b323c0a).
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`
