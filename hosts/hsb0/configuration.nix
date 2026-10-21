@@ -124,6 +124,10 @@ assert joeSet.pusher != null && joeSet.executor != null;
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
+    # HNET-236 (pin 23): the HostDash declaration for this host is read-only enrichment (GET only, no
+    # proxies, no redirects, 4 s timeout, 1 MiB/64 KiB caps, outside the instance lock); the key is
+    # the HostDash declaration name, the base keeps /config.js and /status/ at the root after OPS-413.
+    hostdashSources."hsb0" = "http://192.168.1.99/";
     firewallInterfaces = [
       "br-+"
       "docker0"
