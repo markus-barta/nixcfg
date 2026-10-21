@@ -175,7 +175,9 @@ assert joeSet.pusher != null && joeSet.executor != null;
   ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
   # JOED-39: paper-only Results producer to csb0's v2 inbox (OPS-354); switch gates in the RUNBOOK.
   nixcfg.joeResultsProducer = {
-    enable = true;
+    # The inbox route exists only on the v2 board: a rollback to v1 (active != "v2") turns the producer off
+    # in the same hsb0 switch, so the bearer is never posted to a missing route (JOED nix1059 gate).
+    enable = joeRelease.active == "v2";
     endpoint = "https://cs0.barta.cm/joe/inbox/results";
     ingressHost = "cs0.barta.cm";
     # csb0's declarative public IPv4: hosts/csb0/configuration.nix, ens3.
