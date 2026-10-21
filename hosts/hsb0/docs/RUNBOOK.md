@@ -230,7 +230,7 @@ ssh mba@hsb0.lan
 
 ## HostDash
 
-**URL**: http://hsb0/ or http://hsb0.lan/
+**URL**: http://hsb0/hostdash/ or http://hsb0.lan/hostdash/
 **Container**: `hsb0-home` | **Unit**: `hsb0-home-dashboard` | **Source**: `github.com/markus-barta/hostdash`
 
 The dashboard is mounted from `/etc/hostdash/hsb0/share/hostdash-hsb0` and
@@ -242,18 +242,34 @@ sudo systemctl restart hsb0-home-dashboard
 
 ### hausnetz (OPS-207)
 
-After activation, hausnetz is served at `http://192.168.1.99/ops/` through
-`hsb0-home`. Its `/ops` redirect keeps relative UI, API and SSE requests under
-`/ops/`; nginx strips that prefix and disables buffering for the event stream.
-The container resolves `host.docker.internal` through Docker's `host-gateway`.
-Both `/ops` and `/ops/` allow only IPv4 LAN sources in `192.168.1.0/24`;
-tailnet, IPv6 and same-host/bridge clients receive **403 by design**. The
-slashless redirect runs after the access check. `/ops/` permits bodies up to
-13 MiB for the app's 12 MiB floor-plan uploads. The more specific
-exact `/ops/api/import` location permits 257 MiB for the raw application/zip
-body capped at 256 MiB, keeps the same LAN access rules and proxy settings, and
-forwards to exactly `/api/import`. nginx hides upstream
-Cache-Control and sends a single `no-store` policy.
+After HNET-237 activation, hausnetz is the front page at `http://hsb0.lan/`.
+The host-local `docker/front-page-nginx.conf` replaces the shared vhost only
+on this host. The existing container, host-gateway mapping and mounts remain.
+`/ops` and `/ops/...` GET/HEAD requests return 301 to `/` and `/...`, preserving
+the raw escaped path, query and browser fragment. Non-GET/HEAD requests are
+internally rewritten to the root API so a legacy POST retains its method and
+body; legacy imports reach the same exact `/api/import` location as new ones.
+Both root hausnetz and old-prefix entrypoints retain the IPv4 LAN-only
+`192.168.1.0/24` policy. Tailnet, IPv6 and same-host/bridge clients receive
+403 by design; redirects run after access checks. The app keeps its 13 MiB
+limit and `/api/import` keeps 257 MiB for the raw ZIP capped at 256 MiB.
+SSE buffering/cache stay disabled, the read timeout stays one hour, and nginx
+still emits no-store, noindex/nofollow and no-referrer.
+
+HostDash remains at `/hostdash/`, including its relative `config.js`, optional
+`manifest.json` and `status/status.json`. `/status/status.json`, `/config.js`
+and `/manifest.json` remain available for old consumers and already-open
+boards. `/inflight/` and `/videos/` keep their existing aliases and policies.
+Other hosts continue using the shared HostDash vhost at `/`.
+
+Deploy and verify the hausnetz release at `/ops/` first. Then apply this nginx
+change and recreate only the front-page container through compose reconciliation.
+Keep the prior NixOS generation and pinned hausnetz revision as the rollback
+path: revert this routing commit through a review PR and rebuild using that
+pin, preserving `/var/lib/private/hausnetz`. A cached 301 still lands at `/`
+after rollback, so verify both entrypoints during rollback. Archive the live
+nginx config, previous NixOS generation and exact pin on the OPS ticket before
+activation. This draft does not update the hausnetz release pin or deploy.
 
 The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
 only on `br-+` and `docker0`, never the LAN interface. mDNS discovery opens
@@ -309,7 +325,7 @@ commit(s), restoring the previous pin
 node and the T99 pin, and restoring the `webCheck = false` line (that release has
 no `starlink` option).
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
-download a state backup from `GET /ops/api/export` on the LAN before activation;
+download a state backup from `GET /api/export` (legacy `GET /ops/api/export` redirects) on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets
 (`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
 triggers, so a normal switch recreates `hsb0-home` when any of them changes.
@@ -373,14 +389,17 @@ nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
 
 The source-path contract uses `lib.hasSuffix` so checkout/store roots may
 differ. Before accepting a deployment,
-verify `/ops/` and its event stream from the LAN, that `/ops` answers 301 to
-`/ops/` from the LAN, and that direct LAN connections to port 8377 fail. From
-the LAN, POST an `application/zip` body larger than 13 MiB to
-`/ops/api/import?dry_run=1`: it must reach the app (for example, 422 for an
-invalid archive), rather than returning nginx's 413. This checks the live
-import location after container recreation. Roll back the OPS-207 commit and rebuild
-through the normal attended deployment workflow to remove this integration;
-existing state is retained. Preparing this configuration does not deploy it.
+verify `/`, its assets, API reads/writes and `/api/events` from the LAN.
+Check `GET /ops/api/meta?check=a%2Fb&check=two` returns a 301 Location of
+`/api/meta?check=a%2Fb&check=two`, and `/ops/?check=1#/devices` reaches
+`/?check=1#/devices`. Verify `/hostdash/`, `/hostdash/config.js`,
+`/hostdash/status/status.json`, `/status/status.json`, `/inflight/` and `/videos/`.
+Confirm both root and old-prefix app requests are refused off-LAN and direct
+LAN connections to port 8377 still fail. POST an invalid `application/zip`
+body larger than 13 MiB to both `/api/import?dry_run=1` and
+`/ops/api/import?dry_run=1`: both must reach the app (422 for invalid ZIP),
+with no redirect or nginx 413. Confirm another host's board is unchanged.
+Preparing this configuration does not deploy it.
 
 ### In-flight page (OPS-353)
 
