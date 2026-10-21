@@ -5,6 +5,7 @@ export { createDeskStateReporter } from "../desk-activity.mjs";
 export { J_DATED_CLIENT_ASSIGNMENTS } from "../execution-history.mjs";
 export { CURRENT_DESK_OWNERSHIP_POLICY } from "../desk-ledger.mjs";
 export { EXECUTOR_CLIENT_IDS, createExecutorAttribution } from "../executor-attribution.mjs";
+export { HEALTH_INTERVAL_MS, HEALTH_TIMEOUT_MS } from "../pusher-recovery.mjs";
 export const readExecutorAttribution = () => null;
 
 let state;
