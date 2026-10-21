@@ -9,7 +9,7 @@ import { mergeExecutionRecords } from "./family-ledger.mjs";
 import { EXECUTOR_CLIENT_IDS, createExecutorAttribution, isExecutorClient } from "./executor-attribution.mjs";
 import { createFileExecutorAttributionMemory, readBoundedJson } from "./executor-attribution-memory.mjs";
 
-const SNAPSHOT_ROOTS = Object.freeze(["/dev/shm/recovery", "/tmp/recovery", "/recovery"]);
+export const SNAPSHOT_ROOTS = Object.freeze(["/dev/shm/recovery", "/tmp/recovery", "/recovery"]);
 
 function readSnapshot(snapshotFile, allowedRoots) {
   if (typeof snapshotFile !== "string" || !path.isAbsolute(snapshotFile)) throw new Error("seed snapshot unavailable");
