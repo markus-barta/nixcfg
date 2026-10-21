@@ -13,7 +13,18 @@ let
   joePushV2 = joeSet.board.data_schema == "v2";
   # OPS-392: disable only staging for rollback; preserve its durable high water.
   joeHouseholdV2StageEnabled = true;
-  hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
+  # HNET-236/237: keep the pinned board aligned with this host's routes and status.
+  hostdashHsb0 =
+    inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0.overrideAttrs
+      (old: {
+        postInstall = (old.postInstall or "") + ''
+          substituteInPlace "$out/share/hostdash-hsb0/config.js" \
+            --replace-fail 'url: "http://hsb0.lan/ops/", sameHost: true, path: "/ops/"' \
+                           'url: "http://hsb0.lan/", sameHost: true, path: "/"' \
+            --replace-fail 'name: "In flight", purpose:' \
+                           'name: "In flight", container: "hsb0-home", purpose:'
+        '';
+      });
   joeBoardPusherSource = lib.cleanSourceWith {
     name = "joe-board-pusher-source";
     src = ./docker/joe-board-pusher;
@@ -1339,8 +1350,10 @@ assert joeSet.pusher != null && joeSet.executor != null;
   services.hostdash.status = {
     enable = true;
     host = "hsb0";
+    # In flight is a static alias served by hsb0-home, not a systemd service.
     httpProbes = {
       "adguardhome.service" = "http://127.0.0.1:3000/";
+      hsb0-home = "http://127.0.0.1:80/inflight/";
       ncps = "http://127.0.0.1:8501/";
       openclaw-gateway = "https://127.0.0.1:18789/";
       speedtest-tracker = "http://127.0.0.1:8765/";
@@ -1350,6 +1363,12 @@ assert joeSet.pusher != null && joeSet.executor != null;
       # down, every hostname on the network dies with it, and a dashboard that could
       # not see that would be worse than useless.
       "adguardhome.service"
+      "hausnetz.service"
+      "ncps-warmer.timer"
+      "ib-gateway-session.timer"
+      "uptime-kuma.service" # native NixOS service; not a compose container
+      "compose-hsb0-update.timer"
+      "lg-devmode-renew.timer"
       # The UPS daemon (NIX-135: the APC unit itself is faulty and is being replaced
       # by an Eaton, at which point this becomes NUT — see NIX-297).
       #

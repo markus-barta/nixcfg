@@ -110,13 +110,14 @@ for host in hsb0 hsb1; do
   fi
 done
 
-[[ "$(sed -n '/httpProbes = {/,/^[[:space:]]*};/p' "$repo_root/hosts/hsb0/configuration.nix" | grep -c '127\.0\.0\.1')" == 4 ]] ||
+[[ "$(sed -n '/httpProbes = {/,/^[[:space:]]*};/p' "$repo_root/hosts/hsb0/configuration.nix" | grep -c '127\.0\.0\.1')" == 5 ]] ||
   fail hsb0_probe_count
 [[ "$(sed -n '/httpProbes = {/,/^[[:space:]]*};/p' "$repo_root/hosts/hsb1/configuration.nix" | grep -c '127\.0\.0\.1')" == 10 ]] ||
   fail hsb1_probe_count
 
 expected_probes=(
   'hsb0|"adguardhome.service" = "http://127.0.0.1:3000/";'
+  'hsb0|hsb0-home = "http://127.0.0.1:80/inflight/";'
   'hsb0|ncps = "http://127.0.0.1:8501/";'
   'hsb0|openclaw-gateway = "https://127.0.0.1:18789/";'
   'hsb0|speedtest-tracker = "http://127.0.0.1:8765/";'
@@ -141,4 +142,4 @@ done
 [[ "$(grep -Fc 'run: tests/T52-hostdash-http-status.sh' "$workflow")" == 1 ]] ||
   fail ci_wiring_count
 
-printf 'hostdash_http_status=ok probes=%s\n' 14
+printf 'hostdash_http_status=ok probes=%s\n' 15
