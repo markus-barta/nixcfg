@@ -265,8 +265,8 @@ def verify_pinned_build(contract: dict[str, Any], release: dict[str, Any] | None
         "rendered image name must contain the full locked JoeDesk revision",
     )
     require(
-        service.get("pull_policy") == "never",
-        "JoeDesk must reuse the prestaged exact-source image (pull_policy never) in every release set",
+        service.get("pull_policy") == ("never" if release["active"] == "previous" else "build"),
+        "JoeDesk must use the active release's build/retained-image policy",
     )
     build = service.get("build")
     require(
