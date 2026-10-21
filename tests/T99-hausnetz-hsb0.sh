@@ -174,17 +174,17 @@ for location in (app, archive):
         assert directive in location, directive
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = '41063ad31a7a3911abb3172a741a311f8ff099af'
-assert f'git+ssh://git@github.com/markus-barta/hausnetz?rev={pin}' in Path('flake.nix').read_text()
+pin = 'b07b298adbad619e2057131f0b5e7b79f30b1cf1'  # HNET pin 23 (v261021070202.0.0); repo moved to inspr-at
+assert f'git+ssh://git@github.com/inspr-at/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
 node = lock['nodes']['hausnetz']
 assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
-    assert node[source]['url'] == 'ssh://git@github.com/markus-barta/hausnetz'
-assert node['locked']['narHash'] == 'sha256-UxZZC5+A8ane4m3WYqIc8kNP99fpRQj1HCNzOSsObtY='
-assert node['locked']['lastModified'] == 1792493534
+    assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
+assert node['locked']['narHash'] == 'sha256-BHN/xPG3W4pAIIebej9RzN+ZRO3aEbXILOiaMeP3XgI='
+assert node['locked']['lastModified'] == 1792568358
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
