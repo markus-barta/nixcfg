@@ -253,7 +253,7 @@ test("responsive callbacks cannot extend the complete-snapshot deadline", () => 
 
   timers.run(50);
   assert.equal(healthRequests, 1);
-  supervisor.socketActivity(apis[0]); // currentTime response
+  supervisor.socketActivity(apis[0], "currentTime");
   supervisor.socketActivity(apis[0]); // partial financial callback
   assert.equal(timers.id(200), deadlineId);
 
@@ -278,7 +278,7 @@ test("responsive callbacks cannot extend the complete-snapshot deadline", () => 
   assert.equal(timers.count(), 0);
 });
 
-test("real callback activity satisfies health and shutdown cancels every timer", () => {
+test("currentTime satisfies health and shutdown cancels every timer", () => {
   const timers = fakeTimers();
   const api = new FakeApi();
   let healthRequests = 0;
@@ -301,7 +301,7 @@ test("real callback activity satisfies health and shutdown cancels every timer",
   timers.run(1_000);
   assert.equal(healthRequests, 1);
   assert.equal(timers.count(50), 1);
-  supervisor.socketActivity(api);
+  supervisor.socketActivity(api, "currentTime");
   assert.equal(timers.count(50), 0);
   assert.equal(timers.count(1_000), 1);
   supervisor.upstreamUnavailable(api);
@@ -462,7 +462,7 @@ test("reviewer repro: 2110 with recurring 2104 and financial callbacks still rec
     now: () => new Date(timers.now).toISOString(),
     hooks: {
       onConnected: ({ api }) => supervisor.socketConnected(api),
-      onSocketActivity: ({ api }) => supervisor?.socketActivity(api),
+      onSocketActivity: ({ api, event }) => supervisor?.socketActivity(api, event),
       onStableData: ({ api }) => supervisor.stable(api),
       onReconnectNeeded: ({ api, reason }) => supervisor.reconnect(api, reason),
       onUpstreamUnavailable: ({ api }) => supervisor.upstreamUnavailable(api),

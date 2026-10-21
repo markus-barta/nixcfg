@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18a-202610210946` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18b-202610211147` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -31,6 +31,14 @@ cannot prove a complete position set and never renew its clock. Both all-desk
 and J family activity use this clock, independently of accounting/mark ages.
 A missing end ages coverage out after 420 seconds (stale at 421 seconds).
 KEEP classification and v1 projection/POST bytes for identical inputs stay unchanged.
+
+R16e renews the gateway confirmation with a read-only `reqCurrentTime` heartbeat
+every 20 seconds, independently of other socket traffic. Only the current
+generation's reply on an established, connected target-account session advances
+`apiReplyCheckedAt`, using its local receipt time and the existing readiness-gated
+publication path. Position coverage stays on its 120-second cadence; heartbeat
+replies never renew position, account-summary or mark source clocks. Missing
+replies leave the check to age out under the unchanged 60-second readiness rule.
 
 R16d → R16 rollback needs no pair move-aside: the stager, persisted sequence
 state, pair schema and source-clock semantics are unchanged. Preserve pairs,
@@ -207,8 +215,9 @@ Expired position coverage leaves all values null with `source_unavailable`,
 clears unproven desk ownership, and sets the coverage reason accordingly.
 
 Gateway readiness requires a completed account-matched account-summary or
-positions API reply. TCP, account download, login and currentTime activity are
-insufficient. `checkedAt` is that callback's local receipt instant. Both its age
+positions API reply, or a current-generation `currentTime` heartbeat reply on
+an established target-account session. TCP, account download and login alone are
+insufficient. `checkedAt` is the qualifying reply's local receipt instant. Both its age
 at source generation and at staging receipt must be nonnegative and under 60s.
 Old, future and stale replies are not ready; account money is then withheld.
 With no completed reply, omit gateway rather than fabricate a timestamp.
@@ -216,9 +225,8 @@ The worker mirrors the board's post-acceptance checkedAt regression gate and
 fsyncs its nonfuture high-water before publishing; equal checks are accepted.
 Future replies never advance this durable watermark. A check ahead of receipt
 but within a skewed generation skips the whole pair to avoid disagreeing with
-the board's generatedAt-relative watermark. Gateway readiness still requires a
-completed positions or account-summary reply; the read-only order refresh below
-does not renew it. Readiness expires when no qualifying reply renews it.
+the board's generatedAt-relative watermark. The read-only order refresh below
+does not renew readiness. Readiness expires when no qualifying reply renews it.
 Checks older than 420 seconds use `snapshot_stale`. Rev 9 requires a boolean
 `apiSessionReady`, so unavailable readiness is represented by `false` plus its
 reason; the contract does not allow a null readiness flag. The stricter existing
@@ -482,8 +490,12 @@ book clears it. A declared upstream outage pauses that deadline while real inbou
 callbacks remain unable to extend a separate absolute five-minute deadline measured
 from the first loss notice. If no restoration notice arrives, that deadline retires
 the generation through the same capped retry supervisor even when informational or
-dropped financial callbacks keep arriving. Otherwise, an idle socket must answer a
-non-financial current-time probe. Shutdown cancels every connection, snapshot,
+dropped financial callbacks keep arriving. Otherwise, the supervisor sends a
+read-only current-time probe every 20 seconds even while other callbacks arrive.
+The unchanged 15-second response deadline is shorter than that interval. Only
+`currentTime` satisfies it; unrelated activity cannot hide a missing reply.
+One probe stays in flight; a timeout retires its generation through the existing
+retry path before the next probe can run. Shutdown cancels every connection, snapshot,
 upstream-loss, health, and retry timer.
 
 Stage-0 money excludes grandfathered paper SXR8 lot + leftover TSLA×1 (CONFIG.md) from
