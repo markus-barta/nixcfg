@@ -86,7 +86,7 @@ for (const [intentDesk, desk] of [["j", "j"], ["j2", "j"], ["j5", "j"], ["joe", 
   const source = attribution({ "masked-intent": bracket(intentDesk) });
   for (const orderRef of ["j2|masked", "j5|masked", "joe|masked", "joel|masked", "unrecognized"]) {
     assert.equal(source.resolve(execution({ orderRef })), desk);
-    assert.equal(source.resolve(execution({ orderId: 102, orderRef })), desk);
+    assert.equal(source.resolve(execution({ orderId: 102, execId: "synthetic.stop.01", orderRef })), desk);
     const original = execution({ orderRef, desk: "forged", subDesk: "forged" });
     const before = structuredClone(original);
     const attributed = source.attribute(original);

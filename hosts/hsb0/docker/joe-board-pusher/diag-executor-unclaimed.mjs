@@ -8,7 +8,7 @@ import { FAMILY_BASELINE_PERIOD_START, createFileFamilyStateStore } from "./fami
 import { mergeExecutionRecords } from "./family-ledger.mjs";
 import { EXECUTOR_CLIENT_IDS, isExecutorClient, readExecutorAttribution, validatedExecutionTime } from "./executor-attribution.mjs";
 
-const CAUSES = ["matched", "ops_test", "ops_test_not_flat", "intent_unmatched", "ledger_unavailable",
+const CAUSES = ["matched", "remembered", "memory_conflict", "ops_test", "ops_test_not_flat", "intent_unmatched", "ledger_unavailable",
   "identity_invalid", "identity_ambiguous", "order_key_missing", "intent_ambiguous", "intent_desk_invalid"];
 
 export function summarizeExecutorUnclaimed(rows, attribution) {
@@ -17,7 +17,10 @@ export function summarizeExecutorUnclaimed(rows, attribution) {
     if (["SXR8", "TSLA"].includes(String(row.contract.symbol).trim().toUpperCase()) ||
         !isExecutorClient(row.execution.clientId, attribution)) continue;
     let cause;
-    try { cause = attribution.attribute(row.execution).cause === "ops_test" ? "ops_test" : "matched"; }
+    try {
+      const result = attribution.attribute(row.execution);
+      cause = ["ops_test", "remembered"].includes(result.cause) ? result.cause : "matched";
+    }
     catch (error) { cause = CAUSES.includes(error.executorCause) ? error.executorCause : "ledger_unavailable"; }
     const group = causes[cause];
     group.count++;
@@ -32,12 +35,12 @@ export function summarizeExecutorUnclaimed(rows, attribution) {
 
 export function executorUnclaimedDiagnostic({ account = configuredPaperAccount(), clientIds = process.env.JOE_EXECUTOR_CLIENT_IDS === undefined
   ? EXECUTOR_CLIENT_IDS : JSON.parse(process.env.JOE_EXECUTOR_CLIENT_IDS),
-  familyFile = "/var/lib/joe-board-pusher/family-ledger.json", executorFile } = {}) {
+  familyFile = "/var/lib/joe-board-pusher/family-ledger.json", executorFile, memoryFile } = {}) {
   const loaded = createFileFamilyStateStore(familyFile).load({ account, periodStart: FAMILY_BASELINE_PERIOD_START,
     classifier: J_FAMILY_CLASSIFIER });
   if (!loaded.ok || !loaded.state) return { ok: false, cause: "family_ledger_unavailable" };
   const rows = loaded.state.executions;
-  const attribution = readExecutorAttribution({ account, clientIds, file: executorFile, executionRows: rows, onEvent() {} });
+  const attribution = readExecutorAttribution({ account, clientIds, file: executorFile, memoryFile, executionRows: rows, onEvent() {} });
   return summarizeExecutorUnclaimed(rows, attribution);
 }
 
