@@ -17,6 +17,7 @@ nix-instantiate --eval --strict --json --expr '
       pkgs.stdenv.hostPlatform.system = "fixture";
       inputs.hostdash.packages.fixture.hsb0 = "hostdash-fixture";
       lib.mkBefore = x: x;
+      lib.mkForce = x: x;
       lib.cleanSourceWith = _: "pusher-fixture";
     };
     compose = import ./hosts/hsb0/docker/compose-spec.nix;
@@ -26,6 +27,7 @@ nix-instantiate --eval --strict --json --expr '
     firewall = host.networking.firewall;
     ssh = host.programs.ssh;
     proxySource = toString host.environment.etc."hsb0-home-hausnetz.conf".source;
+    frontPageSource = toString host.environment.etc."hostdash-nginx.conf".source;
     restartTriggers = map toString host.nixcfg.composeStack.extraRestartTriggers;
     home = compose.services.hsb0-home;
   }
@@ -45,7 +47,8 @@ assert "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro"
 assert "/var/lib/videos:/srv/videos:ro" in home["volumes"]  # OPS-380
 assert "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro" in home["volumes"]
 assert c["proxySource"].endswith("/hosts/hsb0/docker/hsb0-home-hausnetz.conf")
-for snippet in ("hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf", "hsb0-home-videos.conf"):
+assert c["frontPageSource"].endswith("/docker/front-page-nginx.conf")
+for snippet in ("front-page-nginx.conf", "hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf", "hsb0-home-videos.conf"):
     assert any(t.endswith("/hosts/hsb0/docker/" + snippet) for t in c["restartTriggers"]), snippet
 ssh = c["ssh"]
 assert "Match host github.com localuser root" in ssh["extraConfig"]
@@ -151,19 +154,24 @@ for path, value, failed_check in (
 
 proxy = Path('hosts/hsb0/docker/hsb0-home-hausnetz.conf').read_text()
 redirect = re.search(r'location = /ops\s*\{([^}]+)\}', proxy)[1]
-app = re.search(r'location /ops/\s*\{([^}]+)\}', proxy)[1]
-archive = re.search(r'location = /ops/api/import\s*\{([^}]+)\}', proxy)[1]
-for location in (redirect, app, archive):
+legacy = re.search(r'location /ops/\s*\{([^}]+)\}', proxy)[1]
+app = re.search(r'location /\s*\{([^}]+)\}', proxy)[1]
+archive = re.search(r'location = /api/import\s*\{([^}]+)\}', proxy)[1]
+for location in (redirect, legacy, app, archive):
     assert re.search(r'allow 192\.168\.1\.0/24;\s*deny all;', location)
-# A rewrite-phase return bypasses access checks, so redirect after try_files.
-assert not re.search(r'^\s*return\s', redirect, re.M)
-assert 'try_files "" @hausnetz_ops_redirect;' in redirect
-assert re.search(r'location @hausnetz_ops_redirect\s*\{\s*absolute_redirect off;\s*return 301 /ops/;', proxy)
+# Redirect only after access checks; internally rewrite writes before returning 301.
+for location in (redirect, legacy):
+    assert not re.search(r'^\s*return\s', location, re.M)
+    assert 'try_files "" @hausnetz_ops_redirect;' in location
+assert 'client_max_body_size 257m;' in legacy
+assert 'if ($request_method !~ ^(GET|HEAD)$)' in proxy
+assert 'rewrite ^/ops(?:/(.*))?$ /$1 last;' in proxy
+assert 'if ($request_uri ~ "^/ops(?:/+)?(.*)$")' in proxy
+assert 'return 301 /$1;' in proxy
 assert 'client_max_body_size 13m;' in app
 assert 'client_max_body_size 257m;' in archive
 assert 'proxy_pass http://host.docker.internal:8377/;' in app
 assert 'proxy_pass http://host.docker.internal:8377/api/import;' in archive
-# Aside from the larger import limit and exact upstream URI, settings match.
 settings = lambda location: [line.strip() for line in location.splitlines() if line.strip()]
 assert settings(archive.replace('257m;', '13m;').replace(':8377/api/import;', ':8377/;')) == settings(app)
 for location in (app, archive):
@@ -172,6 +180,12 @@ for location in (app, archive):
                       'proxy_cache off;', 'proxy_hide_header Cache-Control;',
                       'add_header Cache-Control "no-store" always;'):
         assert directive in location, directive
+vhost_path, = Path('hosts').glob('*/docker/front-page-nginx.conf')
+vhost = vhost_path.read_text()
+for route in ('/hostdash/', '/hostdash/status/', '/status/', '= /config.js', '= /manifest.json'):
+    assert 'location ' + route in vhost
+assert 'location / {' not in vhost  # only the included app snippet owns the root
+assert 'include /etc/nginx/hostdash-extra/*.conf;' in vhost
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
 pin = '41063ad31a7a3911abb3172a741a311f8ff099af'
