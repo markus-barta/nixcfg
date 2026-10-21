@@ -40,12 +40,9 @@ no app-origin stamp. Use no production credentials in this check.
 
 ## One compatible release set
 
-**Rollback state (this commit):** `active = previous` selects the v1 board db621bf; v2 is inactive
-and hsb0 runs the restored pre-cutover tree (r16d). The text below describes the activated state.
-
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects d36b5295 with the r17
-pusher/executor pins (OPS-408); `current` retains db621bf, legacy `calendar`
+executor. `active = v2` (OPS-354 activation) selects 040d6756 (sequence 27, JOED-59) with the r18c
+pusher/executor pins (JOED-57 gateway heartbeat + CodeQL timer bound, after JOED-39 r18a); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
@@ -55,18 +52,18 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The active `v2` set records main d36b5295 (PR #58), CalVer3
-261019102825.0.0, sequence 25 from that checkout's `release.json` and
-`release/preparation.json` (JOED-50) and the complete exact `release/contracts.json`
+The active `v2` set records main 040d6756 (merge of PR #70, JOED-59; supersedes 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
+261021083537.0.0, sequence 27 from that checkout's `release.json` and
+`release/preparation.json` (JOED-59 preparation; JOED-58 was the previous release set) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
-the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (OPS-408 r17c; image `household-v2-switch-set-r17c-202610202345`). Fixtures do not
+the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-57 after JOED-39 r18a; image `household-v2-switch-set-r18c-202610211235`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
 JOED-26 live adoption remains gated; current legacy metadata stays intact.
 The published source's `release.json` still says candidate; OPS uses the exact
-d36b5295 commit and revision-9 contract hashes rather than treating that field as activation.
+040d6756 commit and revision-9 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against ed5e43d6 (routing held constant) and
@@ -125,11 +122,12 @@ not a network/auth boundary; it adds no route exemption. Run
 `just test-joedesk SOURCE` before review and the full T76 flake gate on Linux.
 The rehearsal also requires this host gate before it creates lab artifacts.
 
-### Separate Results ingress proposal — pending LEAD confirmation
+### Separate Results ingress (OPS-354 item 5) — live since 2026-10-21
 
-OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. Main candidate d36b5295
-includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
+OPS-354 item 5 deliberately exceeds README P6b item 4. It went live with the OPS-354
+cut-over on 2026-10-21 (a token-less POST answers 401) and is the JOED-39 Results producer's
+target. The live board 040d6756 (sequence 27; like 6eacd6c7 and d36b5295 before it)
+includes JOED-27's merged ingress implementation (b323c0a).
 The proposed exact `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`

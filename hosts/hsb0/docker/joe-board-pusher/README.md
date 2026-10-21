@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (pusher, stager and executor runtime; OPS-404). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16-202610201700`.
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r18c-202610211235` (pusher, stager and executor runtime; OPS-408), selected by the active `v2` release set (OPS-354 activation). Rollback tag: `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set and the variant B rollback, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager and executor runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -32,19 +32,101 @@ and J family activity use this clock, independently of accounting/mark ages.
 A missing end ages coverage out after 420 seconds (stale at 421 seconds).
 KEEP classification and v1 projection/POST bytes for identical inputs stay unchanged.
 
+R16e renews the gateway confirmation with a read-only `reqCurrentTime` heartbeat
+every 20 seconds, independently of other socket traffic. Only the current
+generation's reply on an established, connected target-account session advances
+`apiReplyCheckedAt`, using its local receipt time and the existing readiness-gated
+publication path. Position coverage stays on its 120-second cadence; heartbeat
+replies never renew position, account-summary or mark source clocks. Missing
+replies leave the check to age out under the unchanged 60-second readiness rule.
+
 R16d → R16 rollback needs no pair move-aside: the stager, persisted sequence
 state, pair schema and source-clock semantics are unchanged. Preserve pairs,
 the current pointer, sequence high-water, lock, receipt log and v1 bodies.
 The separate R16 → R15 move-aside procedure remains required in the host runbook.
+
+## household.v2 publication switch (OPS-408)
+
+Only the pusher can POST. hsb0 adds `JOE_PUSH_SCHEMA=inspr.joe.household.v2`
+iff the selected release set's `board.data_schema` is `v2`. An absent or any
+other value retains v1 POST bytes, logs and cycle records. Pusher, stager and
+executor images all follow that release set; the candidate tag alone activates
+nothing. The build context and restart trigger still capture every production
+`.mjs`; changing source changes the host derivation even before activation.
+`T100-joedesk-release.py --prove-current` compares the complete v1 runtime
+against `2eb3953e` with `build` removed, and evaluates a synthetic r17 v2 set.
+
+Each v2 cycle uses `StageStore.readCommittedPair()`: `current.json` is the
+stager's commit marker, and its existing `readPair` validates the closed pair,
+receipt, contract digest and snapshot hash. The publisher reads only the pair
+named by that marker, never reservations, `.next-*`, temporary files or a newer
+uncommitted `pair-*`. It sends the validated file's original Buffer, without
+JSON reserialization or field edits, with the existing Bearer/Content-Type
+headers. The pusher's nested bind of exactly `/var/lib/joe-board-pusher/v2` is
+read-only only in v2 mode, covering the existing writable parent mount. The
+stager retains its writable v2 mount and `network_mode = "none"`.
+
+The pusher owns `/var/lib/joe-board-pusher/v2-post-state.json` (0600, outside
+`v2`). One fsync/rename/directory-fsync transaction stores `lastPosted`, a
+pending sequence/body digest reserved before transmission, and the latest
+**128 POST outcomes**, with a hard **65536-byte** bound. Keeping receipts with
+the cursor makes their settlement atomic and independent of stager pruning.
+Outcomes contain only status, seq, generatedAt, receivedAt (null when absent),
+recordedAt, bodySha256 and a closed outcome. No body, token, raw response or
+account value is logged. Its recognized `.tmp` sibling is safely overwritten
+after ownership/mode/link checks following a pre-rename crash.
+
+A new process sends the newest committed pair; thereafter only a sequence above
+the durable cursor is eligible. One send stays in flight. Uncertain replies
+retry committed bytes, never regenerate them. A 422 `sequence_replayed` is a
+terminal recorded outcome, covering an identical retry or the exact pair seeded
+by migrate-v2. That response alone cannot prove remote byte identity; OPS must
+seed the board from this same retained pair and preserve the allocator. Other
+failures retain the pending fingerprint for retry. Missing/corrupt pairs or
+posting state fail closed; no new committed sequence means no POST and never a
+v1 fallback. An old pair's original generation stays old, so the board's own
+freshness expiry remains honest.
+
+V1 is still computed and stored in `v1-cycles/<seq>.json` through the existing
+handoff. Its receipt's `v1PostStatus` is `not_posted_v2_active`; after a successful
+body write `v1Status` has that same value. `v1_unbound` still means an actual
+storage/binding failure and never means intentional non-publication. The shared
+cycle validators accept the new status, so collector hash/sequence/observation
+binding still works. OPS-392 evidence collectors must require a numeric successful
+v1 HTTP status for v1 acceptance: `not_posted_v2_active` proves stored v1 evidence
+only, never board acceptance. V2 acceptance comes from the matching body hash and
+sequence in `v2-post-state.json` outcomes.
+
+After migrate-v2 seeds seq N from the retained committed pair, the first flip
+POST can be **N with identical bytes**, or **greater than N** if staging advanced.
+It is not guaranteed to be strictly greater. `StageStore.reserve` increments
+and durably writes `sequence-state.json.lastReservedSeq` before publishing a
+pair; `open` restores and validates that high-water. This requires preserving
+the same allocator and using the exact pair for migration, not an independent
+seed or re-enrollment.
+
+Run the real board contract test with `JOEDESK_CHECKOUT` pointing at the pinned
+read-only d36b5295 checkout. It skips explicitly when unset. The normal path
+starts a loopback HTTP server; where the sandbox denies listen, the explicit
+`JOEDESK_CONTRACT_TRANSPORT=in-process` path dispatches through the real
+`createJoeServer` request handler and storage. Report that path separately:
+it proves server acceptance/retention, not socket transport.
+
+R17 → r16d needs no move-aside before v2 activation. After activation, r16d
+rejects the new receipt status; archive all retained pairs, current pointer and
+stager receipt log outside `v2`, preserving sequence state and lock. See the
+host RUNBOOK for the coordinated rollback, including board schema and executor
+guards. The new posting-state file is ignored by r16d.
 
 ## household.v2 switch-set staging (OPS-392)
 
 The existing `joeHouseholdV2StageEnabled` flag enables the independent
 `joe-household-v2-stage` service in the Phase A candidate. The Results producer
 remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
-adds useful account and position evidence to local staging; it adds no v2 POST
-selector. PAPER only; live remains locked. All v1 accounting,
-token source, POST bytes and interval remain unchanged. Desk money and totals
+adds useful account and position evidence to local staging. The stager itself
+never POSTs; the separate pusher switch above controls publication. PAPER only;
+live remains locked. In v1 mode all accounting, token source, POST bytes and
+interval remain unchanged. Desk money and totals
 stay null with `not_exact_yet`. Desk activity uses the existing read-only broker
 replies; no executor API request or executor change is added. Historical evidence
 and accounting remain omitted.
@@ -133,8 +215,9 @@ Expired position coverage leaves all values null with `source_unavailable`,
 clears unproven desk ownership, and sets the coverage reason accordingly.
 
 Gateway readiness requires a completed account-matched account-summary or
-positions API reply. TCP, account download, login and currentTime activity are
-insufficient. `checkedAt` is that callback's local receipt instant. Both its age
+positions API reply, or a current-generation `currentTime` heartbeat reply on
+an established target-account session. TCP, account download and login alone are
+insufficient. `checkedAt` is the qualifying reply's local receipt instant. Both its age
 at source generation and at staging receipt must be nonnegative and under 60s.
 Old, future and stale replies are not ready; account money is then withheld.
 With no completed reply, omit gateway rather than fabricate a timestamp.
@@ -142,9 +225,8 @@ The worker mirrors the board's post-acceptance checkedAt regression gate and
 fsyncs its nonfuture high-water before publishing; equal checks are accepted.
 Future replies never advance this durable watermark. A check ahead of receipt
 but within a skewed generation skips the whole pair to avoid disagreeing with
-the board's generatedAt-relative watermark. Gateway readiness still requires a
-completed positions or account-summary reply; the read-only order refresh below
-does not renew it. Readiness expires when no qualifying reply renews it.
+the board's generatedAt-relative watermark. The read-only order refresh below
+does not renew readiness. Readiness expires when no qualifying reply renews it.
 Checks older than 420 seconds use `snapshot_stale`. Rev 9 requires a boolean
 `apiSessionReady`, so unavailable readiness is represented by `false` plus its
 reason; the contract does not allow a null readiness flag. The stricter existing
@@ -408,8 +490,12 @@ book clears it. A declared upstream outage pauses that deadline while real inbou
 callbacks remain unable to extend a separate absolute five-minute deadline measured
 from the first loss notice. If no restoration notice arrives, that deadline retires
 the generation through the same capped retry supervisor even when informational or
-dropped financial callbacks keep arriving. Otherwise, an idle socket must answer a
-non-financial current-time probe. Shutdown cancels every connection, snapshot,
+dropped financial callbacks keep arriving. Otherwise, the supervisor sends a
+read-only current-time probe every 20 seconds even while other callbacks arrive.
+The unchanged 15-second response deadline is shorter than that interval. Only
+`currentTime` satisfies it; unrelated activity cannot hide a missing reply.
+One probe stays in flight; a timeout retires its generation through the existing
+retry path before the next probe can run. Shutdown cancels every connection, snapshot,
 upstream-loss, health, and retry timer.
 
 Stage-0 money excludes grandfathered paper SXR8 lot + leftover TSLA×1 (CONFIG.md) from
@@ -599,8 +685,8 @@ invalid or ambiguous clocks and unowned fills still fail closed.
 
 This assignment changes the desk policy hash. R14 selects a separate baseline
 file automatically; no manual retirement or deletion is needed on switch.
-The candidate image is `household-v2-switch-set-r16d-202610201800`; the retained
-rollback image is `household-v2-switch-set-r16-202610201700`.
+The candidate image is `household-v2-switch-set-r17c-202610202345`; the retained
+rollback image is `household-v2-switch-set-r16d-202610201800`.
 
 R15 attributes executor-route executions through the executor's own intent
 ledger. The pusher mounts `/var/lib/paper-desk-executor` read-only at the same
@@ -636,6 +722,61 @@ The intent attribution method and explicit table bind the policy hash and select
 policy-keyed baseline while preserving every old baseline and capture. R15
 rollback uses `household-v2-switch-set-r14-202610201330`; the earlier R14 notes remain
 historical rollout evidence.
+
+Amy approved the OPS bring-up test exception on **2026-10-21 (JOED-39)**.
+Only a configured executor client's `intent_unmatched` fill can qualify. Its
+original `execution.orderRef` must contain a whole, case-sensitive `|`-delimited
+token matching `^ops-test(?:-[a-z0-9]+)*$`: `ops-test`, `ops-test-ko`, or e.g.
+`ops-test-round-trip-2`. Substrings, other separators, whitespace, uppercase,
+and empty suffix segments do not match. The marker never identifies a desk;
+an exact client/order intent match always wins, and every other failure cause
+keeps its existing meaning.
+
+Each candidate's original time must parse through `executionTime` and round-trip
+as a real civil time in its stated IANA zone or ISO offset. Rolled dates (30 Feb,
+non-leap 29 Feb, 31 Apr), hour 24, ambiguous/gap local times and invalid offsets
+stay `intent_unmatched`. This check precedes economic normalization, which can
+discard routing fields or roll ISO dates. Retained rows recover an exception
+only through the same exact execution/client/account/order identity and matching
+time, signed quantity and price from the raw snapshot.
+
+The complete family-ledger snapshot supplies all candidates across configured
+executor clients. Latest IB corrections and duplicate replays use the family
+ledger's merge rules; flatness uses its instrument key (`conId`, otherwise
+STK/symbol/currency), signed side and 1e-9 quantity tolerance. Each instrument
+must net flat independently. A flat set becomes `ops_test`, with no desk, desk
+money, desk fees, history economics or activity; it contributes no unclaimed
+executions. Non-flat sets stay unclaimed with `ops_test_not_flat` and still null
+the all-desk totals. KEEP SXR8/TSLA and non-executor clients keep their policies;
+raw captures, account replay, official coverage and receipt checks stay intact.
+Missing/conflicting snapshots grant no exception. No pre-ledger/cutoff exception
+is implemented.
+
+Internal valuation diagnostics carry `opsTestExecutionCount`, and per-client
+counts carry `opsTest` separately from `matched`/`unmatched`. Each snapshot with
+excluded test fills emits one value-free `{event:"executor_ops_test",count}`
+event. These diagnostics do not extend `ownershipEvidence`, the exact-key
+provider contract, JoeDesk rev 9 output or frozen r15 fixtures.
+
+After OPS integrates this proposal into the image, the read-only diagnostic is:
+
+```sh
+docker exec <pusher> node /app/diag-executor-unclaimed.mjs
+```
+
+It uses the same executor-ledger reader, `IB_DESK_ACCOUNT`,
+`JOE_EXECUTOR_CLIENT_IDS`, and family-state loader as the pusher, reading
+`/var/lib/paper-desk-executor/ledger.json` and
+`/var/lib/joe-board-pusher/family-ledger.json`. It makes no broker/API requests
+and writes neither input. One JSON object contains `ok`, `causes` (each cause's
+`count`, `first`, `last` ISO time; null bounds when absent/unparseable), and
+`instrumentsNotFlat` (a count). Causes include `matched`, `ops_test`,
+`ops_test_not_flat`, `intent_unmatched` and all existing attribution failures.
+KEEP and non-executor rows are excluded. Events are suppressed; symbols,
+financial values, account/order/execution/intent identities and orderRefs are
+never printed, including on input failures. OPS should confirm exactly two
+`ops_test` rows, first `2026-10-06T18:16:10.000Z`, last
+`2026-10-06T19:10:30.000Z`, and zero instruments not flat after the switch.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
 22, 89, 90, 91, 119, 130, 131, 148, 151, and 152. The 2026-09-23 ledger listed

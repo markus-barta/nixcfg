@@ -94,7 +94,7 @@ function runtime(dockerfile) {
   publishedFiles(files, path.resolve(path.dirname(executorPath), results), "/executor/results");
 
   const entrypoints = new Set(["pusher.mjs", "v2-stage-supervisor.mjs", "v2-stage-worker.mjs",
-    "verify-contracts-entry.mjs", "family-history-cli.mjs"].map(imagePath));
+    "verify-contracts-entry.mjs", "family-history-cli.mjs", "diag-executor-unclaimed.mjs"].map(imagePath));
   assert.equal(cmd[0], "node");
   for (const token of cmd.slice(1).filter(token => token.endsWith(".mjs"))) entrypoints.add(imagePath(token));
   // Includes split entrypoint = [ "node" ]; command = [ "/executor/server.mjs" ].

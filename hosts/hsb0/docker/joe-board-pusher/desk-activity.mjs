@@ -1,6 +1,6 @@
 import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
 import { executionTime } from "./execution-history.mjs";
-import { executorDesk, isExecutorClient, executorClientCounts } from "./executor-attribution.mjs";
+import { executorDesk, executorExecution, isExecutorClient, executorClientCounts } from "./executor-attribution.mjs";
 
 export const DESK_IDS = ["j", "joe", "joel"];
 // Amy via JOED 2026-10-20 (OPS-392/OPS-404): shared freshness bound for desk-state readers and source honesty
@@ -57,6 +57,10 @@ export function executionActivity(state, executorAttribution = null) {
     if (!Number.isFinite(epoch)) return { cause: "executions_unavailable" };
     if (epoch > at) return { cause: "execution_after_coverage" };
     if (epoch < at - 26 * 60 * 60 * 1000 || newYorkDay(epoch) !== state.coverageTradingDay) continue;
+    if (isExecutorClient(row.execution.clientId, executorAttribution)) {
+      try { if (executorExecution(row.execution, executorAttribution).cause === "ops_test") continue; }
+      catch { /* owner below retains the unclaimed/fail-closed path */ }
+    }
     const desk = owner(row.execution.clientId, epoch, row.execution, executorAttribution);
     if (!desk) return { cause: "execution_unowned",
       ...diagnostics,

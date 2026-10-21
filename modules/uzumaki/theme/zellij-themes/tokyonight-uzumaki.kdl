@@ -60,5 +60,11 @@ themes {
 // SESSION & THEME
 // ════════════════════════════════════════════════════════════════════════════════
 
-session_serialization true
+// OPS-414 (2026-10-21): zellij 0.45.1 servers never exit (kill-session/SIGTERM hang: the main thread joins
+// background_jobs, blocked in a read with no timeout), so sessions pile up and attach hangs. Turn off the
+// background writers: session resurrection files, session metadata, release notes. SIGKILL of the exact
+// server PID still works.
+session_serialization false
+disable_session_metadata true
+show_release_notes false
 theme "__HOSTNAME__"
