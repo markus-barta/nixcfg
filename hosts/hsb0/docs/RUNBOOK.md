@@ -1363,8 +1363,11 @@ the append-only producer journal grows with sequence reservations, source events
 and changed health, so monitor disk space during a prolonged outage. Never
 truncate either journal or reset sequence state to clear a delivery failure.
 
-Rollback: set `nixcfg.joeResultsProducer.enable = false` through the reviewed
-configuration and perform the separately approved hsb0 switch. Retain
+Rollback, producer only: `git revert -m 1 <#1059 merge>` through a reviewed PR
+and the separately approved hsb0 switch. A JoeDesk v2 rollback (release set
+`active` away from `v2`) turns the producer off in the same switch, because
+`enable` follows `joeRelease.active == "v2"`; a variant B rollback also restores
+hsb0's configuration.nix to the pre-cutover bytes (T100). Retain
 `/var/lib/joe-results-producer/results.jsonl` and
 `/var/lib/paper-desk-executor/results-input.jsonl`; executor capture remains
 explicitly enabled. Keep the prior generation and compatible pins for recovery.
@@ -1912,8 +1915,8 @@ days skip day/trade reconciliation while schema and trade checks still apply;
 full days reconcile every trading desk with exact counts and decimal sums.
 KEEP contributes nothing to either array, including partial-day totals.
 The revision-4 closed reason enum no longer permits `results_not_wired`.
-The module remains disabled; paper rehearsal and coordinator sign-off are
-still required before a separately approved enablement/cutover.
+Since JOED-39 the module is enabled in hsb0's configuration while the v2 release
+set is active; the gates and switch procedure are in the JOED-39 section above.
 The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
 one writable state directory, empty capabilities, no added groups/Docker socket, and
 IP egress limited to loopback and the pinned ingress address. The private hosts
@@ -1933,12 +1936,12 @@ Paper proof, for the operator **after** separate enablement approval:
    simulations in this lab; hsb0 remains a production paper host.
 2. Before the approved hsb0 switch, retain its previous generation and compatible
    board/pusher/executor pins plus private backups of both Results journals (if
-   present). Record the rollback path on JOED-20/OPS. Configure the board
-   endpoint, complete KEEP policy and IP/TLS pin in the reviewed Nix change.
+   present). Record the rollback path on JOED-20/OPS. The board endpoint, KEEP
+   policy and IP/TLS pin are in hsb0's configuration (JOED-39).
    Verify the revision-4 contract pin, exact decimal source evidence and broker
    report backstop with JoeDesk/Amy first. Follow the normal remote NixOS build
    and human-controlled switch procedure; no local NixOS build on macOS.
-   csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
+   csb0's exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007) is live since 2026-10-21.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
    Read `http://127.0.0.1:8472/v1/health` privately and verify paper Gateway
    configuration, halt and brakes. Do not copy its raw body/account into tickets,
