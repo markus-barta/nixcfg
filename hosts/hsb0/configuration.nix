@@ -124,6 +124,10 @@ assert joeSet.pusher != null && joeSet.executor != null;
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
+    # HNET-236 (pin 23): the HostDash declaration for this host is read-only enrichment (GET only, no
+    # proxies, no redirects, 4 s timeout, 1 MiB/64 KiB caps, outside the instance lock); the key is
+    # the HostDash declaration name, the base keeps /config.js and /status/ at the root after OPS-413.
+    hostdashSources."hsb0" = "http://192.168.1.99/";
     firewallInterfaces = [
       "br-+"
       "docker0"
@@ -195,7 +199,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     extraRestartTriggers = [
       hostdashHsb0
       joeBoardPusherSource
-      # Bind-mounted nginx snippets need container recreation after a switch.
+      # Bind-mounted nginx configuration needs container recreation after a switch.
+      ./docker/front-page-nginx.conf
       ./docker/hsb0-home-hausnetz.conf
       ./docker/hsb0-home-inflight.conf
       ./docker/hsb0-home-videos.conf
@@ -1155,6 +1160,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
   environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
   # OPS-380: /videos/ location (VID's video overview, AEON-1480), same pattern as /inflight/.
   environment.etc."hsb0-home-videos.conf".source = ./docker/hsb0-home-videos.conf;
+  # HNET-237: only this host moves the front page; other HostDash boards keep /.
+  environment.etc."hostdash-nginx.conf".source = lib.mkForce ./docker/front-page-nginx.conf;
   environment.etc."hsb0-home-hausnetz.conf".source = ./docker/hsb0-home-hausnetz.conf;
 
   # ============================================================================

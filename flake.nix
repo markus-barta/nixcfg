@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET-252/257/258: v261020103312.0.0 (sidebar, keyboard and sheet-focus fixes; UI + QA tooling, module unchanged since v261017204833.0.0 / OPS-355); explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 23: v261021070202.0.0 (seq 93, release PR #170: HNET-260, HNET-236 declared-server source, HNET-237); repo moved to inspr-at; explicitly reviewed revision; automated updates skip this input. Rollback: pin 22 = 41063ad (v261020103312.0.0).
     hausnetz = {
-      url = "git+ssh://git@github.com/markus-barta/hausnetz?rev=41063ad31a7a3911abb3172a741a311f8ff099af";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b07b298adbad619e2057131f0b5e7b79f30b1cf1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
