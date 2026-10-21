@@ -189,6 +189,7 @@ function economicHistory({ rows, commissions, policy, cutoff, inclusive = true, 
     const attributed = classify(row, policy, executorAttribution);
     const fee = fees.get(row.execution.execId);
     if (!fee) throw new Error(`missing commission for classified execution ${row.execution.execId}`);
+    if (attributed.cause === "ops_test") continue;
     economics.push({
       desk: attributed.desk,
       ...(attributed.subDesk ? { subDesk: attributed.subDesk } : {}),
@@ -364,7 +365,8 @@ export function calculateDeskEquities({
   executorAttribution = null,
 } = {}) {
   const executorClients = executorClientCounts(ledgerState?.executions, executorAttribution);
-  const diagnostics = executorClients.length ? { executorClients } : {};
+  const diagnostics = { ...(executorClients.length ? { executorClients } : {}),
+    ...(executorAttribution?.opsTestExecutionCount ? { opsTestExecutionCount: executorAttribution.opsTestExecutionCount } : {}) };
   try {
     if (typeof account !== "string" || !account.trim()) throw new Error("target account is invalid");
     const canonical = canonicalPolicy(policy);
