@@ -1,29 +1,46 @@
-// OPS-266 stage 2. Not referenced by config.yaml.
-// markus@ and gerhard@ keep *:* (today's tailnet reach). No subnet route or
-// exit node is configured in this repo; 0.29 `*` does not cover those, so a
-// later one needs an explicit dst CIDR or autogroup:internet:* on this rule.
+// OPS-266 stage 2 (active via config.yaml policy.path). OPS-412 adds tag:agm-ci.
+// markus@ and gerhard@ reach every user-owned node and tag:paper-desk, which is
+// all of today's nodes and the same node-to-node reach as the former *:*. The list
+// is explicit so that tag:agm-ci is NOT included; a new user or tag must be added
+// here by review. No subnet route or exit node is configured in this repo; 0.29
+// `*` did not cover those either, so a later one needs an explicit dst CIDR or
+// autogroup:internet:* on this rule.
 // amy@ owns tag:paper-desk; a node joining with that tag is not amy@.
 // OPS-272: both identities may open only the paper-desk executor and mailbox.
-// Not :4002, not ssh,
-// not any other host. Return traffic is stateful; no reverse rule is needed.
+// Not :4002, not ssh, not any other host. Return traffic is stateful; no reverse
+// rule is needed.
+// OPS-412 (Markus, Decision Desk 3ec4b0b3, 2026-10-21): tag:agm-ci is an external
+// dedicated CI host. Only the two builder Macs may open tcp 2222 (ssh) on it;
+// nothing else may reach it, and it has no source rule, so it can open nothing.
+// Peer maps follow this ACL: other nodes do not see it as a peer. The builder
+// aliases pin today's addresses; re-check them after a builder re-registers.
 {
   "tagOwners": {
     "tag:paper-desk": ["amy@"],
+    "tag:agm-ci": ["markus@"],
   },
   "hosts": {
     "paper-desk": "100.64.0.6/32",
+    "builder-mbp2606": "100.64.0.13/32",
+    "builder-mbp2607": "100.64.0.14/32",
   },
   "acls": [
     {
       "action": "accept",
       "src": ["markus@", "gerhard@"],
-      "dst": ["*:*"],
+      "dst": ["markus@:*", "gerhard@:*", "amy@:*", "tag:paper-desk:*"],
     },
     {
       "action": "accept",
       "src": ["amy@", "tag:paper-desk"],
       "proto": "tcp",
       "dst": ["paper-desk:8470", "paper-desk:8471"],
+    },
+    {
+      "action": "accept",
+      "src": ["builder-mbp2606", "builder-mbp2607"],
+      "proto": "tcp",
+      "dst": ["tag:agm-ci:2222"],
     },
   ],
 }
