@@ -96,7 +96,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ../../modules/paper-desk-executor # OPS-266 — tailnet paper desk executor
-    ../../modules/joe-results-producer # JOED-20 — disabled pending ingress + paper proof
+    ../../modules/joe-results-producer # JOED-39 — paper-only Results producer
     ../../modules/agent-mailbox # OPS-272 — Amy/OPS tailnet text mailbox
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -173,9 +173,19 @@ assert joeSet.pusher != null && joeSet.executor != null;
   nixcfg.paperDeskExecutor.image = lib.mkIf (
     !joeHouseholdV2StageEnabled && !joePushV2
   ) "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
-  nixcfg.joeResultsProducer.enable = false; # JOED-20: ingress + Amy's paper proof gate
+  # JOED-39: paper-only Results producer to csb0's v2 inbox (OPS-354); switch gates in the RUNBOOK.
+  nixcfg.joeResultsProducer = {
+    # The inbox route exists only on the v2 board: a rollback to v1 (active != "v2") turns the producer off
+    # in the same hsb0 switch, so the bearer is never posted to a missing route (JOED nix1059 gate).
+    enable = joeRelease.active == "v2";
+    endpoint = "https://cs0.barta.cm/joe/inbox/results";
+    ingressHost = "cs0.barta.cm";
+    # csb0's declarative public IPv4: hosts/csb0/configuration.nix, ens3.
+    ingressAddress = "89.58.63.96";
+    # Default KEEP policy and existing household token (systemd LoadCredential).
+  };
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
-  # capture runs fail-open in the executor while the producer stays off.
+  # capture remains fail-open in the executor and shares the producer's KEEP set.
   nixcfg.paperDeskExecutor.resultsCaptureEnabled = true;
 
   # OPS-272 — caller identity comes from the tailnet source address.
@@ -217,7 +227,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-408 candidate: household-v2-switch-set-r17c-202610202345, selected
+    # JOED-39 candidate (after OPS-408 r17c): household-v2-switch-set-r18a-202610210946, selected
     # only by the release set (rollback: household-v2-switch-set-r16d-202610201800).
     # The current v1 set retains its exact runtime. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
