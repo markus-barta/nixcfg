@@ -41,7 +41,7 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects 040d6756 (sequence 27, JOED-59) with the r18c
+executor. `active = v2` (OPS-354 activation) selects a60f4c56 (sequence 28, JOED-60) with the r18c
 pusher/executor pins (JOED-57 gateway heartbeat + CodeQL timer bound, after JOED-39 r18a); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
@@ -52,9 +52,9 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The active `v2` set records main 040d6756 (merge of PR #70, JOED-59; supersedes 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
-261021083537.0.0, sequence 27 from that checkout's `release.json` and
-`release/preparation.json` (JOED-59 preparation; JOED-58 was the previous release set) and the complete exact `release/contracts.json`
+The active `v2` set records main a60f4c56 (JOED-60; supersedes 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
+261021113113.0.0, sequence 28 from that checkout's `release.json` and
+`release/preparation.json` (JOED-60 preparation; JOED-59 was the previous release set) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
 the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-57 after JOED-39 r18a; image `household-v2-switch-set-r18c-202610211235`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
@@ -63,7 +63,7 @@ executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
 JOED-26 live adoption remains gated; current legacy metadata stays intact.
 The published source's `release.json` still says candidate; OPS uses the exact
-040d6756 commit and revision-9 contract hashes rather than treating that field as activation.
+a60f4c56 commit and revision-9 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against ed5e43d6 (routing held constant) and
@@ -126,7 +126,7 @@ The rehearsal also requires this host gate before it creates lab artifacts.
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. It went live with the OPS-354
 cut-over on 2026-10-21 (a token-less POST answers 401) and is the JOED-39 Results producer's
-target. The live board 040d6756 (sequence 27; like 6eacd6c7 and d36b5295 before it)
+target. The live board a60f4c56 (sequence 28; like 040d6756, 6eacd6c7 and d36b5295 before it)
 includes JOED-27's merged ingress implementation (b323c0a).
 The proposed exact `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
