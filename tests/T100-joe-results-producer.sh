@@ -21,12 +21,20 @@ assert value["capture"] is True
 assert value["captureKeep"] == ["SXR8", "TSLA"]
 service = value["services"]["joe-results-producer"]["serviceConfig"]
 assert service["Environment"] == ["JOE_RESULTS_INGRESS_ORIGIN=https://ingress.example.invalid"]
-assert service["User"] == service["Group"] == "1000"
+def assert_declared_identity(service, identities):
+    assert service["Group"] == "users"
+    assert not service["Group"].isdigit()
+    assert service["Group"] in identities["groups"], "service group must be declared"
+    assert service["User"] == "1000"
+    assert any(user.get("uid") == int(service["User"]) for user in identities["users"].values()), "service uid must resolve to a declared user"
+assert_declared_identity(service, value["users"])
 assert service["ProtectSystem"] == "strict"
 assert service["NoNewPrivileges"] and service["PrivateDevices"] and service["ProtectHome"]
 assert service["IPAddressDeny"] == ["any"]
 assert service["IPAddressAllow"] == ["127.0.0.1/32", "192.0.2.10/32"]
 assert service["ReadWritePaths"] == ["/var/lib/joe-results-producer"]
+assert service["StateDirectoryMode"] == "0700"
+assert service["UMask"] == "0077"
 assert "/var/lib/paper-desk-executor" in service["BindReadOnlyPaths"]
 assert "/var/lib/joe-board-pusher" not in service["BindReadOnlyPaths"]
 assert service["CapabilityBoundingSet"] == ""
@@ -38,7 +46,7 @@ assert "-/run/secrets" in service["InaccessiblePaths"]
 assert "time-sync.target" in value["services"]["joe-results-producer"]["after"]
 disabled = evaluate("{ enable = false; }")
 assert disabled.returncode == 0, disabled.stderr
-assert json.loads(disabled.stdout) == {"capture": False, "captureKeep": [], "services": {}}
+assert json.loads(disabled.stdout) == {"capture": False, "captureKeep": [], "services": {}, "users": value["users"]}
 extended = evaluate('{ keepSymbols = [ "SXR8" "TSLA" "ACME" ]; }')
 assert extended.returncode == 0, extended.stderr
 assert json.loads(extended.stdout)["captureKeep"] == ["SXR8", "TSLA", "ACME"]
@@ -56,6 +64,8 @@ assert 'enable = joeRelease.active == "v2";' in host, 'producer enable must foll
 assert not re.search(r'joeResultsProducer = \{\s*(#[^\n]*\n\s*)*enable = true;', host), 'producer must not be enabled literally'
 # JOED-39: evaluate the actual host options through the same sandbox fixture.
 # Lazy host import selects only public wiring; it never reads agenix contents.
+# It does not merge imported NixOS user defaults, so the fixture declares the
+# host's uid 1000 and users group for the evaluated service identity checks.
 host_options = f'''(let
   lib = import <nixpkgs/lib>;
   host = import {repo / "hosts/hsb0/configuration.nix"} {{ inherit lib; pkgs = {{}}; config = {{}}; inputs = {{}}; }};
@@ -76,10 +86,22 @@ host_value = json.loads(host_enabled.stdout)
 assert host_value["capture"] is True
 assert host_value["captureKeep"] == ["SXR8", "TSLA"]
 host_service = host_value["services"]["joe-results-producer"]["serviceConfig"]
+assert_declared_identity(host_service, host_value["users"])
 assert host_service["Environment"] == ["JOE_RESULTS_INGRESS_ORIGIN=https://cs0.barta.cm"]
 assert host_service["IPAddressDeny"] == ["any"]
 assert host_service["IPAddressAllow"] == ["127.0.0.1/32", "89.58.63.96/32"]
 assert host_service["LoadCredential"] == service["LoadCredential"]
 assert host_service["BindReadOnlyPaths"] == service["BindReadOnlyPaths"]
-print("JOED-20/39: 10 module evaluations + hsb0 wiring evaluation and sandbox assertions passed (no build)")
+undeclared_group = evaluate('{ groups = {}; }')
+assert undeclared_group.returncode != 0, "undeclared service group must fail evaluation"
+assert "group name declared in users.groups" in undeclared_group.stderr, undeclared_group.stderr
+undeclared_user = evaluate('{ users = {}; }')
+assert undeclared_user.returncode == 0, undeclared_user.stderr
+try:
+    assert_declared_identity(service, json.loads(undeclared_user.stdout)["users"])
+except AssertionError as error:
+    assert "service uid must resolve" in str(error), error
+else:
+    raise AssertionError("undeclared service uid must fail the wiring check")
+print("JOED-20/39: 10 module evaluations + hsb0 wiring evaluation and sandbox assertions + 2 identity regressions passed (no build)")
 PY
