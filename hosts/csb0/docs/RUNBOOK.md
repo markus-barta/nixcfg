@@ -695,14 +695,13 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main 040d6756e92dc7c4e05fcf63b865242819b3d0ce
-(merge of PR #70, JOED-59: fleet-config "fresh" while the stored config is valid, smoke-release waits up to
-150 s for one gateway confirmation; supersedes 6eacd6c7 / 261021015923.0.0 / sequence 26, live
-2026-10-21 08:15Z, and d36b5295 / sequence 25, never deployed), tree 447a771342dfdaa58e37877ca32acee327c58db8,
-`inspr-calver-3` / 261021083537.0.0 / sequence 27. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-59; JOED-58 was the previous set).
-Board-only rollback of this re-pin: revert the JOED-59 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-6eacd6c707386cabe8245e1f97df2ef93965b394` (sequence 26) is reused, no build.
+active v2 source is main a60f4c561b05fa26ee8fa1dd31ab725714399340
+(JOED-60: health ranking only, no data change; supersedes 040d6756 / 261021083537.0.0 / sequence 27, live
+2026-10-21 11:22Z, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree b06f92aadf1b8ee2e08414ab7252e2fbb105b5d0,
+`inspr-calver-3` / 261021113113.0.0 / sequence 28. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-60; JOED-59 was the previous set).
+Board-only rollback of this re-pin: revert the JOED-60 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-040d6756e92dc7c4e05fcf63b865242819b3d0ce` (sequence 27) is reused, no build.
 db621bf stays the v1 rollback.
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
@@ -782,7 +781,7 @@ JOED-20 must still supply compatible downstream pins and real evidence.
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
    `just rehearse-joedesk SOURCE` using the exact published checkout with the
-   legacy Git object available. The second command builds db621bf and 040d6756
+   legacy Git object available. The second command builds db621bf and a60f4c56
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
@@ -985,7 +984,7 @@ item 1's exact GET/HEAD health.
 
 OPS-354 item 5 deliberately exceeds README P6b item 4. It went live with the OPS-354
 cut-over on 2026-10-21 (a token-less POST answers 401) and is the JOED-39 Results producer's
-target. The live board 040d6756 (sequence 27; like 6eacd6c7 and d36b5295 before it)
+target. The live board a60f4c56 (sequence 28; like 040d6756, 6eacd6c7 and d36b5295 before it)
 includes JOED-27's merged ingress implementation (b323c0a).
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
