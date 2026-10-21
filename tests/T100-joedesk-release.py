@@ -20,8 +20,8 @@ HSB0_BASELINE = "2eb3953e076b5b35769ddc1418080cd17e35d2ff"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
 CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r17c-202610202345'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
-PUBLISHED = 'd36b5295295a6901e36fdf2dc0d64353ddf88d0e'
-PUBLISHED_TREE = 'ba066aaeebf193eab93154ca9e0335f7dbba9d28'
+PUBLISHED = '6eacd6c707386cabe8245e1f97df2ef93965b394'
+PUBLISHED_TREE = 'f2080e9baf5e2eae59f663bbbc75a39a25bde493'
 CONTRACT_SET_SHA256 = '000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5'
 CONTRACTS_JSON_SHA256 = '5c20c38be4602f6c142ece1c1abc65172306d504aa0a74d098e10bb15f78ef17'
 SHA = re.compile(r'[0-9a-f]{64}')
@@ -128,7 +128,7 @@ def check(source=None):
         else:
             require(board['data_schema'] == 'v2', 'unknown board data schema')
             require(board['rev'] == PUBLISHED, 'published v2 revision mismatch')
-            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261019102825.0.0' and board['release_sequence'] == 25, 'published canonical CalVer3 metadata mismatch')
+            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261021015923.0.0' and board['release_sequence'] == 26, 'published canonical CalVer3 metadata mismatch')
             contracts = item['contracts']
             digest = contracts['contract_set_sha256']
             require(SHA.fullmatch(digest) and digest == CONTRACT_SET_SHA256, 'published contract digest mismatch')
@@ -349,7 +349,7 @@ def selector_regressions():
             with patch.object(pathlib.Path, 'is_file', return_value=True):
                 routing.verify_pinned_build(contract, fixture, active['board']['rev'])
                 broken = copy.deepcopy(contract)
-                broken['service']['pull_policy'] = 'build' if selected == 'previous' else 'never'
+                broken['service']['pull_policy'] = 'build'
                 try:
                     routing.verify_pinned_build(broken, fixture, active['board']['rev'])
                 except routing.ContractError:
