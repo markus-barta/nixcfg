@@ -511,6 +511,36 @@ class AtomicWriteTests(unittest.TestCase):
                                      {"capture_output": True, "text": True}))
 
 
+    def test_busy_install_publishes_system_daemon_as_builder_user(self):
+        plist = Path("/Library/LaunchDaemons/at.inspr.aeon-builder-busy.plist")
+        events = []
+        with patch.object(ab.os, "geteuid", return_value=0), \
+                patch.object(ab.pwd, "getpwnam", return_value=Mock(pw_dir="/Users/ci")), \
+                patch.object(ab, "atomic_write", side_effect=lambda *args, **kwargs: events.append((args, kwargs))), \
+                patch.object(ab.subprocess, "run", side_effect=lambda *args, **kwargs:
+                             (events.append((args, kwargs)), Mock(stdout=""))[1]), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            ab.cmd_busy_install(CFG, Mock(user="ci"))
+        self.assertEqual(events[0][0][0], plist)
+        body = events[0][0][1]
+        for needle in ("<key>UserName</key><string>ci</string>", "<key>StartInterval</key><integer>60</integer>",
+                       "<key>RunAtLoad</key><true/>", "<string>/Users/ci/.nix-profile/bin/aeon-builder</string><string>busy-file</string>",
+                       "<key>HOME</key><string>/Users/ci</string>"):
+            self.assertIn(needle, body)
+        self.assertNotIn("root", body)
+        self.assertEqual(events[0][1], {"mode": 0o644})
+        self.assertEqual(events[1], ((["/bin/launchctl", "bootout", "system", str(plist)],), {"capture_output": True}))
+        self.assertEqual(events[2], ((["/bin/launchctl", "bootstrap", "system", str(plist)],), {"check": True}))
+
+    def test_busy_install_refuses_without_root_or_with_an_odd_home(self):
+        with patch.object(ab.os, "geteuid", return_value=501):
+            with self.assertRaises(ab.BuilderError):
+                ab.cmd_busy_install(CFG, Mock(user="ci"))
+        with patch.object(ab.os, "geteuid", return_value=0), \
+                patch.object(ab.pwd, "getpwnam", return_value=Mock(pw_dir="/var/root")):
+            with self.assertRaises(ab.BuilderError):
+                ab.cmd_busy_install(CFG, Mock(user="ci"))
+
 class GitHubRetryTests(unittest.TestCase):
     def setUp(self):
         # Exercise the real HTTP client without opening App credentials.
