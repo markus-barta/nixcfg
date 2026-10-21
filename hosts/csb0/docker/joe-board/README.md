@@ -56,7 +56,7 @@ The active `v2` set records main 040d6756 (merge of PR #70, JOED-59; supersedes 
 261021083537.0.0, sequence 27 from that checkout's `release.json` and
 `release/preparation.json` (JOED-59 preparation; JOED-58 was the previous release set) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
-the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-39 after OPS-408 r17c; image `household-v2-switch-set-r18a-202610210946`). Fixtures do not
+the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-57 after JOED-39 r18a; image `household-v2-switch-set-r18b-202610211147`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
