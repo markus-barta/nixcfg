@@ -55,7 +55,6 @@ export const createPortfolioRefreshController = () => ({ tick: noop });
 export const createConnectionSupervisor = () => ({ start: noop, shutdown: noop });
 export const createOfficialHistoryRefresher = () => ({ start: noop, stop: noop });
 export const createStageHandoff = () => state.handoff;
-export const createV2Publisher = () => ({ push() { state.v2Calls = (state.v2Calls ?? 0) + 1; return Promise.resolve(null); } });
 export function createBrokerSessionAdapter() {
   const current = state;
   return { connected: current.variant !== "outage", snapshot: () => current.variant === "incomplete" ? null : current.book,
