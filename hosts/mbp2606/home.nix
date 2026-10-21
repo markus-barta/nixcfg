@@ -112,7 +112,10 @@ in
   home.homeDirectory = "/Users/mba";
 
   home.stateVersion = "24.11";
-  services.aeonRemoteGuard.enable = true;
+  services.aeonRemoteGuard = {
+    enable = true;
+    browserMax = 2; # OPS-409: two browsers share the existing two-new-unit cap.
+  };
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;
 

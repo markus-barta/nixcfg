@@ -40,8 +40,12 @@ no app-origin stamp. Use no production credentials in this check.
 
 ## One compatible release set
 
+**Rollback state (this commit):** `active = previous` selects the v1 board db621bf; v2 is inactive
+and hsb0 runs the restored pre-cutover tree (r16d). The text below describes the activated state.
+
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = current` retains db621bf, legacy `calendar`
+executor. `active = v2` (OPS-354 activation) selects d36b5295 with the r17
+pusher/executor pins (OPS-408); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
@@ -51,11 +55,11 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The inactive `v2` set records main d36b5295 (PR #58), CalVer3
+The active `v2` set records main d36b5295 (PR #58), CalVer3
 261019102825.0.0, sequence 25 from that checkout's `release.json` and
 `release/preparation.json` (JOED-50) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
-the RUNBOOK. Its missing downstream deployment pins remain gates. Fixtures do not
+the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (OPS-408 r17c; image `household-v2-switch-set-r17c-202610202345`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
