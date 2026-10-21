@@ -482,6 +482,8 @@ Stage 2 is active in the repository config: `policy.path: "/etc/headscale/policy
 
 The config directory is a bind mount of the git checkout. A pull updates the files on disk. Headscale reads `policy.path` at process start; SIGHUP reloads only the file at that same path. Switching the path requires `docker restart headscale`. `just switch` does not recreate the container for config-only changes when the compose spec is unchanged. Make path changes in the repository through the reviewed change flow, then pull on csb0; preserve `policy.hujson` as the stage-1 rollback file.
 
+OPS-412 (Markus, Decision Desk 3ec4b0b3, 2026-10-21, outcome "always"): the external dedicated CI host joins as `agm2-ci` with `tag:agm-ci` (tagOwner `markus@`). Only the two builder Macs (`builder-mbp2606` 100.64.0.13, `builder-mbp2607` 100.64.0.14) may open tcp **2222** on it. The markus@/gerhard@ rule lists its destinations explicitly (`markus@:*`, `gerhard@:*`, `amy@:*`, `tag:paper-desk:*`), which equals today's node-to-node reach and excludes `tag:agm-ci`; a new user or tag must be added there by review. `tag:agm-ci` has no source rule, and peer maps follow the ACL, so no other node sees it. Registration is interactive: the node prints a registration key, which OPS registers on csb0 (`headscale auth register --user markus --auth-id <id>`); no pre-auth key leaves this host. Re-check the builder aliases after a builder re-registers (sequential allocator). **Rollback order (the CI node first):** any older policy (the pre-OPS-412 stage 2 with `markus@/gerhard@ → *:*`, or the stage-1 allow-all) would open the CI node more widely and let it initiate. So first have its owner stop the CI instance, then `docker exec headscale headscale nodes delete -i <id>` and confirm `nodes list` no longer shows `agm2-ci` / `tag:agm-ci`. Only then revert the OPS-412 PR, pull and SIGHUP, or switch to stage 1.
+
 Amy-box joins with a pre-auth key tagged `tag:paper-desk`, owned by `amy@` in `tagOwners`. A tagged node uses the tag identity rather than `amy@`; stage 2 therefore permits both identities only to tcp `paper-desk:8470` (`100.64.0.6`). Check user-owned and tagged nodes separately.
 
 ```bash
@@ -501,9 +503,12 @@ docker exec headscale headscale policy check --file /etc/headscale/policy.hujson
 docker restart headscale
 # A path change needs this restart; SIGHUP and config-only just switch are insufficient.
 docker exec headscale headscale nodes list
-# markus@ and gerhard@ still reach *:* (tailnet); routes need explicit CIDRs.
-# amy@ AND tag:paper-desk reach only tcp 100.64.0.6:8470 (paper desk).
+# markus@ and gerhard@ reach markus@:* gerhard@:* amy@:* tag:paper-desk:* (explicit, OPS-412);
+# routes need explicit CIDRs.
+# amy@ AND tag:paper-desk reach only tcp 100.64.0.6:8470 and :8471 (executor, mailbox).
 # Check both: not :4002, not ssh, not any other host.
+# tag:agm-ci (OPS-412): only builder-mbp2606/7 open tcp 2222 on it; any other port or source fails;
+# it initiates nothing and no other node lists it as a peer.
 # return traffic is stateful; hsb0 needs no rule towards amy
 
 # Rollback — restore policy.path in the repository, review, then pull:
@@ -686,17 +691,19 @@ above remains a separate OPS gate; T100 does not claim it passed.
 
 ### OPS-354 cutover order and stopped-writer swap
 
-**Rollback state (this commit):** `active = previous`, v2 is inactive, hsb0 runs the restored
-pre-cutover tree (r16d). The prose below describes the activated state.
-
 The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main d36b5295295a6901e36fdf2dc0d64353ddf88d0e
-(PR #58), tree ba066aaeebf193eab93154ca9e0335f7dbba9d28,
-`inspr-calver-3` / 261019102825.0.0 / sequence 25. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-50).
+active v2 source is main 040d6756e92dc7c4e05fcf63b865242819b3d0ce
+(merge of PR #70, JOED-59: fleet-config "fresh" while the stored config is valid, smoke-release waits up to
+150 s for one gateway confirmation; supersedes 6eacd6c7 / 261021015923.0.0 / sequence 26, live
+2026-10-21 08:15Z, and d36b5295 / sequence 25, never deployed), tree 447a771342dfdaa58e37877ca32acee327c58db8,
+`inspr-calver-3` / 261021083537.0.0 / sequence 27. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-59; JOED-58 was the previous set).
+Board-only rollback of this re-pin: revert the JOED-59 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-6eacd6c707386cabe8245e1f97df2ef93965b394` (sequence 26) is reused, no build.
+db621bf stays the v1 rollback.
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
 `release/contracts.json` SHA256 is
@@ -775,7 +782,7 @@ JOED-20 must still supply compatible downstream pins and real evidence.
 1. On a workstation, run
    `just rehearse-joedesk SOURCE --dry-run`, then
    `just rehearse-joedesk SOURCE` using the exact published checkout with the
-   legacy Git object available. The second command builds db621bf and d36b5295
+   legacy Git object available. The second command builds db621bf and 040d6756
    images, stages JoeDesk's own v2 fixture, uses the same swap script as
    production, runs upstream forward smoke through `traefik:v3` and stub
    forwardAuth, checks signed-in spoof replacement/restoration, then restores
@@ -974,11 +981,12 @@ This client privacy stub does not replace SSO or private-port enforcement.
 README item 4 adds no route exemption beyond the existing token inbox and
 item 1's exact GET/HEAD health.
 
-### Separate Results ingress proposal — pending LEAD confirmation
+### Separate Results ingress (OPS-354 item 5) — live since 2026-10-21
 
-OPS-354 item 5 deliberately exceeds README P6b item 4. Keep it as a separately
-droppable review item; do not deploy it until LEAD confirms. Main candidate d36b5295
-includes JOED-27's merged ingress implementation (b323c0a); its source gate is met.
+OPS-354 item 5 deliberately exceeds README P6b item 4. It went live with the OPS-354
+cut-over on 2026-10-21 (a token-less POST answers 401) and is the JOED-39 Results producer's
+target. The live board 040d6756 (sequence 27; like 6eacd6c7 and d36b5295 before it)
+includes JOED-27's merged ingress implementation (b323c0a).
 The proposed exact **POST** `/joe/inbox/results` router uses identity stripping and
 app-level Bearer checking, without SSO. It does not use PathPrefix. T76 tests
 the exact route, priority and strip-only chain, while `/joe/inbox/results/`

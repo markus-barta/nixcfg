@@ -542,7 +542,14 @@ export function createBrokerSessionAdapter({
     }));
 
     if (eventNames.currentTime) {
-      api.on(eventNames.currentTime, guard("currentTime", () => {}));
+      api.on(eventNames.currentTime, guard("currentTime", () => {
+        // A heartbeat renews an established target-account session only. It
+        // cannot authenticate a new session or complete a partial book.
+        if (!socketConnected || !upstreamConnected || !working || tracker.status !== "complete") return;
+        const observedAt = now();
+        apiReplyCheckedAt = observedAt;
+        publishIfReady(observedAt);
+      }));
     }
 
     return attachedGeneration;

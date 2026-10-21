@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Read-only paper IB client (clientId 92) → household v1 → HTTPS POST inbox.
+ * Read-only paper IB client (92) → v1 evidence / committed v2 → HTTPS inbox.
  * Never connects to live 4001. Never places orders.
  */
 import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { createStageHandoff } from "./v2-stage-handoff.mjs";
+import { createV2Publisher } from "./v2-publisher.mjs";
 import { startCycle } from "./v1-cycle.mjs";
 import { createCycleStore } from "./v1-cycle-store.mjs";
 import { executionActivity, createDeskStateReporter } from "./desk-activity.mjs";
@@ -50,7 +51,7 @@ import {
   createFileFamilyStateStore,
 } from "./family-state.mjs";
 import { projectBook } from "./project.mjs";
-import { createConnectionSupervisor } from "./pusher-recovery.mjs";
+import { createConnectionSupervisor, HEALTH_INTERVAL_MS, HEALTH_TIMEOUT_MS } from "./pusher-recovery.mjs";
 import { createBrokerSessionAdapter, waitForExecutionCycle } from "./pusher-state.mjs";
 import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
 import { contractsNeedingFlatNetMarks, createFlatNetMarkController, createNoOpFlatNetMarkController } from "./flat-net-marks.mjs";
@@ -75,8 +76,6 @@ const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 300_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 const COMPLETE_SNAPSHOT_TIMEOUT_MS = 60_000;
-const HEALTH_INTERVAL_MS = 60_000;
-const HEALTH_TIMEOUT_MS = 15_000;
 const UPSTREAM_LOSS_DEADLINE_MS = 300_000;
 
 function parseIntervalSec() {
@@ -90,6 +89,8 @@ const INTERVAL_SEC = parseIntervalSec();
 const v2StageHandoff = process.env.JOE_V2_STAGE_SOCKET
   ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET, cycleStore: createCycleStore() })
   : null;
+const v2Publisher = process.env.JOE_PUSH_SCHEMA === "inspr.joe.household.v2"
+  ? createV2Publisher() : null;
 const reportDeskStates = createDeskStateReporter();
 let connectionSupervisor = null;
 let portfolioRefresh = null;
@@ -127,8 +128,8 @@ const adapter = createBrokerSessionAdapter({
     onAccountSubscriptionConflict(code) {
       portfolioRefresh?.subscriptionConflict(code);
     },
-    onSocketActivity({ api }) {
-      connectionSupervisor?.socketActivity(api);
+    onSocketActivity({ api, event }) {
+      connectionSupervisor?.socketActivity(api, event);
     },
     onStableData({ api, observedAt }) {
       connectionSupervisor?.stable(api);
@@ -154,7 +155,7 @@ const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
 
 const familyAdapter = createFamilySessionAdapter({
   summarizeActivity: state => {
-    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds });
+    executorAttribution = readExecutorAttribution({ account: ACCOUNT, clientIds: executorClientIds, executionRows: state.executions });
     return executionActivity(state, executorAttribution);
   },
   getExecutorAttribution: () => executorAttribution,
@@ -373,6 +374,14 @@ async function pushOnce(stageObservation) {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));
     return { ok: false, error: "broker timestamp unavailable" };
   }
+  const requestBody = JSON.stringify(snap);
+  if (v2Publisher) {
+    if (stageObservation) Object.assign(stageObservation, {
+      book, family, deskEquities, executions: familyAdapter.activitySnapshot(), executorAttribution,
+      v1Cycle: startCycle(requestBody)("not_posted_v2_active"), v1Body: requestBody,
+    });
+    return { ok: true, status: "not_posted_v2_active" };
+  }
   const token = readToken();
   if (!token) {
     console.error("push skipped: no token");
@@ -381,7 +390,6 @@ async function pushOnce(stageObservation) {
 
   if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, executions: familyAdapter.activitySnapshot(), executorAttribution });
 
-  const requestBody = JSON.stringify(snap);
   const settleCycle = startCycle(requestBody);
   let status = "post_failed";
   try {
@@ -411,7 +419,7 @@ async function pushOnce(stageObservation) {
 }
 
 // Each promise owns its source references, including overlapping push cycles.
-function pushWithStage() {
+function pushEvidenceWithStage() {
   if (!v2StageHandoff) return pushOnce();
   const observation = {};
   return pushOnce(observation).finally(() => {
@@ -421,6 +429,16 @@ function pushWithStage() {
       v2StageHandoff.offer(observation);
     }
   });
+}
+
+function pushWithStage() {
+  if (!v2Publisher) return pushEvidenceWithStage();
+  // Posting the retained committed pair does not depend on today's broker
+  // projection or the stager socket. The independent observation feeds next cycle.
+  return Promise.all([
+    pushEvidenceWithStage(),
+    v2Publisher.push({ url: INBOX_URL, token: readToken() }),
+  ]);
 }
 
 connectionSupervisor = createConnectionSupervisor({

@@ -230,7 +230,7 @@ ssh mba@hsb0.lan
 
 ## HostDash
 
-**URL**: http://hsb0/ or http://hsb0.lan/
+**URL**: http://hsb0/hostdash/ or http://hsb0.lan/hostdash/
 **Container**: `hsb0-home` | **Unit**: `hsb0-home-dashboard` | **Source**: `github.com/markus-barta/hostdash`
 
 The dashboard is mounted from `/etc/hostdash/hsb0/share/hostdash-hsb0` and
@@ -242,18 +242,34 @@ sudo systemctl restart hsb0-home-dashboard
 
 ### hausnetz (OPS-207)
 
-After activation, hausnetz is served at `http://192.168.1.99/ops/` through
-`hsb0-home`. Its `/ops` redirect keeps relative UI, API and SSE requests under
-`/ops/`; nginx strips that prefix and disables buffering for the event stream.
-The container resolves `host.docker.internal` through Docker's `host-gateway`.
-Both `/ops` and `/ops/` allow only IPv4 LAN sources in `192.168.1.0/24`;
-tailnet, IPv6 and same-host/bridge clients receive **403 by design**. The
-slashless redirect runs after the access check. `/ops/` permits bodies up to
-13 MiB for the app's 12 MiB floor-plan uploads. The more specific
-exact `/ops/api/import` location permits 257 MiB for the raw application/zip
-body capped at 256 MiB, keeps the same LAN access rules and proxy settings, and
-forwards to exactly `/api/import`. nginx hides upstream
-Cache-Control and sends a single `no-store` policy.
+After HNET-237 activation, hausnetz is the front page at `http://hsb0.lan/`.
+The host-local `docker/front-page-nginx.conf` replaces the shared vhost only
+on this host. The existing container, host-gateway mapping and mounts remain.
+`/ops` and `/ops/...` GET/HEAD requests return 301 to `/` and `/...`, preserving
+the raw escaped path, query and browser fragment. Non-GET/HEAD requests are
+internally rewritten to the root API so a legacy POST retains its method and
+body; legacy imports reach the same exact `/api/import` location as new ones.
+Both root hausnetz and old-prefix entrypoints retain the IPv4 LAN-only
+`192.168.1.0/24` policy. Tailnet, IPv6 and same-host/bridge clients receive
+403 by design; redirects run after access checks. The app keeps its 13 MiB
+limit and `/api/import` keeps 257 MiB for the raw ZIP capped at 256 MiB.
+SSE buffering/cache stay disabled, the read timeout stays one hour, and nginx
+still emits no-store, noindex/nofollow and no-referrer.
+
+HostDash remains at `/hostdash/`, including its relative `config.js`, optional
+`manifest.json` and `status/status.json`. `/status/status.json`, `/config.js`
+and `/manifest.json` remain available for old consumers and already-open
+boards. `/inflight/` and `/videos/` keep their existing aliases and policies.
+Other hosts continue using the shared HostDash vhost at `/`.
+
+Deploy and verify the hausnetz release at `/ops/` first. Then apply this nginx
+change and recreate only the front-page container through compose reconciliation.
+Keep the prior NixOS generation and pinned hausnetz revision as the rollback
+path: revert this routing commit through a review PR and rebuild using that
+pin, preserving `/var/lib/private/hausnetz`. A cached 301 still lands at `/`
+after rollback, so verify both entrypoints during rollback. Archive the live
+nginx config, previous NixOS generation and exact pin on the OPS ticket before
+activation. This draft does not update the hausnetz release pin or deploy.
 
 The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
 only on `br-+` and `docker0`, never the LAN interface. mDNS discovery opens
@@ -309,7 +325,7 @@ commit(s), restoring the previous pin
 node and the T99 pin, and restoring the `webCheck = false` line (that release has
 no `starlink` option).
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
-download a state backup from `GET /ops/api/export` on the LAN before activation;
+download a state backup from `GET /api/export` (legacy `GET /ops/api/export` redirects) on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets
 (`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
 triggers, so a normal switch recreates `hsb0-home` when any of them changes.
@@ -373,14 +389,17 @@ nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb0 \
 
 The source-path contract uses `lib.hasSuffix` so checkout/store roots may
 differ. Before accepting a deployment,
-verify `/ops/` and its event stream from the LAN, that `/ops` answers 301 to
-`/ops/` from the LAN, and that direct LAN connections to port 8377 fail. From
-the LAN, POST an `application/zip` body larger than 13 MiB to
-`/ops/api/import?dry_run=1`: it must reach the app (for example, 422 for an
-invalid archive), rather than returning nginx's 413. This checks the live
-import location after container recreation. Roll back the OPS-207 commit and rebuild
-through the normal attended deployment workflow to remove this integration;
-existing state is retained. Preparing this configuration does not deploy it.
+verify `/`, its assets, API reads/writes and `/api/events` from the LAN.
+Check `GET /ops/api/meta?check=a%2Fb&check=two` returns a 301 Location of
+`/api/meta?check=a%2Fb&check=two`, and `/ops/?check=1#/devices` reaches
+`/?check=1#/devices`. Verify `/hostdash/`, `/hostdash/config.js`,
+`/hostdash/status/status.json`, `/status/status.json`, `/inflight/` and `/videos/`.
+Confirm both root and old-prefix app requests are refused off-LAN and direct
+LAN connections to port 8377 still fail. POST an invalid `application/zip`
+body larger than 13 MiB to both `/api/import?dry_run=1` and
+`/ops/api/import?dry_run=1`: both must reach the app (422 for invalid ZIP),
+with no redirect or nginx 413. Confirm another host's board is unchanged.
+Preparing this configuration does not deploy it.
 
 ### In-flight page (OPS-353)
 
@@ -1130,7 +1149,66 @@ account and position `observedAt` to equal `generatedAt`, whereas r16 preserves
 source times. R15 validates every retained pair on open; leaving even one such
 pair causes `stage_storage_invalid` / `startup_invalid`.
 
-R16d candidate (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
+R17 candidate (`household-v2-switch-set-r17c-202610202345`; OPS-408) flips
+publication in the pusher only when the selected release set's
+`board.data_schema == "v2"`. The current v1 set retains r16d images and its exact
+environment/mounts; the source build context/restart trigger still changes with
+production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
+`joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
+r17 images in the release set and moved the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
+Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), and since JOED-59 the joedesk lock is 040d6756 (sequence 27).
+
+In v2 mode, only the `current.json` committed pair is eligible. The existing
+stager reader validates it and returns the exact snapshot bytes for POST.
+The pusher gets a nested read-only bind of exactly `v2`; staging stays
+network-none with a writable v2 mount. No new committed sequence means no POST,
+with no v1 fallback. V1 still produces stored evidence with
+`v1PostStatus: "not_posted_v2_active"`; only a real body-store failure uses
+`v1Status: "v1_unbound"`. OPS-392 collectors must not count either as successful
+v1 board acceptance; require a numeric successful HTTP outcome. Match v2
+acceptance by seq/body hash in the pusher-owned posting state.
+
+Preserve `/var/lib/joe-board-pusher/v2-post-state.json` (0600) outside `v2`.
+It atomically stores the last-posted sequence/hash, uncertain attempt and the
+latest 128 value-free POST outcomes, bounded to 65536 bytes. ReceivedAt is null
+when no board receipt is available; recordedAt still records the local outcome
+time. Only a greater committed sequence can advance the cursor. A 422
+`sequence_replayed` records a terminal outcome for retry/migrated-pair handling;
+OPS must migrate from the same retained bytes and preserve the allocator,
+because the response itself does not attest remote byte identity.
+
+The r17 rollback image is `household-v2-switch-set-r16d-202610201800`.
+**Before activation, r17 → r16d needs no move-aside. After activation, it does:**
+r16d's receipt validator rejects `not_posted_v2_active`, including in the
+append-only stager log. The new sibling posting-state file and its `.tmp` are
+ignored by r16d and need no move. Use the normal separately authorized,
+coordinated release-set/board rollback, with a verified private backup:
+
+1. Apply the existing executor restart guards: **0 claimed intents** and healthy
+   executor before restart, then verify health/reconciliation after it. All three
+   services share the image, so r17 selection also restarts the executor. No
+   executor admission, replay, health or ownership guard changes in r17.
+2. With pusher and stager stopped, archive **all** `v2/pair-*`, `v2/current.json`
+   and `v2/receipts.jsonl` into a new dated sibling directory outside `v2`.
+   Also copy `v1-cycles` into that archive before pruning can resume. Preserve
+   unexpected residue for review. Never put the archive inside `v2`.
+3. Keep `v2/sequence-state.json` and `v2/.allocator.lock` untouched, including
+   the lock inode, `lastReservedSeq`, `lastGeneratedAt` and gateway high-water.
+   Keep the new posting-state file and v1 evidence in place. r16d opens the
+   empty retained-pair set, creates a fresh receipt log and reserves strictly
+   above the saved high-water; no re-enrollment or log rewriting is needed.
+4. Select the retained r16d image and matching v1 board/release set through the
+   reviewed rollback path. r16d posts v1, so it cannot publish to a v2-only board.
+   Verify the new stager pair exceeds the high-water and executor health is
+   sound. Preserve the archive and posting-state file as evidence.
+
+After migrate-v2 seeds board seq N, a first flip POST can be N with identical
+bytes if no newer pair committed, or greater than N otherwise. Strictly greater
+is not guaranteed: `StageStore.reserve` durably increments `lastReservedSeq`
+before staging; `open` restores it. Preserve this allocator and migrate the
+exact retained pair. Do not claim that an independent board seed is synchronized.
+
+R16d (`household-v2-switch-set-r16d-202610201800`; OPS-404) refreshes
 read-only positions every 120 seconds on the existing five-second tick while
 the session is ready, issuing `cancelPositions` then `reqPositions`. Requests
 never overlap, even when an end is overdue. A fresh accumulator replaces the
@@ -1247,16 +1325,60 @@ A local commit emits `{event:"v2_stage_committed",seq}`; it proves local staging
 not board acceptance. Recovery validates retained pairs and log integrity before
 pruning; torn logs or unknown files fail closed and preserve evidence for review.
 
-## JoeDesk Results producer (JOED-20, disabled)
+## JoeDesk Results producer (JOED-39, enabled in config; switch pending)
 
-`nixcfg.joeResultsProducer.enable = false` is intentional. This local delivery
-does not change the board deployment pin or enable a writer. The module requires
-a separately reviewed ingress endpoint and pinned ingress IP/TLS hostname.
+On 2026-10-20, JOED-39 sets `nixcfg.joeResultsProducer.enable = true` in hsb0's
+configuration. The OPS-354 csb0 cutover is live since 2026-10-21 (the token-only
+`POST /joe/inbox/results` answers 401 without a token); Amy's JOED-38 sign-off and
+the JOED gate remain before the host switch. No live enablement is claimed.
+The household pusher tree (`hosts/hsb0/docker/joe-board-pusher/`, its README
+included) stays byte-identical, so the pinned pusher source is unaffected.
+The endpoint is exactly `https://cs0.barta.cm/joe/inbox/results`, on the board's
+`https://cs0.barta.cm/joe/` origin (csb0 RUNBOOK and JoeDesk README).
+`ingressHost = "cs0.barta.cm"` and `ingressAddress = "89.58.63.96"` pin TLS and
+egress to csb0's declarative `networking.interfaces.ens3.ipv4.addresses` address.
+The module retains the default KEEP set (`SXR8`, `TSLA`) and applies it to the
+already enabled executor capture. It uses the existing
+`age.secrets.joe-board-push-token.path`, from the same agenix file as the
+household pusher's read-only token mount. Systemd `LoadCredential` supplies a
+private raw-token copy; there is no new secret or format conversion.
+The producer runs as uid 1000 with group `users`, reads executor files by owner-uid access through a read-only mount, and keeps its own state directory private (`0700`, umask `0077`).
+
+Local gates on 2026-10-20 passed: T100's 277 producer tests, its 10 module
+evaluations and actual hsb0 wiring evaluation; T93's 850 executor tests and its
+module/guard checks; and all six applicable pre-commit hooks (the justfile hook
+had no matching file). T100 also verifies the IP against csb0's configuration,
+the shared agenix file/path, capture KEEP agreement and the systemd sandbox.
+Full hsb0 `nix eval` of `system.build.toplevel.drvPath` was attempted offline,
+but the worker sandbox denied Nix daemon/store access; that gate remains
+unverified and must pass outside this sandbox before activation. No NixOS build
+ran. The operator must also complete the paper proof and approval gates at the
+end of this section. The board deployment pin is unchanged.
+
+Non-200 responses and refused redirects from `POST /joe/inbox/results` count as
+delivery failures. The producer
+keeps both journals, logs value-free diagnostics and retries with a fresh,
+durably reserved sequence and recomputed snapshot. Failure backoff grows through
+1, 2, 4, 8 and 16 seconds to a 25-second ceiling, bounded by the normal
+25-second cadence. No failed delivery becomes accepted output. Capture continues;
+the append-only producer journal grows with sequence reservations, source events
+and changed health, so monitor disk space during a prolonged outage. Never
+truncate either journal or reset sequence state to clear a delivery failure.
+
+Rollback, producer only: `git revert -m 1 <#1059 merge>` through a reviewed PR
+and the separately approved hsb0 switch. A JoeDesk v2 rollback (release set
+`active` away from `v2`) turns the producer off in the same switch, because
+`enable` follows `joeRelease.active == "v2"`; a variant B rollback also restores
+hsb0's configuration.nix to the pre-cutover bytes (T100). Retain
+`/var/lib/joe-results-producer/results.jsonl` and
+`/var/lib/paper-desk-executor/results-input.jsonl`; executor capture remains
+explicitly enabled. Keep the prior generation and compatible pins for recovery.
+
 Household v2 health/account and equity fragments are outside v1 scope: the
 service neither reads nor mounts the household producer directory. No fixtures
 are selected by the service. No LIVE mode or Gateway client exists in the producer.
 
-When separately enabled, the executor's optional capture writes
+The already enabled executor capture writes
 `/var/lib/paper-desk-executor/results-input.jsonl` before admission pruning,
 recon compaction and ordinary saves. Each hash-chained, fsynced line commits a
 whole capture cut or a small FX-only event. Cuts contain only owned Stage-0
@@ -1795,9 +1917,9 @@ days skip day/trade reconciliation while schema and trade checks still apply;
 full days reconcile every trading desk with exact counts and decimal sums.
 KEEP contributes nothing to either array, including partial-day totals.
 The revision-4 closed reason enum no longer permits `results_not_wired`.
-The module remains disabled; paper rehearsal and coordinator sign-off are
-still required before a separately approved enablement/cutover.
-The systemd sandbox uses executor uid/gid 1000 with read-only input mounts,
+Since JOED-39 the module is enabled in hsb0's configuration while the v2 release
+set is active; the gates and switch procedure are in the JOED-39 section above.
+The systemd sandbox uses executor uid 1000 with group `users` and read-only input mounts,
 one writable state directory, empty capabilities, no added groups/Docker socket, and
 IP egress limited to loopback and the pinned ingress address. The private hosts
 file resolves the TLS hostname without DNS egress. Endpoint and health paths
@@ -1816,12 +1938,12 @@ Paper proof, for the operator **after** separate enablement approval:
    simulations in this lab; hsb0 remains a production paper host.
 2. Before the approved hsb0 switch, retain its previous generation and compatible
    board/pusher/executor pins plus private backups of both Results journals (if
-   present). Record the rollback path on JOED-20/OPS. Configure the board
-   endpoint, complete KEEP policy and IP/TLS pin in the reviewed Nix change.
+   present). Record the rollback path on JOED-20/OPS. The board endpoint, KEEP
+   policy and IP/TLS pin are in hsb0's configuration (JOED-39).
    Verify the revision-4 contract pin, exact decimal source evidence and broker
    report backstop with JoeDesk/Amy first. Follow the normal remote NixOS build
    and human-controlled switch procedure; no local NixOS build on macOS.
-   csb0 edge needs an exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007), live before producer enablement.
+   csb0's exact-path token-only router for `POST /joe/inbox/results` (JoeDesk README:425–429; OPS-354, PR #1007) is live since 2026-10-21.
 3. On hsb0, inspect `systemctl status joe-results-producer` and the unit sandbox.
    Read `http://127.0.0.1:8472/v1/health` privately and verify paper Gateway
    configuration, halt and brakes. Do not copy its raw body/account into tickets,
