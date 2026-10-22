@@ -112,7 +112,7 @@ function hostEval(t, source, enabled, filtered = false, active = "current") {
 
 test("Nix flag-off preserves baseline runtime with read-only executor evidence; enabled overlay isolates staging", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
-  const old = run("git", ["show", "27681452:hosts/hsb0/configuration.nix"], { cwd: repo });
+  const old = run("git", ["show", "ae2caf7d:hosts/hsb0/configuration.nix"], { cwd: repo });
   const baseline = hostEval(t, old, false);
   const disabled = hostEval(t, source, false);
   const baselinePusher = baseline.spec.services["joe-board-pusher"];
@@ -185,14 +185,14 @@ test("real Nix relative-path source filter preserves full verified closure and e
 
 test("Dockerfile verifies closure and probes flock while preserving base digests and npm install", () => {
   const docker = fs.readFileSync(path.join(root, "Dockerfile"), "utf8");
-  const old = run("git", ["show", "27681452:hosts/hsb0/docker/joe-board-pusher/Dockerfile"], { cwd: repo });
+  const old = run("git", ["show", "ae2caf7d:hosts/hsb0/docker/joe-board-pusher/Dockerfile"], { cwd: repo });
   assert.deepEqual(docker.match(/^FROM .*$/gm), old.match(/^FROM .*$/gm));
   assert.match(docker, /^RUN npm ci --omit=dev$/m);
   assert.match(docker, /COPY contracts\/ \.\/contracts\//);
   assert.match(docker, /RUN node verify-contracts-entry\.mjs/);
   assert.match(docker, /flock --no-fork --nonblock/);
   assert.doesNotMatch(docker, /apk upgrade/);
-  for (const name of ["package.json", "package-lock.json"]) assert.equal(fs.readFileSync(path.join(root, name), "utf8"), run("git", ["show", `27681452:hosts/hsb0/docker/joe-board-pusher/${name}`], { cwd: repo }));
+  for (const name of ["package.json", "package-lock.json"]) assert.equal(fs.readFileSync(path.join(root, name), "utf8"), run("git", ["show", `ae2caf7d:hosts/hsb0/docker/joe-board-pusher/${name}`], { cwd: repo }));
 });
 
 test("fixed verifier build entry cannot be bypassed with argv", t => {

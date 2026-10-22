@@ -113,8 +113,8 @@ for (const field of ['sample.rate', 'closeFx.rate']) test(`refused ${field} jour
   // Byte-for-byte producer sources: exercise their actual apply/issue checks
   // on ingestion and restart, with sibling dependencies resolved as in r9.
   for (const [name, digest] of [
-    ['round12b', 'c9039167f39f9b3f383a5bf732d57d99bc98d5c659d2cc63c44829643d10d53e'], // 6c6e15f1
-    ['round13', '37c8ee80eb8b01eb6f6ab30b0192e6b9c868c7774a77ae55ecd283f9d1127fa0'], // fce6709b
+    ['round12b', 'c9039167f39f9b3f383a5bf732d57d99bc98d5c659d2cc63c44829643d10d53e'], // 94f47c70
+    ['round13', '37c8ee80eb8b01eb6f6ab30b0192e6b9c868c7774a77ae55ecd283f9d1127fa0'], // 16358341
   ]) {
     const frozen = readFileSync(new URL(`./fixtures/${name}-producer.mjs`, import.meta.url), 'utf8');
     assert.equal(createHash('sha256').update(frozen).digest('hex'), digest);

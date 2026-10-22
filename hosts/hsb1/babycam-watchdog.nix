@@ -322,7 +322,7 @@ let
               ;;
             *)
               # Everything else needs the pipeline rebuilt by re-running the
-              # launcher, which genuinely kills the old VLC (commit 945a7be1)
+              # launcher, which genuinely kills the old VLC (commit 88779055)
               # rather than silently no-op'ing as it once did.
               #
               # Three non-obvious things are load-bearing here:

@@ -3287,7 +3287,7 @@ class RulesetRoundTwoRegressionTests(unittest.TestCase):
 
     def history(self, gh, versions=(1,), error=None):
         # Keep both client surfaces in these regressions so they can be replayed
-        # against df565b40 without failing in fixture setup after the API rename.
+        # against 2c36f723 without failing in fixture setup after the API rename.
         gh.ruleset_version = Mock(return_value=max(versions), side_effect=error)
         gh.ruleset_versions = Mock(return_value=dict.fromkeys(versions), side_effect=error)
 

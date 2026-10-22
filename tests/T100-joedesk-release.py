@@ -340,7 +340,7 @@ def evaluation_proof():
         tree = subprocess.check_output(['git', 'rev-parse', pin['nixcfg_rev'] + ':' + pin['source_path']], cwd=ROOT, text=True).strip()
         require(tree == pin['source_tree'], 'recorded source tree mismatch')
     # Compare hsb0 with the recorded exact main, including its stage and local
-    # mailbox, against 2eb3953e and its live r16d switch set.
+    # mailbox, against 67e15fad and its live r16d switch set.
     hsb0_evaluation_proof()
     print('release_refactor=byte-identical-static-specs executor_default=r16d-main-equal linux_toplevel_drvPath=pending')
 
@@ -408,7 +408,7 @@ def hsb0_evaluation_proof():
             service.pop('build', None)
             previous.pop('build', None)
         require(sorted(build_changes) == ['joe-board-pusher', 'joe-household-v2-stage'], 'only pusher-source build contexts may change')
-        require(baseline == actual, 'v1 runtime differs from 2eb3953e: image, service, units, firewall, users, executor derivations or compose')
+        require(baseline == actual, 'v1 runtime differs from 67e15fad: image, service, units, firewall, users, executor derivations or compose')
         pusher = actual['hostCompose']['services']['joe-board-pusher']
         require(pusher == {
             'container_name': 'joe-board-pusher', 'restart': 'unless-stopped', 'network_mode': 'host',
@@ -465,7 +465,7 @@ def hsb0_evaluation_proof():
         require(services['joe-board-pusher']['image'] == disabled['image'] == CANDIDATE_IMAGE, 'disabled stager selected a v1-only runtime')
         require('JOE_PUSH_SCHEMA=inspr.joe.household.v2' in services['joe-board-pusher']['environment'], 'disabled stager removed v2 mode')
         require('/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro' in services['joe-board-pusher']['volumes'], 'disabled stager removed read-only mount')
-        print('ops408_v1_runtime=2eb3953e-identical_except_build v2_images=r17 schema=v2 pusher_v2_mount=ro stager_v2_mount=rw disabled_stager=v2_fail_closed')
+        print('ops408_v1_runtime=67e15fad-identical_except_build v2_images=r17 schema=v2 pusher_v2_mount=ro stager_v2_mount=rw disabled_stager=v2_fail_closed')
         require(actual['hostCompose']['services']['paper-desk-executor'] == actual['service'], 'host executor service mismatch')
         print('hsb0_v1_runtime_equality=image,options,service,units,firewall,users,executor_source_drvPaths,compose_except_build sha256=' + hashlib.sha256(json.dumps(actual, sort_keys=True).encode()).hexdigest())
 

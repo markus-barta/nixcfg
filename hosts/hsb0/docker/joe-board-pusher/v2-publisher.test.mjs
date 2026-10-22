@@ -146,7 +146,7 @@ test("chmod read-only simulation rejects write-open of the v2 directory and pair
   } finally { fs.chmodSync(f.v2, 0o700); fs.chmodSync(file, 0o600); }
 });
 
-test("v1 POST, logs and stored cycle bytes match exact 2eb3953e for absent and unrecognized switch values", async t => {
+test("v1 POST, logs and stored cycle bytes match exact 67e15fad for absent and unrecognized switch values", async t => {
   const root = temp(t), baseline = exportBaseline(root), candidate = new URL("./pusher.mjs", import.meta.url);
   for (const variant of ["normal", "retained", "outage"]) {
     const before = await runPusher(baseline, { variant });

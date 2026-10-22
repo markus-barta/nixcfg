@@ -65,7 +65,7 @@ non-loopback binds, short/long/ranged publications and insecure overrides.
 
 ```bash
 # Offline, including equivalence to the pre-change revision:
-python3 tests/T103-traefik-api-auth.py --compare-ref ed5e43d6
+python3 tests/T103-traefik-api-auth.py --compare-ref 68ae6846
 # OPS only, after switching both hosts, before rotation:
 python3 tests/T103-traefik-api-auth.py --live
 ```

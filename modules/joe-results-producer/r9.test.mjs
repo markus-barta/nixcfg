@@ -182,7 +182,7 @@ test('FX-only events preserve real authority on restart and add no position proo
   try { producer.ingest(source); } finally { PositionProofIndex.prototype.add = add; }
   assert.equal(proofs, 1);
   const baseline = producer.snapshot();
-  // Frozen producer from 91b9198b, including its original apply implementation.
+  // Frozen producer from 21a23b8e, including its original apply implementation.
   // Resolve sibling dependencies against this module, independently of cwd/git.
   const frozen = readFileSync(new URL('./fixtures/round9-producer.mjs', import.meta.url), 'utf8');
   assert.equal(createHash('sha256').update(frozen).digest('hex'), '1c7bd5a1da1073441a9e8c50bd3de8b5ded97f38d2b952aa664a218e3f55f84f');

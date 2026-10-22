@@ -1167,7 +1167,7 @@ csb0 still explicitly recreates Traefik through `postRecreate`.
 OPS compares the NixOS drvPath/nix-diff A/B remotely: the evaluated Compose
 changes are the API-label removal and HostDash path exclusions; the static
 and dynamic YAML add only the loopback operator route. Run
-`python3 tests/T103-traefik-api-auth.py --compare-ref ed5e43d6` before handoff.
+`python3 tests/T103-traefik-api-auth.py --compare-ref 68ae6846` before handoff.
 T103 requires Nix, Ruby/Psych, yq and the pinned public doctrine source.
 
 **Order: containment first, live verification second, rotation third.** After

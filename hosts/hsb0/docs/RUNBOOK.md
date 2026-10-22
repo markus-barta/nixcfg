@@ -2065,6 +2065,6 @@ record only counts, digests and pass/fail on JOED-20.
 Rollback starts by creating the OFF file and retaining it. Preserve the
 sidecar and both journals (do not reset bucket reservations or producer
 sequence). OPS then uses the normal reviewed rollback to the prior executor
-source pin; round-8 baseline is `697959a6`. Keep Results disabled unless its
+source pin; round-8 baseline is `d1dbec84`. Keep Results disabled unless its
 existing ingress and paper-reconciliation gates pass. This candidate neither
 deploys nor changes producer enablement or board pins.
