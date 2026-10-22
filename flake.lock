@@ -1104,11 +1104,11 @@
     "opus-stream": {
       "flake": false,
       "locked": {
-        "lastModified": 1771605120,
-        "narHash": "sha256-z6gq+i/lyCqmKA3YpPqlA2DocqBy7c7c5QXZ7GRLIqM=",
+        "lastModified": 1792611043,
+        "narHash": "sha256-7xPf7bxHl6SDsT1jn9fq1IXM06IAFXgoqRSotxWTQFU=",
         "owner": "markus-barta",
         "repo": "opus-stream-to-mqtt",
-        "rev": "7515b7171d52a74325846675f8a9dccb5a35e292",
+        "rev": "2be96c40253359476e3d99e1f4297b65bd1c9c52",
         "type": "github"
       },
       "original": {
