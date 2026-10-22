@@ -16,7 +16,7 @@ import { runPusher } from "./fixtures/pusher-harness.mjs";
 const at = "2026-10-20T20:00:00.000Z";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const read = name => JSON.parse(fs.readFileSync(name));
-const revision = "2eb3953e076b5b35769ddc1418080cd17e35d2ff";
+const revision = "67e15fad20c946975e9ce9012ee3d103af0fd18d";
 const tree = "hosts/hsb0/docker/joe-board-pusher";
 function temp(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops408-r17-"));

@@ -713,13 +713,13 @@ the exact main commit and hashes identify this activated source.
 JOED-20 producer/executor activation and evidence remain separately owned.
 
 The `current` set keeps the v1 board db621bf; its pusher/executor records
-match main 096cc37fb8579e94915d89fb5eef305fb497fa06 (#1063, including #1061/#1062) and image
+match main 1034a7c511ad869056300eafb0ff1ebafcffe0d6 (#1063, including #1061/#1062) and image
 `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800`. Main's staging,
 local-mailbox wiring and source closure are retained. `previous` preserves
 the older flat-net downstream pins; it is historical rollback metadata.
 
-As in r6 (commit 327079f0acfcaacf480a6b1714742c216a32cc8e) and r7c
-(commit 36a8d06bec1b76a4f078f3ca8d8b0d3f06a12477), compute each `source_tree`
+As in r6 (commit 1279da937f98e166207a734c2b2b3294259858db) and r7c
+(commit 7314751188628197fef587e402dafc3815eeb5f5), compute each `source_tree`
 from the exact main commit with `git rev-parse REV:SOURCE_PATH`, using the
 recorded `source_path`. At 096cc37f this yields pusher tree
 `4258cfee86aac796c226f93d23b4f38289cbcc6a` and executor tree

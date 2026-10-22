@@ -3348,7 +3348,7 @@ class RulesetRoundTwoRegressionTests(unittest.TestCase):
         self.assertEqual(gh.cancelled, [])
 
     def test_disabled_policy_matches_origin_main_including_read_failures(self):
-        # Freeze origin/main at e503d991544c30bd993f4a44e3ddf69ad645295c: this differential
+        # Freeze origin/main at 512182d0c44e9e408b609d91047de4586a2cb407: this differential
         # must survive merges, shallow checkouts and later remote-ref changes.
         source = '''class Controller:
     def check_ruleset(self, force=True):

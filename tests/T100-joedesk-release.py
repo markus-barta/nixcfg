@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
-BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
+BASELINE = '68ae68464c9930c740be70c82b141e3a08f2319e'
 # OPS-408: exact pre-r17 runtime, including the release-set wiring.
-HSB0_BASELINE = "2eb3953e076b5b35769ddc1418080cd17e35d2ff"
+HSB0_BASELINE = "67e15fad20c946975e9ce9012ee3d103af0fd18d"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
 CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r18f-202610211655'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'

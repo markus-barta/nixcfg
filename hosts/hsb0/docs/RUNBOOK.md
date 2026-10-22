@@ -716,7 +716,7 @@ just switch
 ### Rollback to Previous Generation
 
 **Paper gateway rollback floor (NIX-461 / HOSTD-38):** generation **204**,
-activated from commit `1842c3ba901bc6202c502b01033fad8a66958814` on
+activated from commit `fac2f53ae02e6851476416e2374f20f77e1ed977` on
 2026-09-10, preserves the running gateway's `READ_ONLY_API=no` setting and the
 previous Joe board producer. Its retained system is
 `/nix/store/n4c8ym7m2vhdpqjqp8cg5gv92acqpmbm-nixos-system-hsb0-26.11.20260718.61b7c44`.
