@@ -103,7 +103,26 @@ in
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
     autoUpdate.enable = true;
-    spec = import ./docker/compose-spec.nix;
+    # OPS-430 (eMudhra): Home Assistant's own certifi bundle still trusts "emSign ECC Root CA - G3"
+    # (upstream image, certifi < 2026.10.19). Mount the system bundle, which carries the OPS-424
+    # blacklist, read-only over it. The source is the bundle's immutable store path: a bundle change
+    # re-renders the compose file and recreates the container instead of pinning a stale inode.
+    # The target follows the image's Python (3.14 on 2026-10-22). Drop once HA ships certifi >= 2026.10.19.
+    spec =
+      let
+        s = import ./docker/compose-spec.nix;
+        caBundle = config.environment.etc."ssl/certs/ca-certificates.crt".source;
+      in
+      s
+      // {
+        services = s.services // {
+          homeassistant = s.services.homeassistant // {
+            volumes = s.services.homeassistant.volumes ++ [
+              "${caBundle}:/usr/local/lib/python3.14/site-packages/certifi/cacert.pem:ro"
+            ];
+          };
+        };
+      };
   };
 
   # ============================================================================
