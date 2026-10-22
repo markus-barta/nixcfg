@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 25: v261022024625.0.0 (release PR #194: HNET-264 learned per-device RTT baselines, bounded baselines.json in the data dir; HNET-266 UI/UX polish; HNET-270 catch-up scan status). Capability-free: nix/ unchanged since pin 24 (6f0cf35); rollback = pin 24. Explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 26: v261022094055.0.0 (release PR #198: HNET-287 Pass 1 suggestions, per-type checks and late-MAC fill; HNET-284 package A and HNET-266 fixes; HNET-273 header follow-ups; new read-only GET /api/suggestions). Capability-free: nix/ unchanged since pin 25 (7a06bf0); rollback = pin 25. Explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=7a06bf0b4fa5af3b36baafecb3ee7385971876b8";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=2e94b9546733b2cd94fb12c920c0f55a8f54e9ab";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
