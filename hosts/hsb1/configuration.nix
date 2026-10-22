@@ -279,7 +279,33 @@ in
     # reaps the retired watchtower.
     removeOrphans = true;
     autoUpdate.enable = true;
-    spec = import ./docker/compose-spec.nix;
+    # OPS-430 (eMudhra): these images carry their own certifi bundle, which still trusts
+    # "emSign ECC Root CA - G3" (certifi < 2026.10.19). Mount the system bundle, which carries the
+    # OPS-424 blacklist, read-only over each one. The source is the bundle's immutable store path:
+    # a bundle change re-renders the compose file and recreates the containers instead of pinning a
+    # stale inode. Targets are each image's certifi.where() on 2026-10-22; they follow the image's
+    # Python version. Drop each entry once its image ships certifi >= 2026.10.19
+    # (nodered and funkeykid are our own images: OPS-430 step 12).
+    spec =
+      let
+        s = import ./docker/compose-spec.nix;
+        caBundle = config.environment.etc."ssl/certs/ca-certificates.crt".source;
+        # homeassistant is deliberately NOT here (OPS-430 incident 2026-10-22): HA installs custom-integration
+        # requirements at startup; the installer upgrades certifi and failed on the read-only file, leaving certifi
+        # without __init__.py. HA's own installer already pulls certifi >= 2026.10.19 on hsb1.
+        certifiTargets = {
+          apprise = "/usr/local/lib/python3.14/site-packages/certifi/cacert.pem";
+          nodered = "/usr/src/node-red/.venv/lib/python3.12/site-packages/certifi/cacert.pem";
+          funkeykid = "/usr/local/lib/python3.12/site-packages/certifi/cacert.pem";
+        };
+        withBundle =
+          name: svc:
+          if certifiTargets ? ${name} then
+            svc // { volumes = svc.volumes ++ [ "${caBundle}:${certifiTargets.${name}}:ro" ]; }
+          else
+            svc;
+      in
+      s // { services = lib.mapAttrs withBundle s.services; };
   };
 
   # Enable FLIRC IR-USB-Module
