@@ -59,6 +59,12 @@ in
     "emSign ECC Root CA - C3"
   ];
 
+  # OPS-430 (eMudhra, Python side): nixpkgs certifi uses its own bundle (which still has
+  # "emSign ECC Root CA - G3") unless NIX_SSL_CERT_FILE points elsewhere. Point interactive
+  # shells at the system bundle above, which carries the OPS-424 blacklist. Services that load
+  # certifi need the same variable in their own environment (hsb0 uptime-kuma).
+  environment.variables.NIX_SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
+
   # ════════════════════════════════════════════════════════════════════════════
   # IMPORTS - Shared modules
   # ════════════════════════════════════════════════════════════════════════════
