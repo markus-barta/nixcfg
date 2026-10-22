@@ -50,6 +50,15 @@ in
   };
   environment.etc."pharos/deployed-revision".text = config.system.configurationRevision;
 
+  # OPS-424 (CVE sweep 2026-10-22, Markus ppm Desk 485a118d): distrust the eMudhra roots whose compromised
+  # intermediates were used in the October 2026 incident (Mozilla removed them in NSS 3.131.1; G1 stays, as in Mozilla).
+  # Names as in the nss-cacert bundle. Drop once nixpkgs ships nss-cacert >= 3.131.1.
+  security.pki.caCertificateBlacklist = [
+    "emSign ECC Root CA - G3"
+    "emSign Root CA - C1"
+    "emSign ECC Root CA - C3"
+  ];
+
   # ════════════════════════════════════════════════════════════════════════════
   # IMPORTS - Shared modules
   # ════════════════════════════════════════════════════════════════════════════
