@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { open, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { openMarketDataSession } from './ib.mjs';
+import { ACCOUNT } from './policy.mjs';
 
 export const FX_CLIENT_ID = 709;
 export const FX_RETENTION_DAYS = 14;
@@ -29,7 +30,8 @@ export function fxSlot(epoch) {
   return { date, rth, bucket, calendarKnown, kind: bucket === 26 ? 'close' : 'rth' };
 }
 
-const failure = reason => Object.assign(new Error(reason), { reason });
+const SOURCE = 'ib-account-exchange-rate';
+const failure = (reason, code) => Object.assign(new Error(reason), { reason, ...(Number.isInteger(code) ? { code } : {}) });
 const reasons = new Set(['pending', 'ok', 'timeout', 'missing_quote', 'pacing_rejected', 'quote_failed', 'disconnected', 'invalid_quote', 'sample_failed']);
 const keysAre = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
 function validState(saved) {
@@ -37,13 +39,19 @@ function validState(saved) {
   return Object.entries(saved.days).every(([date, day]) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !keysAre(day, ['attempts', 'samples']) || !day.attempts || typeof day.attempts !== 'object' || Array.isArray(day.attempts) || Object.keys(day.attempts).length > 27 || !Array.isArray(day.samples) || day.samples.length > 27) return false;
     if (!Object.entries(day.attempts).every(([bucket, attempt]) => {
-      if (!/^(?:[0-9]|1[0-9]|2[0-6])$/.test(bucket) || !keysAre(attempt, ['at', 'reason']) || !reasons.has(attempt.reason) || !Number.isFinite(Date.parse(attempt.at))) return false;
+      if (!/^(?:[0-9]|1[0-9]|2[0-6])$/.test(bucket)
+        || !(keysAre(attempt, ['at', 'reason']) || keysAre(attempt, ['at', 'reason', 'code']) && Number.isInteger(attempt.code))
+        || !reasons.has(attempt.reason) || !Number.isFinite(Date.parse(attempt.at))) return false;
       const slot = fxSlot(Date.parse(attempt.at));
       return slot.date === date && slot.bucket === Number(bucket);
     })) return false;
     const seen = new Set();
     return day.samples.every(sample => {
-      if (!keysAre(sample, ['rate', 'sampleAt', 'kind']) || typeof sample.rate !== 'string' || !/^\d+\.\d{8}$/.test(sample.rate) || Number(sample.rate) <= 0 || Number(sample.rate) > 100 || !Number.isFinite(Date.parse(sample.sampleAt))) return false;
+      if (!(keysAre(sample, ['rate', 'sampleAt', 'kind'])
+        || keysAre(sample, ['rate', 'sampleAt', 'kind', 'source']) && sample.source === SOURCE
+        || keysAre(sample, ['rate', 'sampleAt', 'kind', 'source', 'staleFx', 'staleSeconds']) && sample.source === SOURCE
+          && sample.staleFx === true && Number.isInteger(sample.staleSeconds) && sample.staleSeconds >= 1800 && sample.staleSeconds <= 86400)
+        || typeof sample.rate !== 'string' || !/^\d+\.\d{8}$/.test(sample.rate) || Number(sample.rate) <= 0 || Number(sample.rate) > 100 || !Number.isFinite(Date.parse(sample.sampleAt))) return false;
       const slot = fxSlot(Date.parse(sample.sampleAt));
       if (slot.date !== date || slot.kind !== sample.kind || slot.bucket === null || seen.has(slot.bucket) || day.attempts[slot.bucket]?.reason !== 'ok') return false;
       seen.add(slot.bucket); return true;
@@ -51,40 +59,54 @@ function validState(saved) {
   });
 }
 
-// EUR/USD is the IB CASH convention; invert its contemporaneous bid/ask
-// midpoint once to obtain a USD -> EUR observation at eight decimal places.
-export async function requestFxSnapshot({ id, signal, runtime = {}, allowed = () => true }) {
-  let session;
+// Exact decimal -> eight places, rounding ties to even without binary floats.
+function accountRate(value) {
+  if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value)) throw failure('invalid_quote');
+  const [whole, fraction = ''] = value.split('.');
+  const scale = 100000000n;
+  let units = BigInt(whole) * scale + BigInt(fraction.slice(0, 8).padEnd(8, '0'));
+  const discarded = fraction.slice(8);
+  if (discarded[0] > '5' || discarded[0] === '5' && (/[1-9]/.test(discarded.slice(1)) || units % 2n === 1n)) units++;
+  if (units <= 0n) throw failure('invalid_quote');
+  return `${units / scale}.${String(units % scale).padStart(8, '0')}`;
+}
+
+// IB's account valuation rate needs no market-data subscription. Its receipt
+// time, rather than the end callback, is the observation time we can prove.
+export async function requestFxSnapshot({ id, signal, runtime = {}, allowed = () => true, now = Date.now }) {
+  let session, requested = false;
   try {
     session = await openMarketDataSession(FX_CLIENT_ID, runtime, signal);
     signal.throwIfAborted();
     if (!allowed()) throw failure('timeout');
     const { api, events } = session;
     return await new Promise((resolve, reject) => {
-      let bid, ask, requested = false, settled = false;
-      const finish = (error) => {
+      let eur, usd, sampleAt, settled = false;
+      const finish = (error, sample) => {
         if (settled) return;
         settled = true;
         for (const [event, fn] of listeners) api.off(event, fn);
         signal.removeEventListener('abort', abort);
-        // Even an error/timeout/throw may have opened a market-data line.
-        if (requested) { try { api.cancelMktData(id); } catch { /* close disconnects this dedicated client */ } }
         if (error) reject(error);
-        else resolve((2 / (bid + ask)).toFixed(8));
+        else resolve(sample);
       };
       const abort = () => finish(failure('timeout'));
       const listeners = [
-        [events.tickPrice, (requestId, field, value) => {
-          if (Number(requestId) !== id || ![1, 2].includes(Number(field))) return;
-          const price = Number(value);
-          if (!Number.isFinite(price) || price <= 0) return;
-          if (Number(field) === 1) bid = price; else ask = price;
-          if (bid && ask && ask >= bid) finish();
+        [events.accountUpdateMulti, (requestId, account, _model, key, value, currency) => {
+          if (Number(requestId) !== id || account !== ACCOUNT || key !== 'ExchangeRate') return;
+          if (String(currency).toUpperCase() === 'EUR') eur = value;
+          if (String(currency).toUpperCase() === 'USD') { usd = value; sampleAt = new Date(now()).toISOString(); }
         }],
-        [events.tickSnapshotEnd, requestId => { if (Number(requestId) === id) finish(failure('missing_quote')); }],
+        [events.accountUpdateMultiEnd, requestId => {
+          if (Number(requestId) !== id) return;
+          if (usd === undefined) return finish(failure('missing_quote'));
+          if (typeof eur !== 'string' || !/^0*1(?:\.0+)?$/.test(eur)) return finish(failure('invalid_quote'));
+          try { finish(null, { rate: accountRate(usd), sampleAt }); }
+          catch { finish(failure('invalid_quote')); }
+        }],
         [events.error, (_error, code, requestId) => {
-          if (Number(requestId) !== id && ![100, 1100, 2110].includes(Number(code))) return;
-          finish(failure([100, 420].includes(Number(code)) ? 'pacing_rejected' : 'quote_failed'));
+          if (Number(requestId) !== id && ![1100, 2110, 504].includes(Number(code))) return;
+          finish(failure('quote_failed', Number(code)));
         }],
         [events.disconnected, () => finish(failure('disconnected'))],
       ];
@@ -92,10 +114,19 @@ export async function requestFxSnapshot({ id, signal, runtime = {}, allowed = ()
       signal.addEventListener('abort', abort, { once: true });
       try {
         requested = true;
-        api.reqMktData(id, { symbol: 'EUR', secType: 'CASH', exchange: 'IDEALPRO', currency: 'USD' }, '', true, false);
+        api.reqAccountUpdatesMulti(id, ACCOUNT, '', true);
       } catch { finish(failure('quote_failed')); }
     });
-  } finally { session?.close(); }
+  } catch (error) {
+    if (signal.aborted) throw failure('timeout');
+    if (error.reason) throw error;
+    if (error.message === 'market data connection closed') throw failure('disconnected');
+    throw failure('quote_failed', [1100, 2110, 504].includes(error.ibCode) ? error.ibCode : undefined);
+  } finally {
+    // Even a throw/timeout may have opened an account-update subscription.
+    if (requested) { try { session.api.cancelAccountUpdatesMulti(id); } catch { /* close disconnects this dedicated client */ } }
+    session?.close();
+  }
 }
 
 async function readRegular(filename, limit) {
@@ -193,14 +224,31 @@ export function createFxSampler({ root, now = Date.now, request = requestFxSnaps
       try {
         // Reserved range 920000000..929999999, unrelated to order/recon IDs.
         const id = 920000000 + Math.floor(Date.parse(`${slot.date}T00:00:00Z`) / 86400_000) * 32 + slot.bucket;
-        const rate = await Promise.race([request({ id, signal: controller.signal, runtime, allowed: () => { const launch = fxSlot(now()); return !closed && launch.date === slot.date && launch.bucket === slot.bucket; } }), timedOut]);
-        const sampledAt = now();
-        if (controller.signal.aborted || fxSlot(sampledAt).date !== slot.date || fxSlot(sampledAt).bucket !== slot.bucket) throw failure('timeout');
+        const sample = await Promise.race([request({ id, signal: controller.signal, runtime, now, allowed: () => { const launch = fxSlot(now()); return !closed && launch.date === slot.date && launch.bucket === slot.bucket; } }), timedOut]);
+        const completedAt = now();
+        // Rate-only injected readers retain their existing receipt-time seam.
+        const rate = typeof sample === 'string' ? sample : sample?.rate;
+        const sampledAt = typeof sample === 'string' ? completedAt : Date.parse(sample?.sampleAt);
+        if (controller.signal.aborted || !Number.isFinite(sampledAt) || sampledAt > completedAt
+          || fxSlot(completedAt).date !== slot.date || fxSlot(completedAt).bucket !== slot.bucket
+          || fxSlot(sampledAt).date !== slot.date || fxSlot(sampledAt).bucket !== slot.bucket) throw failure('timeout');
         if (typeof rate !== 'string' || !/^\d+\.\d{8}$/.test(rate) || Number(rate) <= 0 || Number(rate) > 100) throw failure('invalid_quote');
-        day.samples.push({ rate, sampleAt: new Date(sampledAt).toISOString(), kind: slot.kind });
+        // Only earlier samples in this NY day count; failed attempts never
+        // change the contiguous run of exactly equal rate strings.
+        let runStart = sampledAt;
+        const earlier = day.samples.filter(previous => Date.parse(previous.sampleAt) < sampledAt)
+          .sort((a, b) => Date.parse(b.sampleAt) - Date.parse(a.sampleAt));
+        for (const previous of earlier) {
+          if (previous.rate !== rate) break;
+          runStart = Date.parse(previous.sampleAt);
+        }
+        const staleSeconds = Math.floor((sampledAt - runStart) / 1000);
+        day.samples.push({ rate, sampleAt: new Date(sampledAt).toISOString(), kind: slot.kind, source: SOURCE,
+          ...(staleSeconds >= 1800 ? { staleFx: true, staleSeconds } : {}) });
         attempt.reason = 'ok'; reason = null;
       } catch (error) {
         attempt.reason = controller.signal.aborted ? 'timeout' : ['timeout', 'missing_quote', 'pacing_rejected', 'quote_failed', 'disconnected', 'invalid_quote'].includes(error.reason) ? error.reason : 'sample_failed';
+        if (attempt.reason === 'quote_failed' && Number.isInteger(error.code)) attempt.code = error.code;
         reason = attempt.reason;
       } finally { clearTimeout(deadline); controller.signal.removeEventListener('abort', rejectTimeout); controller = null; }
       await persist(); notify();

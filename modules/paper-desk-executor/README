@@ -1,0 +1,32 @@
+Results FX sampler (JOED-63)
+
+The read-only sampler uses its dedicated paper client 709 to request
+reqAccountUpdatesMulti(id, ACCOUNT, "", true). It collects ExchangeRate values
+for the configured account until accountUpdateMultiEnd and always cancels the
+request before disconnecting. It makes no FX market-data request. EUR must be
+exactly 1 to prove an EUR base; the positive USD decimal rate is padded or
+rounded half-even to eight decimal places using BigInt.
+
+IB updates account values periodically. This is IB's valuation rate as received
+at sampleAt, not a simultaneous executable FX quote. sampleAt records receipt
+of the USD account value, before accountUpdateMultiEnd. The producer carries
+that timestamp unchanged as observedAt.
+
+staleFx: true and integer staleSeconds appear together once the rate string
+has stayed identical for at least 1800 seconds (30 minutes), measured from the
+earliest sample in the contiguous identical run of that New York day's samples
+to the new RTH or close sample's sampleAt, rounded down to seconds. A different
+rate resets the run; failed attempts do not change it. Below 1800 seconds both
+keys are absent. This is informational: the rate is still used for conversion.
+
+New samples carry source "ib-account-exchange-rate". The producer labels their
+conversions "ib-account-fx-close" or "ib-account-fx-rth". Historical samples
+without source retain "ib-fx-close" or "ib-fx-rth". A frozen 16:05 New York
+close wins for its day; an RTH sample expires after 30 minutes. A fill's own
+closeFx keeps its existing 60-second freshness requirement.
+
+Slots, the 15-minute gap, unconditional close, one attempt per bucket, timeout,
+reserved request IDs, retention and FX-SAMPLER-OFF are unchanged. Failed IB
+requests may record an integer code with the existing reason. Broker messages
+and account IDs are never logged or persisted by the sampler. Old state files
+without source or code remain readable; unknown sample sources fail closed.
