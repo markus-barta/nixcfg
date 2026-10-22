@@ -1,9 +1,9 @@
 {
   "schema": "inspr.pharos.fleet-release.v2",
   "version_scheme": "inspr-calendar-v2",
-  "version": "260925163010.0.0",
+  "version": "261022144327.0.0",
   "release_channel": "stable",
-  "release_sequence": 25,
+  "release_sequence": 27,
   "migration_anchor": {
     "last_legacy_version": "0.2.0",
     "last_legacy_release_sequence": 0,
@@ -14,11 +14,11 @@
     "first_calendar_v2_version": "260909194540.0.0",
     "first_calendar_v2_release_sequence": 6
   },
-  "source_commit": "8db7ea3960c957f43f730baaba3592241ca75e59",
-  "tag": "v260925163010.0.0",
+  "source_commit": "7396edd92ba2e5c1e868372cfa4bea52f5f55f54",
+  "tag": "v261022144327.0.0",
   "image": "ghcr.io/inspr-at/pharos/pharosd",
-  "digest": "sha256:811abc02316aa914fc4e6b3649dff0b4d9b9953819f7e4edab4aab14bf1045c1",
-  "reference": "ghcr.io/inspr-at/pharos/pharosd:260925163010.0.0@sha256:811abc02316aa914fc4e6b3649dff0b4d9b9953819f7e4edab4aab14bf1045c1",
+  "digest": "sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9",
+  "reference": "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9",
   "legacy_rollback": {
     "version_scheme": "legacy",
     "version": "0.2.0",

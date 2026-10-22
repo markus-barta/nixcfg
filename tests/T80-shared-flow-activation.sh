@@ -321,6 +321,6 @@ fi
 grep -Fq 'pharos.barta.cm:${sharedFlow.network.addresses.traefik}' "$compose"
 grep -Fq 'privateBind "/run/inspr-shared-flow/dynamic.yml" "/etc/traefik/dynamic/inspr-shared-flow.yml"' "$compose"
 grep -Fq 'image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507.0.0@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639"' "$compose"
-grep -Fq 'image = "ghcr.io/inspr-at/pharos/pharosd:260925163010.0.0@sha256:811abc02316aa914fc4e6b3649dff0b4d9b9953819f7e4edab4aab14bf1045c1"' "$compose"
+grep -Fq 'image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9"' "$compose"
 
 printf 'shared_flow_activation=passed active=true runtime_proof_required=true\n'
