@@ -683,8 +683,8 @@ metadata for both evaluations (apply item 2 uncommitted to that baseline), so
 a configurationRevision change from different commits does not confound the
 comparison. Include the new JSON with `git add -N` for Git-backed flake
 evaluation. This is an evaluation comparison, with no build or switch.
-T100 compares the csb0 static spec against ed5e43d6, and hsb0 against main
-096cc37f (#1063): image, full Compose spec, executor service, units, firewall, users
+T100 compares the csb0 static spec against 68ae6846, and hsb0 against main
+1034a7c5 (#1063): image, full Compose spec, executor service, units, firewall, users
 and real source derivation paths. It evaluates Linux packages in a disposable
 local store without building. The whole-host toplevel derivation comparison
 above remains a separate OPS gate; T100 does not claim it passed.
@@ -713,15 +713,15 @@ the exact main commit and hashes identify this activated source.
 JOED-20 producer/executor activation and evidence remain separately owned.
 
 The `current` set keeps the v1 board db621bf; its pusher/executor records
-match main 096cc37fb8579e94915d89fb5eef305fb497fa06 (#1063, including #1061/#1062) and image
+match main 1034a7c511ad869056300eafb0ff1ebafcffe0d6 (#1063, including #1061/#1062) and image
 `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800`. Main's staging,
 local-mailbox wiring and source closure are retained. `previous` preserves
 the older flat-net downstream pins; it is historical rollback metadata.
 
-As in r6 (commit 327079f0acfcaacf480a6b1714742c216a32cc8e) and r7c
-(commit 36a8d06bec1b76a4f078f3ca8d8b0d3f06a12477), compute each `source_tree`
+As in r6 (commit 1279da937f98e166207a734c2b2b3294259858db) and r7c
+(commit 7314751188628197fef587e402dafc3815eeb5f5), compute each `source_tree`
 from the exact main commit with `git rev-parse REV:SOURCE_PATH`, using the
-recorded `source_path`. At 096cc37f this yields pusher tree
+recorded `source_path`. At 1034a7c5 this yields pusher tree
 `4258cfee86aac796c226f93d23b4f38289cbcc6a` and executor tree
 `d77428b41e00faa71d6cb52f0ace23ba487a4b9d`. These are Git tree IDs from
 main, including its literal executor image; T100 separately proves the
@@ -742,7 +742,7 @@ and recorded a non-Docker plan; Linux ownership, Docker/image smokes, whole-host
 evaluation, live checks, review and cutover remain OPS gates. No push, SSH,
 build or deployment was performed.
 
-R7f local preparation merged exact main 096cc37f (#1063) while retaining
+R7f local preparation merged exact main 1034a7c5 (#1063) while retaining
 `joeSet` indirection and main's literal r16d stage image. The r6/r7c tree-pin
 method above records the exact main trees, with no change to the active board,
 `previous`, or the inactive v2 candidate. The existing JOED-26 adoption scope

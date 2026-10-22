@@ -85,7 +85,7 @@ class DriftTest(unittest.TestCase):
         self.assertEqual(self.checks.collect(), [])
 
     def test_many_commits_behind_pages_even_without_age(self):
-        self.write([host("hsb8", relation="behind", behind=99, rev="d23b1814")])
+        self.write([host("hsb8", relation="behind", behind=99, rev="146da190")])
         problems = self.checks.collect()
         self.assertEqual([p.key for p in problems], ["drift:hsb8"])
         self.assertIn("age unknown", problems[0].text)
@@ -110,7 +110,7 @@ class DriftTest(unittest.TestCase):
         self.assertIn("unwatched", problems[0].text)
 
     def test_engine_debounce_then_page(self):
-        self.write([host("hsb9", relation="behind", behind=99, rev="d23b1814")])
+        self.write([host("hsb9", relation="behind", behind=99, rev="146da190")])
         sent = []
         state = str(Path(self.tmp.name) / "state.json")
         for stamp in (NOW, NOW + 3600):

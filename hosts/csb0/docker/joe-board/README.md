@@ -46,7 +46,7 @@ pusher/executor pins (JOED-62 attribution memory, after JOED-57 r18c gateway hea
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
-main 096cc37f (#1063, including #1061/#1062) and its live OPS-404 r16d switch-set image; `previous` preserves the
+main 1034a7c5 (#1063, including #1061/#1062) and its live OPS-404 r16d switch-set image; `previous` preserves the
 earlier flat-net runtime and the same legacy board. Preserve that rollback
 history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
@@ -66,8 +66,8 @@ The published source's `release.json` still says candidate; OPS uses the exact
 a60f4c56 commit and revision-9 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
-proves the csb0 static spec against ed5e43d6 (routing held constant) and
-hsb0 against main 096cc37f: image, full Compose spec, executor service, units,
+proves the csb0 static spec against 68ae6846 (routing held constant) and
+hsb0 against main 1034a7c5: image, full Compose spec, executor service, units,
 firewall, users and real source derivation paths. The hsb0 evaluator uses a
 disposable local Nix store, evaluates Linux packages and never builds. OPS
 must also compare Linux `config.system.build.toplevel.drvPath` on the states

@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RELEASE = ROOT / 'hosts/csb0/joedesk-release.json'
-BASELINE = 'ed5e43d6600b6b610a8c4483eba2627f00b4fd58'
+BASELINE = '68ae68464c9930c740be70c82b141e3a08f2319e'
 # OPS-408: exact pre-r17 runtime, including the release-set wiring.
-HSB0_BASELINE = "2eb3953e076b5b35769ddc1418080cd17e35d2ff"
+HSB0_BASELINE = "67e15fad20c946975e9ce9012ee3d103af0fd18d"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
 CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r18f-202610211655'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
@@ -340,7 +340,7 @@ def evaluation_proof():
         tree = subprocess.check_output(['git', 'rev-parse', pin['nixcfg_rev'] + ':' + pin['source_path']], cwd=ROOT, text=True).strip()
         require(tree == pin['source_tree'], 'recorded source tree mismatch')
     # Compare hsb0 with the recorded exact main, including its stage and local
-    # mailbox, against 2eb3953e and its live r16d switch set.
+    # mailbox, against 67e15fad and its live r16d switch set.
     hsb0_evaluation_proof()
     print('release_refactor=byte-identical-static-specs executor_default=r16d-main-equal linux_toplevel_drvPath=pending')
 
@@ -408,7 +408,7 @@ def hsb0_evaluation_proof():
             service.pop('build', None)
             previous.pop('build', None)
         require(sorted(build_changes) == ['joe-board-pusher', 'joe-household-v2-stage'], 'only pusher-source build contexts may change')
-        require(baseline == actual, 'v1 runtime differs from 2eb3953e: image, service, units, firewall, users, executor derivations or compose')
+        require(baseline == actual, 'v1 runtime differs from 67e15fad: image, service, units, firewall, users, executor derivations or compose')
         pusher = actual['hostCompose']['services']['joe-board-pusher']
         require(pusher == {
             'container_name': 'joe-board-pusher', 'restart': 'unless-stopped', 'network_mode': 'host',
@@ -465,7 +465,7 @@ def hsb0_evaluation_proof():
         require(services['joe-board-pusher']['image'] == disabled['image'] == CANDIDATE_IMAGE, 'disabled stager selected a v1-only runtime')
         require('JOE_PUSH_SCHEMA=inspr.joe.household.v2' in services['joe-board-pusher']['environment'], 'disabled stager removed v2 mode')
         require('/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro' in services['joe-board-pusher']['volumes'], 'disabled stager removed read-only mount')
-        print('ops408_v1_runtime=2eb3953e-identical_except_build v2_images=r17 schema=v2 pusher_v2_mount=ro stager_v2_mount=rw disabled_stager=v2_fail_closed')
+        print('ops408_v1_runtime=67e15fad-identical_except_build v2_images=r17 schema=v2 pusher_v2_mount=ro stager_v2_mount=rw disabled_stager=v2_fail_closed')
         require(actual['hostCompose']['services']['paper-desk-executor'] == actual['service'], 'host executor service mismatch')
         print('hsb0_v1_runtime_equality=image,options,service,units,firewall,users,executor_source_drvPaths,compose_except_build sha256=' + hashlib.sha256(json.dumps(actual, sort_keys=True).encode()).hexdigest())
 

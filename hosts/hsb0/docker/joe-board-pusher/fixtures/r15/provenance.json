@@ -1,6 +1,6 @@
 {
   "note": "Byte-exact r15 worker and complete local import/contract closure; do not reformat. Tests use these historical bytes without Git or network access.",
-  "revision": "059767b98dc94bc9143cda7fe2000473c48051f9",
+  "revision": "0c4e2946fc5ea220c72b57709db00710ebd3ba8c",
   "sourceDirectory": "hosts/hsb0/docker/joe-board-pusher",
   "files": {
     "contracts.lock.json": {

@@ -54,7 +54,7 @@ executor images all follow that release set; the candidate tag alone activates
 nothing. The build context and restart trigger still capture every production
 `.mjs`; changing source changes the host derivation even before activation.
 `T100-joedesk-release.py --prove-current` compares the complete v1 runtime
-against `2eb3953e` with `build` removed, and evaluates a synthetic r17 v2 set.
+against `67e15fad` with `build` removed, and evaluates a synthetic r17 v2 set.
 
 Each v2 cycle uses `StageStore.readCommittedPair()`: `current.json` is the
 stager's commit marker, and its existing `readPair` validates the closed pair,

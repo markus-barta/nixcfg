@@ -190,7 +190,7 @@ let
       };
       commitDigest = lib.mkOption {
         type = lib.types.addCheck lib.types.str isCommitDigest;
-        example = "c68719d7dbaea4a2c5c557c59e7fdb8cd786ace2";
+        example = "08386fe05aaf521cb5ce3eb98f784d004a2d1906";
         description = "Lowercase 40- or 64-hex commit digest of the deployed source.";
       };
       releaseManifestCoordinate = lib.mkOption {

@@ -12,7 +12,7 @@ import { startCycle } from "./v1-cycle.mjs";
 import { createCycleStore } from "./v1-cycle-store.mjs";
 
 const fixture = new URL("./fixtures/r15/", import.meta.url);
-const revision = "059767b98dc94bc9143cda7fe2000473c48051f9";
+const revision = "0c4e2946fc5ea220c72b57709db00710ebd3ba8c";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const json = name => JSON.parse(fs.readFileSync(name));
 const instant = "2026-10-20T11:00:00.000Z";
@@ -42,7 +42,7 @@ test("actual r16 opens r16d pairs in place and continues above the saved high-wa
   t.after(() => spawnSync("trash", [root]));
   const runtime = path.join(root, "r16"), v2 = path.join(root, "v2");
   const tree = "hosts/hsb0/docker/joe-board-pusher";
-  const r16Revision = "68a8e9aaca483c72b23c8da6c6fc0085291ca9db";
+  const r16Revision = "0a20ef6da3b6d3a26fd8c7e7a0719ede0c595558";
   const files = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", `${r16Revision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
   for (const name of files.filter(name => (/^[^/]+\.mjs$/.test(name) && !name.endsWith(".test.mjs"))
     || name === "contracts.lock.json" || name.startsWith("contracts/"))) {

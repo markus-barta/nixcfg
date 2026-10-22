@@ -303,7 +303,7 @@ sudo nixos-rebuild switch --flake .#hostname
             └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
 ```
 
-> **The dashboard column above is historical.** It described `services.nixfleet-agent.themeColor`, which was removed when **NixFleet was decommissioned** (`cefa8fa4`, 2026-04-02). The lineage is NixFleet → FleetCom → **Pharos**; Pharos does not consume `themeColor`. Everything else in this diagram is live — colours still flow from `theme-palettes.nix` to starship, zellij and eza.
+> **The dashboard column above is historical.** It described `services.nixfleet-agent.themeColor`, which was removed when **NixFleet was decommissioned** (`21c45a27`, 2026-04-02). The lineage is NixFleet → FleetCom → **Pharos**; Pharos does not consume `themeColor`. Everything else in this diagram is live — colours still flow from `theme-palettes.nix` to starship, zellij and eza.
 
 ---
 

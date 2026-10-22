@@ -11,7 +11,7 @@ import { runPusher } from "./fixtures/pusher-harness.mjs";
 
 const file = "hosts/hsb0/docker/joe-board-pusher/pusher.mjs";
 const candidate = fs.readFileSync(new URL("./pusher.mjs", import.meta.url), "utf8");
-const main = "276814526032980d24114fd5e70e9b95e0b42efe";
+const main = "ae2caf7d63752d84917937526284578ce86bbd1d";
 const baseline = execFileSync("git", ["show", `${main}:${file}`], { encoding: "utf8" });
 const candidateURL = new URL("./pusher.mjs", import.meta.url);
 let baselineURL, baselineRoot;

@@ -167,7 +167,7 @@
     # Dedicated fleet key — deliberately NOT the atelier
     # `mbp2607-personal-userkey` (markus-defaults.nix hostKeys), which is a
     # separate key for git only. Same separation as mba@mbp0 vs
-    # m5-personal-userkey. (First commit dbdcc87f wrongly listed the atelier
+    # m5-personal-userkey. (First commit 56d6328b wrongly listed the atelier
     # pubkey here — fixed 2026-07-04, never admitted anywhere in between.)
     "markus@mbp2607" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFCX8hTsA5FHr+6Z/vCSq/HQI9DLpaF63XbN5YXEsch8 markus@mbp2607";

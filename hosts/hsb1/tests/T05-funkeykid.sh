@@ -84,7 +84,7 @@ echo "Date: $(date)"
 
 print_test "T05.1 - Container"
 # funkeykid runs as a Docker container in the hsb1 compose stack since
-# 9e657c57 — there is no funkeykid.service systemd unit anymore (NIX-231).
+# df520cfc — there is no funkeykid.service systemd unit anymore (NIX-231).
 if docker ps --format '{{.Names}}' | grep -qx funkeykid; then
   pass "funkeykid container is running"
 else

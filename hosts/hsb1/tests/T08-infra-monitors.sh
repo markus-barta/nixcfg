@@ -78,7 +78,7 @@ print_header "T08 - Infrastructure Monitors Tests (hsb1)"
 echo "Host: $(hostname)"
 echo "Date: $(date)"
 
-# T08.1 (Netcup Monitor) removed — retired in 48637c14, replaced by Uptime
+# T08.1 (Netcup Monitor) removed — retired in 57eeacad, replaced by Uptime
 # Kuma on hsb0 (NIX-231). A leftover ~/bin/netcup-monitor.sh may still sit
 # on the host; it is unmanaged and unused.
 
@@ -89,7 +89,7 @@ echo "Date: $(date)"
 print_test "T08.2 - APC UPS Service"
 check_service_active "apcupsd.service"
 check_timer_active "apc-to-mqtt.timer"
-# NIX-158: apc-to-mqtt is now inlined into the declarative systemd unit (14f67bf8) — no standalone script.
+# NIX-158: apc-to-mqtt is now inlined into the declarative systemd unit (9a7441d8) — no standalone script.
 # Oneshot fired by the timer: is-active is normally "inactive" between runs
 # (the old `|| true` still counted a FAIL) — assert the last run result
 # instead (NIX-231).

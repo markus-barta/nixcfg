@@ -14,13 +14,13 @@
         "public_health": false
       },
       "pusher": {
-        "nixcfg_rev": "096cc37fb8579e94915d89fb5eef305fb497fa06",
+        "nixcfg_rev": "1034a7c511ad869056300eafb0ff1ebafcffe0d6",
         "source_tree": "4258cfee86aac796c226f93d23b4f38289cbcc6a",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
         "image": "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800"
       },
       "executor": {
-        "nixcfg_rev": "096cc37fb8579e94915d89fb5eef305fb497fa06",
+        "nixcfg_rev": "1034a7c511ad869056300eafb0ff1ebafcffe0d6",
         "source_tree": "d77428b41e00faa71d6cb52f0ace23ba487a4b9d",
         "source_path": "modules/paper-desk-executor",
         "image": "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800"
@@ -31,7 +31,7 @@
         "board_image": "csb0-joe-board:source-db621bf7f00a4c609b0930ef7d5020f3c8935ee9",
         "csb0_generation": null,
         "hsb0_generation": null,
-        "hsb0_pre_cutover_nixcfg_rev": "0cff3a6f33af0712845255e0e198bc7169fcb112",
+        "hsb0_pre_cutover_nixcfg_rev": "89d08186a6bafd2c1e2544add62c56fdfd2041b1",
         "note": "OPS records exact local image IDs, retained generations and private verified backup before cutover."
       }
     },
@@ -47,13 +47,13 @@
         "public_health": true
       },
       "pusher": {
-        "nixcfg_rev": "5be9f5c9bdf79e00a83963cb9ecf44a1866d7b57",
+        "nixcfg_rev": "cb50203245e78e6646fd5a8f1ee0546c3da19e8d",
         "source_tree": "6eeccac59b07b7438aa28b96031521b864d5547a",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
         "image": "hsb0-joe-board-pusher:household-v2-switch-set-r18f-202610211655"
       },
       "executor": {
-        "nixcfg_rev": "82321916b301c2741c4a659443563d24a2da49f9",
+        "nixcfg_rev": "8ac5d0ca7f9377b61085663635fc0fb80b96b797",
         "source_tree": "6c43492f74bc0da4e9c3b013188980e4c7bc0b63",
         "source_path": "modules/paper-desk-executor",
         "image": "hsb0-joe-board-pusher:household-v2-switch-set-r18f-202610211655"
@@ -110,14 +110,14 @@
         "public_health": false
       },
       "pusher": {
-        "nixcfg_rev": "ed5e43d6600b6b610a8c4483eba2627f00b4fd58",
-        "source_tree": "181d98dfe04333aecd9bbb5b262666209904ef4f",
+        "nixcfg_rev": "68ae68464c9930c740be70c82b141e3a08f2319e",
+        "source_tree": "a05840aac1c4dd0a52aa1874fca714d583e70fd1",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
         "image": "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310"
       },
       "executor": {
-        "nixcfg_rev": "ed5e43d6600b6b610a8c4483eba2627f00b4fd58",
-        "source_tree": "4eab4a9fa87021b088b86a040e85d73546021aaf",
+        "nixcfg_rev": "68ae68464c9930c740be70c82b141e3a08f2319e",
+        "source_tree": "6165a4b941ea93248c033964af9cd7b427df4c03",
         "source_path": "modules/paper-desk-executor",
         "image": "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310"
       },
