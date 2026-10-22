@@ -290,8 +290,10 @@ in
       let
         s = import ./docker/compose-spec.nix;
         caBundle = config.environment.etc."ssl/certs/ca-certificates.crt".source;
+        # homeassistant is deliberately NOT here (OPS-430 incident 2026-10-22): HA installs custom-integration
+        # requirements at startup; the installer upgrades certifi and failed on the read-only file, leaving certifi
+        # without __init__.py. HA's own installer already pulls certifi >= 2026.10.19 on hsb1.
         certifiTargets = {
-          homeassistant = "/usr/local/lib/python3.14/site-packages/certifi/cacert.pem";
           apprise = "/usr/local/lib/python3.14/site-packages/certifi/cacert.pem";
           nodered = "/usr/src/node-red/.venv/lib/python3.12/site-packages/certifi/cacert.pem";
           funkeykid = "/usr/local/lib/python3.12/site-packages/certifi/cacert.pem";
