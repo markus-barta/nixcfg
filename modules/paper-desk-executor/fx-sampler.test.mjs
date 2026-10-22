@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createFxSampler, requestFxSnapshot, fxSlot, FX_RETENTION_DAYS } from './fx-sampler.mjs';
 import { createResultsSampler } from './server.mjs';
+import { ACCOUNT } from './policy.mjs';
 
 const root = () => mkdtempSync(path.join(tmpdir(), 'joed20-fx-'));
 const iso = time => new Date(time).toISOString();
@@ -116,36 +117,257 @@ test('weekend, off-hours, repeated failure and runtime off-file never create ext
   bounded.close();
 });
 
-function fakeRuntime(mode, calls) {
-  const EventName = Object.fromEntries(['nextValidId', 'error', 'disconnected', 'tickPrice', 'tickSnapshotEnd'].map(name => [name, name]));
+function fakeRuntime(mode, calls, { eur = '1', usd = '0.86', code = 10089, onUsd = () => {}, onEnd = () => {} } = {}) {
+  const EventName = Object.fromEntries(['nextValidId', 'error', 'disconnected', 'accountUpdateMulti', 'accountUpdateMultiEnd'].map(name => [name, name]));
   class IBApi extends EventEmitter {
+    constructor(options) { super(); calls.connection = options; calls.api = this; }
     connect() { queueMicrotask(() => this.emit('nextValidId', 1)); }
     disconnect() { calls.disconnect++; }
-    reqMktData(id, contract, generic, snapshot, regulatory) {
-      calls.requests.push({ id, contract, generic, snapshot, regulatory }); calls.open.add(id);
+    reqAccountUpdatesMulti(id, account, modelCode, ledgerAndNLV) {
+      calls.requests.push({ id, account, modelCode, ledgerAndNLV }); calls.open.add(id);
       queueMicrotask(() => {
-        if (mode === 'ok') { this.emit('tickPrice', id + 1, 1, 9); this.emit('tickPrice', id, 1, 1.1); this.emit('tickPrice', id, 2, 1.1); }
-        if (mode === 'reject') this.emit('error', new Error('private broker message'), 420, id);
-        if (mode === 'empty') this.emit('tickSnapshotEnd', id);
+        // Other requests/accounts/keys and unrelated errors must be ignored.
+        this.emit('accountUpdateMulti', id + 1, account, '', 'ExchangeRate', '9', 'USD');
+        this.emit('accountUpdateMulti', id, 'synthetic-other-account', '', 'ExchangeRate', '9', 'USD');
+        this.emit('accountUpdateMulti', id, account, '', 'NetLiquidation', '9', 'USD');
+        this.emit('accountUpdateMulti', id + 1, account, '', 'ExchangeRate', '2', 'EUR');
+        this.emit('accountUpdateMulti', id, 'synthetic-other-account', '', 'ExchangeRate', '2', 'EUR');
+        this.emit('accountUpdateMulti', id, account, '', 'NetLiquidation', '2', 'EUR');
+        this.emit('accountUpdateMultiEnd', id + 1);
+        this.emit('error', new Error('private unrelated message'), 321, id + 1);
+        if (['ok', 'empty', 'no-end'].includes(mode)) {
+          if (eur !== null) this.emit('accountUpdateMulti', id, account, '', 'ExchangeRate', eur, 'EUR');
+          if (mode !== 'empty' && usd !== null) {
+            onUsd(); this.emit('accountUpdateMulti', id, account, '', 'ExchangeRate', usd, 'USD');
+          }
+          if (mode !== 'no-end') { onEnd(); this.emit('accountUpdateMultiEnd', id); }
+        }
+        if (mode === 'reject' || mode === 'connection-error') this.emit('error', new Error('private broker message'), code, mode === 'reject' ? id : -1);
         if (mode === 'disconnect') this.emit('disconnected');
       });
       if (mode === 'throw') throw new Error('synthetic transport failure');
     }
-    cancelMktData(id) { calls.open.delete(id); calls.cancel++; }
+    cancelAccountUpdatesMulti(id) { calls.open.delete(id); calls.cancel++; }
   }
   return { IBApi, EventName };
 }
-for (const mode of ['ok', 'reject', 'empty', 'disconnect', 'throw', 'slow']) test(`snapshot ${mode}: every request cancelled, client disconnected, no leftover subscription`, async () => {
+for (const [mode, reason] of [['ok', null], ['reject', 'quote_failed'], ['empty', 'missing_quote'], ['disconnect', 'disconnected'], ['throw', 'quote_failed'], ['slow', 'timeout'], ['no-end', 'timeout']]) test(`account snapshot ${mode}: every request cancelled, client disconnected, no leftover subscription`, async () => {
   const calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20);
   try {
-    const task = requestFxSnapshot({ id: 920000001, signal: controller.signal, runtime: fakeRuntime(mode, calls) });
-    if (mode === 'ok') assert.equal(await task, '0.90909091'); else await assert.rejects(task);
+    const task = requestFxSnapshot({ id: 920000001, signal: controller.signal, runtime: fakeRuntime(mode, calls), now: () => Date.parse('2026-10-26T13:30:02Z') });
+    if (mode === 'ok') assert.deepEqual(await task, { rate: '0.86000000', sampleAt: '2026-10-26T13:30:02.000Z' });
+    else await assert.rejects(task, error => error.reason === reason && (mode !== 'reject' || error.code === 10089));
   } finally { clearTimeout(timer); }
   assert.equal(calls.requests.length, 1);
-  assert.deepEqual(calls.requests[0], { id: 920000001, contract: { symbol: 'EUR', secType: 'CASH', exchange: 'IDEALPRO', currency: 'USD' }, generic: '', snapshot: true, regulatory: false });
+  assert.deepEqual(calls.requests[0], { id: 920000001, account: ACCOUNT, modelCode: '', ledgerAndNLV: true });
+  assert.equal(calls.connection.clientId, 709); assert.equal(calls.connection.port, 4002);
   assert.equal(calls.cancel, 1); assert.equal(calls.disconnect, 1); assert.equal(calls.open.size, 0);
+  for (const event of ['accountUpdateMulti', 'accountUpdateMultiEnd', 'disconnected']) assert.equal(calls.api.listenerCount(event), 0);
+  assert.equal(calls.api.listenerCount('error'), 1, 'only the dedicated session safety listener remains');
+});
+
+for (const [usd, expected] of [
+  ['0.861234564', '0.86123456'], ['0.861234565', '0.86123456'],
+  ['0.861234575', '0.86123458'], ['0.861234565000000001', '0.86123457'],
+  ['0.999999995', '1.00000000'], ['1', '1.00000000'],
+]) test(`account rate rounds half-even with BigInt: ${usd} -> ${expected}`, async () => {
+  const calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
+  const result = await requestFxSnapshot({ id: 920000001, signal: new AbortController().signal,
+    runtime: fakeRuntime('ok', calls, { usd, eur: '1.000000000000000000' }) });
+  assert.equal(result.rate, expected);
+  assert.equal(calls.cancel, 1); assert.equal(calls.open.size, 0); assert.equal(calls.disconnect, 1);
+});
+
+for (const options of [
+  { eur: '0.99' }, { eur: '1.000000000000000001' }, { eur: null },
+  ...['0', '-0.86', 'Infinity', 'NaN', '8.6e-1', '0.000000005', ' 0.86', 0.86].map(usd => ({ usd })),
+]) test(`account rate rejects invalid quotes and cancels: ${JSON.stringify(options)}`, async () => {
+  const calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
+  await assert.rejects(requestFxSnapshot({ id: 920000001, signal: new AbortController().signal,
+    runtime: fakeRuntime('ok', calls, options) }), error => error.reason === 'invalid_quote');
+  assert.equal(calls.cancel, 1); assert.equal(calls.open.size, 0); assert.equal(calls.disconnect, 1);
+});
+
+test('account rate success persists the source and USD receipt time, waiting for the end callback', async () => {
+  const dir = root(), calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
+  let now = Date.parse('2026-10-26T13:30:00Z');
+  const received = now + 2000, ended = now + 7000;
+  const sampler = createFxSampler({ root: dir, now: () => now, runtime: fakeRuntime('ok', calls, {
+    onUsd: () => { now = received; }, onEnd: () => { now = ended; },
+  }) });
+  try {
+    await sampler.tick(); await sampler.tick();
+    assert.equal(now, ended);
+    assert.deepEqual(sampler.snapshot().days['2026-10-26'].samples, [{ rate: '0.86000000',
+      sampleAt: iso(received), kind: 'rth', source: 'ib-account-exchange-rate' }]);
+    assert.equal(calls.requests.length, 1); assert.equal(calls.cancel, 1);
+    const saved = readFileSync(path.join(dir, 'results-fx.json'), 'utf8');
+    assert.equal(saved.includes(ACCOUNT), false);
+    assert.deepEqual(JSON.parse(saved).days['2026-10-26'].samples, sampler.snapshot().days['2026-10-26'].samples);
+  } finally { sampler.close(); }
+});
+
+for (const [mode, code] of [['reject', 10089], ['reject', 321], ['connection-error', 1100], ['connection-error', 2110], ['connection-error', 504]]) test(`account IB error ${code}: quote_failed persists only the code and never retries after restart`, async () => {
+  const dir = root(), calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
+  const options = { root: dir, now: () => Date.parse('2026-10-26T13:30:00Z'), runtime: fakeRuntime(mode, calls, { code }) };
+  let sampler = createFxSampler(options);
+  await sampler.tick(); await sampler.tick(); sampler.close();
+  sampler = createFxSampler(options);
+  try {
+    await sampler.tick();
+    assert.equal(sampler.snapshot().reason, 'quote_failed');
+    const saved = readFileSync(path.join(dir, 'results-fx.json'), 'utf8');
+    assert.deepEqual(JSON.parse(saved).days['2026-10-26'].attempts[0], {
+      at: '2026-10-26T13:30:00.000Z', reason: 'quote_failed', code,
+    });
+    for (const forbidden of [ACCOUNT, 'private broker message', 'private unrelated message']) assert.equal(saved.includes(forbidden), false);
+    assert.equal(calls.requests.length, 1); assert.equal(calls.cancel, 1); assert.equal(calls.disconnect, 1);
+  } finally { sampler.close(); }
+});
+
+test('old sampler states without source/code load; optional known source/integer code load; unknown fields fail closed', async () => {
+  for (const [sampleExtra, attemptExtra, valid] of [
+    [{}, {}, true], [{ source: 'ib-account-exchange-rate' }, { code: 321 }, true],
+    [{ source: 'unknown' }, {}, false], [{ source: null }, {}, false],
+    [{}, { code: '321' }, false], [{}, { code: 3.21 }, false], [{ raw: 'synthetic' }, {}, false],
+  ]) {
+    const dir = root();
+    const day = { attempts: {
+      0: { at: '2026-10-26T13:30:00.000Z', reason: 'ok' },
+      1: { at: '2026-10-26T13:45:00.000Z', reason: 'quote_failed', ...attemptExtra },
+    }, samples: [{ rate: '0.86000000', sampleAt: '2026-10-26T13:30:02.000Z', kind: 'rth', ...sampleExtra }] };
+    writeFileSync(path.join(dir, 'results-fx.json'), JSON.stringify({ schema: 1, days: { '2026-10-26': day } }));
+    const sampler = createFxSampler({ root: dir, now: () => Date.parse('2026-10-26T22:00:00Z'),
+      request: () => assert.fail('state load must not request FX outside a slot') });
+    try {
+      await sampler.tick();
+      assert.equal(sampler.snapshot().reason, valid ? 'quote_failed' : 'state_unavailable');
+      assert.deepEqual(sampler.snapshot().days, valid ? { '2026-10-26': { samples: day.samples } } : {});
+    } finally { sampler.close(); }
+  }
+});
+
+for (const [name, series] of [
+  ['a single account-rate sample has no stale metadata', [['13:30', '0.86000000']]],
+  ['identical rates at 0/15/30 minutes flag only the third sample stale at 1800 seconds', [
+    ['13:30', '0.86000000'], ['13:45', '0.86000000'], ['14:00', '0.86000000', 1800],
+  ]],
+  ['a rate change resets the contiguous stale run', [
+    ['13:30', '0.86000000'], ['13:45', '0.86000000'], ['14:00', '0.87000000'],
+    ['14:15', '0.87000000'], ['14:30', '0.87000000', 1800],
+  ]],
+  ['A to B to A counts only the final contiguous run', [
+    ['13:30', '0.86000000'], ['13:45', '0.86000000'], ['14:00', '0.87000000'],
+    ['14:15', '0.86000000'], ['14:30', '0.86000000'], ['14:45', '0.86000000', 1800],
+  ]],
+  ['numerically equal but different rate strings reset the stale run', [
+    ['13:30', '0.86000000'], ['13:45', '0.86000000'], ['14:00', '00.86000000'],
+  ]],
+  ['the close sample measures staleness from the unchanged afternoon run', [
+    ['17:00', '0.86000000'], ['17:15', '0.86000000'], ['19:45', '0.86000000', 9900], ['20:05', '0.86000000', 11100],
+  ]],
+  ['failed attempts neither break nor extend the sampled stale run', [
+    ['13:30', '0.86000000'], ['13:45', null], ['14:00', null], ['14:15', '0.86000000', 2700],
+    ['14:30', null], ['14:45', '0.86000000', 4500],
+  ]],
+]) test(name, async () => {
+  const dir = root(), expected = [];
+  for (const [time, rate, staleSeconds] of series) {
+    const sampleAt = `2026-10-26T${time}:00.000Z`;
+    // Restart between every attempt to exercise persisted runs and metadata.
+    const sampler = createFxSampler({ root: dir, now: () => Date.parse(sampleAt), request: async () => {
+      if (rate === null) throw Object.assign(new Error('synthetic'), { reason: 'quote_failed' });
+      return rate;
+    } });
+    try {
+      await sampler.tick();
+      if (rate !== null) expected.push({ rate, sampleAt, kind: time === '20:05' ? 'close' : 'rth', source: 'ib-account-exchange-rate',
+        ...(staleSeconds === undefined ? {} : { staleFx: true, staleSeconds }) });
+      assert.equal(sampler.snapshot().reason, rate === null ? 'quote_failed' : null, time);
+      assert.deepEqual(sampler.snapshot().days['2026-10-26'].samples, expected, time);
+      const saved = JSON.parse(readFileSync(path.join(dir, 'results-fx.json'), 'utf8'));
+      assert.deepEqual(saved.days['2026-10-26'].samples, expected, time);
+    } finally { sampler.close(); }
+  }
+});
+
+test('staleness uses receipt times and floors fractional seconds, not completion times', async () => {
+  const dir = root();
+  let now = Date.parse('2026-10-26T13:30:00.250Z');
+  const sampler = createFxSampler({ root: dir, now: () => now, request: async () => {
+    const sampleAt = iso(now); now += 10_000;
+    return { rate: '0.86000000', sampleAt };
+  } });
+  try {
+    await sampler.tick();
+    now = Date.parse('2026-10-26T14:00:00.999Z'); await sampler.tick();
+    assert.deepEqual(sampler.snapshot().days['2026-10-26'].samples.at(-1), { rate: '0.86000000',
+      sampleAt: '2026-10-26T14:00:00.999Z', kind: 'rth', source: 'ib-account-exchange-rate', staleFx: true, staleSeconds: 1800 });
+  } finally { sampler.close(); }
+});
+
+test('an unordered saved series is walked newest first and stops at the differing rate', async () => {
+  const dir = root(), filename = path.join(dir, 'results-fx.json');
+  const saved = { schema: 1, days: { '2026-10-26': { attempts: {}, samples: [] } } };
+  const day = saved.days['2026-10-26'];
+  for (const [bucket, time, rate] of [[0, '13:30', '0.86000000'], [1, '13:45', '0.87000000'], [2, '14:00', '0.86000000'], [3, '14:15', '0.86000000']]) {
+    const sampleAt = `2026-10-26T${time}:00.000Z`;
+    day.attempts[bucket] = { at: sampleAt, reason: 'ok' };
+    day.samples.unshift({ rate, sampleAt, kind: 'rth', source: 'ib-account-exchange-rate' });
+  }
+  writeFileSync(filename, JSON.stringify(saved));
+  const sampler = createFxSampler({ root: dir, now: () => Date.parse('2026-10-26T14:30:00Z'), request: async () => '0.86000000' });
+  try {
+    await sampler.tick();
+    assert.equal(sampler.snapshot().reason, null);
+    assert.equal(sampler.snapshot().days['2026-10-26'].samples.at(-1).staleSeconds, 1800);
+  } finally { sampler.close(); }
+});
+
+test('an identical rate on a new NY day starts a fresh run', async () => {
+  const dir = root(); let now = Date.parse('2026-10-26T20:05:00Z');
+  const sampler = createFxSampler({ root: dir, now: () => now, request: async () => '0.86000000' });
+  try {
+    await sampler.tick();
+    now = Date.parse('2026-10-27T13:30:00Z'); await sampler.tick();
+    assert.deepEqual(sampler.snapshot().days['2026-10-27'].samples, [{ rate: '0.86000000', sampleAt: iso(now),
+      kind: 'rth', source: 'ib-account-exchange-rate' }]);
+  } finally { sampler.close(); }
+});
+
+test('stale state metadata accepts only a true/integer pair in range on account-rate samples; old files load', async () => {
+  const source = { source: 'ib-account-exchange-rate' };
+  for (const [name, extra, valid] of [
+    ['legacy sample', {}, true], ['account-rate sample without flags', source, true],
+    ['lower bound', { ...source, staleFx: true, staleSeconds: 1800 }, true],
+    ['upper bound', { ...source, staleFx: true, staleSeconds: 86400 }, true],
+    ['lone staleFx', { ...source, staleFx: true }, false],
+    ['lone staleSeconds', { ...source, staleSeconds: 1800 }, false],
+    ['false staleFx', { ...source, staleFx: false, staleSeconds: 1800 }, false],
+    ['string staleFx', { ...source, staleFx: 'true', staleSeconds: 1800 }, false],
+    ['null staleFx', { ...source, staleFx: null, staleSeconds: 1800 }, false],
+    ['fractional staleSeconds', { ...source, staleFx: true, staleSeconds: 1800.5 }, false],
+    ['string staleSeconds', { ...source, staleFx: true, staleSeconds: '1800' }, false],
+    ['null staleSeconds', { ...source, staleFx: true, staleSeconds: null }, false],
+    ['below lower bound', { ...source, staleFx: true, staleSeconds: 1799 }, false],
+    ['above upper bound', { ...source, staleFx: true, staleSeconds: 86401 }, false],
+    ['source-less sample', { staleFx: true, staleSeconds: 1800 }, false],
+    ['unknown source', { source: 'unknown', staleFx: true, staleSeconds: 1800 }, false],
+  ]) {
+    const dir = root(), sampleAt = '2026-10-26T14:00:00.000Z';
+    const day = { attempts: { 2: { at: sampleAt, reason: 'ok' } },
+      samples: [{ rate: '0.86000000', sampleAt, kind: 'rth', ...extra }] };
+    writeFileSync(path.join(dir, 'results-fx.json'), JSON.stringify({ schema: 1, days: { '2026-10-26': day } }));
+    const sampler = createFxSampler({ root: dir, now: () => Date.parse('2026-10-26T22:00:00Z'),
+      request: () => assert.fail('state load must not request FX outside a slot') });
+    try {
+      await sampler.tick();
+      assert.equal(sampler.snapshot().reason, valid ? null : 'state_unavailable', name);
+      assert.deepEqual(sampler.snapshot().days, valid ? { '2026-10-26': { samples: day.samples } } : {}, name);
+    } finally { sampler.close(); }
+  }
 });
 
 test('NYSE holiday and early-close boundaries suppress RTH requests; unknown calendar years fail closed', () => {
@@ -198,7 +420,7 @@ test('deadline releases the scheduler even if an injected request ignores cancel
   await sampler.tick(); sampler.close();
 });
 
-test('a handshake crossing the end of an authorized slot never sends a quote request', async () => {
+test('a handshake crossing the end of an authorized slot never sends an account request', async () => {
   const calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
   const controller = new AbortController();
   await assert.rejects(requestFxSnapshot({ id: 920000001, signal: controller.signal, runtime: fakeRuntime('ok', calls), allowed: () => false }), /timeout/);

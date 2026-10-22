@@ -11,6 +11,7 @@ function samples(day, at) {
     try {
       const c = clock(sample.sampleAt);
       return validInstant(sample.sampleAt) && sample.sampleAt <= at && decimalUnits(sample.rate) > 0n
+        && (!Object.hasOwn(sample, 'source') || sample.source === 'ib-account-exchange-rate')
         && (sample.kind === 'rth' && c.weekday && c.minute >= 570 && c.minute < 960 || sample.kind === 'close' && c.weekday && c.minute === 965);
     } catch { return false; }
   });
@@ -20,7 +21,8 @@ export function dayFx(day, date, at) {
   // A frozen close always wins. No later day's rate can fill historical holes.
   const sample = available.find(sample => sample.kind === 'close') || available.filter(sample =>
     clock(at).date === date && Date.parse(at) - Date.parse(sample.sampleAt) <= 30 * 60_000).at(-1);
-  return sample ? { base: 'USD', quote: 'EUR', rate: sample.rate, source: sample.kind === 'close' ? 'ib-fx-close' : 'ib-fx-rth', observedAt: sample.sampleAt } : null;
+  return sample ? { base: 'USD', quote: 'EUR', rate: sample.rate,
+    source: `${sample.source === 'ib-account-exchange-rate' ? 'ib-account-fx' : 'ib-fx'}-${sample.kind}`, observedAt: sample.sampleAt } : null;
 }
 export function fxDayPartial(day, date, status, at) {
   const available = samples(day, at).filter(sample => clock(sample.sampleAt).date === date);
@@ -36,7 +38,7 @@ export function fxDayPartial(day, date, status, at) {
 }
 
 export function isSampleFx(fx, date) {
-  if (!['ib-fx-close', 'ib-fx-rth'].includes(fx?.source)) return false;
-  const sample = { rate: fx.rate, sampleAt: fx.observedAt, kind: fx.source === 'ib-fx-close' ? 'close' : 'rth' };
+  if (!['ib-fx-close', 'ib-fx-rth', 'ib-account-fx-close', 'ib-account-fx-rth'].includes(fx?.source)) return false;
+  const sample = { rate: fx.rate, sampleAt: fx.observedAt, kind: fx.source.endsWith('-close') ? 'close' : 'rth' };
   return !!dayFx({ samples: [sample] }, date, fx.observedAt);
 }

@@ -16,7 +16,7 @@ import { PositionProofIndex } from './position-proof.mjs';
 const iso = epoch => new Date(epoch).toISOString();
 const directory = () => mkdtempSync(path.join(tmpdir(), 'joed20-r9-'));
 
-test('65 trading days with 30 instruments: growth stays below 50 KB/day in both journals, one FX date per event', async t => {
+test('65 trading days with 30 instruments: growth stays below 50 KB/day plus exact sample metadata bytes in both journals, one FX date per event', async t => {
   const root = directory(), input = path.join(root, 'input.jsonl'), output = path.join(root, 'output.jsonl');
   let now = Date.parse('2026-01-01T00:00:00Z'), calls = 0;
   const state = { ownershipComplete: true, executions: [], ownershipSnapshot: {
@@ -35,6 +35,15 @@ test('65 trading days with 30 instruments: growth stays below 50 KB/day in both 
     onUpdate: captureState });
   let producer = openProducer(output, { now: () => iso(now) });
   const growth = [], producerGrowth = [];
+  // The unchanged journal format captures 1 + 2 + ... + 27 samples per day.
+  // Budget only the required provenance and stale properties; retain the old cap
+  // for all other bytes in both the capture and its producer source copies.
+  const sourceBytesPerDay = Buffer.byteLength(',"source":"ib-account-exchange-rate"') * (27 * 28 / 2);
+  const staleBytesPerDay = Array.from({ length: 25 }, (_, i) => {
+    const sample = i + 2, staleSeconds = sample === 26 ? 23700 : sample * 900;
+    return Buffer.byteLength(`,"staleFx":true,"staleSeconds":${staleSeconds}`) * (27 - sample);
+  }).reduce((sum, bytes) => sum + bytes, 0);
+  const metadataBytesPerDay = sourceBytesPerDay + staleBytesPerDay;
   try {
     capture(state);
     producer.ingestJournal(input);
@@ -51,8 +60,8 @@ test('65 trading days with 30 instruments: growth stays below 50 KB/day in both 
       assert.equal(producer.retainedEntries, 0);
       growth.push(statSync(input).size - before);
       producerGrowth.push(statSync(output).size - outputBefore);
-      assert.ok(growth.at(-1) < 50_000, `capture growth ${growth.at(-1)}`);
-      assert.ok(producerGrowth.at(-1) < 50_000, `producer growth ${producerGrowth.at(-1)}`);
+      assert.ok(growth.at(-1) - metadataBytesPerDay < 50_000, `capture growth ${growth.at(-1)}, metadata bytes ${metadataBytesPerDay}`);
+      assert.ok(producerGrowth.at(-1) - metadataBytesPerDay < 50_000, `producer growth ${producerGrowth.at(-1)}, metadata bytes ${metadataBytesPerDay}`);
       if (++tradingDays % 13 === 0) {
         const size = statSync(input).size;
         capture.close(); capture = createCapture(input, {}, options);
@@ -71,8 +80,9 @@ test('65 trading days with 30 instruments: growth stays below 50 KB/day in both 
       assert.ok(Object.keys(cut.fxSampler.days).length <= 1);
       assert.equal(JSON.stringify(cut.fxSampler).includes('attempts'), false);
       assert.notEqual(cut.fxSampler.reason, 'pending');
+      assert.ok(Object.values(cut.fxSampler.days).every(day => day.samples.every(sample => sample.source === 'ib-account-exchange-rate')));
     }
-    t.diagnostic(`instruments=30 trading_days=65 calls=${calls} FX_events=${cuts.length} capture_max_bytes_per_day=${Math.max(...growth)} producer_max_bytes_per_day=${Math.max(...producerGrowth)} capture_mean_bytes_per_day=${Math.round(growth.reduce((a, b) => a + b) / 65)} producer_mean_bytes_per_day=${Math.round(producerGrowth.reduce((a, b) => a + b) / 65)}`);
+    t.diagnostic(`instruments=30 trading_days=65 calls=${calls} FX_events=${cuts.length} source_bytes_per_day=${sourceBytesPerDay} stale_bytes_per_day=${staleBytesPerDay} capture_max_bytes_per_day=${Math.max(...growth)} producer_max_bytes_per_day=${Math.max(...producerGrowth)} capture_mean_bytes_per_day=${Math.round(growth.reduce((a, b) => a + b) / 65)} producer_mean_bytes_per_day=${Math.round(producerGrowth.reduce((a, b) => a + b) / 65)}`);
   } finally { sampler.close(); capture.close(); producer.close(); }
 });
 
