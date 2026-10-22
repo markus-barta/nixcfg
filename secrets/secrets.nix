@@ -621,6 +621,11 @@ in
   # Consume: ( set -a; source ~/.inspr/secrets/agents/HF_KEY.env; cmd; set +a )
   # Edit: cd ~/Code/nixcfg/secrets && agenix -e agents/host/mbp2607/HF_KEY.age
   "agents/host/mbp2607/HF_KEY.age".publicKeys = markus ++ mbp2607;
+
+  # OPS-431 (2026-10-22): OpenGateway API key for the pi provider "opengateway"
+  # (DeepSeek V4.1 Flash UltraFast). Materialized to ~/.inspr/secrets/agents/OPENGATEWAY.env
+  # as OPENGATEWAY_API_KEY=… Encrypted by the agent from Markus's file (no editor session).
+  "agents/host/mbp2607/OPENGATEWAY.age".publicKeys = markus ++ mbp2607;
   # inspr-uxqa test identity for the family live-UI harnesses (NIX-579,
   # INSPR-479). Consumer: pharos scripts/family-live-ui.mjs (signed-in live
   # captures of pharos, janus, paimos, aithema) via the protected-env mode.
