@@ -145,7 +145,7 @@ in
   services = {
     # NIX-422 / OPS-196: public pages required for production OAuth.
     barta-public = {
-      image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
+      image = "nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576";
       restart = "unless-stopped";
       read_only = true;
       tmpfs = [
@@ -173,7 +173,7 @@ in
     # OPS-337: bytepoets.com memorial page (BYTEPOETS 2011–2026); DNS in
     # infrastructure/cloudflare/bytepoets.com. Every path serves the page.
     bytepoets-memorial = {
-      image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
+      image = "nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576";
       restart = "unless-stopped";
       read_only = true;
       tmpfs = [
@@ -208,7 +208,7 @@ in
     # closure. It lives on the host in /var/lib/csb1-docker/jhw22-wp (releases/<id>/ + a relative `current`
     # symlink that nginx follows per request), deployed by copy + atomic symlink swap (RUNBOOK).
     jhw22-wp = {
-      image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
+      image = "nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576";
       restart = "unless-stopped";
       read_only = true;
       tmpfs = [
