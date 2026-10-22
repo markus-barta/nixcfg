@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 27: v261022120749.0.0 (release PR #203: HNET-290 new mark and favicons; HNET-307 24 h history + GET /api/history; HNET-308 activity log + GET /api/activity; HNET-284 B Diagram 2 editing/undo; one early SIGTERM flush handler). Capability-free: nix/ unchanged since pin 26 (2e94b95); new data-dir files only; rollback = pin 26. Explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 28: v261022154315.0.0 (release PR #214 head; OPS-428: HNET-289 Diagram menu + Fit all; HNET-302 GET /api/sources; HNET-309 Check now = POST /api/devices/{id}/check on the existing probes; HNET-306 optional uplink link/band/protocol; HNET-311 GET /api/internet; HNET-313 history survives a backward clock step). Capability-free: nix/ unchanged since pin 27 (ceb4e1c); no new listener, socket, dial, exec or capability; rollback = re-pin 27. Explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=ceb4e1cbed8c9c12ed5b0202a74069888e410e47";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=8fd266b23aeba5ae4cdcdbe68bbb82095770dbad";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
