@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 30: v261022222353.0.0 (#223 merge, sequence 100; tree = gated, CI-tested release head 9e73bd6). Contents since 29, UI only: HNET-297 Inbox page replaces the scan review dialog; HNET-295 identity checks in the Inbox + side-by-side merge sheet; HNET-296 full Overview, Activity page, first-run checklist and empty states; HNET-316 VM test only. Capability-free: no Go/server change beyond the version files, no flake.nix or module change (only nix/vm-test.nix), no new endpoint, listener, socket, dial, exec or capability; rollback = re-pin 29 (383bb43) on the live data dir. Explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 31: v261023100936.0.0 (#229 merge, sequence 101; tree = gated, CI-tested release head d6659fa). Contents since 30: HNET-298 Settings as one page; HNET-301 phone list + full-screen device sheet; HNET-284 D-a Diagram 2 closes the classic gaps; HNET-324 Check now (POST /api/devices/{id}/check gives slow-waking devices more time, a miss answers 200 with rtt_ms null instead of 504); HNET-321/322 switches + response chart 1 h / 6 h / 24 h. Capability-free: no flake.nix or nix/ change, Go changes inside existing routes (34 → 34), no new endpoint, listener, socket, dial, exec or capability; history still only window=24h; rollback = re-pin 30 (6c20bf1) on the live data dir, no schema change. Explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=6c20bf1d25be089a246164db84f4d0dc35f7e3ca";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=72f4c3149b075967d232478aea9880f4af328599";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
