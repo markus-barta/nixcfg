@@ -251,6 +251,10 @@ in
         "AEON_ADDR=:8080"
         "AEON_FILES_DIR=/data/files"
         "AEON_PUBLIC_URL=https://aeon.barta.cm"
+        # OPS-440 / AEON-1495: Goals "Waiting on you" across instances. The owner's browser reads pma with its own
+        # session there; no credential crosses the trust contexts. pma names ppm as its sibling (AGM-169).
+        "AEON_INSTANCE_TAG=ppm"
+        "AEON_SIBLING_INSTANCES=pma=https://pm.augmentoring.com"
         # AEON-1105 (release 129): live agent chat is default-off; Markus enabled it
         # for ppm only (agm1 stays off). Only "true"/"false" are accepted; anything
         # else stops the server at startup. Releases before 129 ignore the variable.
