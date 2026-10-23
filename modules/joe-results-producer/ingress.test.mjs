@@ -210,7 +210,7 @@ test('health and transport time consume the retry budget instead of extending th
 });
 
 test('full Vienna day totals include later closes and every traded desk without inventing equity', () => {
-  const extra = ['joe', 'joel'].flatMap(desk => fills.map(fill => ({ ...fill, desk, key: `${desk}-${fill.key}` })));
+  const extra = ['joe', 'joel'].flatMap(desk => fills.map(fill => ({ ...fill, desk, book: desk, key: `${desk}-${fill.key}` })));
   const trades = roundTrips([...fills, ...extra], start, keep);
   // Every execution desk contributes totals without household equity.
   const close = dayCloses([...fills, ...extra], trades, '2026-10-16', { from: start, through: at, intervals });

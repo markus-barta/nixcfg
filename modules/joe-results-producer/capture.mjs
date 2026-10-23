@@ -1,7 +1,7 @@
 import { sdkDecimal } from './sdk-decimal.mjs';
 import { validDate, validInstant } from './contracts/schema-validator.mjs';
 import { decimalUnits } from './contracts/decimal.mjs';
-import { DESKS, unavailable, invalidFillField } from './fifo.mjs';
+import { resultsDesk, unavailable, invalidFillField } from './fifo.mjs';
 import { hash, openJournal } from './journal.mjs';
 import { dayCoverage, historyGaps, historyIntervals, mergeIntervals, updateHistoryIntervals, viennaDate, withFillGaps } from './results-validation.mjs';
 import { brokerQuantity, capturePositionProof } from './position-proof.mjs';
@@ -105,7 +105,7 @@ export function createCapture(filename, config, { account, attribute, executionT
         const tombstone = { key, desk: null, scope: 'excluded' };
         if ((refused || known.has(key)) && known.get(key) !== hash(tombstone)) changed.push(tombstone);
       };
-      const ownership = attribute(row, config);
+      const ownership = attribute(row, config), desk = resultsDesk(ownership.desk);
       const epoch = epochFor(row);
       const fillAt = Number.isFinite(epoch) && Math.abs(epoch) <= 8640000000000000 ? new Date(epoch).toISOString() : null;
       if (e.acctNumber === account && !keepSymbols.includes(c.symbol) && ownership.needsAttribution) {
@@ -117,28 +117,28 @@ export function createCapture(filename, config, { account, attribute, executionT
           unattributedKeys.set(key, epoch);
         }
       }
-      if (e.acctNumber !== account || !DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external') { exclude(); continue; }
+      if (e.acctNumber !== account || desk === null || ownership.needsAttribution || ownership.method === 'external') { exclude(); continue; }
       if (keepSymbols.includes(c.symbol)) { exclude(); continue; }
       if (!validInstant(fillAt)) {
-        refuseInstant(key, ownership.desk); exclude(true); continue;
+        refuseInstant(key, desk); exclude(true); continue;
       }
       // Legacy scope and retired client ownership are not Stage-0 results.
       if (epoch < Date.parse(config.foreignAlertSince) || (ownership.method !== 'admin' && Number(e.clientId) !== config.executorClientId)) { exclude(); continue; }
       const day = viennaDate(new Date(epoch).toISOString()), provenance = [];
       const convert = (value, field, kind = 'capture_gap') => {
         const result = sdkDecimal(value);
-        if (result.refused || result.unset) issue(day, ownership.desk, kind, key, field, result.refused === true);
+        if (result.refused || result.unset) issue(day, desk, kind, key, field, result.refused === true);
         if (result.src) provenance.push({ field, src: result.src });
         return result.amount;
       };
       const quantity = convert(e.shares, 'quantity'), price = convert(e.price, 'price');
       const fields = { symbol: c.symbol, side: { BOT: 'BUY', BUY: 'BUY', SLD: 'SELL', SELL: 'SELL' }[e.side], at: fillAt, quantity, price };
       const invalid = invalidFillField(fields);
-      if (invalid && (!['quantity', 'price'].includes(invalid) || fields[invalid] !== undefined)) issue(day, ownership.desk, 'capture_gap', key, invalid);
+      if (invalid && (!['quantity', 'price'].includes(invalid) || fields[invalid] !== undefined)) issue(day, desk, 'capture_gap', key, invalid);
       const commission = commissions.get(e.execId);
       const amount = commission ? convert(commission.commission, 'commission.amount') : undefined;
       const brokerRealised = captureBrokerRealised(commission);
-      if (commission && sdkDecimal(commission.realizedPNL).refused) issue(day, ownership.desk, 'broker_evidence_missing', key, 'brokerRealised.amount');
+      if (commission && sdkDecimal(commission.realizedPNL).refused) issue(day, desk, 'broker_evidence_missing', key, 'brokerRealised.amount');
       if (invalid || commission && amount === undefined) {
         // A refused opening must remain a history gap even when a later close
         // reports exactly zero PnL and therefore cannot reveal the missing lot.
@@ -162,7 +162,7 @@ export function createCapture(filename, config, { account, attribute, executionT
       if (fx) closeFx.set(key, fx);
       if (!ordinals.has(key)) ordinals.set(key, ++nextOrdinal);
       const fill = {
-        key, ordinal: ordinals.get(key), desk: ownership.desk, scope: 'stage0', instrument: hash([c.conId, c.symbol, c.currency]),
+        key, ordinal: ordinals.get(key), desk, book: ownership.desk, scope: 'stage0', instrument: hash([c.conId, c.symbol, c.currency]),
         symbol: fields.symbol, currency: c.currency, side: fields.side,
         at: fields.at, quantity, price,
         commission: commission ? { amount, currency: commission.currency } : null,
@@ -172,6 +172,8 @@ export function createCapture(filename, config, { account, attribute, executionT
       };
       decimalUnits(fill.quantity); decimalUnits(fill.price);
       if (fill.commission) decimalUnits(fill.commission.amount);
+      // A formerly excluded sub-desk key hashes differently from this usable
+      // fill, so the normal correction path re-captures it without rewriting.
       if (known.get(key) !== hash(fill)) changed.push(fill);
     }
     const authority = state.ownershipComplete === true;
@@ -274,7 +276,7 @@ export function reconciliationEvidence(state, config, keepSymbols, { account, at
     if (!c || !e || e.acctNumber !== account || keepSymbols.includes(c.symbol)) continue;
     const attribution = attribute(row, config);
     const key = String(c.conId);
-    if (!DESKS.includes(attribution.desk) || attribution.needsAttribution || Number(e.clientId) !== config.executorClientId
+    if (resultsDesk(attribution.desk) === null || attribution.needsAttribution || Number(e.clientId) !== config.executorClientId
       || !Number.isFinite(executionTime(e.time)) || Date.parse(config.foreignAlertSince) > executionTime(e.time)) { foreign.add(key); continue; }
     const previous = owned.get(key) || { quantity: 0n, fills: [] };
     const sign = { BOT: 1n, BUY: 1n, SLD: -1n, SELL: -1n }[e.side];

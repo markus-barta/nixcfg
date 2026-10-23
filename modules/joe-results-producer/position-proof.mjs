@@ -2,7 +2,7 @@ import { sdkDecimal } from './sdk-decimal.mjs';
 import { decimalUnits, unitsDecimal } from './contracts/decimal.mjs';
 import { validInstant } from './contracts/schema-validator.mjs';
 import { hash } from './journal.mjs';
-import { DESKS } from './fifo.mjs';
+import { DESKS, resultsDesk } from './fifo.mjs';
 import { viennaDate } from './results-validation.mjs';
 
 const instrument = c => hash([c.conId, c.symbol, c.currency]);
@@ -24,7 +24,7 @@ export function capturePositionProof(state, config, keepSymbols, { account, attr
     if (!c || !e || e.acctNumber !== account || keepSymbols.includes(c.symbol)) continue;
     const key = instrument(c), ownership = attribute(row, config);
     instruments.add(key);
-    if (!DESKS.includes(ownership.desk) || ownership.needsAttribution || ownership.method === 'external'
+    if (resultsDesk(ownership.desk) === null || ownership.needsAttribution || ownership.method === 'external'
       || (ownership.method !== 'admin' && Number(e.clientId) !== config.executorClientId)) foreign.add(key);
   }
   const sources = new Map();
@@ -101,18 +101,21 @@ export class PositionProofIndex {
 // Evaluate every captured Stage-0 fill, even an apparent opening: an omitted
 // entry can make its captured stop look like a new short position.
 export function earlierGapDays(fills, executions, intervals, proofs, start) {
-  const partial = new Set(), books = new Map(), firstFill = new Map();
+  const partial = new Set(), books = new Map(), firstFill = new Map(), bookIndexes = new Map();
   for (const fill of fills) {
     if (!DESKS.includes(fill.desk) || fill.scope !== 'stage0') continue;
     const rows = books.get(fill.instrument) || [];
     const at = Date.parse(fill.at), quantity = decimalUnits(fill.quantity) * (fill.side === 'BUY' ? 1n : -1n);
-    rows.push({ at, desk: DESKS.indexOf(fill.desk), quantity }); books.set(fill.instrument, rows);
+    const book = fill.book ?? fill.desk;
+    if (!bookIndexes.has(book)) bookIndexes.set(book, bookIndexes.size);
+    rows.push({ at, desk: bookIndexes.get(book), quantity }); books.set(fill.instrument, rows);
     firstFill.set(fill.instrument, Math.min(firstFill.get(fill.instrument) ?? Infinity, at));
   }
   // Prefix quantities avoid rescanning all fills for each proof lookup.
   for (const rows of books.values()) {
     rows.sort((a, b) => a.at - b.at);
-    let quantities = DESKS.map(() => 0n), total = 0n;
+    // Opposing J sub-desks must not turn an account-net zero into flat books.
+    let quantities = Array(bookIndexes.size).fill(0n), total = 0n;
     for (const row of rows) {
       quantities = [...quantities]; quantities[row.desk] += row.quantity;
       total += row.quantity;

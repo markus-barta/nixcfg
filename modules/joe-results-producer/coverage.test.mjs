@@ -70,7 +70,7 @@ test('earlier-gap proof is per instrument and every fill; corrections and confli
   assert.deepEqual(partial([held], [proof('1')], [close, { instrument: 'synthetic-b', at: closeAt }]), ['2026-10-16']);
   assert.deepEqual(partial([held], [], [close], '2026-10-16T00:00:00.000Z'), ['2026-10-16']);
   assert.deepEqual(partial([{ ...held, side: 'SELL' }], [proof('-1')]), []);
-  assert.deepEqual(partial([held, { ...held, side: 'SELL', desk: 'joe' }], [proof('0')]), ['2026-10-16']);
+  assert.deepEqual(partial([held, { ...held, side: 'SELL', desk: 'joe', book: 'joe' }], [proof('0')]), ['2026-10-16']);
   // A position held across the gap is really flat after a captured close and
   // a matching broker-flat snapshot. New later closes may then be full.
   const flattened = [held, fill('synthetic-a', '2026-10-15T09:30:00.000Z', 'SELL')];

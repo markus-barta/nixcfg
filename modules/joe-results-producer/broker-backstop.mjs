@@ -21,7 +21,7 @@ export function captureBrokerRealised(report) {
 export function brokerDayTotals(fills, trackingInstant) {
   const positions = new Map(), totals = new Map();
   for (const fill of [...fills].sort((a, b) => a.at.localeCompare(b.at) || (a.ordinal || 0) - (b.ordinal || 0) || a.key.localeCompare(b.key))) {
-    const key = `${fill.desk}:${fill.instrument}:${fill.currency}`;
+    const key = `${fill.book ?? fill.desk}:${fill.instrument}:${fill.currency}`;
     const previous = positions.get(key) || 0n;
     const quantity = decimalUnits(fill.quantity) * (fill.side === 'BUY' ? 1n : -1n);
     const closes = previous !== 0n && (previous > 0n) !== (quantity > 0n);
