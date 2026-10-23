@@ -19,16 +19,20 @@ const fail = () => { throw new Error("v2_post_state_invalid"); };
 
 function gatewayLogFields(bytes, maxAgeMs) {
   try {
-    if (!Buffer.isBuffer(bytes) || bytes.length > MAX_SNAPSHOT_BYTES) return { gateway: false, lastError: "gateway_unknown" };
+    if (!Buffer.isBuffer(bytes) || bytes.length > MAX_SNAPSHOT_BYTES) return {};
     const snapshot = JSON.parse(bytes);
     const gateway = snapshot?.safety?.gateway;
-    if (!gateway || typeof gateway !== "object" || Array.isArray(gateway)) return { gateway: false, lastError: "gateway_unknown" };
-    const age = Date.parse(snapshot.generatedAt) - Date.parse(gateway.checkedAt);
-    if (gateway.apiSessionReady !== false && Number.isFinite(age) && age >= 0 && age < maxAgeMs) return { gateway: true };
+    if (!gateway || typeof gateway !== "object" || Array.isArray(gateway)) return {};
+    if (gateway.apiSessionReady !== false) {
+      const age = Date.parse(snapshot.generatedAt) - Date.parse(gateway.checkedAt);
+      // Unknown evidence must not become a supervisor restart signal.
+      if (!Number.isFinite(age)) return {};
+      if (age >= 0 && age < maxAgeMs) return { gateway: true };
+    }
     const reason = gateway.reason;
     return { gateway: false, lastError: typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason) ? reason : "gateway_unconfirmed" };
   } catch {
-    return { gateway: false, lastError: "gateway_unknown" };
+    return {};
   }
 }
 
