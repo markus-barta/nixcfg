@@ -5,6 +5,15 @@ import { viennaDate, dayCoverage, markPartial, startsAtViennaMidnight } from './
 import { isSampleFx } from './fx.mjs';
 
 export const DESKS = ['j', 'joe', 'joel'];
+// JoeDesk docs/adr/0001-joedesk-architecture.md: J combines J2–J5.
+// Executor identities: ../paper-desk-executor/policy.mjs DESKS.
+export function resultsDesk(executorDesk) {
+  switch (executorDesk) {
+    case 'j': case 'j2': case 'j3': case 'j4': case 'j5': return 'j';
+    case 'joe': case 'joel': return executorDesk;
+    default: return null;
+  }
+}
 export const CLOSE_BASIS = 'execution-fifo-net-current-fx';
 export const money = amount => ({ amount, currency: 'EUR' });
 export { viennaDate };
@@ -15,6 +24,7 @@ const positive = s => { const n = decimalUnits(s); if (n <= 0n) throw unavailabl
 // Shared with capture and the downstream projections: a refused fill must
 // never reach a quantity book or prevent unrelated Results from being built.
 export function invalidFillField(fill) {
+  if (Object.hasOwn(fill, 'book') && (resultsDesk(fill.book) === null || resultsDesk(fill.book) !== fill.desk)) return 'book';
   if (!validInstant(fill.at)) return 'at';
   if (typeof fill.symbol !== 'string' || !/^[A-Z0-9][A-Z0-9._-]{0,15}$/.test(fill.symbol)) return 'symbol';
   if (!['BUY', 'SELL'].includes(fill.side)) return 'side';
@@ -98,7 +108,7 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
       continue;
     }
     const sign = fill.side === 'BUY' ? 1n : -1n;
-    const key = `${fill.desk}:${fill.instrument}:${fill.currency}`;
+    const key = `${fill.book ?? fill.desk}:${fill.instrument}:${fill.currency}`;
     const book = lots.get(key) || [];
     let remaining = total, used = 0n, allocated = 0n;
     while (remaining && book.length && book[0].sign !== sign) {

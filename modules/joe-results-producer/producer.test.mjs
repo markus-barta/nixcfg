@@ -57,7 +57,7 @@ test('short FIFO is desk isolated and fees work in EUR or native currency', () =
   const short = [
     { ...fills[0], side: 'SELL', quantity: '1', price: '15', commission: { amount: '0.1', currency: 'EUR' } },
     { ...fills[2], side: 'BUY', quantity: '1', price: '10' },
-    { ...fills[0], key: 'other', desk: 'joe', side: 'BUY' },
+    { ...fills[0], key: 'other', desk: 'joe', book: 'joe', side: 'BUY' },
   ];
   const [trade] = roundTrips(short, start, floor);
   assert.equal(trade.side, 'short'); assert.equal(trade.grossEur.amount, '4.5');
@@ -75,7 +75,7 @@ test('missing commission and USD FX exclude portions; legacy and unowned rows ar
   assert.equal(missingFees.length, 3);
   assert.ok(missingFees.every(row => row.kind === 'broker_evidence_missing' && !('portionHash' in row) && !('at' in row)));
   assert.deepEqual(roundTrips(fills.map(f => ({ ...f, scope: 'legacy' })), start, floor), []);
-  assert.deepEqual(roundTrips(fills.map(f => ({ ...f, desk: null })), start, floor), []);
+  assert.deepEqual(roundTrips(fills.map(f => ({ ...f, desk: null, book: null })), start, floor), []);
 });
 
 test('every configured KEEP symbol is excluded from trades and day totals, including open lots', () => {

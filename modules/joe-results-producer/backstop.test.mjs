@@ -133,11 +133,15 @@ test('a broker report in an incompatible currency supplies no reconciliation evi
 test('desk mismatches never cancel across desks; unknown bounds cannot become full', t => {
   const f = setup(t); const value = f.refresh();
   const fills = readJournal(f.capturePath).flatMap(row => row.fills || []);
-  const other = fills.map(fill => ({ ...fill, desk: 'joe', key: `synthetic-joe-${fill.key}` }));
+  const other = fills.map(fill => ({ ...structuredClone(fill), desk: 'joe', book: 'joe', key: `synthetic-joe-${fill.key}` }));
   fills[1].brokerRealised.amount = '1.811'; other[1].brokerRealised.amount = '1.789';
+  assert.deepEqual([fills[1].brokerRealised.amount, other[1].brokerRealised.amount], ['1.811', '1.789']);
   const combined = [...fills, ...other], trades = roundTrips(combined, begin, []);
+  assert.deepEqual(trades.map(trade => trade.desk).sort(), ['j', 'joe']);
   const { days } = dayCloses(combined, trades, '2026-10-16');
-  assert.deepEqual(brokerMismatches(days, combined, begin, end).map(row => row.deskHash).sort(), [hash('j'), hash('joe')].sort());
+  assert.deepEqual(brokerMismatches(days, combined, begin, end), ['j', 'joe'].map(desk => ({
+    day: '2026-10-16', deskHash: hash(desk), kind: 'broker_realised_pnl_mismatch',
+  })));
   const unknown = setup(t); unknown.state.resultsHistoryCoverage = null;
   assert.equal(unknown.refresh().days[0].coverage, 'partial');
   assert.equal(validateContract('results', value, { stage: 'ingress' }).ok, true);

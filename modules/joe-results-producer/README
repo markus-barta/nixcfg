@@ -1,0 +1,10 @@
+Results map executor desks j, j2, j3, j4 and j5 to contract desk j; joe and
+joel remain separate, and unknown desks stay excluded (JoeDesk ADR 0001).
+Every new Stage-0 capture retains the executor desk in its internal book
+field. FIFO lots, broker closing-execution counts and position-gap quantity
+proofs keep these sub-desk books separate; published trades and day totals
+use the contract desk. Broker position rows retain their exact instrument
+quantities. Older journal fills without book fall back to desk. A previously
+excluded J sub-desk key still in the executor ledger is re-captured through
+the existing fill-hash correction path; journals are never rewritten. The
+book field stays internal, with no Results contract or lock change.
