@@ -157,7 +157,7 @@ for (const [mode, reason] of [['ok', null], ['reject', 'quote_failed'], ['empty'
   const timer = setTimeout(() => controller.abort(), 20);
   try {
     const task = requestFxSnapshot({ id: 920000001, signal: controller.signal, runtime: fakeRuntime(mode, calls), now: () => Date.parse('2026-10-26T13:30:02Z') });
-    if (mode === 'ok') assert.deepEqual(await task, { rate: '0.86000000', sampleAt: '2026-10-26T13:30:02.000Z' });
+    if (mode === 'ok') assert.deepEqual(await task, { rate: '0.86000000', ibRate: '0.86', sampleAt: '2026-10-26T13:30:02.000Z' });
     else await assert.rejects(task, error => error.reason === reason && (mode !== 'reject' || error.code === 10089));
   } finally { clearTimeout(timer); }
   assert.equal(calls.requests.length, 1);
@@ -172,17 +172,20 @@ for (const [usd, expected] of [
   ['0.861234564', '0.86123456'], ['0.861234565', '0.86123456'],
   ['0.861234575', '0.86123458'], ['0.861234565000000001', '0.86123457'],
   ['0.999999995', '1.00000000'], ['1', '1.00000000'],
+  ['0.860000000000000000000000000000', '0.86000000'],
 ]) test(`account rate rounds half-even with BigInt: ${usd} -> ${expected}`, async () => {
   const calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
   const result = await requestFxSnapshot({ id: 920000001, signal: new AbortController().signal,
     runtime: fakeRuntime('ok', calls, { usd, eur: '1.000000000000000000' }) });
   assert.equal(result.rate, expected);
+  assert.equal(result.ibRate, usd, 'the raw rate is preserved without reformatting');
   assert.equal(calls.cancel, 1); assert.equal(calls.open.size, 0); assert.equal(calls.disconnect, 1);
 });
 
 for (const options of [
   { eur: '0.99' }, { eur: '1.000000000000000001' }, { eur: null },
-  ...['0', '-0.86', 'Infinity', 'NaN', '8.6e-1', '0.000000005', ' 0.86', 0.86].map(usd => ({ usd })),
+  ...['0', '-0.86', 'Infinity', 'NaN', '8.6e-1', '0.000000005', ' 0.86', 0.86,
+    '00.86', '.86', '0.86\n', '0.8600000000000000000000000000000'].map(usd => ({ usd })),
 ]) test(`account rate rejects invalid quotes and cancels: ${JSON.stringify(options)}`, async () => {
   const calls = { requests: [], open: new Set(), disconnect: 0, cancel: 0 };
   await assert.rejects(requestFxSnapshot({ id: 920000001, signal: new AbortController().signal,
@@ -201,7 +204,7 @@ test('account rate success persists the source and USD receipt time, waiting for
     await sampler.tick(); await sampler.tick();
     assert.equal(now, ended);
     assert.deepEqual(sampler.snapshot().days['2026-10-26'].samples, [{ rate: '0.86000000',
-      sampleAt: iso(received), kind: 'rth', source: 'ib-account-exchange-rate' }]);
+      sampleAt: iso(received), kind: 'rth', source: 'ib-account-exchange-rate', ibRate: '0.86' }]);
     assert.equal(calls.requests.length, 1); assert.equal(calls.cancel, 1);
     const saved = readFileSync(path.join(dir, 'results-fx.json'), 'utf8');
     assert.equal(saved.includes(ACCOUNT), false);
@@ -293,6 +296,36 @@ for (const [name, series] of [
   }
 });
 
+for (const [name, rawRates, expectedSeconds] of [
+  ['a raw tick beyond eight decimals resets the stale clock despite an identical conversion rate',
+    ['0.860000001', '0.860000001', '0.860000002', '0.860000002', '0.860000002'], [undefined, undefined, undefined, undefined, 1800]],
+  ['identical raw rates flag staleness at exactly 1800 seconds',
+    ['0.860000001', '0.860000001', '0.860000001'], [undefined, undefined, 1800]],
+  ['a mixed old and raw-rate run falls back to the eight-place rate for the old sample',
+    [undefined, '0.860000001', '0.860000001'], [undefined, undefined, 1800]],
+  ['a raw string change resets the run without numeric reformatting',
+    ['0.860000001', '0.860000001', '0.8600000010'], [undefined, undefined, undefined]],
+]) test(name, async () => {
+  const dir = root();
+  for (const [index, ibRate] of rawRates.entries()) {
+    const sampleAt = iso(Date.parse('2026-10-26T13:30:00Z') + index * 15 * 60_000);
+    // Restart on each sample to test validation of the evolving saved shape.
+    const sampler = createFxSampler({ root: dir, now: () => Date.parse(sampleAt),
+      request: async () => ({ rate: '0.86000000', sampleAt, ...(ibRate === undefined ? {} : { ibRate }) }) });
+    try {
+      await sampler.tick();
+      assert.equal(sampler.snapshot().reason, null);
+      const samples = sampler.snapshot().days['2026-10-26'].samples;
+      assert.equal(samples.length, index + 1);
+      assert.ok(samples.every(sample => sample.rate === '0.86000000'));
+      assert.equal(samples.at(-1).ibRate, ibRate);
+      assert.equal(samples.at(-1).staleSeconds, expectedSeconds[index]);
+      assert.equal(Object.hasOwn(samples.at(-1), 'staleFx'), expectedSeconds[index] !== undefined);
+      assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'results-fx.json'), 'utf8')).days['2026-10-26'].samples, samples);
+    } finally { sampler.close(); }
+  }
+});
+
 test('staleness uses receipt times and floors fractional seconds, not completion times', async () => {
   const dir = root();
   let now = Date.parse('2026-10-26T13:30:00.250Z');
@@ -368,6 +401,81 @@ test('stale state metadata accepts only a true/integer pair in range on account-
       assert.deepEqual(sampler.snapshot().days, valid ? { '2026-10-26': { samples: day.samples } } : {}, name);
     } finally { sampler.close(); }
   }
+});
+
+test('account-rate state metadata validates raw decimals and off-session placement; old shapes load', async () => {
+  const source = { source: 'ib-account-exchange-rate' }, raw = { ibRate: '0.860000001' };
+  const flags = { staleFx: true, staleSeconds: 1800 };
+  const rthAt = '2026-10-26T14:00:00.000Z', closeAt = '2026-11-27T21:05:00.000Z';
+  const cases = [
+    ['raw rate', rthAt, { ...source, ...raw }, true],
+    ['raw rate and flags', rthAt, { ...source, ...raw, ...flags }, true],
+    ['raw rate at 32 characters', rthAt, { ...source, ibRate: '0.860000000000000000000000000000' }, true],
+    ['positive tiny raw rate', rthAt, { ...source, ibRate: '0.000000000000000000000000000001' }, true],
+    ['integer raw rate', rthAt, { ...source, ibRate: '1' }, true],
+    ['off-session close', closeAt, { ...source, ...raw, session: 'off' }, true],
+    ['off-session close and flags', closeAt, { ...source, ...raw, session: 'off', ...flags }, true],
+    ['off-session close without raw rate', closeAt, { ...source, session: 'off' }, true],
+    ['off-session close without raw rate and with flags', closeAt, { ...source, session: 'off', ...flags }, true],
+    ['old source-less early close', closeAt, {}, true],
+    ['old account-rate early close', closeAt, source, true],
+    ['old flagged early close', closeAt, { ...source, ...flags }, true],
+    ['raw rate on source-less sample', rthAt, raw, false],
+    ['off-session on source-less sample', closeAt, { session: 'off' }, false],
+    ['session on RTH', rthAt, { ...source, session: 'off' }, false],
+    ['session on early-close RTH', '2026-11-27T17:45:00.000Z', { ...source, session: 'off' }, false],
+    ['session on normal-day close', '2026-10-26T20:05:00.000Z', { ...source, session: 'off' }, false],
+    ['rth session value', closeAt, { ...source, session: 'rth' }, false],
+    ['null session', closeAt, { ...source, session: null }, false],
+    ['unknown field', closeAt, { ...source, ...raw, session: 'off', unexpected: true }, false],
+    ...['', '0', '0.000', '00.86', '01', '.86', '0.', '-0.86', '+0.86', '8.6e-1', 'NaN', 'Infinity', ' 0.86', '0.86\n',
+      '0.8600000000000000000000000000000', 0.86, null].map(ibRate => [
+      `invalid raw rate ${JSON.stringify(ibRate)}`, rthAt, { ...source, ibRate }, false,
+    ]),
+  ];
+  for (const [name, sampleAt, extra, valid] of cases) {
+    const dir = root(), slot = fxSlot(Date.parse(sampleAt));
+    const day = { attempts: { [slot.bucket]: { at: sampleAt, reason: 'ok' } },
+      samples: [{ rate: '0.86000000', sampleAt, kind: slot.kind, ...extra }] };
+    writeFileSync(path.join(dir, 'results-fx.json'), JSON.stringify({ schema: 1, days: { [slot.date]: day } }));
+    const sampler = createFxSampler({ root: dir, now: () => Date.parse(`${slot.date}T23:00:00Z`),
+      request: () => assert.fail('state load must not request FX outside a slot') });
+    try {
+      await sampler.tick();
+      assert.equal(sampler.snapshot().reason, valid ? null : 'state_unavailable', name);
+      assert.deepEqual(sampler.snapshot().days, valid ? { [slot.date]: { samples: day.samples } } : {}, name);
+    } finally { sampler.close(); }
+  }
+});
+
+for (const [date, hour, early] of [
+  ['2026-11-27', '21', true], ['2026-12-24', '21', true], ['2027-11-26', '21', true],
+  ['2028-07-03', '20', true], ['2028-11-24', '21', true],
+  ['2026-10-26', '20', false], ['2026-11-30', '21', false],
+]) test(`${date}: only an early-close day's 16:05 close has session off; RTH omits session`, async () => {
+  const dir = root();
+  const opening = Date.parse(`${date}T${hour === '20' ? '13' : '14'}:30:00Z`);
+  let now = opening;
+  const options = { root: dir, now: () => now,
+    request: async () => ({ rate: '0.86000000', ibRate: '0.860000001', sampleAt: iso(now) }) };
+  let sampler = createFxSampler(options);
+  try {
+    await sampler.tick();
+    now += 15 * 60_000; await sampler.tick();
+    now = Date.parse(`${date}T${hour}:05:00Z`); await sampler.tick();
+    const samples = sampler.snapshot().days[date].samples;
+    assert.equal(samples.length, 3);
+    assert.ok(samples.slice(0, -1).every(sample => sample.kind === 'rth' && !Object.hasOwn(sample, 'session')));
+    assert.equal(samples.at(-1).kind, 'close');
+    assert.equal(Object.hasOwn(samples.at(-1), 'session'), early);
+    assert.equal(samples.at(-1).session, early ? 'off' : undefined);
+    assert.equal(samples.at(-1).staleFx, true);
+    assert.equal(samples.at(-1).staleSeconds, 23700);
+    sampler.close(); sampler = createFxSampler(options);
+    await sampler.tick();
+    assert.equal(sampler.snapshot().reason, null);
+    assert.deepEqual(sampler.snapshot().days[date].samples, samples);
+  } finally { sampler.close(); }
 });
 
 test('NYSE holiday and early-close boundaries suppress RTH requests; unknown calendar years fail closed', () => {

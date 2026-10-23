@@ -94,13 +94,19 @@ test('account-rate capture converts every USD round trip with the daily close; R
   finally { replay.close(); }
 });
 
-for (const kind of ['rth', 'close']) test(`stale account-rate ${kind} flags survive both journals and replay without changing conversion`, () => {
-  const sample = { ...(kind === 'rth' ? { ...rth, sampleAt: '2026-10-26T14:00:00.000Z' } : close), source: 'ib-account-exchange-rate' };
-  const flags = { staleFx: true, staleSeconds: kind === 'rth' ? 1800 : 11100 };
-  const run = stale => {
+for (const [name, value, metadata] of [
+  ['stale account-rate rth flags', { ...rth, sampleAt: '2026-10-26T14:00:00.000Z' }, { staleFx: true, staleSeconds: 1800 }],
+  ['stale account-rate close flags', close, { staleFx: true, staleSeconds: 11100 }],
+  ['raw account-rate rth metadata', { ...rth, sampleAt: '2026-10-26T14:00:00.000Z' }, { ibRate: '0.900000001' }],
+  ['raw account-rate off-session close metadata', { ...close, sampleAt: '2026-11-27T21:05:00.000Z' },
+    { ibRate: '0.800000001', session: 'off', staleFx: true, staleSeconds: 23700 }],
+]) test(`${name} survive both journals and replay without changing conversion`, () => {
+  const sample = { ...value, source: 'ib-account-exchange-rate' }, { kind } = sample;
+  const date = sample.sampleAt.slice(0, 10), hour = date === '2026-11-27' ? '14' : '13';
+  const run = taggedMetadata => {
     const dir = mkdtempSync(path.join(tmpdir(), 'joed63-stale-producer-'));
     const input = path.join(dir, 'capture.jsonl'), output = path.join(dir, 'producer.jsonl');
-    let at = '2026-10-26T13:30:00.000Z';
+    let at = `${date}T${hour}:30:00.000Z`;
     const options = { account: 'synthetic-account', attribute: () => ({ desk: 'j', method: 'admin' }), executionTime: Date.parse, now: () => at };
     const capture = createCapture(input, { executorClientId: 705 }, options);
     const producer = openProducer(output, { now: () => at });
@@ -111,22 +117,23 @@ for (const kind of ['rth', 'close']) test(`stale account-rate ${kind} flags surv
       at = sample.sampleAt;
       state.executions = ['BOT', 'SLD'].map((side, i) => ({ contract: { conId: 123, symbol: 'ACME', currency: 'USD' }, execution: {
         execId: `synthetic-${i}.01`, acctNumber: options.account, clientId: 705, shares: '1', price: i ? '12' : '10', side,
-        time: `2026-10-26T13:${i ? '45' : '35'}:00.000Z`,
+        time: `${date}T${hour}:${i ? '45' : '35'}:00.000Z`,
       } }));
       state.commissions = state.executions.map((row, i) => ({ execId: row.execution.execId, commission: '0', currency: 'USD', realizedPNL: i ? '2' : Number.MAX_VALUE }));
-      const tagged = { ...sample, ...(stale ? flags : {}) };
-      state.resultsFxSampler = { ...status, days: { '2026-10-26': { samples: [tagged] } } };
+      const tagged = { ...sample, ...(taggedMetadata ? metadata : {}) };
+      state.resultsFxSampler = { ...status, days: { [date]: { samples: [tagged] } } };
       capture(state); producer.ingest(readJournal(input));
       result = producer.snapshot();
       assert.equal(result.trades.length, 1);
       assert.equal(result.trades[0].netEur.amount, kind === 'rth' ? '1.8' : '1.6');
       assert.equal(result.trades[0].fx.source, `ib-account-fx-${kind}`);
-      assert.equal(isSampleFx(result.trades[0].fx, '2026-10-26'), true);
+      assert.equal(result.trades[0].fx.rate, sample.rate);
+      assert.equal(isSampleFx(result.trades[0].fx, date), true);
       assert.equal(validateResults(result).ok, true);
-      assert.deepEqual(readJournal(input).flatMap(row => row.fxSampler?.days['2026-10-26']?.samples || []), [tagged]);
-      assert.deepEqual(readJournal(output).flatMap(row => row.entry?.fxSampler?.days['2026-10-26']?.samples || []), [tagged]);
-      assert.deepEqual(dayFx({ samples: [tagged] }, '2026-10-26', at), dayFx({ samples: [sample] }, '2026-10-26', at));
-      assert.equal(fxDayPartial({ samples: [tagged] }, '2026-10-26', status, at), false);
+      assert.deepEqual(readJournal(input).flatMap(row => row.fxSampler?.days[date]?.samples || []), [tagged]);
+      assert.deepEqual(readJournal(output).flatMap(row => row.entry?.fxSampler?.days[date]?.samples || []), [tagged]);
+      assert.deepEqual(dayFx({ samples: [tagged] }, date, at), dayFx({ samples: [sample] }, date, at));
+      assert.equal(fxDayPartial({ samples: [tagged] }, date, status, at), false);
     } finally { producer.close(); capture.close(); }
     const replay = openProducer(output, { now: () => at });
     try { assert.deepEqual(replay.snapshot().trades, result.trades); }

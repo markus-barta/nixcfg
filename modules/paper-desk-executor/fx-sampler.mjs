@@ -31,6 +31,8 @@ export function fxSlot(epoch) {
 }
 
 const SOURCE = 'ib-account-exchange-rate';
+const validIbRate = value => typeof value === 'string' && value.length <= 32
+  && /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.exec(value)?.[0] === value && /[1-9]/.test(value);
 const failure = (reason, code) => Object.assign(new Error(reason), { reason, ...(Number.isInteger(code) ? { code } : {}) });
 const reasons = new Set(['pending', 'ok', 'timeout', 'missing_quote', 'pacing_rejected', 'quote_failed', 'disconnected', 'invalid_quote', 'sample_failed']);
 const keysAre = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
@@ -47,9 +49,12 @@ function validState(saved) {
     })) return false;
     const seen = new Set();
     return day.samples.every(sample => {
-      if (!(keysAre(sample, ['rate', 'sampleAt', 'kind'])
-        || keysAre(sample, ['rate', 'sampleAt', 'kind', 'source']) && sample.source === SOURCE
-        || keysAre(sample, ['rate', 'sampleAt', 'kind', 'source', 'staleFx', 'staleSeconds']) && sample.source === SOURCE
+      const optional = ['source', 'ibRate', 'session', 'staleFx', 'staleSeconds'].filter(key => Object.hasOwn(sample ?? {}, key));
+      if (!keysAre(sample, ['rate', 'sampleAt', 'kind', ...optional])
+        || optional.includes('source') && sample.source !== SOURCE
+        || optional.includes('ibRate') && (sample.source !== SOURCE || !validIbRate(sample.ibRate))
+        || optional.includes('session') && (sample.source !== SOURCE || sample.session !== 'off' || sample.kind !== 'close' || !earlyCloses.has(date))
+        || (optional.includes('staleFx') || optional.includes('staleSeconds')) && !(sample.source === SOURCE
           && sample.staleFx === true && Number.isInteger(sample.staleSeconds) && sample.staleSeconds >= 1800 && sample.staleSeconds <= 86400)
         || typeof sample.rate !== 'string' || !/^\d+\.\d{8}$/.test(sample.rate) || Number(sample.rate) <= 0 || Number(sample.rate) > 100 || !Number.isFinite(Date.parse(sample.sampleAt))) return false;
       const slot = fxSlot(Date.parse(sample.sampleAt));
@@ -61,7 +66,7 @@ function validState(saved) {
 
 // Exact decimal -> eight places, rounding ties to even without binary floats.
 function accountRate(value) {
-  if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value)) throw failure('invalid_quote');
+  if (!validIbRate(value)) throw failure('invalid_quote');
   const [whole, fraction = ''] = value.split('.');
   const scale = 100000000n;
   let units = BigInt(whole) * scale + BigInt(fraction.slice(0, 8).padEnd(8, '0'));
@@ -101,7 +106,7 @@ export async function requestFxSnapshot({ id, signal, runtime = {}, allowed = ()
           if (Number(requestId) !== id) return;
           if (usd === undefined) return finish(failure('missing_quote'));
           if (typeof eur !== 'string' || !/^0*1(?:\.0+)?$/.test(eur)) return finish(failure('invalid_quote'));
-          try { finish(null, { rate: accountRate(usd), sampleAt }); }
+          try { finish(null, { rate: accountRate(usd), ibRate: usd, sampleAt }); }
           catch { finish(failure('invalid_quote')); }
         }],
         [events.error, (_error, code, requestId) => {
@@ -228,22 +233,27 @@ export function createFxSampler({ root, now = Date.now, request = requestFxSnaps
         const completedAt = now();
         // Rate-only injected readers retain their existing receipt-time seam.
         const rate = typeof sample === 'string' ? sample : sample?.rate;
+        const ibRate = typeof sample === 'string' ? undefined : sample?.ibRate;
         const sampledAt = typeof sample === 'string' ? completedAt : Date.parse(sample?.sampleAt);
         if (controller.signal.aborted || !Number.isFinite(sampledAt) || sampledAt > completedAt
           || fxSlot(completedAt).date !== slot.date || fxSlot(completedAt).bucket !== slot.bucket
           || fxSlot(sampledAt).date !== slot.date || fxSlot(sampledAt).bucket !== slot.bucket) throw failure('timeout');
         if (typeof rate !== 'string' || !/^\d+\.\d{8}$/.test(rate) || Number(rate) <= 0 || Number(rate) > 100) throw failure('invalid_quote');
+        if (ibRate !== undefined && !validIbRate(ibRate)) throw failure('invalid_quote');
         // Only earlier samples in this NY day count; failed attempts never
-        // change the contiguous run of exactly equal rate strings.
+        // change the run. Compare raw strings when both samples have them;
+        // otherwise retain the rounded-rate comparison for older samples.
         let runStart = sampledAt;
         const earlier = day.samples.filter(previous => Date.parse(previous.sampleAt) < sampledAt)
           .sort((a, b) => Date.parse(b.sampleAt) - Date.parse(a.sampleAt));
         for (const previous of earlier) {
-          if (previous.rate !== rate) break;
+          if (ibRate !== undefined && previous.ibRate !== undefined ? previous.ibRate !== ibRate : previous.rate !== rate) break;
           runStart = Date.parse(previous.sampleAt);
         }
         const staleSeconds = Math.floor((sampledAt - runStart) / 1000);
         day.samples.push({ rate, sampleAt: new Date(sampledAt).toISOString(), kind: slot.kind, source: SOURCE,
+          ...(ibRate !== undefined ? { ibRate } : {}),
+          ...(slot.kind === 'close' && earlyCloses.has(slot.date) ? { session: 'off' } : {}),
           ...(staleSeconds >= 1800 ? { staleFx: true, staleSeconds } : {}) });
         attempt.reason = 'ok'; reason = null;
       } catch (error) {

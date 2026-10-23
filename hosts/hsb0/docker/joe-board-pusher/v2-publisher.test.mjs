@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
-import { StageStore, prepareLock } from "./v2-stage-worker.mjs";
+import { StageStore, prepareLock, buildCandidate } from "./v2-stage-worker.mjs";
 import { createV2Publisher, createPostStateStore, OUTCOME_LIMIT } from "./v2-publisher.mjs";
 import { startCycle } from "./v1-cycle.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
@@ -49,6 +49,76 @@ function exportBaseline(root) {
   }
   return pathToFileURL(path.join(root, "pusher.mjs"));
 }
+
+const gatewaySnapshot = (gateway = { apiSessionReady: true, checkedAt: at }) => {
+  const snapshot = buildCandidate(7, at, { apiReplyCheckedAt: at });
+  snapshot.safety.gateway = gateway;
+  // Synthetic private values must never enter the emitted line.
+  snapshot.source.label = "synthetic-private-source";
+  snapshot.brokerAccount.equity = { amount: "1234567.89", currency: "EUR" };
+  return JSON.stringify(snapshot);
+};
+const checkedAtAge = age => new Date(Date.parse(at) - age).toISOString();
+for (const [name, body, health] of [
+  ["fresh check", gatewaySnapshot(), { gateway: true }],
+  ["59999 ms check", gatewaySnapshot({ apiSessionReady: true, checkedAt: checkedAtAge(59999) }), { gateway: true }],
+  ["60000 ms check", gatewaySnapshot({ apiSessionReady: true, checkedAt: checkedAtAge(60000) }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["older check", gatewaySnapshot({ apiSessionReady: true, checkedAt: checkedAtAge(60001) }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["explicitly unready check", gatewaySnapshot({ apiSessionReady: false, checkedAt: at, reason: "clock_regressed" }), { gateway: false, lastError: "clock_regressed" }],
+  ["unready check without reason", gatewaySnapshot({ apiSessionReady: false, checkedAt: at }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["legacy check without readiness flag", gatewaySnapshot({ checkedAt: at }), { gateway: true }],
+  ["future check", gatewaySnapshot({ apiSessionReady: true, checkedAt: checkedAtAge(-1) }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["invalid check time", gatewaySnapshot({ apiSessionReady: true, checkedAt: "unparseable" }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["missing check time", gatewaySnapshot({ apiSessionReady: true }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["invalid generation time", JSON.stringify({ generatedAt: "unparseable", safety: { gateway: { checkedAt: at } } }), { gateway: false, lastError: "gateway_unconfirmed" }],
+  ["absent gateway", JSON.stringify({ generatedAt: at, safety: {} }), { gateway: false, lastError: "gateway_unknown" }],
+  ["absent safety", '{"generatedAt":"' + at + '"}', { gateway: false, lastError: "gateway_unknown" }],
+  ["null gateway", gatewaySnapshot(null), { gateway: false, lastError: "gateway_unknown" }],
+  ["non-object gateway", gatewaySnapshot("synthetic-private-gateway"), { gateway: false, lastError: "gateway_unknown" }],
+  ["array gateway", gatewaySnapshot([]), { gateway: false, lastError: "gateway_unknown" }],
+  ["unparseable body", '{"safety":', { gateway: false, lastError: "gateway_unknown" }],
+  ["null body", "null", { gateway: false, lastError: "gateway_unknown" }],
+  ["body at size bound", gatewaySnapshot().padEnd(262144), { gateway: true }],
+  ["oversized body", gatewaySnapshot().padEnd(262145), { gateway: false, lastError: "gateway_unknown" }],
+  ...["synthetic-private-reason 1234567.89", "UPPERCASE", "code_123", "clock_regressed\n", "", "a".repeat(65), 42, { value: "synthetic-private-reason" }].map(reason => [
+    `unsafe reason ${typeof reason === "string" ? JSON.stringify(reason.slice(0, 24)) : typeof reason}`,
+    gatewaySnapshot({ apiSessionReady: false, checkedAt: at, reason }), { gateway: false, lastError: "gateway_unconfirmed" },
+  ]),
+]) test(`v2_post gateway contract: ${name}; receipt and outcome state unchanged`, async () => {
+  const bytes = Buffer.from(body), events = [], saves = [];
+  // Deliberately different metadata and wall clock prove health uses only the body.
+  const generatedAt = checkedAtAge(-3600000), recordedAt = checkedAtAge(-7200000);
+  let state = { format: "ops408.v2-post-state.v1", lastPosted: null, pending: null, outcomes: [] };
+  const initial = structuredClone(state), fingerprint = { seq: 7, sha256: sha(bytes) };
+  const publisher = createV2Publisher({
+    reader: { contracts: async () => {}, readCommittedPair: () => ({ bytes, seq: 7, generatedAt }) },
+    stateStore: { load: () => structuredClone(state), save: value => { state = structuredClone(value); saves.push(state); } },
+    send: async (_url, request) => {
+      assert.strictEqual(request.body, bytes);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ receivedAt: at, value: "synthetic-private-reply" }) };
+    },
+    now: () => recordedAt, emit: event => events.push(event),
+  });
+  const receipt = { status: 200, seq: 7, generatedAt, receivedAt: at, recordedAt, bodySha256: sha(bytes), outcome: "accepted" };
+  assert.deepEqual(await publisher.push({ url: "http://fixture.invalid/joe/inbox", token: "synthetic-contract-token" }), receipt);
+  assert.deepEqual(events, [{ event: "v2_post", ...receipt, ...health }]);
+  assert.deepEqual(saves, [
+    { ...initial, pending: fingerprint },
+    { ...initial, lastPosted: fingerprint, outcomes: [receipt] },
+  ]);
+  assert.equal(JSON.stringify(state), JSON.stringify({ ...initial, lastPosted: fingerprint, outcomes: [receipt] }));
+  assert.doesNotMatch(JSON.stringify(events), /synthetic-private|synthetic-contract-token|1234567\.89|brokerAccount|checkedAt|apiSessionReady|"body"/);
+  assert.equal(await publisher.push({ url: "http://fixture.invalid/joe/inbox", token: "synthetic-contract-token" }), null);
+  assert.equal(events.length, 1);
+});
+
+test("v2_post_skipped retains its value-free shape without generatedAt or gateway", async () => {
+  const events = [];
+  const publisher = createV2Publisher({ reader: { contracts: async () => {}, readCommittedPair() { throw new Error("synthetic-private-fault"); } },
+    emit: event => events.push(event) });
+  assert.equal(await publisher.push({ url: "http://fixture.invalid/joe/inbox", token: "synthetic-contract-token" }), null);
+  assert.deepEqual(events, [{ event: "v2_post_skipped", reason: "committed_pair_or_post_state_unavailable" }]);
+});
 
 test("only current.json commits a pair: exact bytes, newest sequence, no new commit, restart cursor and no writes under v2", async t => {
   const f = await fixture(t), publisher = f.publisher();
