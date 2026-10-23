@@ -61,6 +61,8 @@ MAX_CONNECTIONS = 8
 REQUEST_DEADLINE = 15
 PUBLISH_TIMEOUT = 5.0  # total, CONNECT to PUBACK
 IP_FREEBIND = 15  # Linux; lets the service bind the tailnet address before tailscaled is up
+CREDENTIALS_ROOT = "/run/credentials/"
+STATE_ROOT = "/var/lib/"
 # One raw header line: an RFC 9110 token name, a colon, printable ASCII or tab. No obs-fold,
 # no space before the colon, no other bytes; anything else is refused before the parser's view counts.
 HEADER_LINE = re.compile(rb"[!#$%&'*+\-.^_`|~0-9A-Za-z]+:[\t\x20-\x7e]*\r?\n")
@@ -74,11 +76,24 @@ class DeliveryUncertain(Exception):
     """The PUBLISH was (possibly) sent but not acknowledged."""
 
 
+def confined(path, root):
+    """Normalized path, required to stay below root. The inputs are the operator's (systemd's
+    environment and the unit's arguments), never a request's; this keeps a typo from aiming elsewhere."""
+    real = os.path.realpath(path)
+    if not real.startswith(root):
+        raise SystemExit(f"refusing a path outside {root}")
+    return real
+
+
 def read_credential(name):
     directory = os.environ.get("CREDENTIALS_DIRECTORY")
     if not directory:
         raise SystemExit(f"missing systemd credential directory for {name}")
-    return (Path(directory) / name).read_text()
+    base = confined(directory, CREDENTIALS_ROOT)
+    path = os.path.realpath(os.path.join(base, name))
+    if not path.startswith(base + os.sep):
+        raise SystemExit("credential name leaves the credential directory")
+    return Path(path).read_text()
 
 
 def parse_env(text):
@@ -490,7 +505,7 @@ def main(argv):
     env = parse_env(read_credential("mqtt-env"))
     if not env.get("MQTT_USER") or not env.get("MQTT_PASS"):
         raise SystemExit("mqtt-env credential lacks MQTT_USER/MQTT_PASS")
-    gateway = Gateway(args.state_dir, read_credential("token-sha256"),
+    gateway = Gateway(confined(args.state_dir, STATE_ROOT), read_credential("token-sha256"),
                       {"host": args.mqtt_host, "port": args.mqtt_port,
                        "user": env["MQTT_USER"], "password": env["MQTT_PASS"]})
     server = GatewayServer((args.listen, args.port), make_handler(gateway))

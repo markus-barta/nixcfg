@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import importlib.util
 import json
+import os
 import socket
 import struct
 import tempfile
@@ -229,6 +230,35 @@ class GatewayTests(unittest.TestCase):
     def test_env_parsing(self):
         env = gateway.parse_env('# c\nexport MQTT_USER="user"\nMQTT_PASS=p=w\n\nX\n')
         self.assertEqual((env["MQTT_USER"], env["MQTT_PASS"]), ("user", "p=w"))
+
+
+class PathTests(unittest.TestCase):
+    def test_operator_paths_are_confined(self):
+        with tempfile.TemporaryDirectory(prefix="zufahrt-gw-cred-") as root:
+            base = Path(root) / "zufahrt-gateway.service"
+            base.mkdir()
+            (base / "token-sha256").write_text(TOKEN_SHA)
+            real_root = os.path.realpath(root) + os.sep
+            old_root, old_env = gateway.CREDENTIALS_ROOT, os.environ.get("CREDENTIALS_DIRECTORY")
+            self.addCleanup(setattr, gateway, "CREDENTIALS_ROOT", old_root)
+            self.addCleanup(lambda: os.environ.__setitem__("CREDENTIALS_DIRECTORY", old_env) if old_env is not None
+                            else os.environ.pop("CREDENTIALS_DIRECTORY", None))
+            gateway.CREDENTIALS_ROOT = real_root
+            os.environ["CREDENTIALS_DIRECTORY"] = str(base)
+            self.assertEqual(gateway.read_credential("token-sha256"), TOKEN_SHA)
+            for name in ("../token-sha256", "/etc/passwd"):
+                with self.subTest(name=name), self.assertRaises(SystemExit):
+                    gateway.read_credential(name)
+            os.environ["CREDENTIALS_DIRECTORY"] = "/etc"  # outside the credential root
+            with self.assertRaises(SystemExit):
+                gateway.read_credential("token-sha256")
+        with tempfile.TemporaryDirectory(prefix="zufahrt-gw-state-") as tmp:
+            root = os.path.realpath(tmp) + os.sep  # host-independent (macOS: /var -> /private/var)
+            os.mkdir(root + "zufahrt-gateway")
+            self.assertEqual(gateway.confined(root + "zufahrt-gateway/../zufahrt-gateway", root), root + "zufahrt-gateway")
+            for bad in (root + "../etc", "/etc/zufahrt", "relative/dir"):
+                with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                    gateway.confined(bad, root)
 
 
 class FakeBroker(threading.Thread):
