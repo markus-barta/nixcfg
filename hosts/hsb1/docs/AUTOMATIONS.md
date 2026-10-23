@@ -117,6 +117,18 @@ Two other sources feed step 4 — the HomeKit accessory `n2h2n accessgate`
 press of the Vorraum Shelly button (`shellies/home/vr/shelly-button1`, which
 holds the gate open for 5 minutes by re-sending open on a timer).
 
+A third source enters at step 3 (HAUSV-916, 2026-10-23): **Howie**, Amy's assistant, via
+the `zufahrt-gateway` service on hsb1 (`modules/zufahrt-gateway`, port 8475 on the
+tailnet address 100.64.0.7). It accepts only `POST /zufahrt` and `POST /zufahrt5` with
+a bearer token (hsb1 stores only its sha256; the token lives on grok-amy-box), at most
+one accepted call per 60 s, and publishes the fixed message
+`{"success":true,"command":"/zufahrt"}` (or `/zufahrt5`) to `scom/jhw22/smarthome` on
+the **local** broker, QoS 1, never retained. From there the normal chain (step 4 on)
+switches the relay. Headscale admits only `tag:paper-desk` to that port (T92). Every
+call, including refused ones, is a line in `/var/lib/zufahrt-gateway/calls.jsonl`
+and in `journalctl -u zufahrt-gateway`. To disable it: `systemctl stop zufahrt-gateway`
+(no other hop depends on it), then remove `nixcfg.zufahrtGateway` through review.
+
 ### 🔴 What this means when it breaks
 
 - **The wall buttons are hardwired to the gate controller and bypass every hop

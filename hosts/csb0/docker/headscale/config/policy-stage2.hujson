@@ -14,6 +14,8 @@
 // nothing else may reach it, and it has no source rule, so it can open nothing.
 // Peer maps follow this ACL: other nodes do not see it as a peer. The builder
 // aliases pin today's addresses; re-check them after a builder re-registers.
+// HAUSV-916 (Markus, Decision Desk 0af9cee6, 2026-10-23): tag:paper-desk alone (grok-amy-box,
+// Howie) may open the Zufahrt gateway on hsb1, exactly tcp 8475. Not amy@, not :1880/1883, not ssh.
 {
   "tagOwners": {
     "tag:paper-desk": ["amy@"],
@@ -23,6 +25,7 @@
     "paper-desk": "100.64.0.6/32",
     "builder-mbp2606": "100.64.0.13/32",
     "builder-mbp2607": "100.64.0.14/32",
+    "zufahrt": "100.64.0.7/32",
   },
   "acls": [
     {
@@ -35,6 +38,12 @@
       "src": ["amy@", "tag:paper-desk"],
       "proto": "tcp",
       "dst": ["paper-desk:8470", "paper-desk:8471"],
+    },
+    {
+      "action": "accept",
+      "src": ["tag:paper-desk"],
+      "proto": "tcp",
+      "dst": ["zufahrt:8475"],
     },
     {
       "action": "accept",
