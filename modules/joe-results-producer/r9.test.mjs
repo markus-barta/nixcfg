@@ -31,19 +31,23 @@ test('65 trading days with 30 instruments: growth stays below 50 KB/day plus exa
   };
   const options = { account: 'synthetic-account', attribute: () => ({}), executionTime: Date.parse, now: () => iso(now) };
   let capture = createCapture(input, {}, options);
-  const sampler = createFxSampler({ root, now: () => now, request: async () => { calls++; return '0.86123457'; },
+  const ibRate = '0.861234565000000001';
+  const sampler = createFxSampler({ root, now: () => now, request: async () => {
+    calls++; return { rate: '0.86123457', ibRate, sampleAt: iso(now) };
+  },
     onUpdate: captureState });
   let producer = openProducer(output, { now: () => iso(now) });
   const growth = [], producerGrowth = [];
   // The unchanged journal format captures 1 + 2 + ... + 27 samples per day.
-  // Budget only the required provenance and stale properties; retain the old cap
+  // Budget only the required provenance, raw rate and stale properties; retain the old cap
   // for all other bytes in both the capture and its producer source copies.
   const sourceBytesPerDay = Buffer.byteLength(',"source":"ib-account-exchange-rate"') * (27 * 28 / 2);
+  const rawBytesPerDay = Buffer.byteLength(`,"ibRate":"${ibRate}"`) * (27 * 28 / 2);
   const staleBytesPerDay = Array.from({ length: 25 }, (_, i) => {
     const sample = i + 2, staleSeconds = sample === 26 ? 23700 : sample * 900;
     return Buffer.byteLength(`,"staleFx":true,"staleSeconds":${staleSeconds}`) * (27 - sample);
   }).reduce((sum, bytes) => sum + bytes, 0);
-  const metadataBytesPerDay = sourceBytesPerDay + staleBytesPerDay;
+  const metadataBytesPerDay = sourceBytesPerDay + rawBytesPerDay + staleBytesPerDay;
   try {
     capture(state);
     producer.ingestJournal(input);
@@ -80,9 +84,9 @@ test('65 trading days with 30 instruments: growth stays below 50 KB/day plus exa
       assert.ok(Object.keys(cut.fxSampler.days).length <= 1);
       assert.equal(JSON.stringify(cut.fxSampler).includes('attempts'), false);
       assert.notEqual(cut.fxSampler.reason, 'pending');
-      assert.ok(Object.values(cut.fxSampler.days).every(day => day.samples.every(sample => sample.source === 'ib-account-exchange-rate')));
+      assert.ok(Object.values(cut.fxSampler.days).every(day => day.samples.every(sample => sample.source === 'ib-account-exchange-rate' && sample.ibRate === ibRate)));
     }
-    t.diagnostic(`instruments=30 trading_days=65 calls=${calls} FX_events=${cuts.length} source_bytes_per_day=${sourceBytesPerDay} stale_bytes_per_day=${staleBytesPerDay} capture_max_bytes_per_day=${Math.max(...growth)} producer_max_bytes_per_day=${Math.max(...producerGrowth)} capture_mean_bytes_per_day=${Math.round(growth.reduce((a, b) => a + b) / 65)} producer_mean_bytes_per_day=${Math.round(producerGrowth.reduce((a, b) => a + b) / 65)}`);
+    t.diagnostic(`instruments=30 trading_days=65 calls=${calls} FX_events=${cuts.length} source_bytes_per_day=${sourceBytesPerDay} raw_bytes_per_day=${rawBytesPerDay} stale_bytes_per_day=${staleBytesPerDay} capture_max_bytes_per_day=${Math.max(...growth)} producer_max_bytes_per_day=${Math.max(...producerGrowth)} capture_mean_bytes_per_day=${Math.round(growth.reduce((a, b) => a + b) / 65)} producer_mean_bytes_per_day=${Math.round(producerGrowth.reduce((a, b) => a + b) / 65)}`);
   } finally { sampler.close(); capture.close(); producer.close(); }
 });
 

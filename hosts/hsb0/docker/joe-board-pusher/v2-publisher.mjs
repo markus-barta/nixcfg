@@ -6,6 +6,7 @@ import { StageStore } from "./v2-stage-worker.mjs";
 export const POST_STATE = "/var/lib/joe-board-pusher/v2-post-state.json";
 export const OUTCOME_LIMIT = 128;
 const MAX_STATE_BYTES = 65536;
+const MAX_SNAPSHOT_BYTES = 262144; // Same bound as StageStore.readPair().
 const FORMAT = "ops408.v2-post-state.v1";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const seqOk = seq => Number.isSafeInteger(seq) && seq > 0;
@@ -15,6 +16,25 @@ const instant = value => typeof value === "string" && Number.isFinite(Date.parse
 const statusOk = value => Number.isInteger(value) && value >= 100 && value <= 599
   || ["post_failed", "reply_failed"].includes(value);
 const fail = () => { throw new Error("v2_post_state_invalid"); };
+
+function gatewayLogFields(bytes, maxAgeMs) {
+  try {
+    if (!Buffer.isBuffer(bytes) || bytes.length > MAX_SNAPSHOT_BYTES) return {};
+    const snapshot = JSON.parse(bytes);
+    const gateway = snapshot?.safety?.gateway;
+    if (!gateway || typeof gateway !== "object" || Array.isArray(gateway)) return {};
+    if (gateway.apiSessionReady !== false) {
+      const age = Date.parse(snapshot.generatedAt) - Date.parse(gateway.checkedAt);
+      // Unknown evidence must not become a supervisor restart signal.
+      if (!Number.isFinite(age)) return {};
+      if (age >= 0 && age < maxAgeMs) return { gateway: true };
+    }
+    const reason = gateway.reason;
+    return { gateway: false, lastError: typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason) ? reason : "gateway_unconfirmed" };
+  } catch {
+    return {};
+  }
+}
 
 // A single atomic bounded file binds the durable cursor, uncertain attempt and
 // value-free receipts. No write ever targets the stager's read-only directory.
@@ -85,12 +105,18 @@ export function createV2Publisher({ reader = new StageStore(), stateStore = crea
   emit = event => console.log(JSON.stringify(event)) } = {}) {
   let busy = false;
   let ready = false;
+  let gatewayCheckMaxAgeMs;
   return {
     async push({ url, token }) {
       if (busy || !token) return null;
       busy = true;
       try {
-        if (!ready) { await reader.contracts(); ready = true; }
+        if (!ready) {
+          await reader.contracts();
+          // Import JoeDesk's freshness bound only after the vendored closure verifies.
+          ({ GATEWAY_CHECK_MAX_AGE_MS: gatewayCheckMaxAgeMs } = await import("./contracts/gateway.mjs"));
+          ready = true;
+        }
         const pair = reader.readCommittedPair();
         if (!pair) return null;
         const state = stateStore.load();
@@ -125,7 +151,7 @@ export function createV2Publisher({ reader = new StageStore(), stateStore = crea
         if (outcome !== "failed") { state.lastPosted = attempt; state.pending = null; }
         state.outcomes = [...state.outcomes, receipt].slice(-OUTCOME_LIMIT);
         try { stateStore.save(state); }
-        finally { try { emit({ event: "v2_post", ...receipt }); } catch {} }
+        finally { try { emit({ event: "v2_post", ...receipt, ...gatewayLogFields(pair.bytes, gatewayCheckMaxAgeMs) }); } catch {} }
         return receipt;
       } catch {
         try { emit({ event: "v2_post_skipped", reason: "committed_pair_or_post_state_unavailable" }); } catch {}

@@ -75,6 +75,7 @@ Outcomes contain only status, seq, generatedAt, receivedAt (null when absent),
 recordedAt, bodySha256 and a closed outcome. No body, token, raw response or
 account value is logged. Its recognized `.tmp` sibling is safely overwritten
 after ownership/mode/link checks following a pre-rename crash.
+Emitted `v2_post` lines carry `gateway` and, when false, a value-free `lastError` reason code for the HOSTD-58 supervisor; unknown gateway evidence omits both fields and cannot trigger a restart.
 
 A new process sends the newest committed pair; thereafter only a sequence above
 the durable cursor is eligible. One send stays in flight. Uncertain replies

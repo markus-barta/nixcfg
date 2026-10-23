@@ -12,12 +12,23 @@ at sampleAt, not a simultaneous executable FX quote. sampleAt records receipt
 of the USD account value, before accountUpdateMultiEnd. The producer carries
 that timestamp unchanged as observedAt.
 
-staleFx: true and integer staleSeconds appear together once the rate string
+staleFx: true and integer staleSeconds appear together once the compared string
 has stayed identical for at least 1800 seconds (30 minutes), measured from the
 earliest sample in the contiguous identical run of that New York day's samples
 to the new RTH or close sample's sampleAt, rounded down to seconds. A different
 rate resets the run; failed attempts do not change it. Below 1800 seconds both
 keys are absent. This is informational: the rate is still used for conversion.
+
+ibRate stores IB's raw USD ExchangeRate string exactly as received: a positive
+decimal of at most 32 characters, without leading zeros except the integer 0.
+The stale clock compares ibRate when both samples have it, so even a change
+beyond eight decimal places resets the run; otherwise it compares rate for
+older samples. ibRate is informational; conversion still uses the eight-place
+half-even rate.
+
+session: "off" appears only on the fixed 16:05 New York close sample of an
+NYSE early-close day, after the 13:00 close. Normal-day close and all RTH
+samples omit session. Staleness is still computed on the off-session row.
 
 New samples carry source "ib-account-exchange-rate". The producer labels their
 conversions "ib-account-fx-close" or "ib-account-fx-rth". Historical samples
