@@ -19,7 +19,7 @@ BASELINE = '68ae68464c9930c740be70c82b141e3a08f2319e'
 # OPS-408: exact pre-r17 runtime, including the release-set wiring.
 HSB0_BASELINE = "67e15fad20c946975e9ce9012ee3d103af0fd18d"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
-CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r18f-202610211655'
+CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r19a-202610230614'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
 PUBLISHED = 'a60f4c561b05fa26ee8fa1dd31ab725714399340'
 PUBLISHED_TREE = 'b06f92aadf1b8ee2e08414ab7252e2fbb105b5d0'
