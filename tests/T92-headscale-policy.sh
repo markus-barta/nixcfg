@@ -7,6 +7,7 @@
 # every user-owned node and tag:paper-desk (an explicit list, so OPS-412's tag:agm-ci is
 # excluded), lets amy@ and tag:paper-desk open exactly tcp 100.64.0.6:{8470,8471}, and lets
 # only the two builder Macs open tcp 2222 on tag:agm-ci; tag:agm-ci itself opens nothing.
+# HAUSV-916: tag:paper-desk (grok-amy-box) alone may also open tcp 100.64.0.7:8475 (Zufahrt gateway).
 #
 # Run under bash 5. macOS /bin/bash is 3.2, and set -e does not abort on a
 # failing bare [[ ]] there (see T33). This script uses no bare [[ ]].
@@ -211,6 +212,15 @@ PAPER_PORTS = {"8470", "8471"}
 AMY = "amy@"
 PAPER_TAG = "tag:paper-desk"
 FULL_USERS = ("markus@", "gerhard@")
+# HAUSV-916: tag:paper-desk (grok-amy-box) may also open exactly tcp 100.64.0.7:8475, the Zufahrt
+# gateway on hsb1. amy@ (an untagged node of that user) may not.
+ZUFAHRT = "100.64.0.7"
+ZUFAHRT_PORT = "8475"
+ZUFAHRT_DST = "zufahrt:8475"
+EXPECTED_REACH = {
+    AMY: {(PAPER, port) for port in PAPER_PORTS},
+    PAPER_TAG: {(PAPER, port) for port in PAPER_PORTS} | {(ZUFAHRT, ZUFAHRT_PORT)},
+}
 # OPS-412: explicit full reach (all of today's owners); never "*" again, it would cover tag:agm-ci.
 FULL_REACH = ("markus@:*", "gerhard@:*", "amy@:*", "tag:paper-desk:*")
 CI_TAG = "tag:agm-ci"
@@ -361,7 +371,7 @@ def assert_ci_isolated(doc):
     ci_rules = [rule for rule in acls_of(doc) if is_ci_rule(rule)]
     if len(ci_rules) != 1:
         fail("stage 2 must contain exactly one builder -> tag:agm-ci:2222 rule")
-    allowed = {*FULL_REACH, "paper-desk:8470", "paper-desk:8471", CI_DST}
+    allowed = {*FULL_REACH, "paper-desk:8470", "paper-desk:8471", ZUFAHRT_DST, CI_DST}
     for rule in acls_of(doc):
         for spec in rule.get("dst") or []:
             if spec not in allowed:
@@ -377,19 +387,21 @@ def assert_stage2(doc):
     for user in FULL_USERS:
         if not user_keeps_full_reach(doc, user):
             fail(f"stage 2 must keep {user} on the full explicit reach {FULL_REACH}")
+    if doc.get("hosts", {}).get("zufahrt") != f"{ZUFAHRT}/32":
+        fail(f"host alias zufahrt must be exactly {ZUFAHRT}/32")
     for identity in (AMY, PAPER_TAG):
         found = restricted_destinations(doc, identity)
         if not found:
             fail(f"stage 2 has no accept rule for {identity}")
+        granted = set()
         for host, ports, proto in found:
-            if not is_paper_tcp(host, ports, proto):
-                fail(
-                    f"stage 2 lets {identity} reach "
-                    f"{host}:{ports} proto={proto!r}; only tcp {PAPER}:{{8470,8471}} is allowed"
-                )
-        allowed = {port for _, ports, _ in found for port in ports.split(",")}
-        if allowed != PAPER_PORTS:
-            fail(f"stage 2 must grant {identity} exactly tcp ports 8470 and 8471")
+            for port in ports.split(","):
+                if proto != "tcp" or (host, port) not in EXPECTED_REACH[identity]:
+                    fail(f"stage 2 lets {identity} reach {host}:{port} proto={proto!r}; "
+                         f"only tcp {sorted(EXPECTED_REACH[identity])} is allowed")
+                granted.add((host, port))
+        if granted != EXPECTED_REACH[identity]:
+            fail(f"stage 2 must grant {identity} exactly tcp {sorted(EXPECTED_REACH[identity])}")
 
 def assert_rejected(doc, label):
     # Mutate copies only: regressions must exercise the same gate as the files.
@@ -454,6 +466,26 @@ def negative_cases(stage2):
     doc["acls"].append({"action": "accept", "src": ["group:family"], "dst": ["*:*"]})
     assert_rejected(doc, "group widens amy@")
     count += 1
+    # HAUSV-916: the Zufahrt port belongs to tag:paper-desk alone, on exactly tcp 8475.
+    def zufahrt_index(doc):
+        return next(i for i, rule in enumerate(doc["acls"]) if rule.get("dst") == [ZUFAHRT_DST])
+    for label, mutate in [
+        ("amy@ -> zufahrt", lambda d: d["acls"].append({"action": "accept", "src": [AMY], "proto": "tcp", "dst": [ZUFAHRT_DST]})),
+        ("zufahrt rule src plus amy@", lambda d: d["acls"][zufahrt_index(d)]["src"].append(AMY)),
+        ("zufahrt rule port 22", lambda d: d["acls"][zufahrt_index(d)].__setitem__("dst", ["zufahrt:22"])),
+        ("zufahrt rule any port", lambda d: d["acls"][zufahrt_index(d)].__setitem__("dst", ["zufahrt:*"])),
+        ("zufahrt rule plus 8476", lambda d: d["acls"][zufahrt_index(d)].__setitem__("dst", ["zufahrt:8475,8476"])),
+        ("zufahrt rule udp", lambda d: d["acls"][zufahrt_index(d)].__setitem__("proto", "udp")),
+        ("zufahrt rule without proto", lambda d: d["acls"][zufahrt_index(d)].pop("proto")),
+        ("zufahrt alias widened", lambda d: d["hosts"].__setitem__("zufahrt", "100.64.0.0/24")),
+        ("zufahrt alias moved", lambda d: d["hosts"].__setitem__("zufahrt", "100.64.0.6/32")),
+        ("zufahrt rule removed", lambda d: d["acls"].pop(zufahrt_index(d))),
+        ("tag:paper-desk -> hsb1 ssh", lambda d: d["acls"].append({"action": "accept", "src": [PAPER_TAG], "proto": "tcp", "dst": ["100.64.0.7:22"]})),
+    ]:
+        doc = copy.deepcopy(stage2)
+        mutate(doc)
+        assert_rejected(doc, f"HAUSV-916 {label}")
+        count += 1
     for owners in (None, {PAPER_TAG: ["markus@"]}, {PAPER_TAG: [AMY, "markus@"]}):
         doc = copy.deepcopy(stage2)
         doc["tagOwners"] = owners
@@ -510,7 +542,7 @@ assert_stage1(stage1)
 assert_stage2(stage2)
 count = negative_cases(stage2)
 print(f"T92: {count} negative cases rejected")
-print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk exactly tcp 100.64.0.6:{8470,8471}; markus@ and gerhard@ full explicit reach without tag:agm-ci; tag:agm-ci only builders tcp 2222")
+print("T92: active path is stage 2; stage 1 allow-all rollback; stage 2 amy@ and tag:paper-desk exactly tcp 100.64.0.6:{8470,8471}, tag:paper-desk also exactly tcp 100.64.0.7:8475 (HAUSV-916); markus@ and gerhard@ full explicit reach without tag:agm-ci; tag:agm-ci only builders tcp 2222")
 PY
 
 printf 'T92 ok\n'

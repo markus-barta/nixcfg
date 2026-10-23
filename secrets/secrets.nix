@@ -137,6 +137,8 @@ in
   # NIX-158 phase 3 P3b — host-level /etc/secrets pair (read by BOTH the kiosk
   # mqtt-volume-control systemd unit AND containers) -> agenix owner root 0644.
   "hsb1-mqtt-client-env.age".publicKeys = markus ++ hsb1;
+  # HAUSV-916: sha256 of Howie's Zufahrt token (the token itself never leaves grok-amy-box).
+  "hsb1-zufahrt-gw-token-sha256.age".publicKeys = markus ++ hsb1;
   "hsb1-tapo-c210-env.age".publicKeys = markus ++ hsb1;
 
   # Time Machine Samba credentials (tm-markus/tm-mailina shares) — two lines,

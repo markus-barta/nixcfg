@@ -35,6 +35,7 @@ in
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
+    ../../modules/zufahrt-gateway # HAUSV-916 — Howie's /zufahrt + /zufahrt5 gateway (tag:paper-desk only)
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
     # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
@@ -911,6 +912,20 @@ in
   #     root-run compose units, never by the container itself (the old
   #     "scrypted container reads it" claim was wrong).
   # The mba diagnostic in docs/AUTOMATIONS.md now uses sudo.
+  # HAUSV-916: Howie (Amy's assistant) may trigger the access gate. The token stays on
+  # grok-amy-box; hsb1 only holds its sha256. Reach: Headscale admits only tag:paper-desk
+  # to tcp 100.64.0.7:8475 (csb0 policy-stage2.hujson, T92).
+  nixcfg.zufahrtGateway = {
+    enable = true;
+    listenAddress = "100.64.0.7";
+    tokenHashFile = config.age.secrets.hsb1-zufahrt-gw-token-sha256.path;
+    mqttEnvFile = config.age.secrets.hsb1-mqtt-client-env.path;
+  };
+  age.secrets.hsb1-zufahrt-gw-token-sha256 = {
+    file = ../../secrets/hsb1-zufahrt-gw-token-sha256.age;
+    mode = "0400";
+  };
+
   age.secrets.hsb1-mqtt-client-env = {
     file = ../../secrets/hsb1-mqtt-client-env.age;
     path = "/run/agenix/hsb1-mqtt-client-env";
