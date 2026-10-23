@@ -695,18 +695,19 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main a60f4c561b05fa26ee8fa1dd31ab725714399340
-(JOED-60: health ranking only, no data change; supersedes 040d6756 / 261021083537.0.0 / sequence 27, live
-2026-10-21 11:22Z, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree b06f92aadf1b8ee2e08414ab7252e2fbb105b5d0,
-`inspr-calver-3` / 261021113113.0.0 / sequence 28. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-60; JOED-59 was the previous set).
-Board-only rollback of this re-pin: revert the JOED-60 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-040d6756e92dc7c4e05fcf63b865242819b3d0ce` (sequence 27) is reused, no build.
+active v2 source is main cdf843a587d1066d544beea92f7b8ceef5d103bf
+(JOED-75 release 29: the calm status line, a test-only real fixture and the manifest pins; no data, contract or
+ingress change; supersedes a60f4c56 / 261021113113.0.0 / sequence 28, live 2026-10-21 15:22Z, 040d6756 / sequence 27,
+6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree e5f8d946252212d2821915ed8252f2d57647ff80,
+`inspr-calver-3` / 261023100632.0.0 / sequence 29. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-75; JOED-60 was the previous set).
+Board-only rollback of this re-pin: revert the JOED-75 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-a60f4c561b05fa26ee8fa1dd31ab725714399340` (sequence 28) is reused, no build.
 db621bf stays the v1 rollback.
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
 `release/contracts.json` SHA256 is
-`5c20c38be4602f6c142ece1c1abc65172306d504aa0a74d098e10bb15f78ef17`.
+`0f12d3ffd42edc586b1c10da86f72fc1a7b59f3e132c0111b6ae7e19083a147b`.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
 the exact main commit and hashes identify this activated source.

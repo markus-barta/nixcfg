@@ -37,12 +37,12 @@
     },
     "v2": {
       "board": {
-        "rev": "a60f4c561b05fa26ee8fa1dd31ab725714399340",
+        "rev": "cdf843a587d1066d544beea92f7b8ceef5d103bf",
         "version_scheme": "inspr-calver-3",
-        "version": "261021113113.0.0",
-        "release_sequence": 28,
+        "version": "261023100632.0.0",
+        "release_sequence": 29,
         "tag": null,
-        "image": "csb0-joe-board:source-a60f4c561b05fa26ee8fa1dd31ab725714399340",
+        "image": "csb0-joe-board:source-cdf843a587d1066d544beea92f7b8ceef5d103bf",
         "data_schema": "v2",
         "public_health": true
       },
@@ -83,14 +83,20 @@
           "pusher": {
             "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
             "required_data_schema": "inspr.joe.household.v2",
-            "deployment_pin": null,
-            "status": "Amy JOED-20 real producer rehearsal/sign-off required"
+            "deployment_pin": "0264b42f583641a446e90b606dc26ed7ef200f60",
+            "status": "Amy signed off the real producer paper proof (JOED-39, 2026-10-23)"
           },
           "executor": {
             "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
             "reports_via": "pusher data.safety.executor",
-            "deployment_pin": null,
-            "status": "Amy executor/broker reconciliation required"
+            "deployment_pin": "0264b42f583641a446e90b606dc26ed7ef200f60",
+            "status": "Amy's executor/broker reconciliation passed (JOED-39 item 4, 2026-10-21)"
+          },
+          "producer": {
+            "required_contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+            "required_data_schema": "inspr.joe.household.results.v2",
+            "deployment_pin": "0264b42f583641a446e90b606dc26ed7ef200f60",
+            "status": "Amy signed off the real producer paper proof (JOED-39, 2026-10-23)"
           }
         },
         "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"

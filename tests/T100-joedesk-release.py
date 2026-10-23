@@ -21,10 +21,10 @@ HSB0_BASELINE = "67e15fad20c946975e9ce9012ee3d103af0fd18d"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
 CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r19a-202610230614'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
-PUBLISHED = 'a60f4c561b05fa26ee8fa1dd31ab725714399340'
-PUBLISHED_TREE = 'b06f92aadf1b8ee2e08414ab7252e2fbb105b5d0'
+PUBLISHED = 'cdf843a587d1066d544beea92f7b8ceef5d103bf'
+PUBLISHED_TREE = 'e5f8d946252212d2821915ed8252f2d57647ff80'
 CONTRACT_SET_SHA256 = '000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5'
-CONTRACTS_JSON_SHA256 = '5c20c38be4602f6c142ece1c1abc65172306d504aa0a74d098e10bb15f78ef17'
+CONTRACTS_JSON_SHA256 = '0f12d3ffd42edc586b1c10da86f72fc1a7b59f3e132c0111b6ae7e19083a147b'
 SHA = re.compile(r'[0-9a-f]{64}')
 REV = re.compile(r'[0-9a-f]{40}')
 
@@ -285,7 +285,7 @@ def check(source=None):
         else:
             require(board['data_schema'] == 'v2', 'unknown board data schema')
             require(board['rev'] == PUBLISHED, 'published v2 revision mismatch')
-            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261021113113.0.0' and board['release_sequence'] == 28, 'published canonical CalVer3 metadata mismatch')
+            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261023100632.0.0' and board['release_sequence'] == 29, 'published canonical CalVer3 metadata mismatch')
             contracts = item['contracts']
             digest = contracts['contract_set_sha256']
             require(SHA.fullmatch(digest) and digest == CONTRACT_SET_SHA256, 'published contract digest mismatch')

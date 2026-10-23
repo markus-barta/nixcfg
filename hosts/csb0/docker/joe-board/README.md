@@ -52,9 +52,9 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The active `v2` set records main a60f4c56 (JOED-60; supersedes 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
-261021113113.0.0, sequence 28 from that checkout's `release.json` and
-`release/preparation.json` (JOED-60 preparation; JOED-59 was the previous release set) and the complete exact `release/contracts.json`
+The active `v2` set records main cdf843a5 (JOED-75 release 29; supersedes a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
+261023100632.0.0, sequence 29 from that checkout's `release.json` and
+`release/preparation.json` (JOED-75 preparation; JOED-60 was the previous release set) and the complete exact `release/contracts.json`
 record at manifest revision 9. The full source/tree and contract hashes are in
 the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-63/HOSTD-77 after JOED-62 r18f; image `household-v2-switch-set-r19a-202610230614`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
