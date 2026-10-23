@@ -47,14 +47,14 @@
         "public_health": true
       },
       "pusher": {
-        "nixcfg_rev": "6c29b048320db29e373595ddebea07b15293791f",
+        "nixcfg_rev": "d5c248f87096a3bbfaed7f63fe2b4f19add532fc",
         "source_tree": "673233fa90fe21f0ee3fcbc18366fac88d976f97",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
         "image": "hsb0-joe-board-pusher:household-v2-switch-set-r19a-202610230614"
       },
       "executor": {
-        "nixcfg_rev": "6c29b048320db29e373595ddebea07b15293791f",
-        "source_tree": "114bc9132370b57240fbcfaec863a8516ddcc8f3",
+        "nixcfg_rev": "d5c248f87096a3bbfaed7f63fe2b4f19add532fc",
+        "source_tree": "24e09b3f7b8dd5f1d2e063a4c1c3c72bd7acf61e",
         "source_path": "modules/paper-desk-executor",
         "image": "hsb0-joe-board-pusher:household-v2-switch-set-r19a-202610230614"
       },
