@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 35: v261024145559.0.0 (#247 merge, sequence 105). Contents since 34, web UI only: HNET-350 the status word follows the cause (Very slow for crit from latency/probe loss, Degraded for device-reported crit) in the Devices table, Compact status, phone list, Overview, Topology tray and Legend; Topology legend labels at 768 px and the 1440 px toolbar gap. Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
+    # HNET pin 36: v261024162437.0.0 (#251 merge, sequence 106). Contents since 35, web UI only: HNET-352 the inspector's explanation for device-reported faults starts with "Degraded:" (the table's word) instead of "Critical:". Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b3c9dba2cd3c0f40a79699b9ec9d2e7d4ee37a2a";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=6a27e21937e566826aafb6d3861a4e81a049c0e7";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
