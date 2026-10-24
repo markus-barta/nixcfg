@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 31: v261023100936.0.0 (#229 merge, sequence 101; tree = gated, CI-tested release head d6659fa). Contents since 30: HNET-298 Settings as one page; HNET-301 phone list + full-screen device sheet; HNET-284 D-a Diagram 2 closes the classic gaps; HNET-324 Check now (POST /api/devices/{id}/check gives slow-waking devices more time, a miss answers 200 with rtt_ms null instead of 504); HNET-321/322 switches + response chart 1 h / 6 h / 24 h. Capability-free: no flake.nix or nix/ change, Go changes inside existing routes (34 → 34), no new endpoint, listener, socket, dial, exec or capability; history still only window=24h; rollback = re-pin 30 (6c20bf1) on the live data dir, no schema change. Explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 33: v261023233630.0.0 (#242 merge, sequence 103; replaces pin 32 / v261023223306.0.0, tagged but never deployed). Contents since 31: HNET-323 seven-day hourly rollups; HNET-325 house shape; HNET-334/335 phone text + small header; HNET-332 Sources help link; HNET-314 backups with activity and history + import preview; HNET-319/333 robust JSON replies; HNET-299/337/338 Topology; HNET-339 Releases page + manifest; HNET-327/328 Smart connect (new collectors ARP/LLDP/Passive neighbours default off, LLDP also needs --lldp-interfaces + CAP_NET_RAW); HNET-343 SSDP stays on when unset (as in 31). Module unchanged; new routes GET only; capability-free (standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=72f4c3149b075967d232478aea9880f4af328599";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b1704a6623b5ccfc0532f211e5f67f0475f31574";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
