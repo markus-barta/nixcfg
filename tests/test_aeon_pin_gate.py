@@ -258,21 +258,55 @@ class WorkflowFixtures(unittest.TestCase):
         ]))
 
     def test_every_existing_pharos_step_runs_for_non_pin_diffs(self):
-        steps = self.workflow["jobs"]["pharos-rollout"]["steps"]
-        self.assertEqual(steps[0]["with"]["fetch-depth"], 0)
-        self.assertEqual(steps[1]["id"], "pin")
-        self.assertIn(" classify", steps[1]["run"])
-        # Only the validated pin_only line may reach the step outputs.
-        self.assertIn("grep -E '^pin_only=(true|false)$'", steps[1]["run"])
-        self.assertIn('>> "$GITHUB_OUTPUT"', steps[1]["run"])
-        for step in steps[2:]:
-            with self.subTest(step=step.get("name", step.get("uses"))):
-                # Key cleanup must also run after T38 fails, while pin-only
-                # diffs still skip every rollout step, including cleanup.
-                expected = "steps.pin.outputs.pin_only != 'true'"
-                if step.get("name") == "Clean up private hsb0 input access (OPS-355)":
-                    expected = "always() && " + expected
-                self.assertEqual(step["if"], expected)
+        for shard in self.workflow["jobs"]["pharos-rollout"]["needs"]:
+            steps = self.workflow["jobs"][shard]["steps"]
+            self.assertEqual(steps[0]["with"]["fetch-depth"], 0)
+            self.assertEqual(steps[1]["id"], "pin")
+            self.assertIn(" classify", steps[1]["run"])
+            # Only the validated pin_only line may reach the step outputs.
+            self.assertIn("grep -E '^pin_only=(true|false)$'", steps[1]["run"])
+            self.assertIn('>> "$GITHUB_OUTPUT"', steps[1]["run"])
+            for step in steps[2:]:
+                with self.subTest(shard=shard, step=step.get("name", step.get("uses"))):
+                    # Cleanup also runs after T38 fails; exact pin-only diffs
+                    # still skip every rollout step, including cleanup.
+                    expected = "steps.pin.outputs.pin_only != 'true'"
+                    if step.get("name") == "Clean up private hsb0 input access (OPS-355)":
+                        expected = "always() && " + expected
+                    self.assertEqual(step["if"], expected)
+
+    def test_required_check_fails_unless_all_shards_succeed(self):
+        job = self.workflow["jobs"]["pharos-rollout"]
+        self.assertEqual(job["name"], "Pharos fleet release compatibility")
+        self.assertEqual(job["if"], "always()")
+        shards = {name for name in self.workflow["jobs"] if name.startswith("pharos-contracts-")}
+        self.assertEqual(len(shards), 4)
+        self.assertEqual(set(job["needs"]), shards)
+        step, = job["steps"]
+        self.assertEqual(step["env"]["SHARD_RESULTS"], "${{ join(needs.*.result, ' ') }}")
+        # Execute the actual gate for every possible terminal result tuple.
+        import itertools
+        for results in itertools.product(("success", "failure", "cancelled", "skipped"), repeat=4):
+            result = subprocess.run(["bash", "-e", "-c", step["run"]],
+                                    env={"SHARD_RESULTS": " ".join(results)}, capture_output=True)
+            self.assertEqual(result.returncode == 0, all(value == "success" for value in results), results)
+
+    def test_shards_keep_job_local_prerequisites(self):
+        shards = [self.workflow["jobs"][name]["steps"]
+                  for name in self.workflow["jobs"]["pharos-rollout"]["needs"]]
+        private, = [steps for steps in shards if any(step.get("id") == "hausnetz-input" for step in steps)]
+        evidence, = [i for i, step in enumerate(private) if "tests/T38-" in step.get("run", "")]
+        self.assertEqual(private[evidence - 1]["id"], "hausnetz-input")
+        self.assertEqual(private[evidence + 1]["name"], "Clean up private hsb0 input access (OPS-355)")
+        for test in ("T64-fleet-nix-maintenance.sh", "T54-doctrine-private-fleet-boundary.sh",
+                     "T68-ncps-warmer-fleet.sh", "T99-hausnetz-hsb0.sh"):
+            consumer, = [i for i, step in enumerate(private) if test in step.get("run", "")]
+            self.assertGreater(consumer, evidence + 1)
+        routing, = [steps for steps in shards if any("git submodule update" in step.get("run", "") for step in steps)]
+        checkout, = [i for i, step in enumerate(routing) if "git submodule update" in step.get("run", "")]
+        for test in ("T88-model-role-lint.sh", "T80-shared-flow-activation.sh", "T103-traefik-api-auth.py"):
+            consumer, = [i for i, step in enumerate(routing) if test in step.get("run", "")]
+            self.assertGreater(consumer, checkout)
 
     def test_gate_always_reports_and_both_jobs_use_the_aggregate_diff(self):
         gate_job = self.workflow["jobs"]["aeon-pin-gate"]
@@ -280,9 +314,10 @@ class WorkflowFixtures(unittest.TestCase):
         self.assertEqual(gate_job["name"], "aeon-pin-gate")
         self.assertEqual(gate_job["permissions"], {"contents": "read"})
         self.assertEqual(gate_job["steps"][0]["with"]["fetch-depth"], 0)
-        classify = self.workflow["jobs"]["pharos-rollout"]["steps"][1]
         verify = gate_job["steps"][-1]
-        for step in (classify, verify):
+        classifiers = [self.workflow["jobs"][shard]["steps"][1]
+                       for shard in self.workflow["jobs"]["pharos-rollout"]["needs"]]
+        for step in (*classifiers, verify):
             self.assertEqual(step["env"]["HEAD_SHA"], "${{ github.sha }}")
             self.assertEqual(step["env"]["BASE_SHA"], "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}")
         triggers = self.workflow.get("on", self.workflow.get("true"))

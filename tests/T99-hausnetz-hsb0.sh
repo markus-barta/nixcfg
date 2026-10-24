@@ -222,14 +222,16 @@ for name in workflows:
         jobs = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', text.split('jobs:', 1)[1], re.M | re.S))
         assert 'GH_TOKEN_FOR_UPDATES' not in text
         assert "if: matrix.host == 'hsb0'\n        uses: ./.github/actions/hausnetz-input" in jobs['check']
-        assert "if: steps.pin.outputs.pin_only != 'true'\n        uses: ./.github/actions/hausnetz-input" in jobs['pharos-rollout']
-        assert all('hausnetz-input' not in job for name, job in jobs.items() if name not in ('check', 'pharos-rollout'))
+        private_shard, = [name for name, job in jobs.items()
+                          if name.startswith('pharos-contracts-') and 'uses: ./.github/actions/hausnetz-input' in job]
+        assert "if: steps.pin.outputs.pin_only != 'true'\n        uses: ./.github/actions/hausnetz-input" in jobs[private_shard]
+        assert all('hausnetz-input' not in job for name, job in jobs.items() if name not in ('check', private_shard))
     if name == 'pharos-host-settings':
         assert "if: inputs.host == 'hsb0'\n        uses: ./.github/actions/hausnetz-input" in text
 
 # Only T38 gets the SSH override; later hsb0 evals reuse its stored locked source.
 # The private key is cleaned up in the next step even when T38 fails.
-steps = re.split(r'^      - ', jobs['pharos-rollout'], flags=re.M)[1:]
+steps = re.split(r'^      - ', jobs[private_shard], flags=re.M)[1:]
 key_index, = [i for i, step in enumerate(steps) if 'uses: ./.github/actions/hausnetz-input' in step]
 assert 'run: tests/T38-pharos-deployment-evidence.sh' in steps[key_index + 1]
 assert 'id: hausnetz-input' in steps[key_index]
