@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 34: v261024120624.0.0 (#245 merge, sequence 104). Contents since 33, web UI only: HNET-346 steady connect dot (no Devices table rebuild under a hovered connect handle); HNET-347/348/349/351 Devices table: one column per fact (23 -> 18, saved column prefs migrate in the browser), Compact status, drag-to-reorder header, Auto-hide switch, ~18x fewer forced layouts per hover/resize. Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
+    # HNET pin 35: v261024145559.0.0 (#247 merge, sequence 105). Contents since 34, web UI only: HNET-350 the status word follows the cause (Very slow for crit from latency/probe loss, Degraded for device-reported crit) in the Devices table, Compact status, phone list, Overview, Topology tray and Legend; Topology legend labels at 768 px and the 1440 px toolbar gap. Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=acd8fa9b8196e0795b97a4a5301575fb4aa56641";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b3c9dba2cd3c0f40a79699b9ec9d2e7d4ee37a2a";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
