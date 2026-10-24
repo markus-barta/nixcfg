@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 33: v261023233630.0.0 (#242 merge, sequence 103; replaces pin 32 / v261023223306.0.0, tagged but never deployed). Contents since 31: HNET-323 seven-day hourly rollups; HNET-325 house shape; HNET-334/335 phone text + small header; HNET-332 Sources help link; HNET-314 backups with activity and history + import preview; HNET-319/333 robust JSON replies; HNET-299/337/338 Topology; HNET-339 Releases page + manifest; HNET-327/328 Smart connect (new collectors ARP/LLDP/Passive neighbours default off, LLDP also needs --lldp-interfaces + CAP_NET_RAW); HNET-343 SSDP stays on when unset (as in 31). Module unchanged; new routes GET only; capability-free (standing go Desk 45df1430).
+    # HNET pin 34: v261024120624.0.0 (#245 merge, sequence 104). Contents since 33, web UI only: HNET-346 steady connect dot (no Devices table rebuild under a hovered connect handle); HNET-347/348/349/351 Devices table: one column per fact (23 -> 18, saved column prefs migrate in the browser), Compact status, drag-to-reorder header, Auto-hide switch, ~18x fewer forced layouts per hover/resize. Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b1704a6623b5ccfc0532f211e5f67f0475f31574";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=acd8fa9b8196e0795b97a4a5301575fb4aa56641";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
