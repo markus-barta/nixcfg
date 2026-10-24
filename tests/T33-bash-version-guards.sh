@@ -58,38 +58,60 @@ fi
 # state; three of those had been incapable of failing for months.
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 not_executable=()
-unwired=()
 checked=()
 for test_file in "$repo_root"/tests/T*.sh; do
   name="$(basename "$test_file")"
   checked+=("$name")
   [ -x "$test_file" ] || not_executable+=("$name")
-  if ! grep -rqF "$name" "$repo_root"/.github/workflows/ 2>/dev/null; then
-    unwired+=("$name")
-  fi
 done
 
 # OPS-354: these interpreted tests also guard the deployment/rollback path.
 # They are invoked with their runtimes, so executable bits are not required.
 for name in T100-joedesk-release.py T101-joedesk-operations.mjs T102-joedesk-host-gate.mjs; do
   checked+=("$name")
-  if ! grep -rqF "$name" "$repo_root"/.github/workflows/ 2>/dev/null; then
-    unwired+=("$name")
-  fi
 done
 
-if [ ${#not_executable[@]} -gt 0 ] || [ ${#unwired[@]} -gt 0 ]; then
+# OPS-434: inspect executable steps, not comments or incidental workflow text.
+# Every contract must run exactly once, including across parallel shards.
+# Ruby/Psych is already required by T27's action-pin guard.
+ruby - "$repo_root/.github/workflows" "${checked[@]}" <<'RUBY'
+require "psych"
+
+workflow_dir = ARGV.shift
+# These two existing contracts belong to their specialized workflows; moving
+# them into check.yml would expand the suite rather than shard it.
+specialized = {
+  "T05-hostdash-manifest.sh" => "pharos-host-settings.yml",
+  "T16-pharos-host-removal.sh" => "pharos-host-removal.yml",
+}
+locations = Hash.new { |hash, name| hash[name] = [] }
+["check.yml", *specialized.values].each do |filename|
+  Psych.load_file(File.join(workflow_dir, filename)).fetch("jobs").each do |job_id, job|
+    job.fetch("steps", []).each_with_index do |step, index|
+      # T91 is executed and then shellchecked in the same run block. Count
+      # wiring once per step, so lint arguments are not duplicate executions.
+      step.fetch("run", "").scan(%r{\btests/(T[\w.-]+\.(?:sh|py|mjs))\b}).flatten.uniq.each do |name|
+        next unless filename == specialized.fetch(name, "check.yml")
+
+        locations[name] << "#{filename}:#{job_id}:#{index + 1}"
+      end
+    end
+  end
+end
+failures = ARGV.map do |name|
+  wired = locations[name]
+  next if wired.length == 1
+
+  "#{name}: expected exactly one #{specialized.fetch(name, 'check.yml')} step, found #{wired.length} (#{wired.join(', ')})"
+end.compact
+abort "suite_runnability=failed\n#{failures.join("\n")}" unless failures.empty?
+RUBY
+
+if [ ${#not_executable[@]} -gt 0 ]; then
   printf 'suite_runnability=failed\n' >&2
-  if [ ${#not_executable[@]} -gt 0 ]; then
-    printf '\nNot executable (CI would exit 126 without running a single assertion):\n' >&2
-    printf '  %s\n' "${not_executable[@]}" >&2
-    printf '\nFix: chmod +x tests/<name> && git update-index --chmod=+x tests/<name>\n' >&2
-  fi
-  if [ ${#unwired[@]} -gt 0 ]; then
-    printf '\nReferenced by no workflow -- these are prose, not gates:\n' >&2
-    printf '  %s\n' "${unwired[@]}" >&2
-    printf '\nFix: add a step to .github/workflows/check.yml, or delete the test.\n' >&2
-  fi
+  printf '\nNot executable (CI would exit 126 without running a single assertion):\n' >&2
+  printf '  %s\n' "${not_executable[@]}" >&2
+  printf '\nFix: chmod +x tests/<name> && git update-index --chmod=+x tests/<name>\n' >&2
   exit 1
 fi
 
