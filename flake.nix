@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 37: v261024192013.0.0 (#257 merge, sequence 107). Contents since 36: HNET-353 one response-time format; HNET-340 compact sidebar connection status; HNET-320 only a failure's root reads Down, devices behind it Unreachable; HNET-336 small-zoom fold buttons, selection bar, bold-name fault banner; HNET-345 the backup export takes a short snapshot under the store gate and builds the zip outside it (internal/backup only, same GET /api/export). Module/API/data format unchanged; capability-free (standing go Desk 45df1430).
+    # HNET pin 38: v261024215103.0.0 (#261 merge, sequence 108). Fix release, web UI only: HNET-354 the drawer's "Choose icon" opens the icon picker (and the phone save bar's "Show"); HNET-355 Devices tree rails meet the chevrons, every level gets its own indent. Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b3f23bcb00d09ba23856baee9c42dff7a644dc42";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=d52b77d0d70781c2440ccd71c43757540b341bd7";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
