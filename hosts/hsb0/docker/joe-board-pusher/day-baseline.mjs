@@ -167,6 +167,23 @@ function normalizedProofContract(value, expected) {
   return actual;
 }
 
+function normalizedDeskFx(value, oldest, observedAt) {
+  return Object.fromEntries(DESKS.map(id => {
+    const fx = value?.[id];
+    if (fx === null) return [id, null];
+    try {
+      if (!fx || !/^[A-Z]{3}$/.test(fx.base) || fx.base === "EUR" || fx.quote !== "EUR"
+        || typeof fx.rate !== "number" || !Number.isFinite(fx.rate) || fx.rate <= 0) fail("desk FX is invalid");
+      const at = instant(fx.observedAt, "desk FX observedAt");
+      if (at < oldest || at > observedAt) fail("desk FX is outside the equity input clocks");
+      return [id, { base: fx.base, quote: "EUR", rate: fx.rate,
+        source: text(fx.source, "desk FX source", 80), observedAt: at }];
+    } catch {
+      return [id, false]; // Unknown or multiple rates cannot prove a single-rate DAY.
+    }
+  }));
+}
+
 function normalizedObservation(value, sourceContract) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("equity observation is invalid");
   const sourceObservedAt = instant(value.sourceObservedAt, "sourceObservedAt");
@@ -184,6 +201,7 @@ function normalizedObservation(value, sourceContract) {
   }
   return {
     equity: equityVector(value.equity),
+    ...(value.deskFx === undefined ? {} : { deskFx: normalizedDeskFx(value.deskFx, oldestSourceObservedAt, sourceObservedAt) }),
     sourceObservedAt,
     oldestSourceObservedAt,
     provenance: {
@@ -274,6 +292,11 @@ function deskObservation(value, providerContract, sourceContract) {
   }
   return normalizedObservation({
     equity: value.equity,
+    ...(value.phaseBDesks ? { deskFx: Object.fromEntries(DESKS.map(id => {
+      const row = value.phaseBDesks[id];
+      return [id, row?.reconciled === true && row.equity === value.equity[id]
+        && row.observedAt === value.sourceObservedAt ? row.fx : false];
+    })) } : {}),
     sourceObservedAt: value.sourceObservedAt,
     oldestSourceObservedAt: value.oldestSourceObservedAt,
     provenance: {
@@ -560,6 +583,8 @@ export function createDayBaselineAdapter({
       evidence: {
         sourceObservedAt: baseline.candidate.sourceObservedAt,
         oldestSourceObservedAt: baseline.candidate.oldestSourceObservedAt,
+        // Persisted with the equity candidate, never borrowed from today's row.
+        ...(baseline.candidate.deskFx ? { sodFx: clone(baseline.candidate.deskFx) } : {}),
         proofObservedAt: exact ? baseline.proof.proofObservedAt : null,
         historyRevisionMethod: sourceContract.historyRevisionMethod,
         historyRevision: baseline.candidate.provenance.historyRevision,

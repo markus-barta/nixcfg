@@ -49,6 +49,16 @@ const amountFromUnits = value => {
 };
 const closed = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && Object.keys(value).every(key => keys.includes(key));
+const keys = (value, names) => closed(value, names) && Object.keys(value).length === names.length;
+const nullableDecimal = value => value === null || decimal(value) === value;
+const nullableInstant = value => value === null || instant(value);
+const validFx = value => value === null || value === false || (keys(value, ["base", "quote", "rate", "source", "observedAt"])
+  && /^[A-Z]{3}$/.test(value.base) && value.quote === "EUR" && nullableDecimal(value.rate)
+  && typeof value.source === "string" && value.source.length > 0 && value.source.length <= 80 && nullableInstant(value.observedAt));
+const copyFx = value => value && typeof value === "object" ? {
+  base: value.base, quote: value.quote, rate: decimal(value.rate),
+  source: value.source, observedAt: canonical(value.observedAt),
+} : value;
 
 function copyDay(day) {
   const source = day?.source;
@@ -71,17 +81,19 @@ function copyDay(day) {
   const values = Object.fromEntries(DESKS.map(id => [id, decimal(day.values?.[id])]));
   if (!at || !sameNewYorkPeriod(at, period) || proved > at || Object.values(values).some(value => value === null)
     || decimal(day.values?.total) === null || DESKS.reduce((sum, id) => sum + units(values[id]), 0n) !== units(decimal(day.values.total))) return null;
-  return { observedAt: at, periodStart: period, values };
+  const sodFx = proof.sodFx == null ? null : Object.fromEntries(DESKS.map(id => {
+    const fx = copyFx(proof.sodFx[id]);
+    return [id, fx === null ? null : validFx(fx) && fx && fx.rate && units(fx.rate) > 0n
+      && instant(fx.observedAt) && fx.observedAt >= oldest && fx.observedAt <= baseline ? fx : false];
+  }));
+  return { observedAt: at, periodStart: period, values, sodFx };
 }
 
 export function copyExactValues({ book, deskEquities, dayPnl } = {}) {
   const desks = Object.fromEntries(DESKS.map(id => {
     const row = deskEquities?.phaseBDesks?.[id];
     if (row?.reconciled !== true) return [id, { reconciled: false }];
-    const fx = row.fx && typeof row.fx === "object" ? {
-      base: row.fx.base, quote: row.fx.quote, rate: decimal(row.fx.rate),
-      source: row.fx.source, observedAt: canonical(row.fx.observedAt),
-    } : row.fx;
+    const fx = copyFx(row.fx);
     return [id, { reconciled: true, base: decimal(row.base), equity: decimal(row.equity),
       openPnl: decimal(row.openPnl), totalPnl: decimal(row.totalPnl),
       observedAt: canonical(row.observedAt),
@@ -111,20 +123,15 @@ export function copyExactValues({ book, deskEquities, dayPnl } = {}) {
 }
 
 export function validExactValues(value, count) {
-  const nullableDecimal = value => value === null || decimal(value) === value;
-  const nullableInstant = value => value === null || instant(value);
-  const keys = (value, names) => closed(value, names) && Object.keys(value).length === names.length;
-  const fx = value => value === null || value === false || (keys(value, ["base", "quote", "rate", "source", "observedAt"])
-    && /^[A-Z]{3}$/.test(value.base) && value.quote === "EUR" && nullableDecimal(value.rate)
-    && typeof value.source === "string" && value.source.length > 0 && value.source.length <= 80 && nullableInstant(value.observedAt));
   return keys(value, ["desks", "day", "positions"]) && keys(value.desks, DESKS) && DESKS.every(id => {
     const row = value.desks[id];
     return row?.reconciled === false ? keys(row, ["reconciled"]) : row?.reconciled === true
       && keys(row, ["reconciled", "base", "equity", "openPnl", "totalPnl", "observedAt", "oldestInputAt", "fx"])
       && [row.base, row.equity, row.openPnl, row.totalPnl].every(nullableDecimal)
-      && [row.observedAt, row.oldestInputAt].every(nullableInstant) && fx(row.fx);
-  }) && (value.day === null || (keys(value.day, ["observedAt", "periodStart", "values"])
+      && [row.observedAt, row.oldestInputAt].every(nullableInstant) && validFx(row.fx);
+  }) && (value.day === null || (keys(value.day, ["observedAt", "periodStart", "values", "sodFx"])
     && sameNewYorkPeriod(value.day.observedAt, value.day.periodStart) && keys(value.day.values, DESKS)
+    && (value.day.sodFx === null || keys(value.day.sodFx, DESKS) && Object.values(value.day.sodFx).every(validFx))
     && Object.values(value.day.values).every(item => typeof item === "string" && decimal(item) === item)))
     && Array.isArray(value.positions) && value.positions.length === count && value.positions.every(row => row === null
       || (keys(row, ["currency", "updatedAt", "values", "observedAt"]) && /^[A-Z]{3}$/.test(row.currency)
@@ -136,6 +143,15 @@ const source = (kind, value, reason, observedAt, periodStart) => ({
   currency: "EUR", scope: "virtual-desks", observedAt: value ? observedAt : null,
   ...(kind === "day" ? { periodStart: value ? periodStart : null } : {}), ...(!value ? { reason } : {}),
 });
+const sameDayFx = (day, id, fx) => {
+  const sodFx = day.sodFx?.[id];
+  // DAY subtracts two EUR snapshots. A single rate can describe it only when
+  // that rate actually produced both snapshots; legacy SOD has no FX proof.
+  if (fx === null) return day.sodFx === null || sodFx === null;
+  return sodFx && fx && sodFx.base === fx.base && sodFx.quote === fx.quote
+    && sodFx.rate && fx.rate && units(sodFx.rate) > 0n && units(sodFx.rate) === units(fx.rate)
+    && instant(sodFx.observedAt) && sodFx.observedAt <= day.periodStart;
+};
 
 export function applyExactValues(candidate, observation, generatedAt) {
   const evidence = observation.exactValues;
@@ -151,7 +167,9 @@ export function applyExactValues(candidate, observation, generatedAt) {
     for (const field of MONEY_FIELDS) {
       const day = valid ? evidence.day : null;
       const fieldReason = reason || (field === "dayPnl" && (!day || !fresh(day.observedAt, generatedAt)
-        || day.observedAt !== row.observedAt) ? "sod_missing" : field === "totalPnl" && row.base !== "5000" ? "not_exact_yet" : null);
+        || day.observedAt !== row.observedAt) ? "sod_missing"
+        : field === "dayPnl" && !sameDayFx(day, desk.id, fx) ? "not_exact_yet"
+          : field === "totalPnl" && row.base !== "5000" ? "not_exact_yet" : null);
       desk.money[field] = fieldReason ? null : money(field === "dayPnl" ? day.values[desk.id] : row[field], "EUR", fx);
       if (desk.money[field]) delete desk.money.reasons[field];
       else desk.money.reasons[field] = fieldReason || "not_exact_yet";

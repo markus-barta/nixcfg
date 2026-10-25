@@ -80,19 +80,68 @@ test("fresh IB callbacks preserve decimal position values, native currencies and
   assert.equal(position.dayPnl, null);
   for (const row of [keep, tsla]) { assert.equal(row.scope, "keep"); assert.equal(row.desk, null); }
   assert.equal(snapshot.totals.equity.amount, "15006.00000000");
-  assert.equal(snapshot.desks[0].action, "Paper desk values are available.");
+  assert.equal(snapshot.desks[0].action, "Some paper desk values are unavailable.");
   assert.deepEqual(snapshot.brokerAccount.cash, { amount: "1234.56", currency: "EUR" });
   for (const desk of snapshot.desks) assert.equal(Object.hasOwn(desk.money, "cash"), false);
 });
 
-test("reconciled FIFO values carry the actual J FX rate and timestamp on every converted field", () => {
+test("reconciled current FIFO values carry their actual FX rate; DAY needs its own SOD rate proof", () => {
   const snapshot = build();
-  for (const field of fields) {
+  for (const field of ["equity", "openPnl", "totalPnl"]) {
     assert.deepEqual(snapshot.desks[0].money[field].fx, { ...fx, rate: "0.91" });
-    assert.equal(snapshot.desks[1].money[field].fx, undefined);
   }
-  assert.equal(snapshot.desks[0].pnlSources.day.method, "sod-virtual-equity");
+  assert.equal(snapshot.desks[0].money.dayPnl, null);
+  assert.equal(snapshot.desks[0].money.reasons.dayPnl, "not_exact_yet");
+  for (const field of fields) assert.equal(snapshot.desks[1].money[field].fx, undefined);
+  assert.equal(snapshot.desks[1].pnlSources.day.method, "sod-virtual-equity");
   assert.equal(snapshot.desks[0].pnlSources.open.method, "owned-lots-current-mark-fx");
+});
+
+test("DAY is exact when its recorded SOD and current figures used the same numeric rate", () => {
+  const input = source();
+  input.dayPnl.evidence.sodFx = { j: { ...fx, rate: "0.91000000", observedAt: input.dayPnl.evidence.sourceObservedAt }, joe: null, joel: null };
+  const snapshot = build(input);
+  assert.deepEqual(snapshot.desks[0].money.dayPnl, { amount: "1", currency: "EUR", fx: { ...fx, rate: "0.91" } });
+  assert.equal(snapshot.desks[0].pnlSources.day.method, "sod-virtual-equity");
+  assert.equal(snapshot.desks[0].action, "Paper desk values are available.");
+  assert.equal(snapshot.totals.dayPnl.amount, "6.00000000");
+});
+
+for (const variant of ["missing-desk", "different-rate", "different-currency", "unrecorded", "eur-only-sod", "missing-time", "after-sod", "before-oldest", "zero", "precision", "multiple"]) test(`DAY with ${variant} SOD FX stays null/not_exact_yet`, () => {
+  const input = source();
+  const sodFx = { ...fx, observedAt: input.dayPnl.evidence.sourceObservedAt };
+  input.dayPnl.evidence.sodFx = { j: sodFx, joe: null, joel: null };
+  if (variant === "missing-desk") delete input.dayPnl.evidence.sodFx.j;
+  if (variant === "different-rate") sodFx.rate = 0.90;
+  if (variant === "different-currency") sodFx.base = "GBP";
+  if (variant === "unrecorded") delete input.dayPnl.evidence.sodFx;
+  if (variant === "eur-only-sod") input.dayPnl.evidence.sodFx.j = null;
+  if (variant === "missing-time") delete sodFx.observedAt;
+  if (variant === "after-sod") sodFx.observedAt = "2026-10-25T04:00:00.000Z";
+  if (variant === "before-oldest") sodFx.observedAt = "2026-10-25T03:59:58.000Z";
+  if (variant === "zero") sodFx.rate = 0;
+  if (variant === "precision") sodFx.rate = 0.910000001;
+  if (variant === "multiple") input.dayPnl.evidence.sodFx.j = false;
+  const snapshot = build(input);
+  assert.equal(snapshot.desks[0].money.dayPnl, null);
+  assert.equal(snapshot.desks[0].money.reasons.dayPnl, "not_exact_yet");
+  assert.equal(snapshot.desks[0].pnlSources.day.status, "unavailable");
+  assert.equal(snapshot.desks[0].pnlSources.day.reason, "not_exact_yet");
+  assert.equal(snapshot.totals.dayPnl, null);
+  assert.equal(snapshot.totals.reasons.dayPnl, "not_exact_yet");
+  for (const field of ["equity", "openPnl", "totalPnl"]) assert.notEqual(snapshot.desks[0].money[field], null);
+  for (const desk of snapshot.desks.slice(1)) assert.notEqual(desk.money.dayPnl, null);
+});
+
+test("a current EUR figure cannot hide a foreign rate used by its SOD figure", () => {
+  const input = source();
+  input.deskEquities.phaseBDesks.j.fx = null;
+  input.dayPnl.evidence.sodFx = { j: { ...fx, observedAt: input.dayPnl.evidence.sourceObservedAt }, joe: null, joel: null };
+  const snapshot = build(input);
+  assert.equal(snapshot.desks[0].money.dayPnl, null);
+  assert.equal(snapshot.desks[0].money.reasons.dayPnl, "not_exact_yet");
+  assert.equal(snapshot.desks[0].money.equity.fx, undefined);
+  assert.notEqual(snapshot.desks[1].money.dayPnl, null);
 });
 
 test("unreconciled desk withholds all its money and every incomplete total; reconciled siblings survive", () => {
