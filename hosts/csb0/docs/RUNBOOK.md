@@ -695,14 +695,15 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main d4eb662795ff6d0e910aa20797995070b26e5554
-(JOED-78 release 30: UX 2 performance at a glance, UX 3 phone first screen and the release-29 adoption record; board UI only,
-no data, contract or ingress change; supersedes cdf843a5 / 261023100632.0.0 / sequence 29, live 2026-10-23 14:53Z,
-a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree f714c10ffe11c4ed9b9f715d994b721b216de943,
-`inspr-calver-3` / 261023155418.0.0 / sequence 30. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-77; JOED-75 was the previous set).
-Board-only rollback of this re-pin: revert the JOED-78 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-cdf843a587d1066d544beea92f7b8ceef5d103bf` (sequence 29) is reused, no build.
+active v2 source is main 20c37cdd9c99547d79bb69b65764a9706d77905b
+(JOED-84 release 31: round 2 R2.1 calmer outage view, R2.2 tighter phone desk rows, R2.3 Results period %, CI false-red
+fixes and the release-30 adoption record; board UI only, no data, contract or ingress change; supersedes
+d4eb6627 / 261023155418.0.0 / sequence 30, live 2026-10-24 03:46Z, cdf843a5 / sequence 29,
+a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree 9f225bfeeb57e56c54d251a08f3a1c3921a4a711,
+`inspr-calver-3` / 261025144826.0.0 / sequence 31. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-81; JOED-77 was the previous set).
+Board-only rollback of this re-pin: revert the JOED-84 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-d4eb662795ff6d0e910aa20797995070b26e5554` (sequence 30) is reused, no build.
 db621bf stays the v1 rollback.
 Contracts manifest revision 9 has set SHA256
 `000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5`;
