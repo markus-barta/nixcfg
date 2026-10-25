@@ -299,23 +299,65 @@ Halt persists immediately, including during broker waits. New `place` orders
 recheck halt and intent expiry before every leg; `recon`, owned `flatten` and
 owned `cancel` still run. Expiry also applies before flatten and cancel effects.
 
+`place` defaults to the existing LMT entry and protective STP child. An optional
+stop-limit entry uses `--entry-type STP_LMT --trigger N` alongside the required
+`--limit N --stop N`. For example:
+
+```bash
+paper-intent place --desk j --intent-id j-stplmt-001 --symbol AAPL --side BUY --quantity 2 --entry-type STP_LMT --trigger 100 --limit 100.10 --stop 99
+```
+
+Its intent order adds `"entryType": "STP_LMT", "triggerPrice": 100`. The broker
+parent is `STP LMT`, with `auxPrice` = trigger and `lmtPrice` = limit; its
+opposite-side protective STP child and transmit sequence are unchanged. BUY
+requires trigger ≤ limit and stop < trigger; SELL requires trigger ≥ limit and
+stop > trigger. The protective stop must remain at least 0.5% from the trigger.
+Risk uses the worse fill price (the limit for both sides), so the trigger-to-limit
+gap consumes risk budget; notional uses the higher of trigger and limit.
+All existing paper-port, KEEP, ownership, attribution, HALT, expiry and Stage-0
+brakes apply. The ledger records the entry type and prices. A filled parent with
+a working child reconciles by its executions; an unfilled bracket remains
+cancellable using the existing owned-order rules. Stop-limit entries can remain
+unfilled after triggering if the market moves beyond the limit.
+
 `modify-stop` tightens one resting protective STP from a recorded executor
 bracket. Submit `paper-intent modify-stop --desk j --intent-id j-trail-001
 --symbol AAPL --order-id 123 --stop 100`; exactly one `--order-id` or
 `--order-ref desk|yymmdd|thesis-id` is required, along with `--symbol` and
-`--stop`. The intent's `order` contains only `{ "stopPrice": 100 }`.
+either `--stop N` or `--breakeven`. The numeric intent's `order` contains only
+`{ "stopPrice": 100 }`; `--breakeven` instead sends `{ "breakeven": true }`,
+with no caller-supplied price. For example:
+
+```bash
+paper-intent modify-stop --desk j --intent-id j-breakeven-001 --symbol AAPL --order-ref 'j|261025|j-stplmt-001' --breakeven
+```
+
+Use the original bracket's order reference (or its child order ID), and a new
+intent ID for each request.
 Only the executor placing client (705), the requesting desk's own tag, a
 working unfilled bracket child and a matching non-KEEP contract are eligible.
 Complete history plus a fresh same-session execution snapshot must prove the
 desk's position and reconcile all desks on that conId; the stop must protect
 its sign and cannot exceed its owned quantity. SELL stops must move strictly
 up, BUY stops strictly down. A newly requested last/close snapshot must keep
-the new stop at least 0.5% below the mark for SELL or above it for BUY;
-missing quotes, equal/looser stops and marketable stops are refused.
+the new stop at least 0.5% below the mark for SELL or above it for BUY. The one
+distance exception is an exact match to the bracket's proven average entry fill
+price, normalized to the nearest contract `minTick` (half up). It must still
+strictly tighten and be non-marketable: SELL stop < mark, BUY stop > mark.
+`--breakeven` selects that price on the executor; an exact numeric `--stop` can
+also qualify. The average is share-weighted from the recorded parent executions,
+with corrected execution revisions merged. Complete authoritative history plus
+the fresh session's replay must prove the full parent quantity and positive fill
+prices, matching account, client, contract, desk tag and parent ID. Cached fills
+can restore an execution's parent identity but never prove quantity or price.
+The ledger reserves the average, tick, normalized price and execution IDs with
+the stop history before sending. Missing fill/tick evidence cannot grant the
+exception. Missing quotes, equal/looser stops, marketable stops and any other
+price inside 0.5% (including past breakeven) are refused with value-free reasons.
 Marks request IB delayed data (`reqMarketDataType(3)`) and accept delayed
 last/close ticks. These prices can lag up to about 15 minutes; freshness means
 the executor just received the snapshot, not that the price is real-time.
-The 0.5% distance rule remains unchanged. IB 354 subscription warnings are
+The 0.5% distance rule retains only the proven-breakeven exception above. IB 354 subscription warnings are
 informational only when that request completes with a usable delayed mark.
 A mark error or missing quote for a non-target symbol cannot block another
 desk's action; position and order reconciliation remain strict.
@@ -343,7 +385,9 @@ cancel outcome uncertain and requires reconciliation before retry.
 KEEP, never sell, flatten, or close: **SXR8** (1401 shares) and **TSLA**
 (1 share). Brakes: EUR 25 per name, EUR 50 per New York day, EUR 1000
 notional, at most 2 new names per desk per New York day, at most 3 concurrent
-names per desk and 6 across the fleet, stop at least 0.5%, USD COMMON or ADR
+names per desk and 6 across the fleet, new-entry stop at least 0.5% from entry
+(trigger for STP-LMT); modify-stop at least 0.5% from the fresh mark except
+exact proven non-marketable breakeven; USD COMMON or ADR
 only, a fresh IB USD/EUR rate plus a 2% buffer, and no adding to a name that
 already has a position or working order. The paper-only initialization-day
 brake is optional (`nixcfg.paperDeskExecutor.blockOnInitDay`, default false).

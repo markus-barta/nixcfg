@@ -354,3 +354,53 @@ test("modify-stop validates a required symbol, one selector and only a positive 
     { ...raw, expiresAt: new Date(Date.now() - 1000).toISOString() },
   ]) assert.throws(() => parseIntent(body));
 });
+
+
+test("STP-LMT validates BUY/SELL geometry and preserves the default LMT shape", () => {
+  const original = parseIntent(valid()).order;
+  assert.deepEqual(parseIntent(valid({ order: { ...original, entryType: "LMT" } })).order, original);
+  for (const side of ["BUY", "SELL"]) {
+    const order = { ...original, side, entryType: "STP_LMT", triggerPrice: 100, limitPrice: side === "BUY" ? 101 : 99, stopPrice: side === "BUY" ? 99 : 101 };
+    assert.deepEqual(parseIntent(valid({ order })).order, order);
+    assert.equal(parseIntent(valid({ order: { ...order, limitPrice: 100 } })).order.triggerPrice, 100);
+    for (const triggerPrice of [undefined, 0, -1, "100", NaN, Infinity]) assert.throws(() => parseIntent(valid({ order: { ...order, triggerPrice } })));
+    for (const stopPrice of [100, side === "BUY" ? 101 : 99]) assert.throws(() => parseIntent(valid({ order: { ...order, stopPrice } })), /protect the entry/);
+    assert.throws(() => parseIntent(valid({ order: { ...order, limitPrice: side === "BUY" ? 99 : 101 } })), /triggerPrice/);
+    assert.throws(() => parseIntent(valid({ order: { ...order, stopPrice: side === "BUY" ? 99.51 : 100.49 } })), /at least 0.5%/);
+    assert.ok(parseIntent(valid({ order: { ...order, stopPrice: side === "BUY" ? 99.5 : 100.5 } })));
+    for (const symbol of ["SXR8", "TSLA"]) assert.throws(() => parseIntent(valid({ order: { ...order, symbol } })), /KEEP/);
+  }
+  for (const entryType of ["STP", "MKT", "STP LMT", "", 1]) assert.throws(() => parseIntent(valid({ order: { ...original, entryType } })));
+  assert.throws(() => parseIntent(valid({ order: { ...original, triggerPrice: 100 } })), /requires STP_LMT/);
+});
+
+test("STP-LMT budgets the worse fill and higher notional, retaining every placement brake", () => {
+  const opts = { stockType: "COMMON", usdToEur: 1 };
+  for (const side of ["BUY", "SELL"]) {
+    const order = { ...valid().order, side, entryType: "STP_LMT", triggerPrice: 100, limitPrice: side === "BUY" ? 101 : 99, stopPrice: side === "BUY" ? 99 : 101 };
+    const value = parseIntent(valid({ order }));
+    const budget = placementBudget(value.order, 1);
+    assert.equal(budget.riskEur, 4.08);
+    assert.equal(budget.notionalEur, side === "BUY" ? 206.04 : 204);
+    assert.deepEqual(evaluatePlacement(value, emptySnapshot, emptyState(), opts).riskEur, budget.riskEur);
+    assert.throws(() => evaluatePlacement(value, emptySnapshot, emptyState(), { ...opts, halt: true }), /HALT/);
+    assert.throws(() => evaluatePlacement(value, emptySnapshot, emptyState(), { ...opts, stockType: "ETF" }), /non-ETF/);
+    assert.throws(() => evaluatePlacement(value, emptySnapshot, emptyState(), { ...opts, usdToEur: undefined }), /fresh IB/);
+    assert.throws(() => evaluatePlacement({ ...value, order: { ...order, quantity: 13 } }, emptySnapshot, emptyState(), opts), /per-name risk/);
+    assert.throws(() => evaluatePlacement({ ...value, order: { ...order, quantity: 10 } }, emptySnapshot, emptyState(), opts), /notional/);
+    assert.throws(() => evaluatePlacement(value, emptySnapshot, { ...emptyState(), placements: [{ day: newYorkDay(), riskEur: 49 }] }, opts), /daily risk/);
+    assert.throws(() => evaluatePlacement(value, emptySnapshot, { ...emptyState(), placements: [1, 2].map(() => ({ day: newYorkDay(), desk: "j", riskEur: 1 })) }, opts), /daily new-order/);
+    const positions = ["MSFT", "NVDA", "META", "AMD", "KO", "IBM"].map((symbol) => ({ symbol, position: 1, desk: "joe", quantity: 1 }));
+    assert.throws(() => evaluatePlacement(value, { ...emptySnapshot, positions, deskPositions: positions }, emptyState(), opts), /fleet concurrent/);
+    assert.throws(() => evaluatePlacement(value, { ...emptySnapshot, positions: positions.slice(0, 3), deskPositions: positions.slice(0, 3).map((row) => ({ ...row, desk: "j" })) }, emptyState(), opts), /desk concurrent/);
+    assert.throws(() => evaluatePlacement(value, { ...emptySnapshot, positions: [{ symbol: "AAPL", position: 1 }] }, emptyState(), opts), /piling/);
+    assert.throws(() => evaluatePlacement(value, emptySnapshot, { ...emptyState(), placements: [{ desk: "j", symbol: "AAPL", status: "uncertain" }] }, opts), /piling/);
+  }
+});
+
+test("breakeven is an exclusive true-only modify-stop instruction", () => {
+  const raw = valid({ action: "modify-stop", symbol: "AAPL", orderId: 21, order: { breakeven: true } });
+  assert.deepEqual(parseIntent(raw).order, { breakeven: true });
+  for (const order of [{ breakeven: false }, { breakeven: "true" }, { breakeven: 1 }, { breakeven: null }, { breakeven: true, stopPrice: 100 }, { breakeven: true, limitPrice: 100 }]) assert.throws(() => parseIntent({ ...raw, order }));
+  assert.throws(() => parseIntent(valid({ order: { ...valid().order, breakeven: true } })), /unsupported/);
+});

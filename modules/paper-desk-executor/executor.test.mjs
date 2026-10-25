@@ -90,7 +90,7 @@ function harness(options = {}) {
       broker.onExecutionRequest?.(this, id);
     }
     reqIds() { this.emit(events.nextValidId, 100 + broker.placed.length); }
-    reqContractDetails(id, request) { this.emit(events.contractDetails, id, { contract: broker.resolve ? broker.resolve(request) : contract(request.symbol, request.symbol === "AAPL" ? 1 : 2), stockType: "COMMON" }); this.emit(events.contractDetailsEnd, id); broker.onContractDetails?.(this); }
+    reqContractDetails(id, request) { this.emit(events.contractDetails, id, { contract: broker.resolve ? broker.resolve(request) : contract(request.symbol, request.symbol === "AAPL" ? 1 : 2), stockType: broker.stockType ?? "COMMON", minTick: Object.hasOwn(broker, "minTick") ? broker.minTick : 0.01 }); this.emit(events.contractDetailsEnd, id); broker.onContractDetails?.(this); }
     reqAccountUpdatesMulti(id) { this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "1", "EUR"); this.emit(events.accountUpdateMulti, id, ACCOUNT, "", "ExchangeRate", "0.9", "USD"); this.emit(events.accountUpdateMultiEnd, id); broker.onFx?.(); }
     cancelAccountUpdatesMulti() {}
     reqMarketDataType(type) { broker.marketDataTypes.push(type); this.marketDataType = type; }
@@ -1885,4 +1885,194 @@ test("real runner publication: legacy recon replay propagates a published attrib
   assert.equal(readFileSync(store.statePath, "utf8"), faults.body);
   assert.deepEqual(state.foreignAlerts, JSON.parse(faults.body).foreignAlerts);
   assert.equal(h.broker.live.size, 0);
+});
+
+
+function stpLimitIntent(short = false) {
+  return intent("place", { order: { symbol: "AAPL", side: short ? "SELL" : "BUY", quantity: 2, entryType: "STP_LMT", triggerPrice: 100, limitPrice: short ? 99 : 101, stopPrice: short ? 101 : 99, currency: "USD" } });
+}
+
+test("STP-LMT BUY/SELL parents preserve protective children, ledger fields and attribution", async (t) => {
+  for (const short of [false, true]) await t.test(short ? "SELL" : "BUY", async () => {
+    const h = harness({ positions: keptPositions() }), state = ledger(), value = stpLimitIntent(short);
+    const result = await h.run(value, state);
+    assert.equal(result.status, "ok");
+    const [parent, child] = h.broker.placed;
+    assert.equal(parent.order.orderType, "STP LMT"); assert.equal(parent.order.auxPrice, 100);
+    assert.equal(parent.order.lmtPrice, short ? 99 : 101); assert.equal(parent.order.action, short ? "SELL" : "BUY");
+    assert.equal(parent.order.transmit, false);
+    assert.equal(child.order.orderType, "STP"); assert.equal(child.order.auxPrice, short ? 101 : 99);
+    assert.equal(child.order.parentId, parent.id); assert.equal(child.order.action, short ? "BUY" : "SELL"); assert.equal(child.order.transmit, true);
+    for (const leg of [parent, child]) { assert.equal(leg.contract.symbol, "AAPL"); assert.equal(leg.order.account, ACCOUNT); assert.equal(leg.order.orderRef, value.orderRef); }
+    assert.equal(state.placements[0].entryType, "STP_LMT"); assert.equal(state.placements[0].triggerPrice, 100);
+    assert.equal(state.placements[0].limitPrice, short ? 99 : 101); assert.equal(state.placements[0].riskEur, 3.68);
+    assert.deepEqual(h.broker.positions, keptPositions()); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("filled STP-LMT parent with working child reconciles and attributes to its desk", async (t) => {
+  for (const short of [false, true]) await t.test(short ? "SELL" : "BUY", async () => {
+    const h = harness(), state = ledger(), value = stpLimitIntent(short);
+    await h.run(value, state);
+    const [parent, child] = h.broker.placed;
+    state.placements[0].status = "uncertain";
+    state.intents.set(value.intentId, { action: "place", desk: "j", status: "uncertain", orderRef: value.orderRef, claimedAt: new Date().toISOString(), result: { status: "uncertain" } });
+    h.broker.executions = [fill({ orderId: parent.id, side: short ? "SLD" : "BOT", price: short ? 99.5 : 100.5 })];
+    h.broker.positions = [{ ...contract(), position: short ? -2 : 2 }];
+    h.broker.orders = [order({ ...child.order, orderId: child.id, clientId: child.clientId, quantity: 2 })];
+    const result = await h.run(intent("recon"), state);
+    assert.equal(result.resolutions[value.intentId].status, "filled"); assert.equal(state.placements[0].status, "filled");
+    assert.equal(result.openOrders[0].orderType, "STP"); assert.equal(result.openOrders[0].desk, "j");
+    assert.equal(result.deskPositions[0].quantity, short ? -2 : 2); assert.equal(result.executions[0].desk, "j");
+    assert.equal(h.broker.placed.length, 2); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("unfilled STP-LMT bracket remains cancellable with no ownership history or KEEP effects", async (t) => {
+  for (const short of [false, true]) await t.test(short ? "SELL" : "BUY", async () => {
+    const h = harness({ positions: keptPositions() }), state = ledger(), value = stpLimitIntent(short);
+    await h.run(value, state);
+    h.broker.orders = h.broker.placed.map((leg) => order({ ...leg.order, orderId: leg.id, clientId: leg.clientId, quantity: 2 }));
+    const result = await executeIntent(intent("cancel", { orderRef: value.orderRef }), state, {}, { ...h.runtime, readHistory: () => assert.fail("own unfilled cancellation needs no history") });
+    assert.equal(result.status, "ok"); assert.deepEqual(h.broker.cancelled, [100, 101]);
+    assert.equal(h.broker.placed.length, 2); assert.deepEqual(h.broker.positions, keptPositions());
+  });
+});
+
+test("STP-LMT refuses every non-paper port at the broker side-effect boundary", () => {
+  const script = `
+    import { placeProtectiveBracket } from "./ib.mjs";
+    let called = false;
+    const session = { state: { nextId: 1 }, api: { placeOrder() { called = true; } } };
+    try { await placeProtectiveBracket(session, { order: { entryType: "STP_LMT" } }, {}); throw new Error("unexpected acceptance"); }
+    catch (error) { if (error.message !== "runner refuses any non-paper port" || called) throw error; }
+  `;
+  for (const port of [4001, 4003, 0, -1, "invalid"]) {
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: new URL(".", import.meta.url), encoding: "utf8", env: { ...process.env, IB_DESK_GATEWAY_PORT: String(port) } });
+    assert.equal(child.status, 0, child.stderr);
+  }
+});
+
+test("breakeven accepts exact numeric stops and server-selected stops for long and short brackets", async (t) => {
+  for (const short of [false, true]) for (const auto of [false, true]) await t.test(`${short ? "BUY" : "SELL"} stop, auto=${auto}`, async () => {
+    const h = modifyFixture({ short, mark: short ? 99.8 : 100.2 });
+    h.value.order = auto ? { breakeven: true } : { stopPrice: 100 };
+    const saves = [];
+    const result = await h.run(h.value, h.state, { saveState: (state) => saves.push(structuredClone(state)), getHalt: () => ({ active: true }) });
+    assert.equal(result.modification.to, 100); assert.equal(h.broker.placed[0].order.auxPrice, 100);
+    assert.equal(result.modification.breakeven.averageEntryFillPrice, 100);
+    assert.equal(result.modification.breakeven.tickSize, 0.01);
+    assert.deepEqual(result.modification.breakeven.execIds, ["fill.1"]);
+    assert.equal(saves[0].placements[0].stopHistory[0].breakeven.normalizedPrice, 100);
+    assert.equal(h.state.placements[0].currentStopPrice, 100); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("breakeven derives the weighted average of corrected parent fills and normalizes to contract ticks", async (t) => {
+  for (const short of [false, true]) for (const minTick of [0.01, 0.05]) await t.test(`${short ? "short" : "long"}, tick=${minTick}`, async () => {
+    const rows = [fill({ execId: "first.1", shares: 1, price: 90, side: short ? "SLD" : "BOT" }), fill({ execId: "first.2", shares: 1, price: 100.012, side: short ? "SLD" : "BOT" }), fill({ execId: "second.1", shares: 1, price: 100.022, side: short ? "SLD" : "BOT" })];
+    const h = modifyFixture({ short, minTick, executions: rows, mark: short ? 99.8 : 100.2 });
+    h.value.order = { breakeven: true };
+    const result = await h.run(h.value, h.state);
+    assert.ok(Math.abs(result.modification.breakeven.averageEntryFillPrice - 100.017) < 1e-9);
+    assert.equal(result.modification.to, minTick === 0.01 ? 100.02 : 100);
+    assert.deepEqual(result.modification.breakeven.execIds, ["first.2", "second.1"]);
+  });
+});
+
+test("breakeven refuses unsafe prices, missing fills, missing ticks and quotes for BUY and SELL", async (t) => {
+  for (const short of [false, true]) {
+    const options = { short, mark: short ? 99.8 : 100.2 };
+    const cases = [
+      ["marketable equal mark", { mark: 100 }, () => {}],
+      ["marketable beyond mark", { mark: short ? 100.1 : 99.9 }, () => {}],
+      ["already at breakeven", { stop: { auxPrice: 100 } }, () => {}],
+      ["looser than current", { stop: { auxPrice: short ? 99 : 101 } }, () => {}],
+      ["past breakeven inside distance", {}, (h) => { h.value.order = { stopPrice: short ? 99.9 : 100.1 }; }],
+      ["near breakeven is not exact", {}, (h) => { h.value.order = { stopPrice: short ? 100.000001 : 99.999999 }; }],
+      ["missing quote", { noMark: true }, () => {}],
+      ["bid/ask only", { quotes: [[1, 99.8], [2, 100.2]] }, () => {}],
+      ["missing authoritative fills", { executions: [] }, (h) => { h.state.executions = [fill({ side: short ? "SLD" : "BOT" })]; }],
+      ["other parent's fill", { fill: { orderId: 99 } }, () => {}],
+      ["fill lacks parent ID", { fill: { orderId: undefined } }, () => {}],
+      ["missing fill price", { fill: { price: undefined } }, () => {}],
+      ["invalid fill price", { fill: { price: 0 } }, () => {}],
+      ["partial parent fill", { fill: { shares: 1 }, positions: [{ ...contract(), position: short ? -1 : 1 }] }, () => {}],
+      ["excess parent fills", { fill: { shares: 3 }, positions: [{ ...contract(), position: short ? -3 : 3 }] }, () => {}],
+      ["missing contract tick", { minTick: undefined }, () => {}],
+      ["zero contract tick", { minTick: 0 }, () => {}],
+      ["invalid contract tick", { minTick: NaN }, () => {}],
+      ["missing history", { missingHistory: true }, () => {}],
+      ["other desk", { stop: { orderRef: ref("joe") } }, () => {}],
+      ["KEEP", { stop: { symbol: "TSLA" } }, () => {}],
+    ];
+    for (const [label, overrides, prepare] of cases) await t.test(`${short ? "BUY" : "SELL"}: ${label}`, async () => {
+      const h = modifyFixture({ ...options, ...overrides }); h.value.order = { breakeven: true }; prepare(h);
+      await assert.rejects(h.run(h.value, h.state), (error) => { assert.equal(error.publicCode, "modify_stop_refused"); assert.doesNotMatch(error.publicReason, /100\.2|99\.8/); return true; });
+      assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []); assert.equal(h.broker.live.size, 0);
+    });
+  }
+});
+
+test("breakeven is revalidated after quotes and immediately after the durable plan", async (t) => {
+  for (const short of [false, true]) for (const phase of ["quote", "plan"]) await t.test(`${short ? "BUY" : "SELL"}: ${phase}`, async () => {
+    const h = modifyFixture({ short, mark: short ? 99.8 : 100.2 }); h.value.order = { breakeven: true };
+    const change = (session) => { session.state.marks[1].price = 100; };
+    let activeSession;
+    if (phase === "quote") h.broker.onMark = () => { activeSession.state.executions[0].execution.price = short ? 99 : 101; };
+    h.broker.onSnapshot = (session) => { activeSession = session; };
+    await assert.rejects(h.run(h.value, h.state, { saveState: () => { if (phase === "plan") change(activeSession); } }), /non-marketable/);
+    assert.deepEqual(h.broker.placed, []); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+
+test("breakeven restores historical parent identity from cache while using authoritative corrected prices", async (t) => {
+  for (const short of [false, true]) for (const mode of ["valid", "missing-price", "conflicting-parent"]) await t.test(`${short ? "short" : "long"}: ${mode}`, async () => {
+    const time = new Date(Date.now() - 86400000).toISOString(), orderRef = ref("j", "historic", Date.now() - 86400000);
+    const historical = fill({ execId: "historic.2", orderId: undefined, orderRef: undefined, time, side: short ? "SLD" : "BOT", price: mode === "missing-price" ? undefined : 100.2 });
+    const h = modifyFixture({ short, executions: [], history: [historical], stop: { orderRef }, mark: short ? 100 : 100.4 });
+    h.state.placements[0].orderRef = orderRef;
+    h.state.executions = [fill({ execId: "historic.1", orderRef, time, side: short ? "SLD" : "BOT", price: 999 })];
+    if (mode === "conflicting-parent") h.state.executions.push(fill({ execId: "historic.2", orderId: 99, orderRef, time, side: short ? "SLD" : "BOT", price: 999 }));
+    h.value.order = { breakeven: true };
+    if (mode === "valid") {
+      const result = await h.run(h.value, h.state);
+      assert.equal(result.modification.to, 100.2); assert.deepEqual(result.modification.breakeven.execIds, ["historic.2"]);
+    } else {
+      await assert.rejects(h.run(h.value, h.state), /parent fill evidence/);
+      assert.deepEqual(h.broker.placed, []);
+    }
+    assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("STP-LMT rechecks HALT and expiry between parent and protective child", async (t) => {
+  for (const short of [false, true]) for (const guard of ["halt", "expiry"]) await t.test(`${short ? "SELL" : "BUY"}: ${guard}`, async () => {
+    const h = harness(), state = ledger(); let sent = false;
+    h.broker.afterPlace = () => { sent = true; };
+    await assert.rejects(h.run(stpLimitIntent(short), state, { getHalt: () => ({ active: guard === "halt" && sent }), now: () => Date.now() + (guard === "expiry" && sent ? 600000 : 0) }), { code: "uncertain" });
+    assert.equal(h.broker.placed.length, 1); assert.equal(h.broker.placed[0].order.orderType, "STP LMT");
+    assert.equal(state.placements[0].status, "uncertain"); assert.deepEqual(h.broker.cancelled, []);
+  });
+});
+
+test("HTTP breakeven replay preserves one stop modification and conflicts with a numeric replacement", async (t) => {
+  const h = modifyFixture({ mark: 100.2 });
+  h.value.order = { breakeven: true };
+  const app = createServer({ testMode: true, listenHost: "127.0.0.1", listenPort: 0, gatewayPort: 4002, gatewayHost: "100.64.0.6", allowlist: ["127.0.0.1"], stateDir: mkdtempSync(path.join(tmpdir(), "ops441-breakeven-http-")), execute: (value, state, context) => executeIntent(value, state, context, h.runtime) });
+  const stored = app.ledger.load(); stored.placements = h.state.placements; app.ledger.save(stored);
+  const request = async (body) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = "POST"; req.url = "/v1/intents"; req.socket = { remoteAddress: "127.0.0.1" };
+    let status, result;
+    await app.handle(req, { writeHead(code) { status = code; }, end(value) { result = JSON.parse(value); } });
+    return { status, result };
+  };
+  t.mock.method(console, "error", () => {});
+  const first = await request(h.value), replay = await request(h.value);
+  assert.equal(first.status, 200); assert.equal(first.result.modification.to, 100);
+  assert.equal(replay.result.idempotentReplay, true); assert.equal(h.broker.placed.length, 1);
+  assert.equal((await request({ ...h.value, order: { stopPrice: 100 } })).status, 409);
+  assert.equal(app.ledger.load().placements[0].stopHistory[0].breakeven.averageEntryFillPrice, 100);
+  assert.deepEqual(h.broker.cancelled, []);
 });
