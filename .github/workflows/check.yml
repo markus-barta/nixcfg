@@ -28,12 +28,18 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Guard explicit synthetic container removal
+        run: python3 -B -m unittest discover -s tests -p 'test_janus_flow*.py' -v
       - name: Build a local static probe without an external container image
         run: CGO_ENABLED=0 go build -o tests/fixtures/janus-mount-probe tests/fixtures/janus-mount-probe.go
       - name: Verify actual read-only nested mounts and repeated activation
-        run: >-
-          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT
-          python3 tests/janus_flow_mount_ci.py
+        # Independent fail-fast lifecycles: every iteration must pass.
+        run: |
+          for iteration in {1..20}; do
+            printf 'Janus mount lifecycle iteration %s/20\n' "$iteration"
+            sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT \
+              python3 tests/janus_flow_mount_ci.py
+          done
 
   # OPS-434: explicit duration-balanced shards (240s each from the last five
   # green runs; ~6s checkout/classification/Nix setup per shard). Keep tests
