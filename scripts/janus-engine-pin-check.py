@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import posixpath
 import re
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 ROOT = Path(__file__).resolve().parent.parent
+COMPOSE = ROOT / "hosts/csb1/docker/compose-spec.nix"
 IMAGE = "ghcr.io/inspr-at/janus/janus-engine"
 REPOSITORY = "inspr-at/janus"
 ISSUER = "https://token.actions.githubusercontent.com"
@@ -115,6 +117,30 @@ def parse_pin(image, image_repo):
     return {"image": image_repo, "tag": match[1], "digest": match[2]}
 
 
+def placeholder_volumes_are_safe(volumes):
+    root = "/srv/janus-placeholder"
+    retained = [v for v in volumes if isinstance(v, dict) and v.get("type") == "bind"
+                and v.get("source") == "./janus-placeholder"
+                and v.get("target") == root and v.get("read_only") is True
+                and v.get("bind", {}).get("create_host_path") is False]
+    if len(retained) != 1:
+        return False
+    for volume in volumes:
+        if volume is retained[0]:
+            continue
+        # Require explicit targets for other mounts and reject mounts over the
+        # retained directory, its children (including Caddyfile), or its parents.
+        if not isinstance(volume, dict) or not isinstance(volume.get("target"), str):
+            return False
+        if not volume["target"].startswith("/"):
+            return False
+        target = posixpath.normpath("/" + volume["target"].lstrip("/"))
+        if (target == "/" or target == root
+                or target.startswith(root + "/") or root.startswith(target + "/")):
+            return False
+    return True
+
+
 def check_local(state, receipt, policy, image_repo=IMAGE, release_repo=REPOSITORY):
     require(state["janus"] == {"profiles": ["janus-retired"], "restart": "no"},
             "Janus app must remain profile-gated as retired with restart disabled")
@@ -130,12 +156,7 @@ def check_local(state, receipt, policy, image_repo=IMAGE, release_repo=REPOSITOR
     require(re.fullmatch(r"caddy:[^@\s]+@sha256:[0-9a-f]{64}", placeholder["image"]) is not None,
             "Janus placeholder must retain a digest-pinned Caddy image")
     require(placeholder["command"] == ["caddy", "run", "--config", "/srv/janus-placeholder/Caddyfile", "--adapter", "caddyfile"]
-            and any(isinstance(v, dict) and v.get("type") == "bind"
-                    and v.get("source") == "./janus-placeholder"
-                    and v.get("target") == "/srv/janus-placeholder"
-                    and v.get("read_only") is True
-                    and v.get("bind", {}).get("create_host_path") is False
-                    for v in placeholder["volumes"]),
+            and placeholder_volumes_are_safe(placeholder["volumes"]),
             "Janus placeholder must serve the retained repository files read-only")
     require(state["routing"]["active"] is True
             and state["routing"]["upstream"] == state["routing"]["expected"],
@@ -248,15 +269,14 @@ def check_published(pin, release_repo, token):
     verify_signature(pin, release_repo)
 
 
-def main(argv=None):
+def main(argv=None, *, compose=COMPOSE, image_repo=IMAGE, release_repo=REPOSITORY):
+    # Production always checks repository-owned paths and authorities. Fixture
+    # overrides are Python arguments only, never environment or CLI inputs.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true", help="print only on drift or verification errors")
     args = parser.parse_args(argv)
-    compose = Path(os.environ.get("JANUS_ENGINE_STAGED_COMPOSE_FILE", ROOT / "hosts/csb1/docker/compose-spec.nix"))
     flow = ROOT / "hosts/csb1/shared-flow.nix"
     contract = ROOT / "hosts/csb1/docker/janus/managed-service-production"
-    image_repo = os.environ.get("JANUS_ENGINE_IMAGE_REPO", IMAGE)
-    release_repo = os.environ.get("JANUS_ENGINE_RELEASE_REPO", REPOSITORY)
     try:
         require(re.fullmatch(r"ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+", image_repo) is not None,
                 "only ghcr.io image repositories are supported")

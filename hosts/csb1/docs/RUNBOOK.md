@@ -405,6 +405,11 @@ daily schedule plus relevant pin/workflow changes (OPS-452). It requires Nix,
 Python 3.9+ and Cosign 3.0.6 (installed by the workflow), plus the existing
 `JANUS_ENGINE_GITHUB_TOKEN` read token for private release metadata.
 
+The checker always uses the repository's `compose-spec.nix` and fixed Janus
+image/release repositories; environment variables cannot override those inputs.
+The placeholder must retain its read-only repository bind, with no additional
+mount shadowing the placeholder directory or its Caddyfile.
+
 The check evaluates only local Compose/Flow metadata, without a NixOS build or
 private flake fetch. It asserts the retired `janus` profile and disabled restart,
 the active read-only placeholder and its routing, and the isolated staged engine.

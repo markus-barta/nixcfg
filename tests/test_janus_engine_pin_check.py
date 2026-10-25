@@ -97,21 +97,29 @@ class RetainedPinTests(unittest.TestCase):
             {"critical": {"image": {"docker-manifest-digest": digest}}}
         ]), "")
 
-    def run_fixture(self, args=None, opener=None, cosign=None):
+    def run_fixture(self, args=None, opener=None, cosign=None, state_loader=None,
+                    missing_receipt=False, **main_kwargs):
         stdout, stderr = io.StringIO(), io.StringIO()
+
+        def read_evidence(path):
+            if path == CONTRACT / "release-admission.json":
+                if missing_receipt:
+                    raise FileNotFoundError("fixture release-admission.json missing")
+                return json.dumps(self.receipt)
+            self.assertEqual(path, CONTRACT / "release-channels-v1.json")
+            return json.dumps(self.policy)
+
         with (
-            patch.object(checker, "load_state", return_value=self.state),
-            patch.object(checker.Path, "read_text", side_effect=[json.dumps(self.receipt), json.dumps(self.policy)]),
+            patch.object(checker, "load_state", return_value=self.state, side_effect=state_loader),
+            patch.object(checker.Path, "read_text", autospec=True, side_effect=read_evidence),
             patch.object(checker, "urlopen", side_effect=opener or self.fake_urlopen),
             patch.object(checker.subprocess, "run", side_effect=cosign or self.fake_cosign),
             patch.dict(checker.os.environ, {
-                "JANUS_ENGINE_IMAGE_REPO": checker.IMAGE,
-                "JANUS_ENGINE_RELEASE_REPO": checker.REPOSITORY,
                 "JANUS_ENGINE_GITHUB_TOKEN": "synthetic-github-fixture",
             }),
             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr),
         ):
-            status = checker.main(args or [])
+            status = checker.main(args or [], **main_kwargs)
         return status, stdout.getvalue(), stderr.getvalue()
 
     def test_checked_in_metadata_and_admission_are_consistent(self):
@@ -143,6 +151,43 @@ class RetainedPinTests(unittest.TestCase):
         for request in self.requests:
             if request.full_url.startswith("https://api.github.com/"):
                 self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-github-fixture")
+
+    def test_production_inputs_ignore_environment_overrides(self):
+        def load_defaults(compose, flow):
+            self.assertEqual(compose, ROOT / "hosts/csb1/docker/compose-spec.nix")
+            self.assertEqual(flow, ROOT / "hosts/csb1/shared-flow.nix")
+            return self.state
+
+        with patch.dict(checker.os.environ, {
+            "JANUS_ENGINE_STAGED_COMPOSE_FILE": "/untrusted/compose-spec.nix",
+            "JANUS_ENGINE_IMAGE_REPO": "ghcr.io/untrusted/engine",
+            "JANUS_ENGINE_RELEASE_REPO": "untrusted/engine",
+        }):
+            status, _, stderr = self.run_fixture(state_loader=load_defaults)
+        self.assertEqual(status, 0, stderr)
+        self.assertEqual(len(self.requests), 6)
+
+    def test_compose_override_is_a_python_keyword_argument(self):
+        fixture = Path("fixture-compose-spec.nix")
+
+        def load_fixture(compose, flow):
+            self.assertEqual(compose, fixture)
+            self.assertEqual(flow, ROOT / "hosts/csb1/shared-flow.nix")
+            return self.state
+
+        status, _, stderr = self.run_fixture(state_loader=load_fixture, compose=fixture)
+        self.assertEqual(status, 0, stderr)
+
+    def test_invalid_python_repository_arguments_remain_rejected(self):
+        for overrides, message in (
+            ({"image_repo": "https://untrusted.invalid/engine"}, "only ghcr.io"),
+            ({"release_repo": "untrusted/engine/extra"}, "invalid release repository"),
+        ):
+            with self.subTest(overrides=overrides):
+                status, _, stderr = self.run_fixture(**overrides)
+                self.assertEqual(status, 1, stderr)
+                self.assertIn(message, stderr)
+                self.assertFalse(self.requests)
 
     def test_newer_release_does_not_invalidate_retained_pins(self):
         self.releases["rust-engine-v9.9.9"] = {
@@ -186,6 +231,48 @@ class RetainedPinTests(unittest.TestCase):
         status, _, stderr = self.run_fixture()
         self.assertEqual(status, 1)
         self.assertIn("admission receipt", stderr)
+
+    def test_placeholder_mount_shadowing_fails_before_network_access(self):
+        retained = copy.deepcopy(self.state["placeholder"]["volumes"])
+        shadow_mounts = [
+            {"type": "bind", "source": "./untrusted", "target": target, "read_only": True}
+            for target in (
+                "/srv/janus-placeholder/Caddyfile", "/srv/janus-placeholder",
+                "/srv/janus-placeholder/index.html", "/srv", "/",
+                "/srv/janus-placeholder/", "/srv/./janus-placeholder/Caddyfile",
+                "/srv/other/../janus-placeholder/Caddyfile", "//srv/janus-placeholder/Caddyfile",
+            )
+        ] + [
+            retained[0],
+            {"type": "volume", "source": "untrusted", "target": "/srv/janus-placeholder"},
+            "./untrusted:/srv/janus-placeholder/Caddyfile:ro",
+        ]
+        for mount in shadow_mounts:
+            with self.subTest(mount=mount):
+                self.state["placeholder"]["volumes"] = retained + [mount]
+                status, _, stderr = self.run_fixture()
+                self.assertEqual(status, 1, stderr)
+                self.assertIn("read-only", stderr)
+                self.assertFalse(self.requests)
+
+    def test_placeholder_bind_must_remain_read_only_and_not_create_paths(self):
+        retained = copy.deepcopy(self.state["placeholder"]["volumes"])
+        for key, value in (("read_only", False), ("bind", {"create_host_path": True})):
+            with self.subTest(key=key):
+                self.state["placeholder"]["volumes"] = copy.deepcopy(retained)
+                self.state["placeholder"]["volumes"][0][key] = value
+                status, _, stderr = self.run_fixture()
+                self.assertEqual(status, 1, stderr)
+                self.assertIn("read-only", stderr)
+                self.assertFalse(self.requests)
+
+    def test_unrelated_placeholder_bind_does_not_shadow_retained_files(self):
+        self.state["placeholder"]["volumes"].append({
+            "type": "bind", "source": "./cache", "target": "/srv/janus-placeholder-cache",
+            "read_only": True,
+        })
+        status, _, stderr = self.run_fixture()
+        self.assertEqual(status, 0, stderr)
 
     def test_unverified_admission_is_red(self):
         for key in ("signature", "provenance", "sbom", "source", "scanner"):
@@ -288,6 +375,31 @@ class RetainedPinTests(unittest.TestCase):
                 self.assertNotIn("synthetic-github-fixture", stderr)
         status, _, stderr = self.run_fixture(opener=lambda *args, **kwargs: Response(b"not JSON"))
         self.assertEqual(status, 2, stderr)
+
+    def test_nonzero_nix_eval_exits_two_before_network_access(self):
+        calls = []
+
+        def failed_nix(command, **kwargs):
+            self.assertEqual(command[:2], ["nix", "eval"])
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 1, "", "fixture eval failed")
+
+        status, stdout, stderr = self.run_fixture(state_loader=checker.load_state, cosign=failed_nix)
+        self.assertEqual(status, 2, stderr)
+        self.assertEqual(stdout, "")
+        self.assertIn("could not evaluate", stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(self.requests)
+        self.assertNotIn("synthetic-github-fixture", stderr)
+
+    def test_missing_release_admission_exits_two_before_network_access(self):
+        status, stdout, stderr = self.run_fixture(missing_receipt=True)
+        self.assertEqual(status, 2, stderr)
+        self.assertEqual(stdout, "")
+        self.assertIn("evidence unavailable", stderr)
+        self.assertFalse(self.requests)
+        self.assertFalse(self.signatures)
+        self.assertNotIn("synthetic-github-fixture", stderr)
 
     def test_quiet_suppresses_only_success(self):
         status, stdout, stderr = self.run_fixture(["--quiet"])
