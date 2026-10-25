@@ -838,3 +838,29 @@ test('board health stays degraded when capture succeeds but catch-up fails and c
   assert.ok(state.resultsCaptureAlerts.every(row => row.resolvedAt));
   assert.equal(logs.mock.callCount(), 2);
 });
+
+
+test("CLI STP-LMT and breakeven emit validated requests and reject unsafe combinations before fetch", async () => {
+  const seen = [];
+  const options = { fetch: async (_url, request) => { seen.push(parseIntent(JSON.parse(request.body))); return new Response(JSON.stringify({ status: "ok" })); }, write: () => {} };
+  const base = ["place", "--desk", "j", "--intent-id", "j-stplmt-cli", "--symbol", "AAPL", "--quantity", "2", "--limit", "101", "--stop", "99", "--side", "BUY"];
+  assert.equal(await runClient(base, options), 0);
+  assert.equal(seen.at(-1).order.entryType, undefined);
+  assert.equal(await runClient([...base, "--entry-type", "STP_LMT", "--trigger", "100"], options), 0);
+  assert.equal(seen.at(-1).order.entryType, "STP_LMT"); assert.equal(seen.at(-1).order.triggerPrice, 100);
+  const modify = ["modify-stop", "--desk", "j", "--intent-id", "j-breakeven-cli", "--symbol", "AAPL"];
+  for (const selector of [["--order-id", "21"], ["--order-ref", "J|261006|entry"]]) {
+    assert.equal(await runClient([...modify, "--breakeven", ...selector], options), 0);
+    assert.deepEqual(seen.at(-1).order, { breakeven: true });
+  }
+  const before = seen.length;
+  for (const argv of [
+    [...base, "--entry-type", "STP_LMT"], [...base, "--trigger", "100"],
+    [...base, "--entry-type", "MKT"], [...base, "--entry-type", "STP_LMT", "--trigger", "102"],
+    [...base, "--breakeven"], [...modify, "--order-id", "21", "--breakeven", "--stop", "100"],
+    [...modify, "--order-id", "21", "--breakeven", "true"], [...modify, "--order-id", "21", "--breakeven", "--breakeven"],
+    [...modify, "--breakeven"], [...modify, "--order-id", "21", "--breakeven", "--entry-type", "LMT"],
+    ["health", "--breakeven"], ["recon", "--desk", "j", "--intent-id", "j-recon-test", "--trigger", "100"],
+  ]) assert.notEqual(await runClient(argv, options), 0);
+  assert.equal(seen.length, before);
+});

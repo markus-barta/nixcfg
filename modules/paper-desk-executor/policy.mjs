@@ -143,12 +143,15 @@ export function parseIntent(raw, now = Date.now()) {
   if (action === "modify-stop") {
     if (!symbol) fail("modify-stop requires symbol");
     order = object(value.order, "order");
-    exactKeys(order, ["stopPrice"], "order");
-    order = { stopPrice: positive(order.stopPrice, "stopPrice") };
+    exactKeys(order, ["stopPrice", "breakeven"], "order");
+    if (order.breakeven !== undefined) {
+      if (order.breakeven !== true || order.stopPrice !== undefined) fail("breakeven requires true and no stopPrice");
+      order = { breakeven: true };
+    } else order = { stopPrice: positive(order.stopPrice, "stopPrice") };
   }
   if (action === "place") {
     order = object(value.order, "order");
-    exactKeys(order, ["symbol", "side", "quantity", "limitPrice", "stopPrice", "currency"], "order");
+    exactKeys(order, ["symbol", "side", "quantity", "limitPrice", "stopPrice", "currency", "entryType", "triggerPrice"], "order");
     const symbol = validateKey(order.symbol, "symbol");
     if (KEEP.includes(symbol)) fail(`${symbol} is KEEP and can never be traded`, "keep_protected");
     const side = text(order.side, "side").toUpperCase();
@@ -156,13 +159,18 @@ export function parseIntent(raw, now = Date.now()) {
     if (!Number.isSafeInteger(order.quantity) || order.quantity <= 0) fail("quantity must be a positive integer");
     const limitPrice = positive(order.limitPrice, "limitPrice");
     const stopPrice = positive(order.stopPrice, "stopPrice");
-    if ((side === "BUY" && stopPrice >= limitPrice) || (side === "SELL" && stopPrice <= limitPrice)) {
+    const entryType = order.entryType === undefined ? "LMT" : text(order.entryType, "entryType").toUpperCase();
+    if (!["LMT", "STP_LMT"].includes(entryType)) fail("entryType must be LMT or STP_LMT");
+    if (entryType === "LMT" && order.triggerPrice !== undefined) fail("triggerPrice requires STP_LMT");
+    const triggerPrice = entryType === "STP_LMT" ? positive(order.triggerPrice, "triggerPrice") : limitPrice;
+    if (entryType === "STP_LMT" && (side === "BUY" ? triggerPrice > limitPrice : triggerPrice < limitPrice)) fail("triggerPrice must be on the protected side of limitPrice");
+    if ((side === "BUY" && stopPrice >= triggerPrice) || (side === "SELL" && stopPrice <= triggerPrice)) {
       fail("stopPrice must protect the entry side");
     }
-    const stopFraction = Math.abs(limitPrice - stopPrice) / limitPrice;
+    const stopFraction = Math.abs(triggerPrice - stopPrice) / triggerPrice;
     if (stopFraction + Number.EPSILON < LIMITS.minStopFraction) fail("protective stop must be at least 0.5% from entry");
     if (order.currency !== "USD") fail("only USD Stage-0 stocks are accepted");
-    order = { symbol, side, quantity: order.quantity, limitPrice, stopPrice, currency: "USD" };
+    order = { symbol, side, quantity: order.quantity, limitPrice, stopPrice, currency: "USD", ...(entryType === "STP_LMT" ? { entryType, triggerPrice } : {}) };
   }
   return {
     schema: SCHEMA,
@@ -182,7 +190,8 @@ export function placementBudget(order, usdToEur) {
   if (typeof usdToEur !== "number" || !Number.isFinite(usdToEur) || usdToEur <= 0) fail("fresh IB USD/EUR rate is required");
   const bufferedFx = usdToEur * LIMITS.fxSafetyBuffer;
   const riskEur = Math.abs(order.limitPrice - order.stopPrice) * order.quantity * bufferedFx;
-  const notionalEur = order.limitPrice * order.quantity * bufferedFx;
+  // The limit is the worse fill for either side; notional uses the higher price.
+  const notionalEur = Math.max(order.limitPrice, order.triggerPrice ?? order.limitPrice) * order.quantity * bufferedFx;
   return {
     riskEur: Math.ceil(riskEur * 100) / 100,
     notionalEur: Math.ceil(notionalEur * 100) / 100,

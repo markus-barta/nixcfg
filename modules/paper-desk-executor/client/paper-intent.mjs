@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { parseIntent, validateKey } from "../policy.mjs";
 const SCHEMA = "barta.paper-desk-intent.v2";
 const DEFAULT_URL = "http://100.64.0.6:8470";
-const FLAGS = new Set(["desk", "intent-id", "symbol", "side", "quantity", "limit", "stop", "currency", "order-ref", "order-id", "reason"]);
+const FLAGS = new Set(["desk", "intent-id", "symbol", "side", "quantity", "limit", "stop", "currency", "order-ref", "order-id", "reason", "entry-type", "trigger", "breakeven"]);
 
 function executorOrigin() {
   const configured = process.env.PAPER_DESK_EXECUTOR_ORIGIN ?? DEFAULT_URL;
@@ -20,9 +20,10 @@ function usage() {
     "  origin: http://100.64.0.6:8470 (PAPER_DESK_EXECUTOR_ORIGIN may select http://100.64.x.y:port)",
     "  --desk NAME --intent-id ID",
     "  --symbol SYM --side BUY|SELL --quantity N --limit N --stop N",
+    "  place: --entry-type LMT|STP_LMT (default LMT); STP_LMT requires --trigger N",
     "  --symbol SYM (optional for flatten/cancel; omitted flatten covers all owned symbols)",
     "  --order-ref desk|yymmdd|thesis-id (place/cancel) --order-id N (cancel)",
-    "  modify-stop --symbol SYM (--order-id N | --order-ref REF) --stop N",
+    "  modify-stop --symbol SYM (--order-id N | --order-ref REF) (--stop N | --breakeven)",
     "  --reason TEXT",
   ].join("\n");
 }
@@ -30,14 +31,15 @@ function usage() {
 function fail(message) { const error = new Error(message); error.exitCode = 2; throw error; }
 function args(argv) {
   const parsed = new Map();
-  for (let index = 0; index < argv.length; index += 2) {
+  for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token.startsWith("--") || token.length < 3) fail(`unexpected argument ${token}`);
     const key = token.slice(2);
     if (!FLAGS.has(key)) fail(`unsupported option --${key}`);
-    const value = argv[index + 1];
-    if (value === undefined || value.startsWith("--")) fail(`missing value for --${key}`);
     if (parsed.has(key)) fail(`duplicate option --${key}`);
+    if (key === "breakeven") { parsed.set(key, true); continue; }
+    const value = argv[++index];
+    if (value === undefined || value.startsWith("--")) fail(`missing value for --${key}`);
     parsed.set(key, value);
   }
   return parsed;
@@ -55,21 +57,26 @@ function positiveNumber(parsed, key) {
 function intentEnvelope(parsed, action) {
   const now = Date.now();
   const intent = { schema: SCHEMA, intentId: validateKey(required(parsed, "intent-id"), "intentId"), desk: validateKey(required(parsed, "desk").toLowerCase(), "desk"), action, createdAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 300000).toISOString() };
+  if (action !== "place" && (parsed.has("entry-type") || parsed.has("trigger"))) fail("entry options require place");
+  if (action !== "modify-stop" && parsed.has("breakeven")) fail("--breakeven requires modify-stop");
   if (action === "place") {
     const quantity = Number(required(parsed, "quantity"));
     if (!Number.isSafeInteger(quantity) || quantity <= 0) fail("--quantity must be a positive integer");
     intent.order = { symbol: validateKey(required(parsed, "symbol").toUpperCase(), "symbol"), side: required(parsed, "side").toUpperCase(), quantity, limitPrice: positiveNumber(parsed, "limit"), stopPrice: positiveNumber(parsed, "stop"), currency: (parsed.get("currency") || "USD").toUpperCase() };
+    if (parsed.has("entry-type")) intent.order.entryType = required(parsed, "entry-type").toUpperCase();
+    if (parsed.has("trigger")) intent.order.triggerPrice = positiveNumber(parsed, "trigger");
   }
   if (parsed.get("order-ref")) intent.orderRef = validateKey(parsed.get("order-ref"), "orderRef");
   if (["flatten", "cancel"].includes(action) && parsed.has("symbol")) intent.symbol = validateKey(required(parsed, "symbol").toUpperCase(), "symbol");
   if (parsed.get("order-id")) intent.orderId = positiveNumber(parsed, "order-id");
   if (action === "modify-stop") {
-    for (const key of parsed.keys()) if (!["desk", "intent-id", "symbol", "order-id", "order-ref", "stop"].includes(key)) fail(`unsupported option --${key} for modify-stop`);
+    for (const key of parsed.keys()) if (!["desk", "intent-id", "symbol", "order-id", "order-ref", "stop", "breakeven"].includes(key)) fail(`unsupported option --${key} for modify-stop`);
     intent.symbol = validateKey(required(parsed, "symbol").toUpperCase(), "symbol");
-    intent.order = { stopPrice: positiveNumber(parsed, "stop") };
+    if (parsed.has("breakeven") && parsed.has("stop")) fail("--breakeven cannot be combined with --stop");
+    intent.order = parsed.has("breakeven") ? { breakeven: true } : { stopPrice: positiveNumber(parsed, "stop") };
     return parseIntent(intent);
   }
-  return intent;
+  return parseIntent(intent);
 }
 
 export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, write = (line) => console.log(line), writeError = (line) => console.error(line) } = {}) {
@@ -77,6 +84,8 @@ export async function runClient(argv, { fetch: fetchImpl = globalThis.fetch, wri
     const [command, ...rest] = argv;
     if (!command || command === "--help" || command === "-h") fail(usage());
     const parsed = args(rest);
+    if (command !== "place" && (parsed.has("entry-type") || parsed.has("trigger"))) fail("entry options require place");
+    if (command !== "modify-stop" && parsed.has("breakeven")) fail("--breakeven requires modify-stop");
     const root = executorOrigin();
     let route; let method = "GET"; let body; let intentId;
     if (command === "health") route = "/v1/health";

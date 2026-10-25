@@ -298,6 +298,7 @@ export async function resolveStock(session, symbol, requestId = 881001, { readOn
       primaryExch: String(contract.primaryExch || ""),
     },
     stockType: String(detail.stockType || "").toUpperCase(),
+    minTick: Number(detail.minTick),
     ...(readOnly ? { liquidHours: String(detail.liquidHours || ""), timeZoneId: String(detail.timeZoneId || "") } : {}),
   };
 }
@@ -380,6 +381,7 @@ function before(session, contract, expected, intent, guard) {
 }
 
 export async function placeProtectiveBracket(session, intent, resolved, guard = {}) {
+  paperGuard();
   const parentId = session.state.nextId;
   const stopId = parentId + 1;
   if (!Number.isSafeInteger(parentId) || parentId <= 0 || parentId >= 2147483647) throw new Error("broker order ID unavailable");
@@ -390,7 +392,7 @@ export async function placeProtectiveBracket(session, intent, resolved, guard = 
     before(session, resolved.contract, expected, intent, guard);
     sent = true;
     session.sideEffects = true;
-    session.api.placeOrder(parentId, resolved.contract, { ...common, action: intent.order.side, orderType: "LMT", lmtPrice: intent.order.limitPrice, transmit: false });
+    session.api.placeOrder(parentId, resolved.contract, { ...common, action: intent.order.side, orderType: intent.order.entryType === "STP_LMT" ? "STP LMT" : "LMT", lmtPrice: intent.order.limitPrice, ...(intent.order.entryType === "STP_LMT" ? { auxPrice: intent.order.triggerPrice } : {}), transmit: false });
     before(session, resolved.contract, expected, intent, guard);
     session.api.placeOrder(stopId, resolved.contract, { ...common, action: intent.order.side === "BUY" ? "SELL" : "BUY", orderType: "STP", auxPrice: intent.order.stopPrice, parentId, transmit: true });
     await session.wait(3_000);
@@ -555,6 +557,31 @@ function stopRefusal(reason, cause) {
   throw error;
 }
 
+// Quantities/prices come only from authoritative history plus this session's
+// replay. Cached executions may restore the parent identity, never its price.
+function bracketBreakeven(evidence, stop, placement, options) {
+  const { clientId, desk, stateExecutions = [], minTick, attribution = {} } = options;
+  if (!Number.isFinite(minTick) || minTick <= 0) stopRefusal("modify-stop breakeven requires a valid contract tick");
+  const prefix = (execution) => String(execution.execId || "").replace(/\d+$/, "");
+  const fills = evidence.attributed.filter((row) => {
+    const execution = row.execution;
+    if (Number(execution.clientId) !== clientId || execution.acctNumber !== ACCOUNT || Number(row.contract.conId) !== stop.conId || row.contract.symbol !== stop.symbol || row.contract.currency !== stop.currency || row.contract.secType !== stop.secType || normalizeOrderRef(execution.orderRef) !== normalizeOrderRef(stop.orderRef) || !belongsToDesk(row, desk, [], clientId, attribution)) return false;
+    if (Number(execution.orderId) > 0) return Number(execution.orderId) === stop.parentId;
+    const ids = new Set(stateExecutions.filter((known) => prefix(known.execution) === prefix(execution) && Number(known.execution.clientId) === clientId && known.execution.acctNumber === ACCOUNT && Number(known.contract.conId) === stop.conId && normalizeOrderRef(known.execution.orderRef) === normalizeOrderRef(stop.orderRef)).map((known) => Number(known.execution.orderId)).filter((id) => id > 0));
+    return ids.size === 1 && ids.has(stop.parentId);
+  });
+  const side = stop.action === "SELL" ? ["BOT", "BUY"] : ["SLD", "SELL"];
+  if (!fills.length || fills.some(({ execution }) => !side.includes(execution.side) || !Number.isFinite(execution.shares) || execution.shares <= 0 || !Number.isFinite(execution.price) || execution.price <= 0)) stopRefusal("modify-stop breakeven requires complete parent fill evidence");
+  const quantity = fills.reduce((sum, row) => sum + row.execution.shares, 0);
+  if (quantity !== placement.quantity) stopRefusal("modify-stop breakeven requires complete parent fill evidence");
+  const averageEntryFillPrice = fills.reduce((sum, row) => sum + row.execution.price * row.execution.shares, 0) / quantity;
+  // Nearest contract tick, half up; canonicalize binary floating point noise.
+  const ticks = Math.round(averageEntryFillPrice / minTick + Number.EPSILON * Math.abs(averageEntryFillPrice / minTick));
+  const normalizedPrice = Number((ticks * minTick).toPrecision(15));
+  if (!Number.isSafeInteger(ticks) || ticks <= 0 || !Number.isFinite(normalizedPrice) || normalizedPrice <= 0) stopRefusal("modify-stop breakeven fill price cannot be normalized to the contract tick");
+  return { averageEntryFillPrice, tickSize: minTick, normalizedPrice, execIds: fills.map((row) => row.execution.execId) };
+}
+
 // A desk tag alone cannot prove this is an executor protective bracket.
 function stopPreflight(session, history, options, { markRequired = false } = {}) {
   const { intent, clientId, desk, ownershipClientIds, ownership, statePlacements = [], intentRecords = new Map(), guard, attribution = {} } = options;
@@ -580,9 +607,11 @@ function stopPreflight(session, history, options, { markRequired = false } = {})
   const placement = statePlacements.find((row) => row.clientId === clientId && row.desk === desk && row.symbol === stop.symbol && normalizeOrderRef(row.orderRef) === normalizeOrderRef(stop.orderRef) && row.orderIds?.[0] === stop.parentId && row.orderIds?.[1] === stop.orderId && row.quantity === stop.quantity && row.side === (stop.action === "SELL" ? "BUY" : "SELL") && !["rejected", "absent"].includes(row.status));
   if (!placement) stopRefusal("modify-stop target is not a recorded executor protective bracket");
   if ([...intentRecords].some(([id, row]) => id !== intent.intentId && row.action === "modify-stop" && ["claimed", "uncertain"].includes(row.status) && (row.orderId === stop.orderId || normalizeOrderRef(row.orderRef) === normalizeOrderRef(stop.orderRef) || row.brokerPlan?.modification?.orderId === stop.orderId)) || (placement.stopHistory || []).some((row) => row.intentId !== intent.intentId && ["reserved", "uncertain"].includes(row.status))) stopRefusal("modify-stop order has an unresolved modification; reconcile before retry");
-  const price = intent.order.stopPrice;
-  if (!Number.isFinite(price) || price <= 0) stopRefusal("stopPrice must be positive");
-  if (stop.action === "SELL" ? price <= stop.auxPrice : price >= stop.auxPrice) stopRefusal("modify-stop must strictly tighten the current stop");
+  let price = intent.order.stopPrice;
+  if (intent.order.breakeven !== true) {
+    if (!Number.isFinite(price) || price <= 0) stopRefusal("stopPrice must be positive");
+    if (stop.action === "SELL" ? price <= stop.auxPrice : price >= stop.auxPrice) stopRefusal("modify-stop must strictly tighten the current stop");
+  }
   let evidence; let owned;
   try {
     evidence = ownershipEvidence(session, history, options);
@@ -597,6 +626,7 @@ function stopPreflight(session, history, options, { markRequired = false } = {})
   } catch (error) { stopRefusal("modify-stop ownership evidence is incomplete or does not reconcile", error); }
   if (stop.quantity > Math.abs(owned.quantity)) stopRefusal("modify-stop stop quantity exceeds the desk's owned quantity");
   const mark = session.state.marks[stop.conId];
+  let breakeven;
   if (markRequired) {
     const now = Date.now();
     const observed = Date.parse(mark?.observedAt);
@@ -606,11 +636,19 @@ function stopPreflight(session, history, options, { markRequired = false } = {})
       const maxAge = options.maxDelayedMarkAgeSeconds ?? LIMITS.maxDelayedMarkAgeSeconds;
       if (!Number.isFinite(maxAge) || maxAge <= 0 || mark.dataAgeSeconds === null || mark.dataAgeSeconds > maxAge) stopRefusal("modify-stop mark too old or age unknown");
     }
-    if (stop.action === "SELL" ? price > mark.price * (1 - LIMITS.minStopFraction) : price < mark.price * (1 + LIMITS.minStopFraction)) stopRefusal("modify-stop new stop must remain at least 0.5% beyond the fresh mark");
+    const insideDistance = (candidate) => stop.action === "SELL" ? candidate > mark.price * (1 - LIMITS.minStopFraction) : candidate < mark.price * (1 + LIMITS.minStopFraction);
+    if (intent.order.breakeven === true || insideDistance(price)) {
+      // Missing evidence must never open the distance exception.
+      breakeven = bracketBreakeven(evidence, stop, placement, options);
+      if (intent.order.breakeven === true) price = breakeven.normalizedPrice;
+      if (price !== breakeven.normalizedPrice) stopRefusal("modify-stop new stop must remain at least 0.5% beyond the fresh mark or equal proven breakeven");
+    }
+    if (stop.action === "SELL" ? price <= stop.auxPrice : price >= stop.auxPrice) stopRefusal("modify-stop must strictly tighten the current stop");
+    if (stop.action === "SELL" ? price >= mark.price : price <= mark.price) stopRefusal("modify-stop new stop must remain at least 0.5% beyond the fresh mark or be non-marketable proven breakeven");
   }
   const details = session.orderDetails.get(`${clientId}:${stop.orderId}`);
   if (!details) stopRefusal("modify-stop original broker order fields are missing");
-  return { stop, placement, details, evidence, mark };
+  return { stop, placement, details, evidence, mark, price, breakeven };
 }
 
 export async function modifyStopOwned(options) {
@@ -632,15 +670,16 @@ export async function modifyStopOwned(options) {
     catch (error) { stopRefusal("modify-stop stock contract lookup failed", error); }
     try { assertContract(resolved.contract, checked.stop); }
     catch (error) { stopRefusal("modify-stop resolved contract does not match the stop", error); }
+    checkedOptions.minTick = resolved.minTick;
     try { await freshMarks(session, { conId: checked.stop.conId, lastOrCloseOnly: true }); }
     catch (error) { stopRefusal("modify-stop fresh last/close snapshot failed", error); }
     checked = stopPreflight(session, history, checkedOptions, { markRequired: true });
     const { stop, details, mark } = checked;
-    const modification = { orderId: stop.orderId, clientId, conId: stop.conId, symbol: stop.symbol, parentId: stop.parentId, action: stop.action, quantity: stop.quantity, orderRef: stop.orderRef, account: stop.account, tif: stop.tif, from: stop.auxPrice, to: intent.order.stopPrice, mark };
+    const modification = { orderId: stop.orderId, clientId, conId: stop.conId, symbol: stop.symbol, parentId: stop.parentId, action: stop.action, quantity: stop.quantity, orderRef: stop.orderRef, account: stop.account, tif: stop.tif, from: stop.auxPrice, to: checked.price, mark, ...(checked.breakeven ? { breakeven: checked.breakeven } : {}) };
     onPlan(modification);
     // No await between final ownership/price/expiry checks and placeOrder.
     const final = stopPreflight(session, history, checkedOptions, { markRequired: true });
-    if (final.stop !== stop || final.details !== details) stopRefusal("modify-stop order changed during preflight");
+    if (final.stop !== stop || final.details !== details || final.price !== modification.to) stopRefusal("modify-stop order or breakeven changed during preflight");
     const acknowledgements = [];
     onOrder = (id, contract, order, state) => {
       if (Number(id) === stop.orderId && Number(order.clientId) === clientId) acknowledgements.push({ contract, order, status: String(state?.status || "") });

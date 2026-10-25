@@ -147,7 +147,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     try {
       const outcome = await modifyStopOwned({ desk: intent.desk, clientId, ownershipClientIds, ownership: config.ownership, stateExecutions: state.executions, statePlacements: state.placements, intentRecords: state.intents, firstOrders: state.firstOrders.get(intent.desk) || new Map(), ownershipHistoryFrom: state.ownershipHistoryFrom, ownershipLedgerFile: config.ownershipLedger, attribution, maxDelayedMarkAgeSeconds: config.maxDelayedMarkAgeSeconds, intent, guard, connect, readHistory, onPlan: (plan) => {
         placement = state.placements.find((row) => row.orderIds?.[0] === plan.parentId && row.orderIds?.[1] === plan.orderId && row.clientId === clientId && row.desk === intent.desk && row.symbol === plan.symbol && row.quantity === plan.quantity && row.side === (plan.action === "SELL" ? "BUY" : "SELL") && !["rejected", "absent"].includes(row.status) && normalizeOrderRef(row.orderRef) === normalizeOrderRef(plan.orderRef));
-        change = { at: new Date().toISOString(), from: plan.from, to: plan.to, intentId: intent.intentId, orderId: plan.orderId, status: "reserved" };
+        change = { at: new Date().toISOString(), from: plan.from, to: plan.to, intentId: intent.intentId, orderId: plan.orderId, status: "reserved", ...(plan.breakeven ? { breakeven: plan.breakeven } : {}) };
         (placement.stopHistory ||= []).push(change);
         const record = state.intents?.get(intent.intentId);
         if (record) { record.brokerPlan = { modification: plan }; record.modification = change; }
@@ -275,7 +275,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
   // unreadable history retains the existing conservative concurrency fallback.
   if (history.coverage && historyError) throw new Error(historyError);
   const budget = evaluatePlacement(intent, snapshot, state, { halt: guard.getHalt().active, stockType: resolved.stockType, usdToEur, blockOnInitDay: config.blockOnInitDay });
-  const placement = { intentId: intent.intentId, orderRef: intent.orderRef, desk: intent.desk, clientId, symbol: intent.order.symbol, side: intent.order.side, quantity: intent.order.quantity, day: budget.day, riskEur: budget.riskEur, notionalEur: budget.notionalEur, status: "reserved", reservedAt: new Date().toISOString() };
+  const placement = { intentId: intent.intentId, orderRef: intent.orderRef, desk: intent.desk, clientId, symbol: intent.order.symbol, side: intent.order.side, quantity: intent.order.quantity, ...(intent.order.entryType === "STP_LMT" ? { entryType: intent.order.entryType, triggerPrice: intent.order.triggerPrice, limitPrice: intent.order.limitPrice, stopPrice: intent.order.stopPrice } : {}), day: budget.day, riskEur: budget.riskEur, notionalEur: budget.notionalEur, status: "reserved", reservedAt: new Date().toISOString() };
   state.placements.push(placement);
   rememberFirstOrders(state);
   saveState(state);
