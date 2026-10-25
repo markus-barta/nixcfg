@@ -93,23 +93,28 @@ That recipe primes the non-prod smoke state once, keeps
 | Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail       |
 
 The script reads the signed, digest-pinned engine image from
-`docker-compose.yml`, which is the single source of truth for the staged
+`compose-spec.nix`, which is the single source of truth for the staged
 promotion target. It does not use production secrets or the host SSH key.
 By default it uses Docker volumes named `janus_engine_smoke_age`,
 `janus_engine_smoke_secrets`, and `janus_engine_smoke_permits`; set
 `JANUS_SMOKE_VOLUME_PREFIX` to isolate another smoke state.
 
-To check whether the staged compose pin has drifted behind the newest verified
-`rust-engine-v*` release, run:
+To verify the retained engine releases and retired app configuration, run:
 
 ```bash
 just janus-engine-pin-check
 ```
 
-This is read-only: it parses the compose image pin, resolves the latest
-published Janus engine release and GHCR digest, and reports drift without
-starting or recreating containers. The same check runs in GitHub Actions on a
-daily schedule and on relevant pin/workflow changes.
+This is read-only and requires Nix, Python 3.9+, Cosign 3.0.6 and the existing
+`JANUS_ENGINE_GITHUB_TOKEN` read token for the private Janus releases. It evaluates
+`compose-spec.nix` and shared Flow metadata, asserts the retired app and active
+placeholder routing, and verifies both the staged pin used by Pharos and the
+separately admitted transactiond pin. Each must match its exact published stable
+release, GHCR manifest digest and bytes, fixed-name SPDX SBOM asset, and exact-tag
+Cosign signing identity. A newer upstream release alone is not drift. The same
+check runs daily and on relevant source changes; no containers are started or
+recreated. Live stopped-container and HTTP verification remain separate runbook
+steps. Good and bad fixtures run in `tests/T112-janus-engine-pin-check.sh`.
 
 To prove the reviewed Pharos host-retirement contract against an isolated
 synthetic host, run on csb1:
