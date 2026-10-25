@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 41: v261025171939.0.0 (#284 merge, sequence 111). Contents since 40: HNET-366 several parents shown (second link line, tree row, own cable); HNET-370 cleaner drag preview; HNET-371 logo visible in Dark; HNET-375 no false Down on a failed name lookup (keeps probing the last known address for up to 10 min, 'Address unknown' only without any address; _gateway resolves via the default route, never DNS). No listener/socket/dial/exec added; nix/ and flake/go deps unchanged since pin 40; capability-free (standing go Desk 45df1430). Rollback = pin 40.
+    # HNET pin 42: v261025183407.0.0 (#285 merge, sequence 112). Contents since 41: HNET-376 page lighter when left open (web + QA only; no Go/server change). No listener/socket/dial/exec added; nix/ and flake/go deps unchanged since pin 41; capability-free (standing go Desk 45df1430). Rollback = pin 41.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=b420e1123d40bcd8e111aa7857d0a0a87cf023b2";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=9fd39bfe3fd549fc1d518e1d87f315bdb9c1a43d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
