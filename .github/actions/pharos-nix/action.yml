@@ -1,0 +1,48 @@
+name: Prepare public Pharos contract dependencies
+description: Share pinned public inputs and tools without caching private test inputs
+inputs:
+  save-cache:
+    description: Only one shard uploads the identical public dependency snapshot
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install Nix without a mutable channel
+      uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+
+    - name: Restore public Nix inputs and tools
+      id: cache
+      # A failed restore may still report an exact-key hit. Fetch normally
+      # on this attempt; dependency and contract failures remain fatal.
+      continue-on-error: true
+      uses: nix-community/cache-nix-action/restore@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+      with:
+        primary-key: pharos-public-nix-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', '.github/actions/pharos-nix/action.yml', 'scripts/pharos-ci-nix.py') }}
+        save: "false"
+
+    - name: Select and verify the flake-pinned public nixpkgs input
+      shell: bash
+      run: python3 scripts/pharos-ci-nix.py >> "$GITHUB_ENV"
+
+    # Cache the same public tool set in every shard. This moves the first
+    # nix-shell downloads out of the contract steps and avoids a second,
+    # mutable channel's nixpkgs tree alongside flake.lock's tree.
+    - name: Fetch public contract tools on a cache miss
+      if: steps.cache.outcome != 'success' || steps.cache.outputs.hit-primary-key != 'true'
+      shell: bash
+      run: |
+        pharos_tools_started=$SECONDS
+        nix-shell -p bash coreutils curl fish gawk git jq just nodejs nodejs_22 \
+          python3 ripgrep ruby trash-cli util-linux yq-go \
+          'python3.withPackages (p: [ p.pyyaml p.bcrypt ])' \
+          --run true
+        printf 'pharos_public_tools_seconds=%s\n' "$((SECONDS - pharos_tools_started))"
+
+    # SECURITY: save-only has no post-job hook. This snapshot completes BEFORE
+    # any test, hausnetz SSH key, or private source can enter the Nix store.
+    # Never replace this with the combined restore/post-job-save action.
+    - name: Snapshot public dependencies before contract tests
+      if: inputs.save-cache == 'true' && (steps.cache.outcome != 'success' || steps.cache.outputs.hit-primary-key != 'true')
+      uses: nix-community/cache-nix-action/save@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+      with:
+        primary-key: pharos-public-nix-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', '.github/actions/pharos-nix/action.yml', 'scripts/pharos-ci-nix.py') }}

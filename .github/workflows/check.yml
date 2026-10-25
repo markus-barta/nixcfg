@@ -42,7 +42,7 @@ jobs:
           done
 
   # OPS-434: explicit duration-balanced shards (240s each from the last five
-  # green runs; ~6s checkout/classification/Nix setup per shard). Keep tests
+  # green runs; checkout/classification/Nix setup adds overhead). Keep tests
   # exactly once and preserve prerequisite order within each shard.
   # Shard 1 owns T38's private-input fetch/cleanup and all later hsb0 consumers.
   # Shard 3 owns the public doctrine checkout and its routing/lint consumers.
@@ -68,10 +68,12 @@ jobs:
           cat "$RUNNER_TEMP/aeon-pin-classify.out"
           grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
 
-      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+      # OPS-453: cache only the public pre-test store; shard 1 is the single
+      # writer, before its private input is fetched. Every shard still runs.
+      - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
+          save-cache: "true"
 
       - name: Verify Pharos system update proposals and private-input skips
         if: steps.pin.outputs.pin_only != 'true'
@@ -242,10 +244,8 @@ jobs:
           cat "$RUNNER_TEMP/aeon-pin-classify.out"
           grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
 
-      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+      - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Verify Pharos beacon healthcheck contract
         if: steps.pin.outputs.pin_only != 'true'
@@ -401,10 +401,8 @@ jobs:
           cat "$RUNNER_TEMP/aeon-pin-classify.out"
           grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
 
-      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+      - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
       # OPS-392: use the image's Node major; Linux runs the real-flock case.
       # Full history above supplies immutable main/producer objects for parity.
@@ -569,10 +567,8 @@ jobs:
           cat "$RUNNER_TEMP/aeon-pin-classify.out"
           grep -E '^pin_only=(true|false)$' "$RUNNER_TEMP/aeon-pin-classify.out" >> "$GITHUB_OUTPUT"
 
-      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+      - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Verify Pharos host preferences and correlated outcomes
         if: steps.pin.outputs.pin_only != 'true'
@@ -737,8 +733,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - name: Verify pin classification and release metadata fixtures
-        run: python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
+      - name: Verify pin classification, release metadata and public cache fixtures
+        run: |
+          python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
+          python3 -m unittest discover -s tests -p 'test_pharos_ci.py' -v
       - name: Verify the Aeon image digest and release commit
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
