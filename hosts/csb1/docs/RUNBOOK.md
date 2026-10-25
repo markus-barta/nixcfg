@@ -401,7 +401,34 @@ value_returned=false output=suppressed permit_consumed=true
 ```
 
 `just janus-engine-pin-check` is read-only and also runs in GitHub Actions on a
-daily schedule plus relevant pin/workflow changes.
+daily schedule plus relevant pin/workflow changes (OPS-452). It requires Nix,
+Python 3.9+ and Cosign 3.0.6 (installed by the workflow), plus the existing
+`JANUS_ENGINE_GITHUB_TOKEN` read token for private release metadata.
+
+The checker always uses the repository's `compose-spec.nix` and fixed Janus
+image/release repositories; environment variables cannot override those inputs.
+The placeholder must retain its read-only repository bind, with no additional
+mount shadowing the placeholder directory or its Caddyfile.
+
+The check evaluates only local Compose/Flow metadata, without a NixOS build or
+private flake fetch. It asserts the retired `janus` profile and disabled restart,
+the active read-only placeholder and its routing, and the isolated staged engine.
+Pharos's production renderers and retirement executor still use the staged pin;
+transactiond retains its separate pin, environment digest and verified admission
+receipt. Neither pin must track the newest upstream release. For each retained
+pin the check requires its exact published stable release, the actual
+`rust-engine-sbom.spdx.json` release asset, the matching GHCR tag and manifest
+bytes, and a Cosign signature from `rust.yml` at that exact tag with GitHub's
+OIDC issuer. Missing evidence, failed verification and configuration drift fail
+closed; `--quiet` suppresses successful output only.
+
+The former check required a digest in an SBOM asset filename even though the
+retained release workflows publish a fixed filename, then compared the retained
+staged pin with the newest release. Neither condition described the retained
+deployment. This check does not attest live container state or HTTP responses;
+keep the retirement live-verification procedure above and the existing release
+admission/provenance gates. Contract fixtures run with Bash 5 via
+`bash tests/T112-janus-engine-pin-check.sh` in the required check suite.
 
 To keep a staged Rust engine instance running internally after the smoke:
 
