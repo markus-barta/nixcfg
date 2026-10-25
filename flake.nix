@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 39: v261025022814.0.0 (#268 merge, sequence 109). Contents since 38: HNET-358 tray drag-to-connect; HNET-360 devices tree polish; HNET-361 additive extra_connections data model + node/connection matching (net.ParseIP/ParseMAC only, no probing; site schema stays v1); HNET-363 drawer Connections list; HNET-364 Combine. ROLLBACK NOTE: pin 38 drops extra_connections on its first save (none exist yet). Module/API unchanged; capability-free (standing go Desk 45df1430).
+    # HNET pin 40: v261025090407.0.0 (#276 merge, sequence 110). Contents since 39: HNET-365 per-connection ICMP probes (each saved extra connection, site probe interval, default 2 s) + history, impairment as Degraded, fault un-shadowing; HNET-357 readable ids; HNET-368 shared address renderer; HNET-369 version stamp in the sidebar foot; HNET-356 Topology layout. CAPABILITY: new ICMP probing approved by Markus, Desk edeef882 (2026-10-25 07:23 CET, "Yes — ship C2 probing in r40"); no listener/socket/dial/exec added, flake/go deps unchanged; no new pings until an extra connection is saved. Rollback = pin 39 (stops the pings).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=59799c9d23083944c8a34db339839f4558eaa9c9";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=db0cbcad12a153312cf85d8c46ed5000f775113c";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
