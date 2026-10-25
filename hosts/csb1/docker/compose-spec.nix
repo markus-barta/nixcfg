@@ -243,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261024220427.0.0@sha256:d2337796fc81f8ff958288230fe387cb241922e1a52cd6bc635926838bd38fbd"; # release 139 Dapper Dock (AEON-1755): see the release notes
+      image = "ghcr.io/inspr-at/aeon:261025145115.0.0@sha256:f467bf8e49839abf5c3438dc0ed0b0f857f5f55a7bac550201a5003ee1081c1c"; # release 140 Easy Energy (AEON-1782): see the release notes
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
