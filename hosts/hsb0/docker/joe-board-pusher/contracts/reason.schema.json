@@ -37,6 +37,9 @@
     "results_capture_failed",
     "not_exact_yet",
     "source_unavailable",
-    "desk_unmapped"
+    "desk_unmapped",
+    "sod_missing",
+    "ledger_unreconciled",
+    "position_stale"
   ]
 }

@@ -1261,12 +1261,16 @@ export function createFamilySessionAdapter({
    * are still available. The supplied pure calculator owns desk attribution; this
    * method only exposes inputs that already passed the J projection's live gates.
    */
-  function projectDeskEquities(book, { calculateDeskEquities, policy } = {}) {
+  function projectDeskEquities(book, { calculateDeskEquities, policy, phaseB = false } = {}) {
     if (typeof calculateDeskEquities !== "function") {
       return { ok: false, reason: "all-desk equity calculator is unavailable" };
     }
     const family = project(book);
-    if (!family.ok) return { ok: false, reason: family.reason, hardFailure: family.hardFailure === true };
+    if (!family.ok && (!phaseB || blockedReason || retryReason || !state || !connected || !executionReady ||
+        state.coverageTradingDay !== newYorkDay(now()) || !baseCurrencyProven(book, targetAccount) ||
+        book?.positionsCoverage?.status !== "complete")) {
+      return { ok: false, reason: family.reason, hardFailure: family.hardFailure === true };
+    }
     if (typeof getVerifiedHistoryState !== "function") {
       return { ok: false, reason: "authoritative all-account history is unavailable" };
     }
@@ -1299,13 +1303,14 @@ export function createFamilySessionAdapter({
         },
         account: targetAccount,
         policy,
+        phaseB,
         executorAttribution: getExecutorAttribution(),
         // A complete execution cycle is evidence used by the all-desk vector
         // even when it discovers no new fills. Keep that actual observation
         // time in the vector clock; mark/FX freshness remains independently
         // bounded by their original timestamps in calculateDeskEquities.
         observedAt: maxIso([state.coverageThrough, family.observedAt, ...Object.values(rateObservedAt)]),
-        jResult: family,
+        jResult: family.ok ? family : null,
       });
     } catch (error) {
       return { ok: false, reason: `all-desk equity calculator failed: ${error?.message || error}` };

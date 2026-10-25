@@ -757,3 +757,45 @@ test("overlapping client ownership policy is rejected before any valuation", () 
   policy.emptyDesks = [];
   assert.match(calculateDeskEquities({ ...input, account: ACCOUNT, policy, observedAt: OBSERVED }).reason, /conflicting desk ownership intervals/);
 });
+
+test("Phase B takes money and used FX provenance from the existing reconciled FIFO ledger", () => {
+  const input = fixture();
+  const value = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.equal(value.ok, true, value.reason);
+  assert.equal(value.phaseBDesks.j.base, 5000);
+  for (const id of ["j", "joe", "joel"]) {
+    const row = value.phaseBDesks[id];
+    assert.equal(row.reconciled, true);
+    assert.equal(row.equity, value.desks[id].equity);
+    assert.equal(row.totalPnl, value.desks[id].totalPnl);
+    assert.equal(row.openPnl, value.desks[id].unrealizedPnl);
+  }
+  assert.deepEqual(value.phaseBDesks.j.fx, { base: "USD", quote: "EUR", rate: input.fx.rates.USD,
+    source: "ib-account-ExchangeRate", observedAt: "2026-09-11T14:59:58.000Z" });
+  assert.equal(value.phaseBDesks.j.oldestInputAt, "2026-09-11T14:59:57.000Z");
+  assert.equal(value.phaseBDesks.joel.fx, null, "flat EUR desk makes no conversion claim");
+});
+
+test("Phase B keeps independently reconciled siblings when J has no current portfolio mark", () => {
+  const input = fixture(); input.portfolio = []; input.jResult = null;
+  const value = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.equal(value.ok, false);
+  assert.deepEqual(value.phaseBDesks.j, { reconciled: false });
+  assert.equal(value.phaseBDesks.joe.reconciled, true);
+  assert.equal(value.phaseBDesks.joel.reconciled, true);
+  assert.equal(value.phaseBDesks.joe.totalPnl, -1.08, "closed owned FIFO after fees, at used USD rate");
+});
+
+for (const kind of ["unclaimed", "pre-ledger", "history-gap", "keep-mismatch"]) test(`Phase B ${kind} never supplies exact desk evidence`, () => {
+  const input = fixture(); input.jResult = null;
+  if (kind === "unclaimed") {
+    input.ledgerState.executions[0].execution.clientId = 999;
+    input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  }
+  if (kind === "pre-ledger") input.positions.push({ account: ACCOUNT, contract: contract("UNCLAIMED", 999), symbol: "UNCLAIMED", pos: 1 });
+  if (kind === "history-gap") input.verifiedHistoryState = { ...structuredClone(input.verifiedHistoryState), receipts: [] };
+  if (kind === "keep-mismatch") input.positions.find(row => row.symbol === "TSLA").pos = 2;
+  const value = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.equal(value.ok, false);
+  assert.equal(Object.values(value.phaseBDesks || {}).some(row => row.reconciled), false);
+});

@@ -60,7 +60,10 @@ export function panelStates(feeds, now, previousValues = {}, keepSymbols = feeds
     (keep.has(p.symbol) && p.desk !== null)) ?? [];
   const affectedDesks = new Set(mismatched.flatMap(p => p.desk ? [p.desk] : ['j', 'joe', 'joel']));
   const scopeReason = mismatched.length ? 'source_not_authoritative' : null;
-  const sourceReason = field => data?.pnlSources?.[field === 'dayPnl' ? 'day' : field === 'openPnl' ? 'open' : '']?.reason;
+  const sourceReason = (field, desk) => {
+    const kind = field === 'dayPnl' ? 'day' : field === 'openPnl' ? 'open' : '';
+    return (desk?.pnlSources?.[kind] ?? data?.pnlSources?.[kind])?.reason;
+  };
   const receiptAge = feedAge(feeds.data, now);
   const generationAnchor = feeds.data?.generatedAdvancedAt === undefined ? data?.receivedAt : feeds.data.generatedAdvancedAt;
   const generationElapsedMs = data ? Math.max(0, Date.parse(now) -
@@ -82,17 +85,21 @@ export function panelStates(feeds, now, previousValues = {}, keepSymbols = feeds
       (freshFeed ? gatewayReason(data.safety.gateway, data.generatedAt, generationElapsedMs) ||
         (trackedAgeMs !== null && trackedAgeMs >= GATEWAY_CHECK_MAX_AGE_MS ? 'gateway_unconfirmed' : null) : null)
   ) : null;
-  const select = (name, feed, value, reason) => {
-    output[name] = panelState(feed, value, reason, now, previousValues[name]?.value, previousValues[name]?.valueReceivedAt);
+  const select = (name, feed, value, reason, fieldReason = reason) => {
+    // Phase B failures invalidate this calculation's basis. An older DAY or
+    // unreconciled ledger result cannot fill an explicitly unavailable cell.
+    const prior = ['sod_missing', 'ledger_unreconciled', 'position_stale'].includes(fieldReason) ? null : previousValues[name];
+    output[name] = panelState(feed, value, reason, now, prior?.value, prior?.valueReceivedAt);
   };
   for (const field of MONEY_FIELDS) select(`today.${field}`, feeds.data, sessionReason || scopeReason ? null : data?.totals[field],
-    sessionReason || scopeReason || data?.totals.reasons?.[field] || sourceReason(field));
+    sessionReason || scopeReason || data?.totals.reasons?.[field] || sourceReason(field), data?.totals.reasons?.[field] || sourceReason(field));
   select('paperAccount', feeds.data, sessionReason ? null : data?.brokerAccount?.equity, sessionReason || data?.brokerAccount?.reason);
   select('paperCash', feeds.data, sessionReason ? null : data?.brokerAccount?.cash, sessionReason || data?.brokerAccount?.reasons?.cash);
   for (const id of ['j', 'joe', 'joel']) {
     const desk = data?.desks.find(d => d.id === id);
     for (const field of MONEY_FIELDS) select(`desks.${id}.${field}`, feeds.data, sessionReason || affectedDesks.has(id) ? null : desk?.money[field],
-      sessionReason || (affectedDesks.has(id) ? scopeReason : desk?.money.reasons?.[field] || sourceReason(field)));
+      sessionReason || (affectedDesks.has(id) ? scopeReason : desk?.money.reasons?.[field] || sourceReason(field, desk)),
+      desk?.money.reasons?.[field] || sourceReason(field, desk));
   }
   const positionReason = sessionReason || data?.positions?.reason || scopeReason;
   const rows = sessionReason && data?.positions?.rows.some(p =>
