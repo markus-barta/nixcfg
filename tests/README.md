@@ -139,8 +139,14 @@ diff classification. It installs Nix without downloading a mutable channel,
 restores one shared store snapshot, verifies the public nixpkgs source against
 `flake.lock`'s NAR hash, and sets `NIX_PATH` to that same source for `nix-shell`.
 The cache key includes OS, architecture, `flake.lock`, the action and its helper.
-An exact miss downloads the public tool set normally; cache hits never skip
-contract tests. No prepare job serializes the shards.
+An exact miss or failed restore downloads the public tool set normally,
+including when a corrupt exact-key entry reports a hit before failing. The
+snapshot key is independent of restore outputs, which may be absent on failure.
+Cache hits never skip contract tests. No prepare job serializes the shards.
+
+The Python helper prints validated single-line `KEY=value` records on stdout;
+the action's shell appends them to `GITHUB_ENV`. Python never opens an
+environment-supplied output path, and newline-bearing values are rejected.
 
 Only shard 1 writes the cache, synchronously **before any contract test or
 private input access**. The restore-only/save-only actions have no post-job

@@ -2,14 +2,20 @@
 """Select only flake.lock's public nixpkgs, without evaluating private inputs."""
 
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
 import time
 
 
-def prepare(lock_path, github_env):
+def print_environment(key, value):
+    if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+            or "\n" in value or "\r" in value):
+        raise ValueError("environment output requires a valid key and a single-line value")
+    print(f"{key}={value}")
+
+
+def prepare(lock_path):
     lock = json.loads(Path(lock_path).read_text())
     node = lock["nodes"][lock["nodes"][lock["root"]]["inputs"]["nixpkgs"]]["locked"]
     # Keep cache population public even if an input is accidentally replaced.
@@ -29,11 +35,10 @@ def prepare(lock_path, github_env):
             or not re.fullmatch(r"/nix/store/[0-9a-z]{32}-source", source)):
         raise ValueError("public nixpkgs hash or store path does not match the lock")
     # Subsequent nix-shell commands and flake evaluations now reuse one tree.
-    with Path(github_env).open("a") as output:
-        output.write(f"NIX_PATH=nixpkgs={source}\n")
-    print(f"pharos_public_nixpkgs={node['rev']}")
-    print(f"pharos_public_input_seconds={time.monotonic() - started:.3f}")
+    print_environment("NIX_PATH", f"nixpkgs={source}")
+    print_environment("pharos_public_nixpkgs", node["rev"])
+    print_environment("pharos_public_input_seconds", f"{time.monotonic() - started:.3f}")
 
 
 if __name__ == "__main__":
-    prepare("flake.lock", os.environ["GITHUB_ENV"])
+    prepare("flake.lock")

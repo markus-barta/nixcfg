@@ -1,7 +1,9 @@
 """Public dependency caching must never skip a contract or publish private inputs."""
 
 import copy
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -48,8 +50,12 @@ class CacheBoundaryFixtures(unittest.TestCase):
                 self.assertNotIn("cache", step.get("if", ""))
                 self.assertNotIn("continue-on-error", step)
         writer, = writers
-        self.assertTrue(any(step.get("id") == "hausnetz-input"
-                            for step in self.workflow["jobs"][writer]["steps"]))
+        writer_steps = self.workflow["jobs"][writer]["steps"]
+        snapshot_index, = [i for i, step in enumerate(writer_steps)
+                           if step.get("uses") == "./.github/actions/pharos-nix"]
+        private_index, = [i for i, step in enumerate(writer_steps)
+                          if step.get("id") == "hausnetz-input"]
+        self.assertGreater(private_index, snapshot_index)
 
     def test_snapshot_is_synchronous_and_precedes_every_private_consumer(self):
         steps = self.action["runs"]["steps"]
@@ -60,20 +66,34 @@ class CacheBoundaryFixtures(unittest.TestCase):
         self.assertTrue(restore["uses"].startswith("nix-community/cache-nix-action/restore@"))
         self.assertEqual(restore["with"]["save"], "false")
         self.assertEqual(set(restore["with"]), {"primary-key", "save"})
-        self.assertEqual(select["run"], "python3 scripts/pharos-ci-nix.py")
+        self.assertEqual(select["run"], 'python3 scripts/pharos-ci-nix.py >> "$GITHUB_ENV"')
         self.assertIn("\nnix-shell -p ", tools["run"])
         self.assertIn("\n  --run true\n", tools["run"])
         self.assertNotIn(".#", tools["run"])
         self.assertTrue(save["uses"].startswith("nix-community/cache-nix-action/save@"))
         self.assertEqual(save["if"],
-                         "inputs.save-cache == 'true' && steps.cache.outputs.hit-primary-key != 'true'")
-        self.assertEqual(save["with"], {"primary-key": "${{ steps.cache.outputs.primary-key }}"})
+                         "inputs.save-cache == 'true' && (steps.cache.outcome != 'success' || "
+                         "steps.cache.outputs.hit-primary-key != 'true')")
+        self.assertEqual(save["with"], {"primary-key": restore["with"]["primary-key"]})
         self.assertNotIn("secrets.", json.dumps(self.action))
         # Combined cache actions save in a post-job hook, after private fetches.
         for step in steps:
             if "uses" in step:
                 self.assertRegex(step["uses"], r"@[0-9a-f]{40}$")
                 self.assertNotRegex(step["uses"], r"cache-nix-action@")
+
+    def test_failed_exact_cache_restore_fetches_normally_without_hiding_failures(self):
+        installer, restore, select, tools, save = self.action["runs"]["steps"]
+        self.assertIs(restore["continue-on-error"], True)
+        # A corrupt exact-key entry can emit hit=true before restore fails.
+        self.assertEqual(tools["if"],
+                         "steps.cache.outcome != 'success' || steps.cache.outputs.hit-primary-key != 'true'")
+        # Failed restores need not emit a primary-key output at all.
+        self.assertEqual(save["with"]["primary-key"], restore["with"]["primary-key"])
+        self.assertNotIn("steps.cache.outputs.primary-key", save["with"]["primary-key"])
+        self.assertNotIn("if", select)
+        for step in (installer, select, tools, save):
+            self.assertNotIn("continue-on-error", step)
 
     def test_cache_is_shared_exact_and_invalidated_by_dependency_changes(self):
         restore = self.action["runs"]["steps"][1]
@@ -98,15 +118,17 @@ class PublicInputFixtures(unittest.TestCase):
         self.node = self.lock["nodes"][self.lock["nodes"][self.lock["root"]]["inputs"]["nixpkgs"]]["locked"]
         self.source = "/nix/store/" + "a" * 32 + "-source"
         self.result = {"hash": self.node["narHash"], "storePath": self.source}
-        self.output = self.root / "github-env"
+        self.output = io.StringIO()
 
     def prepare(self, lock=None, result=None, error=None):
         lock_file = self.root / "flake.lock"
         lock_file.write_text(json.dumps(self.lock if lock is None else lock))
-        with patch.object(setup.subprocess, "check_output",
-                          return_value=json.dumps(self.result if result is None else result),
-                          side_effect=error) as fetch:
-            setup.prepare(lock_file, self.output)
+        with redirect_stdout(self.output), patch.object(
+                setup.subprocess, "check_output",
+                return_value=json.dumps(self.result if result is None else result),
+                side_effect=error) as fetch, patch.object(
+                setup.time, "monotonic", side_effect=[10.0, 11.25]):
+            setup.prepare(lock_file)
         return fetch
 
     def test_only_the_locked_public_source_is_fetched_and_hash_verified(self):
@@ -116,19 +138,27 @@ class PublicInputFixtures(unittest.TestCase):
             "--expected-hash", self.node["narHash"],
             f"https://github.com/nixos/nixpkgs/archive/{self.node['rev']}.tar.gz",
         ])
-        self.assertEqual(self.output.read_text(), f"NIX_PATH=nixpkgs={self.source}\n")
+        self.assertEqual(self.output.getvalue(),
+                         f"NIX_PATH=nixpkgs={self.source}\n"
+                         f"pharos_public_nixpkgs={self.node['rev']}\n"
+                         "pharos_public_input_seconds=1.250\n")
 
     def test_lock_node_name_is_resolved_from_the_root_not_assumed(self):
         node_name = self.lock["nodes"][self.lock["root"]]["inputs"]["nixpkgs"]
         self.lock["nodes"]["renamed"] = self.lock["nodes"].pop(node_name)
         self.lock["nodes"][self.lock["root"]]["inputs"]["nixpkgs"] = "renamed"
         self.prepare()
-        self.assertTrue(self.output.exists())
+        self.assertEqual(self.output.getvalue(),
+                         f"NIX_PATH=nixpkgs={self.source}\n"
+                         f"pharos_public_nixpkgs={self.node['rev']}\n"
+                         "pharos_public_input_seconds=1.250\n")
 
     def test_private_mutable_and_malformed_inputs_fail_before_fetch(self):
         for field, bad in (("type", "git"), ("owner", "private-owner"),
                            ("repo", "another-input"), ("rev", "main"),
                            ("rev", "a" * 40 + "\ninjected=true"),
+                           ("rev", "a" * 40 + "\rINJECTED=true"),
+                           ("narHash", self.node["narHash"] + "\nINJECTED=true"),
                            ("narHash", "sha256-not-a-digest")):
             with self.subTest(field=field), patch.object(setup.subprocess, "check_output") as fetch:
                 lock = copy.deepcopy(self.lock)
@@ -137,22 +167,34 @@ class PublicInputFixtures(unittest.TestCase):
                 lock_file = self.root / "flake.lock"
                 lock_file.write_text(json.dumps(lock))
                 with self.assertRaises(ValueError):
-                    setup.prepare(lock_file, self.output)
+                    setup.prepare(lock_file)
                 fetch.assert_not_called()
-                self.assertFalse(self.output.exists())
+                self.assertEqual(self.output.getvalue(), "")
 
     def test_hash_mismatch_or_unsafe_store_path_never_exports_nix_path(self):
         for result in (dict(self.result, hash="sha256-" + "A" * 43 + "="),
                        dict(self.result, storePath=self.source + "\nINJECTED=true"),
+                       dict(self.result, storePath=self.source + "\rINJECTED=true"),
                        dict(self.result, storePath="/tmp/unverified-source")):
             with self.subTest(result=result), self.assertRaises(ValueError):
                 self.prepare(result=result)
-            self.assertFalse(self.output.exists())
+            self.assertEqual(self.output.getvalue(), "")
+
+    def test_environment_output_rejects_invalid_keys_and_multiline_values(self):
+        for key, value in (("BAD=KEY", "value"), ("BAD\nKEY", "value"),
+                           ("1BAD", "value"), ("", "value"),
+                           ("NIX_PATH", "value\nINJECTED=true"),
+                           ("NIX_PATH", "value\rINJECTED=true"),
+                           ("NIX_PATH", "value\r\nINJECTED=true")):
+            with self.subTest(key=key, value=value), redirect_stdout(self.output):
+                with self.assertRaises(ValueError):
+                    setup.print_environment(key, value)
+            self.assertEqual(self.output.getvalue(), "")
 
     def test_fetch_failure_cannot_turn_into_a_cache_success(self):
         with self.assertRaises(subprocess.CalledProcessError):
             self.prepare(error=subprocess.CalledProcessError(1, ["nix"]))
-        self.assertFalse(self.output.exists())
+        self.assertEqual(self.output.getvalue(), "")
 
 
 if __name__ == "__main__":
