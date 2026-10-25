@@ -132,6 +132,62 @@ Portable fixtures need Python, Git, and Ruby/Psych, without NixOS or live servic
 python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
 ```
 
+## Pharos shared public Nix cache (OPS-453)
+
+The four contract shards use `.github/actions/pharos-nix` immediately after
+diff classification. It installs Nix without downloading a mutable channel,
+restores one shared store snapshot, verifies the public nixpkgs source against
+`flake.lock`'s NAR hash, and sets `NIX_PATH` to that same source for `nix-shell`.
+The cache key includes OS, architecture, `flake.lock`, the action and its helper.
+An exact miss downloads the public tool set normally; cache hits never skip
+contract tests. No prepare job serializes the shards.
+
+Only shard 1 writes the cache, synchronously **before any contract test or
+private input access**. The restore-only/save-only actions have no post-job
+save. This boundary matters: T38 subsequently puts a private source in that
+runner's store. Never move the snapshot after tests or replace it with an
+action that saves the final store. The other shards restore the same public
+snapshot without competing uploads. Existing private-key cleanup, exact
+pin-only classification, T33's exactly-once guard, and the always-run
+four-result aggregator retain their behavior.
+
+The brief supplies a 19.9 runner-minute baseline and a 23% M1 increase:
+
+| Quantity (unrounded runner time)            |               Minutes |
+| ------------------------------------------- | --------------------: |
+| M1 estimate: `19.9 * 1.23`                  |                24.477 |
+| Budget: `19.9 * 1.15`                       |                22.885 |
+| Required net saving across four shards      | 1.592 (95.52 seconds) |
+| Illustrative 30-second net saving per shard |      22.477 (+12.95%) |
+
+The target therefore needs **23.88 seconds saved per shard**, after restore
+overhead. Reusing public sources/tools and removing the second nixpkgs tree
+targets that repeated work. The 30-second example is a projection, not a
+measurement. A first cache miss still pays public downloads plus one upload;
+both cold and warm runs need validation, including the approximately five-minute
+shard ceiling. Recent GitHub run access and the Nix daemon were unavailable in
+the implementation sandbox, so this change does not claim a measured improvement
+or a real cache restore/save validation.
+
+For each representative full-suite PR run, collect `gh run view <run-id>
+--json jobs`, retaining job/step start and completion timestamps. Separate
+checkout/classification, Nix installation, public cache/input/tool setup,
+contracts and job cleanup. Earlier runs download inputs and tool closures
+inside contract steps, so step timestamps alone cannot separate fetch/build
+time from assertions; inspect their logs before attributing those seconds.
+Composite setup substep timings likewise require the logs; the helper emits
+`pharos_public_input_seconds`, and cache misses emit `pharos_public_tools_seconds`.
+Compare sums of
+shard plus aggregator durations and the longest shard over several cold/warm
+runs; use the same job population as the supplied baseline.
+
+Portable cache-boundary and pin/hash failure fixtures run in `aeon-pin-gate`:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_pharos_ci.py' -v
+bash tests/T33-bash-version-guards.sh # Bash 5, plus Ruby/Psych
+```
+
 ## Test Philosophy
 
 ### When Tests Live Where
