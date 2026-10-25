@@ -25,13 +25,16 @@ TRAEFIK_IMAGE='traefik:v3.7.13@sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e
 TRAEFIK_INDEX_DIGEST='sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259'
 ALPINE_IMAGE='alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce'
 PROXY_IMAGE='tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459'
-WHOAMI_IMAGE='traefik/whoami:v1.11.0@sha256:200689790a0a0ea48ca45992e0450bc26ccab5307375b41c84dfc4f2475937ab'
 
-PREFIX='nix448-t75'
+# Every invocation owns its resources, including parallel workstation proofs.
+# The Docker provider must also ignore other invocations' labelled backends.
+proof_id=$(python3 -c 'import uuid; print(uuid.uuid4().hex)')
+PREFIX="nix448-t75-${proof_id}"
 NET="${PREFIX}-net"
 PROXY="${PREFIX}-proxy"
 EDGE="${PREFIX}-traefik"
 BACKEND="${PREFIX}-backend"
+BACKEND_IMAGE="${BACKEND}:fixture"
 
 # --- 1. host source boundary ----------------------------------------------
 for file in "$compose" "$static" "$dynamic" "$host_config"; do
@@ -85,6 +88,9 @@ if grep -Eq 'services\.inspr\.routingEdge\.enable[[:space:]]*=[[:space:]]*true' 
   exit 1
 fi
 
+# The provider-readiness regression is portable and never contacts Docker.
+python3 -B -m unittest discover -s "$repo_root/tests" -p test_traefik_provider_ready.py
+
 # --- 2. isolated runtime --------------------------------------------------
 if ! docker info >/dev/null 2>&1; then
   printf 'T75: docker unavailable; fail closed. Root command: tests/T75-csb1-traefik-3713-isolated.sh\n' >&2
@@ -93,6 +99,7 @@ fi
 
 cleanup() {
   docker rm -f "$EDGE" "$BACKEND" "$PROXY" >/dev/null 2>&1 || true
+  docker image rm "$BACKEND_IMAGE" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 on_err() {
@@ -135,6 +142,8 @@ entryPoints:
   web-secure:
     address: ":443"
     http3: {}
+  proof:
+    address: ":8080"
 
 ping:
   entryPoint: web
@@ -144,7 +153,7 @@ providers:
     endpoint: "tcp://nix448-t75-proxy:2375"
     watch: true
     exposedByDefault: false
-    constraints: "Label(`nix448.proof`,`true`)"
+    constraints: "Label(`nix448.proof`,`@PROOF_ID@`)"
   file:
     directory: /etc/traefik/dynamic
     watch: true
@@ -170,9 +179,22 @@ api:
   dashboard: false
 EOF
 
+python3 - "$work/static.yml" "$proof_id" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("@PROOF_ID@", sys.argv[2]))
+PY
+
 cat >"$work/dynamic/dynamic.yml" <<'EOF'
 http:
   routers:
+    proof-api:
+      rule: "PathPrefix(`/api`)"
+      entryPoints:
+        - proof
+      service: api@internal
     https-redirect:
       rule: "HostRegexp(`^.+\\.example\\.test$`)"
       entryPoints:
@@ -202,7 +224,19 @@ EOF
 docker pull "$TRAEFIK_IMAGE" >/dev/null
 docker pull "$ALPINE_IMAGE" >/dev/null
 docker pull "$PROXY_IMAGE" >/dev/null
-docker pull "$WHOAMI_IMAGE" >/dev/null
+# A public whoami pull added an unrelated registry failure to the contract.
+# Build the synthetic header echo locally, without a base image or Go modules.
+mkdir -p "$work/backend"
+CGO_ENABLED=0 go test "$repo_root/tests/fixtures/traefik-header-probe.go" \
+  "$repo_root/tests/fixtures/traefik-header-probe_test.go"
+CGO_ENABLED=0 GOOS=linux go build -o "$work/backend/probe" \
+  "$repo_root/tests/fixtures/traefik-header-probe.go"
+cat >"$work/backend/Dockerfile" <<'EOF'
+FROM scratch
+COPY probe /probe
+ENTRYPOINT ["/probe"]
+EOF
+docker build --network none -t "$BACKEND_IMAGE" "$work/backend" >/dev/null
 
 version_out=$(docker run --rm --network none --entrypoint traefik "$TRAEFIK_IMAGE" version)
 printf '%s\n' "$version_out" | grep -Fq 'Version:      3.7.13'
@@ -218,14 +252,14 @@ docker run -d --name "$PROXY" --network "$NET" --network-alias nix448-t75-proxy 
 
 docker run -d --name "$BACKEND" --network "$NET" --network-alias nix448-t75-backend \
   --restart=no \
-  --label nix448.proof=true \
+  --label "nix448.proof=$proof_id" \
   --label traefik.enable=true \
   --label 'traefik.http.routers.nix448backend.rule=Host(`backend.example.test`)' \
   --label traefik.http.routers.nix448backend.entrypoints=web \
   --label traefik.http.routers.nix448backend.middlewares=cloudflarewarp@file \
   --label traefik.http.services.nix448backend.loadbalancer.server.port=80 \
   --label traefik.docker.network="$NET" \
-  "$WHOAMI_IMAGE" >/dev/null
+  "$BACKEND_IMAGE" >/dev/null
 
 [ -f "$work/static.yml" ]
 [ -f "$work/dynamic/dynamic.yml" ]
@@ -244,8 +278,13 @@ ready=0
 i=0
 while [ "$i" -lt 60 ]; do
   i=$((i + 1))
-  if docker run --rm --network "$NET" "$ALPINE_IMAGE" \
-    wget -q -T 3 -O /dev/null "http://nix448-t75-traefik/ping" >/dev/null 2>&1; then
+  # Ping can be green before the asynchronous Docker provider has reconciled.
+  # In that state the catch-all file router redirects backend.example.test,
+  # and wget follows it to a deliberately nonexistent DNS name. Wait for the
+  # exact enabled routes via a fixture-only API port (never host-published).
+  if routers=$(docker run --rm --network "$NET" "$ALPINE_IMAGE" \
+    wget -q -T 3 -O - "http://nix448-t75-traefik:8080/api/http/routers" 2>/dev/null) &&
+    python3 "$repo_root/tests/traefik_provider_ready.py" <<<"$routers"; then
     ready=1
     break
   fi
@@ -253,7 +292,7 @@ while [ "$i" -lt 60 ]; do
 done
 if [ "$ready" -ne 1 ]; then
   docker logs "$EDGE" >&2 || true
-  printf 'T75: Traefik ping never became ready\n' >&2
+  printf 'T75: isolated file and Docker provider routes never became ready\n' >&2
   exit 1
 fi
 

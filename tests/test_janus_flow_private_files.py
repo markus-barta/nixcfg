@@ -90,6 +90,9 @@ class PrivateFilesTests(unittest.TestCase):
     def test_symlink_directory_is_rejected_without_changing_referent(self):
         target = self.root / "other"
         target.mkdir(mode=0o755)
+        # Exercise the intended unexpected metadata even under a private
+        # inherited umask; mkdir's mode is filtered by that process setting.
+        target.chmod(0o755)
         self.destination.parent.symlink_to(target)
         with self.assertRaises(ValueError):
             self.publish()
