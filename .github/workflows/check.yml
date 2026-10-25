@@ -261,6 +261,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T19-janus-role-deployment.sh
 
+      - name: Verify retained Janus engine pins and retired app fixtures (OPS-452)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T112-janus-engine-pin-check.sh
+
       - name: Enforce IR bridge destination and log boundaries
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T25-ir-bridge-boundaries.sh
