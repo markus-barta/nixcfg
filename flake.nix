@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 38: v261024215103.0.0 (#261 merge, sequence 108). Fix release, web UI only: HNET-354 the drawer's "Choose icon" opens the icon picker (and the phone save bar's "Show"); HNET-355 Devices tree rails meet the chevrons, every level gets its own indent. Backend/module/API unchanged (only release-record data); capability-free (standing go Desk 45df1430).
+    # HNET pin 39: v261025022814.0.0 (#268 merge, sequence 109). Contents since 38: HNET-358 tray drag-to-connect; HNET-360 devices tree polish; HNET-361 additive extra_connections data model + node/connection matching (net.ParseIP/ParseMAC only, no probing; site schema stays v1); HNET-363 drawer Connections list; HNET-364 Combine. ROLLBACK NOTE: pin 38 drops extra_connections on its first save (none exist yet). Module/API unchanged; capability-free (standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=d52b77d0d70781c2440ccd71c43757540b341bd7";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=59799c9d23083944c8a34db339839f4558eaa9c9";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
