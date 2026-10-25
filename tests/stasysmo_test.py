@@ -194,14 +194,21 @@ source {fish_quote(MODULE / 'prompt.fish')}
 
 class ReaderTests(Fixture):
     def test_valid_and_stale(self):
-        command = f'__stasysmo_read {int(time.time())}; printf "%s\\n" $__stasysmo_metrics'
-        result = self.fish(command).stdout
-        self.assertIn('16%', result)
-        self.assertIn('48%', result)
-        self.assertIn('1.23', result)
-        for timestamp in (int(time.time()) - 16, int(time.time()) + 60):
-            self.snapshot.write_text(f'v1 {timestamp} 16 48 12 1.23 10\n')
-            self.assertEqual(re.sub(r'\x1b\[[0-9;]*m', '', self.fish(command).stdout), '?\n')
+        # One synthetic clock for both reader and record. Sampling wall time
+        # again after starting fish could move the stale record back inside
+        # the 15-second boundary while the reader still used the earlier now.
+        now = 1_800_000_000
+        command = f'__stasysmo_read {now}; printf "%s\\n" $__stasysmo_metrics'
+        for age in (0, 15, 16, -1):
+            with self.subTest(age=age):
+                self.snapshot.write_text(f'v1 {now - age} 16 48 12 1.23 10\n')
+                result = re.sub(r'\x1b\[[0-9;]*m', '', self.fish(command).stdout)
+                if age < 0 or age > 15:
+                    self.assertEqual(result, '?\n')
+                else:
+                    self.assertIn('16%', result)
+                    self.assertIn('48%', result)
+                    self.assertIn('1.23', result)
 
     def test_hostile_records_and_file_types(self):
         marker = self.home / 'MUST-NOT-EXIST'
