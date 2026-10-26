@@ -273,7 +273,11 @@ in
     # target changes every generation while its compose definition does not, so
     # compose correctly sees no change and it would serve a stale page forever.
     postRecreate = [ "hsb1-home" ];
-    extraRestartTriggers = [ hostdashHsb1 ];
+    extraRestartTriggers = [
+      hostdashHsb1
+      # Bind-mounted nginx snippet needs container recreation after a switch (OPS-461).
+      ./docker/hsb1-home-kig.conf
+    ];
     # Safe HERE as of 2026-09-01: all 17 project-docker services are declared
     # in the spec (verified live; /home/mba/docker remains a runtime-data root,
     # but its legacy compose file is absent and health-pixoo never ran here) —
@@ -800,6 +804,10 @@ in
   # carry over hsb1-stack's ExecStartPost and its hostdash trigger verbatim.
 
   environment.etc."hostdash/hsb1".source = hostdashHsb1;
+
+  # OPS-461: /kig/ on hsb1-home (Kinderzimmer 3D sketch). Snippet + content dir, as hsb0's /videos/.
+  environment.etc."hsb1-home-kig.conf".source = ./docker/hsb1-home-kig.conf;
+  systemd.tmpfiles.rules = [ "d /var/lib/kig 0755 mba users - -" ];
 
   # ============================================================================
   # OPUS SmartHome Stream to MQTT Bridge
