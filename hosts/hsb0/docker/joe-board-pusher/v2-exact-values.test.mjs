@@ -57,9 +57,11 @@ test("rev 9 is the default and remains byte-identical to the pre-change stager, 
   assert.equal(contractRevision("10"), 10);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "joed86-rev9-"));
   t.after(() => spawnSync("trash", [root]));
-  // Load the session base from local Git objects, with its exact relative imports.
+  // Load the pre-JOED-86 stager from a FIXED commit (main before #1136; CI checks out full history), with its exact
+  // relative imports. Never origin/main: once this change is merged, origin/main is the new stager itself (OPS fix).
+  const BASELINE = "70872310c3f829bbdd56e31e5e759f81c0f459c9";
   for (const name of ["v2-stage-worker.mjs", "v2-stage-handoff.mjs", "verify-contracts.mjs", "v1-cycle.mjs", "desk-activity.mjs", "desk-ledger.mjs", "day-baseline.mjs", "execution-history.mjs", "execution-reconciliation.mjs", "family-ledger.mjs", "family-state.mjs", "flat-net-marks.mjs", "pusher-recovery.mjs", "executor-attribution.mjs", "executor-attribution-memory.mjs", "positions-state.mjs"]) {
-    fs.writeFileSync(path.join(root, name), execFileSync("git", ["show", `origin/main:hosts/hsb0/docker/joe-board-pusher/${name}`]));
+    fs.writeFileSync(path.join(root, name), execFileSync("git", ["show", `${BASELINE}:hosts/hsb0/docker/joe-board-pusher/${name}`]));
   }
   const prior = await import(pathToFileURL(path.join(root, "v2-stage-worker.mjs")));
   const input = source();
