@@ -57,7 +57,7 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 42: v261025183407.0.0 (#285 merge, sequence 112). Contents since 41: HNET-376 page lighter when left open (web + QA only; no Go/server change). No listener/socket/dial/exec added; nix/ and flake/go deps unchanged since pin 41; capability-free (standing go Desk 45df1430). Rollback = pin 41.
+    # HNET pin 43: v261025225100.0.0 (#289 merge, sequence 113). Contents since 42: #286 HNET-380–383, 385 (one commit per frame, hidden tabs idle, history patches one cell, paused views idle, Copy diagnostics); web + optional /api/meta counters + a once-a-minute log line. No listener/socket/dial/exec added; nix/ and flake/go deps unchanged since pin 42; capability-free (standing go Desk 45df1430). Rollback = pin 42.
     hausnetz = {
       url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=e57010bb08fabfe64050843d35452d2b9c6af2bd";
       inputs.nixpkgs.follows = "nixpkgs";
