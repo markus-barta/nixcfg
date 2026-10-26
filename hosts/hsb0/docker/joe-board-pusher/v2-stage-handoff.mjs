@@ -1,6 +1,7 @@
 import net from "node:net";
 import { copyDeskActivity } from "./desk-activity.mjs";
 import { exactKeys, validCycle, frame } from "./v1-cycle.mjs";
+import { contractRevision, copyExactValues } from "./v2-exact-values.mjs";
 
 export const FRAME_FORMAT = "ops392.switch-set-observation.v2";
 export const MAX_FRAME_BYTES = 16 * 1024;
@@ -8,7 +9,7 @@ const MAX_CONTROL_BYTES = 32 * 1024;
 
 // Copy only existing scalar evidence, after v1 settles. Never inspect a ledger.
 // A symbol/side shared by desks or broker contracts cannot prove a single owner.
-export function copyObservation({ book, family, deskEquities, executions, executorAttribution, v1Cycle } = {}) {
+export function copyObservation({ book, family, deskEquities, dayPnl, executions, executorAttribution, v1Cycle } = {}, revision = 9) {
   if (v1Cycle !== undefined && !validCycle(v1Cycle)) return null;
   if (!book || typeof book.ts !== "string" || book.ts.length > 64) return null;
   if (book.apiReplyCheckedAt != null && (typeof book.apiReplyCheckedAt !== "string" || book.apiReplyCheckedAt.length > 24)) return null;
@@ -31,6 +32,11 @@ export function copyObservation({ book, family, deskEquities, executions, execut
   if (deskEquities?.ok) {
     for (const desk of ["j", "joe", "joel"]) {
       if (!addOwners(desk, deskEquities.desks?.[desk]?.positions)) return null;
+    }
+  } else if (revision === 10 && deskEquities?.phaseBDesks) {
+    for (const desk of ["j", "joe", "joel"]) {
+      const value = deskEquities.phaseBDesks[desk];
+      if (value?.reconciled && !addOwners(desk, value.positions)) return null;
     }
   } else {
     const positions = family?.ok ? family.positions : family?.partialAccounting?.positions;
@@ -67,6 +73,7 @@ export function copyObservation({ book, family, deskEquities, executions, execut
     },
     apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
     deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }),
+    ...(revision === 10 ? { exactValues: copyExactValues({ book, deskEquities, dayPnl }) } : {}),
     ...(v1Cycle === undefined ? {} : { v1Cycle: { ...v1Cycle } }) };
 }
 
@@ -77,6 +84,7 @@ export function createStageHandoff({
   makeSocket = () => new net.Socket(),
   defer = setImmediate,
   cycleStore,
+  revision = contractRevision(),
 } = {}) {
   if (socketPath !== "/run/joe-household-v2/stage.sock") return { offer: () => false, stop() {} };
   let socket;
@@ -147,7 +155,7 @@ export function createStageHandoff({
       const current = socket;
       if (!credit || !current?.writable || current.destroyed || current.connecting || current.writableLength > 0) return false;
       try {
-        const observation = copyObservation(source);
+        const observation = copyObservation(source, revision);
         if (!observation) return false;
         const bytes = Buffer.from(JSON.stringify(observation));
         if (bytes.length > MAX_FRAME_BYTES) return false;

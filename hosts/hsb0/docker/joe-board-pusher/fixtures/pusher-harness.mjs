@@ -23,7 +23,7 @@ export function installPusherDoubles(moduleURL, state, realHandoff = false) {
   configure(state);
   return registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (context.parentURL === moduleURL && !["./project.mjs", "./v1-cycle.mjs", "./v1-cycle-store.mjs"].includes(specifier) && !(realHandoff && specifier === "./v2-stage-handoff.mjs")) {
+      if (context.parentURL === moduleURL && !["./project.mjs", "./v1-cycle.mjs", "./v1-cycle-store.mjs", "./v2-exact-values.mjs"].includes(specifier) && !(realHandoff && specifier === "./v2-stage-handoff.mjs")) {
         return { url: new URL("./pusher-dependencies.mjs", import.meta.url).href, shortCircuit: true };
       }
       return nextResolve(specifier, context);

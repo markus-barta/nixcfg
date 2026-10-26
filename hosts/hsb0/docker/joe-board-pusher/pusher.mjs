@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { configuredPaperAccount } from "./paper-account.mjs";
 import net from "node:net";
 import { createStageHandoff } from "./v2-stage-handoff.mjs";
+import { contractRevision } from "./v2-exact-values.mjs";
 import { createV2Publisher } from "./v2-publisher.mjs";
 import { startCycle } from "./v1-cycle.mjs";
 import { createCycleStore } from "./v1-cycle-store.mjs";
@@ -350,6 +351,7 @@ async function pushOnce(stageObservation) {
   const deskEquities = familyAdapter.projectDeskEquities(book, {
     calculateDeskEquities,
     policy: deskOwnershipPolicy,
+    phaseB: contractRevision() === 10,
   });
   if (!deskEquities.ok) {
     console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
@@ -377,7 +379,7 @@ async function pushOnce(stageObservation) {
   const requestBody = JSON.stringify(snap);
   if (v2Publisher) {
     if (stageObservation) Object.assign(stageObservation, {
-      book, family, deskEquities, executions: familyAdapter.activitySnapshot(), executorAttribution,
+      book, family, deskEquities, dayPnl, executions: familyAdapter.activitySnapshot(), executorAttribution,
       v1Cycle: startCycle(requestBody)("not_posted_v2_active"), v1Body: requestBody,
     });
     return { ok: true, status: "not_posted_v2_active" };
@@ -388,7 +390,7 @@ async function pushOnce(stageObservation) {
     return { ok: false, error: "no token" };
   }
 
-  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, executions: familyAdapter.activitySnapshot(), executorAttribution });
+  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, dayPnl, executions: familyAdapter.activitySnapshot(), executorAttribution });
 
   const settleCycle = startCycle(requestBody);
   let status = "post_failed";

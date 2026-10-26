@@ -8,6 +8,7 @@ const PARTIAL_REASONS = resultsSchema.properties.days.items.properties.partialRe
 const FIELDS = ['equity', 'dayPnl', 'openPnl', 'totalPnl'];
 const KEEP = ['SXR8', 'TSLA'];
 const DESKS = ['j', 'joe', 'joel'];
+const PHASE_B_NULL_REASONS = ['sod_missing', 'ledger_unreconciled', 'position_stale'];
 
 export function checkSemantics(kind, payload, stage, errors, receivedAt) {
   const fail = (path, rule) => { if (errors.length < 32) errors.push({ path, rule }); };
@@ -31,7 +32,13 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
     if (stage === 'served' && !payload.receivedAt) fail('$.receivedAt', 'required');
     if (stage === 'ingress' && Object.hasOwn(payload, 'receivedAt')) fail('$.receivedAt', 'serverOwned');
   }
-  const checkBag = (bag, path) => FIELDS.forEach(f => eur(bag?.[f], `${path}.${f}`));
+  const checkPhaseBNull = (value, reason, path) => {
+    if (value != null && PHASE_B_NULL_REASONS.includes(reason)) fail(path, 'unavailableValue');
+  };
+  const checkBag = (bag, path) => FIELDS.forEach(f => {
+    eur(bag?.[f], `${path}.${f}`);
+    checkPhaseBNull(bag?.[f], bag?.reasons?.[f], `${path}.${f}`);
+  });
   const checkDeskSum = (desks, totals, path) => {
     for (const field of FIELDS) {
       const parts = desks.map(d => d?.money[field]);
@@ -60,21 +67,35 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
       unavailable(account.cash, '$.brokerAccount.cash', account.reasons?.cash);
     }
     checkDeskSum(payload.desks, payload.totals, '$.totals');
+    const checkPnlSource = (source, path, kind, values) => {
+      if (values.some(Boolean) && (source?.status !== 'available' || !source.method || !source.observedAt)) fail(path, 'evidenceRequired');
+      if (source?.status === 'available' && !values.every(Boolean)) fail(path, 'completeEvidenceRequired');
+      if (source?.status === 'available' && kind === 'day' && !['ib-daily-pnl', 'sod-virtual-equity', 'session-open-estimate'].includes(source.method)) fail(path, 'dayMethod');
+      if (kind === 'day' && /^session_open_proxy(?:\b|[: _-])/.test(source?.detail ?? '') && source.method !== 'session-open-estimate') fail(`${path}.method`, 'estimateMethodRequired');
+      if (source?.status === 'available' && kind === 'open' && !['ib-unrealized-pnl', 'owned-lots-current-mark-fx'].includes(source.method)) fail(path, 'openMethod');
+      if (['sod-virtual-equity', 'session-open-estimate'].includes(source?.method) && !source.periodStart) fail(`${path}.periodStart`, 'baselineRequired');
+    };
     for (const [kind, field] of [['day', 'dayPnl'], ['open', 'openPnl']]) {
       const source = payload.pnlSources?.[kind];
-      const values = [payload.totals[field], ...payload.desks.map(d => d.money[field])];
-      if (values.some(Boolean) && (source?.status !== 'available' || !source.method || !source.observedAt)) fail(`$.pnlSources.${kind}`, 'evidenceRequired');
-      if (source?.status === 'available' && !values.every(Boolean)) fail(`$.pnlSources.${kind}`, 'completeEvidenceRequired');
-      if (source?.status === 'available' && kind === 'day' && !['ib-daily-pnl', 'sod-virtual-equity', 'session-open-estimate'].includes(source.method)) fail('$.pnlSources.day', 'dayMethod');
-      if (kind === 'day' && /^session_open_proxy(?:\b|[: _-])/.test(source?.detail ?? '') && source.method !== 'session-open-estimate') fail('$.pnlSources.day.method', 'estimateMethodRequired');
-      if (source?.status === 'available' && kind === 'open' && !['ib-unrealized-pnl', 'owned-lots-current-mark-fx'].includes(source.method)) fail('$.pnlSources.open', 'openMethod');
-      if (['sod-virtual-equity', 'session-open-estimate'].includes(source?.method) && !source.periodStart) fail(`$.pnlSources.${kind}.periodStart`, 'baselineRequired');
+      // Rev 9's aggregate evidence remains all-or-nothing. Rev 10 opts into
+      // independent desk evidence only for fields with a scoped source.
+      const scoped = payload.desks.some(d => d.pnlSources?.[kind]);
+      checkPnlSource(source, `$.pnlSources.${kind}`, kind,
+        scoped ? [payload.totals[field]] : [payload.totals[field], ...payload.desks.map(d => d.money[field])]);
+      if (scoped) payload.desks.forEach((desk, i) => {
+        const own = desk.pnlSources?.[kind];
+        const path = `$.desks[${i}].pnlSources.${kind}`;
+        checkPnlSource(own ?? source, own ? path : `$.pnlSources.${kind}`, kind, [desk.money[field]]);
+        if (own?.status === 'available' && own.method !== (kind === 'day' ? 'sod-virtual-equity' : 'owned-lots-current-mark-fx')) fail(`${path}.method`, 'exactDeskMethod');
+        checkPhaseBNull(desk.money[field], own?.reason, `$.desks[${i}].money.${field}`);
+      });
     }
     payload.positions?.rows.forEach((p, i) => {
       if ((KEEP.includes(p.symbol) && p.scope !== 'keep') || (p.scope === 'keep' && p.desk !== null)) fail(`$.positions.rows[${i}]`, 'keepExcluded');
       if (p.scope === 'stage0' && !DESKS.includes(p.desk) && !(p.desk === null && p.reasons?.desk)) fail(`$.positions.rows[${i}]`, 'deskRequired');
       if (p.reasons?.desk && (p.desk !== null || p.scope === 'keep')) fail(`$.positions.rows[${i}].reasons.desk`, 'contradictoryDesk');
       for (const field of ['quantity', 'mark', 'marketValue', 'dayPnl', 'openPnl']) {
+        checkPhaseBNull(p[field], p.reasons?.[field], `$.positions.rows[${i}].${field}`);
         if (Object.hasOwn(p, field)) unavailable(p[field], `$.positions.rows[${i}].${field}`,
           p.reasons?.[field] || (gatewayReason(payload.safety.gateway, payload.generatedAt) && payload.positions.reason));
       }

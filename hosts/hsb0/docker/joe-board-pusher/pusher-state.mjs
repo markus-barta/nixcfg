@@ -339,6 +339,12 @@ export function createBrokerSessionAdapter({
       unrealizedPNL: nextUnrealized !== undefined ? nextUnrealized : prev.unrealizedPNL,
       realizedPNL: nextRealized !== undefined ? nextRealized : prev.realizedPNL,
       observedAt,
+      // A valid price cannot renew a retained worth or unrealized-P&L value.
+      // Quantity changes invalidate unsupplied money, even within the age bound.
+      portfolioFieldObservedAt: Object.fromEntries(Object.entries({
+        quantity: qty, mark: nextPrice, marketValue: nextMarketValue, openPnl: nextUnrealized,
+      }).map(([field, value]) => [field, value !== undefined ? observedAt
+        : qty === prev.pos ? prev.portfolioFieldObservedAt?.[field] ?? null : null])),
       markObservedAt: nextPrice !== undefined
         ? observedAt
         : prev.markObservedAt || null,

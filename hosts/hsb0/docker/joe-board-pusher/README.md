@@ -45,6 +45,72 @@ state, pair schema and source-clock semantics are unchanged. Preserve pairs,
 the current pointer, sequence high-water, lock, receipt log and v1 bodies.
 The separate R16 → R15 move-aside procedure remains required in the host runbook.
 
+## Phase B exact values (JOED-86, contracts revision 10)
+
+This local proposal does not activate Phase B. **`JOE_V2_CONTRACT_REV=10` must
+be passed to both the pusher and the isolated stager** by OPS, only after the
+rev-10 board release **32** (JOED-87) is live. An absent or any other value
+keeps the revision-9 snapshot bytes and receipts unchanged. This setting is
+independent of `JOE_PUSH_SCHEMA`; it neither selects a POST target nor enables
+publication. The lock supervisor forwards only this explicit opt-in alongside
+its existing PATH/NODE_ENV allowlist. No host/module or release-image pin is
+changed in this proposal.
+
+The bounded private observation carries scalar exactness evidence after the
+existing v1 calculation/settlement. It contains no account, execution or conid
+identifiers and no ledger. The stager still validates source clocks and gateway
+readiness independently of its advancing generation clock.
+
+| Value                                | Revision-10 emission rule                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Position quantity, last, worth, OPEN | Match the broker position to exactly one `updatePortfolio` callback by conid and quantity. Copy native-currency values without rounding, with actual callback `updatedAt`. Every field has its own callback clock; a valid price cannot renew retained worth/OPEN. Missing, ambiguous or mismatched callbacks stay `null/not_exact_yet`; observations over the existing five-minute mark bound use `position_stale`. Position coverage keeps its separate 420-second bound. |
+| Desk equity, OPEN, since start       | Use that desk's existing FIFO result only after complete all-account history, ownership and broker-position reconciliation. Missing/unclaimed/pre-ledger input uses `ledger_unreconciled`. Independently reconciled siblings can remain exact when another desk lacks a mark; totals require all three exact summands. Stale inputs stay null.                                                                                                                              |
+| Desk DAY                             | Additionally require the durable, once-daily exact America/New_York midnight SOD proof. Missing/missed/reseeded SOD and `session_open_proxy` use `null/sod_missing`. Copy `sod-virtual-equity` evidence with its actual period and observation time; the v1 approximate DAY remains unchanged.                                                                                                                                                                              |
+| Since-start base                     | EUR **5,000 per desk**, EUR **15,000 aggregate**, as verified in JOED-85 against `project.mjs`, `desk-ledger.mjs` and `family-ledger.mjs`. Unknown base withholds `totalPnl/not_exact_yet`. The verified FIFO accounting period remains 2026-09-10 New York onward.                                                                                                                                                                                                         |
+| J/other converted desk money         | Every converted field carries `money.fx` with the actual IB `ExchangeRate` used, quote EUR and its original callback time. Missing, stale, future, nonpositive or unrepresentable rates keep money null. A calculation requiring more than one foreign rate stays `not_exact_yet`: the existing wire money object can represent only one rate.                                                                                                                              |
+| Cash and KEEP                        | Cash is solely fresh EUR `TotalCashValue` in `brokerAccount.cash`; NAV never substitutes. There is no per-desk cash property. SXR8/TSLA remain `scope:keep, desk:null` and never enter desk money or totals. Position DAY remains reasoned null.                                                                                                                                                                                                                            |
+
+Per-desk `pnlSources.day/open` lets exact siblings coexist with unavailable
+desks. Aggregate evidence and totals stay unavailable until every corresponding
+desk field is exact; sums use decimal integer units. Neither a heartbeat nor
+the retained v1 equity vector can renew an economic input. An unavailable
+callback field or rate is never rounded into apparent exactness.
+
+The new runtime reads preserved rev-9 pairs and activated rev-10 pairs without
+changing enrollment, allocator floor, sequence high-water, lock or old receipts.
+Default output retains the rev-9 receipt digest; activated output records the
+rev-10 digest. An old digest cannot validate a Phase-B pair. Turning the setting
+off changes future output; it does not erase a committed rev-10 pair or an
+uncertain pending POST. A rollback to an older binary after activation needs
+the coordinator's archive/move-aside procedure, preserving sequence state and
+lock; never reset or delete history. Keep the rev-10 board during that rollback.
+
+### Complete contract re-vendoring
+
+Vendor **all 17 files** under JoeDesk `contracts/`, exactly, from immutable
+commit `7c1616325c0007608425e4ad31a0a8256be4aeb7` (PR #89). The independent
+`release/contracts.json` pin is revision **10**, contract-set SHA256
+`3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`.
+Use local `git show <commit>:<path>` bytes; no runtime fetch or partial schema
+copy. `contracts.lock.json` lists the complete sorted filename, size and SHA256
+closure. The set digest hashes compact JSON entries in sorted path order with
+property order `{path:"contracts/<name>",size,sha256}`. Check it against the
+independent release pin before writing the lock. Update the fixed verifier's
+source/revision/set constants and the worker's activated receipt digest
+together, retaining the rev-9 compatibility digest. `node verify-contracts-entry.mjs`
+verifies the fixed closure before imports at build time and worker startup;
+missing, extra, changed or linked files fail closed. The Docker source closure
+includes `v2-exact-values.mjs`.
+
+Validation: `node --test --test-concurrency=2` in this directory. Synthetic
+tests cover the real FIFO/adapter evidence path, per-field callback clocks,
+reconciliation failures, SOD/proxy rejection, FX provenance, KEEP/cash, complete
+sums, rev-10 schema/acceptance and durable restart. A byte comparison loads the
+pre-change stager from local Git and proves default rev-9 output unchanged,
+even when offered rev-10 evidence. This is local patch evidence; cross-family
+review, OPS promotion, live paper proof and Amy's sign-off belong to the
+coordinator.
+
 ## household.v2 publication switch (OPS-408)
 
 Only the pusher can POST. hsb0 adds `JOE_PUSH_SCHEMA=inspr.joe.household.v2`
@@ -127,7 +193,7 @@ remains disabled (`nixcfg.joeResultsProducer.enable = false`). This build
 adds useful account and position evidence to local staging. The stager itself
 never POSTs; the separate pusher switch above controls publication. PAPER only;
 live remains locked. In v1 mode all accounting, token source, POST bytes and
-interval remain unchanged. Desk money and totals
+interval remain unchanged. By default (revision 9), desk money and totals
 stay null with `not_exact_yet`. Desk activity uses the existing read-only broker
 replies; no executor API request or executor change is added. Historical evidence
 and accounting remain omitted.
@@ -244,7 +310,7 @@ map is not used. Unmapped stage0 rows retain `desk:null` and
 stages the complete pair with all five valuation fields null and individually
 reasoned `not_exact_yet`. KEEP and mapped stage0 rows carry no desk reason.
 
-Desk rows use exactly `desks[].state` from [rev 9 data.schema.json](./contracts/data.schema.json):
+Desk rows use exactly `desks[].state` from the [data schema](./contracts/data.schema.json), unchanged since rev 9:
 `stuck` if a position, order or execution reader is unavailable, has unknown
 ownership, or its observation is older than the shared 420-second pusher
 bound; otherwise `working` if that desk has
@@ -272,8 +338,10 @@ an order reference. Reader errors/disconnects invalidate evidence. The execution
 summary must cover the current NY day, including weekends; midnight needs a new
 completed reply. The mirrored `newYorkDay` function is tested against executor
 `brakeUsage` around both midnight offsets and DST changes. The optional summary runs only with staging enabled and its failures cannot
-change v1 reader availability. `desks[].action` says "Valuation is not exact yet."; all desk money
-stays null with individual `not_exact_yet` reasons. KEEP rows are unaffected.
+change v1 reader availability. In default revision 9, `desks[].action` says
+"Valuation is not exact yet." and desk money stays null with individual
+`not_exact_yet` reasons. Revision 10 reports whether all or some desk values are
+available, following the actual money fields. KEEP scope is unchanged.
 
 After v1 settlement, the pusher emits `v2_desk_state` on each desk's first
 observation and whenever its state or cause changes, independently of stager
@@ -308,7 +376,7 @@ The supervisor never enrolls. An absent or corrupt state fails closed; do not
 reset it to recover service. The first reserved sequence is 1. Other hosts or
 reenrollment need a separate operator floor record and reviewed procedure.
 
-The worker verifies the exact 17-file revision-9 closure before importing any
+The worker verifies the exact 17-file revision-10 closure before importing any
 contracts. Source time is calendar-validated UTC from `book.ts`; missing or
 invalid source time suppresses staging. Generation uses the worker's receipt
 clock and is clamped to the durable `lastGeneratedAt` floor. That existing field
@@ -361,10 +429,10 @@ death at persistence boundaries, contract acceptance/replay/clocks, corruption,
 ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
 synthetic/masked. The pinned verifier checks every closure file against its
 independent hash/size manifest; offline handoff evidence also compares the
-17 files directly against JoeDesk 84c47b647cf06a38a3f61ce7f928a10ed10eeef3
-(set 000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5). The pusher-local
+17 files directly against JoeDesk 7c1616325c0007608425e4ad31a0a8256be4aeb7
+(set 3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350). The pusher-local
 verifier exports a fixed-path `verify()`; `node verify-contracts-entry.mjs`
-is the unconditional Docker build entry. It is tested on valid and damaged rev 9 closures. Linux
+is the unconditional Docker build entry. It is tested on valid and damaged rev 10 closures. Linux
 flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
 those separately and does not claim container isolation has been live-verified.
 

@@ -363,10 +363,12 @@ export function calculateDeskEquities({
   observedAt,
   jResult = null,
   executorAttribution = null,
+  phaseB = false,
 } = {}) {
   const executorClients = executorClientCounts(ledgerState?.executions, executorAttribution);
   const diagnostics = { ...(executorClients.length ? { executorClients } : {}),
     ...(executorAttribution?.opsTestExecutionCount ? { opsTestExecutionCount: executorAttribution.opsTestExecutionCount } : {}) };
+  let phaseBDesks;
   try {
     if (typeof account !== "string" || !account.trim()) throw new Error("target account is invalid");
     const canonical = canonicalPolicy(policy);
@@ -408,6 +410,29 @@ export function calculateDeskEquities({
     const j = calculate("j");
     const joe = calculate("joe");
     const joel = calculate("joel");
+    if (phaseB) {
+      phaseBDesks = Object.fromEntries(DESKS.map((id, index) => {
+        const result = [j, joe, joel][index];
+        if (!result.ok) return [id, { reconciled: false }];
+        const currencies = new Set(["EUR"]);
+        for (const row of ledgerEconomics.filter(row => row.desk === id)) {
+          currencies.add(row.contract.currency);
+          currencies.add(row.fee.currency);
+        }
+        const foreign = [...currencies].filter(currency => currency !== "EUR");
+        const times = [cutoff, ...result.positions.map(row => instant(row.updatedAt, "mark"))];
+        for (const currency of currencies) times.push(instant(fx?.rateObservedAt?.[currency], "FX"));
+        if (times.some(at => at > sourceAt)) return [id, { reconciled: false }];
+        const conversion = foreign.length === 0 ? null : foreign.length === 1 ? {
+          base: foreign[0], quote: "EUR", rate: fx.rates[foreign[0]],
+          source: "ib-account-ExchangeRate", observedAt: instant(fx.rateObservedAt[foreign[0]], "FX"),
+        } : false; // The wire money object can describe only one foreign rate.
+        return [id, { reconciled: true, base: 5000, equity: result.equity,
+          totalPnl: result.totalPnl, openPnl: result.unrealizedPnl,
+          observedAt: sourceAt, oldestInputAt: times.sort()[0], fx: conversion,
+          positions: structuredClone(result.positions) }];
+      }));
+    }
     if (!j.ok) throw new Error(`J desk calculation unavailable: ${j.reason}`);
     if (!joe.ok) throw new Error(`Joe desk calculation unavailable: ${joe.reason}`);
     if (!joel.ok) throw new Error(`Joel desk calculation unavailable: ${joel.reason}`);
@@ -416,6 +441,7 @@ export function calculateDeskEquities({
       executionCount: result.executionCount,
     });
     if (jResult && stable(compatibleJ(j)) !== stable(compatibleJ(jResult))) {
+      phaseBDesks = undefined;
       throw new Error("all-desk J result differs from the existing family result");
     }
     const desks = { j: deskValue(j), joe: deskValue(joe), joel: deskValue(joel) };
@@ -442,6 +468,7 @@ export function calculateDeskEquities({
     const policyHash = sourceContract.policyHash;
     return {
       ok: true,
+      ...(phaseBDesks ? { phaseBDesks } : {}),
       ...diagnostics,
       desks,
       equity,
@@ -459,7 +486,8 @@ export function calculateDeskEquities({
       },
     };
   } catch (error) {
-    return { ok: false, reason: String(error?.message || error), ...diagnostics };
+    return { ok: false, reason: String(error?.message || error), ...diagnostics,
+      ...(phaseBDesks ? { phaseBDesks } : {}) };
   }
 }
 

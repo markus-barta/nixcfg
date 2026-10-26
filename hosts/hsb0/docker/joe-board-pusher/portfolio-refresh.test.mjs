@@ -368,3 +368,35 @@ test("adapter refresh uses the same session and preserves prices, coverage and m
   assert.equal(adapter.snapshot().portfolio[0].marketPrice, 21);
   assert.equal(adapter.snapshot().positionsCoverage.status, "complete");
 });
+
+test("actual portfolio callback clocks distinguish retained worth/OPEN and invalidate them on quantity changes", () => {
+  const account = "SYNTHETIC-PAPER";
+  let at = START;
+  const names = Object.fromEntries(["connected", "disconnected", "connectionClosed", "error", "info", "currentTime", "managedAccounts", "accountSummary", "accountSummaryEnd", "position", "positionEnd", "updatePortfolio", "accountDownloadEnd", "openOrder"].map(name => [name, name]));
+  const adapter = createBrokerSessionAdapter({ targetAccount: account, eventNames: names, now: () => iso(at) });
+  const api = new FakeApi(); adapter.attach(api); api.emit("connected");
+  const stock = contract("SYNTHETIC", 123);
+  api.emit("managedAccounts", account);
+  api.emit("accountSummary", 9501, account, "NetLiquidation", "10000", "EUR");
+  api.emit("accountSummaryEnd", 9501);
+  api.emit("position", account, stock, 2, 10);
+  api.emit("positionEnd");
+  api.emit("updatePortfolio", stock, 2, 11, 22, 10, 2, 0, account);
+  api.emit("accountDownloadEnd", account);
+  let row = adapter.snapshot().portfolio[0];
+  assert.deepEqual(row.portfolioFieldObservedAt, { quantity: iso(START), mark: iso(START), marketValue: iso(START), openPnl: iso(START) });
+  at += 1000;
+  api.emit("updatePortfolio", stock, 2, 12, Number.MAX_VALUE, 10, Number.MAX_VALUE, 0, account);
+  row = adapter.snapshot().portfolio[0];
+  assert.equal(row.marketPrice, 12);
+  assert.equal(row.marketValue, 22);
+  assert.equal(row.portfolioFieldObservedAt.mark, iso(at));
+  assert.equal(row.portfolioFieldObservedAt.marketValue, iso(START));
+  assert.equal(row.portfolioFieldObservedAt.openPnl, iso(START));
+  at += 1000;
+  api.emit("updatePortfolio", stock, 3, 12, Number.MAX_VALUE, 10, Number.MAX_VALUE, 0, account);
+  row = adapter.snapshot().portfolio[0];
+  assert.equal(row.portfolioFieldObservedAt.quantity, iso(at));
+  assert.equal(row.portfolioFieldObservedAt.marketValue, null);
+  assert.equal(row.portfolioFieldObservedAt.openPnl, null);
+});
