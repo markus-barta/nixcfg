@@ -41,8 +41,8 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects 8be38581 (sequence 32, JOED-87) with the r19a
-pusher/executor pins (JOED-63 FX stale clock + HOSTD-77 gateway evidence, after JOED-62 r18f attribution memory); `current` retains db621bf, legacy `calendar`
+executor. `active = v2` (OPS-354 activation) selects 8be38581 (sequence 32, JOED-87) with the r20a
+pusher/executor pins (JOED-86 code delivery, revision 9 default; after JOED-63/HOSTD-77 r19a); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
@@ -58,10 +58,10 @@ The active `v2` set records main 8be38581 (JOED-87 release 32; supersedes 20c37c
 record at manifest revision 10. Release 32's board UI shows exact desk money and
 position values, percentages when their base is known, reasons for unavailable
 values and each position's own observation age. The board accepts revision-9
-payloads; hsb0 keeps its revision-9 pusher/executor pins, with revision-10
-re-vendoring and producer sign-off separately tracked by JOED-86. The full
+payloads; JOED-86 prepares the revision-10-capable shared image with revision 9
+still the default. Phase B activation and producer sign-off remain separately gated. The full
 source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
-downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-63/HOSTD-77 after JOED-62 r18f; image `household-v2-switch-set-r19a-202610230614`). Fixtures do not
+downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-86; image `household-v2-switch-set-r20a-202610260300`, revision 9 default). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
