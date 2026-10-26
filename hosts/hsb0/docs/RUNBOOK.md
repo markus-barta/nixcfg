@@ -1175,9 +1175,17 @@ production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
 `joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
 r17 images in the release set and moved the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
 Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), and since JOED-87 it is 8be38581 (sequence 32).
-Release 32's board accepts contract revision 10 and existing revision-9 payloads;
-the hsb0 pusher/executor retain their revision-9 closure and r19a image.
-Revision-10 re-vendoring and producer sign-off remain separate under JOED-86.
+Release 32's board accepts contract revision 10 and existing revision-9 payloads.
+JOED-86 prepares `household-v2-switch-set-r20a-202610260300` from the merged
+pusher code, with revision 9 still the default. Phase B activation and real
+producer sign-off remain separate; this tag does not set `JOE_V2_CONTRACT_REV=10`.
+Prestage the immutable image before one validated host build and activation.
+The pusher, stager, executor and mailbox share the tag and recreate together;
+the existing compose post-recreation also recreates `hsb0-home`. Reject any
+other runtime definition change. The gateway container and Results producer
+invocation must stay unchanged. For this image promotion, rollback explicitly
+activates the asserted pre-switch generation with its retained r19a image;
+do not use the separate r16d/v1 variant B rollback below.
 
 In v2 mode, only the `current.json` committed pair is eligible. The existing
 stager reader validates it and returns the exact snapshot bytes for POST.
