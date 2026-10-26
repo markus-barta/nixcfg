@@ -564,6 +564,10 @@
         # Written atomically every 60s by hostdash-status.service (../hostdash-status.nix).
         "/var/lib/hostdash-status:/srv/hostdash-status:ro"
         "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+        # OPS-461: the Kinderzimmer 3D sketch at /kig/; content dir outside the read-only app root
+        # (same reason as /status/ above), snippet into the shared conf's include point.
+        "/var/lib/kig:/srv/kig:ro"
+        "/etc/hsb1-home-kig.conf:/etc/nginx/hostdash-extra/kig.conf:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=true"
