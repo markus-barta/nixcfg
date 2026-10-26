@@ -41,7 +41,7 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects 8be38581 (sequence 32, JOED-87) with the r20b
+executor. `active = v2` (OPS-354 activation) selects e96ff9a5 (sequence 33, JOED-90) with the r20b
 pusher/executor pins (JOED-86 code delivery, revision 9 default; after JOED-63/HOSTD-77 r19a); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
@@ -52,12 +52,11 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The active `v2` set records main 8be38581 (JOED-87 release 32; supersedes 20c37cdd / sequence 31, d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
-261025221940.0.0, sequence 32 from that checkout's `release.json` and
-`release/preparation.json` (JOED-85 preparation; JOED-84 was the previous release set) and the complete exact `release/contracts.json`
-record at manifest revision 10. Release 32's board UI shows exact desk money and
-position values, percentages when their base is known, reasons for unavailable
-values and each position's own observation age. The board accepts revision-9
+The active `v2` set records main e96ff9a5 (JOED-90 release 33; supersedes 8be38581 / sequence 32, live 2026-10-26, 20c37cdd / sequence 31, d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
+261026070713.0.0, sequence 33 from that checkout's `release.json` and
+`release/preparation.json` (JOED-90 preparation; JOED-87 was the previous release set) and the complete exact `release/contracts.json`
+record at manifest revision 10, unchanged from release 32. Release 33 includes
+the Results speed fix (JOED-89) and honest last values (JOED-91). The board accepts revision-9
 payloads; JOED-86 prepares the revision-10-capable shared image with revision 9
 still the default. Phase B activation and producer sign-off remain separately gated. The full
 source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
@@ -68,7 +67,7 @@ executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
 JOED-26 live adoption remains gated; current legacy metadata stays intact.
 The published source's `release.json` still says candidate; OPS uses the exact
-8be38581 commit and revision-10 contract hashes rather than treating that field as activation.
+e96ff9a5 commit and revision-10 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against 68ae6846 (routing held constant) and
