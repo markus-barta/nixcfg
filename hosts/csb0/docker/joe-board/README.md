@@ -41,7 +41,7 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects a60f4c56 (sequence 28, JOED-60) with the r19a
+executor. `active = v2` (OPS-354 activation) selects 8be38581 (sequence 32, JOED-87) with the r19a
 pusher/executor pins (JOED-63 FX stale clock + HOSTD-77 gateway evidence, after JOED-62 r18f attribution memory); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
@@ -52,18 +52,23 @@ history when promoting v2. Exact image IDs, NixOS
 generations and verified private backup coordinates belong in the private
 operator rollback record; null generation fields are outstanding evidence.
 
-The active `v2` set records main 20c37cdd (JOED-84 release 31; supersedes d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
-261025144826.0.0, sequence 31 from that checkout's `release.json` and
-`release/preparation.json` (JOED-81 preparation; JOED-77 was the previous release set) and the complete exact `release/contracts.json`
-record at manifest revision 9. The full source/tree and contract hashes are in
-the RUNBOOK. Its downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-63/HOSTD-77 after JOED-62 r18f; image `household-v2-switch-set-r19a-202610230614`). Fixtures do not
+The active `v2` set records main 8be38581 (JOED-87 release 32; supersedes 20c37cdd / sequence 31, d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28, 040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), CalVer3
+261025221940.0.0, sequence 32 from that checkout's `release.json` and
+`release/preparation.json` (JOED-85 preparation; JOED-84 was the previous release set) and the complete exact `release/contracts.json`
+record at manifest revision 10. Release 32's board UI shows exact desk money and
+position values, percentages when their base is known, reasons for unavailable
+values and each position's own observation age. The board accepts revision-9
+payloads; hsb0 keeps its revision-9 pusher/executor pins, with revision-10
+re-vendoring and producer sign-off separately tracked by JOED-86. The full
+source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
+downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-63/HOSTD-77 after JOED-62 r18f; image `household-v2-switch-set-r19a-202610230614`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
 JOED-26 live adoption remains gated; current legacy metadata stays intact.
 The published source's `release.json` still says candidate; OPS uses the exact
-a60f4c56 commit and revision-9 contract hashes rather than treating that field as activation.
+8be38581 commit and revision-10 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against 68ae6846 (routing held constant) and
