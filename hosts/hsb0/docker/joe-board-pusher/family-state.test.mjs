@@ -1698,3 +1698,37 @@ test("optional staging summary failure cannot change execution cycle or v1 reade
   assert.equal(session.adapter.activitySnapshot(), null); assert.ok(session.store.state);
   assert.equal(session.timers.count(30_000), 1);
 });
+
+test("Phase B adapter can value proven siblings when a J mark is missing, without bypassing live gates", () => {
+  const clock = "2026-09-11T14:00:00Z";
+  const row = execution("phaseb.open.01", 27, { time: "20260911 09:30:00 US/Eastern" });
+  row.contract.multiplier = 1;
+  const previousDay = verifiedHistory([], [], { through: "2026-09-11T04:00:00Z", capturedAt: "2026-09-11T04:00:01Z" });
+  const history = verifiedHistory([normalizeEconomicExecution(row)], [normalizeEconomicCommission(commission(row.execution.execId))],
+    { prior: previousDay, from: "2026-09-11T04:00:00Z", through: clock, capturedAt: clock });
+  const store = memoryStore();
+  complete(connect(setup({ store, at: "2026-09-10T14:00:00Z" })), []);
+  const session = setup({ store, at: clock, calculate: calculateFamily, getVerifiedHistoryState: () => history });
+  const api = connect(session); complete(api, [row]); emitFx(api, "EUR", 1); emitFx(api, "USD", 0.86);
+  const brokerBook = book(clock);
+  brokerBook.portfolio[0].contract.multiplier = 1;
+  brokerBook.positionsCoverage.rows[0].contract.multiplier = 1;
+  brokerBook.positionsCoverage.rows.push(
+    { account: ACCOUNT, contract: contract("SXR8", 201, "EUR"), pos: 1401 },
+    { account: ACCOUNT, contract: contract("TSLA", 202), pos: 1 });
+  const options = { calculateDeskEquities, policy: CURRENT_DESK_OWNERSHIP_POLICY };
+  const initial = session.adapter.projectDeskEquities(brokerBook, options);
+  assert.equal(initial.ok, true, initial.reason);
+  brokerBook.portfolio = [];
+  assert.equal(session.adapter.projectDeskEquities(brokerBook, options).ok, false);
+  const scoped = session.adapter.projectDeskEquities(brokerBook, { ...options, phaseB: true });
+  assert.equal(scoped.ok, false);
+  assert.equal(scoped.phaseBDesks.j.reconciled, false);
+  assert.equal(scoped.phaseBDesks.joe.reconciled, true);
+  assert.equal(scoped.phaseBDesks.joel.reconciled, true);
+  brokerBook.positionsCoverage.status = "unavailable";
+  assert.equal(session.adapter.projectDeskEquities(brokerBook, { ...options, phaseB: true }).phaseBDesks, undefined);
+  brokerBook.positionsCoverage.status = "complete";
+  session.adapter.retire("synthetic disconnect");
+  assert.equal(session.adapter.projectDeskEquities(brokerBook, { ...options, phaseB: true }).phaseBDesks, undefined);
+});

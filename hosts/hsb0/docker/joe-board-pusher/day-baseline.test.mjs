@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -117,10 +118,14 @@ function deskEvidence({
   revision = REV_A,
   contract = PROVIDER_CONTRACT,
   coverageThrough = at,
+  deskFx,
 } = {}) {
   return {
     ok: true,
     equity,
+    ...(deskFx ? { phaseBDesks: Object.fromEntries(["j", "joe", "joel"].map(id => [id, {
+      reconciled: true, equity: equity[id], observedAt: at, fx: deskFx[id],
+    }])) } : {}),
     sourceObservedAt: at,
     oldestSourceObservedAt: oldest,
     historyRevisionMethod: DESK_REVISION_METHOD,
@@ -573,6 +578,9 @@ test("corrupt persisted state stays unavailable and is never overwritten", () =>
 test("all-desk producer preserves evidence and proves the retained boundary candidate", () => {
   let currentNow = "2026-09-12T03:59:50.000Z";
   let proofInput;
+  const sodFx = { j: { base: "USD", quote: "EUR", rate: 0.91, source: "ib-account-ExchangeRate",
+    observedAt: "2026-09-12T03:59:10.000Z" }, joe: null, joel: null };
+  const currentFx = { ...sodFx, j: { ...sodFx.j, rate: 0.92, observedAt: "2026-09-12T04:00:20.000Z" } };
   const producer = createDeskDayPnlProducer({
     account: "SYNTHETIC-PAPER",
     policy: { id: "effective-policy" },
@@ -603,6 +611,7 @@ test("all-desk producer preserves evidence and proves the retained boundary cand
     at: "2026-09-12T03:59:40.000Z",
     oldest: "2026-09-12T03:59:10.000Z",
     coverageThrough: "2026-09-12T03:59:10.000Z",
+    deskFx: sodFx,
   }));
   currentNow = "2026-09-12T04:00:30.000Z";
   const result = producer.observe(deskEvidence({
@@ -611,6 +620,7 @@ test("all-desk producer preserves evidence and proves the retained boundary cand
     coverageThrough: "2026-09-12T04:00:20.000Z",
     equity: vector({ j: 5004, joe: 4999, joel: 5000 }),
     revision: REV_B,
+    deskFx: currentFx,
   }));
 
   assert.equal(result.ok, true, result.reason);
@@ -619,6 +629,35 @@ test("all-desk producer preserves evidence and proves the retained boundary cand
   assert.equal(proofInput.candidateHistoryRevision, REV_A);
   assert.equal(proofInput.periodStart, "2026-09-12T04:00:00.000Z");
   assert.equal(result.evidence.historyRevisionMethod, DESK_REVISION_METHOD);
+  assert.deepEqual(result.evidence.sodFx, sodFx, "the SOD rate comes from the retained candidate");
+  assert.deepEqual(producer.inspectState().latest.deskFx, currentFx);
+  result.evidence.sodFx.j.rate = 1;
+  assert.equal(producer.project().evidence.sodFx.j.rate, 0.91, "projection cannot mutate the saved SOD rate");
+});
+
+test("SOD FX survives a file-store restart and cannot be filled in later for a legacy candidate", t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "joe-day-fx-"));
+  t.after(() => spawnSync("trash", [directory]));
+  for (const recorded of [true, false]) {
+    const store = createFileDayBaselineStore(path.join(directory, recorded ? "recorded.json" : "legacy.json"));
+    const before = "2026-09-12T03:59:40.000Z";
+    const after = "2026-09-12T04:00:25.000Z";
+    const sodFx = { j: { base: "USD", quote: "EUR", rate: 0.91,
+      source: "ib-account-ExchangeRate", observedAt: before }, joe: null, joel: null };
+    const initial = harness({ store, now: before });
+    initial.adapter.observe(observation({ at: before, ...(recorded ? { deskFx: sodFx } : {}) }));
+    const restarted = harness({ store, now: "2026-09-12T04:00:30.000Z" });
+    assert.equal(restarted.adapter.blockedReason, null);
+    const result = restarted.adapter.observe(observation({ at: after, equity: vector({ j: 5001 }),
+      deskFx: { ...sodFx, j: { ...sodFx.j, rate: 0.92, observedAt: after } } }), { boundaryProof: boundaryProof() });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.values.j, 1);
+    if (recorded) assert.deepEqual(result.evidence.sodFx, sodFx);
+    else assert.equal(Object.hasOwn(result.evidence, "sodFx"), false, "current FX cannot backfill an unrecorded SOD");
+    const final = harness({ store, now: after });
+    assert.equal(final.adapter.blockedReason, null);
+    assert.deepEqual(final.adapter.project().evidence.sodFx, result.evidence.sodFx);
+  }
 });
 
 test("unavailable asynchronous exact proof does not suppress the producer's session proxy", () => {

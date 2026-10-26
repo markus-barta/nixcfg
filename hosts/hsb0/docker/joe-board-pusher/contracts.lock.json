@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/markus-barta/joedesk",
-  "revision": "84c47b647cf06a38a3f61ce7f928a10ed10eeef3",
-  "manifest_revision": 9,
-  "contract_set_sha256": "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5",
+  "revision": "7c1616325c0007608425e4ad31a0a8256be4aeb7",
+  "manifest_revision": 10,
+  "contract_set_sha256": "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350",
   "files": {
     "accept.mjs": {
       "bytes": 2159,
@@ -13,8 +13,8 @@
       "sha256": "64f5e9187602d9b1d38b90210a90f51a4eda72df995acf2251cf0685731fe881"
     },
     "data.schema.json": {
-      "bytes": 28786,
-      "sha256": "84a9de4449d87a69ee620d0f37bd84d77b2de86cebb03fe2ef9e709161161d26"
+      "bytes": 29130,
+      "sha256": "f5ca9f1ab2e2767a79a2a9237ebe7df7ef0bbd5e2e55fe6b7f5227241ea29cbd"
     },
     "decimal.mjs": {
       "bytes": 2397,
@@ -41,20 +41,20 @@
       "sha256": "8d27098aab36bcb573c813dd9d2cc00872028cc74e46828c5d8f370a45a2e448"
     },
     "manifest.json": {
-      "bytes": 932,
-      "sha256": "3246d0979f790ed33aec2bd66efb195ffab4ac6d916519d9b4e2f7b3601feb3f"
+      "bytes": 933,
+      "sha256": "f78bb59b2eedcd9bb57bc201eddf46ac18843093025d5ea3417b9036b210b9b7"
     },
     "panel-state.mjs": {
-      "bytes": 8101,
-      "sha256": "7d298b8728822a1bb4d0145ce40ebe6a9cdfe5d915abb1e9493f33a908adeda6"
+      "bytes": 8580,
+      "sha256": "9746db088853a729871b622fe0da8d8cb494e3fce32c9fc252bc7e7ffa17a959"
     },
     "read.mjs": {
       "bytes": 1423,
       "sha256": "c1d8983dd20f5abb31f0fcb366a756bbe207a41bce2485f64dca0158b519a31b"
     },
     "reason.schema.json": {
-      "bytes": 1064,
-      "sha256": "11dbe796c379dce9ee669aa724e29a3f45b0e5823902a8f3f68d2d3f82c65916"
+      "bytes": 1132,
+      "sha256": "896249a5310f8b5772797081166ba028c06cd645865657d821f6203f8301b060"
     },
     "results.schema.json": {
       "bytes": 13236,
@@ -65,8 +65,8 @@
       "sha256": "a251176cf1c815fb767a323bb740a76c954481d36c082b10981d07ba7de58bf8"
     },
     "semantics.mjs": {
-      "bytes": 12877,
-      "sha256": "29e28436ec1400a27507308206591c64342890a6bf56c056589373b3a20dd6fc"
+      "bytes": 14098,
+      "sha256": "605551fe12e064dfbdea22e1cdfde2bd7f6b4ef2b5d938af4da441e4b829292c"
     },
     "vienna-date.mjs": {
       "bytes": 1065,

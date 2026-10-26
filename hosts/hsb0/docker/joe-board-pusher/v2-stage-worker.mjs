@@ -8,10 +8,12 @@ import { verify } from "./verify-contracts.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
 import { validCycle, cycleId, cycleReceipt, validCycleReceipt, receiptBinding, frame } from "./v1-cycle.mjs";
 import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, ACTIVITY_FRESH_MS, deskState } from "./desk-activity.mjs";
+import { contractRevision, validExactValues, applyExactValues, exactDeskAction, MONEY_FIELDS } from "./v2-exact-values.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
-export const CONTRACT_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
+export const CONTRACT_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
+const REV9_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 export const RETAIN_PAIRS = 10;
 const MAX_RETAIN_PAIRS = 1024;
@@ -57,12 +59,14 @@ export function validObservation(value) {
       && typeof row.hasPositions === "boolean" && typeof row.hasOrders === "boolean"
       && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));
   }));
-  return validActivity && (value?.v1Cycle === undefined || validCycle(value.v1Cycle))
+  return validActivity && (value?.exactValues === undefined || validExactValues(value.exactValues, value.positions?.length))
+    && (value?.v1Cycle === undefined || validCycle(value.v1Cycle))
     && (value?.sourceObservedAt === undefined || (exactKeys(value.sourceObservedAt, "equity,cash,positions")
       && Object.values(value.sourceObservedAt).every(at => at === null || canonical(at))))
     && exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions"
       + (value.sourceObservedAt === undefined ? "" : ",sourceObservedAt")
-      + (activity === undefined ? "" : ",deskActivity") + (value.v1Cycle === undefined ? "" : ",v1Cycle")) && value.format === FRAME_FORMAT
+      + (activity === undefined ? "" : ",deskActivity") + (value.v1Cycle === undefined ? "" : ",v1Cycle")
+      + (value.exactValues === undefined ? "" : ",exactValues")) && value.format === FRAME_FORMAT
     && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
     && (value.apiReplyCheckedAt === null || canonical(value.apiReplyCheckedAt))
     && Array.isArray(value.positions) && value.positions.length <= 256 && value.positions.every(row =>
@@ -72,7 +76,7 @@ export function validObservation(value) {
       && (row.scope !== "keep" || row.desk === null));
 }
 
-export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = generatedAt, highWater = null) {
+export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = generatedAt, highWater = null, revision = 9) {
   // The source clock stays separate from the advancing envelope clock.
   const bookAt = normalizeBookTs(observation.bookTs);
   const sourceAt = field => observation.sourceObservedAt === undefined ? bookAt
@@ -117,7 +121,7 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
     equity: null, dayPnl: null, openPnl: null, totalPnl: null,
     reasons: { equity: "not_exact_yet", dayPnl: "not_exact_yet", openPnl: "not_exact_yet", totalPnl: "not_exact_yet" },
   });
-  return {
+  const candidate = {
     schema: "inspr.joe.household.v2", seq, generatedAt, mode: "PAPER", currency: "EUR",
     source: { kind: "live-ib-api", label: "hsb0 joe-board-pusher (paper Gateway projection)" },
     safety: { halt: false, haltReason: null, ...(gateway ? { gateway } : {}) },
@@ -131,6 +135,7 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
       ...(!positionsFresh ? { reason: "source_unavailable" }
         : !gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
   };
+  return revision === 10 ? applyExactValues(candidate, observation, generatedAt) : candidate;
 }
 
 export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, floor, highWater = null) {
@@ -153,9 +158,10 @@ export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, flo
 
 // Synchronous durable operations run only inside the separately limited worker.
 export class StageStore {
-  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS } = {}) {
+  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS, revision = contractRevision() } = {}) {
     if (!Number.isSafeInteger(retainPairs) || retainPairs < RETAIN_PAIRS || retainPairs > MAX_RETAIN_PAIRS) fail();
-    Object.assign(this, { root, uid, gid, io, boundary, retainPairs });
+    if (![9, 10].includes(revision)) fail();
+    Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision });
     this.disabled = false;
   }
   check(name, kind, limit) {
@@ -259,7 +265,8 @@ export class StageStore {
       || receipt.seq !== snapshot.seq || receipt.generatedAt !== snapshot.generatedAt
       || !canonical(receipt.stagedReceivedAt) || !canonical(receipt.generatedAdvancedAt)
       || receipt.generatedAdvancedAt > receipt.stagedReceivedAt
-      || receipt.snapshotSha256 !== sha(bytes) || receipt.contractSetSha256 !== CONTRACT_SHA
+      || receipt.snapshotSha256 !== sha(bytes)
+      || !(receipt.contractSetSha256 === CONTRACT_SHA || (receipt.contractSetSha256 === REV9_SHA && !snapshot.pnlSources))
       || !this.validateContract("data", snapshot, { stage: "ingress" }).ok
       || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
@@ -279,6 +286,7 @@ export class StageStore {
   validProjection(snapshot) {
     // Recovery verifies the closed switch-set shape without reclassifying old
     // checks against today's clock or inventing raw broker evidence.
+    if (snapshot.pnlSources) return this.validExactProjection(snapshot);
     const expected = buildCandidate(snapshot.seq, snapshot.generatedAt);
     if (JSON.stringify(Object.keys(snapshot).sort()) !== JSON.stringify(Object.keys(expected).sort())) return false;
     for (const field of ["schema", "seq", "generatedAt", "mode", "currency", "source", "totals"]) {
@@ -311,6 +319,36 @@ export class StageStore {
       && positions.rows.every(row => exactKeys(row, "symbol,side,desk,scope,quantity,mark,marketValue,dayPnl,openPnl,reasons")
         && ["quantity", "mark", "marketValue", "dayPnl", "openPnl"].every(field => row[field] === null
           && ["not_exact_yet", "source_unavailable"].includes(row.reasons?.[field])));
+  }
+  validExactProjection(snapshot) {
+    // Recovery checks persisted claims against their own source times. It never
+    // refreshes them using the restart clock or substitutes new ledger inputs.
+    if (typeof this.validateContract !== "function") return false;
+    const template = buildCandidate(snapshot.seq, snapshot.generatedAt);
+    if (!exactKeys(snapshot, Object.keys(template).concat("pnlSources").join(","))) return false;
+    for (const field of ["schema", "mode", "currency", "source"]) {
+      if (JSON.stringify(snapshot[field]) !== JSON.stringify(template[field])) return false;
+    }
+    if (!this.validateContract("data", snapshot, { stage: "ingress" }).ok) return false;
+    if (snapshot.safety.halt !== false || snapshot.safety.haltReason !== null || Object.hasOwn(snapshot.safety, "executor")) return false;
+    const fresh = (at, bound = ACTIVITY_FRESH_MS) => canonical(at)
+      && Date.parse(snapshot.generatedAt) >= Date.parse(at) && Date.parse(snapshot.generatedAt) - Date.parse(at) <= bound;
+    const validMoney = bag => exactKeys(bag, MONEY_FIELDS.concat(bag.reasons ? ["reasons"] : []).join(","))
+      && MONEY_FIELDS.every(field => bag[field] === null ? Boolean(bag.reasons?.[field]) : !bag.reasons?.[field]
+        && (!bag[field].fx || fresh(bag[field].fx.observedAt, 300000)));
+    if (!validMoney(snapshot.totals) || snapshot.desks.length !== 3 || !snapshot.desks.every((desk, index) =>
+      exactKeys(desk, "id,label,state,action,money,pnlSources") && desk.id === template.desks[index].id
+      && desk.label === template.desks[index].label && desk.action === exactDeskAction(desk.money) && validMoney(desk.money)
+      && ["day", "open"].every(kind => desk.pnlSources[kind].status !== "available" || fresh(desk.pnlSources[kind].observedAt, 300000)))) return false;
+    const account = snapshot.brokerAccount;
+    if (account.scope !== template.brokerAccount.scope || Object.hasOwn(account, "accountHint") || !canonical(account.observedAt)
+      || (!fresh(account.observedAt) && (account.equity !== null || account.cash !== null))) return false;
+    return snapshot.positions.source === "live-ib-api" && canonical(snapshot.positions.observedAt)
+      && ["SXR8", "TSLA"].every(symbol => snapshot.positions.rows.some(row => row.symbol === symbol && row.scope === "keep" && row.desk === null))
+      && snapshot.positions.rows.every(row => exactKeys(row, "symbol,side,desk,scope,quantity,mark,marketValue,dayPnl,openPnl,reasons"
+        + (row.updatedAt === undefined ? "" : ",updatedAt")) && row.dayPnl === null
+        && ["quantity", "mark", "marketValue", "openPnl"].every(field => row[field] === null
+          ? Boolean(row.reasons[field]) : !row.reasons[field] && fresh(row.updatedAt, 300000) && fresh(snapshot.positions.observedAt)));
   }
   checkResidue(name, state) {
     if (name === ".sequence-state.tmp" || name === ".current.tmp") { this.read(name, 4096); return; }
@@ -487,7 +525,7 @@ export class StageStore {
         || state.lastObservationId !== (observation.v1Cycle?.observationId || observationId(generatedAt))) fail();
       const binding = observation.v1Cycle ? cycleReceipt(observation.v1Cycle, stored) : {};
       if (!canonical(stagedReceivedAt)) fail();
-      const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt);
+      const candidate = buildCandidate(state.lastReservedSeq, generatedAt, observation, stagedReceivedAt, state.lastGatewayCheckedAt, this.revision);
       const bytes = Buffer.from(JSON.stringify(candidate));
       if (bytes.length > 262144) fail();
       const reject = (status, reason) => {
@@ -505,7 +543,8 @@ export class StageStore {
       }
       const receipt = {
         format: pairFormat, stagedReceivedAt, seq: candidate.seq, generatedAt,
-        generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes), contractSetSha256: CONTRACT_SHA, ...binding,
+        generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes),
+        contractSetSha256: this.revision === 10 ? CONTRACT_SHA : REV9_SHA, ...binding,
       };
       const next = `.next-${candidate.seq}`;
       const pair = `pair-${candidate.seq}`;
@@ -546,7 +585,8 @@ export function launchLocked({ root = STATE_DIR, args = [], uid = 1000, gid = 10
   const lock = prepareLock(root, uid, gid);
   return spawnWorker("flock", ["--no-fork", "--nonblock", lock, process.execPath, fileURLToPath(import.meta.url), "--lock-held", ...args], {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
-    env: { PATH: process.env.PATH, NODE_ENV: "production" },
+    env: { PATH: process.env.PATH, NODE_ENV: "production",
+      ...(contractRevision() === 10 ? { JOE_V2_CONTRACT_REV: "10" } : {}) },
   });
 }
 

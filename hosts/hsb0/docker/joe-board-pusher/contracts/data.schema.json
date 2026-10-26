@@ -546,6 +546,11 @@
               }
             },
             "x-owner": "pusher"
+          },
+          "pnlSources": {
+            "description": "Optional evidence for this desk's DAY/OPEN only. Overrides the corresponding aggregate source, allowing exact reconciled desks beside unavailable desks. Scope remains KEEP-excluded virtual desks.",
+            "$ref": "#/properties/pnlSources",
+            "x-owner": "pusher"
           }
         }
       },
