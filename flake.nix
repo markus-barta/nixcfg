@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 43: v261025225100.0.0 (#289 merge, sequence 113). Contents since 42: #286 HNET-380–383, 385 (one commit per frame, hidden tabs idle, history patches one cell, paused views idle, Copy diagnostics); web + optional /api/meta counters + a once-a-minute log line. No listener/socket/dial/exec added; nix/ and flake/go deps unchanged since pin 42; capability-free (standing go Desk 45df1430). Rollback = pin 42.
+    # HNET pin 44: v261026065637.0.0 (#294 merge, sequence 114). Contents since 43: #293 HNET-400 (HNET-390 slice 1: Devices event listeners delegated, 1,924 -> 217 at 82 devices); QA-only #290/#291/#292. Web only; no Go, nix/, flake or go deps change; no listener/socket/dial/exec added; capability-free (standing go Desk 45df1430). Rollback = pin 43.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=e57010bb08fabfe64050843d35452d2b9c6af2bd";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=1e2781c65fa089b1a16411825366a281d37ac6ef";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
