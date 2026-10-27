@@ -41,7 +41,7 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects 2d36c7b4 (sequence 35, JOED-99) with the r20c
+executor. `active = v2` (OPS-354 activation) selects 2d36c7b4 (sequence 35, JOED-99) with the r20b
 pusher/executor pins (JOED-86 code delivery, revision 9 default; after JOED-63/HOSTD-77 r19a); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
@@ -61,7 +61,7 @@ migration. The board accepts revision-9
 payloads; JOED-86 prepares the revision-10-capable shared image with revision 9
 still the default. Phase B activation and producer sign-off remain separately gated. The full
 source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
-downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-86; image `household-v2-switch-set-r20c-202610271530`, revision 9 default). Fixtures do not
+downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-86; image `household-v2-switch-set-r20b-202610260915`, revision 9 default). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
