@@ -547,6 +547,9 @@ in
   # hands to a Shelly whose station config is lost. Raw PSK, no trailing newline.
   # Consumed by the hausnetz heal module (r48) via LoadCredential; never logged.
   "hsb0-hausnetz-wifi-psk.age".publicKeys = markus ++ hsb0;
+  # HNET-45: password of the hsb1 Mosquitto user "smarthome" (the user name is a plain module
+  # option, not secret). Raw password, no trailing newline; read via LoadCredential.
+  "hsb0-hausnetz-mqtt-password.age".publicKeys = markus ++ hsb0;
   "hsb0-ib-desk-env.age".publicKeys = markus ++ hsb0;
 
   # Shared inbox push credential: hsb0 joe-board-pusher → csb0 joe-board inbox.
