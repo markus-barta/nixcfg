@@ -382,7 +382,9 @@ test("CLI preview and import keep stdout pure JSON when loading a history above 
   const cli = new URL("./family-history-cli.mjs", import.meta.url);
   let preview;
   for (const action of ["preview", "import"]) {
-    assert.equal(fs.statSync(file).size, Buffer.byteLength(before), "both commands must load the large file");
+    // Read once and measure the buffer (no stat-then-read race; CodeQL js/file-system-race).
+    const loaded = fs.readFileSync(file);
+    assert.equal(loaded.length, Buffer.byteLength(before), "both commands must load the large file");
     const result = spawnSync(process.execPath, [cli.pathname, action, "--source-type", "family-ledger",
       "--source", source, "--state", file, "--from", START, "--to", target.toExclusive], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -392,12 +394,13 @@ test("CLI preview and import keep stdout pure JSON when loading a history above 
     assert.ok(events.every((event) => Object.keys(event).sort().join() === "afterBytes,beforeBytes,event"));
     if (action === "preview") {
       preview = summary;
-      assert.equal(fs.readFileSync(file, "utf8"), before);
+      assert.equal(fs.readFileSync(file).toString("utf8"), before);
     } else {
       assert.deepEqual(preview, { ...summary, action: "preview" });
-      const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+      const savedBytes = fs.readFileSync(file);
+      const saved = JSON.parse(savedBytes.toString("utf8"));
       assert.equal(summary.receiptCount, saved.receipts.length);
-      assert.ok(fs.statSync(file).size < 16 * MiB);
+      assert.ok(savedBytes.length < 16 * MiB);
     }
   }
 });
