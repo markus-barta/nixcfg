@@ -100,7 +100,7 @@ async function main() {
   for (const capture of captures) state = reconcileExecutionCapture({ prior: state, capture, target });
   const sourceIds = new Set(captures.map((capture) => capture.source.id));
   const importedReceiptIds = state.receipts.filter((item) => sourceIds.has(item.source.id)).map((item) => item.receiptId);
-  if (action === "import") store.save(state);
+  if (action === "import") state = store.save(state);
   process.stdout.write(`${JSON.stringify({ action, ...summary(state, importedReceiptIds.length === 1 ? importedReceiptIds[0] : importedReceiptIds) }, null, 2)}\n`);
 }
 

@@ -611,6 +611,58 @@ Gateway. Normal history refresh remains fifteen minutes when recovery is unneces
 Persisted rows alone are never unioned into completeness evidence; unproved cross-day
 gaps still require authoritative backfill.
 
+JOED-100 bounds the capture metadata in `family-history.json`. On every save,
+overlapping or contiguous KNOWN receipts are coalesced, retaining the latest
+original receipt for exact replay/source-reuse checks. A digest
+and observation count replace the old capture provenance; historical source IDs are
+no longer an exhaustive replay index. Membership lists are deduplicated by execution
+and commission ID. Legacy digest-only receipts remain digest-only, with aggregate
+observation counts; compaction never invents their missing memberships. Every raw
+execution revision, orphan commission, account/classifier binding and economic
+observation time stays intact. No KNOWN receipt becomes COMPLETE.
+
+COMPLETE receipts merge only within identical authority metadata, observation time
+and New York day, with individually valid, paired membership and no contradiction
+from retained executions. Other COMPLETE proofs remain intact, including truncated
+replies, separate authorities, legacy memberships and temporal proof boundaries.
+This preserves official-chain recovery, midnight imports and desk-boundary checks.
+Distinct coverage/proof boundaries still require storage; redundant polling does
+not add KNOWN receipt history. Diagnostic `receiptIds` lists in merged coverage and
+the projection keep at most the first/last IDs, with `receiptCount` and
+`receiptIdsSha256` when there are more than two. These references are not membership
+proofs. Readers still accept legacy exhaustive coverage lists.
+
+Load compacts files at **16 MiB** or more, before accepting their state. A separate
+**64 MiB** recovery-read ceiling permits an existing file above the write cap to
+self-heal; an irreducible state above **32 MiB** remains unavailable. The next
+successful capture persists the repaired state and advances its target even when
+the broker returns no new executions or commissions. Callers adopt the saved
+compacted snapshot in memory. Writes retain the **32 MiB** hard cap and the existing
+exclusive temporary file, mode 0600, file fsync, atomic rename and directory fsync.
+No manual move-aside is required. `family_history_compacted` logs only before/after
+byte counts; `family_history_size_warning` does the same if more than **24 MiB**
+remains after compaction. Schema/version and executor coverage/record semantics
+remain unchanged. Compaction cannot close an actual historical completeness gap.
+
+The offline regression fixture builds **127,058** real-writer receipts over 50 days
+at 34-second intervals, with 100 execution/commission records. It reduces
+**166,792,900 B → 190,644 B**, preserving the executor-visible fields. Receipts
+dominate the original size (148,181,383 B as a standalone pretty-printed array),
+followed by repeated coverage references (9,663,600 B); execution/commission arrays
+are only 36,903/11,053 B. A **34,104,001 B** on-disk fixture recovers and saves as
+**45,209 B** after its next update. These are synthetic measurements, not live-host
+verification. Run `node --test history-compaction.test.mjs` to reproduce them.
+
+The sibling `family-ledger.json` keeps deduplicated execution/commission rows and
+the current query identity set, replacing its scalar coverage timestamps; its cap
+is **16 MiB**, not 32 MiB. Executor attribution memory is keyed by
+account/client/exec ID, retaining one proof and at most one conflict per key, under
+**100,000 entries / 32 MiB**. Neither appends a receipt per capture, so unchanged
+replays have no time-to-cap. Growth depends on new identities/record sizes: at 100
+new attribution identities per day, the entry ceiling is at most 1,000 days from
+empty (the byte ceiling can arrive first). A calendar estimate for either sibling
+needs an observed new-fill rate; repeated capture cadence alone cannot supply it.
+
 FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
 freshness window expires, the adapter cancels that request and opens a new request
 ID. Only an explicit callback for the current connection and request refreshes a

@@ -4,12 +4,18 @@ import { isFamilyClientExecution } from "./execution-history.mjs";
 
 import {
   bestAvailableHistoryDigest,
+  compactBestAvailableHistoryState,
   effectiveExecutionRecords,
+  historyReceiptReferences,
   reconcileExecutionCapture,
   validateBestAvailableHistoryState,
 } from "./execution-reconciliation.mjs";
 
 const MAX_STATE_BYTES = 32 * 1024 * 1024;
+// Recovery may read one bounded legacy file above the write cap. It must compact
+// below MAX_STATE_BYTES before becoming usable; writes never exceed that cap.
+const MAX_RECOVERY_BYTES = 2 * MAX_STATE_BYTES;
+const COMPACT_ON_LOAD_BYTES = MAX_STATE_BYTES / 2;
 const MAX_CAPTURED_SUBTOTAL_POINTS = 2048;
 
 function clone(value) {
@@ -290,7 +296,7 @@ export function projectBestAvailableHistory({ state, fullAccounting = null, fami
     missingOpeningLots: calculatedSubtotal.missingOpeningLots,
     orphanCommissionIds,
     latestVerifiedPeriod: latestVerifiedPeriod(state.coverage),
-    receiptIds: state.receipts.map((receipt) => receipt.receiptId),
+    ...historyReceiptReferences(state.receipts.map((receipt) => receipt.receiptId)),
   };
 }
 
@@ -299,7 +305,7 @@ function readBoundedFile(filePath, fsImpl) {
   try {
     handle = fsImpl.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     const stat = fsImpl.fstatSync(handle);
-    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_STATE_BYTES) {
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_RECOVERY_BYTES) {
       return { ok: false, reason: "family history state has an invalid size" };
     }
     const bytes = Buffer.alloc(stat.size + 1);
@@ -310,7 +316,7 @@ function readBoundedFile(filePath, fsImpl) {
       count += read;
     }
     if (count !== stat.size) return { ok: false, reason: "family history state changed size during read" };
-    return { ok: true, source: bytes.subarray(0, count).toString("utf8") };
+    return { ok: true, source: bytes.subarray(0, count).toString("utf8"), byteLength: count };
   } catch (error) {
     if (error?.code === "ENOENT") return { ok: true, source: null };
     return { ok: false, reason: `family history state read failed: ${error?.code || error}` };
@@ -319,9 +325,21 @@ function readBoundedFile(filePath, fsImpl) {
   }
 }
 
-export function createFileFamilyHistoryStore(filePath, fsImpl = fs) {
+export function createFileFamilyHistoryStore(filePath, fsImpl = fs, {
+  onCompacted = (sizes) => console.log(JSON.stringify({ event: "family_history_compacted", ...sizes })),
+  onSizeWarning = (sizes) => console.warn(JSON.stringify({ event: "family_history_size_warning", ...sizes })),
+} = {}) {
   if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
     throw new TypeError("family history state path must be absolute");
+  }
+  function prepare(state, beforeBytes) {
+    const compacted = compactBestAvailableHistoryState(state);
+    const body = `${JSON.stringify(compacted, null, 2)}\n`;
+    const afterBytes = Buffer.byteLength(body);
+    if (compacted !== state) onCompacted({ beforeBytes, afterBytes });
+    if (afterBytes > MAX_STATE_BYTES * 0.75) onSizeWarning({ beforeBytes, afterBytes });
+    if (afterBytes > MAX_STATE_BYTES) throw new Error("family history state exceeds size limit");
+    return { state: compacted, body };
   }
   return {
     load() {
@@ -330,15 +348,16 @@ export function createFileFamilyHistoryStore(filePath, fsImpl = fs) {
       try {
         const state = JSON.parse(result.source);
         validateBestAvailableHistoryState(state);
-        return { ok: true, state };
+        const compacted = result.byteLength >= COMPACT_ON_LOAD_BYTES
+          ? prepare(state, result.byteLength).state : state;
+        return { ok: true, state: compacted, ...(compacted !== state ? { compacted: true } : {}) };
       } catch (error) {
         return { ok: false, reason: `family history state is invalid: ${error.message}` };
       }
     },
     save(state) {
       validateBestAvailableHistoryState(state);
-      const body = `${JSON.stringify(state, null, 2)}\n`;
-      if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("family history state exceeds size limit");
+      const { state: compacted, body } = prepare(state, Buffer.byteLength(`${JSON.stringify(state, null, 2)}\n`));
       const directory = path.dirname(filePath);
       const temporary = path.join(directory, `.${path.basename(filePath)}.${process.pid}.tmp`);
       let handle;
@@ -358,6 +377,7 @@ export function createFileFamilyHistoryStore(filePath, fsImpl = fs) {
         try { fsImpl.unlinkSync(temporary); } catch {}
         throw error;
       }
+      return compacted;
     },
   };
 }
@@ -396,8 +416,7 @@ export function createFamilyHistoryIngestor({
     try {
       const item = await fetchCapture();
       const next = reconcileExecutionCapture({ prior: state, capture: item.capture, target: item.target });
-      store.save(next);
-      state = hold(next);
+      state = hold(store.save(next) || next);
       lastError = null;
       hooks.onUpdated?.(clone(state));
       return true;
