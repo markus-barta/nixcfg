@@ -169,11 +169,12 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # root 0400.
     # Rollout: detect ran first with pin 48, heal followed on 2026-10-27, and
     # the first real attempt showed the built-in b43 associates but passes no
-    # data. Back to detect (scan only, no attempts consumed from the 3/24 h
-    # budget) until the USB Wi-Fi stick replaces this radio (HNET-45). The
-    # address keeps its default 192.168.33.200/24, with no gateway or DNS.
+    # data (TX dropped, ARP to the device incomplete), so detect held it.
+    # Markus keeps the built-in radio (the LAN carries hsb0; the USB stick is
+    # the fallback), so heal returns with the b43 TX-path options below (HNET-45).
+    # The address keeps its default 192.168.33.200/24, with no gateway or DNS.
     shellyHeal = {
-      mode = "detect";
+      mode = "heal";
       interface = "wlp3s0b1";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
@@ -186,6 +187,13 @@ assert joeSet.pusher != null && joeSet.executor != null;
       allowMacsFile = config.age.secrets.hsb0-hausnetz-shelly-allow.path;
     };
   };
+  # HNET-45 (OPS-470): the b43 radio associates but its TX never leaves (classic DMA/TX-path
+  # symptom), so use PIO, no QoS queues and no Bluetooth coexistence, with debug logging for the
+  # diagnosis. b43 drives only the spare radio wlp3s0b1 (the LAN is enp2s0f0, another driver).
+  # Options apply at module load: the switch kit reloads b43 while hausnetz and its radio are stopped.
+  boot.extraModprobeConfig = ''
+    options b43 pio=1 qos=0 btcoex=0 verbose=3
+  '';
   systemd.services.hausnetz.serviceConfig = {
     MemoryMax = "512M";
     CPUQuota = "50%";

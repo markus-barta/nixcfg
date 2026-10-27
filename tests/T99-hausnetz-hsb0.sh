@@ -28,6 +28,7 @@ nix-instantiate --eval --strict --json --expr '
     compose = import ./hosts/hsb0/docker/compose-spec.nix;
   in {
     service = host.services.hausnetz;
+    modprobe = host.boot.extraModprobeConfig;
     limits = host.systemd.services.hausnetz.serviceConfig;
     firewall = host.networking.firewall;
     ssh = host.programs.ssh;
@@ -49,8 +50,9 @@ assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
 assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True}
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s and "starlink" not in s
-# HNET-45 (OPS-470): Shelly recovery on the spare radio, held in detect until the USB radio replaces the b43; credentials only as runtime agenix paths.
-assert s["shellyHeal"] == {"mode": "detect", "interface": "wlp3s0b1", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
+# HNET-45 (OPS-470): Shelly recovery on the spare radio in heal mode on the built-in b43 with its TX-path options; credentials only as runtime agenix paths.
+assert [l.strip() for l in c["modprobe"].splitlines() if l.strip()] == ["options b43 pio=1 qos=0 btcoex=0 verbose=3"], c["modprobe"]
+assert s["shellyHeal"] == {"mode": "heal", "interface": "wlp3s0b1", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
     "wifiPskFile": "/run/agenix/hsb0-hausnetz-wifi-psk", "mqttServer": "192.168.1.101:1883", "mqttUser": "smarthome",
     "mqttPasswordFile": "/run/agenix/hsb0-hausnetz-mqtt-password", "telegramCredentialFile": "/run/agenix/hsb0-hausnetz-telegram",
     "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow"}, s["shellyHeal"]
