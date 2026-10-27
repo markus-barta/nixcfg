@@ -527,8 +527,9 @@ def classify_reset_relogin(
     """Return (reset rejection, any rejection, recovered), never log values.
 
     Require a timestamped, current-generation prefix within 120 seconds.
-    A completed login invalidates both the prefix and the rejection. Repeated
-    lines in a rejection burst keep the first timestamp, never extend the pair.
+    A completed login invalidates both the prefix and the rejection. Duplicate
+    lines within five seconds of the first rejection keep its timestamp. Any
+    later rejection disqualifies the pair until a completed login.
     """
     required_at = None
     reset_rejected_at = None
@@ -552,6 +553,8 @@ def classify_reset_relogin(
                 rejected_at = stamp
                 if required_at is not None and 0 <= stamp - required_at <= 120:
                     reset_rejected_at = stamp
+            elif stamp - rejected_at > 5:
+                reset_rejected_at = None
             required_at = None
     return reset_rejected_at, rejected_at, recovered
 
@@ -1512,9 +1515,9 @@ def load_supervisor_state(path: str) -> SupervisorState:
         return SupervisorState()
     try:
         raw = json.loads(destination.read_text(encoding="utf-8"))
+        return SupervisorState.from_dict(raw if isinstance(raw, dict) else None)
     except Exception:
         return corrupt_halt_state()
-    return SupervisorState.from_dict(raw if isinstance(raw, dict) else None)
 
 
 def fsync_directory(path: str) -> None:

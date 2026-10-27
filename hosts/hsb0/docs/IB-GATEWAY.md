@@ -140,7 +140,9 @@ restart; pusher health requires a publish after that exact start epoch.
 The supervisor recognizes `reset_relogin_rejected` only when timestamped logs
 from the current container generation show `Re-login is required`, followed
 within 120 seconds by `Unrecognized Username or Password`, with no later
-successful login. The container must be running and Docker-healthy. It waits
+successful login. Duplicate rejection lines within five seconds of the first
+are merged; any later separate rejection, even after another re-login prefix,
+halts without restarting. The container must be running and Docker-healthy. It waits
 five minutes after the rejection (`resetReloginRestartDelaySec`, bounded to
 180–900 seconds), preserves startup grace and operator-authentication guards,
 then reserves the existing one-restart outage budget before cold-restarting
@@ -150,11 +152,18 @@ or additional budget is used. A rejection without the prefix never restarts.
 Recovery requires a current-generation completed login, API 4002 listening
 and the existing recent pusher `gateway:true` confirmation. A rejected cold
 login **never retries**: it halts and pages through the existing alert adapter
-with a value-free reason asking the operator to check the paper login. The
-reservation and halt survive timer runs and container-generation changes;
+with a value-free reason asking the operator to check the paper login. The unit
+fails immediately, but the page uses the existing 600-second outage/recovery
+gate, so it arrives roughly 10–15 minutes after the restart. The reservation
+and halt survive timer runs and container-generation changes;
 corrupt or unknown persisted state halts. An operator clear is required after
 the cold-login rejection. Logs, credentials and account identifiers are not
 copied into the recovery state or alert reason.
+
+The first live verification point is whether compose restart actually produces
+a cold login and recovers the session: `AUTO_RESTART_TIME` together with the
+persistent `tws_settings` volume may preserve session state. This is unverified;
+the restart behavior is unchanged, and a second rejection halts regardless.
 
 ### Unrecovered-session notifications (HOSTD-59)
 

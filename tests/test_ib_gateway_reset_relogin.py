@@ -6,6 +6,7 @@ Discovered by T77's existing test_ib_gateway*.py runner; no broker calls.
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from unittest import mock
@@ -113,10 +114,37 @@ class ResetReloginTests(unittest.TestCase):
         self.assertEqual(self.cycle(observation(wrong_order)).action, sup.ACTION_HALT)
 
     def test_rejection_burst_keeps_first_timestamp(self):
-        lines = signature() + [line(NOW - 280, "Unrecognized Username or Password")]
+        lines = signature() + [
+            line(NOW - 300 + offset, "Unrecognized Username or Password")
+            for offset in (0, 1, 5)
+        ]
         current = observation(lines)
         self.assertEqual(current.reset_relogin_rejected_at, NOW - 300)
         self.assertEqual(sup.decide(current, sup.SupervisorState(), self.config).action, sup.ACTION_RESTART)
+
+    def test_later_prefixless_rejection_halts_without_restart(self):
+        for offset in (6, 20, 290):
+            with self.subTest(offset=offset):
+                lines = signature() + [line(NOW - 300 + offset, "Unrecognized Username or Password")]
+                current = observation(lines)
+                self.assertIsNone(current.reset_relogin_rejected_at)
+                self.assertEqual(current.login_rejected_at, NOW - 300)
+                decision = self.cycle(current)
+                self.assertEqual(decision.action, sup.ACTION_HALT)
+                self.assertTrue(decision.persist.operator_clear_required)
+                self.assertIsNotNone(decision.alert_problem)
+                self.assertEqual(self.restarts, [])
+
+    def test_second_full_pair_halts_without_restart(self):
+        lines = signature() + signature(NOW - 10)
+        current = observation(lines)
+        self.assertIsNone(current.reset_relogin_rejected_at)
+        self.assertEqual(current.login_rejected_at, NOW - 300)
+        decision = self.cycle(current)
+        self.assertEqual(decision.action, sup.ACTION_HALT)
+        self.assertTrue(decision.persist.operator_clear_required)
+        self.assertIsNotNone(decision.alert_problem)
+        self.assertEqual(self.restarts, [])
 
     def test_generation_filters_old_prefix_rejection_and_success(self):
         start = NOW - 1000
@@ -134,6 +162,16 @@ class ResetReloginTests(unittest.TestCase):
                 current = observation(lines, container_started_at=start, container_generation=None)
                 self.assertIsNone(current.reset_relogin_rejected_at)
                 self.assertNotEqual(self.cycle(current).action, sup.ACTION_RESTART)
+
+    def test_unknown_generation_with_current_signature_cannot_restart(self):
+        current = observation(
+            signature(), container_started_at=NOW - 10800, container_generation=None,
+        )
+        self.assertEqual(current.reset_relogin_rejected_at, NOW - 300)
+        decision = self.cycle(current)
+        self.assertEqual(decision.action, sup.ACTION_NONE)
+        self.assertIn("container health or generation unconfirmed", decision.reason)
+        self.assertEqual(self.restarts, [])
 
     def test_future_signature_is_ignored(self):
         current = observation(signature(NOW + 60))
@@ -279,6 +317,17 @@ class ResetReloginTests(unittest.TestCase):
             self.assertTrue(state.corrupt)
             self.assertEqual(self.cycle(observation(signature()), state).action, sup.ACTION_HALT)
         self.assertEqual(self.restarts, [])
+
+    def test_huge_saved_timestamp_halts_as_corrupt_state(self):
+        for field in ("last_restart_at", "last_healthy_at", "unhealthy_since", "authenticating_since"):
+            with self.subTest(field=field):
+                raw = {**sup.SupervisorState().to_dict(), field: 10**400}
+                Path(self.config.state_path).write_text(json.dumps(raw), encoding="utf-8")
+                state = sup.load_supervisor_state(self.config.state_path)
+                self.assertTrue(state.corrupt)
+                self.assertTrue(state.operator_clear_required)
+                self.assertEqual(self.cycle(observation(signature()), state).action, sup.ACTION_HALT)
+                self.assertEqual(self.restarts, [])
 
     def test_runtime_collects_signature_and_docker_health_without_inspect(self):
         def docker(_cfg, args, timeout=15):
