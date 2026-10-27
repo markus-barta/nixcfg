@@ -11,9 +11,12 @@ import hashlib
 import http.client
 import json
 import os
+from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,7 +29,9 @@ PIN_LINE = re.compile(
     rb'(?: #[^\r\n]*)?\n'
 )
 SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
-REPO = "repos/inspr-at/paimos"
+SSH_REMOTE = "ssh://git@github.com/inspr-at/paimos.git"
+PUBLIC_REMOTE = "https://github.com/inspr-at/paimos.git"
+GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 ACCEPT = ", ".join(
     (
         "application/vnd.oci.image.index.v1+json",
@@ -41,13 +46,13 @@ class GateError(Exception):
     """A safe, value-free failure suitable for CI logs."""
 
 
-def command(args, cwd=None):
+def command(args, cwd=None, env=None, timeout=20):
     try:
-        result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=20)
+        result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
-        raise GateError("git or GitHub request could not complete") from None
+        raise GateError("git request could not complete") from None
     if result.returncode:
-        raise GateError("git or GitHub request failed")
+        raise GateError("git request failed")
     return result.stdout
 
 
@@ -112,9 +117,9 @@ def json_object(payload):
     try:
         value = json.loads(payload)
     except (ValueError, UnicodeError):
-        raise GateError("invalid registry or GitHub response") from None
+        raise GateError("invalid registry response") from None
     if not isinstance(value, dict):
-        raise GateError("expected a registry or GitHub object")
+        raise GateError("expected a registry object")
     return value
 
 
@@ -146,38 +151,106 @@ def verify_registry(pin):
             raise GateError("registry response is not a v2 image manifest")
 
 
-def github_get(endpoint):
-    return json_object(command(["gh", "api", "--method", "GET", endpoint]))
-
-
-def commit_object(value):
-    if not isinstance(value, dict) or not SHA.fullmatch(str(value.get("sha", ""))):
-        raise GateError("GitHub returned an invalid git object")
-    return value
+def advertised_refs(payload, allowed):
+    try:
+        lines = payload.decode("ascii").splitlines()
+    except UnicodeError:
+        raise GateError("git returned invalid release refs") from None
+    refs = {}
+    for line in lines:
+        fields = line.split("\t")
+        if (
+            len(fields) != 2 or not SHA.fullmatch(fields[0])
+            or fields[1] not in allowed or fields[1] in refs
+        ):
+            raise GateError("git returned invalid release refs")
+        refs[fields[1]] = fields[0]
+    return refs
 
 
 def verify_tag(pin):
-    tag = f"v{pin['version']}"
-    value = commit_object(github_get(f"{REPO}/git/ref/tags/{tag}").get("object"))
-    # Current releases also use lightweight tags; accept either representation.
-    for _ in range(5):
-        if value.get("type") != "tag":
-            break
-        value = commit_object(github_get(f"{REPO}/git/tags/{value['sha']}").get("object"))
-    if value.get("type") != "commit":
-        raise GateError("release tag does not resolve to a commit")
-    tagged_sha = value["sha"]
-    main = commit_object(github_get(f"{REPO}/git/ref/heads/main").get("object"))
-    if main.get("type") != "commit":
-        raise GateError("main does not resolve to a commit")
-    comparison = github_get(f"{REPO}/compare/{tagged_sha}...{main['sha']}")
-    if (
-        comparison.get("status") not in ("ahead", "identical")
-        or commit_object(comparison.get("merge_base_commit"))["sha"] != tagged_sha
-        or commit_object(comparison.get("base_commit"))["sha"] != tagged_sha
+    if not re.fullmatch(r"[0-9]{12}\.0\.0", pin["version"]):
+        raise GateError("invalid release tag version")
+    tag = f"refs/tags/v{pin['version']}"
+    main = "refs/heads/main"
+    # Never persist a key beyond this verification or pass its value to Git.
+    key = os.environ.pop("PAIMOS_DEPLOY_KEY", "")
+    child_env = dict(os.environ)
+    for name in (
+        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_REPLACE_REF_BASE", "GIT_NAMESPACE", "GIT_SHALLOW_FILE",
     ):
-        raise GateError("release tag commit is not on paimos main")
-    return tagged_sha
+        child_env.pop(name, None)
+    child_env.update(
+        GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_COUNT="0", GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="false",
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="aeon-pin-git-", dir=os.environ.get("RUNNER_TEMP")
+    ) as scratch:
+        root = Path(scratch)
+        root.chmod(0o700)
+        remote = PUBLIC_REMOTE
+        if key:
+            key_file = root / "deploy-key"
+            key_file.touch(mode=0o600)
+            key_file.write_text(key + "\n")
+            known_hosts = root / "known_hosts"
+            known_hosts.write_text(GITHUB_HOST_KEY + "\n")
+            child_env["GIT_SSH_COMMAND"] = shlex.join([
+                "ssh", "-F", "/dev/null", "-i", str(key_file),
+                "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=yes",
+                "-o", f"UserKnownHostsFile={known_hosts}",
+                "-o", "GlobalKnownHostsFile=/dev/null",
+            ])
+            remote = SSH_REMOTE
+        else:
+            # Forks/Dependabot may verify public releases without credentials.
+            # No credential helper or interactive prompt may supply hidden auth.
+            child_env["GIT_SSH_COMMAND"] = "false"
+        key = ""
+        git = ["git", "--no-replace-objects", "-c", "credential.helper=",
+               "-c", "core.askPass="]
+
+        def run(*args, timeout=20):
+            return command(git + list(args), cwd=root, env=child_env, timeout=timeout)
+
+        try:
+            # Never read the checkout's local Git config: checkout may persist
+            # a nixcfg-only HTTP Authorization header there.
+            repository = root / "repository"
+            run("init", "--bare", "--quiet", str(repository))
+            git.extend(["-C", str(repository)])
+            tags = advertised_refs(run("ls-remote", "--tags", remote, tag, tag + "^{}"),
+                                   {tag, tag + "^{}"})
+            heads = advertised_refs(run("ls-remote", "--heads", remote, main), {main})
+            if tag not in tags or main not in heads:
+                raise GateError("release tag or main is missing")
+            # Blob-less, no checkout, no shallow boundary: the complete commit
+            # graph is needed to reject off-main tags without false negatives.
+            run("fetch", "--quiet", "--filter=blob:none", "--no-tags",
+                "--no-write-fetch-head", remote,
+                f"+{main}:refs/remotes/release/main", f"+{tag}:{tag}", timeout=120)
+            fetched_tag = run("rev-parse", "--verify", tag).decode().strip()
+            main_sha = run("rev-parse", "--verify", "refs/remotes/release/main^{commit}").decode().strip()
+            tagged_sha = run("rev-parse", "--verify", tag + "^{commit}").decode().strip()
+            if (
+                fetched_tag != tags[tag] or main_sha != heads[main]
+                or not SHA.fullmatch(tagged_sha)
+                or tagged_sha != tags.get(tag + "^{}", tags[tag])
+            ):
+                raise GateError("release refs changed during verification")
+            if run("merge-base", tagged_sha, main_sha).decode().strip() != tagged_sha:
+                raise GateError("release tag commit is not on paimos main")
+            return tagged_sha
+        except GateError as error:
+            # Keep all diagnostics value-free, including SSH errors.
+            access = "check PAIMOS_DEPLOY_KEY read-only access" if remote == SSH_REMOTE else (
+                "PAIMOS_DEPLOY_KEY is required if paimos is private; anonymous Git access failed"
+            )
+            raise GateError(f"{error}; {access}") from None
 
 
 def main():

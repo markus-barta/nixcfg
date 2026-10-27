@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -194,35 +195,157 @@ class RegistryFixtures(unittest.TestCase):
             gate.NoRedirect().redirect_request(None, None, 302, "redirect", {}, "https://elsewhere.invalid/")
 
 
-class GitHubFixtures(unittest.TestCase):
-    def responses(self, status="ahead", merge_base=TAG_SHA):
-        return [
-            {"object": {"type": "commit", "sha": TAG_SHA}},
-            {"object": {"type": "commit", "sha": MAIN_SHA}},
-            {"status": status, "base_commit": {"sha": TAG_SHA}, "merge_base_commit": {"sha": merge_base}},
-        ]
+class GitTransportFixtures(unittest.TestCase):
+    # Real local Git graph and upload-pack, with a synthetic SSH executable.
+    # Production ls-remote/fetch/peeling/merge-base commands all run unchanged;
+    # no request reaches the network and no real private key is used.
+    git = DiffFixtures.git
+    commit = DiffFixtures.commit
 
-    def test_lightweight_and_annotated_tags_on_main(self):
-        for status in ("ahead", "identical"):
-            with self.subTest(status=status), patch.object(gate, "github_get", side_effect=self.responses(status)):
-                self.assertEqual(gate.verify_tag(PIN), TAG_SHA)
-        responses = self.responses()
-        responses[0] = {"object": {"type": "tag", "sha": "e" * 40}}
-        responses.insert(1, {"object": {"type": "commit", "sha": TAG_SHA}})
-        with patch.object(gate, "github_get", side_effect=responses):
-            self.assertEqual(gate.verify_tag(PIN), TAG_SHA)
+    def setUp(self):
+        DiffFixtures.setUp(self)
+        if self.git("symbolic-ref", "--short", "HEAD") != "main":
+            self.git("branch", "-m", "main")
+        self.scratch = self.repo / ".git" / "scratch"
+        self.scratch.mkdir()
+        fake_bin = self.repo / ".git" / "bin"
+        fake_bin.mkdir()
+        ssh = fake_bin / "ssh"
+        ssh.write_text(f"#!{sys.executable}\n" + r'''
+import json, os, pathlib, stat, sys
+args = sys.argv[1:]
+assert args[:2] == ['-F', '/dev/null']
+assert all(x in args for x in ['IdentitiesOnly=yes', 'BatchMode=yes',
+                              'ConnectTimeout=15', 'StrictHostKeyChecking=yes',
+                              'GlobalKnownHostsFile=/dev/null'])
+key = pathlib.Path(args[args.index('-i') + 1])
+assert key.read_text() == os.environ['FIXTURE_KEY'] + '\n'
+assert stat.S_IMODE(key.stat().st_mode) == 0o600
+assert stat.S_IMODE(key.parent.stat().st_mode) == 0o700
+known = next(x.split('=', 1)[1] for x in args if x.startswith('UserKnownHostsFile='))
+assert pathlib.Path(known).read_text() == os.environ['FIXTURE_HOST_KEY'] + '\n'
+assert 'PAIMOS_DEPLOY_KEY' not in os.environ
+assert args[-2:] == ['git@github.com', "git-upload-pack '/inspr-at/paimos.git'"]
+os.execvp('git', ['git', 'upload-pack', os.environ['FIXTURE_GIT_REMOTE']])
+''')
+        ssh.chmod(0o700)
+        self.fixture_key = "OPS-480 synthetic SSH fixture"
+        self.child_env = {
+            'PATH': str(fake_bin) + os.pathsep + os.environ['PATH'],
+            'RUNNER_TEMP': str(self.scratch), 'PAIMOS_DEPLOY_KEY': self.fixture_key,
+            'FIXTURE_KEY': self.fixture_key, 'FIXTURE_HOST_KEY': gate.GITHUB_HOST_KEY,
+            'FIXTURE_GIT_REMOTE': str(self.repo), 'GIT_SSH_VARIANT': 'ssh',
+            'GIT_SSH_COMMAND': 'existing hausnetz override',
+        }
 
-    def test_off_main_and_wrong_merge_base_fail(self):
-        for status, merge_base in (("behind", TAG_SHA), ("diverged", TAG_SHA), ("ahead", MAIN_SHA)):
-            with self.subTest(status=status), patch.object(gate, "github_get", side_effect=self.responses(status, merge_base)):
-                with self.assertRaises(gate.GateError):
-                    gate.verify_tag(PIN)
+    def verify(self):
+        try:
+            with patch.dict(os.environ, self.child_env):
+                return gate.verify_tag(PIN)
+        finally:
+            self.assertEqual(list(self.scratch.iterdir()), [])
 
-    def test_missing_or_invalid_tag_fails(self):
-        for result in (gate.GateError("GitHub request failed"), {}, {"object": {"type": "blob", "sha": TAG_SHA}}):
-            with self.subTest(result=result), patch.object(gate, "github_get", side_effect=[result]):
-                with self.assertRaises(gate.GateError):
-                    gate.verify_tag(PIN)
+    def advance(self):
+        self.path.write_text(self.path.read_text() + "# advance fixture\n")
+        return self.commit()
+
+    def test_lightweight_tag_ancestor_of_main(self):
+        self.git("tag", "v" + NEW)
+        self.advance()
+        self.assertEqual(self.verify(), self.base)
+
+    def test_annotated_tag_identical_to_main(self):
+        self.git("tag", "-a", "v" + NEW, "-m", "release fixture")
+        self.assertEqual(self.verify(), self.base)
+
+    def test_nested_annotated_tag(self):
+        self.git("tag", "-a", "inner", "-m", "inner fixture")
+        self.git("tag", "-a", "v" + NEW, "inner", "-m", "release fixture")
+        self.advance()
+        self.assertEqual(self.verify(), self.base)
+
+    def test_off_main_tag_is_rejected(self):
+        self.git("checkout", "-qb", "release")
+        self.advance()
+        self.git("tag", "v" + NEW)
+        self.git("checkout", "-q", "main")
+        with self.assertRaisesRegex(gate.GateError, "not on paimos main"):
+            self.verify()
+
+    def test_diverged_tag_is_rejected(self):
+        self.git("checkout", "-qb", "release")
+        self.advance()
+        self.git("tag", "v" + NEW)
+        self.git("checkout", "-q", "main")
+        (self.repo / "main-only").write_text("main fixture")
+        self.commit()
+        with self.assertRaisesRegex(gate.GateError, "not on paimos main"):
+            self.verify()
+
+    def test_missing_tag_fails_and_removes_key(self):
+        with self.assertRaisesRegex(gate.GateError, "tag or main is missing"):
+            self.verify()
+
+    def test_blob_tag_is_rejected(self):
+        blob = self.git("hash-object", str(self.path))
+        self.git("tag", "v" + NEW, blob)
+        with self.assertRaises(gate.GateError):
+            self.verify()
+
+    def test_malformed_or_duplicate_advertisements_fail(self):
+        for payload in (b"not a ref", b"\xff", (f"{TAG_SHA}\trefs/heads/main\n" * 2).encode(),
+                        f"{TAG_SHA}\trefs/heads/unexpected\n".encode()):
+            with self.subTest(payload=payload), self.assertRaises(gate.GateError):
+                gate.advertised_refs(payload, {"refs/heads/main"})
+
+    def test_ref_race_is_rejected(self):
+        self.git("tag", "v" + NEW)
+        original = gate.command
+
+        def move_after_advertising(args, **kwargs):
+            if "fetch" in args:
+                self.advance()
+                self.git("tag", "-f", "v" + NEW)
+            return original(args, **kwargs)
+
+        with patch.object(gate, "command", side_effect=move_after_advertising):
+            with self.assertRaisesRegex(gate.GateError, "refs changed"):
+                self.verify()
+
+    def test_ssh_failure_redacts_output_and_cleans_key(self):
+        with patch.object(gate.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 1, stdout=self.fixture_key.encode(), stderr=self.fixture_key.encode())):
+            with self.assertRaises(gate.GateError) as caught:
+                self.verify()
+        self.assertIn("PAIMOS_DEPLOY_KEY", str(caught.exception))
+        self.assertNotIn(self.fixture_key, str(caught.exception))
+
+    def test_missing_key_uses_anonymous_git_while_public(self):
+        self.git("tag", "v" + NEW)
+        self.child_env['PAIMOS_DEPLOY_KEY'] = ''
+        with patch.object(gate, "PUBLIC_REMOTE", str(self.repo)), patch.object(gate, "command", wraps=gate.command) as requests:
+            self.assertEqual(self.verify(), self.base)
+        for call in requests.call_args_list:
+            self.assertEqual(call.kwargs['env']['GIT_SSH_COMMAND'], 'false')
+            self.assertIn('credential.helper=', call.args[0])
+
+    def test_git_commands_ignore_checkout_credentials_and_config(self):
+        self.git("tag", "v" + NEW)
+        with patch.object(gate, "command", wraps=gate.command) as calls:
+            self.assertEqual(self.verify(), self.base)
+        for call in calls.call_args_list:
+            options = call.kwargs
+            self.assertTrue(options['cwd'].is_relative_to(self.scratch))
+            self.assertEqual(options['env']['GIT_CONFIG_GLOBAL'], '/dev/null')
+            self.assertEqual(options['env']['GIT_CONFIG_NOSYSTEM'], '1')
+            self.assertEqual(options['env']['GIT_CONFIG_COUNT'], '0')
+            self.assertNotIn('PAIMOS_DEPLOY_KEY', options['env'])
+
+    def test_private_repo_without_key_has_clear_failure(self):
+        self.child_env['PAIMOS_DEPLOY_KEY'] = ''
+        with patch.object(gate, "command", side_effect=gate.GateError("git request failed")):
+            with self.assertRaisesRegex(gate.GateError, "PAIMOS_DEPLOY_KEY is required"):
+                self.verify()
 
 
 class JobFixtures(unittest.TestCase):
@@ -233,8 +356,14 @@ class JobFixtures(unittest.TestCase):
         return output.getvalue()
 
     def test_non_pin_gate_reports_without_network(self):
-        with patch.object(gate, "registry_get", side_effect=AssertionError("network")), patch.object(gate, "github_get", side_effect=AssertionError("network")):
+        with patch.object(gate, "registry_get", side_effect=AssertionError("network")), patch.object(gate, "verify_tag", side_effect=AssertionError("network")):
             self.assertIn("aeon_pin_gate=not_applicable", self.run_mode("verify", None))
+
+    def test_successful_verification_preserves_exact_output(self):
+        with patch.object(gate, "verify_registry"), patch.object(gate, "verify_tag", return_value=TAG_SHA):
+            output = self.run_mode("verify", PIN)
+        self.assertEqual(output, f"aeon_pin_gate=verified digest={NEW_DIGEST} tag_commit={TAG_SHA}\n"
+                         "attestation_verification=deferred dependency=AEON-407\n")
 
     def test_pin_classifier_logs_zero_tests(self):
         output = self.run_mode("classify", PIN)
@@ -315,6 +444,8 @@ class WorkflowFixtures(unittest.TestCase):
         self.assertEqual(gate_job["permissions"], {"contents": "read"})
         self.assertEqual(gate_job["steps"][0]["with"]["fetch-depth"], 0)
         verify = gate_job["steps"][-1]
+        self.assertEqual(verify["env"]["PAIMOS_DEPLOY_KEY"], "${{ secrets.PAIMOS_DEPLOY_KEY }}")
+        self.assertNotIn("GH_TOKEN", verify["env"])
         classifiers = [self.workflow["jobs"][shard]["steps"][1]
                        for shard in self.workflow["jobs"]["pharos-rollout"]["needs"]]
         for step in (*classifiers, verify):

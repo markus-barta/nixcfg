@@ -240,25 +240,65 @@ reconciled by NixOS. Restart it without touching the rest of the compose stack:
 sudo systemctl restart hsb0-home-dashboard
 ```
 
-### hausnetz (OPS-207)
+### CI access to Paimos inputs (OPS-480)
 
-CI private inputs (OPS-480): alongside `.github/actions/hausnetz-input`,
-`.github/actions/paimos-private-inputs` prefetches the locked `aeon` and
-`paimos` sources using separate read-only `PAIMOS_DEPLOY_KEY` and
-`PAIMOS_LEGACY_DEPLOY_KEY` repository secrets. It reads owner/repo/revision
-and `narHash` from `flake.lock`, fetches over pinned-host-key SSH, and rejects
-hash mismatches; the existing anonymous `github:` flake inputs stay unchanged.
-All four contract shards (including macOS Home Manager evaluations) and every
-host eval matrix entry run it after Nix setup and the public-only cache
-snapshot, before flake consumers. SSH overrides are scoped to each prefetch;
-key files remain only in job-local `RUNNER_TEMP`, cleaned by the runner.
-Without either secret (forks/Dependabot), that input skips SSH prefetch with a
-notice only if its exact locked archive is anonymously accessible. Once it
-is private, even a warm store fails clearly naming the missing secret; an
-anonymous probe outage also fails closed. Provision both secrets before
-changing repository visibility; untrusted PRs will need a maintainer's
-trusted validation path during the private interval. Offline contract:
-`bash tests/T113-paimos-private-inputs.sh` with Bash 5.
+`.github/actions/paimos-private-inputs` reads the root mappings for `aeon`
+and `paimos` in `flake.lock` (node names may differ), validates the locked
+owner/repository/revision and NAR hash, and prefetches over pinned-host-key
+SSH. Separate read-only `PAIMOS_DEPLOY_KEY` and `PAIMOS_LEGACY_DEPLOY_KEY`
+repository secrets grant access to the current and legacy repositories.
+No host key is discovered at runtime. SSH overrides apply only to each
+prefetch; files are 0600 in a 0700 temporary directory and are deleted both
+on failure and immediately after the prefetch loop. An offline canary then
+checks reuse through the original `github` fetcher with auth and network
+fallback denied, on the Nix version installed by that job. The legacy input
+may be absent after NIX-584; a present but invalid mapping fails closed.
+
+The action precedes flake consumers in these workflows/jobs:
+
+- `check.yml`: `pharos-contracts-1` through `pharos-contracts-4`, after the
+  public dependency setup/cache snapshot, and every host in `check` after
+  Nix installation. The matrix has no Nix cache. Exact image-only pin
+  replacements still skip the four contract shards.
+- `pharos-system-update.yml` / `propose`: host discovery, update and fleet
+  evaluation; `pharos-host-removal.yml` / `propose`: fleet evaluation;
+  `pharos-host-settings.yml` / `update-and-merge`: hsb8 manifest and target
+  evaluation; `pharos-release-rollout.yml` / `propose`: release contracts.
+- `update-flake-lock.yml` / `update-and-merge`: selected lock updates.
+  Both this weekly updater and the Pharos system updater exclude `hausnetz`,
+  `aeon` and `paimos`; these pins advance only through explicit review.
+  Prefetching the old NAR does not authorize resolving new private tags.
+
+Trusted runs require the corresponding keys even while the sources remain
+public, so provisioning errors surface before a visibility change. Fork and
+Dependabot PRs have `require-keys` disabled: they skip SSH only when an
+anonymous probe of the exact archive succeeds, even on a warm store. A
+private source or probe outage fails with the missing secret's name. Such
+PRs need a maintainer's trusted validation path during the private interval;
+Dependabot secrets are not configured by this change. Never expose repository
+secrets through `pull_request_target` or execute untrusted code with them.
+
+The independent `aeon-pin-gate` passes `PAIMOS_DEPLOY_KEY` only to its verifier.
+It uses `git ls-remote` and a blob-less fetch of the release tag and main,
+checks that refs did not change during verification and that the peeled tag
+commit is an ancestor of main, then removes its temporary key and Git data.
+Without a key it attempts anonymous Git access only, which fails clearly if
+the repository is private. Its digest/tag output and public GHCR verification
+remain unchanged: `ghcr.io/inspr-at/aeon` must remain anonymously pullable.
+The signed Darwin agent's private GitHub release-asset URL is a separate
+unresolved consumer; SSH input prefetch does not make that asset accessible.
+
+`build.yml`, `format-check.yml` and `janus-engine-pin-check.yml` use standalone
+Nix expressions or external tool packages, without consuming this flake.
+The Bash 5 contract `bash tests/T113-paimos-private-inputs.sh` scans every
+workflow, recursively inspects local script/action references, checks these
+explicit exceptions, and exercises failure/cleanup fixtures and the pin
+verifier's real local Git transport. With Nix installed it also runs the
+actual composite against local Git and an isolated store/cache with network
+fallback denied. In CI the action runs the source-reuse canary against the
+real locked inputs after authenticated prefetch, on each installed Nix pin.
+
+### hausnetz (OPS-207)
 
 After HNET-237 activation, hausnetz is the front page at `http://hsb0.lan/`.
 The host-local `docker/front-page-nginx.conf` replaces the shared vhost only
