@@ -24,6 +24,7 @@
   boot.initrd.kernelModules = [ "dm-snapshot" ];
   boot.kernelModules = [
     "kvm-intel"
+    "b43" # listed so systemd-modules-load loads it at activation, not only on the next boot
   ];
   # HNET-45 (Markus go 2026-10-27): the built-in Broadcom BCM4331 (PCI 14e4:4331) uses the
   # in-kernel b43 driver with its firmware (the old "wl" entry had no broadcom_sta package and
