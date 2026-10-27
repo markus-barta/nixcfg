@@ -12,8 +12,13 @@ done
 # inputs or realizing derivations. Stub external artifacts for restart triggers.
 nix-instantiate --eval --strict --json --expr '
   let
+    # HNET-45: the Shelly recovery credentials are agenix runtime paths.
+    healSecrets = [ "wifi-psk" "mqtt-password" "telegram" "shelly-allow" ];
     host = import ./hosts/hsb0/configuration.nix {
-      config = {};
+      config.age.secrets = builtins.listToAttrs (map (n: {
+        name = "hsb0-hausnetz-" + n;
+        value.path = "/run/agenix/hsb0-hausnetz-" + n;
+      }) healSecrets);
       pkgs.stdenv.hostPlatform.system = "fixture";
       inputs.hostdash.packages.fixture.hsb0.overrideAttrs = _: "hostdash-fixture";
       lib.mkBefore = x: x;
@@ -31,6 +36,10 @@ nix-instantiate --eval --strict --json --expr '
     restartTriggers = map toString host.nixcfg.composeStack.extraRestartTriggers;
     home = compose.services.hsb0-home;
     hostdashStatus = host.services.hostdash.status;
+    healSecretModes = builtins.listToAttrs (map (n: {
+      name = n;
+      value = (builtins.getAttr ("hsb0-hausnetz-" + n) host.age.secrets).mode;
+    }) healSecrets);
   }
 ' | python3 -c '
 import json, sys
@@ -40,6 +49,12 @@ assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
 assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True}
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s and "starlink" not in s
+# HNET-45 (OPS-470): Shelly recovery on the spare radio, detect mode first; credentials only as runtime agenix paths.
+assert s["shellyHeal"] == {"mode": "detect", "interface": "wlp3s0b1", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
+    "wifiPskFile": "/run/agenix/hsb0-hausnetz-wifi-psk", "mqttServer": "192.168.1.101:1883", "mqttUser": "smarthome",
+    "mqttPasswordFile": "/run/agenix/hsb0-hausnetz-mqtt-password", "telegramCredentialFile": "/run/agenix/hsb0-hausnetz-telegram",
+    "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow"}, s["shellyHeal"]
+assert c["healSecretModes"] == {n: "400" for n in ("wifi-psk", "mqtt-password", "telegram", "shelly-allow")}, c["healSecretModes"]
 assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and all(p not in fw["allowedUDPPorts"] for p in (5353, 1901))
 assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
 assert home.get("network_mode", "bridge") == "bridge"
