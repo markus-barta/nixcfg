@@ -542,6 +542,11 @@ in
   # IB Gateway paper password (raw password only for TWS_PASSWORD_FILE).
   # Edit: just edit-secret secrets/hsb0-ib-gateway-password.age
   "hsb0-ib-gateway-password.age".publicKeys = markus ++ hsb0;
+
+  # HNET-45 Shelly self-heal (Markus go 2026-10-27): the home Wi-Fi PSK that hausnetz
+  # hands to a Shelly whose station config is lost. Raw PSK, no trailing newline.
+  # Consumed by the hausnetz heal module (r48) via LoadCredential; never logged.
+  "hsb0-hausnetz-wifi-psk.age".publicKeys = markus ++ hsb0;
   "hsb0-ib-desk-env.age".publicKeys = markus ++ hsb0;
 
   # Shared inbox push credential: hsb0 joe-board-pusher → csb0 joe-board inbox.
