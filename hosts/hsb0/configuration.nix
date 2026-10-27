@@ -161,7 +161,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     };
     # HNET-45 (Markus's go 2026-10-27 09:12, new capability; see the ticket):
     # recover Shellies that fell back to their own AP over the spare BCM4331
-    # radio (OPS-470). Options: hausnetz@846af4b3 (pin 49; module unchanged since pin 48) nix/module.nix:204-270.
+    # radio (OPS-470). Options: hausnetz@26472082 (pin 50; adds shellyHeal.addressing, default dhcp) nix/module.nix.
     # The module runs its own wpa_supplicant on the interface, keeps it
     # NM-unmanaged and isolates it with an INPUT drop and its own FORWARD
     # chain (:454-490, :512-545). Credential paths are runtime strings
@@ -179,6 +179,9 @@ assert joeSet.pusher != null && joeSet.executor != null;
     shellyHeal = {
       mode = "heal";
       interface = "wlp0s26f7u1u3";
+      # Pin 50 defaults to DHCP; hsb0 keeps the proven static .2 until a heal
+      # succeeds, then DHCP comes as its own change (HNET-45/HNET-407).
+      addressing = "static";
       address = "192.168.33.2/24";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
