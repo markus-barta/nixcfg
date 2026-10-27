@@ -118,6 +118,9 @@ test("foreign alert persistence failure emits nothing before a durable receipt",
 });
 
 test("the existing journal alert channel emits one structured account-free event across replay", (t) => {
+  // Pin the clock like the neighbouring tests: the fixture's execution is fixed, and an unpinned clock
+  // ages it past the 14-day lateness window (foreign_execution_late) as real time passes.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-12T20:00:00Z") });
   const { ledger, state } = fixture();
   const warn = t.mock.method(console, "warn", () => {});
   reconcileAttribution(state, config, { saveState: ledger.save, audit: ledger.audit });
