@@ -24,9 +24,13 @@
   boot.initrd.kernelModules = [ "dm-snapshot" ];
   boot.kernelModules = [
     "kvm-intel"
-    "wl"
   ];
-  #  boot.extraModulePackages = [ config.boot.kernelPackages.broadcom_sta ];
+  # HNET-45 (Markus go 2026-10-27): the built-in Broadcom BCM4331 (PCI 14e4:4331) uses the
+  # in-kernel b43 driver with its firmware (the old "wl" entry had no broadcom_sta package and
+  # never loaded). NetworkManager never manages the Wi-Fi interface: hausnetz's own
+  # wpa_supplicant unit (HNET r48) owns it; the wired LAN stays on scripted networking.
+  networking.enableB43Firmware = true;
+  networking.networkmanager.unmanaged = [ "interface-name:wl*" ];
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
   # (the default) this is the recommended approach. When using systemd-networkd it's
