@@ -454,16 +454,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793103805,
-        "narHash": "sha256-/ugnGWAaNZU6wRwLHTlOBqt2JTdLaILGc9xSAvSdLuY=",
+        "lastModified": 1793129477,
+        "narHash": "sha256-HhyVE6RqBSzKPxPXrBiz4li+udDWAhxHiiEzXYjC8Vg=",
         "ref": "refs/heads/main",
-        "rev": "da9a536f07a41c1752bb4abfc29ee12baafcada0",
-        "revCount": 1058,
+        "rev": "264720827c6caf7b7bae9081dff45693e7d15750",
+        "revCount": 1072,
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       },
       "original": {
-        "rev": "da9a536f07a41c1752bb4abfc29ee12baafcada0",
+        "rev": "264720827c6caf7b7bae9081dff45693e7d15750",
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       }
@@ -663,17 +663,17 @@
     "joedesk": {
       "flake": false,
       "locked": {
-        "lastModified": 1793068153,
-        "narHash": "sha256-RiWGb3/CySrHsqcKW+aFHkMqMwMobriLOZykZ8G5IHs=",
+        "lastModified": 1793114762,
+        "narHash": "sha256-Ng3LGojJgZGVbpm2ChbnP6ZjGGZ7yUFO1hPuidnyR80=",
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "a3a3683d6bbb05818ae99291b96e983000fb9cd4",
+        "rev": "2d36c7b439c679fc37b05940890652aa9414e200",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "a3a3683d6bbb05818ae99291b96e983000fb9cd4",
+        "rev": "2d36c7b439c679fc37b05940890652aa9414e200",
         "type": "github"
       }
     },

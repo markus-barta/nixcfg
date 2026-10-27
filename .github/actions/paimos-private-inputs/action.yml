@@ -1,0 +1,138 @@
+name: Prefetch the locked Paimos inputs
+description: Job-local read-only deploy keys for the two Paimos repositories (OPS-480)
+inputs:
+  paimos-key:
+    description: PAIMOS_DEPLOY_KEY, registered read-only on inspr-at/paimos
+    required: false
+  paimos-legacy-key:
+    description: PAIMOS_LEGACY_DEPLOY_KEY, registered read-only on inspr-at/paimos-legacy
+    required: false
+  require-keys:
+    description: Fail before the visibility flip when a trusted run lacks a required key
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Prefetch and verify each locked source
+      shell: bash
+      env:
+        PAIMOS_DEPLOY_KEY: ${{ inputs.paimos-key }}
+        PAIMOS_LEGACY_DEPLOY_KEY: ${{ inputs.paimos-legacy-key }}
+        REQUIRE_KEYS: ${{ inputs.require-keys }}
+      run: |
+        set -euo pipefail
+        umask 077
+        # Remove credentials on every exit, and before the offline canary.
+        # Never export an SSH override: hausnetz has its own, different key.
+        ssh_dir=$(mktemp -d "$RUNNER_TEMP/paimos-inputs-ssh.XXXXXX")
+        cleanup() { rm -rf -- "$ssh_dir"; }
+        trap cleanup EXIT
+        verified_inputs=()
+        if [ -n "$PAIMOS_DEPLOY_KEY" ]; then
+          printf '%s\n' "$PAIMOS_DEPLOY_KEY" >"$ssh_dir/aeon"
+        fi
+        if [ -n "$PAIMOS_LEGACY_DEPLOY_KEY" ]; then
+          printf '%s\n' "$PAIMOS_LEGACY_DEPLOY_KEY" >"$ssh_dir/paimos"
+        fi
+        unset PAIMOS_DEPLOY_KEY PAIMOS_LEGACY_DEPLOY_KEY
+        # Same pinned published host key as hausnetz-input; no ssh-keyscan.
+        # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+        printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >"$ssh_dir/known_hosts"
+        for node in aeon paimos; do
+          if [ "$node" = aeon ]; then
+            expected_repo=paimos
+            secret_name=PAIMOS_DEPLOY_KEY
+          else
+            expected_repo=paimos-legacy
+            secret_name=PAIMOS_LEGACY_DEPLOY_KEY
+          fi
+          # NIX-584 can remove the optional legacy input without breaking CI.
+          if [ "$node" = paimos ] && jq -e '.nodes[.root].inputs | has("paimos") | not' flake.lock >/dev/null; then
+            continue
+          fi
+          # Validate all lock data before constructing a URL or handing it to Git.
+          # Exact lengths matter: jq/Oniguruma $ also matches before a final LF.
+          if ! locked=$(jq -er --arg node "$node" --arg repo "$expected_repo" '
+            .nodes[.root].inputs[$node] as $key
+            | select(($key | type) == "string")
+            | .nodes[$key].locked
+            | select(.type == "github" and .owner == "inspr-at" and .repo == $repo)
+            | select((.rev | type) == "string" and (.rev | length) == 40)
+            | select(.rev | test("^[0-9a-f]{40}$"))
+            | select((.narHash | type) == "string" and (.narHash | length) == 51)
+            | select(.narHash | test("^sha256-[A-Za-z0-9+/]{43}=$"))
+            | [.owner, .repo, .rev, .narHash] | @tsv
+          ' flake.lock); then
+            echo "::error::Invalid locked Paimos input: root input $node" >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r owner repo rev nar_hash <<<"$locked"
+          if [ ! -f "$ssh_dir/$node" ]; then
+            if [ "$REQUIRE_KEYS" = true ]; then
+              echo "::error::$secret_name is required on trusted runs; provision it before the visibility flip" >&2
+              exit 1
+            fi
+            # Forks/Dependabot keep working while the exact locked source is
+            # public. Probe anonymously even if the Nix store is already warm:
+            # a privacy flip must produce a clear missing-secret failure.
+            if curl --head --location --fail --silent --output /dev/null \
+              --connect-timeout 10 --max-time 60 \
+              "https://github.com/$owner/$repo/archive/$rev.tar.gz"; then
+              echo "::notice::$secret_name is unavailable; $owner/$repo is publicly accessible; skipping SSH prefetch for $node"
+              continue
+            fi
+            echo "::error::$secret_name is required: the locked $owner/$repo source is not anonymously accessible (private, unavailable, or network failure)" >&2
+            exit 1
+          fi
+          ssh_command="ssh -F /dev/null -i '$ssh_dir/$node' -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o UserKnownHostsFile='$ssh_dir/known_hosts' -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+          if ! result=$(GIT_SSH_COMMAND="$ssh_command" nix flake prefetch --json \
+            "git+ssh://git@github.com/$owner/$repo?rev=$rev&allRefs=1" 2>"$ssh_dir/prefetch.log"); then
+            # Classify diagnostics without printing raw subprocess output.
+            reason=fetch_failed
+            if grep -q 'Permission denied' "$ssh_dir/prefetch.log"; then reason=authentication_denied; fi
+            if grep -q 'Cannot find Git revision' "$ssh_dir/prefetch.log"; then reason=locked_revision_unavailable; fi
+            if grep -qi 'timed out' "$ssh_dir/prefetch.log"; then reason=connection_timeout; fi
+            echo "::error::SSH prefetch failed for $owner/$repo ($reason); check $secret_name and the locked revision" >&2
+            exit 1
+          fi
+          if ! hash=$(jq -er '.hash | select(type == "string")' <<<"$result") || [ "$hash" != "$nar_hash" ]; then
+            echo "::error::Prefetched $owner/$repo hash does not match root input $node.narHash" >&2
+            exit 1
+          fi
+          verified_inputs+=("$locked")
+          echo "Verified locked $owner/$repo source ($node)"
+        done
+        cleanup
+        trap - EXIT
+        # Resolve the exact original lock through a tiny flake. A standalone
+        # fetchTree expression does not exercise locked-flake reuse on new Nix.
+        # This directory contains only public lock metadata, never a key.
+        canary_dir=$(mktemp -d "$RUNNER_TEMP/paimos-inputs-canary.XXXXXX")
+        cleanup_canary() { rm -rf -- "$canary_dir"; }
+        trap cleanup_canary EXIT
+        for locked in "${verified_inputs[@]}"; do
+          IFS=$'\t' read -r owner repo rev nar_hash <<<"$locked"
+          node=aeon
+          if [ "$repo" = paimos-legacy ]; then node=paimos; fi
+          printf '%s\n' "{ inputs.source = { url = \"github:$owner/$repo/$rev\"; flake = false; }; outputs = { self, source }: { sourcePath = source.outPath; }; }" >"$canary_dir/flake.nix"
+          jq --arg node "$node" '
+            .nodes[.root].inputs[$node] as $key | .nodes[$key].locked as $locked
+            | { version: 7, root: "root", nodes: {
+                root: { inputs: { source: "source" } },
+                source: { flake: false, locked: $locked,
+                  original: { type: "github", owner: $locked.owner, repo: $locked.repo, rev: $locked.rev } }
+              } }
+          ' flake.lock >"$canary_dir/flake.lock"
+          if ! GIT_SSH_COMMAND=false GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.allow GIT_CONFIG_VALUE_0=never \
+            http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 all_proxy=http://127.0.0.1:9 \
+            HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
+            no_proxy='' NO_PROXY='' nix eval --offline --raw --no-update-lock-file \
+            --option substituters '' --option access-tokens '' --option netrc-file '' --option flake-registry '' \
+            "path:$canary_dir#sourcePath" >/dev/null 2>/dev/null; then
+            echo "::error::Offline github source reuse failed for $owner/$repo on this Nix version" >&2
+            exit 1
+          fi
+          echo "Verified offline github source reuse for $owner/$repo"
+        done
+        cleanup_canary
+        trap - EXIT

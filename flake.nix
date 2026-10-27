@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/a3a3683d6bbb05818ae99291b96e983000fb9cd4";
+      url = "github:markus-barta/joedesk/2d36c7b439c679fc37b05940890652aa9414e200";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 48: v261027114300.0.0 (#303 merge, sequence 118). Contents since 47: HNET-45 automatic Shelly recovery (services.hausnetz.shellyHeal: a dedicated spare-radio unit, LoadCredential credentials, radio firewall isolation), wired on hsb0 in detect mode.
+    # HNET pin 50: v261027184920.0.0 (#307 merge, sequence 120). Contents since 49: HNET-407 Shelly Gen1 recovery (STA written first over the AP with a lost response tolerated, MQTT written over the LAN to the MAC-verified device, 15 s write timeouts, allowlisted redacted state copies, a shelly-heal-reset CLI) plus an opt-in association-scoped DHCP client (shellyHeal.addressing; hsb0 stays static). Module change under Markus's HNET-45 go; explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=da9a536f07a41c1752bb4abfc29ee12baafcada0";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=264720827c6caf7b7bae9081dff45693e7d15750";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

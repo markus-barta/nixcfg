@@ -240,6 +240,64 @@ reconciled by NixOS. Restart it without touching the rest of the compose stack:
 sudo systemctl restart hsb0-home-dashboard
 ```
 
+### CI access to Paimos inputs (OPS-480)
+
+`.github/actions/paimos-private-inputs` reads the root mappings for `aeon`
+and `paimos` in `flake.lock` (node names may differ), validates the locked
+owner/repository/revision and NAR hash, and prefetches over pinned-host-key
+SSH. Separate read-only `PAIMOS_DEPLOY_KEY` and `PAIMOS_LEGACY_DEPLOY_KEY`
+repository secrets grant access to the current and legacy repositories.
+No host key is discovered at runtime. SSH overrides apply only to each
+prefetch; files are 0600 in a 0700 temporary directory and are deleted both
+on failure and immediately after the prefetch loop. An offline canary then
+checks reuse through the original `github` fetcher with auth and network
+fallback denied, on the Nix version installed by that job. The legacy input
+may be absent after NIX-584; a present but invalid mapping fails closed.
+
+The action precedes flake consumers in these workflows/jobs:
+
+- `check.yml`: `pharos-contracts-1` through `pharos-contracts-4`, after the
+  public dependency setup/cache snapshot, and every host in `check` after
+  Nix installation. The matrix has no Nix cache. Exact image-only pin
+  replacements still skip the four contract shards.
+- `pharos-system-update.yml` / `propose`: host discovery, update and fleet
+  evaluation; `pharos-host-removal.yml` / `propose`: fleet evaluation;
+  `pharos-host-settings.yml` / `update-and-merge`: hsb8 manifest and target
+  evaluation; `pharos-release-rollout.yml` / `propose`: release contracts.
+- `update-flake-lock.yml` / `update-and-merge`: selected lock updates.
+  Both this weekly updater and the Pharos system updater exclude `hausnetz`,
+  `aeon` and `paimos`; these pins advance only through explicit review.
+  Prefetching the old NAR does not authorize resolving new private tags.
+
+Trusted runs require the corresponding keys even while the sources remain
+public, so provisioning errors surface before a visibility change. Fork and
+Dependabot PRs have `require-keys` disabled: they skip SSH only when an
+anonymous probe of the exact archive succeeds, even on a warm store. A
+private source or probe outage fails with the missing secret's name. Such
+PRs need a maintainer's trusted validation path during the private interval;
+Dependabot secrets are not configured by this change. Never expose repository
+secrets through `pull_request_target` or execute untrusted code with them.
+
+The independent `aeon-pin-gate` passes `PAIMOS_DEPLOY_KEY` only to its verifier.
+It uses `git ls-remote` and a blob-less fetch of the release tag and main,
+checks that refs did not change during verification and that the peeled tag
+commit is an ancestor of main, then removes its temporary key and Git data.
+Without a key it attempts anonymous Git access only, which fails clearly if
+the repository is private. Its digest/tag output and public GHCR verification
+remain unchanged: `ghcr.io/inspr-at/aeon` must remain anonymously pullable.
+The signed Darwin agent's private GitHub release-asset URL is a separate
+unresolved consumer; SSH input prefetch does not make that asset accessible.
+
+`build.yml`, `format-check.yml` and `janus-engine-pin-check.yml` use standalone
+Nix expressions or external tool packages, without consuming this flake.
+The Bash 5 contract `bash tests/T113-paimos-private-inputs.sh` scans every
+workflow, recursively inspects local script/action references, checks these
+explicit exceptions, and exercises failure/cleanup fixtures and the pin
+verifier's real local Git transport. With Nix installed it also runs the
+actual composite against local Git and an isolated store/cache with network
+fallback denied. In CI the action runs the source-reuse canary against the
+real locked inputs after authenticated prefetch, on each installed Nix pin.
+
 ### hausnetz (OPS-207)
 
 After HNET-237 activation, hausnetz is the front page at `http://hsb0.lan/`.
@@ -1174,8 +1232,8 @@ environment/mounts; the source build context/restart trigger still changes with
 production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
 `joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
 r17 images in the release set and moved the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
-Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), since JOED-87 it was 8be38581 (sequence 32), since JOED-90 it was e96ff9a5 (sequence 33), and since JOED-97 it is a3a3683d (sequence 34).
-Release 34's board keeps contract revision 10 and accepts existing revision-9 payloads.
+Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), since JOED-87 it was 8be38581 (sequence 32), since JOED-90 it was e96ff9a5 (sequence 33), since JOED-97 a3a3683d (sequence 34), and since JOED-99 it is 2d36c7b4 (sequence 35).
+Release 35's board keeps contract revision 10 and accepts existing revision-9 payloads.
 JOED-100 prepares `household-v2-switch-set-r20c-202610271530`: r20b's JOED-86
 pusher code plus the bounded ownership history (JOED-100, #1159). r20a and r20b
 carried the JOED-86 code (r20a was its first prestage: its build context had

@@ -47,7 +47,9 @@ EOF
 cat >"$fixture/flake.lock" <<'EOF'
 {
   "nodes": {
-    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "alias": ["nixpkgs"] } },
+    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "aeon": "aeon_2", "paimos": "paimos_2", "alias": ["nixpkgs"] } },
+    "aeon_2": { "locked": { "type": "github", "rev": "reviewed-aeon-pin" } },
+    "paimos_2": { "locked": { "type": "github", "rev": "reviewed-legacy-pin" } },
     "hausnetz": {
       "locked": { "type": "git", "rev": "reviewed-pinned-revision" },
       "original": { "type": "git", "rev": "reviewed-pinned-revision" }
@@ -65,7 +67,9 @@ EOF
 cat >"$fixture_root/updated.lock" <<'EOF'
 {
   "nodes": {
-    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "alias": ["nixpkgs"] } },
+    "root": { "inputs": { "nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "aeon": "aeon_2", "paimos": "paimos_2", "alias": ["nixpkgs"] } },
+    "aeon_2": { "locked": { "type": "github", "rev": "reviewed-aeon-pin" } },
+    "paimos_2": { "locked": { "type": "github", "rev": "reviewed-legacy-pin" } },
     "hausnetz": {
       "locked": { "type": "git", "rev": "reviewed-pinned-revision" },
       "original": { "type": "git", "rev": "reviewed-pinned-revision" }

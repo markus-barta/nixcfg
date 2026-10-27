@@ -49,8 +49,8 @@ assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
 assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True}
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s and "starlink" not in s
-# HNET-45 (OPS-470): Shelly recovery on the spare radio, held in detect until the USB radio replaces the b43; credentials only as runtime agenix paths.
-assert s["shellyHeal"] == {"mode": "detect", "interface": "wlp3s0b1", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
+# HNET-45 (OPS-470): Shelly recovery in heal mode on the USB stick (rtl8192cu, path-based name); credentials only as runtime agenix paths.
+assert s["shellyHeal"] == {"mode": "heal", "interface": "wlp0s26f7u1u3", "addressing": "static", "address": "192.168.33.2/24", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
     "wifiPskFile": "/run/agenix/hsb0-hausnetz-wifi-psk", "mqttServer": "192.168.1.101:1883", "mqttUser": "smarthome",
     "mqttPasswordFile": "/run/agenix/hsb0-hausnetz-mqtt-password", "telegramCredentialFile": "/run/agenix/hsb0-hausnetz-telegram",
     "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow"}, s["shellyHeal"]
@@ -213,7 +213,7 @@ assert 'location / {' not in vhost  # only the included app snippet owns the roo
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in vhost
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = 'da9a536f07a41c1752bb4abfc29ee12baafcada0'  # HNET pin 48 (v261027114300.0.0); repo in inspr-at
+pin = '264720827c6caf7b7bae9081dff45693e7d15750'  # HNET pin 50 (v261027184920.0.0); repo in inspr-at
 assert f'git+ssh://git@github.com/inspr-at/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -222,8 +222,8 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
-assert node['locked']['narHash'] == 'sha256-/ugnGWAaNZU6wRwLHTlOBqt2JTdLaILGc9xSAvSdLuY='
-assert node['locked']['lastModified'] == 1793103805
+assert node['locked']['narHash'] == 'sha256-HhyVE6RqBSzKPxPXrBiz4li+udDWAhxHiiEzXYjC8Vg='
+assert node['locked']['lastModified'] == 1793129477
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 

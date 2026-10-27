@@ -78,6 +78,13 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+          require-keys: "true"
+
       - name: Apply narrow settings change
         run: |
           scripts/update-pharos-host-settings.sh \

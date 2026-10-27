@@ -161,7 +161,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     };
     # HNET-45 (Markus's go 2026-10-27 09:12, new capability; see the ticket):
     # recover Shellies that fell back to their own AP over the spare BCM4331
-    # radio (OPS-470). Options: hausnetz@da9a536f (pin 48) nix/module.nix:204-270.
+    # radio (OPS-470). Options: hausnetz@26472082 (pin 50; adds shellyHeal.addressing, default dhcp) nix/module.nix.
     # The module runs its own wpa_supplicant on the interface, keeps it
     # NM-unmanaged and isolates it with an INPUT drop and its own FORWARD
     # chain (:454-490, :512-545). Credential paths are runtime strings
@@ -169,12 +169,20 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # root 0400.
     # Rollout: detect ran first with pin 48, heal followed on 2026-10-27, and
     # the first real attempt showed the built-in b43 associates but passes no
-    # data. Back to detect (scan only, no attempts consumed from the 3/24 h
-    # budget) until the USB Wi-Fi stick replaces this radio (HNET-45). The
-    # address keeps its default 192.168.33.200/24, with no gateway or DNS.
+    # data. Since 2026-10-27 17:02 an Edimax EW-7811Un USB stick (RTL8188CUS,
+    # in-kernel rtl8192cu) is plugged into hsb0; heal runs on it (Markus: "use
+    # what works best", HNET-45). Its name is USB-path based (stable on this
+    # port). The b43 stays loaded, idle and NM-unmanaged (wl* glob). The Shelly
+    # fallback AP ignored the static default .200 (no ARP reply, 17:17) but
+    # serves a DHCP client at .2 (Markus's phone, 17:2x), so the radio uses
+    # 192.168.33.2/24 until the DHCP mode (HNET-407) ships; no gateway or DNS.
     shellyHeal = {
-      mode = "detect";
-      interface = "wlp3s0b1";
+      mode = "heal";
+      interface = "wlp0s26f7u1u3";
+      # Pin 50 defaults to DHCP; hsb0 keeps the proven static .2 until a heal
+      # succeeds, then DHCP comes as its own change (HNET-45/HNET-407).
+      addressing = "static";
+      address = "192.168.33.2/24";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
       wifiSsid = "JHW2211-2.4";
