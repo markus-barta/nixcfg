@@ -26,7 +26,7 @@
     "kvm-intel"
     "b43" # listed so systemd-modules-load loads it at activation, not only on the next boot
   ];
-  # HNET-45 (Markus go 2026-10-27): the built-in Broadcom BCM4331 (PCI 14e4:4331) uses the
+  # HNET-45 (owner go 2026-10-27): the built-in Broadcom BCM4331 (PCI 14e4:4331) uses the
   # in-kernel b43 driver with its firmware (the old "wl" entry had no broadcom_sta package and
   # never loaded). NetworkManager never manages the Wi-Fi interface: hausnetz's own
   # wpa_supplicant unit (HNET r48) owns it; the wired LAN stays on scripted networking.
