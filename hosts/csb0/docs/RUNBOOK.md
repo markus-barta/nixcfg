@@ -695,22 +695,26 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main e96ff9a55c8809045c5e5d3491796579669a3531
-(JoeDesk PR #95, JOED-90 release 33: Results speed fix (JOED-89) and honest last
-values (JOED-91); board only, contracts unchanged from release 32; supersedes
+active v2 source is main a3a3683d6bbb05818ae99291b96e983000fb9cd4
+(JoeDesk PR #98, JOED-97 release 34: board only, contracts unchanged from release 33;
+at its first start it drops kept last-good values from a pre-34 store once (at most
+60 min without a last-good display; a failed upgrade write is logged with its error
+code and never stops the feed); supersedes
+e96ff9a5 / 261026070713.0.0 / sequence 33, live 2026-10-26 20:06Z,
 8be38581 / 261025221940.0.0 / sequence 32, live 2026-10-26,
 20c37cdd / 261025144826.0.0 / sequence 31, live 2026-10-25 21:22Z,
 d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28,
-040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree f05f19f186ca01ff174aa4f85bf23157fc2a6097,
-`inspr-calver-3` / 261026070713.0.0 / sequence 33. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-90 preparation; JOED-87 was the previous release set).
-The release set comes from JoeDesk main CI run `40373047911` (all green);
+040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree 41097a85b0def6e33b21c2078d41f2f171263199,
+`inspr-calver-3` / 261026232616.0.0 / sequence 34. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-97 preparation; JOED-90 was the previous release set).
+The release set comes from JoeDesk main CI run `40438699549` (all green);
 `release-set.json` SHA256 is
-`64f588bd95a22417d749f90deed10446c78b771c2e8357e76da0eefaa5109da9`.
-Image `csb0-joe-board:source-e96ff9a55c8809045c5e5d3491796579669a3531`
-has digest `sha256:0d1baffeb47f33cbc58f370fd33c528cf35fe948f441e653b7093143fecdff54`.
-Board-only rollback of this re-pin: revert the JOED-90 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-8be38581c6a97200df93a7084cdd05ebf051476c` (sequence 32) is reused, no build.
+`af0e23abbbda7a8fe55b74f796e30e3f441bfd7b5a3b62a82a5f78f8a20e3afa`.
+Image `csb0-joe-board:source-a3a3683d6bbb05818ae99291b96e983000fb9cd4`
+has digest `sha256:f8c20d3ee9c32f6ceef9209c0220b0e4c5a383366cbe18d63603616f699f2276`.
+Board-only rollback of this re-pin: revert the JOED-97 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-e96ff9a55c8809045c5e5d3491796579669a3531` (sequence 33, image
+`sha256:0d1baffeb47f33cbc58f370fd33c528cf35fe948f441e653b7093143fecdff54`) is reused, no build.
 db621bf stays the v1 rollback.
 Contracts manifest revision 10 has set SHA256
 `3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`;
