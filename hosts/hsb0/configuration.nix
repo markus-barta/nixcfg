@@ -159,11 +159,55 @@ assert joeSet.pusher != null && joeSet.executor != null;
       # outgoing only, with no firewall or capability change; false adds
       # --web-check=false or --starlink=false to the unit (:406-407).
     };
+    # HNET-45 (Markus's go 2026-10-27 09:12, new capability; see the ticket):
+    # recover Shellies that fell back to their own AP over the spare BCM4331
+    # radio (OPS-470). Options: hausnetz@78dae34c nix/module.nix:204-270.
+    # The module runs its own wpa_supplicant on the interface, keeps it
+    # NM-unmanaged and isolates it with an INPUT drop and its own FORWARD
+    # chain (:454-490, :512-545). Credential paths are runtime strings
+    # passed through LoadCredential (:671), so the agenix files below stay
+    # root 0400.
+    # Rollout: detect (scan only, never associates) first, then heal once
+    # HNET has verified detection. The address keeps its default
+    # 192.168.33.200/24, with no gateway or DNS.
+    shellyHeal = {
+      mode = "detect";
+      interface = "wlp3s0b1";
+      # Supervised first run; the module default is "5m".
+      scanInterval = "1m";
+      wifiSsid = "JHW2211-2.4";
+      wifiPskFile = config.age.secrets.hsb0-hausnetz-wifi-psk.path;
+      mqttServer = "192.168.1.101:1883";
+      mqttUser = "smarthome";
+      mqttPasswordFile = config.age.secrets.hsb0-hausnetz-mqtt-password.path;
+      telegramCredentialFile = config.age.secrets.hsb0-hausnetz-telegram.path;
+      allowMacsFile = config.age.secrets.hsb0-hausnetz-shelly-allow.path;
+    };
   };
   systemd.services.hausnetz.serviceConfig = {
     MemoryMax = "512M";
     CPUQuota = "50%";
     Nice = 10;
+  };
+
+  # HNET-45: Shelly recovery credentials, read only by systemd through the
+  # hausnetz unit's LoadCredential. Telegram is token then chat id, and the
+  # allowlist is one MAC per line, so no MAC is ever in this public repo.
+  age.secrets.hsb0-hausnetz-wifi-psk = {
+    file = ../../secrets/hsb0-hausnetz-wifi-psk.age;
+    mode = "400";
+  };
+  age.secrets.hsb0-hausnetz-mqtt-password = {
+    file = ../../secrets/hsb0-hausnetz-mqtt-password.age;
+    mode = "400";
+  };
+  age.secrets.hsb0-hausnetz-telegram = {
+    file = ../../secrets/hsb0-hausnetz-telegram.age;
+    mode = "400";
+  };
+  age.secrets.hsb0-hausnetz-shelly-allow = {
+    file = ../../secrets/hsb0-hausnetz-shelly-allow.age;
+    mode = "400";
   };
 
   # NixOS does not include ssh_config.d. Match localuser scopes the existing
