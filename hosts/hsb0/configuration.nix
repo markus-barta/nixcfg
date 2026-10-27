@@ -172,11 +172,14 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # data. Since 2026-10-27 17:02 an Edimax EW-7811Un USB stick (RTL8188CUS,
     # in-kernel rtl8192cu) is plugged into hsb0; heal runs on it (Markus: "use
     # what works best", HNET-45). Its name is USB-path based (stable on this
-    # port). The b43 stays loaded, idle and NM-unmanaged (wl* glob). The
-    # address keeps its default 192.168.33.200/24, with no gateway or DNS.
+    # port). The b43 stays loaded, idle and NM-unmanaged (wl* glob). The Shelly
+    # fallback AP ignored the static default .200 (no ARP reply, 17:17) but
+    # serves a DHCP client at .2 (Markus's phone, 17:2x), so the radio uses
+    # 192.168.33.2/24 until the DHCP mode (HNET-407) ships; no gateway or DNS.
     shellyHeal = {
       mode = "heal";
       interface = "wlp0s26f7u1u3";
+      address = "192.168.33.2/24";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
       wifiSsid = "JHW2211-2.4";
