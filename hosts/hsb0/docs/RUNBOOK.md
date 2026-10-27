@@ -242,6 +242,24 @@ sudo systemctl restart hsb0-home-dashboard
 
 ### hausnetz (OPS-207)
 
+CI private inputs (OPS-480): alongside `.github/actions/hausnetz-input`,
+`.github/actions/paimos-private-inputs` prefetches the locked `aeon` and
+`paimos` sources using separate read-only `PAIMOS_DEPLOY_KEY` and
+`PAIMOS_LEGACY_DEPLOY_KEY` repository secrets. It reads owner/repo/revision
+and `narHash` from `flake.lock`, fetches over pinned-host-key SSH, and rejects
+hash mismatches; the existing anonymous `github:` flake inputs stay unchanged.
+All four contract shards (including macOS Home Manager evaluations) and every
+host eval matrix entry run it after Nix setup and the public-only cache
+snapshot, before flake consumers. SSH overrides are scoped to each prefetch;
+key files remain only in job-local `RUNNER_TEMP`, cleaned by the runner.
+Without either secret (forks/Dependabot), that input skips SSH prefetch with a
+notice only if its exact locked archive is anonymously accessible. Once it
+is private, even a warm store fails clearly naming the missing secret; an
+anonymous probe outage also fails closed. Provision both secrets before
+changing repository visibility; untrusted PRs will need a maintainer's
+trusted validation path during the private interval. Offline contract:
+`bash tests/T113-paimos-private-inputs.sh` with Bash 5.
+
 After HNET-237 activation, hausnetz is the front page at `http://hsb0.lan/`.
 The host-local `docker/front-page-nginx.conf` replaces the shared vhost only
 on this host. The existing container, host-gateway mapping and mounts remain.

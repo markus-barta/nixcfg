@@ -75,6 +75,14 @@ jobs:
         with:
           save-cache: "true"
 
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+
       - name: Verify Pharos system update proposals and private-input skips
         if: steps.pin.outputs.pin_only != 'true'
         # ubuntu-latest supplies Bash 5; Bash 3 can falsely pass these fixtures.
@@ -247,6 +255,14 @@ jobs:
       - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
 
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+
       - name: Verify Pharos beacon healthcheck contract
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T20-pharos-beacon-healthcheck.sh
@@ -403,6 +419,14 @@ jobs:
 
       - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
+
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
 
       # OPS-392: use the image's Node major; Linux runs the real-flock case.
       # Full history above supplies immutable main/producer objects for parity.
@@ -570,6 +594,14 @@ jobs:
       - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
 
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+
       - name: Verify Pharos host preferences and correlated outcomes
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T08-pharos-host-preferences.sh
@@ -733,6 +765,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+      - name: Verify private Paimos input prefetch contracts (OPS-480)
+        run: bash tests/T113-paimos-private-inputs.sh
       - name: Verify pin classification, release metadata and public cache fixtures
         run: |
           python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
@@ -765,6 +799,12 @@ jobs:
       - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
 
       - name: Read private hsb0 input (OPS-207)
         if: matrix.host == 'hsb0'

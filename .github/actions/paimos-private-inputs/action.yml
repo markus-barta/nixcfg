@@ -1,0 +1,80 @@
+name: Prefetch the locked Paimos inputs
+description: Job-local read-only deploy keys for the two Paimos repositories (OPS-480)
+inputs:
+  paimos-key:
+    description: PAIMOS_DEPLOY_KEY, registered read-only on inspr-at/paimos
+    required: false
+  paimos-legacy-key:
+    description: PAIMOS_LEGACY_DEPLOY_KEY, registered read-only on inspr-at/paimos-legacy
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Prefetch and verify each locked source
+      shell: bash
+      env:
+        PAIMOS_DEPLOY_KEY: ${{ inputs.paimos-key }}
+        PAIMOS_LEGACY_DEPLOY_KEY: ${{ inputs.paimos-legacy-key }}
+      run: |
+        set -euo pipefail
+        umask 077
+        # RUNNER_TEMP is job-local and removed by the runner at job completion.
+        # Never export an SSH override: hausnetz has its own, different key.
+        ssh_dir=$(mktemp -d "$RUNNER_TEMP/paimos-inputs-ssh.XXXXXX")
+        if [ -n "$PAIMOS_DEPLOY_KEY" ]; then
+          printf '%s\n' "$PAIMOS_DEPLOY_KEY" > "$ssh_dir/aeon"
+        fi
+        if [ -n "$PAIMOS_LEGACY_DEPLOY_KEY" ]; then
+          printf '%s\n' "$PAIMOS_LEGACY_DEPLOY_KEY" > "$ssh_dir/paimos"
+        fi
+        unset PAIMOS_DEPLOY_KEY PAIMOS_LEGACY_DEPLOY_KEY
+        # Same pinned published host key as hausnetz-input; no ssh-keyscan.
+        # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+        printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$ssh_dir/known_hosts"
+        for node in aeon paimos; do
+          if [ "$node" = aeon ]; then
+            expected_repo=paimos
+            secret_name=PAIMOS_DEPLOY_KEY
+          else
+            expected_repo=paimos-legacy
+            secret_name=PAIMOS_LEGACY_DEPLOY_KEY
+          fi
+          # Validate all lock data before constructing a URL or handing it to Git.
+          if ! locked=$(jq -er --arg node "$node" --arg repo "$expected_repo" '
+            .nodes[$node].locked
+            | select(.type == "github" and .owner == "inspr-at" and .repo == $repo)
+            | select((.rev | type) == "string" and (.rev | length) == 40)
+            | select(.rev | test("^[0-9a-f]{40}$"))
+            | select((.narHash | type) == "string" and (.narHash | length) == 51)
+            | select(.narHash | test("^sha256-[A-Za-z0-9+/]{43}=$"))
+            | [.owner, .repo, .rev, .narHash] | @tsv
+          ' flake.lock); then
+            echo "::error::Invalid locked Paimos input: nodes.$node.locked" >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r owner repo rev nar_hash <<< "$locked"
+          if [ ! -f "$ssh_dir/$node" ]; then
+            # Forks/Dependabot keep working while the exact locked source is
+            # public. Probe anonymously even if the Nix store is already warm:
+            # a privacy flip must produce a clear missing-secret failure.
+            if curl --head --location --fail --silent --output /dev/null \
+                --connect-timeout 10 --max-time 60 \
+                "https://github.com/$owner/$repo/archive/$rev.tar.gz"; then
+              echo "::notice::$secret_name is unavailable; $owner/$repo is publicly accessible; skipping SSH prefetch for $node"
+              continue
+            fi
+            echo "::error::$secret_name is required: the locked $owner/$repo source is not anonymously accessible (private, unavailable, or network failure)" >&2
+            exit 1
+          fi
+          ssh_command="ssh -F /dev/null -i '$ssh_dir/$node' -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile='$ssh_dir/known_hosts' -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+          if ! result=$(GIT_SSH_COMMAND="$ssh_command" nix flake prefetch --json \
+              "git+ssh://git@github.com/$owner/$repo?rev=$rev" 2>/dev/null); then
+            echo "::error::SSH prefetch failed for $owner/$repo; check $secret_name and its read-only repository access" >&2
+            exit 1
+          fi
+          if ! hash=$(jq -er '.hash | select(type == "string")' <<< "$result") || [ "$hash" != "$nar_hash" ]; then
+            echo "::error::Prefetched $owner/$repo hash does not match nodes.$node.locked.narHash" >&2
+            exit 1
+          fi
+          echo "Verified locked $owner/$repo source ($node)"
+        done
