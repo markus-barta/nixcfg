@@ -695,26 +695,26 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main a3a3683d6bbb05818ae99291b96e983000fb9cd4
-(JoeDesk PR #98, JOED-97 release 34: board only, contracts unchanged from release 33;
-at its first start it drops kept last-good values from a pre-34 store once (at most
-60 min without a last-good display; a failed upgrade write is logged with its error
-code and never stops the feed); supersedes
+active v2 source is main 2d36c7b439c679fc37b05940890652aa9414e200
+(JoeDesk PR #104, JOED-99 release 35: board only, contracts unchanged from release 34;
+a stopped hsb0 pusher counts as an outage like any other (JOED-96, Markus Desk f3b46a8d),
+no first-start migration); supersedes
+a3a3683d / 261026232616.0.0 / sequence 34, live 2026-10-27 03:30Z,
 e96ff9a5 / 261026070713.0.0 / sequence 33, live 2026-10-26 20:06Z,
 8be38581 / 261025221940.0.0 / sequence 32, live 2026-10-26,
 20c37cdd / 261025144826.0.0 / sequence 31, live 2026-10-25 21:22Z,
 d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28,
-040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree 41097a85b0def6e33b21c2078d41f2f171263199,
-`inspr-calver-3` / 261026232616.0.0 / sequence 34. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-97 preparation; JOED-90 was the previous release set).
-The release set comes from JoeDesk main CI run `40438699549` (all green);
+040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree d887bf364c49ec5fe1991c91763aa71105dd5e75,
+`inspr-calver-3` / 261027124551.0.0 / sequence 35. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-99 preparation; JOED-97 was the previous release set).
+The release set comes from JoeDesk main CI run `40530933838` (all green);
 `release-set.json` SHA256 is
-`af0e23abbbda7a8fe55b74f796e30e3f441bfd7b5a3b62a82a5f78f8a20e3afa`.
-Image `csb0-joe-board:source-a3a3683d6bbb05818ae99291b96e983000fb9cd4`
-has digest `sha256:f8c20d3ee9c32f6ceef9209c0220b0e4c5a383366cbe18d63603616f699f2276`.
-Board-only rollback of this re-pin: revert the JOED-97 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-e96ff9a55c8809045c5e5d3491796579669a3531` (sequence 33, image
-`sha256:0d1baffeb47f33cbc58f370fd33c528cf35fe948f441e653b7093143fecdff54`) is reused, no build.
+`56b074157dfd6c8938172239baba6845b4dcad7390c23ab86790a5865150569e`.
+Image `csb0-joe-board:source-2d36c7b439c679fc37b05940890652aa9414e200`
+has digest `sha256:2ba09bd51e149e0f5fec4493e71ac5c89b71bffff600d5f6961a15ab7f7f49ea`.
+Board-only rollback of this re-pin: revert the JOED-99 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-a3a3683d6bbb05818ae99291b96e983000fb9cd4` (sequence 34, image
+`sha256:f8c20d3ee9c32f6ceef9209c0220b0e4c5a383366cbe18d63603616f699f2276`) is reused, no build.
 db621bf stays the v1 rollback.
 Contracts manifest revision 10 has set SHA256
 `3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`;
