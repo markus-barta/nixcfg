@@ -2,18 +2,26 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   combineIntervals,
   compactBestAvailableHistoryState,
+  historyReceiptReferences,
   reconcileExecutionCapture,
   validateBestAvailableHistoryState,
 } from "./execution-reconciliation.mjs";
 import { createFamilyHistoryIngestor, createFileFamilyHistoryStore, projectBestAvailableHistory } from "./family-history.mjs";
 import { createFamilyHistorySessionAdapter } from "./family-history-session.mjs";
 import { officialReceiptChain } from "./family-state.mjs";
+import { captureFromFamilyLedgerFile } from "./execution-history.mjs";
 import { EventEmitter } from "node:events";
+import {
+  reconcileExecutionCapture as reconcileBeforeCompaction,
+  validateBestAvailableHistoryState as validateBeforeCompaction,
+} from "./fixtures/pre-compaction/execution-reconciliation.mjs";
+import { validateBestAvailableHistoryState as validateR15 } from "./fixtures/r15/execution-reconciliation.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const START = "2026-09-10T04:00:00.000Z";
@@ -87,7 +95,8 @@ test("compaction preserves gaps, records, executor checks and native subtotal; i
   assert.equal(executorVisible(compacted, Date.parse(raw.updatedAt), true).rejection, null);
   assert.deepEqual(projectBestAvailableHistory({ state: compacted }).capturedSubtotal, projectBestAvailableHistory({ state: raw }).capturedSubtotal);
   assert.deepEqual(compacted.receipts.filter((r) => r.coverageStatus === "complete"), raw.receipts.filter((r) => r.coverageStatus === "complete"));
-  assert.ok(compacted.coverage.knownIntervals.every((r) => r.receiptIds.length <= 2));
+  assert.deepEqual(compacted.coverage.knownIntervals[0].receiptIds, compacted.receipts.map((r) => r.receiptId).sort());
+  assert.equal(projectBestAvailableHistory({ state: compacted }).receiptCount, 3);
   const tampered = structuredClone(compacted);
   tampered.coverage.knownIntervals[0].receiptIdsSha256 = "0".repeat(64);
   assert.throws(() => validateBestAvailableHistoryState(tampered), /coverage/);
@@ -108,7 +117,7 @@ test("separate known windows and completeness gaps never get bridged", () => {
   assert.deepEqual(compacted.coverage.gaps, raw.coverage.gaps);
 });
 
-test("complete compaction preserves dated membership, observation cutoffs and anti-truncation", () => {
+test("compaction leaves COMPLETE receipts, official chains and recovery boundaries untouched", () => {
   const end = "2026-09-10T12:00:00.000Z";
   const row = execution("official.synthetic.01", "2026-09-10T05:30:00.000Z");
   const raw = history([
@@ -120,15 +129,101 @@ test("complete compaction preserves dated membership, observation cutoffs and an
     capture("truncated", START, end, [], true, "2026-09-10T12:00:01.000Z"),
   ]);
   const compacted = compactBestAvailableHistoryState(raw);
-  assert.ok(compacted.receipts.length < raw.receipts.length);
+  assert.deepEqual(compacted.receipts, raw.receipts);
   for (const observed of ["2026-09-10T11:59:59.000Z", end, "2026-09-10T12:00:01.000Z"]) {
     const before = officialReceiptChain(raw, START, observed);
     const after = officialReceiptChain(compacted, START, observed);
-    assert.equal(after.through, before.through);
-    assert.deepEqual(after.executions, before.executions);
-    assert.deepEqual(after.commissions, before.commissions);
+    assert.deepEqual(after, before);
   }
   assert.equal(officialReceiptChain(compacted, START, "2026-09-10T12:00:01.000Z").through, "2026-09-10T09:00:00.000Z");
+});
+
+test("saved compaction rolls back to the exact previous validator and r15; both coverage forms remain readable", (t) => {
+  // Exact source from 02dbc65519bd8d8ecdd4edc3f702d660bacc3d93. It imports
+  // only node:crypto, so this is the complete validator/reconciler closure.
+  const fixture = fs.readFileSync(new URL("./fixtures/pre-compaction/execution-reconciliation.mjs", import.meta.url));
+  assert.equal(fixture.length, 32302);
+  assert.equal(hash(fixture), "f0bcfae865c8ba2e7aa8650f19dfbc0dcddc9138d4000bf785b7717e9e7a41b9");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-compaction-rollback-"));
+  t.after(() => spawnSync("trash", [directory]));
+  const file = path.join(directory, "history.json");
+  const raw = history([
+    capture("official-rollback", START, "2026-09-11T04:00:00.000Z", [], true),
+    ...[1, 2, 3, 4].map((n) => capture(`rollback-${n}`, "2026-09-11T04:00:00.000Z", `2026-09-11T0${n + 4}:00:00.000Z`)),
+  ]);
+  const store = createFileFamilyHistoryStore(file, fs, quiet);
+  const saved = store.save(raw);
+  assert.ok(saved.receipts.length < raw.receipts.length);
+  const disk = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(validateBeforeCompaction(disk), true);
+  assert.equal(validateR15(disk), true);
+  const nextCapture = capture("after-rollback", "2026-09-11T04:00:00.000Z", "2026-09-11T10:00:00.000Z");
+  assert.equal(validateBestAvailableHistoryState(reconcileBeforeCompaction({ prior: disk, capture: nextCapture,
+    target: { fromInclusive: START, toExclusive: nextCapture.window.toExclusive } })), true);
+
+  const compactReferences = structuredClone(disk);
+  for (const key of ["knownIntervals", "completeIntervals"]) {
+    compactReferences.coverage[key] = compactReferences.coverage[key].map((entry) =>
+      ({ ...entry, ...historyReceiptReferences(entry.receiptIds) }));
+  }
+  fs.writeFileSync(file, `${JSON.stringify(compactReferences, null, 2)}\n`, { mode: 0o600 });
+  const loaded = store.load();
+  assert.equal(loaded.ok, true);
+  assert.equal(validateBestAvailableHistoryState(loaded.state), true);
+  store.save(loaded.state);
+  assert.equal(validateBeforeCompaction(JSON.parse(fs.readFileSync(file, "utf8"))), true);
+});
+
+test("754-capture differential preserves executor fields, projections and official chains after every compaction", () => {
+  let raw = null;
+  let compacted = null;
+  let captures = 0;
+  const check = (item) => {
+    const target = { fromInclusive: START, toExclusive: item.window.toExclusive };
+    raw = reconcileExecutionCapture({ prior: raw, capture: item, target });
+    compacted = compactBestAvailableHistoryState(reconcileExecutionCapture({ prior: compacted, capture: item, target }));
+    captures += 1;
+    assert.deepEqual(executorVisible(compacted, Date.parse(item.capturedAt), true), executorVisible(raw, Date.parse(item.capturedAt), true));
+    for (const key of ["createdAt", "updatedAt"]) assert.equal(compacted[key], raw[key]);
+    for (const key of ["knownIntervals", "completeIntervals"]) {
+      const bounds = (state) => state.coverage[key].map(({ fromInclusive, toExclusive }) => ({ fromInclusive, toExclusive }));
+      assert.deepEqual(bounds(compacted), bounds(raw));
+    }
+    const before = projectBestAvailableHistory({ state: raw });
+    const after = projectBestAvailableHistory({ state: compacted });
+    assert.equal(after.status, before.status);
+    assert.deepEqual(after.capturedSubtotal, before.capturedSubtotal);
+    assert.deepEqual(officialReceiptChain(compacted, START, item.capturedAt), officialReceiptChain(raw, START, item.capturedAt));
+    assert.strictEqual(compactBestAvailableHistoryState(compacted), compacted);
+  };
+  check(capture("bootstrap", START, iso(Date.parse(START) + 1_000)));
+  for (let dateIndex = 0; dateIndex < 6; dateIndex += 1) {
+    const from = Date.parse(START) + dateIndex * 86_400_000;
+    const buy = execution(`diff-${dateIndex}.buy.01`, iso(from + 2_000));
+    const sell = execution(`diff-${dateIndex}.sell.01`, iso(from + 3_000), "SELL");
+    const correction = { ...sell, execution: { ...sell.execution, execId: `diff-${dateIndex}.sell.02`, price: 12 } };
+    for (let n = 1; n <= 120; n += 1) {
+      check(capture(`diff-known-${dateIndex}-${n}`, iso(from), iso(from + n * 34_000), n < 60 ? [buy, sell] : [buy, sell, correction]));
+    }
+    check(capture(`diff-correction-${dateIndex}`, iso(from), iso(from + 7_000_000), [correction]));
+    for (let n = 1; n <= 4; n += 1) {
+      check(capture(`diff-official-${dateIndex}-${n}`, iso(from), iso(from + 86_400_000), [buy, correction], true,
+        iso(from + 86_400_000 + n * 1_000)));
+    }
+  }
+  for (let n = 1; n <= 3; n += 1) {
+    const from = Date.parse(START) + 6 * 86_400_000;
+    check(capture(`diff-tail-${n}`, iso(from), iso(from + n * 34_000)));
+  }
+  assert.equal(captures, 754);
+});
+
+test("KNOWN reconciliation still rejects different IDs for the same correction revision", () => {
+  const row = execution("alias.synthetic.01", "2026-09-10T05:00:00.000Z");
+  const alias = { ...row, execution: { ...row.execution, execId: "alias.synthetic.1" } };
+  const first = history([capture("alias-original", START, "2026-09-10T06:00:00.000Z", [row])]);
+  assert.throws(() => reconcileExecutionCapture({ prior: first,
+    capture: capture("alias-conflict", START, "2026-09-10T06:00:00.000Z", [alias]), target: first.target }), /conflicting execution correction revision/);
 });
 
 test("legacy digest-only known receipts compact without inventing identity membership", () => {
@@ -190,6 +285,65 @@ test("repeated saves stay bounded in RAM and on disk and retain the latest exact
   assert.throws(() => reconcileExecutionCapture({ prior: state,
     capture: { ...item, source: { ...item.source, sha256: hash("conflict") } }, target: state.target }), /different facts/);
   assert.deepEqual(store.load().state, state);
+});
+
+test("save serializes one history body and logs only substantial reductions from the persisted bytes", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-save-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
+  const file = path.join(directory, "history.json");
+  const raw = history(Array.from({ length: 100 }, (_, n) =>
+    capture(`logging-${n}`, START, iso(Date.parse(START) + (n + 1) * 34_000))));
+  fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, { mode: 0o600 });
+  const beforeBytes = fs.statSync(file).size;
+  const events = [];
+  const store = createFileFamilyHistoryStore(file, fs, { onCompacted: (sizes) => events.push(sizes), onSizeWarning() {} });
+  const loaded = store.load();
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.compacted, undefined, "small files wait until save");
+  assert.equal(events.length, 0);
+  const stringify = JSON.stringify;
+  let historySerializations = 0;
+  let state;
+  JSON.stringify = (value, ...args) => {
+    if (value?.schema === "inspr.joe.best-available-history.v1") historySerializations += 1;
+    return stringify(value, ...args);
+  };
+  try { state = store.save(loaded.state); } finally { JSON.stringify = stringify; }
+  assert.equal(historySerializations, 1);
+  assert.deepEqual(events, [{ beforeBytes, afterBytes: fs.statSync(file).size }]);
+  for (let n = 101; n <= 200; n += 1) {
+    const item = capture(`logging-${n}`, START, iso(Date.parse(START) + n * 34_000));
+    state = store.save(reconcileExecutionCapture({ prior: state, capture: item, target: item.window }));
+  }
+  assert.equal(events.length, 1, "steady polling must stay quiet");
+});
+
+test("CLI import reports only receipt IDs present after saving, including an absorbed KNOWN capture", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-cli-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
+  const file = path.join(directory, "history.json");
+  const row = execution("cli-compaction.trade.01", "2026-09-10T05:00:00.000Z");
+  const source = (name, at) => {
+    const sourcePath = path.join(directory, `${name}.json`);
+    fs.writeFileSync(sourcePath, JSON.stringify({ account: ACCOUNT, coverageThrough: at, executions: [row], commissions: [fee(row)] }));
+    return sourcePath;
+  };
+  const target = { fromInclusive: START, toExclusive: "2026-09-10T10:00:00.000Z" };
+  const raw = history([1, 2, 3, 4].map((n) => captureFromFamilyLedgerFile({
+    filePath: source(`cli-seed-${n}`, `2026-09-10T0${n + 4}:00:00.000Z`), window: target,
+  })), target);
+  createFileFamilyHistoryStore(file, fs, quiet).save(raw);
+  const cli = new URL("./family-history-cli.mjs", import.meta.url);
+  for (const [name, at, absorbed] of [["historic", "2026-09-10T05:30:00.000Z", true], ["latest", "2026-09-10T09:00:00.000Z", false]]) {
+    const result = spawnSync(process.execPath, [cli.pathname, "import", "--source-type", "family-ledger",
+      "--source", source(name, at), "--state", file, "--from", START, "--to", target.toExclusive], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const summary = JSON.parse(result.stdout);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    const ids = Array.isArray(summary.importedReceiptId) ? summary.importedReceiptId : [summary.importedReceiptId];
+    assert.ok(ids.every((id) => saved.receipts.some((receipt) => receipt.receiptId === id)));
+    assert.equal(ids.length, absorbed ? 0 : 1);
+  }
 });
 
 test("50 days at one real-writer receipt per 34 seconds stay under 4 MiB; oversized disk history self-heals", async (t) => {

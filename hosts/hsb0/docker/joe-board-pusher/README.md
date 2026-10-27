@@ -621,16 +621,23 @@ observation counts; compaction never invents their missing memberships. Every ra
 execution revision, orphan commission, account/classifier binding and economic
 observation time stays intact. No KNOWN receipt becomes COMPLETE.
 
-COMPLETE receipts merge only within identical authority metadata, observation time
-and New York day, with individually valid, paired membership and no contradiction
-from retained executions. Other COMPLETE proofs remain intact, including truncated
-replies, separate authorities, legacy memberships and temporal proof boundaries.
+Compaction leaves every COMPLETE receipt untouched, including its ID, authority,
+membership, window and observation time, as well as truncated replies and legacy
+memberships.
 This preserves official-chain recovery, midnight imports and desk-boundary checks.
 Distinct coverage/proof boundaries still require storage; redundant polling does
-not add KNOWN receipt history. Diagnostic `receiptIds` lists in merged coverage and
-the projection keep at most the first/last IDs, with `receiptCount` and
+not add KNOWN receipt history. Saved coverage keeps exhaustive `receiptIds` lists;
+readers also accept the compact reference format. Only the in-memory projection's
+diagnostic references keep at most the first/last IDs, with `receiptCount` and
 `receiptIdsSha256` when there are more than two. These references are not membership
-proofs. Readers still accept legacy exhaustive coverage lists.
+proofs.
+
+CLI imports report receipt IDs from the saved file. If compaction absorbed an
+imported KNOWN receipt, its `importedReceiptId` list is empty. Re-importing an older
+KNOWN source after its binding was merged can still add a receipt and extend the
+target; exact historical source replay/reuse checks require provenance the bounded
+compacted state no longer retains. Retained original receipts and conflicting
+execution/commission facts still fail closed as before.
 
 Load compacts files at **16 MiB** or more, before accepting their state. A separate
 **64 MiB** recovery-read ceiling permits an existing file above the write cap to
@@ -640,9 +647,13 @@ the broker returns no new executions or commissions. Callers adopt the saved
 compacted snapshot in memory. Writes retain the **32 MiB** hard cap and the existing
 exclusive temporary file, mode 0600, file fsync, atomic rename and directory fsync.
 No manual move-aside is required. `family_history_compacted` logs only before/after
-byte counts; `family_history_size_warning` does the same if more than **24 MiB**
+byte counts on a compacted load, or a save that compacts and reduces the last
+read/written file by at least **1 MiB** or **10%**. Save measures the single serialized
+write body. `family_history_size_warning` logs only byte counts if more than **24 MiB**
 remains after compaction. Schema/version and executor coverage/record semantics
-remain unchanged. Compaction cannot close an actual historical completeness gap.
+remain unchanged. Compacted files remain readable by the previous release, so
+rollback needs no history-file migration. Compaction cannot close an actual
+historical completeness gap.
 
 The offline regression fixture builds **127,058** real-writer receipts over 50 days
 at 34-second intervals, with 100 execution/commission records. It reduces

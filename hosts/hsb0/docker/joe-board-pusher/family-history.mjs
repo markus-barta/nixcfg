@@ -332,24 +332,30 @@ export function createFileFamilyHistoryStore(filePath, fsImpl = fs, {
   if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
     throw new TypeError("family history state path must be absolute");
   }
-  function prepare(state, beforeBytes) {
+  let persistedBytes = null;
+  function prepare(state, beforeBytes, loading = false) {
     const compacted = compactBestAvailableHistoryState(state);
     const body = `${JSON.stringify(compacted, null, 2)}\n`;
     const afterBytes = Buffer.byteLength(body);
-    if (compacted !== state) onCompacted({ beforeBytes, afterBytes });
-    if (afterBytes > MAX_STATE_BYTES * 0.75) onSizeWarning({ beforeBytes, afterBytes });
+    const baselineBytes = beforeBytes ?? afterBytes;
+    const reduction = baselineBytes - afterBytes;
+    if (compacted !== state && (loading || reduction >= 1024 * 1024 || reduction >= baselineBytes * 0.1)) {
+      onCompacted({ beforeBytes: baselineBytes, afterBytes });
+    }
+    if (afterBytes > MAX_STATE_BYTES * 0.75) onSizeWarning({ beforeBytes: baselineBytes, afterBytes });
     if (afterBytes > MAX_STATE_BYTES) throw new Error("family history state exceeds size limit");
-    return { state: compacted, body };
+    return { state: compacted, body, byteLength: afterBytes };
   }
   return {
     load() {
       const result = readBoundedFile(filePath, fsImpl);
+      persistedBytes = result.ok ? result.byteLength ?? null : null;
       if (!result.ok || result.source === null) return result.source === null ? { ok: true, state: null } : result;
       try {
         const state = JSON.parse(result.source);
         validateBestAvailableHistoryState(state);
         const compacted = result.byteLength >= COMPACT_ON_LOAD_BYTES
-          ? prepare(state, result.byteLength).state : state;
+          ? prepare(state, result.byteLength, true).state : state;
         return { ok: true, state: compacted, ...(compacted !== state ? { compacted: true } : {}) };
       } catch (error) {
         return { ok: false, reason: `family history state is invalid: ${error.message}` };
@@ -357,7 +363,8 @@ export function createFileFamilyHistoryStore(filePath, fsImpl = fs, {
     },
     save(state) {
       validateBestAvailableHistoryState(state);
-      const { state: compacted, body } = prepare(state, Buffer.byteLength(`${JSON.stringify(state, null, 2)}\n`));
+      // Compare with the last file read/written, using the single write body.
+      const { state: compacted, body, byteLength } = prepare(state, persistedBytes);
       const directory = path.dirname(filePath);
       const temporary = path.join(directory, `.${path.basename(filePath)}.${process.pid}.tmp`);
       let handle;
@@ -370,6 +377,7 @@ export function createFileFamilyHistoryStore(filePath, fsImpl = fs, {
         fsImpl.renameSync(temporary, filePath);
         const directoryHandle = fsImpl.openSync(directory, "r");
         try { fsImpl.fsyncSync(directoryHandle); } finally { fsImpl.closeSync(directoryHandle); }
+        persistedBytes = byteLength;
       } catch (error) {
         if (handle !== undefined) {
           try { fsImpl.closeSync(handle); } catch {}

@@ -99,8 +99,9 @@ async function main() {
   let state = loaded.state;
   for (const capture of captures) state = reconcileExecutionCapture({ prior: state, capture, target });
   const sourceIds = new Set(captures.map((capture) => capture.source.id));
-  const importedReceiptIds = state.receipts.filter((item) => sourceIds.has(item.source.id)).map((item) => item.receiptId);
   if (action === "import") state = store.save(state);
+  // Compaction may absorb an imported KNOWN receipt. Never report a missing ID.
+  const importedReceiptIds = state.receipts.filter((item) => sourceIds.has(item.source.id)).map((item) => item.receiptId);
   process.stdout.write(`${JSON.stringify({ action, ...summary(state, importedReceiptIds.length === 1 ? importedReceiptIds[0] : importedReceiptIds) }, null, 2)}\n`);
 }
 
