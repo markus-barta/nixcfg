@@ -552,52 +552,47 @@ function compactReceiptRun(receipts) {
  */
 export function compactBestAvailableHistoryState(state) {
   validateBestAvailableHistoryState(state);
-  const groups = new Map();
+  const known = [];
   const retained = [];
   for (const receipt of state.receipts) {
     if (receipt.coverageStatus === "complete") {
       retained.push(receipt);
       continue;
     }
-    const key = "known";
-    const group = groups.get(key) || [];
-    group.push(receipt);
-    groups.set(key, group);
+    known.push(receipt);
   }
-  for (const group of groups.values()) {
-    group.sort((a, b) => a.window.fromInclusive.localeCompare(b.window.fromInclusive) || a.window.toExclusive.localeCompare(b.window.toExclusive));
-    let run = [];
-    let through = null;
-    const flush = () => {
-      // Keep the latest original receipt for exact replay/source-reuse checks.
-      // Prefer an original on timestamp ties so a newly hashed compacted proof
-      // cannot displace it and change compaction again on the next save.
-      const ordered = [...run].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) ||
-        Number(!a.source.metadata.historyCompaction) - Number(!b.source.metadata.historyCompaction) ||
-        a.receiptId.localeCompare(b.receiptId));
-      const latest = ordered.at(-1);
-      const older = run.filter((receipt) => receipt !== latest);
-      let connected = [];
-      let end = null;
-      for (const receipt of older) {
-        if (connected.length && receipt.window.fromInclusive > end) {
-          retained.push(compactReceiptRun(connected));
-          connected = [];
-          end = null;
-        }
-        connected.push(receipt);
-        if (end === null || receipt.window.toExclusive > end) end = receipt.window.toExclusive;
+  known.sort((a, b) => a.window.fromInclusive.localeCompare(b.window.fromInclusive) || a.window.toExclusive.localeCompare(b.window.toExclusive));
+  let run = [];
+  let through = null;
+  const flush = () => {
+    // Keep the latest original receipt for exact replay/source-reuse checks.
+    // Prefer an original on timestamp ties so a newly hashed compacted proof
+    // cannot displace it and change compaction again on the next save.
+    const ordered = [...run].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) ||
+      Number(!a.source.metadata.historyCompaction) - Number(!b.source.metadata.historyCompaction) ||
+      a.receiptId.localeCompare(b.receiptId));
+    const latest = ordered.at(-1);
+    const older = run.filter((receipt) => receipt !== latest);
+    let connected = [];
+    let end = null;
+    for (const receipt of older) {
+      if (connected.length && receipt.window.fromInclusive > end) {
+        retained.push(compactReceiptRun(connected));
+        connected = [];
+        end = null;
       }
-      if (connected.length) retained.push(compactReceiptRun(connected));
-      retained.push(latest);
-    };
-    for (const receipt of group) {
-      if (run.length && receipt.window.fromInclusive > through) { flush(); run = []; through = null; }
-      run.push(receipt);
-      if (through === null || receipt.window.toExclusive > through) through = receipt.window.toExclusive;
+      connected.push(receipt);
+      if (end === null || receipt.window.toExclusive > end) end = receipt.window.toExclusive;
     }
-    if (run.length) flush();
+    if (connected.length) retained.push(compactReceiptRun(connected));
+    retained.push(latest);
+  };
+  for (const receipt of known) {
+    if (run.length && receipt.window.fromInclusive > through) { flush(); run = []; through = null; }
+    run.push(receipt);
+    if (through === null || receipt.window.toExclusive > through) through = receipt.window.toExclusive;
   }
+  if (run.length) flush();
   retained.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   // Exhaustive references keep saved files readable by the previous release.
   const coverage = coverageFor(state.target, retained);
@@ -696,6 +691,7 @@ function coalesceReceipts(receipts, incoming, executions) {
     existing.window.toExclusive === incoming.window.toExclusive &&
     sameReceiptFacts(existing, incoming));
   if (sameProof) return receipts;
+  // latestExecutions guards against conflicting IDs at the same correction revision, including KNOWN captures.
   const effective = latestExecutions(executions);
   if (incoming.coverageStatus === "known") return [...receipts, incoming];
   // Parse each effective execution time once and share it across proof checks.

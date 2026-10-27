@@ -267,8 +267,9 @@ test("separate invalid complete memberships cannot combine into an authoritative
   assert.equal(officialReceiptChain(compacted, START, end).through, START);
 });
 
-test("repeated saves stay bounded in RAM and on disk and retain the latest exact replay guard", () => {
+test("repeated saves stay bounded in RAM and on disk and retain the latest exact replay guard", (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-steady-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
   const file = path.join(directory, "history.json");
   const store = createFileFamilyHistoryStore(file, fs, quiet);
   let state = null;
@@ -318,7 +319,7 @@ test("save serializes one history body and logs only substantial reductions from
   assert.equal(events.length, 1, "steady polling must stay quiet");
 });
 
-test("CLI import reports only receipt IDs present after saving, including an absorbed KNOWN capture", (t) => {
+test("CLI preview matches saved counts and receipt IDs, including an absorbed KNOWN capture", (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-cli-compaction-"));
   t.after(() => spawnSync("trash", [directory]));
   const file = path.join(directory, "history.json");
@@ -335,14 +336,69 @@ test("CLI import reports only receipt IDs present after saving, including an abs
   createFileFamilyHistoryStore(file, fs, quiet).save(raw);
   const cli = new URL("./family-history-cli.mjs", import.meta.url);
   for (const [name, at, absorbed] of [["historic", "2026-09-10T05:30:00.000Z", true], ["latest", "2026-09-10T09:00:00.000Z", false]]) {
-    const result = spawnSync(process.execPath, [cli.pathname, "import", "--source-type", "family-ledger",
-      "--source", source(name, at), "--state", file, "--from", START, "--to", target.toExclusive], { encoding: "utf8" });
+    const args = ["--source-type", "family-ledger", "--source", source(name, at),
+      "--state", file, "--from", START, "--to", target.toExclusive];
+    const before = fs.readFileSync(file, "utf8");
+    const preview = spawnSync(process.execPath, [cli.pathname, "preview", ...args], { encoding: "utf8" });
+    assert.equal(preview.status, 0, preview.stderr);
+    assert.equal(fs.readFileSync(file, "utf8"), before, "preview must not write the state file");
+    const result = spawnSync(process.execPath, [cli.pathname, "import", ...args], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     const summary = JSON.parse(result.stdout);
+    assert.deepEqual(JSON.parse(preview.stdout), { ...summary, action: "preview" });
     const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(summary.receiptCount, saved.receipts.length);
     const ids = Array.isArray(summary.importedReceiptId) ? summary.importedReceiptId : [summary.importedReceiptId];
     assert.ok(ids.every((id) => saved.receipts.some((receipt) => receipt.receiptId === id)));
     assert.equal(ids.length, absorbed ? 0 : 1);
+  }
+});
+
+test("CLI preview and import keep stdout pure JSON when loading a history above 16 MiB", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-cli-large-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
+  const file = path.join(directory, "history.json");
+  const source = path.join(directory, "ledger.json");
+  const row = execution("cli-large.trade.01", "2026-09-10T05:00:00.000Z");
+  fs.writeFileSync(source, JSON.stringify({ account: ACCOUNT, coverageThrough: "2026-09-10T06:00:00.000Z",
+    executions: [row], commissions: [fee(row)] }));
+  const target = { fromInclusive: START, toExclusive: "2026-09-10T10:00:00.000Z" };
+  const seedCapture = captureFromFamilyLedgerFile({ filePath: source, window: target });
+  const seed = reconcileExecutionCapture({ capture: seedCapture, target });
+  // Real receipt writers without quadratic reconciliation of a legacy file.
+  const receipts = Array.from({ length: 14_000 }, (_, n) => {
+    const id = `cli-large-${n}`;
+    return reconcileExecutionCapture({ capture: { ...seedCapture,
+      source: { ...seedCapture.source, id, sha256: hash(id) },
+      capturedAt: iso(Date.parse(seedCapture.capturedAt) + n * 1_000) }, target }).receipts[0];
+  });
+  const raw = { ...seed, updatedAt: receipts.at(-1).capturedAt, receipts,
+    coverage: { ...seed.coverage, knownIntervals: combineIntervals(receipts.map((receipt) =>
+      ({ ...receipt.window, receiptIds: [receipt.receiptId] }))) } };
+  validateBestAvailableHistoryState(raw);
+  fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, { mode: 0o600 });
+  const before = fs.readFileSync(file, "utf8");
+  assert.ok(Buffer.byteLength(before) >= 16 * MiB);
+  const cli = new URL("./family-history-cli.mjs", import.meta.url);
+  let preview;
+  for (const action of ["preview", "import"]) {
+    assert.equal(fs.statSync(file).size, Buffer.byteLength(before), "both commands must load the large file");
+    const result = spawnSync(process.execPath, [cli.pathname, action, "--source-type", "family-ledger",
+      "--source", source, "--state", file, "--from", START, "--to", target.toExclusive], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const summary = JSON.parse(result.stdout);
+    const events = result.stderr.trim().split("\n").map((line) => JSON.parse(line));
+    assert.ok(events.some((event) => event.event === "family_history_compacted" && event.beforeBytes >= 16 * MiB));
+    assert.ok(events.every((event) => Object.keys(event).sort().join() === "afterBytes,beforeBytes,event"));
+    if (action === "preview") {
+      preview = summary;
+      assert.equal(fs.readFileSync(file, "utf8"), before);
+    } else {
+      assert.deepEqual(preview, { ...summary, action: "preview" });
+      const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+      assert.equal(summary.receiptCount, saved.receipts.length);
+      assert.ok(fs.statSync(file).size < 16 * MiB);
+    }
   }
 });
 
@@ -392,6 +448,7 @@ test("50 days at one real-writer receipt per 34 seconds stay under 4 MiB; oversi
       knownIntervals: combineIntervals(liveReceipts.map((r) => ({ ...r.window, receiptIds: [r.receiptId] }))), completeIntervals: [],
       gaps: [{ fromInclusive: START, toExclusive: liveReceipts.at(-1).window.toExclusive, reason: "no authoritative completeness receipt" }] } };
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
   const file = path.join(directory, "family-history.json");
   fs.writeFileSync(file, `${JSON.stringify(live, null, 2)}\n`, { mode: 0o600 });
   const diskBeforeBytes = fs.statSync(file).size;
@@ -415,9 +472,10 @@ test("50 days at one real-writer receipt per 34 seconds stay under 4 MiB; oversi
   t.diagnostic(JSON.stringify({ diskBeforeBytes, diskAfterBytes: fs.statSync(file).size, updatedTarget: ingestor.inspectState().target.toExclusive }));
 });
 
-test("runtime persists a compacted load on its first no-new-facts capture, then keeps RAM bounded", () => {
+test("runtime persists a compacted load on its first no-new-facts capture, then keeps RAM bounded", (t) => {
   const initial = history([1, 2, 3, 4].map((n) => capture(`boot-${n}`, START, `2026-09-10T0${n + 4}:00:00.000Z`)));
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-runtime-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
   const file = path.join(directory, "history.json");
   const realStore = createFileFamilyHistoryStore(file, fs, quiet);
   const state = realStore.save(initial);
@@ -450,8 +508,9 @@ test("runtime persists a compacted load on its first no-new-facts capture, then 
   adapter.retire();
 });
 
-test("atomic replacement failure preserves the prior history and cleans only its temporary file", () => {
+test("atomic replacement failure preserves the prior history and cleans only its temporary file", (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-atomic-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
   const file = path.join(directory, "history.json");
   const prior = history([capture("original", START, "2026-09-10T06:00:00.000Z")]);
   createFileFamilyHistoryStore(file, fs, quiet).save(prior);
@@ -463,8 +522,9 @@ test("atomic replacement failure preserves the prior history and cleans only its
   assert.deepEqual(fs.readdirSync(directory), ["history.json"]);
 });
 
-test("irreducible history warns above 75%, rejects above 32 MiB, and bounds recovery reads", () => {
+test("irreducible history warns above 75%, rejects above 32 MiB, and bounds recovery reads", (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "history-limits-compaction-"));
+  t.after(() => spawnSync("trash", [directory]));
   const file = path.join(directory, "history.json");
   const warnings = [];
   const store = createFileFamilyHistoryStore(file, fs, { onCompacted() {}, onSizeWarning: (sizes) => warnings.push(sizes) });

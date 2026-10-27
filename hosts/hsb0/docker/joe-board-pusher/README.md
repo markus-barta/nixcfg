@@ -632,6 +632,9 @@ diagnostic references keep at most the first/last IDs, with `receiptCount` and
 `receiptIdsSha256` when there are more than two. These references are not membership
 proofs.
 
+CLI stdout contains exactly one JSON summary; compaction and size-warning events
+go to stderr. Preview reports the post-compaction receipt count and IDs that an
+import would save, without writing the state file.
 CLI imports report receipt IDs from the saved file. If compaction absorbed an
 imported KNOWN receipt, its `importedReceiptId` list is empty. Re-importing an older
 KNOWN source after its binding was merged can still add a receipt and extend the
