@@ -172,10 +172,13 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # data. Since 2026-10-27 17:02 an Edimax EW-7811Un USB stick (RTL8188CUS,
     # in-kernel rtl8192cu) is plugged into hsb0; heal runs on it (Markus: "use
     # what works best", HNET-45). Its name is USB-path based (stable on this
-    # port). The b43 stays loaded, idle and NM-unmanaged (wl* glob). The
-    # address keeps its default 192.168.33.200/24, with no gateway or DNS.
+    # port). The b43 stays loaded, idle and NM-unmanaged (wl* glob). The first
+    # stick attempt (17:17) associated but got no ARP reply from the Shelly,
+    # like the b43; detect holds the last attempt of the 3/24 h budget while
+    # HNET fixes the join (HNET-45). The address keeps its default
+    # 192.168.33.200/24, with no gateway or DNS.
     shellyHeal = {
-      mode = "heal";
+      mode = "detect";
       interface = "wlp0s26f7u1u3";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
