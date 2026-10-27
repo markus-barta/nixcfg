@@ -23,6 +23,7 @@ const stateFormat = "ops392.v2-sequence-state.v1";
 const pairFormat = "ops392.v2-stage-pair.v1";
 const pointerFormat = "ops392.v2-stage-current.v1";
 const checkpointFormat = "joed102.v2-receipts-checkpoint.v1";
+const scanCheckpointBytes = 4 * 1024 * 1024;
 const fail = () => { throw new Error("stage_storage_invalid"); };
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && JSON.stringify(Object.keys(value).sort()) === JSON.stringify(keys.split(",").sort());
@@ -445,7 +446,8 @@ export class StageStore {
     this.receiptOffset += bytes.length;
     this.lastReceiptSeq = row.seq;
   }
-  saveCheckpoint() {
+  saveCheckpoint(anchor = this.receiptAnchors[0] || { offset: this.receiptOffset,
+    lastReceiptSeq: this.lastReceiptSeq, hash: this.receiptHash }) {
     const cache = this.checkpointStore();
     if (!cache) return;
     try {
@@ -458,8 +460,6 @@ export class StageStore {
       // A recognized, checked temp may remain after a killed atomic write.
       try { cache.retire(".receipts-checkpoint.tmp"); }
       catch (error) { if (error.code !== "ENOENT") throw error; }
-      const anchor = this.receiptAnchors[0] || { offset: this.receiptOffset,
-        lastReceiptSeq: this.lastReceiptSeq, hash: this.receiptHash };
       cache.atomic("receipts-checkpoint.json", { format: checkpointFormat, offset: anchor.offset,
         lastReceiptSeq: anchor.lastReceiptSeq, prefixSha256: anchor.hash.copy().digest("hex") }, "checkpoint");
     } catch {
@@ -486,6 +486,8 @@ export class StageStore {
       this.lastReceiptSeq = checkpoint?.lastReceiptSeq || 0;
       this.receiptAnchors = [];
       this.recovery = { scanMode: checkpoint ? "tail" : "full", rowsScanned: checkpoint?.boundaryRows || 0 };
+      const oldestPairSeq = Math.min(...pairs.keys());
+      let nextCheckpointAt = this.receiptOffset + scanCheckpointBytes;
       const buffer = Buffer.alloc(65536);
       let pending = Buffer.alloc(0);
       let position = this.receiptOffset;
@@ -508,6 +510,14 @@ export class StageStore {
             found.add(row.seq);
           }
           this.rememberReceipt(row, bytes);
+          // Save validated progress on full AND resumed scans. Never skip a
+          // retained pair's receipt on the next start: it must be bound again.
+          // Prefix bytes are always rehashed by readCheckpoint before reuse.
+          if (this.checkpointRoot && this.receiptOffset >= nextCheckpointAt && row.seq < oldestPairSeq) {
+            this.saveCheckpoint({ offset: this.receiptOffset,
+              lastReceiptSeq: this.lastReceiptSeq, hash: this.receiptHash });
+            nextCheckpointAt = this.receiptOffset + scanCheckpointBytes;
+          }
           pending = pending.subarray(newline + 1);
         }
         if (pending.length > 1024) fail();

@@ -423,10 +423,15 @@ Receipt recovery uses an optional, atomically replaced 0600 checkpoint at
 It records a line-boundary byte offset, the last receipt sequence at that offset,
 and SHA256 of every preceding byte. Startup streams the prefix hash in 64 KiB
 chunks, checks the boundary row's sequence, and parses/validates only the tail.
-The checkpoint stays before the last `retainPairs + 1` non-rejected receipts;
-each retained pair must still match a validated receipt (including v1 binding).
-It advances after successful scans and fsynced appends without rehashing history
-on each job. Hash state and recent boundary anchors stay bounded in memory.
+After completed recovery and fsynced appends, the checkpoint stays before the
+last `retainPairs + 1` non-rejected receipts; each retained pair must still
+match a validated receipt (including v1 binding).
+During full and resumed scans, validated progress is saved every 4 MiB at a
+line boundary strictly before the oldest retained pair's receipt. A startup
+deadline kill can therefore resume after rehashing the saved prefix, rather
+than repeat JSON/binding validation from byte 0. Completed scans and fsynced
+appends keep the usual conservative boundary without rehashing history on each
+job. Hash state and recent boundary anchors stay bounded in memory.
 Missing/corrupt/unsafe checkpoints, hash/offset/sequence disagreement, or a
 retained pair before the checkpoint cause a full scan with the original strict
 checks. Invalid or torn log rows still disable staging without truncation.
@@ -440,6 +445,25 @@ also belong to that tail. Full recovery validates every receipt, so its CPU cost
 grows with history; a checkpoint bounds the usual expensive validation work,
 not the bytes hashed. The cache survives container recreation but `/run` is
 cleared on host reboot, requiring a full scan under the longer startup deadline.
+OPS measured approximately **0.12 s CPU/MB** for full validation on hsb0. The
+**60 s** startup deadline permits roughly **400–450 MB at 1.0 CPU**, or
+**100–110 MB at 0.25 CPU**, allowing for startup overhead. Reverting the stager
+to **0.25 CPU reintroduces the risk** of hitting the startup deadline. Periodic
+checkpoints let validation accumulate across restarts, provided the cache is
+writable and each attempt can rehash the prefix and validate another 4 MiB;
+the remaining retained-pair tail must also fit within one startup attempt.
+These are approximate host measurements, not timing guarantees.
+
+The network-facing pusher shares the **0700 `/run/joe-household-v2` mount** and
+runs as the same UID, so it can write this checkpoint. It can force full scans
+by corrupting/removing it or blocking its temporary file, and can supply a
+correctly hashed prefix that skips strict validation of old, unretained rows.
+The cache is therefore not a security boundary against that writer. Boundary,
+tail, retained-pair and durable sequence-state checks still run: the checkpoint
+cannot make a tampered tail, retained pair or sequence floor acceptable. The
+pusher's `v2/` mount itself is read-only. Moving the checkpoint to a stager-only
+path is a possible follow-up requiring a mount change.
+
 It is outside `v2/`, whose unknown-entry checks in previous releases remain
 unchanged; rollback ignores the cache and can append receipts normally. A later
 forward start validates those appends as tail rows. No compose/mount change or

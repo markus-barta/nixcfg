@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { StageStore, prepareLock, RECEIPT_CHECKPOINT, STATE_DIR, SOCKET_PATH } from "./v2-stage-worker.mjs";
@@ -11,7 +12,7 @@ import { startCycle, cycleReceipt } from "./v1-cycle.mjs";
 const instant = "2026-10-27T12:00:00.000Z";
 const json = file => JSON.parse(fs.readFileSync(file));
 const worker = fileURLToPath(new URL("./v2-stage-worker.mjs", import.meta.url));
-const baselineRevision = "c58a7e41389ce705d455e6c740a1835ea0595390"; // Supplied main; scratch origin/main is older.
+const baselineRevision = "c58a7e41389ce705d455e6c740a1835ea0595390"; // Pinned pre-checkpoint worker for rollback compatibility.
 
 async function fixture(t, count = 15) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "joed102-recovery-"));
@@ -27,27 +28,53 @@ async function fixture(t, count = 15) {
     checkpoint: path.join(checkpointRoot, "receipts-checkpoint.json") };
 }
 
-function coldStart(options) {
+function coldStart(options, validationBudgetBytes = null) {
   // A fresh process includes module imports, contract verification, pair recovery
   // and checkpoint persistence. No broker, socket, Docker or network is involved.
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
     const started = performance.now(), cpu = process.cpuUsage();
     const { StageStore } = await import(process.argv[1]);
+    const budget = JSON.parse(process.argv[3]);
+    let validatedBytes = 0;
+    const remember = StageStore.prototype.rememberReceipt;
+    StageStore.prototype.rememberReceipt = function(row, bytes) {
+      remember.call(this, row, bytes);
+      validatedBytes += bytes.length;
+      // Deterministic startup deadline: terminate the real process once its
+      // validation work budget is exhausted, between checkpoint writes.
+      if (budget !== null && validatedBytes >= budget) process.kill(process.pid, "SIGKILL");
+    };
     const store = await new StageStore(JSON.parse(process.argv[2])).open();
     const used = process.cpuUsage(cpu);
     console.log(JSON.stringify({ ...store.recovery, wallMs: performance.now() - started,
       cpuMs: (used.user + used.system) / 1000, seq: store.lastReceiptSeq }));
-  `, pathToFileURL(worker).href, JSON.stringify(options)], { encoding: "utf8", timeout: 60_000 });
+  `, pathToFileURL(worker).href, JSON.stringify(options), JSON.stringify(validationBudgetBytes)], { encoding: "utf8", timeout: 60_000 });
+  if (result.signal === "SIGKILL") {
+    assert.notEqual(validationBudgetBytes, null, result.error?.message);
+    return { killed: true };
+  }
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return JSON.parse(result.stdout);
 }
 
-function syntheticLog(f, minBytes) {
+function logSha(file) {
+  const hash = createHash("sha256"), buffer = Buffer.alloc(65536);
+  const fd = fs.openSync(file, "r");
+  try {
+    let count;
+    while ((count = fs.readSync(fd, buffer))) hash.update(buffer.subarray(0, count));
+    return hash.digest("hex");
+  } finally { fs.closeSync(fd); }
+}
+
+function syntheticLog(f, minBytes, { outcome = "committed", append = false } = {}) {
   const binding = cycleReceipt(startCycle('{"synthetic":true}')(200, instant), true);
-  const template = { format: "ops392.v2-sequence-receipt.v1", outcome: "committed", generatedAt: instant,
+  const template = { format: "ops392.v2-sequence-receipt.v1", outcome, generatedAt: instant,
     stagedReceivedAt: instant, recordedAt: instant, pairSha256: "a".repeat(64), ...binding };
-  const fd = fs.openSync(f.log, "w");
-  let size = 0, seq = 0, chunk = "";
+  const stateFile = path.join(f.root, "sequence-state.json");
+  const state = json(stateFile);
+  const fd = fs.openSync(f.log, append ? "a" : "w");
+  let size = 0, seq = append ? state.lastReservedSeq : 0, chunk = "";
   try {
     while (size < minBytes) {
       const row = JSON.stringify({ ...template, seq: ++seq,
@@ -58,8 +85,6 @@ function syntheticLog(f, minBytes) {
     if (chunk) fs.writeFileSync(fd, chunk);
     fs.fsyncSync(fd);
   } finally { fs.closeSync(fd); }
-  const stateFile = path.join(f.root, "sequence-state.json");
-  const state = json(stateFile);
   fs.writeFileSync(stateFile, JSON.stringify({ ...state, lastReservedSeq: seq, lastGeneratedAt: instant,
     lastObservationId: JSON.stringify(["ops392.switch-set.v2", instant]) }));
   fs.writeFileSync(f.checkpoint, "{"); // Force a full, validated first scan.
@@ -86,6 +111,90 @@ for (const mib of [11, 40]) test(`${mib} MiB real-shape receipt log: cold start 
   assert.deepEqual(fs.readFileSync(f.log), before);
   assert.equal(fs.readdirSync(f.root).filter(name => name.startsWith("pair-")).length, 10);
   t.diagnostic(JSON.stringify({ bytes: size, rows, full, tail }));
+});
+
+for (const outcome of ["committed", "rejected"]) test(`a full scan of ${outcome} history killed at a simulated startup deadline resumes and completes`, async t => {
+  const f = await fixture(t, 0);
+  const { rows } = syntheticLog(f, 11 * 1024 * 1024, { outcome });
+  const before = logSha(f.log);
+  assert.deepEqual(coldStart(f.options, 6 * 1024 * 1024), { killed: true });
+  const progress = json(f.checkpoint);
+  assert.ok(progress.offset >= 4 * 1024 * 1024 && progress.offset < 6 * 1024 * 1024);
+  assert.ok(progress.lastReceiptSeq > 0 && progress.lastReceiptSeq < rows);
+  assert.equal(fs.readFileSync(f.log).at(progress.offset - 1), 10);
+  const resumed = coldStart(f.options);
+  assert.equal(resumed.scanMode, "tail");
+  assert.equal(resumed.rowsScanned, rows - progress.lastReceiptSeq + 1);
+  assert.equal(resumed.seq, rows);
+  assert.equal(logSha(f.log), before);
+  t.diagnostic(JSON.stringify({ checkpointBytes: progress.offset, resumed }));
+});
+
+test("scan checkpoints never advance past an old retained pair into a long rejected tail", async t => {
+  const f = await fixture(t);
+  const oldestRetained = Math.min(...f.store.retainedSeqs());
+  const { rows } = syntheticLog(f, 6 * 1024 * 1024, { outcome: "rejected", append: true });
+  const before = logSha(f.log), checkpoint = fs.readFileSync(f.checkpoint);
+  assert.deepEqual(coldStart(f.options, 5 * 1024 * 1024), { killed: true });
+  // Even a deadline does not justify checkpointing beyond an unbound pair.
+  assert.deepEqual(fs.readFileSync(f.checkpoint), checkpoint);
+  const full = coldStart(f.options);
+  assert.equal(full.scanMode, "full");
+  assert.equal(full.rowsScanned, rows);
+  assert.equal(full.seq, rows);
+  assert.ok(json(f.checkpoint).lastReceiptSeq < oldestRetained);
+  assert.equal(logSha(f.log), before);
+});
+
+for (const invalid of [false, true]) test(`prefix tamper after a killed full scan ${invalid ? "fails closed" : "forces full validation"}`, async t => {
+  const f = await fixture(t, 0);
+  const { rows } = syntheticLog(f, 6 * 1024 * 1024);
+  assert.deepEqual(coldStart(f.options, 5 * 1024 * 1024), { killed: true });
+  const checkpoint = fs.readFileSync(f.checkpoint);
+  const original = fs.readFileSync(f.log, "utf8");
+  // Keep offsets stable; JSON permits whitespace after the closing quote.
+  const tampered = original.replace('"outcome":"committed"', invalid ? '"outcome":"rejected "' : '"outcome":"staged"   ');
+  assert.equal(Buffer.byteLength(tampered), Buffer.byteLength(original));
+  fs.writeFileSync(f.log, tampered);
+  if (invalid) {
+    await assert.rejects(new StageStore(f.options).open());
+    assert.deepEqual(fs.readFileSync(f.checkpoint), checkpoint);
+  } else {
+    const recovered = await new StageStore(f.options).open();
+    assert.deepEqual(recovered.recovery, { scanMode: "full", rowsScanned: rows });
+  }
+  assert.equal(fs.readFileSync(f.log, "utf8"), tampered);
+});
+
+test("110 MiB log with retained pairs completes across bounded simulated startup restarts", async t => {
+  const f = await fixture(t, 0);
+  const { rows } = syntheticLog(f, 110 * 1024 * 1024);
+  // Preparation creates real retained pairs after the synthetic history.
+  const store = await new StageStore(f.options).open();
+  for (let n = 0; n < 12; n++) assert.equal(store.stage(instant, () => instant).status, 200);
+  const oldestRetained = Math.min(...store.retainedSeqs());
+  fs.writeFileSync(f.checkpoint, "{");
+  const before = logSha(f.log), started = performance.now();
+  const validationBudgetBytes = 24 * 1024 * 1024, maxRestarts = 6;
+  let previousOffset = 0, restarts = 0, complete;
+  const offsets = [];
+  for (let attempt = 0; attempt <= maxRestarts; attempt++) {
+    const result = coldStart(f.options, validationBudgetBytes);
+    const progress = json(f.checkpoint);
+    assert.ok(progress.offset > previousOffset);
+    assert.ok(progress.lastReceiptSeq < oldestRetained);
+    previousOffset = progress.offset; offsets.push(progress.offset);
+    if (!result.killed) { complete = result; break; }
+    restarts++;
+  }
+  assert.ok(complete, `recovery exceeded ${maxRestarts} restarts`);
+  assert.ok(restarts > 0 && restarts <= maxRestarts);
+  assert.equal(complete.scanMode, "tail");
+  assert.equal(complete.seq, rows + 12);
+  assert.equal(logSha(f.log), before);
+  assert.equal((await new StageStore(f.options).open()).recovery.rowsScanned, 12);
+  t.diagnostic(JSON.stringify({ bytes: fs.statSync(f.log).size, validationBudgetBytes, maxRestarts,
+    restarts, wallMs: performance.now() - started, offsets, complete }));
 });
 
 for (const fault of ["missing", "corrupt", "extra-key", "offset-beyond-size", "mid-line", "seq", "hash", "prefix-tamper", "retained-before"]) {

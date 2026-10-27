@@ -193,6 +193,12 @@ test("supervisor drains output, kills startup/job hangs, and restarts with bound
   assert.equal([...timers.values()].some(timer => timer.delay === JOB_TIMEOUT_MS), false);
   run(STARTUP_TIMEOUT_MS); assert.deepEqual(children[0].kills, ["SIGKILL"]);
   assert.deepEqual(events[0], { event: "v2_stage_disabled", reason: "worker_startup_timeout" });
+  children[0].emit("message", { event: "ready", scanMode: "full", rowsScanned: 42 });
+  children[0].emit("message", { event: "job_start" });
+  children[0].emit("error", new Error("late error"));
+  assert.deepEqual(events, [{ event: "v2_stage_disabled", reason: "worker_startup_timeout" }]);
+  assert.deepEqual(children[0].kills, ["SIGKILL"]);
+  assert.equal(timers.size, 0);
   for (const delay of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
     children.at(-1).emit("close", 1); run(delay);
   }

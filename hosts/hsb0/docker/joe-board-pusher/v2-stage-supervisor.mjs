@@ -22,6 +22,8 @@ export function createStageSupervisor({
   const backoff = [1000, 2000, 4000, 8000, 16000, 30000];
   const event = (name, reason) => emit({ event: name, ...(reason ? { reason } : {}) });
   function kill(reason) {
+    if (phase === "killed") return;
+    phase = "killed";
     clearTimer(watchdog);
     event("v2_stage_disabled", reason);
     child?.kill("SIGKILL"); // flock --no-fork: this is the actual lock owner.
@@ -43,7 +45,7 @@ export function createStageSupervisor({
     current.stderr?.resume();
     watch(STARTUP_TIMEOUT_MS, "worker_startup_timeout");
     current.on("message", message => {
-      if (current !== child || stopped || !message || typeof message !== "object") return;
+      if (current !== child || stopped || phase === "killed" || !message || typeof message !== "object") return;
       if (message.event === "v1_unbound") {
         event("v1_cycle_unbound", "store_unavailable"); return;
       }
