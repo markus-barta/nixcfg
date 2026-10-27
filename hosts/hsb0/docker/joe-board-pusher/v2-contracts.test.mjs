@@ -166,8 +166,14 @@ test("active v2 set (JOED-86): shared r20b image, v2 POST schema and read-only v
     assert.ok(pusher.volumes.includes("/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro"));
     assert.equal(Object.hasOwn(v2.spec.services, "joe-household-v2-stage"), enabled);
     if (enabled) assert.equal(v2.spec.services["joe-household-v2-stage"].image, r17);
+    // JOED-87 Phase B: exactly one rev-10 flag on the pusher, and the stager's only environment.
+    assert.equal(pusher.environment.filter(e => e.startsWith("JOE_V2_CONTRACT_REV=")).join(), "JOE_V2_CONTRACT_REV=10");
+    if (enabled) assert.deepEqual(v2.spec.services["joe-household-v2-stage"].environment, ["JOE_V2_CONTRACT_REV=10"]);
   }
-  const v1 = hostEval(t, source, true, false, "current").spec.services["joe-board-pusher"];
+  const v1Eval = hostEval(t, source, true, false, "current");
+  const v1 = v1Eval.spec.services["joe-board-pusher"];
+  assert.ok(!v1.environment.some(e => e.startsWith("JOE_V2_CONTRACT_REV=")));
+  assert.equal(Object.hasOwn(v1Eval.spec.services["joe-household-v2-stage"], "environment"), false);
   assert.ok(!v1.environment.some(e => e.startsWith("JOE_PUSH_SCHEMA=")));
   assert.ok(!v1.volumes.some(v => v.startsWith("/var/lib/joe-board-pusher/v2:")));
 });
