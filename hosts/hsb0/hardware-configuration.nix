@@ -30,6 +30,8 @@
   # never loaded). NetworkManager never manages the Wi-Fi interface: hausnetz's own
   # wpa_supplicant unit (HNET r48) owns it; the wired LAN stays on scripted networking.
   networking.enableB43Firmware = true;
+  # b43-firmware is unfree (not insecure, unlike broadcom_sta); allow exactly that package.
+  nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "b43-firmware" ];
   networking.networkmanager.unmanaged = [ "interface-name:wl*" ];
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
