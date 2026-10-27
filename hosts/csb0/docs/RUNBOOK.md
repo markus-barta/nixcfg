@@ -720,7 +720,7 @@ Contracts manifest revision 10 has set SHA256
 `3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`;
 `release/contracts.json` SHA256 is
 `702b3cff10efec16048597c89f6cc05413792ec498f18190c41b5b2076c80117`.
-The board accepts revision-9 payloads. The hsb0 pusher/executor retain the r20b
+The board accepts revision-9 payloads. The hsb0 pusher/executor retain the r20c
 pins with revision 9 still the default; Phase B activation and producer
 sign-off remain separately owned under JOED-86.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS

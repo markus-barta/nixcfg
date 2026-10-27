@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20b-202610260915` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20c-202610271530` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager, executor and mailbox runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -53,7 +53,7 @@ rev-10 board release **32** (JOED-87) is live. An absent or any other value
 keeps the revision-9 snapshot bytes and receipts unchanged. This setting is
 independent of `JOE_PUSH_SCHEMA`; it neither selects a POST target nor enables
 publication. The lock supervisor forwards only this explicit opt-in alongside
-its existing PATH/NODE_ENV allowlist. The r20b image preparation delivers this
+its existing PATH/NODE_ENV allowlist. The r20c image preparation delivers this
 code with revision 9 still the default; it does not set that opt-in. Prestage
 from the exact reviewed merge, then activate one validated host build. The
 four shared-image services and the declarative `hsb0-home` post-recreation
@@ -610,6 +610,72 @@ saved official receipt wakes the pending accounting retry without reconnecting t
 Gateway. Normal history refresh remains fifteen minutes when recovery is unnecessary.
 Persisted rows alone are never unioned into completeness evidence; unproved cross-day
 gaps still require authoritative backfill.
+
+JOED-100 bounds the capture metadata in `family-history.json`. On every save,
+overlapping or contiguous KNOWN receipts are coalesced, retaining the latest
+original receipt for exact replay/source-reuse checks. A digest
+and observation count replace the old capture provenance; historical source IDs are
+no longer an exhaustive replay index. Membership lists are deduplicated by execution
+and commission ID. Legacy digest-only receipts remain digest-only, with aggregate
+observation counts; compaction never invents their missing memberships. Every raw
+execution revision, orphan commission, account/classifier binding and economic
+observation time stays intact. No KNOWN receipt becomes COMPLETE.
+
+Compaction leaves every COMPLETE receipt untouched, including its ID, authority,
+membership, window and observation time, as well as truncated replies and legacy
+memberships.
+This preserves official-chain recovery, midnight imports and desk-boundary checks.
+Distinct coverage/proof boundaries still require storage; redundant polling does
+not add KNOWN receipt history. Saved coverage keeps exhaustive `receiptIds` lists;
+readers also accept the compact reference format. Only the in-memory projection's
+diagnostic references keep at most the first/last IDs, with `receiptCount` and
+`receiptIdsSha256` when there are more than two. These references are not membership
+proofs.
+
+CLI stdout contains exactly one JSON summary; compaction and size-warning events
+go to stderr. Preview reports the post-compaction receipt count and IDs that an
+import would save, without writing the state file.
+CLI imports report receipt IDs from the saved file. If compaction absorbed an
+imported KNOWN receipt, its `importedReceiptId` list is empty. Re-importing an older
+KNOWN source after its binding was merged can still add a receipt and extend the
+target; exact historical source replay/reuse checks require provenance the bounded
+compacted state no longer retains. Retained original receipts and conflicting
+execution/commission facts still fail closed as before.
+
+Load compacts files at **16 MiB** or more, before accepting their state. A separate
+**64 MiB** recovery-read ceiling permits an existing file above the write cap to
+self-heal; an irreducible state above **32 MiB** remains unavailable. The next
+successful capture persists the repaired state and advances its target even when
+the broker returns no new executions or commissions. Callers adopt the saved
+compacted snapshot in memory. Writes retain the **32 MiB** hard cap and the existing
+exclusive temporary file, mode 0600, file fsync, atomic rename and directory fsync.
+No manual move-aside is required. `family_history_compacted` logs only before/after
+byte counts on a compacted load, or a save that compacts and reduces the last
+read/written file by at least **1 MiB** or **10%**. Save measures the single serialized
+write body. `family_history_size_warning` logs only byte counts if more than **24 MiB**
+remains after compaction. Schema/version and executor coverage/record semantics
+remain unchanged. Compacted files remain readable by the previous release, so
+rollback needs no history-file migration. Compaction cannot close an actual
+historical completeness gap.
+
+The offline regression fixture builds **127,058** real-writer receipts over 50 days
+at 34-second intervals, with 100 execution/commission records. It reduces
+**166,792,900 B → 190,644 B**, preserving the executor-visible fields. Receipts
+dominate the original size (148,181,383 B as a standalone pretty-printed array),
+followed by repeated coverage references (9,663,600 B); execution/commission arrays
+are only 36,903/11,053 B. A **34,104,001 B** on-disk fixture recovers and saves as
+**45,209 B** after its next update. These are synthetic measurements, not live-host
+verification. Run `node --test history-compaction.test.mjs` to reproduce them.
+
+The sibling `family-ledger.json` keeps deduplicated execution/commission rows and
+the current query identity set, replacing its scalar coverage timestamps; its cap
+is **16 MiB**, not 32 MiB. Executor attribution memory is keyed by
+account/client/exec ID, retaining one proof and at most one conflict per key, under
+**100,000 entries / 32 MiB**. Neither appends a receipt per capture, so unchanged
+replays have no time-to-cap. Growth depends on new identities/record sizes: at 100
+new attribution identities per day, the entry ceiling is at most 1,000 days from
+empty (the byte ceiling can arrive first). A calendar estimate for either sibling
+needs an observed new-fill rate; repeated capture cadence alone cannot supply it.
 
 FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
 freshness window expires, the adapter cancels that request and opens a new request

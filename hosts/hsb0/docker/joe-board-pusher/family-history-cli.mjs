@@ -5,7 +5,7 @@ import {
   captureFromOfficialProbeFile,
   capturesFromOfficialWindowFile,
 } from "./execution-history.mjs";
-import { reconcileExecutionCapture } from "./execution-reconciliation.mjs";
+import { compactBestAvailableHistoryState, reconcileExecutionCapture } from "./execution-reconciliation.mjs";
 import {
   createFileFamilyHistoryStore,
   projectBestAvailableHistory,
@@ -93,14 +93,18 @@ async function main() {
       requestedWindow: target,
       targetAccount,
     });
-  const store = createFileFamilyHistoryStore(statePath);
+  const store = createFileFamilyHistoryStore(statePath, undefined, {
+    onCompacted: (sizes) => console.error(JSON.stringify({ event: "family_history_compacted", ...sizes })),
+    onSizeWarning: (sizes) => console.error(JSON.stringify({ event: "family_history_size_warning", ...sizes })),
+  });
   const loaded = store.load();
   if (!loaded.ok) throw new Error(loaded.reason);
   let state = loaded.state;
   for (const capture of captures) state = reconcileExecutionCapture({ prior: state, capture, target });
   const sourceIds = new Set(captures.map((capture) => capture.source.id));
+  state = action === "import" ? store.save(state) : compactBestAvailableHistoryState(state);
+  // Compaction may absorb an imported KNOWN receipt. Never report a missing ID.
   const importedReceiptIds = state.receipts.filter((item) => sourceIds.has(item.source.id)).map((item) => item.receiptId);
-  if (action === "import") store.save(state);
   process.stdout.write(`${JSON.stringify({ action, ...summary(state, importedReceiptIds.length === 1 ? importedReceiptIds[0] : importedReceiptIds) }, null, 2)}\n`);
 }
 
