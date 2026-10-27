@@ -161,7 +161,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     };
     # HNET-45 (Markus's go 2026-10-27 09:12, new capability; see the ticket):
     # recover Shellies that fell back to their own AP over the spare BCM4331
-    # radio (OPS-470). Options: hausnetz@78dae34c nix/module.nix:204-270.
+    # radio (OPS-470). Options: hausnetz@da9a536f (pin 48) nix/module.nix:204-270.
     # The module runs its own wpa_supplicant on the interface, keeps it
     # NM-unmanaged and isolates it with an INPUT drop and its own FORWARD
     # chain (:454-490, :512-545). Credential paths are runtime strings
