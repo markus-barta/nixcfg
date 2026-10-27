@@ -167,11 +167,11 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # chain (:454-490, :512-545). Credential paths are runtime strings
     # passed through LoadCredential (:671), so the agenix files below stay
     # root 0400.
-    # Rollout: detect (scan only, never associates) first, then heal once
-    # HNET has verified detection. The address keeps its default
-    # 192.168.33.200/24, with no gateway or DNS.
+    # Rollout: detect (scan only, never associates) ran first with pin 48;
+    # heal follows once HNET verified detection on hsb0 (HNET-45). The
+    # address keeps its default 192.168.33.200/24, with no gateway or DNS.
     shellyHeal = {
-      mode = "detect";
+      mode = "heal";
       interface = "wlp3s0b1";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
