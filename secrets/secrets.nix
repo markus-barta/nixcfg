@@ -556,6 +556,11 @@ in
   # HNET-45: the Shelly MACs heal may touch, one per line ('#' comments allowed). Kept
   # encrypted because nixcfg is public and MACs never go into it.
   "hsb0-hausnetz-shelly-allow.age".publicKeys = markus ++ hsb0;
+  # OPS-480 (AEON-1858): read-only GitHub deploy keys for inspr-at/paimos and
+  # inspr-at/paimos-legacy, used by root on hsb0 only to pre-fetch the locked
+  # flake inputs while those repos are private.
+  "hsb0-paimos-deploy-key.age".publicKeys = markus ++ hsb0;
+  "hsb0-paimos-legacy-deploy-key.age".publicKeys = markus ++ hsb0;
   "hsb0-ib-desk-env.age".publicKeys = markus ++ hsb0;
 
   # Shared inbox push credential: hsb0 joe-board-pusher → csb0 joe-board inbox.
