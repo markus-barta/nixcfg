@@ -49,6 +49,7 @@ jobs:
   pharos-contracts-1:
     name: Pharos contract suite — shard 1/4
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -74,6 +75,15 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         with:
           save-cache: "true"
+
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+          require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
       - name: Verify Pharos system update proposals and private-input skips
         if: steps.pin.outputs.pin_only != 'true'
@@ -225,6 +235,7 @@ jobs:
   pharos-contracts-2:
     name: Pharos contract suite — shard 2/4
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -246,6 +257,15 @@ jobs:
 
       - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
+
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+          require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
       - name: Verify Pharos beacon healthcheck contract
         if: steps.pin.outputs.pin_only != 'true'
@@ -314,7 +334,8 @@ jobs:
       - name: Verify AdGuard runtime admin secret boundary (OPS-372)
         if: steps.pin.outputs.pin_only != 'true'
         run: |
-          export NIXPKGS_LIB="$(nix eval --impure --no-update-lock-file --raw --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.outPath + "/lib"')"
+          NIXPKGS_LIB="$(nix eval --impure --no-update-lock-file --raw --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.outPath + "/lib"')"
+          export NIXPKGS_LIB
           nix-shell -I nixpkgs="${NIXPKGS_LIB%/lib}" -p 'python3.withPackages (p: [ p.bcrypt ])' yq-go --run "python3 tests/T105-adguard-users-secret.py"
 
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
@@ -382,6 +403,7 @@ jobs:
   pharos-contracts-3:
     name: Pharos contract suite — shard 3/4
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -403,6 +425,15 @@ jobs:
 
       - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
+
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+          require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
       # OPS-392: use the image's Node major; Linux runs the real-flock case.
       # Full history above supplies immutable main/producer objects for parity.
@@ -548,6 +579,7 @@ jobs:
   pharos-contracts-4:
     name: Pharos contract suite — shard 4/4
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -569,6 +601,15 @@ jobs:
 
       - uses: ./.github/actions/pharos-nix
         if: steps.pin.outputs.pin_only != 'true'
+
+      # OPS-480: after the public-only cache snapshot, before any flake consumer.
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        if: steps.pin.outputs.pin_only != 'true'
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+          require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
       - name: Verify Pharos host preferences and correlated outcomes
         if: steps.pin.outputs.pin_only != 'true'
@@ -726,13 +767,15 @@ jobs:
     name: aeon-pin-gate
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+      - name: Verify private Paimos input prefetch contracts (OPS-480)
+        run: bash tests/T113-paimos-private-inputs.sh
       - name: Verify pin classification, release metadata and public cache fixtures
         run: |
           python3 -m unittest discover -s tests -p 'test_aeon_pin_gate.py' -v
@@ -741,12 +784,13 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          PAIMOS_DEPLOY_KEY: ${{ secrets.PAIMOS_DEPLOY_KEY }}
         run: python3 scripts/aeon-pin-gate.py verify
 
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -762,9 +806,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Prefetch locked Paimos inputs (OPS-480)
+        uses: ./.github/actions/paimos-private-inputs
+        with:
+          paimos-key: ${{ secrets.PAIMOS_DEPLOY_KEY }}
+          paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
+          require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
       - name: Read private hsb0 input (OPS-207)
         if: matrix.host == 'hsb0'
