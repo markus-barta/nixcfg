@@ -49,8 +49,8 @@ assert s["enable"] and s["listen"] == "0.0.0.0:8377"
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
 assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True}
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s and "starlink" not in s
-# HNET-45 (OPS-470): Shelly recovery on the spare radio, held in detect until the USB radio replaces the b43; credentials only as runtime agenix paths.
-assert s["shellyHeal"] == {"mode": "detect", "interface": "wlp3s0b1", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
+# HNET-45 (OPS-470): Shelly recovery in heal mode on the USB stick (rtl8192cu, path-based name); credentials only as runtime agenix paths.
+assert s["shellyHeal"] == {"mode": "heal", "interface": "wlp0s26f7u1u3", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
     "wifiPskFile": "/run/agenix/hsb0-hausnetz-wifi-psk", "mqttServer": "192.168.1.101:1883", "mqttUser": "smarthome",
     "mqttPasswordFile": "/run/agenix/hsb0-hausnetz-mqtt-password", "telegramCredentialFile": "/run/agenix/hsb0-hausnetz-telegram",
     "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow"}, s["shellyHeal"]
