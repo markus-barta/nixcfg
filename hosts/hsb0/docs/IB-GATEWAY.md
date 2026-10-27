@@ -135,6 +135,27 @@ that phase is kept for the current container generation (container ID + PID 1
 log tails are only relay spam. A new init startticks or container ID is a real
 restart; pusher health requires a publish after that exact start epoch.
 
+### Nightly reset re-login rejection (OPS-465)
+
+The supervisor recognizes `reset_relogin_rejected` only when timestamped logs
+from the current container generation show `Re-login is required`, followed
+within 120 seconds by `Unrecognized Username or Password`, with no later
+successful login. The container must be running and Docker-healthy. It waits
+five minutes after the rejection (`resetReloginRestartDelaySec`, bounded to
+180–900 seconds), preserves startup grace and operator-authentication guards,
+then reserves the existing one-restart outage budget before cold-restarting
+only `ib-gateway` through the managed compose lock. No separate restart path
+or additional budget is used. A rejection without the prefix never restarts.
+
+Recovery requires a current-generation completed login, API 4002 listening
+and the existing recent pusher `gateway:true` confirmation. A rejected cold
+login **never retries**: it halts and pages through the existing alert adapter
+with a value-free reason asking the operator to check the paper login. The
+reservation and halt survive timer runs and container-generation changes;
+corrupt or unknown persisted state halts. An operator clear is required after
+the cold-login rejection. Logs, credentials and account identifiers are not
+copied into the recovery state or alert reason.
+
 ### Unrecovered-session notifications (HOSTD-59)
 
 The declared destination is managed email plus Amy's existing Grok chat. The

@@ -28,6 +28,12 @@ in
   options.nixcfg.ibGatewaySession = {
     enable = lib.mkEnableOption "paper IB Gateway session-readiness supervisor on hsb0";
 
+    resetReloginRestartDelaySec = lib.mkOption {
+      type = lib.types.ints.between 180 900;
+      default = 300;
+      description = "Seconds to wait after a matched nightly reset re-login rejection before the single allowed cold restart (OPS-465).";
+    };
+
     alert = {
       enable = lib.mkEnableOption "send bounded session alerts through a declared adapter";
       transport = lib.mkOption {
@@ -123,6 +129,7 @@ in
         IBGSS_AUTH_TIMEOUT_SEC = "900";
         IBGSS_STALE_GENERATED_AT_SEC = "600";
         IBGSS_MAX_RESTARTS_PER_OUTAGE = "1";
+        IBGSS_RESET_RELOGIN_RESTART_DELAY_SEC = toString cfg.resetReloginRestartDelaySec;
         IBGSS_ALERT_ENABLE = if cfg.alert.enable then "1" else "0";
         IBGSS_ALERT_TRANSPORT = cfg.alert.transport;
         IBGSS_NOTIFICATION_ENV = lib.optionalString (cfg.alert.notificationEnvFile != null) (

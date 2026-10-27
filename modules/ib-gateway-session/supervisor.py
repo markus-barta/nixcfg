@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import errno
 import json
+import math
 import os
 import re
 import select
@@ -84,12 +85,17 @@ TWOFA_RE = re.compile(
     r"\b2FA\b|second factor|two[- ]factor|TWOFA",
     re.IGNORECASE,
 )
+RELOGIN_REQUIRED_RE = re.compile(r"\bRe-login is required\b", re.IGNORECASE)
+LOGIN_REJECTED_RE = re.compile(r"\bUnrecognized Username or Password\b", re.IGNORECASE)
+AUTH_CLASS_RESET_RELOGIN_REJECTED = "reset_relogin_rejected"
 DOCKER_TS_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z)\s+(.*)$",
 )
 
 LINE_LOGIN_PATTERNS = (
     (LOGGED_IN_RE, LOGIN_LOGGED_IN),
+    (LOGIN_REJECTED_RE, LOGIN_LOGGED_OUT),
+    (RELOGIN_REQUIRED_RE, LOGIN_LOGGED_OUT),
     (AUTHENTICATING_RE, LOGIN_AUTHENTICATING),
     (LOGGED_OUT_RE, LOGIN_LOGGED_OUT),
 )
@@ -113,7 +119,7 @@ AUTH_FAILURE_CLASSES: tuple[tuple[str, re.Pattern[str]], ...] = (
         AUTH_CLASS_INVALID_CREDENTIALS,
         re.compile(
             r"invalid (?:username|password|credentials)|incorrect password|"
-            r"authentication failed|login failed",
+            r"authentication failed|login failed|Unrecognized Username or Password",
             re.IGNORECASE,
         ),
     ),
@@ -155,6 +161,7 @@ class Config:
     auth_timeout_sec: int = 15 * 60
     stale_generated_at_sec: int = 10 * 60
     max_restarts_per_outage: int = 1
+    reset_relogin_restart_delay: int = 5 * 60
     state_path: str = "/var/lib/ib-gateway-session/supervisor.json"
     alert_state_path: str = "/var/lib/ib-gateway-session/alerts.json"
     operator_clear_path: str = "/var/lib/ib-gateway-session/operator-clear"
@@ -180,6 +187,10 @@ class Config:
         "set alert.enable=true, alert.transport=shoutrrr, alert.notificationEnvFile to that path. "
         "openclaw-gateway is parked so agent-bus is not a live receiver. Do not invent an endpoint."
     )
+
+    def __post_init__(self) -> None:
+        if not 3 * 60 <= self.reset_relogin_restart_delay <= 15 * 60:
+            raise ValueError("reset re-login restart delay must be between 180 and 900 seconds")
 
 
 @dataclass(frozen=True)
@@ -211,6 +222,10 @@ class Observation:
     probe_reason: str | None = None
     container_generation: str | None = None
     auth_failure_class: str | None = None
+    container_healthy: bool | None = None
+    reset_relogin_rejected_at: float | None = None
+    login_rejected_at: float | None = None
+    reset_relogin_recovered: bool = False
 
 
 @dataclass
@@ -227,6 +242,7 @@ class SupervisorState:
     last_alert_status: str = "not-configured"
     login_state: str | None = None
     login_generation: str | None = None
+    reset_relogin_restart_pending: bool = False
     corrupt: bool = False
 
     def to_dict(self) -> dict:
@@ -243,15 +259,23 @@ class SupervisorState:
             "last_alert_status": self.last_alert_status,
             "login_state": self.login_state,
             "login_generation": self.login_generation,
+            "reset_relogin_restart_pending": self.reset_relogin_restart_pending,
         }
 
     @classmethod
     def from_dict(cls, raw: dict | None) -> "SupervisorState":
         if not isinstance(raw, dict) or "restarts_this_outage" not in raw:
             return corrupt_halt_state()
-        try:
-            restarts = int(raw.get("restarts_this_outage"))
-        except (TypeError, ValueError):
+        restarts = raw.get("restarts_this_outage")
+        pending = raw.get("reset_relogin_restart_pending", False)
+        if type(restarts) is not int or restarts < 0 or type(pending) is not bool:
+            return corrupt_halt_state()
+        if raw.get("phase", PHASE_SLOWSTARTING) not in (
+            PHASE_SLOWSTARTING, PHASE_AUTHENTICATING, PHASE_API_READY,
+            PHASE_UPSTREAM_UNAVAILABLE, PHASE_HALTED, PHASE_CONTAINER_DOWN, PHASE_UNKNOWN,
+        ):
+            return corrupt_halt_state()
+        if pending and (restarts == 0 or _opt_float(raw.get("last_restart_at")) is None):
             return corrupt_halt_state()
         return cls(
             phase=str(raw.get("phase") or PHASE_SLOWSTARTING),
@@ -266,6 +290,7 @@ class SupervisorState:
             last_alert_status=str(raw.get("last_alert_status") or "not-configured"),
             login_state=raw.get("login_state") if isinstance(raw.get("login_state"), str) else None,
             login_generation=_opt_generation(raw.get("login_generation")),
+            reset_relogin_restart_pending=pending,
         )
 
 
@@ -278,6 +303,7 @@ class Decision:
     persist: SupervisorState
     alert_status: str
     notes: list[str] = field(default_factory=list)
+    reset_relogin_restart: bool = False
 
 
 def corrupt_halt_state() -> SupervisorState:
@@ -292,7 +318,7 @@ def corrupt_halt_state() -> SupervisorState:
 
 
 def _opt_float(value: object) -> float | None:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
         return float(value)
     return None
 
@@ -493,6 +519,41 @@ def classify_auth_failure(log_text: str) -> str | None:
                 last = name
                 break
     return last
+
+
+def classify_reset_relogin(
+    log_text: str, started_at: float | None, now: float,
+) -> tuple[float | None, float | None, bool]:
+    """Return (reset rejection, any rejection, recovered), never log values.
+
+    Require a timestamped, current-generation prefix within 120 seconds.
+    A completed login invalidates both the prefix and the rejection. Repeated
+    lines in a rejection burst keep the first timestamp, never extend the pair.
+    """
+    required_at = None
+    reset_rejected_at = None
+    rejected_at = None
+    recovered = False
+    lines = filter_logs_to_generation(log_text, started_at).splitlines()
+    for line in sorted(lines, key=_log_line_sort_key):
+        stamp = _log_line_sort_key(line)
+        if stamp > now:
+            continue
+        body = log_line_body(line)
+        if LOGGED_IN_RE.search(body):
+            recovered = recovered or reset_rejected_at is not None
+            required_at = reset_rejected_at = rejected_at = None
+        elif RELOGIN_REQUIRED_RE.search(body):
+            required_at = stamp
+            recovered = False
+        elif LOGIN_REJECTED_RE.search(body):
+            recovered = False
+            if rejected_at is None:
+                rejected_at = stamp
+                if required_at is not None and 0 <= stamp - required_at <= 120:
+                    reset_rejected_at = stamp
+            required_at = None
+    return reset_rejected_at, rejected_at, recovered
 
 
 def docker_since_stamp(started_at: float) -> str:
@@ -737,7 +798,9 @@ def observe_login_logs(
     if started_at is None:
         return LogCollectResult(kind="ok", text="")
     stamp = now if now is not None else time.time()
-    since_at = login_logs_since_epoch(started_at, stamp)
+    # Include the prefix, the longest configured delay and one timer interval.
+    lookback = max(LOG_LOOKBACK_SEC, cfg.reset_relogin_restart_delay + 120 + 300)
+    since_at = login_logs_since_epoch(started_at, stamp, lookback)
     argv = docker_login_logs_argv(cfg, since_at)
     deadline = time.monotonic() + LOG_COLLECT_TIMEOUT_SEC
     try:
@@ -1039,7 +1102,37 @@ def decide(obs: Observation, state: SupervisorState, cfg: Config) -> Decision:
             notes=notes + ["probe-unknown"],
         )
 
-    if session_healthy(effective, cfg):
+    cold_generation = (
+        persist.reset_relogin_restart_pending
+        and effective.container_generation is not None
+        and effective.container_started_at is not None
+        and persist.last_restart_at is not None
+        and effective.container_started_at >= persist.last_restart_at
+    )
+    if persist.reset_relogin_restart_pending and (
+        persist.operator_clear_required
+        or (cold_generation and effective.login_rejected_at is not None)
+    ):
+        return halt_decision(
+            effective, persist, cfg, notes,
+            persist.halt_reason or
+            "cold login rejected after reset restart: operator to check the paper login",
+        )
+
+    if effective.login_rejected_at is not None and effective.reset_relogin_rejected_at is None:
+        return halt_decision(
+            effective, persist, cfg, notes,
+            "paper login rejected without reset re-login signature; operator action required",
+        )
+
+    recovery_verified = not persist.reset_relogin_restart_pending or (
+        cold_generation and login == LOGIN_LOGGED_IN
+    )
+    if (
+        session_healthy(effective, cfg)
+        and recovery_verified
+        and effective.reset_relogin_rejected_at is None
+    ):
         persist.phase = PHASE_API_READY
         persist.outage_id = None
         persist.restarts_this_outage = 0
@@ -1048,6 +1141,7 @@ def decide(obs: Observation, state: SupervisorState, cfg: Config) -> Decision:
         persist.unhealthy_since = None
         persist.authenticating_since = None
         persist.last_healthy_at = effective.now
+        persist.reset_relogin_restart_pending = False
         persist.last_alert_status = state.last_alert_status
         return Decision(
             phase=PHASE_API_READY,
@@ -1092,7 +1186,11 @@ def decide(obs: Observation, state: SupervisorState, cfg: Config) -> Decision:
 
     if effective.container_running is False:
         persist.phase = PHASE_CONTAINER_DOWN
-        if persist.operator_clear_required or persist.restarts_this_outage >= cfg.max_restarts_per_outage:
+        if (
+            persist.reset_relogin_restart_pending
+            or persist.operator_clear_required
+            or persist.restarts_this_outage >= cfg.max_restarts_per_outage
+        ):
             return halt_decision(
                 effective,
                 persist,
@@ -1126,6 +1224,46 @@ def decide(obs: Observation, state: SupervisorState, cfg: Config) -> Decision:
             phase,
             "recent ib-gateway start or restart is inside startup grace; not restarting",
         )
+
+    if persist.reset_relogin_restart_pending:
+        return stay(
+            PHASE_UPSTREAM_UNAVAILABLE,
+            "reset restart reserved; waiting for completed cold login and API-ready confirmation; never retrying",
+            engine.Problem(
+                PROBLEM_KEY, _alert_text(effective, persist, cfg, "reset restart not yet verified"),
+            ),
+        )
+
+    if effective.reset_relogin_recovered:
+        return stay(
+            PHASE_UPSTREAM_UNAVAILABLE,
+            "reset re-login completed without a restart; waiting for API-ready confirmation",
+        )
+
+    if effective.reset_relogin_rejected_at is not None:
+        notes.append(f"auth-class:{AUTH_CLASS_RESET_RELOGIN_REJECTED}")
+        if effective.twofa_evidence:
+            return halt_decision(effective, persist, cfg, notes, "reset re-login needs operator authentication")
+        if persist.operator_clear_required or persist.restarts_this_outage != 0:
+            return halt_decision(effective, persist, cfg, notes, "reset re-login rejected; restart budget exhausted")
+        if (
+            effective.container_healthy is not True
+            or effective.container_generation is None
+            or effective.container_started_at is None
+        ):
+            return stay(
+                PHASE_UPSTREAM_UNAVAILABLE,
+                "reset re-login rejected; container health or generation unconfirmed; not restarting",
+            )
+        rejection_age = effective.now - effective.reset_relogin_rejected_at
+        if rejection_age < cfg.reset_relogin_restart_delay:
+            return stay(PHASE_UPSTREAM_UNAVAILABLE, "reset re-login rejected; waiting for reset restart delay")
+        decision = _maybe_restart(
+            effective, persist, cfg, notes, PHASE_UPSTREAM_UNAVAILABLE,
+            "reset re-login rejected after reset restart delay",
+        )
+        decision.reset_relogin_restart = decision.action == ACTION_RESTART
+        return decision
 
     if login == LOGIN_AUTHENTICATING and auth_age < cfg.auth_timeout_sec:
         return stay(
@@ -1205,7 +1343,11 @@ def _maybe_restart(
     reason: str,
 ) -> Decision:
     persist.phase = phase
-    if persist.operator_clear_required or persist.restarts_this_outage >= cfg.max_restarts_per_outage:
+    if (
+        persist.reset_relogin_restart_pending
+        or persist.operator_clear_required
+        or persist.restarts_this_outage >= cfg.max_restarts_per_outage
+    ):
         persist.halt_reason = f"{reason}; restart budget exhausted"
         persist.operator_clear_required = True
         persist.phase = PHASE_HALTED
@@ -1337,6 +1479,7 @@ def execute_reserved_restart(
     locker: Callable[[], object] | None = None,
     unlocker: Callable[[object], None] | None = None,
     dir_sync: Callable[[str], None] | None = None,
+    reset_relogin: bool = False,
 ) -> tuple[str, SupervisorState]:
     """Hold the managed lock, reserve+fsync file and parent dir, THEN touch Docker.
 
@@ -1352,6 +1495,8 @@ def execute_reserved_restart(
     try:
         persist.restarts_this_outage += 1
         persist.last_restart_at = now
+        if reset_relogin:
+            persist.reset_relogin_restart_pending = True
         save_supervisor_state(cfg.state_path, persist, dir_sync=dir_sync)
         code = restarter(cfg)
         if code != 0:
@@ -1413,6 +1558,7 @@ def config_from_env(env: dict[str, str] | None = None) -> Config:
         auth_timeout_sec=_i("IBGSS_AUTH_TIMEOUT_SEC", 15 * 60),
         stale_generated_at_sec=_i("IBGSS_STALE_GENERATED_AT_SEC", 10 * 60),
         max_restarts_per_outage=_i("IBGSS_MAX_RESTARTS_PER_OUTAGE", 1),
+        reset_relogin_restart_delay=_i("IBGSS_RESET_RELOGIN_RESTART_DELAY_SEC", 5 * 60),
         state_path=env.get("IBGSS_STATE_PATH", Config.state_path),
         alert_state_path=env.get("IBGSS_ALERT_STATE_PATH", Config.alert_state_path),
         operator_clear_path=env.get("IBGSS_OPERATOR_CLEAR_PATH", Config.operator_clear_path),
@@ -1521,6 +1667,7 @@ def run_cycle(
                 restarter or apply_compose_restart,
                 locker=locker,
                 unlocker=unlocker,
+                reset_relogin=decision.reset_relogin_restart,
             )
         except Exception:
             raise
@@ -1816,6 +1963,7 @@ def observe_runtime(cfg: Config, now: float | None = None) -> Observation:
     file_names = [line.strip() for line in (files.stdout or "").splitlines() if line.strip()] if files.kind == "ok" else []
     login_state, manual, twofa = classify_login(login_logs, file_names)
     auth_failure_class = log_obs.auth_failure_class
+    reset_rejected_at, rejected_at, reset_recovered = classify_reset_relogin(login_logs, started_at, stamp)
     pusher_logs = docker_command(
         cfg, ["logs", "--timestamps", "--since", "20m", "--tail", "80", cfg.pusher_container]
     )
@@ -1847,6 +1995,10 @@ def observe_runtime(cfg: Config, now: float | None = None) -> Observation:
         lock_available=lock_available,
         container_generation=generation,
         auth_failure_class=auth_failure_class,
+        container_healthy="(healthy)" in lowered,
+        reset_relogin_rejected_at=reset_rejected_at,
+        login_rejected_at=rejected_at,
+        reset_relogin_recovered=reset_recovered,
     )
 
 
