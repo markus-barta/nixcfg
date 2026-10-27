@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 45: v261026200830.0.0 (#297 merge, sequence 115). Contents since 44: #296 HNET-386 steadier live updates (one server publisher: /api/state, the SSE checkpoint and live frames share one publish; urgent persistence on the flush worker; graceful shutdown up to 30 s, hsb0 TimeoutStopSec 90 s), QA #295 HNET-399 header probe deflake. Go/web only; no nix/, flake or go deps change; no listener/socket/dial/exec added; capability-free (standing go Desk 45df1430). Rollback = pin 44.
+    # HNET pin 46: v261027074650.0.0 (#299 merge, sequence 116). Contents since 45: HNET-387 live connection recovery (client watchdog and labels in web/), version and release data, scripts/qa-*, nix.yml CI timeout 110->115 min. No Go, nix/, flake or go deps change; no listener/socket/dial/exec added; shutdown unchanged (<=30 s vs TimeoutStopSec 90 s); capability-free (standing go Desk 45df1430). Rollback = pin 45.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=80da703f73dbaf524570c57d4ada2da084322235";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=61ebe56e0b62da51ad9f57e8c701cb2be566d4db";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
