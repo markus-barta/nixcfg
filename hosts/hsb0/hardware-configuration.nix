@@ -4,6 +4,7 @@
 {
   config,
   lib,
+  pkgs,
   modulesPath,
   ...
 }:
@@ -30,7 +31,10 @@
   # in-kernel b43 driver with its firmware (the old "wl" entry had no broadcom_sta package and
   # never loaded). NetworkManager never manages the Wi-Fi interface: hausnetz's own
   # wpa_supplicant unit (HNET r48) owns it; the wired LAN stays on scripted networking.
-  networking.enableB43Firmware = true;
+  # The BCM4331 (core rev 29, HT PHY) needs b43/ucode29_mimo.fw, which only the 6.30.163.46
+  # firmware set has; networking.enableB43Firmware ships 5.100.138 without it (kernel log:
+  # "Firmware file b43/ucode29_mimo.fw not found").
+  hardware.firmware = [ pkgs.b43Firmware_6_30_163_46 ];
   # b43-firmware is unfree (not insecure, unlike broadcom_sta); allow exactly that package.
   nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "b43-firmware" ];
   networking.networkmanager.unmanaged = [ "interface-name:wl*" ];
