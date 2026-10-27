@@ -169,12 +169,14 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # root 0400.
     # Rollout: detect ran first with pin 48, heal followed on 2026-10-27, and
     # the first real attempt showed the built-in b43 associates but passes no
-    # data. Back to detect (scan only, no attempts consumed from the 3/24 h
-    # budget) until the USB Wi-Fi stick replaces this radio (HNET-45). The
+    # data. Since 2026-10-27 17:02 an Edimax EW-7811Un USB stick (RTL8188CUS,
+    # in-kernel rtl8192cu) is plugged into hsb0; heal runs on it (Markus: "use
+    # what works best", HNET-45). Its name is USB-path based (stable on this
+    # port). The b43 stays loaded, idle and NM-unmanaged (wl* glob). The
     # address keeps its default 192.168.33.200/24, with no gateway or DNS.
     shellyHeal = {
-      mode = "detect";
-      interface = "wlp3s0b1";
+      mode = "heal";
+      interface = "wlp0s26f7u1u3";
       # Supervised first run; the module default is "5m".
       scanInterval = "1m";
       wifiSsid = "JHW2211-2.4";
@@ -305,12 +307,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
                 "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
               ]
               ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
-              ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2"
-              # JOED-87 Phase B (Markus Desk ae96cf9f): exact desk values where Amy's rules allow. The
-              # pusher and the stager both need it (README "Phase B exact values"). Only the string
-              # "10" activates it (v2-exact-values.mjs:11); remove both lines to return to rev 9.
-              # v2 set only: the v1 "current" set keeps its pre-v2 baseline (v2-contracts test).
-              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=10";
+              ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2";
           }
           // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
             volumes =
@@ -330,11 +327,6 @@ assert joeSet.pusher != null && joeSet.executor != null;
                   build = "${joeBoardPusherSource}";
                   image = joeSet.pusher.image;
                   pull_policy = "never";
-                }
-                // lib.optionalAttrs joePushV2 {
-                  # JOED-87 Phase B: the supervisor forwards this to the stager child
-                  # (v2-stage-worker.mjs:589) only when its own environment has it.
-                  environment = [ "JOE_V2_CONTRACT_REV=10" ];
                 };
               }
             )
