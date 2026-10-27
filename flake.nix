@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 49: v261027142935.0.0 (#305 merge, sequence 119). Contents since 48: HNET-406 more reliable Shelly notifications (the shellyHeal Telegram notifier gets its own client with 10 s dial / 5 s TLS timeouts, asynchronous delivery, failure classes in the log and a token-free startup reachability check against the same api.telegram.org); Go only, nix/module.nix unchanged since pin 48; explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 50: v261027184920.0.0 (#307 merge, sequence 120). Contents since 49: HNET-407 Shelly Gen1 recovery (STA written first over the AP with a lost response tolerated, MQTT written over the LAN to the MAC-verified device, 15 s write timeouts, allowlisted redacted state copies, a shelly-heal-reset CLI) plus an opt-in association-scoped DHCP client (shellyHeal.addressing; hsb0 stays static). Module change under Markus's HNET-45 go; explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=846af4b3a45d43476bef06fb6c837111e33358e2";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=264720827c6caf7b7bae9081dff45693e7d15750";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
