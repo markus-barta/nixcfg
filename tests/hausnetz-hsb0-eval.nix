@@ -38,7 +38,12 @@ in
   # HNET-228 (approved 2026-10-17, see the ticket): leases come from AdGuard's DHCP file through the
   # root copy unit; hausnetz itself reads only the copy via its supplementary group.
   leasesFromAdguard = toString cfg.discovery.leasesFile == "/var/lib/AdGuardHome/data/leases.json";
-  leasesCopyGroupOnly = (unit.SupplementaryGroups or [ ]) == [ "hausnetz-leases" ];
+  # HNET-45 (OPS-470): the Shelly recovery radio adds its own group (module :44,711); nothing else.
+  leasesCopyGroupOnly =
+    (unit.SupplementaryGroups or [ ]) == [
+      "hausnetz-leases"
+      "hausnetz-shelly"
+    ];
   noExtraArguments = cfg.extraArgs == [ ];
   noLeasesBind = (unit.BindReadOnlyPaths or [ ]) == [ ];
   durableEmptyState = unit.StateDirectory == "hausnetz";

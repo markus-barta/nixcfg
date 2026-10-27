@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 47: v261027101332.0.0 (#301 merge, sequence 117). Contents since 46: HNET-403 saves during device checks (a confirmation runs one urgent flush pass instead of looping while probes are dirty; the 8-pass bound becomes a const) in internal/probe/publisher.go + internal/history/file.go, tests, scripts/qa-*, nix.yml CI. No nix/, flake or go deps change; no listener/socket/dial/exec added; capability-free (standing go Desk 45df1430). Rollback = pin 46.
+    # HNET pin 48: v261027114300.0.0 (#303 merge, sequence 118). Contents since 47: HNET-45 automatic Shelly recovery (services.hausnetz.shellyHeal: a dedicated spare-radio unit, LoadCredential credentials, radio firewall isolation), wired on hsb0 in detect mode.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=167a535c6a1daec46f9230b22f040bed8172768e";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=da9a536f07a41c1752bb4abfc29ee12baafcada0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
