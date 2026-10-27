@@ -186,9 +186,9 @@ def verify_tag(pin):
         GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
         GIT_CONFIG_COUNT="0", GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="false",
     )
-    with tempfile.TemporaryDirectory(
-        prefix="aeon-pin-git-", dir=os.environ.get("RUNNER_TEMP")
-    ) as scratch:
+    # tempfile picks the directory (CodeQL py/path-injection: no env-supplied path);
+    # TemporaryDirectory is 0700 and removed on exit, the key file inside is 0600.
+    with tempfile.TemporaryDirectory(prefix="aeon-pin-git-") as scratch:
         root = Path(scratch)
         root.chmod(0o700)
         remote = PUBLIC_REMOTE

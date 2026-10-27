@@ -240,7 +240,8 @@ os.execvp('git', ['git', 'upload-pack', os.environ['FIXTURE_GIT_REMOTE']])
 
     def verify(self):
         try:
-            with patch.dict(os.environ, self.child_env):
+            # tempfile caches its directory per process; pin it to this test's scratch.
+            with patch.dict(os.environ, self.child_env), patch.object(tempfile, "tempdir", str(self.scratch)):
                 return gate.verify_tag(PIN)
         finally:
             self.assertEqual(list(self.scratch.iterdir()), [])
