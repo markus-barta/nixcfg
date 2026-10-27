@@ -553,6 +553,9 @@ in
   # HNET-45: the building bot token (line 1) and the private chat id heal messages go to
   # (line 2), trailing newline. Re-sealed on csb0 from its existing bot/alert env, nothing printed.
   "hsb0-hausnetz-telegram.age".publicKeys = markus ++ hsb0;
+  # HNET-45: the Shelly MACs heal may touch, one per line ('#' comments allowed). Kept
+  # encrypted because nixcfg is public and MACs never go into it.
+  "hsb0-hausnetz-shelly-allow.age".publicKeys = markus ++ hsb0;
   "hsb0-ib-desk-env.age".publicKeys = markus ++ hsb0;
 
   # Shared inbox push credential: hsb0 joe-board-pusher → csb0 joe-board inbox.
