@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20b-202610260915` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20c-202610271530` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager, executor and mailbox runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -53,7 +53,7 @@ rev-10 board release **32** (JOED-87) is live. An absent or any other value
 keeps the revision-9 snapshot bytes and receipts unchanged. This setting is
 independent of `JOE_PUSH_SCHEMA`; it neither selects a POST target nor enables
 publication. The lock supervisor forwards only this explicit opt-in alongside
-its existing PATH/NODE_ENV allowlist. The r20b image preparation delivers this
+its existing PATH/NODE_ENV allowlist. The r20c image preparation delivers this
 code with revision 9 still the default; it does not set that opt-in. Prestage
 from the exact reviewed merge, then activate one validated host build. The
 four shared-image services and the declarative `hsb0-home` post-recreation
