@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 46: v261027074650.0.0 (#299 merge, sequence 116). Contents since 45: HNET-387 live connection recovery (client watchdog and labels in web/), version and release data, scripts/qa-*, nix.yml CI timeout 110->115 min. No Go, nix/, flake or go deps change; no listener/socket/dial/exec added; shutdown unchanged (<=30 s vs TimeoutStopSec 90 s); capability-free (standing go Desk 45df1430). Rollback = pin 45.
+    # HNET pin 47: v261027101332.0.0 (#301 merge, sequence 117). Contents since 46: HNET-403 saves during device checks (a confirmation runs one urgent flush pass instead of looping while probes are dirty; the 8-pass bound becomes a const) in internal/probe/publisher.go + internal/history/file.go, tests, scripts/qa-*, nix.yml CI. No nix/, flake or go deps change; no listener/socket/dial/exec added; capability-free (standing go Desk 45df1430). Rollback = pin 46.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=61ebe56e0b62da51ad9f57e8c701cb2be566d4db";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=167a535c6a1daec46f9230b22f040bed8172768e";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
