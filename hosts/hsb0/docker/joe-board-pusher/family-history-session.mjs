@@ -249,7 +249,6 @@ export function createFamilyHistorySessionAdapter({
     loaded = { ok: false, reason: `family history state load failed: ${error?.message || error}` };
   }
   let state = loaded.ok ? (loaded.state ? clone(loaded.state) : null) : null;
-  let pendingCompactionSave = loaded.ok && loaded.compacted === true;
   let blockedReason = loaded.ok ? null : loaded.reason;
   let startupReason = blockedReason;
   let retryReason = null;
@@ -345,7 +344,8 @@ export function createFamilyHistorySessionAdapter({
         through: initializedAt,
       });
       if (identityReason) throw new Error(identityReason);
-      state = hold(store.save(next) || next);
+      store.save(next);
+      state = hold(next);
       seeded = {
         capturedAt: capture.capturedAt,
         executionCount: capture.executions.length,
@@ -427,7 +427,7 @@ export function createFamilyHistorySessionAdapter({
     const executionIds = new Set(cycle.executions.keys());
     const commissions = [...cycle.commissions.values()].filter((row) => executionIds.has(row.execId));
     const executions = [...cycle.executions.values()];
-    if (!pendingCompactionSave && !captureAddsFacts(state, executions, commissions)) {
+    if (!captureAddsFacts(state, executions, commissions)) {
       retryReason = null;
       retryScheduler.reset();
       schedulePoll();
@@ -482,8 +482,8 @@ export function createFamilyHistorySessionAdapter({
         through: capturedAt,
       });
       if (identityReason) throw new Error(identityReason);
-      state = hold(store.save(next) || next);
-      pendingCompactionSave = false;
+      store.save(next);
+      state = hold(next);
     } catch (error) {
       block(`family history reconciliation failed: ${error?.message || error}`);
       return false;
@@ -704,7 +704,8 @@ export function createFamilyHistorySessionAdapter({
       });
       if (identityReason) throw new Error(identityReason);
       if (state && sameValue(next, state)) return { ok: true, state: hold(state) };
-      state = hold(store.save(next) || next);
+      store.save(next);
+      state = hold(next);
       hooks.onUpdated?.({
         capturedAt: next.updatedAt,
         executionCount: next.executions.length,
