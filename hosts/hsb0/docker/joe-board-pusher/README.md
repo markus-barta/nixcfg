@@ -364,7 +364,7 @@ The service has no networking, credentials or broker mounts, a separate 128m
 memory/swap limit, 1 CPU (JOED-100: 0.25 starved the cold start past the watchdog) and 32 processes. It runs as 1000:1000 with a read-only
 root, no capabilities and no-new-privileges. Only the private v2 state and IPC
 directories are writable. The supervisor discards child stdout/stderr, enforces
-a five-second startup/job watchdog, kills the actual `flock --no-fork` worker,
+a separate 60-second startup deadline and five-second per-job watchdog, kills the actual `flock --no-fork` worker,
 and restarts with 1/2/4/8/16/30-second bounded backoff. Its logs contain only
 closed, value-free control events.
 
@@ -417,6 +417,40 @@ meaning local pointer publication only. The supervisor emits exactly
 `{event:"v2_stage_committed",seq}` for a completed commit. Unknown files, wrong
 ownership/modes, inconsistent sequences/digests or torn log lines disable staging
 and preserve evidence. v1 state is untouched.
+
+Receipt recovery uses an optional, atomically replaced 0600 checkpoint at
+`/run/joe-household-v2/receipts-checkpoint.json` in the existing 0700 IPC mount.
+It records a line-boundary byte offset, the last receipt sequence at that offset,
+and SHA256 of every preceding byte. Startup streams the prefix hash in 64 KiB
+chunks, checks the boundary row's sequence, and parses/validates only the tail.
+The checkpoint stays before the last `retainPairs + 1` non-rejected receipts;
+each retained pair must still match a validated receipt (including v1 binding).
+It advances after successful scans and fsynced appends without rehashing history
+on each job. Hash state and recent boundary anchors stay bounded in memory.
+Missing/corrupt/unsafe checkpoints, hash/offset/sequence disagreement, or a
+retained pair before the checkpoint cause a full scan with the original strict
+checks. Invalid or torn log rows still disable staging without truncation.
+Checkpoint write failures leave the authoritative state/log intact and permit
+the next start to verify an older checkpoint or perform a full scan.
+
+Recovery cost is O(log bytes) for streamed SHA256, plus JSON/binding validation
+for the tail (normally 11 receipts and one boundary row at default retention),
+plus validation of retained pairs. Rejected rows since the oldest retained pair
+also belong to that tail. Full recovery validates every receipt, so its CPU cost
+grows with history; a checkpoint bounds the usual expensive validation work,
+not the bytes hashed. The cache survives container recreation but `/run` is
+cleared on host reboot, requiring a full scan under the longer startup deadline.
+It is outside `v2/`, whose unknown-entry checks in previous releases remain
+unchanged; rollback ignores the cache and can append receipts normally. A later
+forward start validates those appends as tail rows. No compose/mount change or
+allocator format change is required. Recovery tests execute the supplied
+previous-main worker and the pinned r15 recovery code against new state.
+
+Once ready, the supervisor emits only `{event:"v2_stage_ready",startupMs,
+rowsScanned,scanMode}` (`full` or `tail`); row counts include the single boundary
+row checked on a nonempty prefix. Startup expiry uses `worker_startup_timeout`;
+per-job expiry remains `worker_timeout`. Startup timing covers worker launch
+through readiness and carries no receipt or payload values.
 
 For rollback, set `joeHouseholdV2StageEnabled = false` through the normal
 reviewed configuration workflow. The service, socket env/mount and updater

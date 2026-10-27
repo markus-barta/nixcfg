@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { StageStore, buildCandidate, normalizeBookTs, acceptStage, prepareLock, launchLocked, serveWorker } from "./v2-stage-worker.mjs";
 import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
-import { createStageSupervisor } from "./v2-stage-supervisor.mjs";
+import { STARTUP_TIMEOUT_MS, JOB_TIMEOUT_MS, createStageSupervisor } from "./v2-stage-supervisor.mjs";
 import { validateContract } from "./contracts/index.mjs";
 import { acceptSnapshot } from "./contracts/accept.mjs";
 
@@ -18,10 +18,12 @@ const later = "2026-10-19T07:00:01.000Z";
 const observation = (bookTs = instant) => ({ format: FRAME_FORMAT, bookTs, equity: null, cash: null, apiReplyCheckedAt: null, positions: [] });
 const json = name => JSON.parse(fs.readFileSync(name));
 function fixture(t, boundary, io = fs) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-"));
-  fs.chmodSync(root, 0o700);
-  t.after(() => { spawnSync("trash", [root]); });
-  const options = { root, uid: process.getuid(), gid: process.getgid(), boundary, io };
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-"));
+  const root = path.join(base, "v2"), checkpointRoot = path.join(base, "ipc");
+  for (const dir of [base, root, checkpointRoot]) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(base, 0o700);
+  t.after(() => { spawnSync("trash", [base]); });
+  const options = { root, checkpointRoot, uid: process.getuid(), gid: process.getgid(), boundary, io };
   prepareLock(root, options.uid, options.gid);
   const store = new StageStore(options);
   return { root, store, options };
@@ -103,7 +105,7 @@ for (const point of boundaries) test(`process death at ${point} preserves author
   // A real child dies at the boundary; no catch/finally recovery can hide residue.
   const source = `import { pathToFileURL } from 'node:url';
     const { StageStore } = await import(pathToFileURL(process.argv[1]).href);
-    const store = await new StageStore({root:process.argv[2],uid:process.getuid(),gid:process.getgid()}).open();
+    const store = await new StageStore({root:process.argv[2],checkpointRoot:process.argv[2]+"/../ipc",uid:process.getuid(),gid:process.getgid()}).open();
     store.boundary = label => { if (label === process.argv[3]) process.kill(process.pid, 'SIGKILL'); };
     store.stage('2026-10-19T07:00:01.000Z', () => '2026-10-19T07:00:01.000Z');`;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", source, fileURLToPath(new URL("./v2-stage-worker.mjs", import.meta.url)), root, point], { encoding: "utf8" });
@@ -188,14 +190,17 @@ test("supervisor drains output, kills startup/job hangs, and restarts with bound
     timers.delete(entry[0]); entry[1].fn();
   }
   assert.ok(children[0].drainedOut && children[0].drainedErr);
-  run(5000); assert.deepEqual(children[0].kills, ["SIGKILL"]);
+  assert.equal([...timers.values()].some(timer => timer.delay === JOB_TIMEOUT_MS), false);
+  run(STARTUP_TIMEOUT_MS); assert.deepEqual(children[0].kills, ["SIGKILL"]);
+  assert.deepEqual(events[0], { event: "v2_stage_disabled", reason: "worker_startup_timeout" });
   for (const delay of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
     children.at(-1).emit("close", 1); run(delay);
   }
   const child = children.at(-1);
-  child.emit("message", { event: "ready" }); child.emit("message", { event: "job_start" });
-  run(5000); assert.deepEqual(child.kills, ["SIGKILL"]);
-  assert.ok(events.every(e => /^v2_stage_(disabled|restarting|committed|skipped)$/.test(e.event)));
+  child.emit("message", { event: "ready", scanMode: "tail", rowsScanned: 12 }); child.emit("message", { event: "job_start" });
+  assert.equal([...timers.values()].some(timer => timer.delay === STARTUP_TIMEOUT_MS), false);
+  run(JOB_TIMEOUT_MS); assert.deepEqual(child.kills, ["SIGKILL"]);
+  assert.ok(events.every(e => /^v2_stage_(disabled|restarting|committed|skipped|ready)$/.test(e.event)));
   supervisor.stop(); assert.equal(timers.size, 0);
 });
 
@@ -370,9 +375,12 @@ test("worker commit IPC and supervisor commit event carry only a positive sequen
   socket.emit("data", frame); socket.emit("close");
   assert.deepEqual(events.at(-1), { event: "job_done", outcome: "committed", seq: 7 });
   const child = new EventEmitter(); child.kill = () => {}; const output = [];
-  const supervisor = createStageSupervisor({ launch: () => child, setTimer: () => 1, clearTimer() {}, emit: value => output.push(value) });
-  child.emit("message", { event: "ready" }); child.emit("message", { event: "job_start" }); child.emit("message", events.at(-1));
-  assert.deepEqual(output, [{ event: "v2_stage_committed", seq: 7 }]);
+  let clock = 100;
+  const supervisor = createStageSupervisor({ launch: () => child, setTimer: () => 1, clearTimer() {}, emit: value => output.push(value), now: () => clock });
+  clock += 6001; // Readiness after five seconds is valid during startup.
+  child.emit("message", { event: "ready", scanMode: "tail", rowsScanned: 12 }); child.emit("message", { event: "job_start" }); child.emit("message", events.at(-1));
+  assert.deepEqual(output[0], { event: "v2_stage_ready", startupMs: 6001, rowsScanned: 12, scanMode: "tail" });
+  assert.deepEqual(output[1], { event: "v2_stage_committed", seq: 7 });
   child.emit("message", { event: "job_start" }); child.emit("message", { event: "job_done", outcome: "committed", seq: "unsafe" });
   assert.equal(output.at(-1).reason, "worker_protocol"); supervisor.stop();
 });

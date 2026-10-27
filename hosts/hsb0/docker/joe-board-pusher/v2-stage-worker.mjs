@@ -12,6 +12,7 @@ import { contractRevision, validExactValues, applyExactValues, exactDeskAction, 
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
+export const RECEIPT_CHECKPOINT = "/run/joe-household-v2/receipts-checkpoint.json";
 export const CONTRACT_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
 const REV9_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -21,6 +22,7 @@ const logFormat = "ops392.v2-sequence-receipt.v1";
 const stateFormat = "ops392.v2-sequence-state.v1";
 const pairFormat = "ops392.v2-stage-pair.v1";
 const pointerFormat = "ops392.v2-stage-current.v1";
+const checkpointFormat = "joed102.v2-receipts-checkpoint.v1";
 const fail = () => { throw new Error("stage_storage_invalid"); };
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && JSON.stringify(Object.keys(value).sort()) === JSON.stringify(keys.split(",").sort());
@@ -158,10 +160,13 @@ export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, flo
 
 // Synchronous durable operations run only inside the separately limited worker.
 export class StageStore {
-  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS, revision = contractRevision() } = {}) {
+  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS, revision = contractRevision(), checkpointRoot = root === STATE_DIR ? path.dirname(RECEIPT_CHECKPOINT) : null } = {}) {
     if (!Number.isSafeInteger(retainPairs) || retainPairs < RETAIN_PAIRS || retainPairs > MAX_RETAIN_PAIRS) fail();
     if (![9, 10].includes(revision)) fail();
-    Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision });
+    // Cache files must never enter the directory enumerated by older workers.
+    if (checkpointRoot && (path.resolve(checkpointRoot) === path.resolve(root)
+      || path.resolve(checkpointRoot).startsWith(path.resolve(root) + path.sep))) fail();
+    Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision, checkpointRoot });
     this.disabled = false;
   }
   check(name, kind, limit) {
@@ -217,7 +222,7 @@ export class StageStore {
     } finally { this.io.closeSync(fd); }
   }
   atomic(name, value, label) {
-    const temp = `.${name === "sequence-state.json" ? "sequence-state" : "current"}.tmp`;
+    const temp = `.${path.basename(name, ".json")}.tmp`;
     const bytes = Buffer.from(JSON.stringify(value));
     if (bytes.length > 4096) fail();
     this.write(temp, bytes, label);
@@ -370,40 +375,131 @@ export class StageStore {
       this.io.rmdirSync(path.join(this.root, name));
     } else this.io.unlinkSync(path.join(this.root, name));
   }
-  // A bounded streaming scan keeps the append-only log independent of pair
-  // retention. Torn/invalid records fail closed; they are never truncated.
+  checkpointStore() {
+    return this.checkpointRoot ? new StageStore({ root: this.checkpointRoot, uid: this.uid, gid: this.gid,
+      io: this.io, boundary: this.boundary, checkpointRoot: null, revision: this.revision }) : null;
+  }
+  validateLogRow(row, state, previousSeq) {
+    const binding = receiptBinding(row);
+    if (!(Object.keys(binding).length === 0 || validCycleReceipt(binding))
+      || !exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256"
+        + (Object.keys(binding).length ? ",v1Sha256,v1Status,v1RepliedAt,observationId,v1PostStatus" : ""))
+      || row.format !== logFormat || !positiveSeq(row.seq) || row.seq <= previousSeq || row.seq > state.lastReservedSeq
+      || !["staged", "committed", "rejected"].includes(row.outcome)
+      || ![row.generatedAt, row.stagedReceivedAt, row.recordedAt].every(canonical)
+      || typeof row.pairSha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.pairSha256)) fail();
+    return binding;
+  }
+  readCheckpoint(fd, size, state, pairs) {
+    try {
+      const cache = this.checkpointStore();
+      if (!cache) return null;
+      cache.check("", "directory");
+      const value = cache.json("receipts-checkpoint.json");
+      if (!exactKeys(value, "format,offset,lastReceiptSeq,prefixSha256") || value.format !== checkpointFormat
+        || !Number.isSafeInteger(value.offset) || value.offset < 0 || value.offset > size
+        || !Number.isSafeInteger(value.lastReceiptSeq) || value.lastReceiptSeq < 0 || value.lastReceiptSeq > state.lastReservedSeq
+        || typeof value.prefixSha256 !== "string" || !/^[0-9a-f]{64}$/.test(value.prefixSha256)
+        || [...pairs.keys()].some(seq => seq <= value.lastReceiptSeq)) return null;
+      // Check the actual boundary row as well as the hash: an inconsistent seq
+      // must not let the cache hide retained pairs or weaken monotonicity.
+      let boundaryRows = 0;
+      if (value.offset === 0) {
+        if (value.lastReceiptSeq !== 0) return null;
+      } else {
+        const bytes = Buffer.alloc(Math.min(value.offset, 1026));
+        let used = 0;
+        while (used < bytes.length) {
+          const count = this.io.readSync(fd, bytes, used, bytes.length - used, value.offset - bytes.length + used);
+          if (!count) return null;
+          used += count;
+        }
+        if (bytes.at(-1) !== 10) return null;
+        const start = bytes.lastIndexOf(10, bytes.length - 2) + 1;
+        if ((start === 0 && value.offset > bytes.length) || bytes.length - start - 1 > 1024) return null;
+        const row = JSON.parse(bytes.subarray(start, -1).toString("utf8"));
+        this.validateLogRow(row, state, 0);
+        if (row.seq !== value.lastReceiptSeq) return null;
+        boundaryRows = 1;
+      }
+      const hash = createHash("sha256");
+      const bytes = Buffer.alloc(65536);
+      let offset = 0;
+      while (offset < value.offset) {
+        const count = this.io.readSync(fd, bytes, 0, Math.min(bytes.length, value.offset - offset), offset);
+        if (!count) return null;
+        hash.update(bytes.subarray(0, count)); offset += count;
+      }
+      if (hash.copy().digest("hex") !== value.prefixSha256) return null;
+      return { ...value, hash, boundaryRows };
+    } catch { return null; } // A cache is never authority; rescan on any doubt.
+  }
+  rememberReceipt(row, bytes) {
+    if (row.outcome !== "rejected") {
+      this.receiptAnchors.push({ offset: this.receiptOffset, lastReceiptSeq: this.lastReceiptSeq,
+        hash: this.receiptHash.copy() });
+      // One extra pair covers the append-before-prune crash boundary.
+      if (this.receiptAnchors.length > this.retainPairs + 1) this.receiptAnchors.shift();
+    }
+    this.receiptHash.update(bytes);
+    this.receiptOffset += bytes.length;
+    this.lastReceiptSeq = row.seq;
+  }
+  saveCheckpoint() {
+    const cache = this.checkpointStore();
+    if (!cache) return;
+    try {
+      cache.check("", "directory");
+      // Refuse to replace unsafe files, including symlinks and hardlinks.
+      for (const name of ["receipts-checkpoint.json", ".receipts-checkpoint.tmp"]) {
+        try { cache.check(name, "file", 4096); }
+        catch (error) { if (error.code === "ENOENT") continue; throw error; }
+      }
+      // A recognized, checked temp may remain after a killed atomic write.
+      try { cache.retire(".receipts-checkpoint.tmp"); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+      const anchor = this.receiptAnchors[0] || { offset: this.receiptOffset,
+        lastReceiptSeq: this.lastReceiptSeq, hash: this.receiptHash };
+      cache.atomic("receipts-checkpoint.json", { format: checkpointFormat, offset: anchor.offset,
+        lastReceiptSeq: anchor.lastReceiptSeq, prefixSha256: anchor.hash.copy().digest("hex") }, "checkpoint");
+    } catch {
+      // Failure to persist this optional optimization leaves the log untouched.
+      // The next start verifies the older checkpoint or scans the whole log.
+    }
+  }
+  // Stream the prefix hash, then validate only the tail. Full scans retain the
+  // same strict row/pair checks. Torn/invalid evidence is never truncated.
   openReceipts(state, pairs) {
     const name = "receipts.jsonl";
     if (!this.names().includes(name)) {
       this.write(name, Buffer.alloc(0), "log_create");
       this.syncDir("", "log_create_dir_fsync");
     }
-    const target = this.check(name, "file");
-    const fd = this.io.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    this.lastReceiptSeq = 0;
+    const fd = this.io.openSync(this.check(name, "file"), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     const found = new Set();
     try {
       const stat = this.io.fstatSync(fd);
       if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== this.uid || stat.gid !== this.gid || (stat.mode & 0o7777) !== 0o600) fail();
-      const buffer = Buffer.alloc(4096);
-      let pending = "";
+      const checkpoint = this.readCheckpoint(fd, stat.size, state, pairs);
+      this.receiptHash = checkpoint?.hash || createHash("sha256");
+      this.receiptOffset = checkpoint?.offset || 0;
+      this.lastReceiptSeq = checkpoint?.lastReceiptSeq || 0;
+      this.receiptAnchors = [];
+      this.recovery = { scanMode: checkpoint ? "tail" : "full", rowsScanned: checkpoint?.boundaryRows || 0 };
+      const buffer = Buffer.alloc(65536);
+      let pending = Buffer.alloc(0);
+      let position = this.receiptOffset;
       let count;
-      while ((count = this.io.readSync(fd, buffer, 0, buffer.length, null))) {
-        pending += buffer.subarray(0, count).toString("utf8");
+      while ((count = this.io.readSync(fd, buffer, 0, buffer.length, position))) {
+        position += count;
+        pending = Buffer.concat([pending, buffer.subarray(0, count)]);
         let newline;
-        while ((newline = pending.indexOf("\n")) >= 0) {
+        while ((newline = pending.indexOf(10)) >= 0) {
           if (newline > 1024) fail();
-          const row = JSON.parse(pending.slice(0, newline));
-          pending = pending.slice(newline + 1);
-          const binding = receiptBinding(row);
-          if (!(Object.keys(binding).length === 0 || validCycleReceipt(binding))
-            || !exactKeys(row, "format,seq,outcome,generatedAt,stagedReceivedAt,recordedAt,pairSha256"
-              + (Object.keys(binding).length ? ",v1Sha256,v1Status,v1RepliedAt,observationId,v1PostStatus" : ""))
-            || row.format !== logFormat || !positiveSeq(row.seq) || row.seq <= this.lastReceiptSeq || row.seq > state.lastReservedSeq
-            || !["staged", "committed", "rejected"].includes(row.outcome)
-            || ![row.generatedAt, row.stagedReceivedAt, row.recordedAt].every(canonical)
-            || typeof row.pairSha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.pairSha256)) fail();
-          this.lastReceiptSeq = row.seq;
+          const bytes = pending.subarray(0, newline + 1);
+          const row = JSON.parse(bytes.subarray(0, -1).toString("utf8"));
+          this.recovery.rowsScanned++;
+          const binding = this.validateLogRow(row, state, this.lastReceiptSeq);
           const pair = pairs.get(row.seq);
           if (pair) {
             if (row.outcome === "rejected" || row.pairSha256 !== pair.snapshotSha256
@@ -411,6 +507,8 @@ export class StageStore {
               || JSON.stringify(binding) !== JSON.stringify(receiptBinding(pair))) fail();
             found.add(row.seq);
           }
+          this.rememberReceipt(row, bytes);
+          pending = pending.subarray(newline + 1);
         }
         if (pending.length > 1024) fail();
       }
@@ -420,17 +518,20 @@ export class StageStore {
   }
   appendReceipt(seq, outcome, generatedAt, stagedReceivedAt, pairSha256, recordedAt = new Date().toISOString(), binding = {}) {
     if (seq <= this.lastReceiptSeq) fail();
-    const bytes = Buffer.from(JSON.stringify({ format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256, ...binding }) + "\n");
+    const row = { format: logFormat, seq, outcome, generatedAt, stagedReceivedAt, recordedAt, pairSha256, ...binding };
+    const bytes = Buffer.from(JSON.stringify(row) + "\n");
     const fd = this.io.openSync(this.check("receipts.jsonl", "file"), fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW);
     try {
       const stat = this.io.fstatSync(fd);
-      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== this.uid || stat.gid !== this.gid || (stat.mode & 0o7777) !== 0o600) fail();
+      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== this.uid || stat.gid !== this.gid || (stat.mode & 0o7777) !== 0o600
+        || stat.size !== this.receiptOffset) fail();
       this.io.writeFileSync(fd, bytes);
       this.boundary("log_append");
       this.io.fsyncSync(fd);
       this.boundary("log_fsync");
-      this.lastReceiptSeq = seq;
+      this.rememberReceipt(row, bytes);
     } finally { this.io.closeSync(fd); }
+    this.saveCheckpoint();
   }
   prunePairs(names = this.names()) {
     const pairs = names.filter(name => /^pair-[1-9]\d{0,15}$/.test(name))
@@ -487,6 +588,7 @@ export class StageStore {
     for (const name of residue.filter(name => !name.startsWith("pair-"))) this.retire(name);
     if (residue.some(name => !name.startsWith("pair-"))) this.syncDir("", "recovery_dir_fsync");
     this.prunePairs(names);
+    this.saveCheckpoint();
     return this;
   }
   retainedSeqs() {
@@ -698,7 +800,7 @@ export async function serveWorker({ store, socketPath = SOCKET_PATH, notify = me
   });
   fs.chmodSync(socketPath, 0o600);
   server.on("error", () => { notify({ event: "disabled" }); active?.destroy(); server.close(); });
-  notify({ event: "ready" });
+  notify({ event: "ready", ...store.recovery });
   return server;
 }
 
