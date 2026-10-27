@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 48: v261027114300.0.0 (#303 merge, sequence 118). Contents since 47: HNET-45 automatic Shelly recovery (services.hausnetz.shellyHeal: a dedicated spare-radio unit, LoadCredential credentials, radio firewall isolation), wired on hsb0 in detect mode.
+    # HNET pin 49: v261027142935.0.0 (#305 merge, sequence 119). Contents since 48: HNET-406 more reliable Shelly notifications (the shellyHeal Telegram notifier gets its own client with 10 s dial / 5 s TLS timeouts, asynchronous delivery, failure classes in the log and a token-free startup reachability check against the same api.telegram.org); Go only, nix/module.nix unchanged since pin 48; explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=da9a536f07a41c1752bb4abfc29ee12baafcada0";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=846af4b3a45d43476bef06fb6c837111e33358e2";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
