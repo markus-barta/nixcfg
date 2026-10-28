@@ -711,10 +711,11 @@ from that checkout's `release.json` and `release/preparation.json` (JOED-106 pre
 The release set comes from JoeDesk main CI run `40668509647` (all green, reproducible identical);
 `release-set.json` SHA256 is
 `9c10f63c16cbf40aab693e5107863132660ef3af60a5c04e5d8675d97081ef57`.
-Host-built image `csb0-joe-board:source-b186308269ab9c05247c6b0f0e4b35fac4bc0ce7`
-has registry digest `sha256:bad2c211e12a23c89d7cdbca27b6289a0627e973c3984b902343305c60690d51`.
+Image `csb0-joe-board:source-b186308269ab9c05247c6b0f0e4b35fac4bc0ce7`
+has digest `sha256:bad2c211e12a23c89d7cdbca27b6289a0627e973c3984b902343305c60690d51`.
 Board-only rollback of this re-pin: revert the JOED-106 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-2d36c7b439c679fc37b05940890652aa9414e200` (sequence 35) is reused, no build.
+retained tag `csb0-joe-board:source-2d36c7b439c679fc37b05940890652aa9414e200` (sequence 35, image
+`sha256:2ba09bd51e149e0f5fec4493e71ac5c89b71bffff600d5f6961a15ab7f7f49ea`) is reused, no build.
 db621bf stays the v1 rollback.
 Contracts manifest revision 10 has set SHA256
 `3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`;
@@ -724,7 +725,8 @@ The board accepts revision-9 payloads. The hsb0 pusher/executor retain the r20b
 pins with revision 9 still the default; Phase B activation and producer
 sign-off remain separately owned under JOED-86.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
-gates below. The exact main commit and hashes identify the selected source, with OPS still
+gates below. Upstream `release.json` still describes the source as a candidate;
+the exact main commit and hashes identify the selected source, with OPS still
 owning review and activation.
 JOED-20 producer/executor activation and evidence remain separately owned.
 

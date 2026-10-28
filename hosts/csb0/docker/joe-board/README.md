@@ -67,8 +67,8 @@ published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
 and retain `previous = db621bf set`. Never pin rebuild/v2 or fabricate a tag.
 JOED-26 live adoption remains gated; current legacy metadata stays intact.
-OPS uses the exact b1863082 commit and revision-10 contract hashes;
-publication does not grant activation.
+The published source's `release.json` still says candidate; OPS uses the exact
+b1863082 commit and revision-10 contract hashes rather than treating that field as activation.
 
 `python3 tests/T100-joedesk-release.py --prove-current --joedesk-source SOURCE`
 proves the csb0 static spec against 68ae6846 (routing held constant) and
