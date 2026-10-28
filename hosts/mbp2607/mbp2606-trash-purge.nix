@@ -52,7 +52,11 @@ let
       if [ "$(inode "$Q/$selected")" = "$i" ]; then
         if rm -rf -- "$Q/$selected"; then purged=$((purged + 1)); else failed=$((failed + 1)); fi
       else
-        mv -n -- "$Q/$selected" "$e" || echo "fresh entry kept as $Q/$selected: its name was taken again"
+        # BSD mv -n exits 0 when it skips, so look for what stayed behind.
+        mv -n -- "$Q/$selected" "$e"
+        if [ -e "$Q/$selected" ] || [ -L "$Q/$selected" ]; then
+          echo "fresh entry kept as $Q/$selected: its name was taken again"
+        fi
         kept=$((kept + 1))
       fi
     done <"$Q/list"

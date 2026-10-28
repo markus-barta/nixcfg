@@ -94,15 +94,22 @@ fi
 exec ${real_rm} "\$@"
 STUB
 # mv: with RACE_NAME, the first move of that entry finds its name refilled: the old item was put
-# back (to Documents/put-back) and a fresh one trashed under the same name.
+# back (to Documents/put-back) and a fresh one trashed under the same name. With RACE_AGAIN as
+# well, the name is taken once more before the fresh one is moved back.
 cat >"${stubs}/mv" <<STUB
 #!/usr/bin/env bash
-src=""
-for a in "\$@"; do case "\$a" in -*) ;; *) src=\$a; break ;; esac; done
+src="" dst=""
+for a in "\$@"; do case "\$a" in -*) ;; *) [ -z "\${src}" ] && src=\$a || dst=\$a ;; esac; done
 if [ -n "\${RACE_NAME:-}" ] && [ "\$(basename -- "\${src}")" = "\${RACE_NAME}" ] && [ ! -e "\${T116_LOG}/raced" ]; then
   : >"\${T116_LOG}/raced"
   ${real_mv} -- "\${src}" "\${T116_TRASH}/../Documents/put-back"
   echo fresh >"\${src}"
+elif [ -n "\${RACE_AGAIN:-}" ] && [ -e "\${T116_LOG}/raced" ] && [ ! -e "\${T116_LOG}/again" ]; then
+  case "\${src}" in *.ops489-purge-*)
+    : >"\${T116_LOG}/again"
+    echo again >"\${dst}"
+    ;;
+  esac
 fi
 exec ${real_mv} "\$@"
 STUB
@@ -202,6 +209,24 @@ check() {
     ;;
   esac
 
+  b="${work}/${t}-race2"
+  box "${b}"
+  run "${s}" "${b}" RACE_NAME="old file" RACE_AGAIN=1
+  [ "${RC}" = 0 ] && [ -z "${VIOL}" ] || {
+    echo "${t}: race2: rc=${RC} ${VIOL} ${OUT}"
+    return 1
+  }
+  [ "$(cat "${b}/.Trash/old file" 2>/dev/null)" = again ] &&
+    [ "$(cat "${b}/.Trash"/.ops489-purge-*/* 2>/dev/null)" = fresh ] || {
+    echo "${t}: race2: the newer entries were not both kept"
+    return 1
+  }
+  case "${OUT}" in *"fresh entry kept as "*"selected=4 purged=3 kept=1 failed=0 rc=0 left=3 "*) ;; *)
+    echo "${t}: race2 log: ${OUT}"
+    return 1
+    ;;
+  esac
+
   b="${work}/${t}-link"
   mkdir -p "${b}/Documents"
   echo keep >"${b}/Documents/old-doc"
@@ -274,4 +299,5 @@ mutant depth 's/-maxdepth 1 -ctime +3 !/-ctime +3 !/'
 mutant unchecked 's/ || \[ -L "\$T" \]//;/pwd -P)" != "\$T"/d'
 mutant nopwd '/pwd -P)" != "\$T"/d'
 mutant noinode 's/if \[ "\$(inode "\$Q\/\$selected")" = "\$i" \]; then/if true; then/'
+mutant clobber 's/mv -n -- "\$Q\/\$selected" "\$e"$/mv -f -- "$Q\/$selected" "$e"/'
 echo "T116 ok"
