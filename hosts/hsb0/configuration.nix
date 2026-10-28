@@ -358,35 +358,114 @@ assert joeSet.pusher != null && joeSet.executor != null;
 
   # JOED-102 (L1): the stager-only checkpoint stays stager-only in the EVALUATED compose spec, whichever
   # overlay produced it, so a list-replacing overlay or a new mount fails the build before any switch.
+  # Paths are compared canonically (repeated slashes, ".", "..", relative and "~" sources), indirect
+  # mounts (volumes_from the stager, named volumes bound to a host path) count as mounts, and the
+  # environment is judged by its effective value (bare keys inherit; the last assignment wins).
+  # Residual: env_file contents cannot be read at eval time. The mount checks are the real boundary.
   assertions =
     let
-      services = config.nixcfg.composeStack.spec.services;
-      stage = services.joe-household-v2-stage or null;
+      stack = config.nixcfg.composeStack;
+      services = stack.spec.services;
+      topVolumes = stack.spec.volumes or { };
+      stageName = "joe-household-v2-stage";
+      stage = services.${stageName} or null;
       checkpointVar = "JOE_V2_STAGE_CHECKPOINT_DIR";
-      envList =
+      canon =
+        p:
+        let
+          abs =
+            if lib.hasPrefix "/" p then
+              p
+            else if p == "~" || lib.hasPrefix "~/" p then
+              "/root/${lib.removePrefix "~" p}"
+            else
+              "${stack.projectDirectory}/${p}";
+          step =
+            acc: seg:
+            if seg == "" || seg == "." then
+              acc
+            else if seg == ".." then
+              (if acc == [ ] then [ ] else lib.init acc)
+            else
+              acc ++ [ seg ];
+        in
+        "/" + lib.concatStringsSep "/" (builtins.foldl' step [ ] (lib.splitString "/" abs));
+      isPath = src: lib.hasPrefix "/" src || lib.hasPrefix "." src || lib.hasPrefix "~" src;
+      # host path behind a named volume, if its driver binds one
+      namedPath =
+        name:
+        let
+          device = (topVolumes.${name} or { }).driver_opts.device or null;
+        in
+        if device == null then null else canon (toString device);
+      hostPath =
+        v:
+        if builtins.isAttrs v then
+          (
+            if (v.type or "volume") == "bind" then
+              canon (toString (v.source or ""))
+            else if (v.type or "volume") == "volume" && (v.source or null) != null then
+              namedPath v.source
+            else
+              null
+          )
+        else
+          let
+            src = builtins.head (lib.splitString ":" (toString v));
+          in
+          if isPath src then canon src else namedPath src;
+      # equal to, inside, or above the checkpoint dir ("/" is above everything)
+      overlaps =
+        p:
+        p != null
+        && (
+          p == joeStageCheckpointDir
+          || lib.hasPrefix "${joeStageCheckpointDir}/" p
+          || p == "/"
+          || lib.hasPrefix "${p}/" joeStageCheckpointDir
+        );
+      fromStage =
+        ref:
+        let
+          bare = lib.removePrefix "container:" (lib.removePrefix "service:" (toString ref));
+          target = builtins.head (lib.splitString ":" bare);
+        in
+        target == stageName || target == (stage.container_name or stageName);
+      envPairs =
         s:
         let
           e = s.environment or [ ];
         in
-        if builtins.isList e then e else lib.mapAttrsToList (k: v: "${k}=${toString v}") e;
-      mountSource =
-        v: if builtins.isAttrs v then v.source or "" else builtins.head (lib.splitString ":" (toString v));
-      # equal to, inside, or above the checkpoint dir; named volumes (no leading /) cannot reach it
-      overlaps =
-        src:
-        lib.hasPrefix "/" src
-        && (
-          src == joeStageCheckpointDir
-          || lib.hasPrefix "${joeStageCheckpointDir}/" src
-          || lib.hasPrefix (if src == "/" then "/" else "${src}/") joeStageCheckpointDir
-        );
+        if builtins.isList e then
+          map (
+            entry:
+            let
+              parts = lib.splitString "=" (toString entry);
+            in
+            {
+              key = builtins.head parts;
+              value = if builtins.length parts > 1 then lib.concatStringsSep "=" (builtins.tail parts) else null;
+            }
+          ) e
+        else
+          lib.mapAttrsToList (k: v: {
+            key = k;
+            value = if v == null then null else toString v;
+          }) e;
+      effective =
+        s:
+        let
+          hits = builtins.filter (pair: pair.key == checkpointVar) (envPairs s);
+        in
+        if hits == [ ] then null else (lib.last hits).value;
       leaking = lib.attrNames (
         lib.filterAttrs (
           name: s:
-          name != "joe-household-v2-stage"
+          name != stageName
           && (
-            lib.any (v: overlaps (mountSource v)) (s.volumes or [ ])
-            || lib.any (e: lib.hasPrefix "${checkpointVar}=" e) (envList s)
+            lib.any (v: overlaps (hostPath v)) (s.volumes or [ ])
+            || lib.any fromStage (s.volumes_from or [ ])
+            || lib.any (pair: pair.key == checkpointVar) (envPairs s)
           )
         ) services
       );
@@ -396,14 +475,14 @@ assert joeSet.pusher != null && joeSet.executor != null;
         assertion =
           stage == null
           || (
-            lib.elem "${checkpointVar}=${joeStageCheckpointDir}" (envList stage)
+            effective stage == joeStageCheckpointDir
             && lib.elem "${joeStageCheckpointDir}:${joeStageCheckpointDir}:rw" (stage.volumes or [ ])
           );
-        message = "JOED-102: joe-household-v2-stage must carry ${checkpointVar}=${joeStageCheckpointDir} and its rw mount (did an overlay replace the environment or volumes list instead of appending?)";
+        message = "JOED-102: joe-household-v2-stage must end up with ${checkpointVar}=${joeStageCheckpointDir} (effective value; a later or empty assignment disables it) and its rw mount (did an overlay replace the environment or volumes list instead of appending?)";
       }
       {
         assertion = leaking == [ ];
-        message = "JOED-102: only joe-household-v2-stage may mount or name ${joeStageCheckpointDir}; offending services: ${lib.concatStringsSep ", " leaking}";
+        message = "JOED-102: only joe-household-v2-stage may mount (directly, via volumes_from or a bound named volume) or name ${joeStageCheckpointDir}; offending services: ${lib.concatStringsSep ", " leaking}";
       }
     ];
 

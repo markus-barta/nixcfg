@@ -1165,9 +1165,11 @@ require matching digest, sequence, observation and a successful POST receipt.
 
 **Stager cold-start checkpoint (JOED-102).** The stager keeps its receipt-scan
 progress in `/var/lib/joe-household-v2-stage-checkpoint` (0700, uid 1000, via
-`JOE_V2_STAGE_CHECKPOINT_DIR`), so a restart validates the receipt log from the
-checkpoint instead of rescanning all of `receipts.jsonl` within the supervisor's
-5 s ready watchdog (JOED-100: ~11 MB, 2.6–3.3 s at 1 CPU on 10-28 and growing).
+`JOE_V2_STAGE_CHECKPOINT_DIR`). JOED-100's full validation of `receipts.jsonl` (~11 MB,
+2.6–3.3 s at 1 CPU on 10-28 and growing) blew the old 5 s ready watchdog. JOED-102
+gives startup its own 60 s watchdog (the 5 s limit now applies to jobs after
+readiness). A resumed start still hashes the whole receipt prefix; the checkpoint
+bounds the expensive JSON and binding validation, not the bytes hashed.
 The directory is mounted **only into the stager**:
 
 - The pusher has rw on all of `/var/lib/joe-board-pusher`, which reaches `v2/` on the v1 schema too.
@@ -1175,7 +1177,9 @@ The directory is mounted **only into the stager**:
 
 A checkpoint the pusher could write could therefore hide malformed receipts.
 An eval-time assertion in `configuration.nix` refuses any other service that
-mounts a path at, under or above the checkpoint, or sets the variable. It also
+mounts a path at, under or above the checkpoint (paths compared canonically,
+including `volumes_from` the stager and named volumes bound to a host path), or
+names the variable. It also
 refuses a stager whose environment or volumes lost the entry, such as an
 overlay that replaced the list instead of appending to it. Recovery is
 always safe: an empty, missing or corrupt checkpoint makes the next start do the
