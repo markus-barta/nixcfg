@@ -70,6 +70,10 @@ here=\$(pwd -P)
 [ "\${here}" = "\${T116_TRASH}" ] && [ "\${1:-}" = . ] && [ "\${2:-}" = -mindepth ] && [ "\${3:-}" = 1 ] \
   && [ "\${4:-}" = -maxdepth ] && [ "\${5:-}" = 1 ] \
   || { echo "find in \${here}: \$*" >>"\${T116_LOG}/violations"; exit 97; }
+# FIND_FAIL=select|purge|left: that one call fails (the count, the purge with -exec, the listing).
+kind=left
+for a in "\$@"; do case "\$a" in -ctime) [ "\${kind}" = left ] && kind=select ;; -exec) kind=purge ;; esac; done
+[ "\${FIND_FAIL:-}" = "\${kind}" ] && { echo "find: injected failure (\${kind})" >&2; exit 1; }
 args=()
 while [ \$# -gt 0 ]; do
   case "\$1" in
@@ -184,6 +188,17 @@ check() {
       return 1
     }
 
+  local k
+  for k in select purge left; do
+    b="${work}/${t}-find-${k}"
+    box "${b}"
+    run "${s}" "${b}" FIND_FAIL="${k}"
+    [ "${RC}" != 0 ] && [ -z "${VIOL}" ] && [ -f "${b}/Documents/old-doc" ] || {
+      echo "${t}: failed find (${k}): rc=${RC} ${VIOL} ${OUT}"
+      return 1
+    }
+  done
+
   b="${work}/${t}-ssh"
   box "${b}"
   run "${s}" "${b}" SSH_FAIL=1
@@ -233,4 +248,9 @@ mutant unpinned 's/failed=\$(find \. /failed=$(find "$T" /'
 mutant depth 's/-maxdepth 1 -ctime +3 !/-ctime +3 !/'
 mutant unchecked 's/ || \[ -L "\$T" \]//;/pwd -P)" != "\$T"/d'
 mutant pwdonly '/pwd -P)" != "\$T"/d'
+mutant nopipefail '/<<.REMOTE./,/^ *REMOTE$/{/set -uo pipefail/d;}'
+mutant selectstatus '/^ *selected=/s/ || frc=\$?$//'
+mutant leftstatus '/^ *left=/s/ || frc=\$?$//'
+mutant purgestatus '/<<.REMOTE./,/^ *REMOTE$/s/^\( *\)rc=\$?$/\1rc=0/'
+mutant frcignored '/"\$frc" != 0/d'
 echo "T116 ok"

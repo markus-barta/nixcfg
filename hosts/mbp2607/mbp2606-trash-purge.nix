@@ -36,12 +36,16 @@ let
     if [ "$(pwd -P)" != "$T" ]; then echo "trash dir resolved elsewhere: $(pwd -P)"; exit 3; fi
     free() { df -g /System/Volumes/Data | awk 'NR==2{print $4}'; }
     before=$(free)
-    selected=$(find . -mindepth 1 -maxdepth 1 -ctime +3 -print0 | tr -dc '\000' | wc -c | tr -d ' ')
+    # Every find's status counts (pipefail): a failed count or listing fails the run like a failed purge.
+    frc=0
+    selected=$(find . -mindepth 1 -maxdepth 1 -ctime +3 -print0 | tr -dc '\000' | wc -c | tr -d ' ') || frc=$?
     # An entry whose rm fails is printed; find's own errors set rc.
     failed=$(find . -mindepth 1 -maxdepth 1 -ctime +3 ! -exec rm -rf {} \; -print0 | tr -dc '\000' | wc -c | tr -d ' ')
     rc=$?
+    left=$(find . -mindepth 1 -maxdepth 1 -print0 | tr -dc '\000' | wc -c | tr -d ' ') || frc=$?
     if [ "$failed" != 0 ] && [ "$rc" = 0 ]; then rc=1; fi
-    echo "selected=$selected failed=$failed rc=$rc left=$(find . -mindepth 1 -maxdepth 1 -print0 | tr -dc '\000' | wc -c | tr -d ' ') df_free_before=''${before}GB df_free_after=$(free)GB (local snapshots may pin the space for up to 24 h)"
+    if [ "$frc" != 0 ] && [ "$rc" = 0 ]; then rc=$frc; fi
+    echo "selected=$selected failed=$failed rc=$rc left=$left df_free_before=''${before}GB df_free_after=$(free)GB (local snapshots may pin the space for up to 24 h)"
     exit $rc
     REMOTE
     )
