@@ -2039,6 +2039,13 @@ does not page those). No host list: every host that reports a backup is
 watched. It is the alert route for hsb8/hsb9, whose failure mail cannot leave
 the box. Same OPS-107 engine and `csb1-watchtower-env` target.
 
+Recovery rule: an announced alert clears only when the run re-judged exactly
+its evidence and found it clean. An unusable store, a malformed entry, or a
+host that left Pharos keeps the alert open (no repeat message) next to an
+"unwatched" problem. After retiring a host with an open backup alert, remove
+its `backup:<host>:` keys from `/var/lib/fleet-backup-watch/state.json` (or the
+whole file, which re-announces any live problem once).
+
 ```bash
 systemctl status fleet-backup-watch.timer --no-pager
 sudo systemctl start fleet-backup-watch.service

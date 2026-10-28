@@ -21,10 +21,9 @@ backup observation, for every host that reports one:
   * `state` -- warning / missing / unknown, which pharosd does not page.
 
 `failed` and `stale` states are deliberately not paged a second time here.
-No host list: Pharos is the inventory. When the store, or one host's entry,
-cannot be judged, the problems already announced stay open (carried forward
-from the engine state) next to a loud "unwatched" problem, so broken evidence
-never reads as a recovery.
+No host list: Pharos is the inventory. One rule guards recovery (collect()):
+an announced problem clears only when this run re-judged exactly its evidence.
+Missing or malformed evidence keeps it open next to a loud "unwatched" problem.
 """
 
 from __future__ import annotations
@@ -66,35 +65,50 @@ def epoch(value: object) -> float | None:
     return float(value)
 
 
-def carried_forward(prefix: str = "backup:") -> list[Problem]:
-    """Already-announced problems, kept open while their evidence cannot be judged.
-
-    Without this an unusable store (or host entry) looks like "no problems", and
-    the engine would announce every open alert as cleared.
-    """
+def announced() -> dict[str, str]:
+    """Problems this unit has already announced (engine state), key -> text."""
     seen = engine.load_state(STATE_PATH).get("seen", {})
-    return [Problem(key, str(entry.get("text") or key)) for key, entry in seen.items()
-            if key.startswith(prefix) and key != "backup:store"
-            and isinstance(entry, dict) and entry.get("alerted")]
+    return {key: str(entry.get("text") or key) for key, entry in seen.items()
+            if isinstance(entry, dict) and entry.get("alerted")}
 
 
-def judge(host: dict, now: float) -> list[Problem]:
-    name = str(host.get("name") or "?")
-    observations = host.get("backup_observations") or []
+def valid_name(value: object) -> bool:
+    return isinstance(value, str) and bool(value) and ":" not in value
+
+
+def judge(host: dict, now: float) -> tuple[list[Problem], set[str]]:
+    """One well-named host entry: its problems, and the exact keys it re-judged.
+
+    A key is "re-judged" only when this run evaluated the evidence that produces
+    it: `<id>:state` and `<id>:age` for each well-formed, configured observation,
+    and `malformed` once the observation container itself was readable.
+    """
+    name = host["name"]
+    malformed_key = f"backup:{name}:malformed"
+    observations = host.get("backup_observations", [])
+    if observations is None:
+        observations = []
     if not isinstance(observations, list):
-        raise ValueError("backup_observations is not a list")
+        return [Problem(malformed_key, f"{name}: Pharos reports its backups in an unexpected shape; "
+                                       f"they are unwatched.")], set()
     seen = epoch(host.get("last_seen"))
     silent = seen is None or now - seen > STALE_SECONDS
     found: list[Problem] = []
+    judged = {malformed_key}
+    unreadable = 0
     for observation in observations:
-        if not isinstance(observation, dict):
+        ident = observation.get("id") if isinstance(observation, dict) else None
+        if not valid_name(ident):
+            unreadable += 1
             continue
-        state = str(observation.get("state") or "unknown")
+        state = observation.get("state")
+        state = state if isinstance(state, str) and state else "unknown"
+        # Deliberately unconfigured: nothing to judge, so an open alert stays open.
         if state == "not-configured" or observation.get("configured") == "disabled":
             continue
-        ident = str(observation.get("id") or "backup")
-        label = str(observation.get("label") or ident)
         key = f"backup:{name}:{ident}"
+        judged |= {f"{key}:state", f"{key}:age"}
+        label = str(observation.get("label") or ident)
         summary = str(observation.get("summary") or "no summary")
 
         if state not in QUIET_STATES and state not in PAGED_BY_PHAROS:
@@ -114,33 +128,50 @@ def judge(host: dict, now: float) -> list[Problem]:
             heard = f"has not heard from {name} for {int((now - seen) // 60)} min" if seen else f"has no last-seen time for {name}"
             text += f" Pharos {heard}, so this status may be older still."
         found.append(Problem(f"{key}:age", text))
-    return found
+    if unreadable:
+        found.append(Problem(malformed_key, f"{name}: {unreadable} backup observation(s) in an unexpected shape; "
+                                            f"those backups are unwatched."))
+    return found, judged
 
 
 def collect() -> list[Problem]:
+    """This run's problems, plus every announced problem it could not re-judge.
+
+    The one rule: an announced problem clears only when this run evaluated
+    exactly its evidence and found it clean. Any missing or malformed evidence
+    (unusable store, unnamed entry, host gone from Pharos, broken observation)
+    therefore keeps the alert open instead of reading as a recovery. The store
+    keys are evaluated on every run.
+    """
+    found: list[Problem] = []
+    judged = {"backup:store", "backup:store:entry"}
     try:
         hosts = load_store(STORE_PATH)
     except Exception as error:  # noqa: BLE001
-        return carried_forward() + [Problem("backup:store", f"pharosd store unusable at {STORE_PATH} ({type(error).__name__}); "
-                                                            f"fleet backups are currently unwatched.")]
-    now = time.time()
-    found: list[Problem] = []
-    if any(not isinstance(h, dict) for h in hosts):
-        found.append(Problem("backup:store:entry", "pharosd store holds a host entry that is not an object; "
-                                                   "that host's backups are unwatched."))
-    hosts = [h for h in hosts if isinstance(h, dict)]
-    watched = sum(len(h["backup_observations"]) for h in hosts if isinstance(h.get("backup_observations"), list))
-    if not watched:
-        return carried_forward() + found + [Problem("backup:store", "pharosd store lists no backup observations; "
-                                                                    "fleet backups are currently unwatched.")]
-    for host in sorted(hosts, key=lambda h: str(h.get("name"))):
-        name = str(host.get("name") or "?")
-        try:
-            found.extend(judge(host, now))
-        except Exception as error:  # noqa: BLE001
-            found.extend(carried_forward(f"backup:{name}:"))
-            found.append(Problem(f"backup:{name}:malformed", f"{name}: Pharos backup data could not be judged "
-                                                             f"({type(error).__name__}); its backups are unwatched."))
+        hosts = []
+        found.append(Problem("backup:store", f"pharosd store unusable at {STORE_PATH} ({type(error).__name__}); "
+                                             f"fleet backups are currently unwatched."))
+    else:
+        named = [h for h in hosts if isinstance(h, dict) and valid_name(h.get("name"))]
+        if len(named) < len(hosts):
+            found.append(Problem("backup:store:entry", f"pharosd store holds {len(hosts) - len(named)} host "
+                                                       f"entr(y/ies) without a usable name; their backups are unwatched."))
+        now = time.time()
+        for host in sorted(named, key=lambda h: h["name"]):
+            try:
+                problems, host_judged = judge(host, now)
+            except Exception as error:  # noqa: BLE001
+                problems, host_judged = [Problem(f"backup:{host['name']}:malformed",
+                                                 f"{host['name']}: Pharos backup data could not be judged "
+                                                 f"({type(error).__name__}); its backups are unwatched.")], set()
+            found.extend(problems)
+            judged |= host_judged
+        if not any(key.endswith(":age") for key in judged):
+            found.append(Problem("backup:store", "pharosd store lists no backup observations; "
+                                                 "fleet backups are currently unwatched."))
+    current = {problem.key for problem in found}
+    found += [Problem(key, text) for key, text in announced().items()
+              if key.startswith("backup:") and key not in judged and key not in current]
     return found
 
 

@@ -4,8 +4,8 @@ Pins what pages and what does not: a fresh healthy backup is silent, an old
 success pages on age whatever the state says, warning/missing/unknown page as a
 state problem, failed/stale are left to pharosd (only age can page them),
 not-configured and disabled are ignored, a schedule sets the limit, a silent
-beacon is named in the text, and an unusable store or host entry is loud and
-never reads as a recovery (gate r1).
+beacon is named in the text, and no way of losing or breaking the evidence
+reads as a recovery (gate r1/r2 sweep: one test per site, test_sweep_*).
 """
 
 from __future__ import annotations
@@ -103,8 +103,11 @@ class BackupWatchTest(unittest.TestCase):
         self.assertEqual([p.key for p in self.checks.collect()], ["backup:new:restic-cron-hetzner:age"])
 
     def test_not_configured_and_disabled_are_ignored(self):
-        self.write([host("x", obs(state="not-configured", success=None), obs(configured="disabled", success=None, ident="off"))])
+        self.write([host("x", obs(state="not-configured", success=None), obs(configured="disabled", success=None, ident="off")),
+                    host("y", obs())])
         self.assertEqual(self.checks.collect(), [])
+        self.write([host("x", obs(state="not-configured", success=None))])
+        self.assertEqual([p.key for p in self.checks.collect()], ["backup:store"])
 
     def test_weekly_schedule_gets_a_week(self):
         self.write([host("w", obs(schedule="weekly", success=NOW - 6 * 24 * HOUR))])
@@ -178,16 +181,85 @@ class BackupWatchTest(unittest.TestCase):
         self.run_cycle(NOW + 3 * HOUR, sent)
         self.assertEqual(len(sent), 2)
         self.assertNotIn("Cleared", sent[1])
-        self.assertIn("hsb8: Pharos backup data could not be judged", sent[1])
+        self.assertIn("hsb8: Pharos reports its backups in an unexpected shape", sent[1])
 
     def test_judge_exception_is_contained(self):
         def boom(host, now):
             if host["name"] == "x":
                 raise RuntimeError("boom")
-            return []
+            return [], {"backup:y:restic-cron-hetzner:age"}
         self.checks.judge = boom
         self.write([host("x", obs()), host("y", obs())])
         self.assertEqual([p.key for p in self.checks.collect()], ["backup:x:malformed"])
+
+    def page_hsb8(self, sent):
+        self.write([host("hsb8", obs(success=NOW - 30 * HOUR)), host("hsb9", obs())])
+        self.run_cycle(NOW, sent)
+        self.run_cycle(NOW + HOUR, sent)
+        self.assertEqual(len(sent), 1)
+
+    def assert_alert_survives(self, store, expect_new=None):
+        """Gate r2 sweep: no way of losing hsb8's evidence may read as a recovery."""
+        sent = []
+        self.page_hsb8(sent)
+        Path(self.store).write_text(json.dumps(store))
+        for n in range(3):
+            self.run_cycle(NOW + (2 + n) * HOUR, sent)
+        for message in sent[1:]:
+            self.assertNotIn("Cleared", message)
+        if expect_new:
+            self.assertEqual(len(sent), 2)
+            self.assertIn(expect_new, sent[1])
+        state = json.loads(Path(self.state).read_text())
+        self.assertTrue(state["seen"]["backup:hsb8:restic-cron-hetzner:age"]["alerted"])
+
+    def test_sweep_null_host_entry(self):
+        self.assert_alert_survives([None, host("hsb9", obs())], "without a usable name")
+
+    def test_sweep_unnamed_or_colon_named_entry(self):
+        self.assert_alert_survives([{"name": 7, "backup_observations": [obs()]}, {"name": "a:b"}, host("hsb9", obs())],
+                                   "2 host entr(y/ies) without a usable name")
+
+    def test_sweep_observations_false(self):
+        self.assert_alert_survives([{"name": "hsb8", "last_seen": NOW, "backup_observations": False}, host("hsb9", obs())],
+                                   "hsb8: Pharos reports its backups in an unexpected shape")
+
+    def test_sweep_observation_not_an_object(self):
+        self.assert_alert_survives([{"name": "hsb8", "last_seen": NOW, "backup_observations": [42]}, host("hsb9", obs())],
+                                   "hsb8: 1 backup observation(s) in an unexpected shape")
+
+    def test_sweep_observation_without_id(self):
+        self.assert_alert_survives([host("hsb8", obs(ident="")), host("hsb9", obs())], "hsb8: 1 backup observation(s)")
+
+    def test_sweep_host_gone_from_pharos(self):
+        self.assert_alert_survives([host("hsb9", obs())])
+
+    def test_sweep_observations_missing(self):
+        self.assert_alert_survives([host("hsb8"), host("hsb9", obs())])
+
+    def test_sweep_observation_now_unconfigured(self):
+        self.assert_alert_survives([host("hsb8", obs(state="not-configured")), host("hsb9", obs())])
+
+    def test_sweep_unusable_store(self):
+        self.assert_alert_survives({"unexpected": []}, "unwatched")
+
+    def test_sweep_judge_exception(self):
+        real = self.checks.judge
+
+        def boom(host, now):
+            if host["name"] == "hsb8" and host.get("last_seen") == 1:
+                raise RuntimeError("boom")
+            return real(host, now)
+        self.checks.judge = boom
+        self.assert_alert_survives([host("hsb8", obs(), seen=1), host("hsb9", obs())], "could not be judged")
+
+    def test_real_recovery_still_clears(self):
+        sent = []
+        self.page_hsb8(sent)
+        self.write([host("hsb8", obs()), host("hsb9", obs())])
+        self.run_cycle(NOW + 2 * HOUR, sent)
+        self.assertEqual(len(sent), 2)
+        self.assertIn("Cleared", sent[1])
 
     def test_engine_debounce_page_then_clear(self):
         state = str(Path(self.tmp.name) / "state.json")
