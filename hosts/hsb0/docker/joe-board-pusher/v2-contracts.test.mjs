@@ -10,6 +10,7 @@ import { labCompose, requireWorkstation, requireLocalEndpoint, assertCadence } f
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(root, "../../../..");
+const contractRevision = 10;
 const run = (cmd, args, options = {}) => execFileSync(cmd, args, { encoding: "utf8", ...options });
 function temp(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-contract-"));
@@ -33,7 +34,7 @@ test("independently pinned reviewed 17-file closure verifies, at rev 10", async 
   const directory = temp(t); copyClosure(directory);
   for (const check of await verifiers(directory)) assert.equal(check(), true);
   assert.equal(lock.revision, "7c1616325c0007608425e4ad31a0a8256be4aeb7");
-  assert.equal(lock.manifest_revision, 10);
+  assert.equal(lock.manifest_revision, contractRevision);
   assert.equal(lock.contract_set_sha256, "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350");
 });
 for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-drift", "set-drift", "size-drift", "hash-drift", "manifest-drift"]) test(`fixed-path pusher verifier reject ${fault}`, async t => {
@@ -149,7 +150,10 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.equal(service.read_only, true); assert.deepEqual(service.cap_drop, ["ALL"]); assert.deepEqual(service.security_opt, ["no-new-privileges:true"]);
   assert.equal(service.restart, "unless-stopped"); assert.equal(service.pull_policy, "never");
   assert.deepEqual(service.command, ["node", "v2-stage-supervisor.mjs"]);
-  assert.deepEqual(service.environment, [`JOE_V2_STAGE_CHECKPOINT_DIR=${checkpointDir}`]);
+  assert.deepEqual([...(service.environment ?? [])].sort(), [
+    `JOE_V2_CONTRACT_REV=${contractRevision}`,
+    `JOE_V2_STAGE_CHECKPOINT_DIR=${checkpointDir}`,
+  ].sort());
   assert.deepEqual(service.volumes, ["/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw", "/run/joe-household-v2:/run/joe-household-v2:rw", `${checkpointDir}:${checkpointDir}:rw`]);
   for (const key of ["env_file", "depends_on", "ports", "privileged"]) assert.equal(Object.hasOwn(service, key), false);
   assert.equal(Object.hasOwn(pusher, "depends_on"), false);
