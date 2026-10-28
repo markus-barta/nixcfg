@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 50: v261027184920.0.0 (#307 merge, sequence 120). Contents since 49: HNET-407 Shelly Gen1 recovery (STA written first over the AP with a lost response tolerated, MQTT written over the LAN to the MAC-verified device, 15 s write timeouts, allowlisted redacted state copies, a shelly-heal-reset CLI) plus an opt-in association-scoped DHCP client (shellyHeal.addressing; hsb0 stays static). Module change under Markus's HNET-45 go; explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 51: v261027214332.0.0 (#309 merge, sequence 121). Contents since 50: HNET-408 slow Shelly Gen1 recovery (AP GETs get 20 s plus one retry, identify keeps a paced 30 s window, a budget check runs before the STA write, the Gen1 actions count is read over the LAN); Go only, same module/units/credentials/firewall/outbound as pin 50; explicitly reviewed revision; automated updates skip this input.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=264720827c6caf7b7bae9081dff45693e7d15750";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=75093a3737b87b3f8e126de786711cc31acaf2c3";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
