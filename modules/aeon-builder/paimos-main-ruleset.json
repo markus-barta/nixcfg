@@ -54,6 +54,10 @@
           {
             "context": "migration-compat",
             "integration_id": 15368
+          },
+          {
+            "context": "visual-pr",
+            "integration_id": 15368
           }
         ],
         "strict_required_status_checks_policy": false
@@ -64,8 +68,8 @@
       "parameters": {
         "check_response_timeout_minutes": 360,
         "grouping_strategy": "ALLGREEN",
-        "max_entries_to_build": 6,
-        "max_entries_to_merge": 6,
+        "max_entries_to_build": 2,
+        "max_entries_to_merge": 2,
         "merge_method": "MERGE",
         "min_entries_to_merge": 1,
         "min_entries_to_merge_wait_minutes": 1
