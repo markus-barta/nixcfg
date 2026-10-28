@@ -478,6 +478,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T115-docker-image-gc.sh
 
+      - name: Verify mbp2606 Trash purge contract (OPS-489)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T116-mbp2606-trash-purge.sh
+
       - name: Verify no legacy whoami in production (NIX-292)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh
