@@ -1163,6 +1163,26 @@ existing read-only `/pusher-state` mount exposes `v2` and `v1-cycles` for the
 operator collector. Matching timestamps alone never establish cycle proof;
 require matching digest, sequence, observation and a successful POST receipt.
 
+**Stager cold-start checkpoint (JOED-102).** The stager keeps its receipt-scan
+progress in `/var/lib/joe-household-v2-stage-checkpoint` (0700, uid 1000, via
+`JOE_V2_STAGE_CHECKPOINT_DIR`), so a restart validates the receipt log from the
+checkpoint instead of rescanning all of `receipts.jsonl` within the supervisor's
+5 s ready watchdog (JOED-100: ~11 MB, 2.6–3.3 s at 1 CPU on 10-28 and growing).
+The directory is mounted **only into the stager**:
+
+- The pusher has rw on all of `/var/lib/joe-board-pusher`, which reaches `v2/` on the v1 schema too.
+- It shares the `/run/joe-household-v2` IPC dir under the same uid.
+
+A checkpoint the pusher could write could therefore hide malformed receipts.
+An eval-time assertion in `configuration.nix` refuses any other service that
+mounts a path at, under or above the checkpoint, or sets the variable. It also
+refuses a stager whose environment or volumes lost the entry, such as an
+overlay that replaced the list instead of appending to it. Recovery is
+always safe: an empty, missing or corrupt checkpoint makes the next start do the
+original full strict scan, and rollback ignores it. After a stager restart, a
+`v2_stage_ready` line with `scanMode` `"tail"` and no
+`v2_stage_checkpoint_disabled` line shows the checkpoint is in use.
+
 Desk state follows [rev 9 `desks[].state`](../docker/joe-board-pusher/contracts/data.schema.json):
 `stuck` when any desk evidence is unavailable/stale, `working` for positions,
 active orders or executions on the executor's current NY day, and `sit-out`

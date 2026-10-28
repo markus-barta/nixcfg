@@ -13,6 +13,8 @@ let
   joePushV2 = joeSet.board.data_schema == "v2";
   # OPS-392: disable only staging for rollback; preserve its durable high water.
   joeHouseholdV2StageEnabled = true;
+  # JOED-102: stager-only receipt-scan checkpoint; must match compose-spec.nix and the contract tests.
+  joeStageCheckpointDir = "/var/lib/joe-household-v2-stage-checkpoint";
   # HNET-236/237: keep the pinned board aligned with this host's routes and status.
   hostdashHsb0 =
     inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0.overrideAttrs
@@ -342,13 +344,68 @@ assert joeSet.pusher != null && joeSet.executor != null;
                 // lib.optionalAttrs joePushV2 {
                   # JOED-87 Phase B: the supervisor forwards this to the stager child
                   # (v2-stage-worker.mjs:589) only when its own environment has it.
-                  environment = [ "JOE_V2_CONTRACT_REV=10" ];
+                  # JOED-102: append, never replace. recursiveUpdate replaces lists, so a bare list here
+                  # would drop the base JOE_V2_STAGE_CHECKPOINT_DIR and bring back the full cold scan.
+                  environment = (joeComposeBase.services.joe-household-v2-stage.environment or [ ]) ++ [
+                    "JOE_V2_CONTRACT_REV=10"
+                  ];
                 };
               }
             )
         )
     );
   };
+
+  # JOED-102 (L1): the stager-only checkpoint stays stager-only in the EVALUATED compose spec, whichever
+  # overlay produced it, so a list-replacing overlay or a new mount fails the build before any switch.
+  assertions =
+    let
+      services = config.nixcfg.composeStack.spec.services;
+      stage = services.joe-household-v2-stage or null;
+      checkpointVar = "JOE_V2_STAGE_CHECKPOINT_DIR";
+      envList =
+        s:
+        let
+          e = s.environment or [ ];
+        in
+        if builtins.isList e then e else lib.mapAttrsToList (k: v: "${k}=${toString v}") e;
+      mountSource =
+        v: if builtins.isAttrs v then v.source or "" else builtins.head (lib.splitString ":" (toString v));
+      # equal to, inside, or above the checkpoint dir; named volumes (no leading /) cannot reach it
+      overlaps =
+        src:
+        lib.hasPrefix "/" src
+        && (
+          src == joeStageCheckpointDir
+          || lib.hasPrefix "${joeStageCheckpointDir}/" src
+          || lib.hasPrefix (if src == "/" then "/" else "${src}/") joeStageCheckpointDir
+        );
+      leaking = lib.attrNames (
+        lib.filterAttrs (
+          name: s:
+          name != "joe-household-v2-stage"
+          && (
+            lib.any (v: overlaps (mountSource v)) (s.volumes or [ ])
+            || lib.any (e: lib.hasPrefix "${checkpointVar}=" e) (envList s)
+          )
+        ) services
+      );
+    in
+    [
+      {
+        assertion =
+          stage == null
+          || (
+            lib.elem "${checkpointVar}=${joeStageCheckpointDir}" (envList stage)
+            && lib.elem "${joeStageCheckpointDir}:${joeStageCheckpointDir}:rw" (stage.volumes or [ ])
+          );
+        message = "JOED-102: joe-household-v2-stage must carry ${checkpointVar}=${joeStageCheckpointDir} and its rw mount (did an overlay replace the environment or volumes list instead of appending?)";
+      }
+      {
+        assertion = leaking == [ ];
+        message = "JOED-102: only joe-household-v2-stage may mount or name ${joeStageCheckpointDir}; offending services: ${lib.concatStringsSep ", " leaking}";
+      }
+    ];
 
   # OPS-128: hsb0 was the one host with the prune SERVICE but no TIMER — docker
   # had never pruned and reached 108 G (dangling images + openclaw build cache)
@@ -1282,6 +1339,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
     "d /var/lib/joe-board-pusher/v2 0700 1000 1000 - -"
     "d /run/joe-household-v2 0700 1000 1000 - -"
+    # JOED-102: stager-only receipt-scan checkpoint (never mounted by the pusher or any other service).
+    "d ${joeStageCheckpointDir} 0700 1000 1000 - -"
     # OPS-353: In-flight page content; mba pushes index.html, hsb0-home reads it (ro mount).
     "d /var/lib/inflight 0755 mba users - -"
     # OPS-380: video overview page content; mba pushes index.html, hsb0-home reads it (ro mount).
