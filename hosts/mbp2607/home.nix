@@ -34,6 +34,7 @@ in
   # ============================================================================
   imports = [
     ./pi-local.nix
+    ./mbp2606-trash-purge.nix # OPS-489: weekly purge of mbp2606's /Users/mba/.Trash (> 3 days, Sun 04:30)
     ./yue2-comfyui # NIX-518: `yue2` command + stack tooling (runtime stays in ~/Code/yue2-comfyui)
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
