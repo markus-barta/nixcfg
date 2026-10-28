@@ -81,13 +81,14 @@ def judge(host: dict, now: float) -> tuple[list[Problem], set[str]]:
 
     A key is "re-judged" only when this run evaluated the evidence that produces
     it: `<id>:state` and `<id>:age` for each well-formed, configured observation,
-    and `malformed` once the observation container itself was readable.
+    and `malformed` only when an observation list is actually present (absent or
+    null evidence judges nothing, gate r3).
     """
     name = host["name"]
     malformed_key = f"backup:{name}:malformed"
-    observations = host.get("backup_observations", [])
+    observations = host.get("backup_observations")
     if observations is None:
-        observations = []
+        return [], set()
     if not isinstance(observations, list):
         return [Problem(malformed_key, f"{name}: Pharos reports its backups in an unexpected shape; "
                                        f"they are unwatched.")], set()
@@ -141,10 +142,10 @@ def collect() -> list[Problem]:
     exactly its evidence and found it clean. Any missing or malformed evidence
     (unusable store, unnamed entry, host gone from Pharos, broken observation)
     therefore keeps the alert open instead of reading as a recovery. The store
-    keys are evaluated on every run.
+    problem is evaluated on every run; the entry check only when the list was read.
     """
     found: list[Problem] = []
-    judged = {"backup:store", "backup:store:entry"}
+    judged = {"backup:store"}
     try:
         hosts = load_store(STORE_PATH)
     except Exception as error:  # noqa: BLE001
@@ -152,6 +153,8 @@ def collect() -> list[Problem]:
         found.append(Problem("backup:store", f"pharosd store unusable at {STORE_PATH} ({type(error).__name__}); "
                                              f"fleet backups are currently unwatched."))
     else:
+        # The entry check is evidence only once the host list was read (gate r3).
+        judged.add("backup:store:entry")
         named = [h for h in hosts if isinstance(h, dict) and valid_name(h.get("name"))]
         if len(named) < len(hosts):
             found.append(Problem("backup:store:entry", f"pharosd store holds {len(hosts) - len(named)} host "

@@ -253,6 +253,44 @@ class BackupWatchTest(unittest.TestCase):
         self.checks.judge = boom
         self.assert_alert_survives([host("hsb8", obs(), seen=1), host("hsb9", obs())], "could not be judged")
 
+    def assert_key_survives(self, first, second, key, cycles=3):
+        """Gate r3: an announced meta key (entry/malformed) must not clear on lost evidence."""
+        sent = []
+        Path(self.store).write_text(json.dumps(first))
+        self.run_cycle(NOW, sent)
+        self.run_cycle(NOW + HOUR, sent)
+        self.assertEqual(len(sent), 1)
+        Path(self.store).write_text(json.dumps(second))
+        for n in range(cycles):
+            self.run_cycle(NOW + (2 + n) * HOUR, sent)
+        for message in sent[1:]:
+            self.assertNotIn("Cleared", message)
+        state = json.loads(Path(self.state).read_text())
+        self.assertTrue(state["seen"][key]["alerted"])
+
+    def test_sweep_unreadable_store_keeps_entry_alert(self):
+        self.assert_key_survives([None, host("hsb9", obs())], "{not json", "backup:store:entry")
+
+    def test_sweep_observations_vanish_after_malformed(self):
+        bad = {"name": "hsb8", "last_seen": NOW, "backup_observations": False}
+        for gone in ({"name": "hsb8", "last_seen": NOW}, {"name": "hsb8", "last_seen": NOW, "backup_observations": None}):
+            with self.subTest(gone=gone):
+                Path(self.state).unlink(missing_ok=True)
+                self.assert_key_survives([bad, host("hsb9", obs())], [gone, host("hsb9", obs())], "backup:hsb8:malformed")
+
+    def test_malformed_and_entry_alerts_clear_on_real_evidence(self):
+        sent = []
+        Path(self.store).write_text(json.dumps([None, {"name": "hsb8", "last_seen": NOW, "backup_observations": False},
+                                                 host("hsb9", obs())]))
+        self.run_cycle(NOW, sent)
+        self.run_cycle(NOW + HOUR, sent)
+        self.write([host("hsb8", obs()), host("hsb9", obs())])
+        self.run_cycle(NOW + 2 * HOUR, sent)
+        self.assertEqual(len(sent), 2)
+        self.assertIn("Cleared", sent[1])
+        self.assertIn("without a usable name", sent[1])
+        self.assertIn("hsb8: Pharos reports its backups in an unexpected shape", sent[1])
+
     def test_real_recovery_still_clears(self):
         sent = []
         self.page_hsb8(sent)
