@@ -1266,6 +1266,13 @@ back on 2026-10-26, never live; r20b went live). The image carries the merged
 pusher code, with revision 9 still the default. Phase B activation and real
 producer sign-off remain separate; this tag does not set `JOE_V2_CONTRACT_REV=10`.
 Prestage the immutable image before one validated host build and activation.
+
+JOED-100 now prepares `household-v2-switch-set-r20d-202610281030`:
+r20d = r20c (#1159 bounded ownership history) + #1171 (JOED-102 bounded
+stager cold start, stager-only checkpoint). r20c was built but rolled back on
+2026-10-27 and is never deployed by this combined re-land. The new tag prevents
+reuse of the earlier r20c image without the checkpoint code.
+
 The pusher, stager, executor and mailbox share the tag and recreate together;
 the existing compose post-recreation also recreates `hsb0-home`. Reject any
 other runtime definition change. The gateway container and Results producer

@@ -93,7 +93,7 @@ let
                 environment = [ "TRADING_MODE=paper" ];
                 ports = [ "100.64.0.6:4002:4002" ];
               };
-              # JOED-86 candidate (after JOED-63/HOSTD-77 r19a): hsb0-joe-board-pusher:household-v2-switch-set-r20c-202610271530.
+              # JOED-86 candidate (after JOED-63/HOSTD-77 r19a): hsb0-joe-board-pusher:household-v2-switch-set-r20d-202610281030.
               # Effective hsb0 runtime: under `previous` (the v1 rollback) hsb0 is the variant B
               # pre-cutover tree, i.e. the recorded `current` (r16d) set; T100 enforces both.
               joe-board-pusher.image =
