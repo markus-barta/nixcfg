@@ -2090,9 +2090,29 @@ termination, or an unhealthy replacement.
 
 ### Clean Up Disk Space
 
+Images are collected daily at 04:30 by `docker-image-gc` (OPS-327, `docker-image-gc.nix`/`.py`). An image goes only when it is:
+
+- unused by every container (running or stopped);
+- not referenced by the Nix-declared compose spec;
+- not tagged `*:rollback`;
+- not in a Janus repository;
+- not among the newest 3 of its repository (tags and digest-only pulls);
+- older than 2 days.
+
+Build cache older than 2 days goes too. Volumes are never touched.
+
 ```bash
-ssh mba@cs1.barta.cm -p 2222 "docker system prune -f"
+# What would go (changes nothing)
+ssh mba@cs1.barta.cm -p 2222 "sudo DOCKER_IMAGE_GC_DRY_RUN=1 docker-image-gc"
+# Last run
+ssh mba@cs1.barta.cm -p 2222 "journalctl -u docker-image-gc --since -2d --no-pager | tail -20"
+# Run now (same rules)
+ssh mba@cs1.barta.cm -p 2222 "sudo systemctl start docker-image-gc"
 ```
+
+🔴 Never `docker system prune -a`, `docker image prune -a`, or any `--volumes` prune on csb1. These drop the Janus engine images and the unmounted Janus volumes that produce the Pharos beacon tokens. Plain `docker system prune -f` (dangling only) is still fine.
+
+An AEON or HausV image removed by the GC can be re-pulled by digest from ghcr. The previous 2 pins of every repository stay local.
 
 ### View Logs
 

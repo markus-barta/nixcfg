@@ -474,6 +474,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T114-fleet-backup-watch.sh
 
+      - name: Verify csb1 Docker image GC contract (OPS-327)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T115-docker-image-gc.sh
+
       - name: Verify no legacy whoami in production (NIX-292)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh
