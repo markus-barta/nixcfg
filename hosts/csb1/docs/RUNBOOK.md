@@ -2027,6 +2027,24 @@ sudo systemctl start fleet-drift.service
 journalctl -u fleet-drift.service --since "1 day ago" --no-pager
 ```
 
+### Fleet Backup Watch (fleet-backup-watch, OPS-485)
+
+`fleet-backup-watch.timer` runs hourly and reads the same pharosd store. Every
+host's restic job writes a status file its beacon reports as-is; pharosd pages
+`failed`/`stale` itself, but nothing ages the file, so a job that stops running
+would stay "healthy". This unit pages per backup observation when the last
+success is older than its schedule's limit (daily 26 h, weekly 8 d), whatever
+the state says, and when the state is `warning`/`missing`/`unknown` (pharosd
+does not page those). No host list: every host that reports a backup is
+watched. It is the alert route for hsb8/hsb9, whose failure mail cannot leave
+the box. Same OPS-107 engine and `csb1-watchtower-env` target.
+
+```bash
+systemctl status fleet-backup-watch.timer --no-pager
+sudo systemctl start fleet-backup-watch.service
+journalctl -u fleet-backup-watch.service --since "1 day ago" --no-pager
+```
+
 ### HAUSV Graceful Stop Budget
 
 The private `hausv-jhw22` Compose service declares `stop_grace_period: 30s`.
