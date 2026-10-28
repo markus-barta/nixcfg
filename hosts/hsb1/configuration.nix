@@ -33,6 +33,7 @@ in
     ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
     ./mailbridge-watch.nix # OPS-196: OAuth/queue health, independently watched by tailnet-watch
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
     ../../modules/zufahrt-gateway # HAUSV-916 — Howie's /zufahrt + /zufahrt5 gateway (tag:paper-desk only)

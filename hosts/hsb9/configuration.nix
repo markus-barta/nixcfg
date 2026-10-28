@@ -48,6 +48,7 @@ in
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
     ../../modules/uzumaki
 

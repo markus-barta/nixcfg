@@ -64,6 +64,7 @@ in
   imports = [
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
