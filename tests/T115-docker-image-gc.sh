@@ -27,6 +27,19 @@ grep -Fq '@DECLARED_REFS@' "${script}"
 # keep.d for release-kit prestages: declared by tmpfiles, read fail-closed by the GC.
 grep -Fq '"d /var/lib/docker-image-gc/keep.d 0755 root root -"' "${mod}"
 grep -Fq 'KEEP_DIR = "/var/lib/docker-image-gc/keep.d"' "${script}"
+# Activation records: every activation (switch, test, rollback, boot) records its compose pins,
+# and the GC reads them fail-closed. A failed record must not fail the activation.
+grep -Fq '"d /var/lib/docker-image-gc/activations 0755 root root -"' "${mod}"
+grep -Fq 'system.activationScripts.docker-image-gc-record' "${mod}"
+# shellcheck disable=SC2016 # literal Nix text
+grep -Fq '${lib.getExe dockerImageGc} record "$systemConfig" || echo' "${mod}"
+grep -Fq 'RECORDS_DIR = "/var/lib/docker-image-gc/activations"' "${script}"
+if grep -n 'history.json' "${script}" "${mod}"; then
+  echo "T115: the generation-numbered history is gone; records replace it" >&2
+  exit 1
+fi
+# The batch bound is a real timer, not only per-operation socket timeouts.
+grep -Fq 'signal.setitimer(signal.ITIMER_REAL, seconds)' "${script}"
 # Deploy locks: every compose deploy path, never the Janus Pharos lock (taken with flock -n).
 for lock in /run/lock/compose-csb1.lock /run/lock/compose-hausv.lock /run/lock/compose-hausv-next.lock; do
   grep -Fq "\"${lock}\"" "${script}"

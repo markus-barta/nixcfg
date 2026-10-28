@@ -9,14 +9,15 @@ image goes only when it is none of:
     a declared service may have no container yet, e.g. janus-engine-staged)
   - referenced by the compose spec of any NixOS system generation still on
     disk (every generation stays a working `nixos-rebuild --rollback` target)
-  - the current or previous image of a compose service by pin history (the
+  - the current or previous image of a compose service in activation order (the
     AEON release rollback path), even after the generations that declared it
-    are gone: the history is kept in HISTORY_PATH and takes in each numbered
-    generation once, in order (the booted and running systems are protected, but
-    they are no release chronology)
+    are gone: every activation (switch, test, rollback, boot) records the
+    activated system's compose pins in RECORDS_DIR (`docker-image-gc record`,
+    run from the activation script). Generation numbers play no part. The newest
+    record must be the running system's, or the run refuses to judge
   - listed in KEEP_DIR/*.refs (release kits write the image they prestage there
     before pulling it, and drop the file one release later); re-read before
-    every batch and every delete
+    every batch and every DELETE
   - tagged *:rollback, or the newest image of its repository with a prev-* tag
     (HausV's own rollback target; HausV's stack is not Nix-declared)
   - in a protected repository (Janus engine / envelope: Pharos beacon tokens)
@@ -26,18 +27,22 @@ image goes only when it is none of:
 Build cache older than KEEP_DAYS goes. Volumes are never touched.
 
 Removal holds the compose deploy locks (reconcile, weekly update, HausV and
-preview deploys) in batches of at most BATCH_S: every Engine call in a batch
-gets the remaining budget as its timeout and none starts without enough budget
-left. Every batch re-plans from fresh listings, generations, history and keep.d
-taken under the lock, and every delete re-reads the generations and keep.d, so
-neither a deploy nor a `nixos-rebuild boot` changes what is declared under it.
-An unreadable generation, history or keep.d stops the run. Images are
-deleted by ID without force (a name could have moved to another image); only an
-image named in several repositories is untagged by name, each name re-checked
-against a fresh listing first. noprune=1: untagged parents are left alone.
+preview deploys) in batches of at most BATCH_S. An interval timer interrupts
+whatever still runs when the budget is spent (a call whose answer keeps
+trickling in under its socket timeout, a slow read), and no call starts without
+enough budget left. The GC writes no file while it holds the locks. Every batch
+re-plans from fresh listings, generations, activation records and keep.d taken
+under the lock, and every DELETE (each untag included) re-reads the generations,
+activation records and keep.d first. So neither a deploy, an activation nor a
+`nixos-rebuild boot` changes what is declared under it. An unreadable
+generation, activation record or keep.d stops the run. Images are deleted by ID
+without force (a name could have moved to another image). Only an image named in
+several repositories is untagged by name, each name re-checked against a fresh
+listing first. noprune=1: untagged parents are left alone.
 
 Everything comes from the Engine API list endpoints over the docker socket
 (no inspect). DOCKER_IMAGE_GC_DRY_RUN=1 lists what would go and changes nothing.
+`docker-image-gc record <system>` only appends an activation record.
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ import http.client
 import json
 import os
 import re
+import signal
 import socket
 import sys
 import time
@@ -67,9 +73,13 @@ KEEP_LINE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 # NixOS system generations (system-<n>-link, oldest first), then the booted and the running system.
 PROFILES_DIR = "/nix/var/nix/profiles"
 GENERATION = re.compile(r"^system-(\d+)-link$")
-SYSTEM_LINKS = ("/run/booted-system", "/run/current-system")
+CURRENT_SYSTEM = "/run/current-system"
+SYSTEM_LINKS = ("/run/booted-system", CURRENT_SYSTEM)
 COMPOSE_DIR = "etc/compose"
-HISTORY_PATH = "/var/lib/docker-image-gc/history.json"
+# One <n>.json per activation, n increasing: {"system": store path, "services": {stack/service: image}}.
+RECORDS_DIR = "/var/lib/docker-image-gc/activations"
+RECORD_NAME = re.compile(r"^(\d+)\.json$")
+RECORDS_KEEP = 50
 KEEP_RELEASES = 2
 # Every compose deploy path on csb1 serializes on one of these (flock -w).
 # Not the Janus Pharos lock: its scripts take it with flock -n and would fail.
@@ -95,6 +105,10 @@ class Busy(Exception):
 
 class BatchOver(Exception):
     """The batch budget is spent: give the locks back before the next call."""
+
+
+class Interrupted(BatchOver):
+    """The batch timer fired inside a call or read; a DELETE in flight may still finish."""
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -211,59 +225,84 @@ def generation_specs():
     return numbered, running
 
 
-def load_history(path: str) -> dict:
-    try:
-        with open(path, encoding="utf-8") as fh:
-            history = json.load(fh)
-    except FileNotFoundError:
-        return {"version": 2, "last_generation": 0, "services": {}}
-    services = history.get("services") if isinstance(history, dict) else None
-    last = history.get("last_generation", 0) if isinstance(history, dict) else None
-    if (
-        not isinstance(services, dict)
-        or not all(isinstance(refs, list) and all(isinstance(r, str) for r in refs) for refs in services.values())
-        or not isinstance(last, int)
+def record_paths() -> list[tuple[int, str]]:
+    """[(n, path)] of the activation records, oldest first; a missing directory raises."""
+    with os.scandir(RECORDS_DIR) as entries:
+        return sorted((int(m.group(1)), e.path) for e in entries if (m := RECORD_NAME.match(e.name)))
+
+
+def load_record(path: str) -> dict[str, str]:
+    with open(path, encoding="utf-8") as fh:
+        record = json.load(fh)
+    services = record.get("services") if isinstance(record, dict) else None
+    if not isinstance(services, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in services.items()
     ):
-        raise Fatal(f"{path} is not a pin history; refusing to judge")
-    return {"version": 2, "last_generation": last, "services": services}
+        raise Fatal(f"{path} is not an activation record; refusing to judge")
+    return services
 
 
-def update_history(history: dict, generations: list[tuple[int, dict[str, str]]]) -> dict:
-    """Take in the numbered generations newer than the last one taken in, oldest first; keep the last
-    KEEP_RELEASES distinct pins per service.
-
-    Each generation counts once, when it is new: replaying older generations still on disk would
-    rewind the history (v1 replayed after v3 pushes out v2). The booted and running systems are not
-    generations here: appending an old booted pin would make it the "current" one.
-    """
-    services = {name: list(refs) for name, refs in history["services"].items()}
-    last = history["last_generation"]
-    if generations and max(n for n, _ in generations) < last:
-        # The newest generations were deleted, or the profile was recreated and numbers started
-        # over: take the newest on disk as the mark and replay nothing (that would rewind).
-        last = max(n for n, _ in generations)
-    for number, spec in sorted(generations, key=lambda g: g[0]):
-        if number <= last:
-            continue
-        for name, ref in sorted(spec.items()):
-            refs = services.setdefault(name, [])
-            if refs and refs[-1] == ref:
-                continue
-            if ref in refs:
-                refs.remove(ref)
-            refs.append(ref)
-            del refs[:-KEEP_RELEASES]
-        last = number
-    return {"version": 2, "last_generation": last, "services": services}
-
-
-def save_history(path: str, history: dict) -> None:
-    tmp = path + ".tmp"
+def append_record(system: str) -> None:
+    """Record system's compose pins as the newest activation, unless the newest record already has them."""
+    services = compose_services(system)
+    found = record_paths()
+    if found and load_record(found[-1][1]) == services:
+        return
+    number = found[-1][0] + 1 if found else 1
+    tmp = os.path.join(RECORDS_DIR, f".record-{os.getpid()}.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(history, fh, indent=1, sort_keys=True)
+        json.dump({"system": os.path.realpath(system), "services": services}, fh, indent=1, sort_keys=True)
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, path)
+    try:
+        while True:
+            try:
+                # link() never replaces: a concurrent writer that took n makes this one n+1.
+                os.link(tmp, os.path.join(RECORDS_DIR, f"{number:012d}.json"))
+                break
+            except FileExistsError:
+                number += 1
+    finally:
+        os.unlink(tmp)
+    for _, old in record_paths()[:-RECORDS_KEEP]:
+        os.unlink(old)
+
+
+def record(system: str) -> int:
+    """`docker-image-gc record <system>`, from the activation script of every switch, test, rollback and boot.
+
+    The very first record is preceded by the outgoing running system's, so the first activation
+    already knows the previous release.
+    """
+    os.makedirs(RECORDS_DIR, mode=0o755, exist_ok=True)
+    if (
+        not record_paths()
+        and os.path.lexists(CURRENT_SYSTEM)
+        and os.path.realpath(CURRENT_SYSTEM) != os.path.realpath(system)
+    ):
+        append_record(CURRENT_SYSTEM)
+    append_record(system)
+    return 0
+
+
+def release_pins() -> list[str]:
+    """The current and previous image of every service, in activation order.
+
+    Fails closed: no record, a malformed record, or a newest record that is not the running
+    system's (its activation record failed, or an activation is under way) raises.
+    """
+    records = [load_record(path) for _, path in record_paths()]
+    if not records:
+        raise Fatal(f"no activation record in {RECORDS_DIR}; refusing to judge")
+    if records[-1] != compose_services(CURRENT_SYSTEM):
+        raise Fatal("the newest activation record is not the running system's; refusing to judge")
+    pins: dict[str, list[str]] = {}
+    for services in reversed(records):
+        for name, ref in services.items():
+            seen = pins.setdefault(name, [])
+            if len(seen) < KEEP_RELEASES and ref not in seen:
+                seen.append(ref)
+    return [ref for refs in pins.values() for ref in refs]
 
 
 def read_keep(path: str) -> list[str]:
@@ -370,15 +409,22 @@ def classify(status: int, text: str, ref: str) -> str:
     return "failed"
 
 
-def remove_image(api, image: dict) -> str:
-    """Delete one planned image. Returns removed / skipped / kept / failed."""
+def remove_image(api, image: dict, protected) -> str:
+    """Delete one planned image. Returns removed / skipped / kept / failed.
+
+    protected() re-reads what can change outside the deploy locks (generations, activation records,
+    keep.d) and runs before every DELETE, each untag included.
+    """
     image_id = image["Id"]
+    if protected():
+        return "kept"
     status, text = delete(api, image_id)
     if status in (200, 404):
         return "removed"
     if status == 409 and "referenced in" in text:
         # Named in more than one repository: untag by name, but only names that
-        # a fresh listing still shows on this image.
+        # a fresh listing still shows on this image. If the run stops halfway, the
+        # names already taken off stay off; every check before found them unprotected.
         for ref in tags_of(image) + digests_of(image):
             owners = [i["Id"] for i in get_json(api, "/images/json") if ref in tags_of(i) + digests_of(i)]
             if not owners:
@@ -386,9 +432,13 @@ def remove_image(api, image: dict) -> str:
             if owners != [image_id]:
                 print(f"docker-image-gc: {ref} now names another image; keeping {image_id[7:19]}")
                 return "kept"
+            if protected():
+                return "kept"
             status, text = delete(api, ref)
             if status not in (200, 404):
                 return classify(status, text, ref)
+        if protected():
+            return "kept"
         status, text = delete(api, image_id)
         if status in (200, 404):
             return "removed"
@@ -428,25 +478,42 @@ def listings(api):
     return get_json(api, "/containers/json?all=1"), get_json(api, "/images/json")
 
 
-def protection(save: bool):
-    """(number of NixOS systems, {reason: refs}) from the generations, the pin history and keep.d, read now.
-
-    save writes the replayed history (never in a dry run).
-    """
+def protection():
+    """(number of NixOS systems, {reason: refs}) from the generations, the activation records and keep.d, read now."""
     numbered, running = generation_specs()
-    history = update_history(
-        load_history(HISTORY_PATH),
-        [(int(GENERATION.match(os.path.basename(path)).group(1)), spec) for path, spec in numbered],
-    )
-    if save:
-        save_history(HISTORY_PATH, history)
     refsets = {
         "declared in the running compose spec": DECLARED_REFS,
         "declared in a NixOS generation": [ref for _, spec in numbered + running for ref in spec.values()],
-        "current/previous pin of its service": [ref for refs in history["services"].values() for ref in refs],
+        "current/previous pin of its service": release_pins(),
         "listed in keep.d": read_keep(KEEP_DIR),
     }
     return len(numbered) + len(running), refsets
+
+
+def guard(image: dict):
+    """protected() for remove_image: does a fresh protection read name this image?"""
+
+    def protected() -> bool:
+        _, fresh = protection()
+        return bool(declared_ids([image], [ref for refs in fresh.values() for ref in refs]))
+
+    return protected
+
+
+@contextmanager
+def batch_timer(seconds: float):
+    """Raise Interrupted in whatever runs once seconds have passed, so the locks are not held much longer."""
+
+    def fire(signum, frame):
+        raise Interrupted()
+
+    previous = signal.signal(signal.SIGALRM, fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def budgeted(api, deadline: float):
@@ -466,7 +533,7 @@ def main(api=docker_api, now: float | None = None, sleep=time.sleep) -> int:
     try:
         keep_days = env_int("DOCKER_IMAGE_GC_KEEP_DAYS", 2)
         keep_newest = env_int("DOCKER_IMAGE_GC_KEEP_NEWEST", 3)
-        systems, refsets = protection(save=not dry_run)
+        systems, refsets = protection()
         containers, images = listings(api)
         now = time.time() if now is None else now
         reasons, remove = plan(containers, images, refsets, now, keep_days, keep_newest)
@@ -497,32 +564,39 @@ def main(api=docker_api, now: float | None = None, sleep=time.sleep) -> int:
     try:
         while True:
             with deploy_locks(LOCK_PATHS, LOCK_WAIT_S, sleep):
-                batch = budgeted(api, time.monotonic() + BATCH_S)
-                done = 0
+                done, current = 0, None
                 try:
-                    # Re-plan under the lock: a deploy or a new generation since the last batch may use or name an image now.
-                    _, refsets = protection(save=True)
-                    containers, images = listings(batch)
-                    _, remove = plan(containers, images, refsets, now, keep_days, keep_newest)
-                    todo = [i for i in remove if i["Id"] not in attempted]
-                    if not todo:
-                        break
-                    for image in todo:
-                        # A kit may list an image it prestages (outside the compose lock), and
-                        # `nixos-rebuild boot` may declare one, at any time: re-read both first.
-                        _, fresh = protection(save=False)
-                        if declared_ids([image], [ref for refs in fresh.values() for ref in refs]):
+                    with batch_timer(BATCH_S):
+                        batch = budgeted(api, time.monotonic() + BATCH_S)
+                        # Re-plan under the lock: a deploy or a new generation since the last batch may use or name an image now.
+                        _, refsets = protection()
+                        containers, images = listings(batch)
+                        _, remove = plan(containers, images, refsets, now, keep_days, keep_newest)
+                        todo = [i for i in remove if i["Id"] not in attempted]
+                        if not todo:
+                            break
+                        for image in todo:
+                            # A kit may list an image it prestages (outside the compose lock), and an
+                            # activation or `nixos-rebuild boot` may declare one, at any time: remove_image
+                            # re-reads them before every DELETE.
+                            current = image
                             attempted.add(image["Id"])
-                            result = "kept"
-                        else:
-                            result = remove_image(batch, image)
-                            attempted.add(image["Id"])
-                        counts[result] += 1
-                        done += 1
-                        print(f"{result} {describe(image)}")
-                except BatchOver:
-                    if not done:
-                        raise Fatal(f"not one image fit into a {BATCH_S} s batch") from None
+                            result = remove_image(batch, image, guard(image))
+                            current = None
+                            counts[result] += 1
+                            done += 1
+                            print(f"{result} {describe(image)}")
+                except BatchOver as over:
+                    if current is not None and isinstance(over, Interrupted):
+                        # The Engine may still finish a DELETE in flight; this run does not retry the image.
+                        counts["failed"] += 1
+                        print(f"timed out {describe(current)}", file=sys.stderr)
+                    else:
+                        if current is not None:
+                            # No call was started for it: a later batch re-plans and may take it again.
+                            attempted.discard(current["Id"])
+                        if not done:
+                            raise Fatal(f"not one image fit into a {BATCH_S} s batch") from None
             # Let a deploy that waits on a lock (flock -w) in before the next batch.
             sleep(2)
     except Busy as busy:
@@ -544,5 +618,18 @@ def main(api=docker_api, now: float | None = None, sleep=time.sleep) -> int:
     return 1 if counts["failed"] else 0
 
 
+def cli(argv: list[str]) -> int:
+    if not argv:
+        return main()
+    if len(argv) == 2 and argv[0] == "record":
+        try:
+            return record(argv[1])
+        except (Fatal, OSError, ValueError) as exc:
+            print(f"docker-image-gc record: {exc}", file=sys.stderr)
+            return 1
+    print("usage: docker-image-gc [record <system>]", file=sys.stderr)
+    return 64
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli(sys.argv[1:]))

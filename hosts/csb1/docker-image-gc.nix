@@ -6,7 +6,8 @@
 # spec (csb1 + Janus-managed stack) are baked in, so a declared service whose
 # container does not exist yet keeps its image; at run time it also keeps every
 # image a NixOS generation on disk declares, plus the current and previous pin
-# of each service (AEON release rollback). 🔴 Never replace this with
+# of each service in activation order (AEON release rollback), which every
+# activation records below. 🔴 Never replace this with
 # `docker image prune -a` / `system prune -a` (csb1 never-prune rule: Janus
 # engine images and volumes).
 #
@@ -40,7 +41,16 @@ in
   systemd.tmpfiles.rules = [
     "d /var/lib/docker-image-gc 0755 root root -"
     "d /var/lib/docker-image-gc/keep.d 0755 root root -"
+    "d /var/lib/docker-image-gc/activations 0755 root root -"
   ];
+
+  # Every activation (switch, test, rollback, and boot: /var/lib is on the root dataset) records the
+  # activated system's compose pins in order; the GC derives each service's current and previous
+  # pin from them, whatever the generation numbers. A failed record must not fail the activation:
+  # the GC then refuses to judge until the running system has a record. dry-activate skips this.
+  system.activationScripts.docker-image-gc-record = ''
+    ${lib.getExe dockerImageGc} record "$systemConfig" || echo "docker-image-gc: activation record failed" >&2
+  '';
 
   systemd.services.docker-image-gc = {
     description = "Remove unused Docker release images and old build cache (OPS-327)";
@@ -49,9 +59,9 @@ in
     serviceConfig = {
       Type = "oneshot";
       ExecStart = lib.getExe dockerImageGc;
-      # Root without capabilities: it owns the docker socket (root:docker 0660),
-      # the compose deploy locks (compose-hausv-next.lock is root 0600) and its
-      # pin history; nothing else needs privilege.
+      # Root without capabilities: it owns the docker socket (root:docker 0660)
+      # and the compose deploy locks (compose-hausv-next.lock is root 0600);
+      # nothing else needs privilege.
       CapabilityBoundingSet = "";
       StateDirectory = "docker-image-gc";
       ReadWritePaths = [ "/run/lock" ];
