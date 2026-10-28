@@ -313,7 +313,12 @@ assert joeSet.pusher != null && joeSet.executor != null;
                 "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
               ]
               ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
-              ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2";
+              ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2"
+              # JOED-87 Phase B (Markus Desk ae96cf9f): exact desk values where Amy's rules allow. The
+              # pusher and the stager both need it (README "Phase B exact values"). Only the string
+              # "10" activates it (v2-exact-values.mjs:11); remove both lines to return to rev 9.
+              # v2 set only: the v1 "current" set keeps its pre-v2 baseline (v2-contracts test).
+              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=10";
           }
           // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
             volumes =
@@ -333,6 +338,11 @@ assert joeSet.pusher != null && joeSet.executor != null;
                   build = "${joeBoardPusherSource}";
                   image = joeSet.pusher.image;
                   pull_policy = "never";
+                }
+                // lib.optionalAttrs joePushV2 {
+                  # JOED-87 Phase B: the supervisor forwards this to the stager child
+                  # (v2-stage-worker.mjs:589) only when its own environment has it.
+                  environment = [ "JOE_V2_CONTRACT_REV=10" ];
                 };
               }
             )
