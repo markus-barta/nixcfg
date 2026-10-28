@@ -355,10 +355,12 @@ for (const fault of ["missing", "corrupt", "extra-key", "offset-beyond-size", "m
       if (fault === "hash") value.prefixSha256 = "0".repeat(64);
       if (fault === "retained-before") {
         // A correctly hashed checkpoint after retained receipts is unusable.
-        value.offset = fs.statSync(f.log).size;
+        // Read the log once: offset and hash come from the same bytes (no stat-then-read race).
+        const logBytes = fs.readFileSync(f.log);
+        value.offset = logBytes.length;
         value.lastReceiptSeq = 15;
         const { createHash } = await import("node:crypto");
-        value.prefixSha256 = createHash("sha256").update(fs.readFileSync(f.log)).digest("hex");
+        value.prefixSha256 = createHash("sha256").update(logBytes).digest("hex");
       }
       fs.writeFileSync(f.checkpoint, JSON.stringify(value));
     }
