@@ -211,7 +211,7 @@ def run(gc, api, dry=False, manual=False, env=None, sleep=None):
 
 def locks_free(gc) -> bool:
     for path in gc.LOCK_PATHS:
-        fd = os.open(path, os.O_RDONLY | os.O_CREAT, 0o666)
+        fd = os.open(path, os.O_RDONLY | os.O_CREAT, 0o644)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
@@ -995,7 +995,7 @@ class LockTests(Base):
     """Non-blocking, all or nothing: a deploy that holds one lock and waits on another never deadlocks."""
 
     def hold(self, path):
-        fd = os.open(path, os.O_RDONLY | os.O_CREAT, 0o666)
+        fd = os.open(path, os.O_RDONLY | os.O_CREAT, 0o644)
         fcntl.flock(fd, fcntl.LOCK_EX)
         self.addCleanup(os.close, fd)
         return fd
@@ -1023,8 +1023,8 @@ class LockTests(Base):
                 gc_took_a.set()  # the GC takes a first
 
         def contender():
-            fb = os.open(b, os.O_RDONLY | os.O_CREAT, 0o666)
-            fa = os.open(a, os.O_RDONLY | os.O_CREAT, 0o666)
+            fb = os.open(b, os.O_RDONLY | os.O_CREAT, 0o644)
+            fa = os.open(a, os.O_RDONLY | os.O_CREAT, 0o644)
             try:
                 real_flock(fb, fcntl.LOCK_EX)
                 holding_b.set()

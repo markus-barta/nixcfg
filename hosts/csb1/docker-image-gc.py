@@ -550,8 +550,8 @@ def deploy_locks(paths, wait_s: float, sleep=time.sleep, stop=STOP):
             for path in paths:
                 if stop:
                     raise Stopped()
-                # Like flock(1): open read-only, create if missing.
-                fd = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_CLOEXEC, 0o666)
+                # Like flock(1): open read-only, create if missing (0644: never world-writable).
+                fd = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_CLOEXEC, 0o644)
                 fds.append(fd)
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
