@@ -470,6 +470,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T46-fleet-drift.sh
 
+      - name: Verify csb1 fleet backup watch contract (OPS-485)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T114-fleet-backup-watch.sh
+
       - name: Verify no legacy whoami in production (NIX-292)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T10-no-production-whoami.sh

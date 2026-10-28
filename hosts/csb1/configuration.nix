@@ -257,6 +257,7 @@ in
     ./tailnet-watch.nix # OPS-181: page when this host's tailnet view is persistently broken
     ./aeon-watch.nix # OPS-307: API 5xx rate plus public DB/authentication-path probes
     ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
+    ./fleet-backup-watch.nix # OPS-485: page when a fleet backup has not succeeded within its schedule (reads pharosd's store)
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
