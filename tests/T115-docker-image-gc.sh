@@ -24,6 +24,9 @@ if grep -Eq 'Persistent = true' "${mod}"; then
   exit 1
 fi
 grep -Fq '@DECLARED_REFS@' "${script}"
+# keep.d for release-kit prestages: declared by tmpfiles, read fail-closed by the GC.
+grep -Fq '"d /var/lib/docker-image-gc/keep.d 0755 root root -"' "${mod}"
+grep -Fq 'KEEP_DIR = "/var/lib/docker-image-gc/keep.d"' "${script}"
 # Deploy locks: every compose deploy path, never the Janus Pharos lock (taken with flock -n).
 for lock in /run/lock/compose-csb1.lock /run/lock/compose-hausv.lock /run/lock/compose-hausv-next.lock; do
   grep -Fq "\"${lock}\"" "${script}"

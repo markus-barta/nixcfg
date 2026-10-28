@@ -2093,16 +2093,17 @@ termination, or an unhealthy replacement.
 Images are collected daily at 04:30 by `docker-image-gc` (OPS-327, `docker-image-gc.nix`/`.py`). An image goes only when it is:
 
 - unused by every container (running or stopped);
-- not referenced by the running compose spec, nor by the compose spec of any NixOS generation still on disk (every generation stays a working rollback target);
-- not the current or previous pin of a compose service. This history lives in `/var/lib/docker-image-gc/history.json`, so the previous AEON release (with its companions) stays even after its generations are collected;
-- not tagged `*:rollback` or `*:prestaged*` (release kits staging the next release);
+- not referenced by the running compose spec, nor by the compose spec of any NixOS system still on disk: every numbered generation, the booted and the running system (each stays a working rollback target). An unreadable generation stops the run;
+- not the current or previous pin of a compose service. This history lives in `/var/lib/docker-image-gc/history.json` and takes in each numbered generation once, in order (the booted system is not part of it). So the previous AEON release (with its companions) stays even after its generations are collected;
+- not listed in `/var/lib/docker-image-gc/keep.d/*.refs` (release kits write `<release>.refs` with one `name[:tag]@sha256:<digest>` per line before prestaging, and remove it one release later). The GC re-reads it before every batch and every delete. A missing directory or a malformed line means no deletes that day;
+- not tagged `*:rollback`, and not the newest image of its repository with a `prev-*` tag (HausV's own rollback target);
 - not in a Janus repository;
 - not among the newest 3 of its repository (tags and digest-only pulls);
 - older than 2 days (build time).
 
 Build cache older than 2 days goes too. Volumes are never touched.
 
-Deletion holds the compose deploy locks (`/run/lock/compose-csb1.lock`, `compose-hausv.lock`, `compose-hausv-next.lock`) in batches of at most 60 s. Each batch re-plans from fresh listings under the lock. If a deploy holds a lock for 5 min, the run stops and the next day continues. Images are deleted by ID without force and without pruning parents.
+Deletion holds the compose deploy locks (`/run/lock/compose-csb1.lock`, `compose-hausv.lock`, `compose-hausv-next.lock`) in batches of at most 60 s. Every Docker call in a batch gets the remaining budget as its timeout, and a delete starts only with 20 s left. A call that still times out stops the run. Each batch re-plans from fresh listings, generations, history and keep.d under the lock, and every delete re-reads the generations and keep.d first (a `nixos-rebuild boot` may declare an old image at any time). If a deploy holds a lock for 5 min, the run stops and the next day continues. Images are deleted by ID without force and without pruning parents.
 
 ```bash
 # What would go (changes nothing, takes no lock)
@@ -2115,7 +2116,7 @@ ssh mba@cs1.barta.cm -p 2222 "sudo systemctl start docker-image-gc"
 
 🔴 Never `docker system prune -a`, `docker image prune -a`, or any `--volumes` prune on csb1. These drop the Janus engine images and the unmounted Janus volumes that produce the Pharos beacon tokens. Plain `docker system prune -f` (dangling only) is still fine.
 
-An AEON or HausV image removed by the GC can be re-pulled by digest from ghcr. To keep an image the rules would drop (e.g. a prestaged release), tag it `<repo>:prestaged-<name>` or `<repo>:rollback`.
+An AEON or HausV image removed by the GC can be re-pulled by digest from ghcr. To keep an image the rules would drop, list it in a file under `keep.d` (as root): `echo 'ghcr.io/inspr-at/aeon@sha256:<digest>' | sudo tee /var/lib/docker-image-gc/keep.d/<reason>.refs`.
 
 ### View Logs
 

@@ -2,11 +2,12 @@
 
 Pins what is protected (container use, the running compose spec, every NixOS
 generation's compose spec, the current/previous pin per service from the
-persisted history, :rollback / :prestaged tags, Janus repositories, newest N
-per repository incl. digest-only refs, keep window), that a broken listing or
-history removes nothing, that removal deletes by ID without pruning parents
-and re-checks names before untagging, that batches hold the deploy locks and
-re-plan, and that the dry run changes nothing.
+persisted history, keep.d refs, :rollback and the newest prev-* tag, Janus repositories, newest N
+per repository incl. digest-only refs, keep window), that a broken or unreadable listing,
+generation or history removes nothing, that the booted system is no release chronology, that
+removal deletes by ID without pruning parents and re-checks names before untagging, that
+batches hold the deploy locks for at most BATCH_S and re-plan, that every delete re-reads the
+generations and keep.d, and that the dry run changes nothing.
 """
 
 from __future__ import annotations
@@ -15,11 +16,12 @@ import fcntl
 import io
 import json
 import os
+import socket
 import tempfile
 import types
 import unittest
 import urllib.parse
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -34,10 +36,13 @@ def load(declared: list[str], tmp: Path | None = None):
     module = types.ModuleType("docker_image_gc")
     exec(compile(source, str(SCRIPT), "exec"), module.__dict__)
     if tmp is not None:
-        module.PROFILE_GLOB = str(tmp / "profiles" / "system-*-link")
+        module.PROFILES_DIR = str(tmp / "profiles")
+        (tmp / "profiles").mkdir(exist_ok=True)
         module.SYSTEM_LINKS = ()
         module.HISTORY_PATH = str(tmp / "history.json")
         module.LOCK_PATHS = (str(tmp / "a.lock"), str(tmp / "b.lock"))
+        module.KEEP_DIR = str(tmp / "keep.d")
+        (tmp / "keep.d").mkdir(exist_ok=True)
     return module
 
 
@@ -45,7 +50,7 @@ def generations(tmp: Path, specs: list[dict[str, str]], first: int = 1) -> None:
     """One NixOS system per spec (services -> image), numbered from first."""
     for n, services in enumerate(specs, start=first):
         d = tmp / "profiles" / f"system-{n}-link" / "etc" / "compose" / "csb1"
-        d.mkdir(parents=True)
+        d.mkdir(parents=True, exist_ok=True)
         spec = {"services": {k: {"image": v} for k, v in services.items()}}
         spec["services"]["builder"] = {"build": {"context": "."}}
         (d / "docker-compose.yml").write_text(json.dumps(spec))
@@ -74,6 +79,7 @@ class FakeApi:
         self.delete = delete or {}
         self.after_delete = after_delete
         self.calls: list[tuple[str, str]] = []
+        self.timeouts: list[tuple[str, float | None]] = []
 
     def drop(self, ref):
         for image in list(self.images):
@@ -83,8 +89,9 @@ class FakeApi:
                 if ref in image[key]:
                     image[key].remove(ref)
 
-    def __call__(self, method, path):
+    def __call__(self, method, path, timeout=None):
         self.calls.append((method, path))
+        self.timeouts.append((method, timeout))
         if method == "GET" and path.startswith("/containers/json"):
             return 200, json.dumps(self.containers).encode()
         if method == "GET" and path.startswith("/images/json"):
@@ -108,6 +115,31 @@ class FakeApi:
 
     def deletes(self):
         return [p for m, p in self.calls if m == "DELETE"]
+
+
+@contextmanager
+def clocked(gc, api, per_delete: float):
+    """A fake monotonic clock that every DELETE advances by per_delete; yields the lock hold times."""
+    clock = [1000.0]
+    holds: list[float] = []
+    real_locks = gc.deploy_locks
+
+    @contextmanager
+    def tracked(*args, **kwargs):
+        with real_locks(*args, **kwargs):
+            start = clock[0]
+            try:
+                yield
+            finally:
+                holds.append(clock[0] - start)
+
+    def after_delete(fake, ref):
+        clock[0] += per_delete
+
+    api.after_delete = after_delete
+    gc.deploy_locks = tracked
+    with mock.patch.object(gc.time, "monotonic", lambda: clock[0]):
+        yield holds
 
 
 def run(gc, api, dry=False, env=None):
@@ -147,15 +179,16 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.gc.repo_of_tag("reg:5000/app:1"), "reg:5000/app")
         self.assertEqual(self.gc.repo_of_tag("reg:5000/app"), "reg:5000/app")
 
-    def test_rollback_and_prestaged_tags_are_kept(self):
+    def test_rollback_tag_and_newest_prev_tag_are_kept(self):
         r = img(1, 40, tags=["site:rollback"])
-        p = img(2, 40, tags=["ghcr.io/inspr-at/aeon:prestaged-143"])
-        q = img(3, 40, tags=["site:notprestaged"])
-        newer = [img(10 + k, 30, tags=[f"site:v{k}", f"ghcr.io/inspr-at/aeon:v{k}"]) for k in range(3)]
-        reasons, remove = self.plan([ctr(img(99, 1))], [r, p, q, *newer])
-        self.assertEqual(reasons[r["Id"]], "tagged :rollback / :prestaged")
-        self.assertEqual(reasons[p["Id"]], "tagged :rollback / :prestaged")
-        self.assertIn(q["Id"], self.ids(remove))
+        live = img(2, 30, tags=["hausvogt:live", "hausvogt:release-3"])
+        prev_new = img(3, 31, tags=["hausvogt:prev-2", "hausvogt:release-2"])
+        prev_old = img(4, 32, tags=["hausvogt:prev-1", "hausvogt:release-1"])
+        newer = [img(10 + k, 20, tags=[f"site:v{k}", f"hausvogt:build-{k}"]) for k in range(3)]
+        reasons, remove = self.plan([ctr(live)], [r, live, prev_new, prev_old, *newer])
+        self.assertEqual(reasons[r["Id"]], "tagged :rollback")
+        self.assertEqual(reasons[prev_new["Id"]], "newest prev-* of its repository")
+        self.assertIn(prev_old["Id"], self.ids(remove))
 
     def test_janus_repositories_are_always_kept(self):
         engines = [
@@ -217,13 +250,14 @@ class HistoryTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.gc = load([], self.tmp)
 
-    def replay(self, history, pins):
-        return self.gc.update_history(history, [(str(i), {"csb1/aeon": p}) for i, p in enumerate(pins)])
+    def replay(self, history, pins, first=1):
+        history = {"last_generation": 0, **history}
+        return self.gc.update_history(history, [(first + i, {"csb1/aeon": p}) for i, p in enumerate(pins)])
 
     def test_keeps_current_and_previous_pin(self):
         h = self.replay({"services": {}}, ["v1", "v1", "v2", "v3", "v3"])
         self.assertEqual(h["services"]["csb1/aeon"], ["v2", "v3"])
-        self.assertEqual(self.replay(h, ["v1", "v2", "v3"]), h, "replaying the same generations is stable")
+        self.assertEqual(self.replay(h, ["v1", "v1", "v2", "v3", "v3"]), h, "replaying the same generations is stable")
 
     def test_rollback_generation_makes_the_rolled_back_pin_previous(self):
         h = self.replay({"services": {}}, ["v1", "v2", "v3", "v2"])
@@ -233,11 +267,63 @@ class HistoryTests(unittest.TestCase):
         h = self.replay({"services": {"csb1/aeon": ["v2", "v3"]}}, ["v3"])
         self.assertEqual(h["services"]["csb1/aeon"], ["v2", "v3"])
 
+    def test_each_generation_counts_once(self):
+        h = self.replay({"services": {}}, ["v1", "v2", "v3"])
+        self.assertEqual((h["services"]["csb1/aeon"], h["last_generation"]), (["v2", "v3"], 3))
+        # Generation 2 collected; 1 (v1) is still on disk and must not rewind the history.
+        again = self.gc.update_history(h, [(1, {"csb1/aeon": "v1"}), (3, {"csb1/aeon": "v3"})])
+        self.assertEqual(again, h)
+        later = self.gc.update_history(h, [(1, {"csb1/aeon": "v1"}), (3, {"csb1/aeon": "v3"}), (4, {"csb1/aeon": "v4"})])
+        self.assertEqual(later["services"]["csb1/aeon"], ["v3", "v4"])
+
+    def test_deleted_newest_or_recreated_profile_lowers_the_mark_without_rewinding(self):
+        h = self.replay({"services": {}}, ["v1", "v2", "v3"], first=40)
+        # Generation 42 deleted by hand after a rollback to 41: nothing is replayed.
+        lowered = self.gc.update_history(h, [(40, {"csb1/aeon": "v1"}), (41, {"csb1/aeon": "v2"})])
+        self.assertEqual((lowered["services"]["csb1/aeon"], lowered["last_generation"]), (["v2", "v3"], 41))
+        # The next deploy reuses number 42.
+        nxt = self.gc.update_history(lowered, [(40, {"csb1/aeon": "v1"}), (41, {"csb1/aeon": "v2"}), (42, {"csb1/aeon": "v4"})])
+        self.assertEqual(nxt["services"]["csb1/aeon"], ["v3", "v4"])
+        # A recreated profile starts over at 1.
+        reset = self.gc.update_history(h, [(1, {"csb1/aeon": "v9"})])
+        self.assertEqual((reset["services"]["csb1/aeon"], reset["last_generation"]), (["v2", "v3"], 1))
+        later = self.gc.update_history(reset, [(1, {"csb1/aeon": "v9"}), (2, {"csb1/aeon": "v10"})])
+        self.assertEqual(later["services"]["csb1/aeon"], ["v3", "v10"])
+
     def test_generations_are_read_in_numeric_order(self):
         generations(self.tmp, [{"aeon": f"aeon:v{n}"} for n in range(1, 12)], first=1)
-        specs = self.gc.generation_specs()
+        specs, running = self.gc.generation_specs()
         self.assertEqual([s["csb1/aeon"] for _, s in specs], [f"aeon:v{n}" for n in range(1, 12)])
+        self.assertEqual(running, [])
         self.assertNotIn("csb1/builder", specs[0][1], "build-only services carry no image")
+
+    def test_booted_system_is_protected_but_no_release_chronology(self):
+        # v1 -> v2 -> v3 deployed, the host still booted into v1, v3 running.
+        generations(self.tmp, [{"aeon": "aeon:v1"}, {"aeon": "aeon:v2"}, {"aeon": "aeon:v3"}])
+        self.gc.SYSTEM_LINKS = (str(self.tmp / "profiles" / "system-1-link"), str(self.tmp / "profiles" / "system-3-link"))
+        systems, refsets = self.gc.protection(save=True)
+        self.assertEqual(systems, 5)
+        history = json.loads(Path(self.gc.HISTORY_PATH).read_text())
+        self.assertEqual((history["services"]["csb1/aeon"], history["last_generation"]), (["aeon:v2", "aeon:v3"], 3))
+        self.assertIn("aeon:v1", refsets["declared in a NixOS generation"])
+
+    def test_unreadable_generation_refuses(self):
+        generations(self.tmp, [{"aeon": "aeon:v1"}, {"aeon": "aeon:v2"}])
+        real_listdir = os.listdir
+
+        def listdir(path):
+            if "system-1-link" in str(path):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_listdir(path)
+
+        with mock.patch.object(self.gc.os, "listdir", listdir), self.assertRaises(PermissionError):
+            self.gc.generation_specs()
+        with mock.patch.object(self.gc.os, "scandir", side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaises(PermissionError):
+                self.gc.generation_specs()
+        (self.tmp / "profiles/system-2-link/etc/compose/csb1/docker-compose.yml").unlink()
+        with self.assertRaises(FileNotFoundError, msg="a stack without its compose file is not 'no services'"):
+            self.gc.generation_specs()
 
     def test_no_or_broken_compose_spec_refuses(self):
         with self.assertRaises(self.gc.Fatal):
@@ -248,10 +334,11 @@ class HistoryTests(unittest.TestCase):
             self.gc.generation_specs()
 
     def test_broken_history_refuses_missing_history_is_empty(self):
-        self.assertEqual(self.gc.load_history(self.gc.HISTORY_PATH), {"version": 1, "services": {}})
-        Path(self.gc.HISTORY_PATH).write_text(json.dumps({"services": {"csb1/aeon": "v1"}}))
-        with self.assertRaises(self.gc.Fatal):
-            self.gc.load_history(self.gc.HISTORY_PATH)
+        self.assertEqual(self.gc.load_history(self.gc.HISTORY_PATH), {"version": 2, "last_generation": 0, "services": {}})
+        for broken in ({"services": {"csb1/aeon": "v1"}}, {"services": {}, "last_generation": "7"}):
+            Path(self.gc.HISTORY_PATH).write_text(json.dumps(broken))
+            with self.assertRaises(self.gc.Fatal):
+                self.gc.load_history(self.gc.HISTORY_PATH)
 
 
 class RemoveTests(unittest.TestCase):
@@ -317,6 +404,135 @@ class MainTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.gc = load([], self.tmp)
 
+    def keep(self, name, *lines):
+        (self.tmp / "keep.d" / name).write_text("".join(line + "\n" for line in lines))
+
+    def app_images(self, n=5):
+        used = img(1, 1, tags=["app:9"], digests=["app@sha256:" + "9" * 64])
+        old = [img(10 + k, 30 + k, tags=[f"app:{k}"], digests=[f"app@sha256:{10 + k:064x}"]) for k in range(n)]
+        return used, old
+
+    def test_keep_d_refs_are_kept(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        used, old = self.app_images()
+        self.keep("r143.refs", "# prestaged by the r143 kit", "", f"app@sha256:{12:064x}", f"app:3@sha256:{13:064x}")
+        api = FakeApi([ctr(used)], [used, *old])
+        rc, out, _ = run(self.gc, api)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(api.deletes(), [f"/images/{old[4]['Id']}?noprune=1"])
+
+    def test_keep_d_broken_or_missing_removes_nothing(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        used, old = self.app_images()
+        for bad in ("app:3", "app@sha256:short", f"app @sha256:{1:064x}"):
+            self.keep("bad.refs", bad)
+            api = FakeApi([ctr(used)], [used, *old])
+            rc, _, err = run(self.gc, api)
+            self.assertEqual((rc, api.deletes()), (2, []), bad)
+            self.assertIn("bad.refs:1", err)
+        (self.tmp / "keep.d" / "bad.refs").unlink()
+        (self.tmp / "keep.d").rmdir()
+        api = FakeApi([ctr(used)], [used, *old])
+        rc, _, err = run(self.gc, api, dry=True)
+        self.assertEqual((rc, api.deletes()), (2, []))
+        self.assertIn("keep.d is missing", err)
+
+    def test_keep_d_is_reread_before_every_delete(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        used, old = self.app_images()
+
+        def kit_lists_the_next_candidate(api, ref):
+            # After the first delete of the batch a kit lists old[3] (planned, not yet deleted).
+            self.keep("r143.refs", f"app@sha256:{13:064x}")
+
+        api = FakeApi([ctr(used)], [used, *old], after_delete=kit_lists_the_next_candidate)
+        rc, out, _ = run(self.gc, api)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(f"/images/{old[3]['Id']}?noprune=1", api.deletes())
+        self.assertIn("1 kept", out)
+
+    def test_unreadable_older_generation_removes_nothing(self):
+        generations(self.tmp, [{"app": "app:2"}, {"app": "app:9"}])
+        used, old = self.app_images()
+        real_listdir = os.listdir
+
+        def listdir(path):
+            if "system-1-link" in str(path):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_listdir(path)
+
+        api = FakeApi([ctr(used)], [used, *old])
+        with mock.patch.object(self.gc.os, "listdir", listdir):
+            rc, _, err = run(self.gc, api)
+        self.assertEqual((rc, api.deletes()), (2, []))
+        self.assertIn("Permission denied", err)
+
+    def test_previous_pin_survives_a_booted_old_system(self):
+        # Booted into v1, running v3; history replayed while v2's generation existed, then it was collected.
+        generations(self.tmp, [{"aeon": "aeon:v1"}, {"aeon": "aeon:v2"}, {"aeon": "aeon:v3"}])
+        self.gc.SYSTEM_LINKS = (str(self.tmp / "profiles" / "system-1-link"),)
+        v, images = self.aeon_images()
+        rc, out, _ = run(self.gc, FakeApi([ctr(v[3])], [*images]), dry=False, env={"DOCKER_IMAGE_GC_KEEP_NEWEST": "1"})
+        self.assertEqual(rc, 0, out)
+        for part in ("etc/compose/csb1/docker-compose.yml", "etc/compose/csb1", "etc/compose", "etc"):
+            p = self.tmp / "profiles/system-2-link" / part
+            p.unlink() if p.is_file() else p.rmdir()
+        (self.tmp / "profiles/system-2-link").rmdir()
+        v, images = self.aeon_images()
+        api = FakeApi([ctr(v[3])], images)
+        rc, out, _ = run(self.gc, api, env={"DOCKER_IMAGE_GC_KEEP_NEWEST": "1"})
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(api.deletes(), [f"/images/{v[0]['Id']}?noprune=1"], "v2 stays the previous pin")
+
+    def test_generation_declared_between_deletes_is_honoured(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        used, old = self.app_images()
+
+        def boot_declares_an_old_image(api, ref):
+            # `nixos-rebuild boot` publishes a generation that declares old[4] (planned, not yet deleted).
+            generations(self.tmp, [{"app": "app:4"}], first=2)
+
+        api = FakeApi([ctr(used)], [used, *old], after_delete=boot_declares_an_old_image)
+        rc, out, _ = run(self.gc, api)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(f"/images/{old[4]['Id']}?noprune=1", api.deletes())
+        self.assertEqual(len(api.deletes()), 2)
+        self.assertIn("1 kept", out)
+
+    def test_batch_budget_bounds_the_lock_hold(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        used = img(1, 1, tags=["app:9"])
+        old = [img(10 + k, 30 + k, tags=[f"app:{k}"]) for k in range(6)]
+        api = FakeApi([ctr(used)], [used, *old])
+        with clocked(self.gc, api, per_delete=30) as holds:
+            rc, out, _ = run(self.gc, api, env={"DOCKER_IMAGE_GC_KEEP_NEWEST": "1"})
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(api.deletes()), 6)
+        self.assertLessEqual(max(holds), self.gc.BATCH_S)
+        self.assertEqual(holds, [60, 60, 60, 0])
+        self.assertEqual([t for m, t in api.timeouts if m == "DELETE"], [60, 30] * 3)
+        in_batch = [t for m, t in api.timeouts[2:] if m != "POST"]  # the build prune runs after the locks
+        self.assertTrue(all(t is not None and t <= self.gc.BATCH_S for t in in_batch), api.timeouts)
+
+    def test_call_timeout_stops_the_run(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        used, old = self.app_images()
+        # old[2] is the first (newest) candidate.
+        api = FakeApi([ctr(used)], [used, *old], delete={old[2]["Id"]: lambda fake: (_ for _ in ()).throw(socket.timeout("timed out"))})
+        rc, out, err = run(self.gc, api)
+        self.assertEqual(rc, 2)
+        self.assertEqual(len(api.deletes()), 1)
+        self.assertIn("nothing more removed", err)
+
+    def test_no_image_fitting_a_batch_stops_the_run(self):
+        generations(self.tmp, [{"app": "app:9"}])
+        self.gc.DELETE_NEED_S = self.gc.BATCH_S + 1
+        used, old = self.app_images()
+        api = FakeApi([ctr(used)], [used, *old])
+        rc, _, err = run(self.gc, api)
+        self.assertEqual((rc, api.deletes()), (2, []))
+        self.assertIn("not one image fit", err)
+
     def test_dry_run_changes_nothing(self):
         generations(self.tmp, [{"app": "app:9"}])
         used = img(1, 1, tags=["app:9"])
@@ -373,7 +589,7 @@ class MainTests(unittest.TestCase):
 
     def test_every_batch_replans_under_the_lock(self):
         generations(self.tmp, [{"app": "app:9"}])
-        self.gc.BATCH_S = 0  # one image per batch
+        self.gc.BATCH_S = 45  # a delete takes 30 s below: one image per batch
         used = img(1, 1, tags=["app:9"])
         old = [img(10 + k, 30 + k, tags=[f"app:{k}"]) for k in range(5)]
         held = []
@@ -393,9 +609,13 @@ class MainTests(unittest.TestCase):
             if not any(c["ImageID"] == old[4]["Id"] for c in api.containers):
                 api.containers.append(ctr(old[4]))
 
-        api = FakeApi([ctr(used)], [used, *old], after_delete=deploy_starts_using)
-        rc, out, _ = run(self.gc, api)
+        api = FakeApi([ctr(used)], [used, *old])
+        with clocked(self.gc, api, per_delete=30) as holds:
+            ticking = api.after_delete
+            api.after_delete = lambda fake, ref: (ticking(fake, ref), deploy_starts_using(fake, ref))
+            rc, out, _ = run(self.gc, api)
         self.assertEqual(rc, 0, out)
+        self.assertEqual(holds, [30, 30, 0], "one image per batch, then an empty re-plan")
         self.assertEqual(held, [], "no lock was free while deleting")
         self.assertNotIn(f"/images/{old[4]['Id']}?noprune=1", api.deletes())
         self.assertEqual(len(api.deletes()), 2)

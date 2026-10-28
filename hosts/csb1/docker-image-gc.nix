@@ -35,6 +35,13 @@ in
 {
   environment.systemPackages = [ dockerImageGc ];
 
+  # keep.d: release kits list the images they prestage (one name[:tag]@sha256:<digest> per
+  # line in <release>.refs). It must exist: the GC refuses to judge without it.
+  systemd.tmpfiles.rules = [
+    "d /var/lib/docker-image-gc 0755 root root -"
+    "d /var/lib/docker-image-gc/keep.d 0755 root root -"
+  ];
+
   systemd.services.docker-image-gc = {
     description = "Remove unused Docker release images and old build cache (OPS-327)";
     after = [ "docker.service" ];

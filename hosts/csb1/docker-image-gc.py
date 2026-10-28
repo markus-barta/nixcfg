@@ -11,8 +11,14 @@ image goes only when it is none of:
     disk (every generation stays a working `nixos-rebuild --rollback` target)
   - the current or previous image of a compose service by pin history (the
     AEON release rollback path), even after the generations that declared it
-    are gone: the history is kept in HISTORY_PATH
-  - tagged *:rollback or *:prestaged* (release kits stage the next release so)
+    are gone: the history is kept in HISTORY_PATH and takes in each numbered
+    generation once, in order (the booted and running systems are protected, but
+    they are no release chronology)
+  - listed in KEEP_DIR/*.refs (release kits write the image they prestage there
+    before pulling it, and drop the file one release later); re-read before
+    every batch and every delete
+  - tagged *:rollback, or the newest image of its repository with a prev-* tag
+    (HausV's own rollback target; HausV's stack is not Nix-declared)
   - in a protected repository (Janus engine / envelope: Pharos beacon tokens)
   - among the newest KEEP_NEWEST images of any repository it is tagged or
     pulled by digest in
@@ -20,8 +26,12 @@ image goes only when it is none of:
 Build cache older than KEEP_DAYS goes. Volumes are never touched.
 
 Removal holds the compose deploy locks (reconcile, weekly update, HausV and
-preview deploys) in short batches, and every batch re-plans from fresh
-listings taken under the lock, so no deploy changes tags under it. Images are
+preview deploys) in batches of at most BATCH_S: every Engine call in a batch
+gets the remaining budget as its timeout and none starts without enough budget
+left. Every batch re-plans from fresh listings, generations, history and keep.d
+taken under the lock, and every delete re-reads the generations and keep.d, so
+neither a deploy nor a `nixos-rebuild boot` changes what is declared under it.
+An unreadable generation, history or keep.d stops the run. Images are
 deleted by ID without force (a name could have moved to another image); only an
 image named in several repositories is untagged by name, each name re-checked
 against a fresh listing first. noprune=1: untagged parents are left alone.
@@ -34,7 +44,6 @@ from __future__ import annotations
 
 import errno
 import fcntl
-import glob
 import http.client
 import json
 import os
@@ -53,11 +62,13 @@ PROTECTED_REPOS = frozenset(
         "ghcr.io/inspr-at/janus/janus-envelope",
     }
 )
-KEEP_TAG = re.compile(r":(rollback|prestaged[\w.-]*)$")
-# NixOS system generations, oldest first, then the booted and the running system.
-PROFILE_GLOB = "/nix/var/nix/profiles/system-*-link"
+KEEP_DIR = "/var/lib/docker-image-gc/keep.d"
+KEEP_LINE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
+# NixOS system generations (system-<n>-link, oldest first), then the booted and the running system.
+PROFILES_DIR = "/nix/var/nix/profiles"
+GENERATION = re.compile(r"^system-(\d+)-link$")
 SYSTEM_LINKS = ("/run/booted-system", "/run/current-system")
-COMPOSE_IN_SYSTEM = "etc/compose/*/docker-compose.yml"
+COMPOSE_DIR = "etc/compose"
 HISTORY_PATH = "/var/lib/docker-image-gc/history.json"
 KEEP_RELEASES = 2
 # Every compose deploy path on csb1 serializes on one of these (flock -w).
@@ -69,6 +80,9 @@ LOCK_PATHS = (
 )
 LOCK_WAIT_S = 300
 BATCH_S = 60
+# Budget a call needs at least before it starts; a call that then runs out of budget stops the run.
+DELETE_NEED_S = 20
+GET_NEED_S = 5
 
 
 class Fatal(Exception):
@@ -77,6 +91,10 @@ class Fatal(Exception):
 
 class Busy(Exception):
     """A deploy holds a compose lock; this run stops without removing more."""
+
+
+class BatchOver(Exception):
+    """The batch budget is spent: give the locks back before the next call."""
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -91,8 +109,8 @@ class UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def docker_api(method: str, path: str) -> tuple[int, bytes]:
-    conn = UnixHTTPConnection(SOCKET_PATH, timeout=300)
+def docker_api(method: str, path: str, timeout: float = 300) -> tuple[int, bytes]:
+    conn = UnixHTTPConnection(SOCKET_PATH, timeout=timeout)
     try:
         conn.request(method, path)
         res = conn.getresponse()
@@ -154,29 +172,43 @@ def declared_ids(images: list[dict], refs: list[str]) -> set[str]:
     return ids
 
 
-def generation_specs() -> list[tuple[str, dict[str, str]]]:
-    """(system, {stack/service: image}) for every NixOS system on disk, oldest first, running last."""
+def compose_services(system: str) -> dict[str, str]:
+    """{stack/service: image} from one NixOS system's etc/compose/<stack>/docker-compose.yml.
 
-    def number(path: str) -> int:
-        return int(re.search(r"system-(\d+)-link$", path).group(1))
+    A system without etc/compose (or whose link vanished, so it is no rollback target any more)
+    declares nothing; any other read error, including a permission error, raises.
+    """
+    compose = os.path.join(system, COMPOSE_DIR)
+    try:
+        stacks = sorted(os.listdir(compose))
+    except FileNotFoundError:
+        return {}
+    services: dict[str, str] = {}
+    for stack in stacks:
+        path = os.path.join(compose, stack, "docker-compose.yml")
+        with open(path, encoding="utf-8") as fh:
+            spec = json.load(fh)  # rendered by builtins.toJSON
+        if not isinstance(spec, dict) or not isinstance(spec.get("services"), dict):
+            raise Fatal(f"{path}: no services map")
+        for name, service in spec["services"].items():
+            if isinstance(service, dict) and isinstance(service.get("image"), str):
+                services[f"{stack}/{name}"] = service["image"]
+    return services
 
-    systems = sorted(glob.glob(PROFILE_GLOB), key=number) + [s for s in SYSTEM_LINKS if os.path.exists(s)]
-    out = []
-    for system in systems:
-        services: dict[str, str] = {}
-        for path in sorted(glob.glob(os.path.join(system, COMPOSE_IN_SYSTEM))):
-            with open(path, encoding="utf-8") as fh:
-                spec = json.load(fh)  # rendered by builtins.toJSON
-            if not isinstance(spec, dict) or not isinstance(spec.get("services"), dict):
-                raise Fatal(f"{path}: no services map")
-            stack = os.path.basename(os.path.dirname(path))
-            for name, service in spec["services"].items():
-                if isinstance(service, dict) and isinstance(service.get("image"), str):
-                    services[f"{stack}/{name}"] = service["image"]
-        out.append((system, services))
-    if not any(services for _, services in out):
+
+def generation_specs():
+    """([(generation, services)] oldest first, [(booted/running system, services)]).
+
+    The profiles directory is listed with scandir, which raises instead of hiding an
+    unreadable directory the way glob does.
+    """
+    with os.scandir(PROFILES_DIR) as entries:
+        found = [(int(m.group(1)), e.path) for e in entries if (m := GENERATION.match(e.name))]
+    numbered = [(path, compose_services(path)) for _, path in sorted(found)]
+    running = [(path, compose_services(path)) for path in SYSTEM_LINKS if os.path.lexists(path)]
+    if not any(services for _, services in numbered + running):
         raise Fatal("no compose spec found in any NixOS system generation; refusing to judge")
-    return out
+    return numbered, running
 
 
 def load_history(path: str) -> dict:
@@ -184,19 +216,35 @@ def load_history(path: str) -> dict:
         with open(path, encoding="utf-8") as fh:
             history = json.load(fh)
     except FileNotFoundError:
-        return {"version": 1, "services": {}}
+        return {"version": 2, "last_generation": 0, "services": {}}
     services = history.get("services") if isinstance(history, dict) else None
-    if not isinstance(services, dict) or not all(
-        isinstance(refs, list) and all(isinstance(r, str) for r in refs) for refs in services.values()
+    last = history.get("last_generation", 0) if isinstance(history, dict) else None
+    if (
+        not isinstance(services, dict)
+        or not all(isinstance(refs, list) and all(isinstance(r, str) for r in refs) for refs in services.values())
+        or not isinstance(last, int)
     ):
         raise Fatal(f"{path} is not a pin history; refusing to judge")
-    return history
+    return {"version": 2, "last_generation": last, "services": services}
 
 
-def update_history(history: dict, generations) -> dict:
-    """Replay the generations (oldest first) onto the history; keep the last KEEP_RELEASES distinct pins per service."""
+def update_history(history: dict, generations: list[tuple[int, dict[str, str]]]) -> dict:
+    """Take in the numbered generations newer than the last one taken in, oldest first; keep the last
+    KEEP_RELEASES distinct pins per service.
+
+    Each generation counts once, when it is new: replaying older generations still on disk would
+    rewind the history (v1 replayed after v3 pushes out v2). The booted and running systems are not
+    generations here: appending an old booted pin would make it the "current" one.
+    """
     services = {name: list(refs) for name, refs in history["services"].items()}
-    for _, spec in generations:
+    last = history["last_generation"]
+    if generations and max(n for n, _ in generations) < last:
+        # The newest generations were deleted, or the profile was recreated and numbers started
+        # over: take the newest on disk as the mark and replay nothing (that would rewind).
+        last = max(n for n, _ in generations)
+    for number, spec in sorted(generations, key=lambda g: g[0]):
+        if number <= last:
+            continue
         for name, ref in sorted(spec.items()):
             refs = services.setdefault(name, [])
             if refs and refs[-1] == ref:
@@ -205,7 +253,8 @@ def update_history(history: dict, generations) -> dict:
                 refs.remove(ref)
             refs.append(ref)
             del refs[:-KEEP_RELEASES]
-    return {"version": 1, "services": services}
+        last = number
+    return {"version": 2, "last_generation": last, "services": services}
 
 
 def save_history(path: str, history: dict) -> None:
@@ -215,6 +264,25 @@ def save_history(path: str, history: dict) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+def read_keep(path: str) -> list[str]:
+    """Every ref in path/*.refs: one name[:tag]@sha256:<digest> per line, # comments and blanks allowed."""
+    if not os.path.isdir(path):
+        raise Fatal(f"{path} is missing; refusing to judge")
+    refs = []
+    for name in sorted(os.listdir(path)):
+        if not name.endswith(".refs"):
+            continue
+        with open(os.path.join(path, name), encoding="utf-8") as fh:
+            for n, raw in enumerate(fh, start=1):
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if not KEEP_LINE.match(line):
+                    raise Fatal(f"{name}:{n}: not a name[:tag]@sha256:<digest> ref: {line[:120]!r}")
+                refs.append(line)
+    return refs
 
 
 def validate(containers, images) -> None:
@@ -256,11 +324,17 @@ def plan(containers, images, refsets: dict[str, list[str]], now: float, keep_day
 
     newest_first = sorted(images, key=lambda i: (i["Created"], i["Id"]), reverse=True)
     per_repo: dict[str, int] = {}
+    prev_seen: set[str] = set()
     cutoff = now - keep_days * 86400
     for image in newest_first:
         image_id = image["Id"]
-        if any(KEEP_TAG.search(t) for t in tags_of(image)):
-            protect(image_id, "tagged :rollback / :prestaged")
+        if any(t.endswith(":rollback") for t in tags_of(image)):
+            protect(image_id, "tagged :rollback")
+        for tag in tags_of(image):
+            repo, _, name = tag.rpartition(":")
+            if name.startswith("prev-") and "/" not in name and repo not in prev_seen:
+                prev_seen.add(repo)
+                protect(image_id, "newest prev-* of its repository")
         repos = repositories(image)
         if repos & PROTECTED_REPOS:
             protect(image_id, "protected repository")
@@ -354,20 +428,45 @@ def listings(api):
     return get_json(api, "/containers/json?all=1"), get_json(api, "/images/json")
 
 
+def protection(save: bool):
+    """(number of NixOS systems, {reason: refs}) from the generations, the pin history and keep.d, read now.
+
+    save writes the replayed history (never in a dry run).
+    """
+    numbered, running = generation_specs()
+    history = update_history(
+        load_history(HISTORY_PATH),
+        [(int(GENERATION.match(os.path.basename(path)).group(1)), spec) for path, spec in numbered],
+    )
+    if save:
+        save_history(HISTORY_PATH, history)
+    refsets = {
+        "declared in the running compose spec": DECLARED_REFS,
+        "declared in a NixOS generation": [ref for _, spec in numbered + running for ref in spec.values()],
+        "current/previous pin of its service": [ref for refs in history["services"].values() for ref in refs],
+        "listed in keep.d": read_keep(KEEP_DIR),
+    }
+    return len(numbered) + len(running), refsets
+
+
+def budgeted(api, deadline: float):
+    """api for one batch: a call starts only with enough budget left and gets the rest as its timeout."""
+
+    def call(method: str, path: str) -> tuple[int, bytes]:
+        left = deadline - time.monotonic()
+        if left < (DELETE_NEED_S if method == "DELETE" else GET_NEED_S):
+            raise BatchOver()
+        return api(method, path, timeout=left)
+
+    return call
+
+
 def main(api=docker_api, now: float | None = None, sleep=time.sleep) -> int:
     dry_run = os.environ.get("DOCKER_IMAGE_GC_DRY_RUN", "0") == "1"
     try:
         keep_days = env_int("DOCKER_IMAGE_GC_KEEP_DAYS", 2)
         keep_newest = env_int("DOCKER_IMAGE_GC_KEEP_NEWEST", 3)
-        generations = generation_specs()
-        history = update_history(load_history(HISTORY_PATH), generations)
-        refsets = {
-            "declared in the running compose spec": DECLARED_REFS,
-            "declared in a NixOS generation": [ref for _, spec in generations for ref in spec.values()],
-            "current/previous pin of its service": [ref for refs in history["services"].values() for ref in refs],
-        }
-        if not dry_run:
-            save_history(HISTORY_PATH, history)
+        systems, refsets = protection(save=not dry_run)
         containers, images = listings(api)
         now = time.time() if now is None else now
         reasons, remove = plan(containers, images, refsets, now, keep_days, keep_newest)
@@ -380,10 +479,7 @@ def main(api=docker_api, now: float | None = None, sleep=time.sleep) -> int:
         by_reason[why] = by_reason.get(why, 0) + 1
     summary = ", ".join(f"{n} {why}" for why, n in sorted(by_reason.items()))
     total = sum(i.get("Size", 0) for i in remove) / 1e9
-    print(
-        f"docker-image-gc: {len(images)} images, {len(generations)} NixOS systems; "
-        f"protected {len(reasons)} ({summary})"
-    )
+    print(f"docker-image-gc: {len(images)} images, {systems} NixOS systems; protected {len(reasons)} ({summary})")
 
     if dry_run:
         for image in remove:
@@ -401,20 +497,32 @@ def main(api=docker_api, now: float | None = None, sleep=time.sleep) -> int:
     try:
         while True:
             with deploy_locks(LOCK_PATHS, LOCK_WAIT_S, sleep):
-                # Re-plan under the lock: a deploy since the last batch may use or name an image now.
-                containers, images = listings(api)
-                _, remove = plan(containers, images, refsets, now, keep_days, keep_newest)
-                todo = [i for i in remove if i["Id"] not in attempted]
-                if not todo:
-                    break
-                started = time.monotonic()
-                for image in todo:
-                    attempted.add(image["Id"])
-                    result = remove_image(api, image)
-                    counts[result] += 1
-                    print(f"{result} {describe(image)}")
-                    if time.monotonic() - started >= BATCH_S:
+                batch = budgeted(api, time.monotonic() + BATCH_S)
+                done = 0
+                try:
+                    # Re-plan under the lock: a deploy or a new generation since the last batch may use or name an image now.
+                    _, refsets = protection(save=True)
+                    containers, images = listings(batch)
+                    _, remove = plan(containers, images, refsets, now, keep_days, keep_newest)
+                    todo = [i for i in remove if i["Id"] not in attempted]
+                    if not todo:
                         break
+                    for image in todo:
+                        # A kit may list an image it prestages (outside the compose lock), and
+                        # `nixos-rebuild boot` may declare one, at any time: re-read both first.
+                        _, fresh = protection(save=False)
+                        if declared_ids([image], [ref for refs in fresh.values() for ref in refs]):
+                            attempted.add(image["Id"])
+                            result = "kept"
+                        else:
+                            result = remove_image(batch, image)
+                            attempted.add(image["Id"])
+                        counts[result] += 1
+                        done += 1
+                        print(f"{result} {describe(image)}")
+                except BatchOver:
+                    if not done:
+                        raise Fatal(f"not one image fit into a {BATCH_S} s batch") from None
             # Let a deploy that waits on a lock (flock -w) in before the next batch.
             sleep(2)
     except Busy as busy:
