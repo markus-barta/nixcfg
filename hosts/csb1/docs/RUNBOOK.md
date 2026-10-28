@@ -2093,16 +2093,19 @@ termination, or an unhealthy replacement.
 Images are collected daily at 04:30 by `docker-image-gc` (OPS-327, `docker-image-gc.nix`/`.py`). An image goes only when it is:
 
 - unused by every container (running or stopped);
-- not referenced by the Nix-declared compose spec;
-- not tagged `*:rollback`;
+- not referenced by the running compose spec, nor by the compose spec of any NixOS generation still on disk (every generation stays a working rollback target);
+- not the current or previous pin of a compose service. This history lives in `/var/lib/docker-image-gc/history.json`, so the previous AEON release (with its companions) stays even after its generations are collected;
+- not tagged `*:rollback` or `*:prestaged*` (release kits staging the next release);
 - not in a Janus repository;
 - not among the newest 3 of its repository (tags and digest-only pulls);
-- older than 2 days.
+- older than 2 days (build time).
 
 Build cache older than 2 days goes too. Volumes are never touched.
 
+Deletion holds the compose deploy locks (`/run/lock/compose-csb1.lock`, `compose-hausv.lock`, `compose-hausv-next.lock`) in batches of at most 60 s. Each batch re-plans from fresh listings under the lock. If a deploy holds a lock for 5 min, the run stops and the next day continues. Images are deleted by ID without force and without pruning parents.
+
 ```bash
-# What would go (changes nothing)
+# What would go (changes nothing, takes no lock)
 ssh mba@cs1.barta.cm -p 2222 "sudo DOCKER_IMAGE_GC_DRY_RUN=1 docker-image-gc"
 # Last run
 ssh mba@cs1.barta.cm -p 2222 "journalctl -u docker-image-gc --since -2d --no-pager | tail -20"
@@ -2112,7 +2115,7 @@ ssh mba@cs1.barta.cm -p 2222 "sudo systemctl start docker-image-gc"
 
 🔴 Never `docker system prune -a`, `docker image prune -a`, or any `--volumes` prune on csb1. These drop the Janus engine images and the unmounted Janus volumes that produce the Pharos beacon tokens. Plain `docker system prune -f` (dangling only) is still fine.
 
-An AEON or HausV image removed by the GC can be re-pulled by digest from ghcr. The previous 2 pins of every repository stay local.
+An AEON or HausV image removed by the GC can be re-pulled by digest from ghcr. To keep an image the rules would drop (e.g. a prestaged release), tag it `<repo>:prestaged-<name>` or `<repo>:rollback`.
 
 ### View Logs
 

@@ -4,7 +4,9 @@
 # (2026-10-28), mostly superseded AEON and HausV release images. The rules
 # live in docker-image-gc.py. The image references of the Nix-declared compose
 # spec (csb1 + Janus-managed stack) are baked in, so a declared service whose
-# container does not exist yet keeps its image. 🔴 Never replace this with
+# container does not exist yet keeps its image; at run time it also keeps every
+# image a NixOS generation on disk declares, plus the current and previous pin
+# of each service (AEON release rollback). 🔴 Never replace this with
 # `docker image prune -a` / `system prune -a` (csb1 never-prune rule: Janus
 # engine images and volumes).
 #
@@ -40,9 +42,12 @@ in
     serviceConfig = {
       Type = "oneshot";
       ExecStart = lib.getExe dockerImageGc;
-      # The docker socket is the only thing it needs: root:docker 0660.
-      DynamicUser = true;
-      SupplementaryGroups = [ "docker" ];
+      # Root without capabilities: it owns the docker socket (root:docker 0660),
+      # the compose deploy locks (compose-hausv-next.lock is root 0600) and its
+      # pin history; nothing else needs privilege.
+      CapabilityBoundingSet = "";
+      StateDirectory = "docker-image-gc";
+      ReadWritePaths = [ "/run/lock" ];
       PrivateTmp = true;
       PrivateDevices = true;
       ProtectHome = true;
@@ -59,14 +64,15 @@ in
     };
   };
 
-  # After the 01:05–01:20 backup snapshots, before the Saturday 05:07 compose update.
+  # After the 01:05–01:20 backup snapshots, before the Saturday 05:07 compose
+  # update (it waits for the same lock anyway). No Persistent catch-up: a missed
+  # day waits for the next 04:30 instead of running right after a boot or switch.
   systemd.timers.docker-image-gc = {
     description = "Daily Docker image GC (OPS-327)";
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnCalendar = "*-*-* 04:30:00";
       RandomizedDelaySec = "10m";
-      Persistent = true;
       Unit = "docker-image-gc.service";
     };
   };
