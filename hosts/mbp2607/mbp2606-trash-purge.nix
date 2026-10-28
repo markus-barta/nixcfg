@@ -10,6 +10,13 @@
 #
 # Scope: only the direct children of /Users/mba/.Trash with ctime older than 3 days (a move
 # into the Trash sets ctime). Purging the Trash is permanent by definition.
+#
+# The purge pins the Trash: it changes into it and deletes only relative ./<name> paths, so a
+# .Trash swapped for a symlink after the check cannot redirect a delete. Each entry is
+# age-checked and removed in one find -exec, which keeps the window between the ctime check and
+# the rm to one fork. Trash tools never reuse an existing name, so an entry replaced in that
+# window is not a realistic case; it would still be a Trash entry.
+# tests/T116 runs this script against a sandbox with stubbed ssh, find and rm.
 { config, pkgs, ... }:
 let
   purge = pkgs.writeShellScript "mbp2606-trash-purge" ''
@@ -19,12 +26,16 @@ let
     set -uo pipefail
     T=/Users/mba/.Trash
     if [ ! -d "$T" ] || [ -L "$T" ]; then echo "no trash dir at $T"; exit 3; fi
+    cd -P "$T" || exit 3
+    if [ "$(pwd -P)" != "$T" ]; then echo "trash dir resolved elsewhere: $(pwd -P)"; exit 3; fi
     free() { df -g /System/Volumes/Data | awk 'NR==2{print $4}'; }
     before=$(free)
-    n=$(find "$T" -mindepth 1 -maxdepth 1 -ctime +3 | wc -l | tr -d ' ')
-    find "$T" -mindepth 1 -maxdepth 1 -ctime +3 -print0 | xargs -0 rm -rf
+    selected=$(find . -mindepth 1 -maxdepth 1 -ctime +3 -print0 | tr -dc '\000' | wc -c | tr -d ' ')
+    # An entry whose rm fails is printed; find's own errors set rc.
+    failed=$(find . -mindepth 1 -maxdepth 1 -ctime +3 ! -exec rm -rf {} \; -print0 | tr -dc '\000' | wc -c | tr -d ' ')
     rc=$?
-    echo "purged=$n rc=$rc left=$(ls -A "$T" | wc -l | tr -d ' ') df_free_before=''${before}GB df_free_after=$(free)GB (local snapshots may pin the space for up to 24 h)"
+    if [ "$failed" != 0 ] && [ "$rc" = 0 ]; then rc=1; fi
+    echo "selected=$selected failed=$failed rc=$rc left=$(find . -mindepth 1 -maxdepth 1 -print0 | tr -dc '\000' | wc -c | tr -d ' ') df_free_before=''${before}GB df_free_after=$(free)GB (local snapshots may pin the space for up to 24 h)"
     exit $rc
     REMOTE
     )
