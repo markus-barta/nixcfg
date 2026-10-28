@@ -454,16 +454,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793139490,
-        "narHash": "sha256-w1FmF5H4WQOfgR2nbIrr211YbLGeZ5dFA1w9jJmRbHE=",
+        "lastModified": 1793195780,
+        "narHash": "sha256-0B3kAEhuOIKTrnhqXnxr/ieWV0bUVneE+b0x8WEAdIA=",
         "ref": "refs/heads/main",
-        "rev": "75093a3737b87b3f8e126de786711cc31acaf2c3",
-        "revCount": 1078,
+        "rev": "2b4cfc8398a9c03d869b2b26a9a1945becd7f088",
+        "revCount": 1085,
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       },
       "original": {
-        "rev": "75093a3737b87b3f8e126de786711cc31acaf2c3",
+        "rev": "2b4cfc8398a9c03d869b2b26a9a1945becd7f088",
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       }
