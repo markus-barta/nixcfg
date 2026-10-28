@@ -415,7 +415,9 @@ class RulesetTests(unittest.TestCase):
             if rule["type"] == "merge_queue":
                 rule["parameters"]["max_entries_to_build"] = 99
         detail = ab.ruleset_drift(live, self.expected())
-        self.assertIn("rule merge_queue: max_entries_to_build: 6 -> 99", detail)
+        pinned = next(r for r in LIVE_RULESET["rules"] if r["type"] == "merge_queue")["parameters"]["max_entries_to_build"]
+        self.assertNotEqual(pinned, 99)
+        self.assertIn(f"rule merge_queue: max_entries_to_build: {pinned} -> 99", detail)
         dropped = dict(LIVE_RULESET, rules=[r for r in LIVE_RULESET["rules"] if r["type"] != "merge_queue"])
         self.assertIn("rule merge_queue missing", ab.ruleset_drift(dropped, self.expected()))
         self.assertIn("enforcement: expected", ab.ruleset_drift(dict(LIVE_RULESET, enforcement="evaluate"), self.expected()))
