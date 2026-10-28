@@ -1,17 +1,17 @@
-# Docker image GC — OPS-327 (port of agm1's AGM-48 rules).
+# Docker image GC — OPS-327 (port of agm1's AGM-48 rules, design round 5).
 #
 # csb1 had no image GC: 300 images / 123.5 GB, 111.6 GB of it reclaimable
 # (2026-10-28), mostly superseded AEON and HausV release images. The rules
 # live in docker-image-gc.py. The image references of the Nix-declared compose
 # spec (csb1 + Janus-managed stack) are baked in, so a declared service whose
 # container does not exist yet keeps its image; at run time it also keeps every
-# image a NixOS generation on disk declares, plus the current and previous pin
-# of each service in activation order (AEON release rollback), which every
-# activation records below. 🔴 Never replace this with
-# `docker image prune -a` / `system prune -a` (csb1 never-prune rule: Janus
-# engine images and volumes).
+# image a NixOS system on disk declares and every image keep.d names. The
+# previous AEON release is the release kit's to state, in keep.d (contract v2,
+# OPS-327): until aeon-live.refs and aeon-previous.refs hold, nothing is
+# deleted. 🔴 Never replace this with `docker image prune -a` /
+# `system prune -a` (csb1 never-prune rule: Janus engine images and volumes).
 #
-# Dry run on the host: sudo DOCKER_IMAGE_GC_DRY_RUN=1 docker-image-gc
+# Dry run on the host: sudo docker-image-gc (any run outside systemd is a dry run)
 {
   config,
   pkgs,
@@ -36,21 +36,13 @@ in
 {
   environment.systemPackages = [ dockerImageGc ];
 
-  # keep.d: release kits list the images they prestage (one name[:tag]@sha256:<digest> per
-  # line in <release>.refs). It must exist: the GC refuses to judge without it.
+  # keep.d: the release kit's role files (aeon-live.refs, aeon-previous.refs) and the
+  # images it prestages (aeon-staged-<release>.refs), one name[:tag]@sha256:<digest> per
+  # line. It must exist: the GC refuses to judge without it.
   systemd.tmpfiles.rules = [
     "d /var/lib/docker-image-gc 0755 root root -"
     "d /var/lib/docker-image-gc/keep.d 0755 root root -"
-    "d /var/lib/docker-image-gc/activations 0755 root root -"
   ];
-
-  # Every activation (switch, test, rollback, and boot: /var/lib is on the root dataset) records the
-  # activated system's compose pins in order; the GC derives each service's current and previous
-  # pin from them, whatever the generation numbers. A failed record must not fail the activation:
-  # the GC then refuses to judge until the running system has a record. dry-activate skips this.
-  system.activationScripts.docker-image-gc-record = ''
-    ${lib.getExe dockerImageGc} record "$systemConfig" || echo "docker-image-gc: activation record failed" >&2
-  '';
 
   systemd.services.docker-image-gc = {
     description = "Remove unused Docker release images and old build cache (OPS-327)";
@@ -78,6 +70,9 @@ in
       RestrictAddressFamilies = [ "AF_UNIX" ];
       SystemCallArchitectures = "native";
       TimeoutStartSec = "1h";
+      # SIGTERM sets a flag; the call in flight (a GET ends at its 30 s watchdog, a
+      # DELETE when dockerd answers) finishes before the run stops.
+      TimeoutStopSec = "180";
     };
   };
 

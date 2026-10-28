@@ -2093,21 +2093,27 @@ termination, or an unhealthy replacement.
 Images are collected daily at 04:30 by `docker-image-gc` (OPS-327, `docker-image-gc.nix`/`.py`). An image goes only when it is:
 
 - unused by every container (running or stopped);
-- not referenced by the running compose spec, nor by the compose spec of any NixOS system still on disk: every numbered generation, the booted and the running system (each stays a working rollback target). An unreadable generation stops the run;
-- not the current or previous pin of a compose service in activation order. Every activation (switch, `nixos-rebuild test`, rollback, boot) runs `docker-image-gc record`, which appends the activated system's compose pins to `/var/lib/docker-image-gc/activations/<n>.json`. Generation numbers play no part. So the previous AEON release (with its companions) stays even after its generations are collected. If there are no records, a record is malformed, or the newest record is not the running system's (its record failed, or an activation is under way), nothing is deleted that day. A failed record shows as `docker-image-gc: activation record failed` in the switch output;
-- not listed in `/var/lib/docker-image-gc/keep.d/*.refs` (release kits write `<release>.refs` with one `name[:tag]@sha256:<digest>` per line before prestaging, and remove it one release later). The GC re-reads it before every batch and every DELETE. A missing directory or a malformed line means no deletes that day;
+- not referenced by the Nix-declared compose spec, nor by the compose spec of any NixOS system still on disk: every numbered generation, the booted and the running system (each stays a working rollback target). An unreadable generation stops the run;
+- not listed in `/var/lib/docker-image-gc/keep.d/*.refs` (one `name[:tag]@sha256:<digest>` per line; `#` comments and blank lines allowed). A missing directory or a malformed line stops the run;
 - not tagged `*:rollback`, and not the newest image of its repository with a `prev-*` tag (HausV's own rollback target);
 - not in a Janus repository;
 - not among the newest 3 of its repository (tags and digest-only pulls);
 - older than 2 days (build time).
 
-Build cache older than 2 days goes too. Volumes are never touched.
+**Release baseline (keep.d contract v2, canonical text on OPS-327).** The AEON release kit is the authority on which release is live and which is previous. It keeps three kinds of file in `keep.d`, all written as root while holding `/run/lock/compose-csb1.lock`:
 
-Deletion holds the compose deploy locks (`/run/lock/compose-csb1.lock`, `compose-hausv.lock`, `compose-hausv-next.lock`) in batches of at most 60 s. A timer interrupts whatever still runs at 60 s; a DELETE caught in flight counts as failed and is not retried that run. A delete starts only with 20 s of budget left. The GC writes no file while it holds the locks. Each batch re-plans from fresh listings, generations, activation records and keep.d under the lock. Every DELETE (each untag of an image named in several repositories included) re-reads the generations, activation records and keep.d first, because an activation, a `nixos-rebuild boot` or a release kit may declare an old image at any time. If a deploy holds a lock for 5 min, the run stops and the next day continues. Images are deleted by ID without force and without pruning parents.
+- `aeon-staged-<R>.refs`, written before the prestage pull of release R and removed at its go-live (or when R fails or is abandoned);
+- `aeon-live.refs` and `aeon-previous.refs`, each listing every image the release's compose pins, companions included. At go-live the kit saves the old previous as `aeon-previous.pre-<R>`, then sets previous := old live and live := R (each a tmp file + rename). A rollback after go-live restores both from those files.
+
+Nothing at all is deleted (images or build cache) unless both role files exist, parse, are non-empty and differ, and `aeon-live.refs` names the image of every running `ghcr.io/inspr-at/aeon` container. The run then logs `release baseline not met (<reason>); nothing deleted` and exits 0. Until the kit's first v2 go-live this is the normal state.
+
+Build cache older than 2 days goes after the images. Volumes are never touched.
+
+Deletion takes the compose deploy locks (`/run/lock/compose-csb1.lock`, `compose-hausv.lock`, `compose-hausv-next.lock`) non-blocking: if any is busy it releases all, retries for 5 min, then skips the day. It never takes a lock that someone else takes non-blocking: not the Janus Pharos lock, and not `/run/nixos/switch-to-configuration.lock` (`switch-to-configuration` would die on it). A batch lasts at most 60 s plus the DELETE in flight. Before every DELETE the GC takes a complete fresh snapshot (container and image listings, every NixOS system's compose spec, keep.d), plans from it, and deletes only if the image is still deletable and the snapshot started at most 2 s earlier; three slower snapshots in a row end the batch. Images are deleted by ID, without force, without untagging and without pruning parents; a 409 keeps the image. GETs end at a 30 s watchdog; a DELETE has no client timeout. Inputs are capped (listings 4/16 MiB, specs 1 MiB each and 64 MiB total, 200 generations, 64 keep.d files of 64 KiB, 100,000 references); a cap reached stops the run and fails the unit. SIGTERM lets the call in flight finish (`TimeoutStopSec` 180 s). Only a run under systemd deletes; any manual run is a dry run.
 
 ```bash
-# What would go (changes nothing, takes no lock)
-ssh mba@cs1.barta.cm -p 2222 "sudo DOCKER_IMAGE_GC_DRY_RUN=1 docker-image-gc"
+# What would go (changes nothing, takes no lock; any run outside systemd is a dry run)
+ssh mba@cs1.barta.cm -p 2222 "sudo docker-image-gc"
 # Last run
 ssh mba@cs1.barta.cm -p 2222 "journalctl -u docker-image-gc --since -2d --no-pager | tail -20"
 # Run now (same rules)

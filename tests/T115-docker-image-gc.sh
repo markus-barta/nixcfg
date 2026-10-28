@@ -18,38 +18,47 @@ grep -Fq 'StateDirectory = "docker-image-gc";' "${mod}"
 grep -Fq 'ReadWritePaths = [ "/run/lock" ];' "${mod}"
 grep -Fq 'RestrictAddressFamilies = [ "AF_UNIX" ]' "${mod}"
 grep -Fq 'OnCalendar = "*-*-* 04:30:00"' "${mod}"
+# SIGTERM lets the call in flight finish: a GET ends at its 30 s watchdog.
+grep -Fq 'TimeoutStopSec = "180";' "${mod}"
 # No boot/switch catch-up run in the middle of a deploy.
 if grep -Eq 'Persistent = true' "${mod}"; then
   echo "T115: the GC timer must not be Persistent" >&2
   exit 1
 fi
 grep -Fq '@DECLARED_REFS@' "${script}"
-# keep.d for release-kit prestages: declared by tmpfiles, read fail-closed by the GC.
+# keep.d (contract v2): declared by tmpfiles, read fail-closed; the release baseline is its role files.
 grep -Fq '"d /var/lib/docker-image-gc/keep.d 0755 root root -"' "${mod}"
 grep -Fq 'KEEP_DIR = "/var/lib/docker-image-gc/keep.d"' "${script}"
-# Activation records: every activation (switch, test, rollback, boot) records its compose pins,
-# and the GC reads them fail-closed. A failed record must not fail the activation.
-grep -Fq '"d /var/lib/docker-image-gc/activations 0755 root root -"' "${mod}"
-grep -Fq 'system.activationScripts.docker-image-gc-record' "${mod}"
-# shellcheck disable=SC2016 # literal Nix text
-grep -Fq '${lib.getExe dockerImageGc} record "$systemConfig" || echo' "${mod}"
-grep -Fq 'RECORDS_DIR = "/var/lib/docker-image-gc/activations"' "${script}"
-if grep -n 'history.json' "${script}" "${mod}"; then
-  echo "T115: the generation-numbered history is gone; records replace it" >&2
+grep -Fq 'LIVE_REFS = "aeon-live.refs"' "${script}"
+grep -Fq 'PREVIOUS_REFS = "aeon-previous.refs"' "${script}"
+grep -Fq 'AEON_REPO = "ghcr.io/inspr-at/aeon"' "${script}"
+# Activation records are gone: the release kit states the previous release.
+if grep -nE 'activations|activationScripts|RECORDS_DIR|history.json' "${script}" "${mod}"; then
+  echo "T115: activation records are gone; keep.d role files replace them" >&2
   exit 1
 fi
-# The batch bound is a real timer, not only per-operation socket timeouts.
-grep -Fq 'signal.setitimer(signal.ITIMER_REAL, seconds)' "${script}"
-# Deploy locks: every compose deploy path, never the Janus Pharos lock (taken with flock -n).
+# GETs end at a real timer, not only at socket timeouts.
+grep -Fq 'signal.setitimer(signal.ITIMER_REAL, max(seconds, 0.001))' "${script}"
+# Deploy locks: every compose deploy path, never a lock someone takes non-blocking
+# (Janus Pharos: flock -n; switch-to-configuration: LockExclusiveNonblock).
 for lock in /run/lock/compose-csb1.lock /run/lock/compose-hausv.lock /run/lock/compose-hausv-next.lock; do
   grep -Fq "\"${lock}\"" "${script}"
 done
-if grep -Fq 'janus-pharos-production.lock' "${script}"; then
-  echo "T115: the GC must not take the Janus Pharos lock" >&2
+for lock in janus-pharos-production.lock switch-to-configuration.lock; do
+  if grep -n "${lock}" "${script}" | grep -vE '^\s*[0-9]+:\s*#'; then
+    echo "T115: the GC must not take ${lock}" >&2
+    exit 1
+  fi
+done
+grep -Fq 'fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)' "${script}"
+# Real deletes only under systemd.
+grep -Fq 'if not os.environ.get("INVOCATION_ID"):' "${script}"
+# Deletes by ID only: never forced, never untagged by name, parents never pruned, no client timeout.
+grep -Fq "api(\"DELETE\", f\"/images/{image['Id']}?noprune=1\", timeout=None," "${script}"
+if [ "$(grep -c '"DELETE"' "${script}")" -ne 1 ]; then
+  echo "T115: exactly one DELETE call, by image ID" >&2
   exit 1
 fi
-# Deletes never force and never prune parents.
-grep -Fq '"?noprune=1"' "${script}"
 if grep -nE 'noprune=0|force=(1|true)' "${script}"; then
   echo "T115: forced or parent-pruning delete in ${script}" >&2
   exit 1
