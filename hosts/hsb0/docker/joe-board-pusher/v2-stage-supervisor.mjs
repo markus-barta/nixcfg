@@ -35,6 +35,7 @@ export function createStageSupervisor({
   function start() {
     if (stopped) return;
     phase = "starting";
+    let checkpointWarning = false;
     const startedAt = now();
     try { child = launch(); } catch {
       event("v2_stage_disabled", "worker_unavailable");
@@ -46,6 +47,11 @@ export function createStageSupervisor({
     watch(STARTUP_TIMEOUT_MS, "worker_startup_timeout");
     current.on("message", message => {
       if (current !== child || stopped || phase === "killed" || !message || typeof message !== "object") return;
+      if (message.event === "checkpoint_disabled") {
+        if (!checkpointWarning) event("v2_stage_checkpoint_disabled", "directory_unsafe");
+        checkpointWarning = true;
+        return;
+      }
       if (message.event === "v1_unbound") {
         event("v1_cycle_unbound", "store_unavailable"); return;
       }

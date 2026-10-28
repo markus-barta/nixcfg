@@ -418,8 +418,20 @@ meaning local pointer publication only. The supervisor emits exactly
 ownership/modes, inconsistent sequences/digests or torn log lines disable staging
 and preserve evidence. v1 state is untouched.
 
-Receipt recovery uses an optional, atomically replaced 0600 checkpoint at
-`/run/joe-household-v2/receipts-checkpoint.json` in the existing 0700 IPC mount.
+Receipt recovery uses an optional, atomically replaced 0600 checkpoint named
+`receipts-checkpoint.json` in **stager-only persistent storage**. Its directory
+comes only from the absolute `JOE_V2_STAGE_CHECKPOINT_DIR` environment variable.
+Unset or empty disables all checkpoint reads/writes and uses the original full
+scan. The directory must already exist as a real directory (no symlink), owned
+by the stager's uid:gid with mode exactly 0700. Shared paths are refused,
+including `/run/joe-household-v2`, the v2 state directory and its pusher-visible
+parent `/var/lib/joe-board-pusher`, and the socket directory; ancestors and
+descendants of those shared paths and aliases into them are also refused.
+Invalid configuration disables the feature for that worker with one value-free
+`{event:"v2_stage_checkpoint_disabled",reason:"directory_unsafe"}` log line.
+There is no fallback to `/run/joe-household-v2/receipts-checkpoint.json`; a stale
+file there is ignored, never read or replaced.
+
 It records a line-boundary byte offset, the last receipt sequence at that offset,
 and SHA256 of every preceding byte. Startup streams the prefix hash in 64 KiB
 chunks, checks the boundary row's sequence, and parses/validates only the tail.
@@ -443,8 +455,11 @@ for the tail (normally 11 receipts and one boundary row at default retention),
 plus validation of retained pairs. Rejected rows since the oldest retained pair
 also belong to that tail. Full recovery validates every receipt, so its CPU cost
 grows with history; a checkpoint bounds the usual expensive validation work,
-not the bytes hashed. The cache survives container recreation but `/run` is
-cleared on host reboot, requiring a full scan under the longer startup deadline.
+not the bytes hashed. With the persistent host mount below, the checkpoint
+survives both container recreation and host reboot, avoiding a reboot-triggered
+full scan. A missing mount, unset variable or unusable checkpoint safely falls
+back to the full scan under the longer startup deadline. A missing directory
+is never created by the worker.
 OPS measured approximately **0.12 s CPU/MB** for full validation on hsb0. The
 **60 s** startup deadline permits roughly **400–450 MB at 1.0 CPU**, or
 **100–110 MB at 0.25 CPU**, allowing for startup overhead. Reverting the stager
@@ -455,19 +470,38 @@ the remaining retained-pair tail must also fit within one startup attempt.
 These are approximate host measurements, not timing guarantees.
 
 The network-facing pusher shares the **0700 `/run/joe-household-v2` mount** and
-runs as the same UID, so it can write this checkpoint. It can force full scans
-by corrupting/removing it or blocking its temporary file, and can supply a
-correctly hashed prefix that skips strict validation of old, unretained rows.
-The cache is therefore not a security boundary against that writer. Boundary,
-tail, retained-pair and durable sequence-state checks still run: the checkpoint
-cannot make a tampered tail, retained pair or sequence floor acceptable. The
-pusher's `v2/` mount itself is read-only. Moving the checkpoint to a stager-only
-path is a possible follow-up requiring a mount change.
+runs as the same UID as the network-less stager. Mode 0600, ownership and
+O_NOFOLLOW therefore do not separate those writers. A matching SHA256 proves
+byte equality, not that the prefix was previously validated: a forged checkpoint
+could conceal malformed history or decreasing sequences and hide a retained
+receipt. OPS-392's trust boundary requires the checkpoint directory to be
+mounted **only into the stager**, never into the pusher, even read-only. The
+pusher's `v2/` mount remains read-only. The checkpoint is trusted validation
+progress only within this isolated mount; prefix hashing detects changes to
+the receipt bytes, and boundary/tail/pair validation still runs.
+
+OPS must include these exact host changes in the same PR (this source patch
+does not edit host configuration):
+
+- In `hosts/hsb0/configuration.nix`, add the systemd tmpfiles rule
+  `"d /var/lib/joe-household-v2-stage-checkpoint 0700 1000 1000 - -"`
+  to `systemd.tmpfiles.rules` (the stager runs as uid:gid `1000:1000`).
+- In `hosts/hsb0/docker/compose-spec.nix`, append
+  `"/var/lib/joe-household-v2-stage-checkpoint:/var/lib/joe-household-v2-stage-checkpoint:rw"`
+  to `services.joe-household-v2-stage.volumes`, and set its `environment` to
+  include
+  `"JOE_V2_STAGE_CHECKPOINT_DIR=/var/lib/joe-household-v2-stage-checkpoint"`.
+  Keep both the mount and variable exclusive to `joe-household-v2-stage`;
+  do not add them to `joe-board-pusher` or place the checkpoint under its
+  `/var/lib/joe-board-pusher` mount. The lock-holding child receives this variable
+  through the launcher's explicit environment allowlist.
 
 It is outside `v2/`, whose unknown-entry checks in previous releases remain
 unchanged; rollback ignores the cache and can append receipts normally. A later
-forward start validates those appends as tail rows. No compose/mount change or
-allocator format change is required. Recovery tests execute the supplied
+forward start validates those appends as tail rows. Rolling back the mount/env
+configuration leaves this worker safe with checkpoints disabled; rolling back
+the worker leaves the isolated cache unused. No allocator format change is
+required. Recovery tests execute the supplied
 previous-main worker and the pinned r15 recovery code against new state.
 
 Once ready, the supervisor emits only `{event:"v2_stage_ready",startupMs,

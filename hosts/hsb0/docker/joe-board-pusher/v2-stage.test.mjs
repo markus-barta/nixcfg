@@ -19,11 +19,11 @@ const observation = (bookTs = instant) => ({ format: FRAME_FORMAT, bookTs, equit
 const json = name => JSON.parse(fs.readFileSync(name));
 function fixture(t, boundary, io = fs) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-"));
-  const root = path.join(base, "v2"), checkpointRoot = path.join(base, "ipc");
+  const root = path.join(base, "pusher", "v2"), checkpointRoot = path.join(base, "checkpoint");
   for (const dir of [base, root, checkpointRoot]) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(base, 0o700);
   t.after(() => { spawnSync("trash", [base]); });
-  const options = { root, checkpointRoot, uid: process.getuid(), gid: process.getgid(), boundary, io };
+  const options = { root, env: { JOE_V2_STAGE_CHECKPOINT_DIR: checkpointRoot }, uid: process.getuid(), gid: process.getgid(), boundary, io };
   prepareLock(root, options.uid, options.gid);
   const store = new StageStore(options);
   return { root, store, options };
@@ -105,7 +105,7 @@ for (const point of boundaries) test(`process death at ${point} preserves author
   // A real child dies at the boundary; no catch/finally recovery can hide residue.
   const source = `import { pathToFileURL } from 'node:url';
     const { StageStore } = await import(pathToFileURL(process.argv[1]).href);
-    const store = await new StageStore({root:process.argv[2],checkpointRoot:process.argv[2]+"/../ipc",uid:process.getuid(),gid:process.getgid()}).open();
+    const store = await new StageStore({root:process.argv[2],env:{JOE_V2_STAGE_CHECKPOINT_DIR:process.argv[2]+"/../../checkpoint"},uid:process.getuid(),gid:process.getgid()}).open();
     store.boundary = label => { if (label === process.argv[3]) process.kill(process.pid, 'SIGKILL'); };
     store.stage('2026-10-19T07:00:01.000Z', () => '2026-10-19T07:00:01.000Z');`;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", source, fileURLToPath(new URL("./v2-stage-worker.mjs", import.meta.url)), root, point], { encoding: "utf8" });
@@ -210,6 +210,20 @@ test("supervisor drains output, kills startup/job hangs, and restarts with bound
   supervisor.stop(); assert.equal(timers.size, 0);
 });
 
+test("supervisor reports refused checkpoint configuration once without directory values", () => {
+  const child = new EventEmitter(), events = [];
+  child.kill = () => {};
+  const supervisor = createStageSupervisor({ launch: () => child,
+    setTimer: () => 1, clearTimer: () => {}, emit: event => events.push(event) });
+  child.emit("message", { event: "checkpoint_disabled", path: "/untrusted-value" });
+  child.emit("message", { event: "checkpoint_disabled" });
+  child.emit("message", { event: "ready", scanMode: "full", rowsScanned: 15 });
+  assert.deepEqual(events[0], { event: "v2_stage_checkpoint_disabled", reason: "directory_unsafe" });
+  assert.equal(events.length, 2);
+  assert.equal(events[1].event, "v2_stage_ready");
+  supervisor.stop();
+});
+
 test("lock invocation uses stable inode, no-fork, and no inherited credentials", t => {
   const { root, options } = fixture(t);
   let invocation;
@@ -217,6 +231,9 @@ test("lock invocation uses stable inode, no-fork, and no inherited credentials",
   assert.equal(invocation[0], "flock");
   assert.deepEqual(invocation[1].slice(0, 3), ["--no-fork", "--nonblock", path.join(root, ".allocator.lock")]);
   assert.ok(invocation[1].includes("--enroll"));
+  assert.deepEqual(Object.keys(invocation[2].env).sort(), ["JOE_V2_STAGE_CHECKPOINT_DIR", "NODE_ENV", "PATH"]);
+  assert.equal(invocation[2].env.JOE_V2_STAGE_CHECKPOINT_DIR, options.env.JOE_V2_STAGE_CHECKPOINT_DIR);
+  launchLocked({ ...options, env: {}, spawnWorker: (...args) => { invocation = args; return {}; } });
   assert.deepEqual(Object.keys(invocation[2].env).sort(), ["NODE_ENV", "PATH"]);
 });
 
@@ -235,7 +252,10 @@ test("worker has no outbound HTTP, broker or token surface; throw stubs see zero
   assert.equal(calls, 0);
   for (const file of ["v2-stage-worker.mjs", "v2-stage-supervisor.mjs"]) {
     const source = fs.readFileSync(new URL(file, import.meta.url), "utf8");
-    assert.doesNotMatch(source, /\bfetch\s*\(|node:https?|@stoqey|readToken|TOKEN_FILE|run\/secrets|agenix/);
+    // This exact inert denylist declaration names a forbidden mount. Any other
+    // occurrence, including filesystem access to that mount, remains forbidden.
+    const checked = source.replace('const checkpointSharedReadOnlyDirs = ["/var/lib/paper-desk-executor", "/run/secrets"];', "");
+    assert.doesNotMatch(checked, /\bfetch\s*\(|node:https?|@stoqey|readToken|TOKEN_FILE|run\/secrets|agenix/);
   }
 });
 

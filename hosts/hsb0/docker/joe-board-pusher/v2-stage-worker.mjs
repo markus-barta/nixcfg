@@ -12,7 +12,6 @@ import { contractRevision, validExactValues, applyExactValues, exactDeskAction, 
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
-export const RECEIPT_CHECKPOINT = "/run/joe-household-v2/receipts-checkpoint.json";
 export const CONTRACT_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
 const REV9_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -23,6 +22,7 @@ const stateFormat = "ops392.v2-sequence-state.v1";
 const pairFormat = "ops392.v2-stage-pair.v1";
 const pointerFormat = "ops392.v2-stage-current.v1";
 const checkpointFormat = "joed102.v2-receipts-checkpoint.v1";
+const checkpointSharedReadOnlyDirs = ["/var/lib/paper-desk-executor", "/run/secrets"];
 const scanCheckpointBytes = 4 * 1024 * 1024;
 const fail = () => { throw new Error("stage_storage_invalid"); };
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
@@ -161,13 +161,17 @@ export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, flo
 
 // Synchronous durable operations run only inside the separately limited worker.
 export class StageStore {
-  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS, revision = contractRevision(), checkpointRoot = root === STATE_DIR ? path.dirname(RECEIPT_CHECKPOINT) : null } = {}) {
+  constructor({ root = STATE_DIR, uid = 1000, gid = 1000, io = fs, boundary = () => {}, retainPairs = RETAIN_PAIRS, revision = contractRevision(), env = process.env, socketPath = SOCKET_PATH,
+    onCheckpointDisabled = () => {
+      if (process.send) process.send({ event: "checkpoint_disabled" });
+      else console.log('{"event":"v2_stage_checkpoint_disabled","reason":"directory_unsafe"}');
+    } } = {}) {
     if (!Number.isSafeInteger(retainPairs) || retainPairs < RETAIN_PAIRS || retainPairs > MAX_RETAIN_PAIRS) fail();
     if (![9, 10].includes(revision)) fail();
-    // Cache files must never enter the directory enumerated by older workers.
-    if (checkpointRoot && (path.resolve(checkpointRoot) === path.resolve(root)
-      || path.resolve(checkpointRoot).startsWith(path.resolve(root) + path.sep))) fail();
-    Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision, checkpointRoot });
+    Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision, socketPath, onCheckpointDisabled });
+    // No default or legacy shared-directory fallback, including after rollback
+    // of the host mount. The injected env object is only a test seam.
+    this.checkpointRoot = env.JOE_V2_STAGE_CHECKPOINT_DIR || null;
     this.disabled = false;
   }
   check(name, kind, limit) {
@@ -377,8 +381,34 @@ export class StageStore {
     } else this.io.unlinkSync(path.join(this.root, name));
   }
   checkpointStore() {
-    return this.checkpointRoot ? new StageStore({ root: this.checkpointRoot, uid: this.uid, gid: this.gid,
-      io: this.io, boundary: this.boundary, checkpointRoot: null, revision: this.revision }) : null;
+    if (!this.checkpointRoot) return null;
+    try {
+      if (typeof this.checkpointRoot !== "string" || !path.isAbsolute(this.checkpointRoot)) fail();
+      const root = path.resolve(this.checkpointRoot);
+      // The pusher sees the state parent rw, v2 ro, and the socket dir rw.
+      // Reject ancestors too: placing the cache at /var/lib is not isolation.
+      const shared = [path.dirname(STATE_DIR), path.dirname(this.root),
+        path.dirname(SOCKET_PATH), path.dirname(this.socketPath),
+        ...checkpointSharedReadOnlyDirs].map(dir => path.resolve(dir));
+      const overlaps = (a, b) => a === b || a.startsWith(b + path.sep) || b.startsWith(a === path.sep ? a : a + path.sep);
+      if (shared.some(dir => overlaps(root, dir))) fail();
+      const cache = new StageStore({ root, uid: this.uid, gid: this.gid,
+        io: this.io, boundary: this.boundary, env: {}, revision: this.revision });
+      cache.check("", "directory"); // Real directory, stager uid/gid, exactly 0700.
+      const realRoot = this.io.realpathSync(root);
+      for (const dir of shared) {
+        let realShared;
+        try { realShared = this.io.realpathSync(dir); }
+        catch (error) { if (error.code !== "ENOENT") throw error; realShared = dir; }
+        if (overlaps(realRoot, realShared)) fail();
+      }
+      return cache;
+    } catch {
+      // Disable both reads and writes for this worker, with one value-free event.
+      this.checkpointRoot = null;
+      this.onCheckpointDisabled();
+      return null;
+    }
   }
   validateLogRow(row, state, previousSeq) {
     const binding = receiptBinding(row);
@@ -433,7 +463,7 @@ export class StageStore {
       }
       if (hash.copy().digest("hex") !== value.prefixSha256) return null;
       return { ...value, hash, boundaryRows };
-    } catch { return null; } // A cache is never authority; rescan on any doubt.
+    } catch { return null; } // Rescan on any doubt about isolated validation progress.
   }
   rememberReceipt(row, bytes) {
     if (row.outcome !== "rejected") {
@@ -693,11 +723,12 @@ export function prepareLock(root = STATE_DIR, uid = 1000, gid = 1000) {
   return store.check(".allocator.lock", "file", 0);
 }
 
-export function launchLocked({ root = STATE_DIR, args = [], uid = 1000, gid = 1000, spawnWorker = spawn } = {}) {
+export function launchLocked({ root = STATE_DIR, args = [], uid = 1000, gid = 1000, env = process.env, spawnWorker = spawn } = {}) {
   const lock = prepareLock(root, uid, gid);
   return spawnWorker("flock", ["--no-fork", "--nonblock", lock, process.execPath, fileURLToPath(import.meta.url), "--lock-held", ...args], {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
-    env: { PATH: process.env.PATH, NODE_ENV: "production",
+    env: { PATH: env.PATH, NODE_ENV: "production",
+      ...(env.JOE_V2_STAGE_CHECKPOINT_DIR ? { JOE_V2_STAGE_CHECKPOINT_DIR: env.JOE_V2_STAGE_CHECKPOINT_DIR } : {}),
       ...(contractRevision() === 10 ? { JOE_V2_CONTRACT_REV: "10" } : {}) },
   });
 }

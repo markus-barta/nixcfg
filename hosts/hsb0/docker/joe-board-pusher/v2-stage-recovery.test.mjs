@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { StageStore, prepareLock, RECEIPT_CHECKPOINT, STATE_DIR, SOCKET_PATH } from "./v2-stage-worker.mjs";
+import { StageStore, prepareLock, STATE_DIR, SOCKET_PATH } from "./v2-stage-worker.mjs";
 import { startCycle, cycleReceipt } from "./v1-cycle.mjs";
 
 const instant = "2026-10-27T12:00:00.000Z";
@@ -18,13 +18,13 @@ async function fixture(t, count = 15) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "joed102-recovery-"));
   fs.chmodSync(base, 0o700);
   t.after(() => spawnSync("trash", [base]));
-  const root = path.join(base, "v2"), checkpointRoot = path.join(base, "ipc");
-  for (const dir of [root, checkpointRoot]) fs.mkdirSync(dir, { mode: 0o700 });
-  const options = { root, checkpointRoot, uid: process.getuid(), gid: process.getgid() };
+  const root = path.join(base, "pusher", "v2"), checkpointRoot = path.join(base, "checkpoint");
+  for (const dir of [root, checkpointRoot]) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const options = { root, env: { JOE_V2_STAGE_CHECKPOINT_DIR: checkpointRoot }, uid: process.getuid(), gid: process.getgid() };
   prepareLock(root, options.uid, options.gid);
   const store = new StageStore(options); store.enroll(); await store.open();
   for (let seq = 1; seq <= count; seq++) assert.equal(store.stage(instant, () => instant).status, 200);
-  return { base, root, options, store, log: path.join(root, "receipts.jsonl"),
+  return { base, root, checkpointRoot, options, store, log: path.join(root, "receipts.jsonl"),
     checkpoint: path.join(checkpointRoot, "receipts-checkpoint.json") };
 }
 
@@ -90,6 +90,141 @@ function syntheticLog(f, minBytes, { outcome = "committed", append = false } = {
   fs.writeFileSync(f.checkpoint, "{"); // Force a full, validated first scan.
   return { size, rows: seq };
 }
+
+for (const setting of [undefined, ""]) test(`checkpoint env ${setting === undefined ? "unset" : "empty"} performs no checkpoint IO`, async t => {
+  const f = await fixture(t);
+  const before = fs.readFileSync(f.checkpoint), accesses = [], warnings = [];
+  const io = new Proxy(fs, { get(target, key) {
+    if (typeof target[key] !== "function") return target[key];
+    return (...args) => {
+      if (typeof args[0] === "string" && (args[0].startsWith(f.checkpointRoot)
+        || args[0].startsWith(path.dirname(SOCKET_PATH)))) accesses.push([key, args[0]]);
+      return target[key](...args);
+    };
+  } });
+  const store = await new StageStore({ ...f.options, io,
+    env: setting === undefined ? {} : { JOE_V2_STAGE_CHECKPOINT_DIR: setting },
+    onCheckpointDisabled: () => warnings.push(true) }).open();
+  assert.deepEqual(store.recovery, { scanMode: "full", rowsScanned: 15 });
+  assert.equal(store.stage(instant, () => instant).seq, 16);
+  assert.deepEqual(accesses, []);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(fs.readFileSync(f.checkpoint), before);
+});
+
+for (const location of ["relative", "legacy-ipc", "legacy-child", "production-state", "production-parent", "state", "state-child", "state-parent", "state-parent-child", "ancestor", "socket", "socket-child", "pusher-read-only", "alias-to-shared"]) {
+  test(`checkpoint directory ${location} is refused before checkpoint IO`, async t => {
+    const f = await fixture(t), warnings = [], accesses = [];
+    const shared = path.join(f.base, "ipc"); fs.mkdirSync(shared, { mode: 0o700 });
+    const socketPath = path.join(shared, "stage.sock");
+    const directories = {
+      relative: "checkpoint", "legacy-ipc": path.dirname(SOCKET_PATH),
+      "legacy-child": path.join(path.dirname(SOCKET_PATH), "private"),
+      "production-state": STATE_DIR, "production-parent": path.dirname(STATE_DIR),
+      state: f.root, "state-child": path.join(f.root, "cache"),
+      "state-parent": path.dirname(f.root), "state-parent-child": path.join(path.dirname(f.root), "cache"),
+      ancestor: f.base, socket: shared, "socket-child": path.join(shared, "cache"),
+      "pusher-read-only": "/var/lib/paper-desk-executor/cache",
+    };
+    if (location === "alias-to-shared") {
+      const alias = path.join(f.base, "alias"); fs.symlinkSync(shared, alias);
+      fs.mkdirSync(path.join(shared, "cache"), { mode: 0o700 });
+      directories[location] = path.join(alias, "cache");
+    }
+    const io = new Proxy(fs, { get(target, key) {
+      if (typeof target[key] !== "function") return target[key];
+      return (...args) => {
+        if (typeof args[0] === "string" && /receipts-checkpoint|\.receipts-checkpoint/.test(args[0])) accesses.push(key);
+        return target[key](...args);
+      };
+    } });
+    const store = await new StageStore({ ...f.options, io, socketPath,
+      env: { JOE_V2_STAGE_CHECKPOINT_DIR: directories[location] },
+      onCheckpointDisabled: () => warnings.push(true) }).open();
+    assert.deepEqual(store.recovery, { scanMode: "full", rowsScanned: 15 });
+    assert.equal(store.checkpointRoot, null);
+    assert.equal(store.stage(instant, () => instant).seq, 16);
+    assert.deepEqual(warnings, [true]);
+    assert.deepEqual(accesses, []);
+  });
+}
+
+for (const fault of ["missing", "file", "symlink", "mode", "uid", "gid"]) {
+  test(`unusable stager-only directory ${fault} disables checkpoints once`, async t => {
+    const f = await fixture(t), warnings = [];
+    if (["missing", "file", "symlink"].includes(fault)) fs.renameSync(f.checkpointRoot, `${f.checkpointRoot}.held`);
+    if (fault === "file") fs.writeFileSync(f.checkpointRoot, "", { mode: 0o600 });
+    if (fault === "symlink") fs.symlinkSync(`${f.checkpointRoot}.held`, f.checkpointRoot);
+    if (fault === "mode") fs.chmodSync(f.checkpointRoot, 0o750);
+    const io = new Proxy(fs, { get(target, key) {
+      if (key === "lstatSync" && ["uid", "gid"].includes(fault)) return file => {
+        const stat = target.lstatSync(file);
+        if (file === f.checkpointRoot) stat[fault]++;
+        return stat;
+      };
+      return target[key];
+    } });
+    const store = await new StageStore({ ...f.options, io, onCheckpointDisabled: () => warnings.push(true) }).open();
+    assert.deepEqual(store.recovery, { scanMode: "full", rowsScanned: 15 });
+    assert.equal(store.stage(instant, () => instant).seq, 16);
+    assert.equal(store.checkpointRoot, null);
+    assert.deepEqual(warnings, [true]);
+    if (fault === "missing") assert.equal(fs.existsSync(f.checkpointRoot), false);
+  });
+}
+
+for (const corruption of ["malformed-history", "decreasing-seq", "hidden-retained-receipt"]) {
+  for (const location of ["legacy-ipc-unset", "socket", "pusher-parent"]) {
+    test(`forged ${corruption} checkpoint in ${location} cannot conceal receipt corruption`, async t => {
+      const f = await fixture(t, corruption === "malformed-history" ? 15 : 99);
+      const lines = fs.readFileSync(f.log, "utf8").trimEnd().split("\n");
+      let prefix, tail = "", lastReceiptSeq;
+      if (corruption === "malformed-history") {
+        lines[0] = "{";
+        prefix = lines.slice(0, 5).join("\n") + "\n";
+        tail = lines.slice(5).join("\n") + "\n";
+        lastReceiptSeq = 5; // Valid boundary and tail; historical JSON is invalid.
+      } else {
+        const retained = JSON.parse(lines.at(-1));
+        if (corruption === "hidden-retained-receipt") retained.pairSha256 = "0".repeat(64);
+        prefix = JSON.stringify(retained) + "\n" + lines[1] + "\n";
+        lastReceiptSeq = 2; // A forged low boundary used to hide retained pair 99.
+      }
+      fs.writeFileSync(f.log, prefix + tail);
+      const forged = Buffer.from(JSON.stringify({ format: "joed102.v2-receipts-checkpoint.v1",
+        offset: Buffer.byteLength(prefix), lastReceiptSeq,
+        prefixSha256: createHash("sha256").update(prefix).digest("hex") }));
+      const shared = location === "pusher-parent" ? path.dirname(f.root) : path.join(f.base, "legacy-ipc");
+      fs.mkdirSync(shared, { recursive: true, mode: 0o700 });
+      const checkpoint = path.join(shared, "receipts-checkpoint.json");
+      fs.writeFileSync(checkpoint, forged, { mode: 0o600 });
+      const before = fs.readFileSync(f.log), names = fs.readdirSync(f.root).sort();
+      const warnings = [];
+      const store = new StageStore({ ...f.options,
+        socketPath: location === "pusher-parent" ? SOCKET_PATH : path.join(shared, "stage.sock"),
+        env: location === "legacy-ipc-unset" ? {} : { JOE_V2_STAGE_CHECKPOINT_DIR: shared },
+        onCheckpointDisabled: () => warnings.push(true) });
+      await assert.rejects(store.open(), /stage_storage_invalid|JSON/);
+      assert.equal(store.recovery.scanMode, "full");
+      assert.deepEqual(warnings, location === "legacy-ipc-unset" ? [] : [true]);
+      assert.deepEqual(fs.readFileSync(f.log), before); // No second receipt 99.
+      assert.deepEqual(fs.readdirSync(f.root).sort(), names);
+      assert.deepEqual(fs.readFileSync(checkpoint), forged);
+    });
+  }
+}
+
+test("a stager-only checkpoint survives a fresh worker and missing-mount rollback safely falls back", async t => {
+  const f = await fixture(t), before = fs.readFileSync(f.log);
+  assert.equal(coldStart(f.options).scanMode, "tail");
+  fs.renameSync(f.checkpointRoot, `${f.checkpointRoot}.held`);
+  const warnings = [];
+  const store = await new StageStore({ ...f.options, onCheckpointDisabled: () => warnings.push(true) }).open();
+  assert.deepEqual(store.recovery, { scanMode: "full", rowsScanned: 15 });
+  assert.deepEqual(warnings, [true]);
+  assert.equal(fs.existsSync(f.checkpointRoot), false);
+  assert.deepEqual(fs.readFileSync(f.log), before);
+});
 
 for (const mib of [11, 40]) test(`${mib} MiB real-shape receipt log: cold start validates only the bounded tail`, async t => {
   const f = await fixture(t, 0);
@@ -273,10 +408,10 @@ for (const fault of ["symlink", "hardlink", "mode", "owner", "directory", "paren
     if (fault === "hardlink") fs.linkSync(`${f.checkpoint}.held`, f.checkpoint);
     if (fault === "directory") fs.mkdirSync(f.checkpoint, { mode: 0o700 });
     if (fault === "mode") fs.chmodSync(f.checkpoint, 0o644);
-    if (fault === "parent-mode") fs.chmodSync(f.options.checkpointRoot, 0o750);
+    if (fault === "parent-mode") fs.chmodSync(f.checkpointRoot, 0o750);
     if (fault === "parent-symlink") {
-      fs.renameSync(f.options.checkpointRoot, `${f.options.checkpointRoot}.held`);
-      fs.symlinkSync(`${f.options.checkpointRoot}.held`, f.options.checkpointRoot);
+      fs.renameSync(f.checkpointRoot, `${f.checkpointRoot}.held`);
+      fs.symlinkSync(`${f.checkpointRoot}.held`, f.checkpointRoot);
     }
     const inode = fs.lstatSync(f.checkpoint).ino;
     let options = f.options;
@@ -309,16 +444,13 @@ for (const point of ["checkpoint_write", "checkpoint_fsync", "checkpoint_rename"
     const reopened = await new StageStore(f.options).open();
     assert.equal(reopened.lastReceiptSeq, state.lastReservedSeq);
     assert.equal(reopened.stage(instant, () => instant).seq, state.lastReservedSeq + 1);
-    assert.equal(fs.existsSync(path.join(f.options.checkpointRoot, ".receipts-checkpoint.tmp")), false);
+    assert.equal(fs.existsSync(path.join(f.checkpointRoot, ".receipts-checkpoint.tmp")), false);
   });
 }
 
 test("checkpoint is outside the state tree; actual previous-main and r15 recovery ignore it", async t => {
-  assert.equal(path.dirname(RECEIPT_CHECKPOINT), path.dirname(SOCKET_PATH));
-  assert.equal(RECEIPT_CHECKPOINT.startsWith(STATE_DIR + path.sep), false);
   const f = await fixture(t);
-  assert.throws(() => new StageStore({ ...f.options, checkpointRoot: f.root }));
-  assert.throws(() => new StageStore({ ...f.options, checkpointRoot: path.join(f.root, "cache") }));
+  assert.equal(f.checkpoint.startsWith(f.root + path.sep), false);
   const runtime = path.join(f.base, "baseline");
   const tree = "hosts/hsb0/docker/joe-board-pusher";
   const files = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", `${baselineRevision}:${tree}`], { encoding: "utf8" }).trim().split("\n");
