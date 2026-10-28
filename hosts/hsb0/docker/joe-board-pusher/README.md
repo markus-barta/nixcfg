@@ -361,7 +361,7 @@ No desk subtotal is presented as a household total. The producer also requires
 individual null reasons where the ready-session schema permits omission.
 
 The service has no networking, credentials or broker mounts, a separate 128m
-memory/swap limit, 0.25 CPU and 32 processes. It runs as 1000:1000 with a read-only
+memory/swap limit, 1 CPU (JOED-100: 0.25 starved the cold start past the watchdog) and 32 processes. It runs as 1000:1000 with a read-only
 root, no capabilities and no-new-privileges. Only the private v2 state and IPC
 directories are writable. The supervisor discards child stdout/stderr, enforces
 a five-second startup/job watchdog, kills the actual `flock --no-fork` worker,

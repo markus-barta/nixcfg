@@ -393,7 +393,9 @@
       network_mode = "none";
       mem_limit = "128m";
       memswap_limit = "128m";
-      cpus = 0.25;
+      # JOED-100 (2026-10-27): 0.25 starved the worker's cold start (full receipts.jsonl scan, ~11 MB) past the
+      # supervisor's 5 s ready watchdog, so every recreate looped on worker_timeout and the board went stale.
+      cpus = 1.0;
       pids_limit = 32;
       read_only = true;
       cap_drop = [ "ALL" ];
