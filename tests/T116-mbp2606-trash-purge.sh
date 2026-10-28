@@ -4,8 +4,9 @@
 # OPS-489 mbp2606 Trash purge contract. Evaluates the launchd agent from the module and runs its
 # script against a sandbox: ssh runs the remote part locally, /Users/mba becomes a temp dir, find
 # must be called on the pinned Trash (its -ctime +3 is simulated with -mtime +3, because ctime
-# cannot be backdated), and rm refuses anything but a direct child of the Trash. Known harmful
-# mutants of the script must fail the same checks.
+# cannot be backdated), rm refuses anything outside the Trash and its purge quarantine, and mv
+# can refill a name between the check and the move (Put Back, then a fresh item under the same
+# name). Known harmful mutants of the script must fail the same checks.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mod="${repo}/hosts/mbp2607/mbp2606-trash-purge.nix"
@@ -13,8 +14,9 @@ home="${repo}/hosts/mbp2607/home.nix"
 
 nix-instantiate --parse "${mod}" >/dev/null
 grep -Fq './mbp2606-trash-purge.nix' "${home}"
-# Only direct children of the Trash, only older than 3 days; one rm in the whole module.
-[ "$(grep -cF 'find . -mindepth 1 -maxdepth 1 -ctime +3' "${mod}")" -eq 2 ]
+# Only direct children of the Trash, only older than 3 days; one rm -rf in the whole module.
+[ "$(grep -cF -- '-mindepth 1 -maxdepth 1 -ctime +3' "${mod}")" -eq 1 ]
+[ "$(grep -cF -- '-ctime +3' "${mod}")" -eq 2 ]
 [ "$(grep -cF 'rm -rf' "${mod}")" -eq 1 ]
 
 # Resolved: the script pins the Trash with cd -P and compares pwd -P, and macOS temp dirs sit behind /var -> /private/var.
@@ -31,10 +33,11 @@ python3 - "${work}/agent.json" "${work}/purge.sh" <<'PYTHON'
 import json, sys
 agent = json.load(open(sys.argv[1]))
 cfg = agent["config"]
+log = "/home/t116/Library/Logs/mbp2606-trash-purge.log"
 assert agent["enable"] is True, agent
 assert cfg["StartCalendarInterval"] == [{"Weekday": 0, "Hour": 4, "Minute": 30}], cfg
 assert cfg["RunAtLoad"] is False, cfg
-assert cfg["StandardOutPath"] == "/home/t116/Library/Logs/mbp2606-trash-purge.log", cfg
+assert cfg["StandardOutPath"] == log and cfg["StandardErrorPath"] == log, cfg
 assert set(cfg) == {"ProgramArguments", "StartCalendarInterval", "RunAtLoad", "StandardOutPath", "StandardErrorPath"}, sorted(cfg)
 assert len(cfg["ProgramArguments"]) == 1, cfg["ProgramArguments"]
 open(sys.argv[2], "w").write(cfg["ProgramArguments"][0])
@@ -45,16 +48,18 @@ grep -Fq "mba@mbp2606.lan 'bash -s'" "${script}"
 [ "$(grep -cF '/usr/bin/ssh' "${script}")" -eq 1 ]
 [ "$(grep -cF 'T=/Users/mba/.Trash' "${script}")" -eq 1 ]
 
-# Stubs. VIOLATIONS collects every call outside the contract.
+# Stubs. Every call outside the contract lands in violations and fails with 97.
 stubs="${work}/stubs"
 mkdir -p "${stubs}"
 real_find=$(command -v find)
 real_rm=$(command -v rm)
+real_mv=$(command -v mv)
+# ssh: runs the remote part locally; T116_PREAMBLE is prepended to it (used to swap the Trash).
 cat >"${stubs}/ssh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${T116_LOG}/ssh.args"
 [ "${SSH_FAIL:-0}" = 1 ] && { echo "ssh: connect to host mbp2606.lan port 22: Operation timed out" >&2; exit 255; }
-exec bash -s
+{ printf '%s\n' "${T116_PREAMBLE:-}"; cat; } | bash -s
 STUB
 cat >"${stubs}/find" <<STUB
 #!/usr/bin/env bash
@@ -72,15 +77,34 @@ while [ \$# -gt 0 ]; do
 done
 exec ${real_find} "\${args[@]}"
 STUB
+# rm: only inside the Trash or its purge quarantine; RM_FAIL_FIRST fails the first rm -rf.
 cat >"${stubs}/rm" <<STUB
 #!/usr/bin/env bash
 for a in "\$@"; do
   case "\$a" in -*) continue ;; esac
   parent=\$(cd "\$(dirname -- "\$a")" && pwd -P)
-  if [ "\${parent}" != "\${T116_TRASH}" ]; then echo "rm \$a (in \${parent})" >>"\${T116_LOG}/violations"; exit 97; fi
-  if [ "\$(basename -- "\$a")" = "\${RM_FAIL_NAME:-}" ]; then echo "rm: \$a: Operation not permitted" >&2; exit 1; fi
+  case "\${parent}" in
+    "\${T116_TRASH}" | "\${T116_TRASH}"/.ops489-purge-*) ;;
+    *) echo "rm \$a (in \${parent})" >>"\${T116_LOG}/violations"; exit 97 ;;
+  esac
 done
+if [ "\${RM_FAIL_FIRST:-0}" = 1 ] && [ "\${1:-}" = -rf ] && [ ! -e "\${T116_LOG}/rm-failed" ]; then
+  : >"\${T116_LOG}/rm-failed"; echo "rm: Operation not permitted" >&2; exit 1
+fi
 exec ${real_rm} "\$@"
+STUB
+# mv: with RACE_NAME, the first move of that entry finds its name refilled: the old item was put
+# back (to Documents/put-back) and a fresh one trashed under the same name.
+cat >"${stubs}/mv" <<STUB
+#!/usr/bin/env bash
+src=""
+for a in "\$@"; do case "\$a" in -*) ;; *) src=\$a; break ;; esac; done
+if [ -n "\${RACE_NAME:-}" ] && [ "\$(basename -- "\${src}")" = "\${RACE_NAME}" ] && [ ! -e "\${T116_LOG}/raced" ]; then
+  : >"\${T116_LOG}/raced"
+  ${real_mv} -- "\${src}" "\${T116_TRASH}/../Documents/put-back"
+  echo fresh >"\${src}"
+fi
+exec ${real_mv} "\$@"
 STUB
 chmod +x "${stubs}"/*
 
@@ -108,7 +132,7 @@ with newline" "${b}/.Trash/link-to-documents"
   echo fresh >"${b}/.Trash/fresh"
 }
 
-# run <script> <box> [VAR=value ...]: runs the sandboxed script, sets RC and OUT.
+# run <script> <box> [VAR=value ...]: runs the sandboxed script, sets RC, OUT and VIOL.
 run() {
   local s=$1 b=$2
   shift 2
@@ -117,9 +141,12 @@ run() {
   : >"${log}/violations"
   sed -e "s#/usr/bin/ssh#${stubs}/ssh#" -e "s#/Users/mba#${b}#g" "${s}" >"${b}.sh"
   RC=0
-  OUT=$(env "$@" PATH="${stubs}:${PATH}" T116_LOG="${log}" T116_TRASH="$(cd "${b}" && pwd -P)/.Trash" bash "${b}.sh" 2>&1) || RC=$?
+  OUT=$(env "$@" PATH="${stubs}:${PATH}" T116_LOG="${log}" T116_TRASH="${b}/.Trash" bash "${b}.sh" 2>&1) || RC=$?
   VIOL=$(cat "${log}/violations")
 }
+
+# The Trash is swapped for a symlink to Documents right before the script changes into it.
+swap='cd() { if [ "${1:-}" = -P ]; then mv "$2" "$2.real" && ln -s "$(dirname "$2")/Documents" "$2"; fi; builtin cd "$@"; }'
 
 # check <script> <tag>: 0 when every case behaves; prints the first broken case.
 check() {
@@ -143,7 +170,7 @@ check() {
     echo "${t}: deleted outside the Trash"
     return 1
   }
-  case "${OUT}" in *"selected=4 failed=0 rc=0 left=1 "*) ;; *)
+  case "${OUT}" in *"selected=4 purged=4 kept=0 failed=0 rc=0 left=1 "*) ;; *)
     echo "${t}: log line: ${OUT}"
     return 1
     ;;
@@ -153,6 +180,27 @@ check() {
       echo "${t}: ssh args: $(cat "${b}.log/ssh.args")"
       return 1
     }
+
+  b="${work}/${t}-race"
+  box "${b}"
+  run "${s}" "${b}" RACE_NAME="old file"
+  [ "${RC}" = 0 ] && [ -z "${VIOL}" ] || {
+    echo "${t}: race: rc=${RC} ${VIOL} ${OUT}"
+    return 1
+  }
+  [ "$(cat "${b}/.Trash/old file" 2>/dev/null)" = fresh ] || {
+    echo "${t}: race: the fresh entry under the old name was deleted"
+    return 1
+  }
+  [ "$(cat "${b}/Documents/put-back")" = old ] || {
+    echo "${t}: race: the put-back item changed"
+    return 1
+  }
+  case "${OUT}" in *"selected=4 purged=3 kept=1 failed=0 rc=0 left=2 "*) ;; *)
+    echo "${t}: race log: ${OUT}"
+    return 1
+    ;;
+  esac
 
   b="${work}/${t}-link"
   mkdir -p "${b}/Documents"
@@ -166,6 +214,15 @@ check() {
       return 1
     }
 
+  b="${work}/${t}-swap"
+  box "${b}"
+  run "${s}" "${b}" T116_PREAMBLE="${swap}"
+  [ "${RC}" = 3 ] && [ -z "${VIOL}" ] && [ -f "${b}/Documents/old-doc" ] && [ -f "${b}/.Trash.real/old file" ] ||
+    {
+      echo "${t}: Trash swapped before cd: rc=${RC} ${VIOL} ${OUT}"
+      return 1
+    }
+
   b="${work}/${t}-ssh"
   box "${b}"
   run "${s}" "${b}" SSH_FAIL=1
@@ -176,20 +233,21 @@ check() {
 
   b="${work}/${t}-rm"
   box "${b}"
-  run "${s}" "${b}" RM_FAIL_NAME="old file"
-  [ "${RC}" != 0 ] && [ -z "${VIOL}" ] || {
+  run "${s}" "${b}" RM_FAIL_FIRST=1
+  [ "${RC}" = 1 ] && [ -z "${VIOL}" ] || {
     echo "${t}: failed rm: rc=${RC} ${VIOL}"
     return 1
   }
-  case "${OUT}" in *"failed=1 rc=1 "*) ;; *)
+  case "${OUT}" in *"purged=3 kept=0 failed=1 rc=1 left=2 "*) ;; *)
     echo "${t}: failed rm log: ${OUT}"
     return 1
     ;;
   esac
-  [ "$(entries "${b}/.Trash")" = "fresh|old file|" ] || {
-    echo "${t}: failed rm left: $(entries "${b}/.Trash")"
-    return 1
-  }
+  [ "$(find "${b}/.Trash" -mindepth 2 -maxdepth 2 -path "*/.ops489-purge-*" | wc -l | tr -d ' ')" = 1 ] ||
+    {
+      echo "${t}: the entry whose rm failed is not kept in the quarantine"
+      return 1
+    }
 }
 
 check "${script}" agent || exit 1
@@ -211,7 +269,9 @@ mutant documents '/^T=\/Users\/mba\/.Trash$/a\
 T=/Users/mba/Documents'
 mutant exit0 's/exit \$rc/exit 0/'
 mutant age0 's/-ctime +3/-ctime +0/'
-mutant unpinned 's/failed=\$(find \. /failed=$(find "$T" /'
+mutant unpinned 's/^find \. -mindepth 1 -maxdepth 1 -ctime +3/find "$T" -mindepth 1 -maxdepth 1 -ctime +3/'
 mutant depth 's/-maxdepth 1 -ctime +3 !/-ctime +3 !/'
 mutant unchecked 's/ || \[ -L "\$T" \]//;/pwd -P)" != "\$T"/d'
+mutant nopwd '/pwd -P)" != "\$T"/d'
+mutant noinode 's/if \[ "\$(inode "\$Q\/\$selected")" = "\$i" \]; then/if true; then/'
 echo "T116 ok"
