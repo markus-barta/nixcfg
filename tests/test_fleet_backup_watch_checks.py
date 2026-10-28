@@ -4,7 +4,8 @@ Pins what pages and what does not: a fresh healthy backup is silent, an old
 success pages on age whatever the state says, warning/missing/unknown page as a
 state problem, failed/stale are left to pharosd (only age can page them),
 not-configured and disabled are ignored, a schedule sets the limit, a silent
-beacon is named in the text, and an unreadable store is one loud problem.
+beacon is named in the text, and an unusable store or host entry is loud and
+never reads as a recovery (gate r1).
 """
 
 from __future__ import annotations
@@ -63,6 +64,8 @@ class BackupWatchTest(unittest.TestCase):
         self.store = str(Path(self.tmp.name) / "pharos.json")
         self.checks = load_checks(self.store)
         self.checks.time.time = lambda: NOW
+        self.state = str(Path(self.tmp.name) / "state.json")
+        self.checks.STATE_PATH = self.state
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -119,6 +122,72 @@ class BackupWatchTest(unittest.TestCase):
         problems = self.checks.collect()  # nothing written
         self.assertEqual([p.key for p in problems], ["backup:store"])
         self.assertIn("unwatched", problems[0].text)
+
+    def test_malformed_hosts_do_not_hide_the_rest(self):
+        self.write([
+            {"name": "bad", "last_seen": "bad", "backup_observations": [obs(success=NOW - 30 * HOUR)]},
+            {"name": "odd", "last_seen": NOW, "backup_observations": 42},
+            "not-a-host",
+            host("hsb8", obs(success=NOW - 30 * HOUR)),
+        ])
+        problems = self.checks.collect()
+        self.assertEqual(sorted(p.key for p in problems), [
+            "backup:bad:restic-cron-hetzner:age",
+            "backup:hsb8:restic-cron-hetzner:age",
+            "backup:odd:malformed",
+            "backup:store:entry",
+        ])
+        bad = next(p for p in problems if p.key.startswith("backup:bad:"))
+        self.assertIn("Pharos has no last-seen time for bad", bad.text)
+
+    def test_bool_and_string_timestamps_are_not_times(self):
+        self.write([host("x", obs(success=True)), host("y", obs(success="1799990000"))])
+        self.assertEqual(sorted(p.key for p in self.checks.collect()),
+                         ["backup:x:restic-cron-hetzner:age", "backup:y:restic-cron-hetzner:age"])
+
+    def test_invalid_store_shapes_are_loud(self):
+        for payload in ({"unexpected": []}, {"hosts": "invalid"}, "text", 42, [], [host("x")]):
+            with self.subTest(payload=payload):
+                Path(self.store).write_text(json.dumps(payload))
+                self.assertEqual([p.key for p in self.checks.collect()], ["backup:store"])
+
+    def run_cycle(self, stamp, sent):
+        return engine.run_cycle(self.state, stamp, self.checks.collect, self.checks.render,
+                                lambda t, _i: sent.append(t) or True)
+
+    def test_unusable_store_never_reads_as_recovery(self):
+        sent = []
+        self.write([host("hsb8", obs(success=NOW - 30 * HOUR))])
+        self.run_cycle(NOW, sent)
+        self.run_cycle(NOW + HOUR, sent)
+        self.assertEqual(len(sent), 1)
+        for n, payload in enumerate(({"unexpected": []}, {"hosts": "invalid"}, [])):
+            Path(self.store).write_text(json.dumps(payload))
+            self.run_cycle(NOW + (2 + n) * HOUR, sent)
+        self.assertEqual(len(sent), 2)
+        self.assertNotIn("Cleared", sent[1])
+        self.assertIn("unwatched", sent[1])
+
+    def test_malformed_host_keeps_its_open_alert(self):
+        sent = []
+        self.write([host("hsb8", obs(success=NOW - 30 * HOUR)), host("hsb9", obs())])
+        self.run_cycle(NOW, sent)
+        self.run_cycle(NOW + HOUR, sent)
+        self.write([{"name": "hsb8", "last_seen": NOW, "backup_observations": 42}, host("hsb9", obs())])
+        self.run_cycle(NOW + 2 * HOUR, sent)
+        self.run_cycle(NOW + 3 * HOUR, sent)
+        self.assertEqual(len(sent), 2)
+        self.assertNotIn("Cleared", sent[1])
+        self.assertIn("hsb8: Pharos backup data could not be judged", sent[1])
+
+    def test_judge_exception_is_contained(self):
+        def boom(host, now):
+            if host["name"] == "x":
+                raise RuntimeError("boom")
+            return []
+        self.checks.judge = boom
+        self.write([host("x", obs()), host("y", obs())])
+        self.assertEqual([p.key for p in self.checks.collect()], ["backup:x:malformed"])
 
     def test_engine_debounce_page_then_clear(self):
         state = str(Path(self.tmp.name) / "state.json")

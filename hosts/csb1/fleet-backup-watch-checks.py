@@ -21,7 +21,10 @@ backup observation, for every host that reports one:
   * `state` -- warning / missing / unknown, which pharosd does not page.
 
 `failed` and `stale` states are deliberately not paged a second time here.
-No host list: Pharos is the inventory.
+No host list: Pharos is the inventory. When the store, or one host's entry,
+cannot be judged, the problems already announced stay open (carried forward
+from the engine state) next to a loud "unwatched" problem, so broken evidence
+never reads as a recovery.
 """
 
 from __future__ import annotations
@@ -45,20 +48,45 @@ QUIET_STATES = {"healthy"}
 STALE_SECONDS = 30 * 60
 
 
-def load_store(path: str) -> list[dict]:
+def load_store(path: str) -> list:
+    """The host list. Any other shape raises: it must never read as an empty fleet."""
     with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
     if isinstance(data, dict):
-        data = data.get("hosts") or []
-    return [h for h in data if isinstance(h, dict)]
+        data = data.get("hosts")
+    if not isinstance(data, list):
+        raise ValueError("store is not a host list")
+    return data
+
+
+def epoch(value: object) -> float | None:
+    """A positive unix time, or None. bool is an int in Python and is rejected."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return float(value)
+
+
+def carried_forward(prefix: str = "backup:") -> list[Problem]:
+    """Already-announced problems, kept open while their evidence cannot be judged.
+
+    Without this an unusable store (or host entry) looks like "no problems", and
+    the engine would announce every open alert as cleared.
+    """
+    seen = engine.load_state(STATE_PATH).get("seen", {})
+    return [Problem(key, str(entry.get("text") or key)) for key, entry in seen.items()
+            if key.startswith(prefix) and key != "backup:store"
+            and isinstance(entry, dict) and entry.get("alerted")]
 
 
 def judge(host: dict, now: float) -> list[Problem]:
     name = str(host.get("name") or "?")
-    seen = float(host.get("last_seen") or 0)
-    silent = now - seen > STALE_SECONDS
+    observations = host.get("backup_observations") or []
+    if not isinstance(observations, list):
+        raise ValueError("backup_observations is not a list")
+    seen = epoch(host.get("last_seen"))
+    silent = seen is None or now - seen > STALE_SECONDS
     found: list[Problem] = []
-    for observation in host.get("backup_observations") or []:
+    for observation in observations:
         if not isinstance(observation, dict):
             continue
         state = str(observation.get("state") or "unknown")
@@ -73,17 +101,18 @@ def judge(host: dict, now: float) -> list[Problem]:
             found.append(Problem(f"{key}:state", f"{name}: {label} reports {state} ({summary})."))
 
         limit_hours = MAX_AGE_HOURS.get(str(observation.get("schedule") or ""), DEFAULT_MAX_AGE_HOURS)
-        last = observation.get("last_success_at")
-        if not isinstance(last, (int, float)) or last <= 0:
+        last = epoch(observation.get("last_success_at"))
+        if last is None:
             found.append(Problem(f"{key}:age", f"{name}: {label} has never recorded a successful run."))
             continue
-        age_hours = (now - float(last)) / 3600.0
+        age_hours = (now - last) / 3600.0
         if age_hours <= limit_hours:
             continue
         text = (f"{name}: {label} last succeeded {age_hours:.1f} h ago (limit {limit_hours} h). "
                 f"Check the {ident} job on {name}.")
         if silent:
-            text += f" Pharos has not heard from {name} for {int((now - seen) // 60)} min, so this status may be older still."
+            heard = f"has not heard from {name} for {int((now - seen) // 60)} min" if seen else f"has no last-seen time for {name}"
+            text += f" Pharos {heard}, so this status may be older still."
         found.append(Problem(f"{key}:age", text))
     return found
 
@@ -92,12 +121,26 @@ def collect() -> list[Problem]:
     try:
         hosts = load_store(STORE_PATH)
     except Exception as error:  # noqa: BLE001
-        return [Problem("backup:store", f"pharosd store unreadable at {STORE_PATH} ({type(error).__name__}); "
-                                        f"fleet backups are currently unwatched.")]
+        return carried_forward() + [Problem("backup:store", f"pharosd store unusable at {STORE_PATH} ({type(error).__name__}); "
+                                                            f"fleet backups are currently unwatched.")]
     now = time.time()
     found: list[Problem] = []
+    if any(not isinstance(h, dict) for h in hosts):
+        found.append(Problem("backup:store:entry", "pharosd store holds a host entry that is not an object; "
+                                                   "that host's backups are unwatched."))
+    hosts = [h for h in hosts if isinstance(h, dict)]
+    watched = sum(len(h["backup_observations"]) for h in hosts if isinstance(h.get("backup_observations"), list))
+    if not watched:
+        return carried_forward() + found + [Problem("backup:store", "pharosd store lists no backup observations; "
+                                                                    "fleet backups are currently unwatched.")]
     for host in sorted(hosts, key=lambda h: str(h.get("name"))):
-        found.extend(judge(host, now))
+        name = str(host.get("name") or "?")
+        try:
+            found.extend(judge(host, now))
+        except Exception as error:  # noqa: BLE001
+            found.extend(carried_forward(f"backup:{name}:"))
+            found.append(Problem(f"backup:{name}:malformed", f"{name}: Pharos backup data could not be judged "
+                                                             f"({type(error).__name__}); its backups are unwatched."))
     return found
 
 
