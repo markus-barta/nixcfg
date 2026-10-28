@@ -131,7 +131,7 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.equal(pusher.image, "hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800");
   assert.equal(enabled.executorImage, pusher.image);
   assert.equal(service.network_mode, "none"); assert.equal(service.mem_limit, "128m"); assert.equal(service.memswap_limit, "128m");
-  assert.equal(service.cpus, 0.25); assert.equal(service.pids_limit, 32); assert.equal(service.user, "1000:1000");
+  assert.equal(service.cpus, 1); assert.equal(service.pids_limit, 32); assert.equal(service.user, "1000:1000");
   assert.equal(service.read_only, true); assert.deepEqual(service.cap_drop, ["ALL"]); assert.deepEqual(service.security_opt, ["no-new-privileges:true"]);
   assert.equal(service.restart, "unless-stopped"); assert.equal(service.pull_policy, "never");
   assert.deepEqual(service.command, ["node", "v2-stage-supervisor.mjs"]);
