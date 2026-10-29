@@ -15,6 +15,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -136,16 +137,27 @@ class RegistryHandler(BaseHTTPRequestHandler):
     def do_HEAD(self): self.forward()
     def log_message(self, *_): pass
     def forward(self):
+        path = self.path
+        # A pull needs only discovery, manifests and content-addressed blobs.
+        # Full matching excludes URLs, query strings, escapes and extra segments.
+        if not re.fullmatch(
+            r"/v2/(?:[a-z0-9][a-z0-9_-]{0,63}(?:/[a-z0-9][a-z0-9_-]{0,63}){0,3}/"
+            r"(?:manifests/(?:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|sha256:[0-9a-f]{64})"
+            r"|blobs/sha256:[0-9a-f]{64}))?", path
+        ):
+            record("registry-rejected", method=self.command, path=path)
+            self.send_error(400, "unsupported registry request path")
+            return
         cfg = settings()
         marker = ROOT / ("registry-delay-" + str(cfg.get("epoch")))
         # Delay exactly one manifest GET, keeping the work inside a real pull.
         marker = marker.with_name(marker.name + '-' + str(cfg.get('pull_index', 0)))
-        delayed = self.command == "GET" and "/manifests/" in self.path and cfg.get("pull_delay") and not marker.exists()
+        delayed = self.command == "GET" and "/manifests/" in path and cfg.get("pull_delay") and not marker.exists()
         if delayed:
             marker.touch(); record("registry-wait", epoch=cfg.get("epoch"))
         conn = http.client.HTTPConnection("127.0.0.1", 5000, timeout=650)
         try:
-            conn.request(self.command, self.path, headers=dict(self.headers))
+            conn.request(self.command, path, headers=dict(self.headers))
             response = conn.getresponse(); body = response.read()
             self.send_response(response.status)
             for key, value in response.getheaders():

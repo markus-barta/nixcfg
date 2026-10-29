@@ -2397,6 +2397,56 @@ MUTANTS = {
 
 
 class R34SwitchTests(Base):
+    def switch_token(self, word, token=(0, 0, 1)):
+        # Isolate token parsing from the byte cap and strict ASCII decoding,
+        # which have their own tests. This also exercises non-ASCII characters.
+        data = mock.Mock()
+        data.decode.return_value = word
+        real_stat = os.stat
+        def stat_(path, *args, **kw):
+            if str(path) == self.gc.SWITCH_LOCK:
+                return types.SimpleNamespace(st_dev=os.makedev(*token[:2]), st_ino=token[2])
+            return real_stat(path, *args, **kw)
+        with mock.patch.object(os, "stat", stat_), mock.patch.object(self.gc, "Reader") as reader:
+            reader.return_value.read.return_value = data
+            return self.gc.switch_lock_used(self.gc.Budget(10))
+
+    def test_switch_token_exact_ascii_grammar(self):
+        for word, token in (("00:e1:451718", (0, 0xe1, 451718)), ("0A:E1:5", (10, 0xe1, 5))):
+            with self.subTest(word=word):
+                self.assertTrue(self.switch_token(word, token))
+        for word in ("0:0:", ":0:0", "0::1", "0:0:0:0", "0:0", "g:0:1", "0x1:0:1",
+                     "0:0x1:1", "0:0:1a", "0:0:+1", "0:0: 1", "\u0660:0:1", "0:\u0660:1", "0:0:\u0661"):
+            with self.subTest(word=word):
+                self.assertFalse(self.switch_token(word))
+        # If a hex-prefix slips through the character guard, int(..., 16)
+        # accepts it. Match that numeric token so either x mutant is observable.
+        for word, token in (("0x1:0:1", (1, 0, 1)), ("0:0x1:1", (0, 1, 1))):
+            with self.subTest(word=word):
+                self.assertFalse(self.switch_token(word, token))
+
+    def test_long_switch_tokens_finish_quickly(self):
+        previous = signal.getsignal(signal.SIGALRM)
+        def expired(*_):
+            raise AssertionError("switch-token parsing exceeded two seconds")
+        signal.signal(signal.SIGALRM, expired)
+        try:
+            for word in ("0" * (1024 * 1024), "0:" + "0" * (1024 * 1024) + "x"):
+                signal.setitimer(signal.ITIMER_REAL, 2)
+                started = time.monotonic()
+                self.assertFalse(self.switch_token(word))
+                self.assertLess(time.monotonic() - started, 2)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
+
+    def test_non_ascii_lock_table_fails_closed(self):
+        Path(self.gc.SWITCH_LOCK).touch()
+        Path(self.gc.PROC_LOCKS).write_bytes("0:0:\u0661".encode())
+        with self.assertRaises(UnicodeDecodeError):
+            self.gc.switch_lock_used(self.gc.Budget(10))
+
     def test_listing_reference_fields_and_ids_are_strict(self):
         self.world()
         for field, value in (("RepoTags", ["app@" + dg(5)]), ("RepoDigests", ["app:latest"]),
@@ -3015,6 +3065,13 @@ def r34_mutants():
     def add(name, pairs, *tests):
         result[name] = (swap(*pairs), list(tests))
     switch = "R34SwitchTests.test_numeric_switch_table"
+    alphabets = '("0123456789abcdefABCDEF", "0123456789abcdefABCDEF", "0123456789")'
+    grammar = "R34SwitchTests.test_switch_token_exact_ascii_grammar"
+    add("switch inode accepts hex", [(alphabets, '("0123456789abcdefABCDEF", "0123456789abcdefABCDEF", "0123456789abcdefABCDEF")')], grammar)
+    add("switch accepts two parts", [("if len(parts) == 3 and all(", "if len(parts) in (2, 3) and all(")], grammar)
+    add("switch accepts an empty part", [("                part and all(char in alphabet for char in part)", "                all(char in alphabet for char in part)")], grammar)
+    add("switch major accepts x", [(alphabets, '("0123456789abcdefABCDEFx", "0123456789abcdefABCDEF", "0123456789")')], grammar)
+    add("switch minor accepts x", [(alphabets, '("0123456789abcdefABCDEF", "0123456789abcdefABCDEFx", "0123456789")')], grammar)
     add("treat a stat error as no switch", [("    except FileNotFoundError:\n        return False\n", "    except OSError:\n        return False\n")], "R34SwitchTests.test_switch_absent_and_errors")
     for name, expr in (("match the inode only", "token[2] == other[2]"),
                        ("drop the major", "token[1:] == other[1:]"),
@@ -3088,10 +3145,19 @@ MUTANTS.update(r34_mutants())
 
 class SocketIsolationTests(unittest.TestCase):
     @staticmethod
-    def helper(name):
+    def helper(name, pairs=()):
         import importlib.util
         spec = importlib.util.spec_from_file_location(name, REPO / "tests" / (name + ".py"))
-        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module = importlib.util.module_from_spec(spec)
+        if pairs:
+            source = Path(spec.origin).read_text()
+            for before, after in pairs:
+                if source.count(before) != 1:
+                    raise AssertionError(f"missing or ambiguous helper mutation anchor: {before!r}")
+                source = source.replace(before, after)
+            exec(compile(source, spec.origin, "exec"), module.__dict__)
+        else:
+            spec.loader.exec_module(module)
         return module
 
     def test_every_load_has_a_fresh_absent_socket(self):
@@ -3150,6 +3216,128 @@ class SocketIsolationTests(unittest.TestCase):
                     result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
                 self.assertTrue(result.wasSuccessful(), output.getvalue())
                 self.assertEqual(engine.calls, [], "test reached the listening source default")
+
+
+class RunnerPathTests(unittest.TestCase):
+    OPTIONS = ("root", "compose-lock-dir", "instance-lock", "switch-lock", "keep-dir",
+               "store", "engine-socket", "source", "worker")
+
+    def check_rejection(self, runner, option, value):
+        output = io.StringIO()
+        with mock.patch.object(sys, "argv", ["realtime", "--" + option, value]), \
+             mock.patch.object(sys, "platform", "darwin"), redirect_stderr(output), \
+             mock.patch.object(runner, "worker", return_value=99) as worker, \
+             mock.patch.object(runner, "Lane") as lane, mock.patch.object(Path, "mkdir") as mkdir:
+            try:
+                rc = runner.main()
+            except SystemExit as exc:
+                rc = exc.code
+        self.assertEqual(rc, 2, output.getvalue())
+        self.assertIn("path must stay inside checkout", output.getvalue())
+        worker.assert_not_called()
+        lane.assert_not_called()
+        mkdir.assert_not_called()
+
+    def test_every_argv_path_rejected_before_platform_or_creation(self):
+        runner = SocketIsolationTests.helper("docker-image-gc-realtime")
+        with tempfile.TemporaryDirectory(prefix="ops327-outside-") as outside:
+            missing = str(Path(outside) / "never-created")
+            for option in self.OPTIONS:
+                for value in ("/", missing, str(REPO) + "-sibling/missing", str(REPO / ".." / "outside")):
+                    with self.subTest(option=option, value=value):
+                        self.check_rejection(runner, option, value)
+            self.assertFalse(Path(missing).exists())
+
+    def test_barrier_normalizes_paths_and_rejects_symlink_escapes(self):
+        runner = SocketIsolationTests.helper("docker-image-gc-realtime")
+        with tempfile.TemporaryDirectory(prefix="ops327-paths-", dir=REPO) as inside, \
+             tempfile.TemporaryDirectory(prefix="ops327-outside-") as outside:
+            self.assertEqual(runner.repo_path(str(Path(inside) / "new" / ".." / "file")), str(Path(inside) / "file"))
+            self.assertEqual(runner.repo_path(str(REPO), directory=True), str(REPO))
+            escape = Path(inside) / "escape"
+            escape.symlink_to(outside, target_is_directory=True)
+            for option in self.OPTIONS:
+                with self.subTest(option=option):
+                    self.check_rejection(runner, option, str(escape / "never-created"))
+            self.assertFalse((Path(outside) / "never-created").exists())
+
+    def test_each_skipped_option_is_killed(self):
+        for option in self.OPTIONS:
+            directory = option in ("root", "compose-lock-dir", "keep-dir", "store")
+            anchor = f'        ("{option.replace("-", "_")}", {directory}),\n'
+            runner = SocketIsolationTests.helper("docker-image-gc-realtime", [(anchor, "")])
+            with self.subTest(mutant="skip barrier for --" + option):
+                with self.assertRaises(AssertionError):
+                    self.check_rejection(runner, option, "/")
+            print(f"ok mutant: skip path barrier for --{option}", file=sys.stderr)
+
+
+class RegistryPathTests(unittest.TestCase):
+    @staticmethod
+    def handler(support, path, method="GET"):
+        handler = object.__new__(support.RegistryHandler)
+        handler.path, handler.command, handler.headers = path, method, {}
+        handler.wfile = io.BytesIO()
+        for name in ("send_error", "send_response", "send_header", "end_headers"):
+            setattr(handler, name, mock.Mock())
+        return handler
+
+    def check_rejection(self, support, path):
+        handler = self.handler(support, path)
+        with mock.patch.object(support, "record") as record, mock.patch.object(support, "settings", return_value={}) as settings, \
+             mock.patch.object(support.http.client, "HTTPConnection", side_effect=AssertionError("rejected path reached upstream")) as connection:
+            handler.forward()
+        handler.send_error.assert_called_once_with(400, "unsupported registry request path")
+        record.assert_called_once_with("registry-rejected", method="GET", path=path)
+        settings.assert_not_called()
+        connection.assert_not_called()
+
+    def test_rejects_non_registry_paths_without_forwarding(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        for path in ("/", "http://example.invalid/v2/", "//example.invalid/v2/", "/v2/../manifests/r8",
+                     "/v2/_catalog", "/v2/fixture/tags/list", "/v2/fixture/blobs/uploads/",
+                     "/v2/fixture/manifests/", "/v2/fixture/manifests/r8?x=1",
+                     "/v2/fixture/manifests/r8#fragment", "/v2/fixture/manifests/r8/extra",
+                     "/v2/%2e%2e/manifests/r8", "/v2/fixture/manifests/\u0661", "/v2/fixture/manifests/r8\n",
+                     "/v2/fixture/blobs/sha256:" + "0" * 63, "/v2/fixture/blobs/sha256:" + "0" * 65,
+                     "/v2/" + "a" * 65 + "/manifests/r8", "/v2/fixture/manifests/" + "r" * 129,
+                     "/v2/" + "a/" * 5 + "manifests/r8", "/v2/fixture/blobs/sha256:" + "A" * 64):
+            with self.subTest(path=path):
+                self.check_rejection(support, path)
+
+    def test_discovery_manifest_and_blob_get_and_head_keep_body_pacing(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        paths = ("/v2/", "/v2/fixture/manifests/r8", "/v2/team/fixture/manifests/r2",
+                 "/v2/fixture/manifests/sha256:" + "0" * 64, "/v2/fixture/blobs/sha256:" + "0" * 64)
+        for path in paths:
+            for method in ("GET", "HEAD"):
+                with self.subTest(path=path, method=method):
+                    handler = self.handler(support, path, method)
+                    response = mock.Mock(status=200)
+                    response.read.return_value = b"0123456789"
+                    response.getheaders.return_value = [("Content-Type", "fixture")]
+                    response.getheader.return_value = "10"
+                    with mock.patch.object(support, "settings", return_value={"pull_delay": 10, "epoch": "unit"}), \
+                         mock.patch.object(Path, "exists", return_value=False), mock.patch.object(Path, "touch") as touch, \
+                         mock.patch.object(support, "record") as record, mock.patch.object(support.time, "sleep") as sleep, \
+                         mock.patch.object(support.http.client, "HTTPConnection") as connection:
+                        connection.return_value.getresponse.return_value = response
+                        handler.forward()
+                    handler.send_error.assert_not_called()
+                    connection.assert_called_once_with("127.0.0.1", 5000, timeout=650)
+                    connection.return_value.request.assert_called_once_with(method, path, headers={})
+                    connection.return_value.close.assert_called_once_with()
+                    delayed = method == "GET" and "/manifests/" in path
+                    self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(5)] if delayed else [])
+                    self.assertEqual(touch.call_count, int(delayed))
+                    self.assertEqual(record.call_count, int(delayed))
+                    self.assertEqual(handler.wfile.getvalue(), b"" if method == "HEAD" else b"0123456789")
+
+    def test_skipped_registry_allowlist_is_killed(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support", [("        if not re.fullmatch(\n", "        if False and not re.fullmatch(\n")])
+        with self.assertRaises(AssertionError):
+            self.check_rejection(support, "/v2/fixture/manifests/r8?x=1")
+        print("ok mutant: skip registry path allowlist", file=sys.stderr)
 
 
 class MutantTests(unittest.TestCase):

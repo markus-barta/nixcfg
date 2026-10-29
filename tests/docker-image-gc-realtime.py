@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """OPS-327 Linux real-time lane: non-root, Python 3, bash 5, util-linux flock.
 
-No Docker, systemd, network or privileged paths. All fixture paths are arguments.
+No Docker, systemd, network or privileged paths. All fixture paths stay in this checkout.
 Baseline: approximately 45–65 minutes; --mutants adds approximately 2–4 hours.
 --case selects checks (repeatable); --list lists them without running anything.
 Every check prints ok/FAIL; any failed baseline, missing mutation anchor or
 surviving mutant exits nonzero. Watchdogs kill only this harness's children.
 
 Example:
-  python3 tests/docker-image-gc-realtime.py --root /tmp/ops327-lane \
-    --compose-lock-dir /tmp/ops327-lane/locks --instance-lock /tmp/ops327-lane/instance \
-    --switch-lock /tmp/ops327-lane/switch --keep-dir /tmp/ops327-lane/keep \
-    --store /tmp/ops327-lane/store --engine-socket /tmp/ops327-lane/engine.sock --mutants
+  python3 tests/docker-image-gc-realtime.py --root "$PWD/lane-example" \
+    --compose-lock-dir "$PWD/lane-example/locks" --instance-lock "$PWD/lane-example/instance" \
+    --switch-lock "$PWD/lane-example/switch" --keep-dir "$PWD/lane-example/keep" \
+    --store "$PWD/lane-example/store" --engine-socket "$PWD/lane-example/engine.sock" --mutants
 """
 
 from __future__ import annotations
@@ -29,14 +29,33 @@ import time
 from contextlib import contextmanager
 
 HERE = Path(__file__).resolve().parent
+REPO = os.path.realpath(HERE.parent)
 spec = importlib.util.spec_from_file_location("harness", HERE / "docker-image-gc-harness.py")
 h = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
 
 
+def repo_path(value, *, directory=False):
+    """Resolve symlinks and traversal before allowing a path inside this checkout."""
+    path = os.path.realpath(value)
+    if path.startswith(REPO + os.sep):
+        return path
+    if directory and path == REPO:
+        return REPO
+    print(f"path must stay inside checkout {REPO}: {value!r}", file=sys.stderr)
+    raise SystemExit(2)
+
+
 def worker(manifest):
-    data = json.loads(Path(manifest).read_text())
-    gc = h.load(Path(data["source"]).read_text(), data["paths"])
+    data = json.loads(Path(repo_path(manifest)).read_text())
+    source = repo_path(data["source"])
+    events = repo_path(data["events"])
+    paths = {key: (tuple(repo_path(path) for path in value) if key == "LOCK_PATHS"
+                   else value if key in ("PROC", "PROC_LOCKS") else repo_path(value))
+             for key, value in data["paths"].items()}
+    # These read-only kernel tables are the lane's only paths outside the checkout.
+    paths["PROC"], paths["PROC_LOCKS"] = "/proc", "/proc/locks"
+    gc = h.load(Path(source).read_text(), paths)
     for name, value in data.get("constants", {}).items():
         setattr(gc, name, value)
     holds, attempts = [], []
@@ -57,7 +76,7 @@ def worker(manifest):
     try:
         rc = gc.main()
     finally:
-        Path(data["events"]).write_text(json.dumps({"holds": holds, "attempts": attempts}))
+        Path(events).write_text(json.dumps({"holds": holds, "attempts": attempts}))
     return rc
 
 
@@ -73,17 +92,18 @@ def wait_for(predicate, seconds, label):
 
 class Lane:
     def __init__(self, args, name, source):
-        self.root = Path(args.root).resolve() / name
+        self.root = Path(repo_path(os.path.join(args.root, name)))
         if self.root.exists():
             raise AssertionError(f"fixture directory already exists; use a fresh --root: {self.root}")
         self.root.mkdir(parents=True)
         def nested(value, directory=False):
-            base = Path(value).resolve()
-            return str(base / name if directory else base.parent / name / base.name)
+            base = repo_path(value, directory=directory)
+            return repo_path(os.path.join(base, name) if directory else
+                             os.path.join(os.path.dirname(base), name, os.path.basename(base)))
         overrides = {"KEEP_DIR": nested(args.keep_dir, True), "STORE_DIR": nested(args.store, True),
                      "INSTANCE_LOCK": nested(args.instance_lock), "SWITCH_LOCK": nested(args.switch_lock),
                      "SOCKET_PATH": nested(args.engine_socket),
-                     "LOCK_PATHS": tuple(str(Path(args.compose_lock_dir).resolve() / name / f"compose-{n}.lock") for n in range(3))}
+                     "LOCK_PATHS": tuple(str(Path(nested(args.compose_lock_dir, True)) / f"compose-{n}.lock") for n in range(3))}
         self.paths, self.images, self.containers, self.spec = h.fixture(self.root, **overrides)
         self.source = self.root / "gc-source.py"
         self.source.write_text(source)
@@ -455,6 +475,21 @@ def main():
     for name in ("root", "compose-lock-dir", "instance-lock", "switch-lock", "keep-dir", "store", "engine-socket"):
         parser.add_argument("--" + name)
     args = parser.parse_args()
+    # Check every supplied path before worker dispatch, --list or the Linux gate.
+    for name, directory in (
+        ("worker", False),
+        ("root", True),
+        ("compose_lock_dir", True),
+        ("instance_lock", False),
+        ("switch_lock", False),
+        ("keep_dir", True),
+        ("store", True),
+        ("engine_socket", False),
+        ("source", False),
+    ):
+        value = getattr(args, name)
+        if value is not None:
+            setattr(args, name, repo_path(value, directory=directory))
     if args.worker:
         return worker(args.worker)
     if args.list:
@@ -467,7 +502,7 @@ def main():
         if not getattr(args, name): parser.error("missing --" + name.replace("_", "-"))
     subprocess.run(["flock", "--version"], check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["bash", "-c", 'test "${BASH_VERSINFO[0]}" -ge 5'], check=True)
-    source = Path(args.source).read_text()
+    source = Path(repo_path(args.source)).read_text()
     checks = [(name, None, source) for name in (args.case or CASES)]
     if args.mutants:
         sys.path.insert(0, str(HERE))

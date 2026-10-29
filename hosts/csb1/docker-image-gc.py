@@ -829,8 +829,12 @@ def switch_lock_used(budget: Budget) -> bool:
     data = Reader(budget).read(PROC_LOCKS, CAP_PROC_LOCKS_BYTES, device=os.stat(PROC).st_dev)
     for line in data.decode("ascii", "strict").splitlines():
         for word in line.split():
-            if re.fullmatch(r"[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9]+", word):
-                major, minor, inode = word.split(":")
+            parts = word.split(":")
+            if len(parts) == 3 and all(
+                part and all(char in alphabet for char in part)
+                for part, alphabet in zip(parts, ("0123456789abcdefABCDEF", "0123456789abcdefABCDEF", "0123456789"))
+            ):
+                major, minor, inode = parts
                 other = (int(major, 16), int(minor, 16), int(inode, 10))
                 if token == other:
                     return True
