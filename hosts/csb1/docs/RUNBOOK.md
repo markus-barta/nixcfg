@@ -2090,39 +2090,49 @@ termination, or an unhealthy replacement.
 
 ### Clean Up Disk Space
 
-Images are collected daily at 04:30 by `docker-image-gc` (OPS-327, `docker-image-gc.nix`/`.py`). An image goes only when it is:
+`docker-image-gc` (OPS-327, design r34) runs daily at 04:30 with up to 10 minutes of jitter. There is no Persistent catch-up after boot. It deletes an image only when every rule allows it:
 
-- unused by every container (running or stopped);
-- not referenced by the Nix-declared compose spec, nor by the compose spec of any NixOS system still on disk: every numbered generation, the booted and the running system (each stays a working rollback target). An unreadable generation stops the run;
-- not listed in `/var/lib/docker-image-gc/keep.d/*.refs` (one `name[:tag]@sha256:<digest>` per line; `#` comments and blank lines allowed). A missing directory or a malformed line stops the run;
-- not tagged `*:rollback`, and not the newest image of its repository with a `prev-*` tag (HausV's own rollback target);
-- not in a Janus repository;
-- not among the newest 3 of its repository (tags and digest-only pulls);
-- older than 2 days (build time).
+- no container uses it, in any state;
+- no compose spec names it: the Nix-declared spec, every numbered generation, current, booted, every `^[0-9a-z]{32}-nixos-system-[^/]+$` directory in the store (excluding `.drv`), and their specialisations recursively;
+- no `/var/lib/docker-image-gc/keep.d/*.refs` file names it;
+- it is outside the newest 3 of every repository it belongs to (tags and digest-only pulls), is at least 2 days old, has no `:rollback` tag, is not the newest `prev-*`, and belongs to no protected Janus repository.
 
-**Release baseline (keep.d contract v2, canonical text on OPS-327).** The AEON release kit is the authority on which release is live and which is previous. It keeps three kinds of file in `keep.d`, all written as root while holding `/run/lock/compose-csb1.lock`:
+References use Docker normalization and ID-prefix resolution. `keep.d` accepts one `name[:tag]@sha256:<64 hex>` per line, with blank lines and `#` comments. Malformed or unreadable input fails closed. Every file is opened nonblocking, checked as a regular file on its expected device, and read with caps; keep.d symlinks are refused. Directories are listed with `scandir`. Caps include 200 generations, 500 distinct systems, 1,000,000 store entries, 5,000 other directory entries, 64 specs' MiB in total, 16 specs per system, 100,000 references, and 64 keep files of 64 KiB each. Container/image listings are capped at 4/16 MiB, each spec at 1 MiB, and `/proc/locks` at 1 MiB. An incomplete store copy or a system collected during a decision can fail the run; the next day retries.
 
-- `aeon-staged-<R>.refs`, written before the prestage pull of release R and removed at its go-live (or when R fails or is abandoned);
-- `aeon-live.refs` and `aeon-previous.refs`, each listing every image the release's compose pins, companions included. At go-live the kit saves the old previous as `aeon-previous.pre-<R>`, then sets previous := old live and live := R (each a tmp file + rename). A rollback after go-live restores both from those files.
+**Release baseline (keep.d contract v2, canonical on OPS-327).** The release kit owns live and previous identity. Under `compose-csb1.lock` it writes `aeon-staged-<R>.refs` before pulling; at go-live it saves previous as `aeon-previous.pre-<R>`, writes previous := old live, writes live := R (each tmp + rename), then removes the staged file. Rollback restores both role files. Nothing is deleted, including build cache, unless `aeon-live.refs` and `aeon-previous.refs` exist, parse, are nonempty and differ, and live names every running AEON container's image. Bootstrap or a missing role file logs `release baseline not met`; exit 0. A malformed file is exit 2.
 
-Nothing at all is deleted (images or build cache) unless both role files exist, parse, are non-empty and differ, and `aeon-live.refs` names the image of every running `ghcr.io/inspr-at/aeon` container. The run then logs `release baseline not met (<reason>); nothing deleted` and exits 0. Until the kit's first v2 go-live this is the normal state.
+Every DELETE and the single final build-cache prune have their own fresh snapshot and plan. The snapshot starts before the first Engine request and must be at most 2 seconds old at the call. Three slow snapshots end the batch. IDs are validated and URL-quoted; DELETE uses `noprune=1`, without force or untagging. A 409 keeps the image. After images, `POST /build/prune` uses `all=1` and `until=48h`. Volumes are never touched.
 
-Build cache older than 2 days goes after the images. Volumes are never touched.
+The GC never orders activations. It never takes the switch-to-configuration lock. Before each snapshot and after its plan it observes the switch lock's device/inode in `/proc/locks` (holders and waiters); the final check also compares current and booted with the snapshot. A running switch or retarget releases the compose locks and retries after the cooldown. This is best effort.
 
-Deletion takes the compose deploy locks (`/run/lock/compose-csb1.lock`, `compose-hausv.lock`, `compose-hausv-next.lock`) non-blocking: if any is busy it releases all, retries for 5 min, then skips the day. It never takes a lock that someone else takes non-blocking: not the Janus Pharos lock, and not `/run/nixos/switch-to-configuration.lock` (`switch-to-configuration` would die on it). A batch lasts at most 60 s plus the DELETE in flight. Before every DELETE the GC takes a complete fresh snapshot (container and image listings, every NixOS system's compose spec, keep.d), plans from it, and deletes only if the image is still deletable and the snapshot started at most 2 s earlier; three slower snapshots in a row end the batch. Images are deleted by ID, without force, without untagging and without pruning parents; a 409 keeps the image. GETs end at a 30 s watchdog; a DELETE has no client timeout. Inputs are capped (listings 4/16 MiB, specs 1 MiB each and 64 MiB total, 200 generations, 64 keep.d files of 64 KiB, 100,000 references); a cap reached stops the run and fails the unit. SIGTERM lets the call in flight finish (`TimeoutStopSec` 180 s). Only a run under systemd deletes; any manual run is a dry run.
+**Accepted race (Desk 1e2974cf).** A switch or publication after the checks, a system arriving during the snapshot, or a custom-named system missed by every source at its own read can lose an old image. If a container fails after a switch because its image is missing, run the compose reconcile again (or `docker compose pull` for that stack). It re-pulls by tag/digest; a Nix-built image is loaded again from the store by its unit. There is no activation barrier, process-chain guard or nixpkgs re-audit procedure. Guard 7 alone checks that each toplevel is named `nixos-system-*`; fix its name or extend the store scan in the same change. T115 compares computed names with actual `toplevel.name`.
+
+The GC takes only `compose-csb1.lock`, `compose-hausv.lock` and `compose-hausv-next.lock`, nonblocking, releasing all on any busy or partial acquisition. A GC-only `/run/lock/docker-image-gc.lock` excludes concurrent runs. Every run waits 45 seconds before its first compose attempt, and every release starts another 45-second cooldown. Busy/active for 300 seconds from the first detection skips the day. A batch budget is 10 seconds plus one capped processing step and one destructive call, approximately 45 seconds per hold when local storage does not stall. Every destructive call has a 30-second absolute deadline covering connect, send, HTTP status/headers and the complete body. GETs also have a watchdog. At 50 minutes the run finishes the current batch, exits 0 and logs `run budget used; continuing tomorrow`. It checks immediately after release and before attempts, and never sleeps a cooldown past that budget. The unit has a 1-hour start timeout and 180-second stop timeout. SIGTERM only sets a flag; the call in flight finishes or reaches its deadline. Output is buffered until every compose fd has closed.
+
+**An unanswered destructive call may still execute later.** Exit 2 with `DELETE <Id> not answered in 30 s` (or `prune ...`) means dockerd stalled or the prune was large. Check `journalctl -u docker` before the next run. The GC closes the connection, gives back all locks and sends nothing more; dockerd may still remove the image after a concurrent pull attached a tag to it. The same uncertainty follows a broken connection, crash or SIGKILL. Reconcile/pull again. If the compose unit has exhausted 3 starts in 300 seconds, recover with `systemctl reset-failed compose-<stack>; systemctl start compose-<stack>`.
+
+**Other lock users can time out (residual d).** With no other holder, the GC delays an acquisition by up to approximately 45 seconds. With other holders, the GC's share is at most 45 seconds plus the rest of that wait: for wait W and GC-held time G, `G <= 45 + (W - G)`. Every acquisition, including stop commands and TERM/EXIT handlers, has that bound separately; each wait uses the user's own time budget. Check what a failed unit left, then restart it:
+
+- `hausv-backup-snapshot`: check whether hausv-org is running and start it if stopped. Check `/var/lib/csb1-docker/hausv-org-backup-snapshot`. If absent, move `.hausv-org-backup-snapshot.previous` back to that name **before** running the unit again; the next run deletes `.previous` first. A timeout may leave the previous, new, or renamed previous snapshot according to where publish stopped.
+- A failed canary stop can leave its container running or exited; restarting the unit recreates it.
+
+Store-only protection can retain extra images until an operator collects the corresponding unrooted Nix systems. The summary reports extra systems, references, image count and bytes. Store GC is outside this automation.
+
+| Exit | Meaning                                                                                                      |
+| ---- | ------------------------------------------------------------------------------------------------------------ |
+| 0    | done, baseline not met, another run active, busy/switch for 300 s, or run budget used                        |
+| 1    | SIGTERM without a Fatal                                                                                      |
+| 2    | malformed input, cap, read/device error, Engine error or destructive deadline; takes precedence over SIGTERM |
+| 64   | invalid CLI arguments                                                                                        |
 
 ```bash
-# What would go (changes nothing, takes no lock; any run outside systemd is a dry run)
-ssh mba@cs1.barta.cm -p 2222 "sudo docker-image-gc"
-# Last run
-ssh mba@cs1.barta.cm -p 2222 "journalctl -u docker-image-gc --since -2d --no-pager | tail -20"
-# Run now (same rules)
-ssh mba@cs1.barta.cm -p 2222 "sudo systemctl start docker-image-gc"
+# Dry run: any invocation outside systemd changes nothing and takes no locks.
+sudo docker-image-gc
+journalctl -u docker-image-gc --since -2d --no-pager
+sudo systemctl start docker-image-gc
 ```
 
-🔴 Never `docker system prune -a`, `docker image prune -a`, or any `--volumes` prune on csb1. These drop the Janus engine images and the unmounted Janus volumes that produce the Pharos beacon tokens. Plain `docker system prune -f` (dangling only) is still fine.
-
-An AEON or HausV image removed by the GC can be re-pulled by digest from ghcr. To keep an image the rules would drop, list it in a file under `keep.d` (as root): `echo 'ghcr.io/inspr-at/aeon@sha256:<digest>' | sudo tee /var/lib/docker-image-gc/keep.d/<reason>.refs`.
+🔴 No manual prune of any kind on csb1. Only this GC's age-filtered build-cache prune is allowed. Image/system/volume prunes drop Janus engine images, stopped-container protection or the unmounted Janus volumes that produce Pharos beacon tokens. For disk pressure, run the GC. To keep an otherwise eligible image, have the owning release kit add its digest to keep.d under the compose lock.
 
 ### View Logs
 

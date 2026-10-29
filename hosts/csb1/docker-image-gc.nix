@@ -1,4 +1,4 @@
-# Docker image GC — OPS-327 (port of agm1's AGM-48 rules, design round 5).
+# Docker image GC — OPS-327 (port of agm1's AGM-48 rules, design r34).
 #
 # csb1 had no image GC: 300 images / 123.5 GB, 111.6 GB of it reclaimable
 # (2026-10-28), mostly superseded AEON and HausV release images. The rules
@@ -32,8 +32,31 @@ let
   dockerImageGc = pkgs.writeShellScriptBin "docker-image-gc" ''
     exec ${pkgs.python3}/bin/python3 ${script} "$@"
   '';
+  # Guard 7 only: mirror top-level.nix's name, including systemBuilderArgs.
+  # Reading toplevel here would recurse through assertions; T115 compares this
+  # calculation with each realised derivation's actual name.
+  systemName =
+    cfg:
+    (
+      {
+        name = "nixos-system-${cfg.system.name}-${cfg.system.nixos.label}";
+      }
+      // cfg.system.systemBuilderArgs
+    ).name;
+  allSystems =
+    cfg: [ cfg ] ++ lib.concatMap (s: allSystems s.configuration) (lib.attrValues cfg.specialisation);
+  namesHold = builtins.all (cfg: builtins.match "nixos-system-[^/]+" (systemName cfg) != null) (
+    allSystems config
+  );
 in
 {
+  assertions = [
+    {
+      assertion = namesHold;
+      message = "docker-image-gc (OPS-327): guard 7: every toplevel must be named nixos-system-*; fix the name or extend the store scan in the same change";
+    }
+  ];
+
   environment.systemPackages = [ dockerImageGc ];
 
   # keep.d: the release kit's role files (aeon-live.refs, aeon-previous.refs) and the
@@ -53,7 +76,7 @@ in
       ExecStart = lib.getExe dockerImageGc;
       # Root without capabilities: it owns the docker socket (root:docker 0660)
       # and the compose deploy locks (compose-hausv-next.lock is root 0600);
-      # nothing else needs privilege.
+      # nothing else needs privilege. /proc/locks must describe the host's locks.
       CapabilityBoundingSet = "";
       StateDirectory = "docker-image-gc";
       ReadWritePaths = [ "/run/lock" ];
@@ -70,8 +93,8 @@ in
       RestrictAddressFamilies = [ "AF_UNIX" ];
       SystemCallArchitectures = "native";
       TimeoutStartSec = "1h";
-      # SIGTERM sets a flag; the call in flight (a GET ends at its 30 s watchdog, a
-      # DELETE when dockerd answers) finishes before the run stops.
+      # SIGTERM only sets a flag; GETs have a watchdog and destructive calls
+      # finish or fail at their absolute 30 s deadline before locks are released.
       TimeoutStopSec = "180";
     };
   };

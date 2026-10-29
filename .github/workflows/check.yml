@@ -843,6 +843,10 @@ jobs:
         # refresh the lock file.
         run: nix eval --no-update-lock-file .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel.drvPath
 
+      - name: Verify csb1 Docker image GC r34 and actual toplevel names (OPS-327)
+        if: matrix.host == 'csb1'
+        run: bash tests/T115-docker-image-gc.sh
+
       - name: Verify LG renewal in the full hsb0 configuration (OPS-309)
         if: matrix.host == 'hsb0'
         run: |

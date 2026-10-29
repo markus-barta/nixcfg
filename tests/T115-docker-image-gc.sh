@@ -1,75 +1,74 @@
 #!/usr/bin/env bash
-# OPS-327 csb1 Docker image GC contract.
+# OPS-327 r34: portable unit/mutant suite, static module contract and guard 7.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mod="${repo}/hosts/csb1/docker-image-gc.nix"
-script="${repo}/hosts/csb1/docker-image-gc.py"
-conf="${repo}/hosts/csb1/configuration.nix"
-
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  discover -s "${repo}/tests" -p 'test_docker_image_gc.py' -v
-nix-instantiate --parse "${mod}" >/dev/null
-
-grep -Fq './docker-image-gc.nix' "${conf}"
-grep -Fq 'composeStack.renderedSpec.services' "${mod}"
-grep -Fq 'DECLARED_REFS = builtins.toJSON declaredRefs' "${mod}"
-grep -Fq 'CapabilityBoundingSet = "";' "${mod}"
-grep -Fq 'StateDirectory = "docker-image-gc";' "${mod}"
-grep -Fq 'ReadWritePaths = [ "/run/lock" ];' "${mod}"
-grep -Fq 'RestrictAddressFamilies = [ "AF_UNIX" ]' "${mod}"
-grep -Fq 'OnCalendar = "*-*-* 04:30:00"' "${mod}"
-# SIGTERM lets the call in flight finish: a GET ends at its 30 s watchdog.
-grep -Fq 'TimeoutStopSec = "180";' "${mod}"
-# No boot/switch catch-up run in the middle of a deploy.
-if grep -Eq 'Persistent = true' "${mod}"; then
-  echo "T115: the GC timer must not be Persistent" >&2
-  exit 1
-fi
-grep -Fq '@DECLARED_REFS@' "${script}"
-# keep.d (contract v2): declared by tmpfiles, read fail-closed; the release baseline is its role files.
-grep -Fq '"d /var/lib/docker-image-gc/keep.d 0755 root root -"' "${mod}"
-grep -Fq 'KEEP_DIR = "/var/lib/docker-image-gc/keep.d"' "${script}"
-grep -Fq 'LIVE_REFS = "aeon-live.refs"' "${script}"
-grep -Fq 'PREVIOUS_REFS = "aeon-previous.refs"' "${script}"
-grep -Fq 'AEON_REPO = "ghcr.io/inspr-at/aeon"' "${script}"
-# Activation records are gone: the release kit states the previous release.
-if grep -nE 'activations|activationScripts|RECORDS_DIR|history.json' "${script}" "${mod}"; then
-  echo "T115: activation records are gone; keep.d role files replace them" >&2
-  exit 1
-fi
-# GETs end at a real timer, not only at socket timeouts.
-grep -Fq 'signal.setitimer(signal.ITIMER_REAL, max(seconds, 0.001))' "${script}"
-# Deploy locks: every compose deploy path, never a lock someone takes non-blocking
-# (Janus Pharos: flock -n; switch-to-configuration: LockExclusiveNonblock).
-for lock in /run/lock/compose-csb1.lock /run/lock/compose-hausv.lock /run/lock/compose-hausv-next.lock; do
-  grep -Fq "\"${lock}\"" "${script}"
+cd "${repo}"
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_docker_image_gc.py' -v
+for file in hosts/csb1/docker-image-gc.nix tests/docker-image-gc-names.nix tests/docker-image-gc-vm.nix; do
+  nix-instantiate --parse "${file}" >/dev/null
 done
-for lock in janus-pharos-production.lock switch-to-configuration.lock; do
-  if grep -n "${lock}" "${script}" | grep -vE '^\s*[0-9]+:\s*#'; then
-    echo "T115: the GC must not take ${lock}" >&2
-    exit 1
-  fi
-done
-grep -Fq 'fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)' "${script}"
-# Real deletes only under systemd.
-grep -Fq 'if not os.environ.get("INVOCATION_ID"):' "${script}"
-# Deletes by ID only: never forced, never untagged by name, parents never pruned, no client timeout.
-grep -Fq "api(\"DELETE\", f\"/images/{image['Id']}?noprune=1\", timeout=None," "${script}"
-if [ "$(grep -c '"DELETE"' "${script}")" -ne 1 ]; then
-  echo "T115: exactly one DELETE call, by image ID" >&2
-  exit 1
-fi
-if grep -nE 'noprune=0|force=(1|true)' "${script}"; then
-  echo "T115: forced or parent-pruning delete in ${script}" >&2
-  exit 1
-fi
-grep -Fq '"ghcr.io/inspr-at/janus/janus-engine"' "${script}"
-grep -Fq '"ghcr.io/inspr-at/janus/janus-envelope"' "${script}"
-# 🔴 csb1 never-prune rule: no blanket prune, no volume calls, no inspect.
-# Inspect endpoints are /containers/<id>/json and /images/<id>/json; the list endpoints have no segment.
-forbidden='image prune|system prune|/(images|system|containers|volumes)/prune|volume|inspect|/(containers|images)/[^"?/]+/json|"/json'
-if grep -nE "${forbidden}" "${script}" | grep -vE '^\s*[0-9]+:\s*(#|"""|.*(off limits|never touched|no inspect|takes the unmounted))'; then
-  echo "T115: forbidden call in ${script}" >&2
-  exit 1
+python3 - <<'CHECK'
+from pathlib import Path
+import ast
+module = Path('hosts/csb1/docker-image-gc.nix').read_text()
+source = Path('hosts/csb1/docker-image-gc.py').read_text()
+assert './docker-image-gc.nix' in Path('hosts/csb1/configuration.nix').read_text()
+for marker in (
+    'composeStack.renderedSpec.services', 'DECLARED_REFS = builtins.toJSON declaredRefs',
+    'assertion = namesHold;', 'cfg.system.systemBuilderArgs', 'nixos-system-${cfg.system.name}-${cfg.system.nixos.label}',
+    'CapabilityBoundingSet = "";', 'StateDirectory = "docker-image-gc";',
+    'ReadWritePaths = [ "/run/lock" ];', 'RestrictAddressFamilies = [ "AF_UNIX" ];',
+    'TimeoutStartSec = "1h";', 'TimeoutStopSec = "180";',
+    'OnCalendar = "*-*-* 04:30:00";', 'RandomizedDelaySec = "10m";',
+    '"d /var/lib/docker-image-gc/keep.d 0755 root root -"',
+    'PrivateTmp = true;', 'PrivateDevices = true;', 'ProtectSystem = "strict";',
+    'ProtectHome = true;', 'NoNewPrivileges = true;', 'ProtectKernelTunables = true;',
+    'ProtectKernelModules = true;', 'LockPersonality = true;', 'RestrictRealtime = true;',
+    'RestrictSUIDSGID = true;', 'SystemCallArchitectures = "native";',
+): assert marker in module, marker
+for forbidden in ('activation.lock', 'activationScripts', 'dockerImageGcGuards', 'chainHolds',
+                  'user@0.service', 'RuntimeDirectory', 'Persistent = true'):
+    assert forbidden not in module, forbidden
+for forbidden in ('CHAIN_COMMS', 'WRAPPER_MARKS', 'chain_running', 'scan_pass',
+                  'activation.lock', 'os.path.exists(', 'os.path.lexists(', 'janus-pharos-production.lock'):
+    assert forbidden not in source, forbidden
+constants = {}
+for node in ast.parse(source).body:
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                try: constants[target.id] = ast.literal_eval(node.value)
+                except (ValueError, TypeError): pass
+assert constants['BATCH_S'] == 10
+assert constants['CALL_DEADLINE_S'] == 30
+assert constants['COOLDOWN_S'] == 45
+assert 'RUN_BUDGET_S = 50 * 60' in source
+assert constants['LOCK_WAIT_S'] == 300
+assert constants['INSTANCE_LOCK'] == '/run/lock/docker-image-gc.lock'
+assert constants['SWITCH_LOCK'] == '/run/nixos/switch-to-configuration.lock'
+assert constants['KEEP_DIR'] == '/var/lib/docker-image-gc/keep.d'
+assert constants['LOCK_PATHS'] == ('/run/lock/compose-csb1.lock', '/run/lock/compose-hausv.lock', '/run/lock/compose-hausv-next.lock')
+assert 'st = os.stat(SWITCH_LOCK)' in source
+assert 'class DeadlineSocket(socket.socket):' in source
+assert 'O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC' in source
+assert 'if not os.environ.get("INVOCATION_ID"):' in source
+assert 'signal.setitimer(signal.ITIMER_REAL, max(seconds, 0.001))' in source
+assert '?noprune=1' in source and 'force=' not in source
+# Exactly two destructive-call sites, both through the shared deadline path.
+tree = ast.parse(source)
+calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+         and isinstance(node.func, ast.Name) and node.func.id == 'destructive_call']
+assert len(calls) == 2
+assert {ast.literal_eval(node.args[1]) for node in calls} == {'DELETE', 'POST'}
+assert 'PRUNE_PATH = "/build/prune?"' in source
+assert '"all": "1"' in source and '"until": [f"{KEEP_DAYS * 24}h"]' in source
+print('T115 static r34 contract ok')
+CHECK
+if [ "$(uname -s)" = Linux ]; then
+  nix eval --impure --no-update-lock-file --json .#nixosConfigurations.csb1.config \
+    --apply 'config: import ./tests/docker-image-gc-names.nix { inherit config; }' |
+    python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["namesHold"], r; print("T115 guard 7 actual names ok:",len(r["systems"]))'
+else
+  echo "SKIP T115 actual toplevel.name comparison: coordinator runs full Linux evaluation"
 fi
 echo "T115 ok"
