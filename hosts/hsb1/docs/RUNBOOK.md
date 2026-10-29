@@ -23,19 +23,22 @@ Native `aqara-nightlight.service`; UI/API on port **8765** at
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
 and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
 **EZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
-same-origin guarded API. Both hubs default to Nachtlicht **FDEDC9 at 3%**.
-Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on the server.
+same-origin guarded API. Both hubs default to Nachtlicht **5C0701 at 44%**.
+Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
+the server. On first load no light is marked as commanded: brightness starts
+from approximate readback and “Zuletzt: noch kein Befehl” remains until a light
+command succeeds.
 
 ```bash
 systemctl status aqara-nightlight.service --no-pager
 journalctl -u aqara-nightlight.service --since '1 hour ago' --no-pager
 sudo systemctl restart aqara-nightlight.service
 curl --fail --max-time 15 'http://127.0.0.1:8765/get?hub=plug' | jq -e .ok
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=FDEDC9&bri=3' | jq -e .ok
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=5C0701&bri=44' | jq -e .ok
 curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/stop?hub=plug' | jq -e .ok
 curl --fail --max-time 15 'http://127.0.0.1:8765/presets' | jq -e .ok
 # Save/reset only changes the named hub's preset; these calls do not touch the lamp.
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&rgb=FDEDC9&bri=3' | jq -e .ok
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&rgb=5C0701&bri=44' | jq -e .ok
 curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&reset=1' | jq -e .ok
 # Shared preset path for the page and LOCAL-OPS's HA automations:
 curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/apply?hub=plug&preset=nacht' | jq -e .ok
@@ -52,9 +55,24 @@ memory; logs contain fixed error categories, never library exception bodies.
 `presets.json` in the same StateDirectory stores per-hub `{nacht: {rgb, bri}}`
 objects. Saves serialize using a separate stable `presets.json.lock`, write
 0600 temporary files beside it, fsync, atomically replace, then sync the
-directory. Both hubs use FDEDC9 at 3% when the file is absent. Unknown or
+directory. Both hubs use 5C0701 at 44% when the file is absent. Unknown or
 unsaved presets return `ok:false` from `/apply` without a hub call; corrupt
 state also fails closed. Preserve this file and the counter during rollback.
+Corrupt JSON/schema returns `code: presets_corrupt` with
+“Gespeicherte Nachtlicht-Vorgaben beschädigt; Server prüfen” and logs the fixed
+line `aqara-nightlight: preset state corrupt; stop service and move presets.json aside before restart`.
+Reset also fails closed. For operator recovery, stop the service, move only
+`presets.json` aside to a fresh backup name, then start it again:
+
+```bash
+sudo systemctl stop aqara-nightlight.service
+sudo mv -n /var/lib/aqara-nightlight/presets.json /var/lib/aqara-nightlight/presets.json.corrupt-$(date -u +%Y%m%dT%H%M%SZ)
+sudo systemctl start aqara-nightlight.service
+```
+
+Confirm the move succeeded before starting; preserve the backup, `msgid` and
+`presets.json.lock`. With no presets file, both hubs use 5C0701 at 44%; recovery
+does not send a lamp command. Re-save any desired custom presets afterward.
 Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
 the Nix-packaged HTML, loaded once at startup; a separately approved release
 and service restart are needed to change the live page.
@@ -94,7 +112,8 @@ No public reverse proxy is configured. IP rules also govern egress; both hubs
 unavailable tailnet address does not prevent LAN/loopback access. Tailnet
 access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts
 only explicit IPv4 addresses: empty, wildcard and unspecified entries fail
-startup before any listener opens. Listener validation and bind failures log
+startup before any listener opens. Page-loading, listener validation and bind
+failures log
 the fixed line `aqara-nightlight: listener startup failed; check listen addresses and port`
 and exit nonzero. `Restart=on-failure`, `RestartSec=5` and disabled start rate
 limiting retry every five seconds, including invalid listener settings.
@@ -120,7 +139,7 @@ For each separately reviewed OPS release:
    `IPAddressDeny` settings. Test LAN and tailnet access from actual clients;
    test rejection from outside those ranges and confirm no public route.
 4. For **each** of KI-18FB (`plug`) and EZ-594F (`round`), visually check
-   Nachtlicht `FDEDC9` at 3%, another color and off. Readback can lag; an ACK
+   Nachtlicht `5C0701` at 44%, another color and off. Readback can lag; an ACK
    alone does not prove
    the lamp changed. Play one short tone at volume **10**, stop immediately
    with `/stop`, and confirm silence. Avoid unattended sound tests.

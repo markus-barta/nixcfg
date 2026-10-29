@@ -28,9 +28,11 @@ class PageParser(HTMLParser):
         super().__init__()
         self.ids = {}
         self.elements = []
+        self.raw_elements = []
         self.feed(page)
 
     def handle_starttag(self, tag, attributes):
+        self.raw_elements.append((tag, attributes))
         attributes = dict(attributes)
         self.elements.append((tag, attributes))
         if "id" in attributes:
@@ -43,7 +45,7 @@ class FakeDeviceError(Exception):
     pass
 
 
-def load():
+def load(page=True):
     # Import no actual miio code and open no UDP sockets in this suite.
     miio = types.ModuleType("miio")
     miio.DeviceError = FakeDeviceError
@@ -53,6 +55,8 @@ def load():
     module = importlib.util.module_from_spec(spec)
     with patch.dict(sys.modules, {"miio": miio, "miio.miioprotocol": protocol}):
         spec.loader.exec_module(module)
+    if page:
+        module._load_page()
     return module
 
 
@@ -157,6 +161,10 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(self.ids.call_count, 4)
         self.assertNotIn("round", self.module._dev)
         self.assertNotIn("private-packet-fixture", str(caught.exception))
+        self.assertEqual(self.module.error_response(caught.exception), {
+            "ok": False, "error": "Hub antwortet nicht (4 Versuche)",
+            "code": "hub_unavailable", "attempts": 4,
+        })
         self.assertEqual([p._MiIOProtocol__id for p in peers], [101, 102, 103, 104])
 
     def test_handshake_failure_gets_a_fresh_handshake(self):
@@ -268,10 +276,10 @@ class ApiTest(unittest.TestCase):
             self.assertIn(f'data-t="{i}"', self.module.PAGE)
             self.assertIn(name, self.module.PAGE)
         page = PageParser(self.module.PAGE)
-        for key, low, high, default in (("bri", "0", "100", "3"), ("vol", "0", "40", "15")):
+        for key, low, high, default in (("bri", "0", "100", "0"), ("vol", "0", "40", "15")):
             attributes = page.ids[key][1]
             self.assertEqual([attributes[k] for k in ("min", "max", "value")], [low, high, default])
-        self.assertEqual(page.ids["col"][1]["value"], "#fdedc9")
+        self.assertEqual(page.ids["col"][1]["value"], "#5c0701")
 
     def test_allowed_peers_cover_only_loopback_lan_and_tailnet(self):
         for peer in ("127.0.0.1", "::1", "192.168.1.42", "100.64.0.1", "100.127.255.254"):
@@ -387,7 +395,7 @@ class ApiTest(unittest.TestCase):
 
     def test_acting_endpoints_require_one_exact_custom_header(self):
         for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug",
-                     "/preset?hub=plug&name=nacht&rgb=FDEDC9&bri=3", "/apply?hub=plug&preset=nacht"):
+                     "/preset?hub=plug&name=nacht&rgb=5C0701&bri=44", "/apply?hub=plug&preset=nacht"):
             for method in ("GET", "POST"):
                 for values in ([], [""], ["0"], ["true"], ["1, 1"], ["1", "1"], ["1", "0"]):
                     headers = [("Host", "192.168.1.101:8765")] + [("X-Nightlight", v) for v in values]
@@ -399,7 +407,7 @@ class ApiTest(unittest.TestCase):
 
     def test_acting_get_with_header_remains_compatible(self):
         for path, function in (
-            ("/set?hub=plug&rgb=FDEDC9&bri=3", "set_light"),
+            ("/set?hub=plug&rgb=5C0701&bri=44", "set_light"),
             ("/tone?hub=plug&id=27", "play_tone"),
             ("/stop?hub=plug", "stop_sound"),
             ("/preset?hub=plug&name=nacht&reset=1", "save_preset"),
@@ -449,7 +457,7 @@ class ApiTest(unittest.TestCase):
     def test_http_lan_and_tailnet_without_browser_metadata_cannot_act(self):
         for host in ("192.168.1.101:8765", "100.64.0.7:8765"):
             for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug",
-                     "/preset?hub=plug&name=nacht&rgb=FDEDC9&bri=3", "/apply?hub=plug&preset=nacht"):
+                     "/preset?hub=plug&name=nacht&rgb=5C0701&bri=44", "/apply?hub=plug&preset=nacht"):
                 for method in ("GET", "POST"):
                     with self.subTest(host=host, path=path, method=method), patch.object(self.module, "call") as send:
                         headers, _ = self.parsed_request(
@@ -506,7 +514,7 @@ class PresetTest(unittest.TestCase):
     def test_defaults_for_both_hubs_are_readable_without_custom_header(self):
         with patch.object(self.module, "call") as send:
             result = self.result("/presets", method="GET", headers=[("Host", "127.0.0.1:8765")])
-        self.assertEqual(result, {"ok": True, "presets": {hub: {"nacht": {"rgb": "FDEDC9", "bri": 3}} for hub in ("plug", "round")}})
+        self.assertEqual(result, {"ok": True, "presets": {hub: {"nacht": {"rgb": "5C0701", "bri": 44}} for hub in ("plug", "round")}})
         send.assert_not_called()
         self.assertFalse(self.path.exists())
 
@@ -515,10 +523,10 @@ class PresetTest(unittest.TestCase):
             saved = self.result("/preset?hub=plug&name=nacht&rgb=ffb46b&bri=5")
             self.assertTrue(saved["ok"])
             self.assertEqual(saved["presets"]["plug"]["nacht"], {"rgb": "FFB46B", "bri": 5})
-            self.assertEqual(saved["presets"]["round"]["nacht"], {"rgb": "FDEDC9", "bri": 3})
+            self.assertEqual(saved["presets"]["round"]["nacht"], {"rgb": "5C0701", "bri": 44})
             self.result("/preset?hub=round&name=nacht&rgb=112233&bri=6", method="GET")
             reset = self.result("/preset?hub=plug&name=nacht&reset=1")
-            self.assertEqual(reset["presets"]["plug"]["nacht"], {"rgb": "FDEDC9", "bri": 3})
+            self.assertEqual(reset["presets"]["plug"]["nacht"], {"rgb": "5C0701", "bri": 44})
             self.assertEqual(reset["presets"]["round"]["nacht"], {"rgb": "112233", "bri": 6})
         send.assert_not_called()
 
@@ -528,7 +536,7 @@ class PresetTest(unittest.TestCase):
             restarted = load()
         self.assertEqual(restarted.PRESET_FILE, self.path)
         self.assertEqual(restarted.get_presets()["presets"]["plug"]["nacht"], {"rgb": "FFB46B", "bri": 5})
-        self.assertEqual(restarted.get_presets()["presets"]["round"]["nacht"], {"rgb": "FDEDC9", "bri": 3})
+        self.assertEqual(restarted.get_presets()["presets"]["round"]["nacht"], {"rgb": "5C0701", "bri": 44})
         restarted.save_preset("plug", "nacht", reset=True)
         self.assertEqual(self.module.get_presets()["presets"]["plug"]["nacht"], self.module.DEFAULT_NIGHTLIGHT)
 
@@ -594,8 +602,8 @@ for i in range(12):
                 with self.subTest(method=method, hub=hub), patch.object(self.module, "call", return_value=(["ok"], 2)) as send, patch.object(self.module.time, "sleep"):
                     # No browser Origin/CSRF token, exactly the HA loopback contract.
                     result = self.result(f"/apply?hub={hub}&preset=nacht", method=method, headers=[("Host", "127.0.0.1:8765"), ("X-Nightlight", "1")])
-                    self.assertEqual((result["ok"], result["rgb"], result["brightness"], result["versuche"]), (True, "FDEDC9", 3, 2))
-                    self.assertEqual(send.call_args_list, [call(hub, "set_rgb", [(3 << 24) | 0xFDEDC9]), call(hub, "set_rgb", [(3 << 24) | 0xFDEDC9], attempts=1)])
+                    self.assertEqual((result["ok"], result["rgb"], result["brightness"], result["versuche"]), (True, "5C0701", 44, 2))
+                    self.assertEqual(send.call_args_list, [call(hub, "set_rgb", [(44 << 24) | 0x5C0701]), call(hub, "set_rgb", [(44 << 24) | 0x5C0701], attempts=1)])
         self.module.save_preset("round", "nacht", "112233", "7")
         with patch.object(self.module, "set_light", return_value={"ok": True}) as action:
             self.result("/apply?hub=round&preset=nacht")
@@ -615,20 +623,31 @@ for i in range(12):
         self.module.save_preset("plug", "nacht", reset=True)
         before = self.path.read_bytes()
         with patch.object(self.module, "call") as send:
-            for query in ("hub=other&name=nacht&rgb=ABCDEF&bri=5", "hub=plug&name=other&rgb=ABCDEF&bri=5", "hub=plug&name=nacht&rgb=invalid&bri=5", "hub=plug&name=nacht&rgb=FFFFFF&bri=-1", "hub=plug&name=nacht&rgb=FFFFFF&bri=101", "hub=plug&name=nacht&rgb=FFFFFF&bri=3.5", "hub=plug&name=nacht", "hub=plug&name=nacht&reset=0"):
+            for query in ("hub=other&name=nacht&rgb=ABCDEF&bri=5", "hub=plug&name=other&rgb=ABCDEF&bri=5", "hub=plug&name=nacht&rgb=invalid&bri=5", "hub=plug&name=nacht&rgb=FFFFFF&bri=-1", "hub=plug&name=nacht&rgb=FFFFFF&bri=101", "hub=plug&name=nacht&rgb=FFFFFF&bri=44.5", "hub=plug&name=nacht", "hub=plug&name=nacht&reset=0"):
                 self.assertFalse(self.result("/preset?" + query)["ok"], query)
                 self.assertEqual(self.path.read_bytes(), before)
         send.assert_not_called()
 
     def test_corrupt_state_fails_closed_without_hub_calls_or_overwrite(self):
-        for content in ("not json", "[]", '{"plug":{"nacht":{"rgb":"FDEDC9","bri":101}}}', '{"plug":{"nacht":{"rgb":"invalid","bri":3}}}', '{"plug":{"nacht":{"rgb":"FDEDC9","bri":true}}}'):
+        for content in ("not json", "[]", '{"plug":{"nacht":{"rgb":"5C0701","bri":101}}}', '{"plug":{"nacht":{"rgb":"invalid","bri":3}}}', '{"plug":{"nacht":{"rgb":"5C0701","bri":true}}}'):
             self.path.write_text(content)
-            with patch.object(self.module, "call") as send:
+            with patch.object(self.module, "call") as send, patch("sys.stderr", new_callable=io.StringIO) as journal:
                 self.assertFalse(self.result("/apply?hub=plug&preset=nacht")["ok"])
                 self.assertFalse(self.result("/preset?hub=plug&name=nacht&reset=1")["ok"])
                 self.assertFalse(self.result("/presets", method="GET")["ok"])
+            self.assertEqual(journal.getvalue().count("aqara-nightlight: preset state corrupt;"), 3)
             self.assertEqual(self.path.read_text(), content)
             send.assert_not_called()
+
+    def test_corrupt_state_has_specific_safe_error_and_journal_line(self):
+        for content in (b"not json", b"[]", b"\xff", b'{"plug":{"nacht":{"rgb":"invalid","bri":44}}}'):
+            self.path.write_bytes(content)
+            with patch("sys.stderr", new_callable=io.StringIO) as journal, patch.object(self.module, "call") as hub:
+                result = self.result("/presets", method="GET")
+            self.assertEqual(result, {"ok": False, "error": "Gespeicherte Nachtlicht-Vorgaben beschädigt; Server prüfen", "code": "presets_corrupt"})
+            self.assertEqual(journal.getvalue(), "aqara-nightlight: preset state corrupt; stop service and move presets.json aside before restart\n")
+            self.assertEqual(self.path.read_bytes(), content)
+            hub.assert_not_called()
 
     def test_new_routes_preserve_host_origin_fetch_and_peer_guards(self):
         for path in ("/presets", "/preset?hub=plug&name=nacht&reset=1", "/apply?hub=plug&preset=nacht"):
@@ -675,15 +694,72 @@ class PageTest(unittest.TestCase):
         self.assertIn(b"img-src 'self'", headers)  # Inline SVG fragment references.
         self.assertIn(b"Cache-Control: no-store", headers)
 
+    def test_each_button_has_one_matching_preset_swatch_or_tone_attribute_set(self):
+        expected = {
+            "data-preset": {"warm": None, "hell": None, "rot": None},
+            "data-color": {"FF8C28": "Warmweiß", "FFB46B": "Hellwarm", "FF5A00": "Orange", "FF0000": "Rot", "0000FF": "Blau", "FFFFFF": "Weiß"},
+            "data-t": {str(i): name for _, tones in self.module.TONES for i, name in tones},
+        }
+        found = {key: {} for key in expected}
+        for tag, pairs in self.page.raw_elements:
+            if tag != "button":
+                continue
+            attrs = dict(pairs)
+            classes = attrs.get("class", "").split()
+            key = "data-preset" if "pre" in classes else "data-color" if "sw" in classes and attrs.get("id") != "own-color" else "data-t" if "tone" in classes else None
+            self.assertEqual([attribute for attribute in expected if attribute in attrs], [] if key is None else [key], pairs)
+            if key is None:
+                continue
+            names = [name for name, _ in pairs]
+            self.assertEqual(names.count(key), 1, pairs)
+            value = attrs[key]
+            self.assertNotIn(value, found[key])
+            if key != "data-preset":
+                companion = "data-color-name" if key == "data-color" else "title"
+                self.assertEqual(names.count(companion), 1, pairs)
+                found[key][value] = attrs[companion]
+            else:
+                found[key][value] = None
+        self.assertEqual(found, expected)
+
+    def test_stop_fill_and_mode_ring_are_scoped_to_their_active_classes(self):
+        for rule in re.findall(r"\.stop\s*\{([^}]*)\}", self.module.PAGE):
+            backgrounds = re.findall(r"background:\s*([^;]+);", rule)
+            self.assertTrue(all(value == "var(--surface)" for value in backgrounds), rule)
+        self.assertRegex(self.module.PAGE, r"(?s)\.stop\.on\s*\{[^}]*background: var\(--stop-bg\);")
+        self.assertRegex(self.module.PAGE, r"(?s)\.ib \.mring\s*\{[^}]*visibility: hidden;")
+        self.assertRegex(self.module.PAGE, r"(?s)\.ib\.holding \.mring\s*\{[^}]*visibility: visible;")
+        self.assertRegex(self.module.PAGE, r"(?s)\.mhint\s*\{[^}]*height: 16px;")
+        self.assertNotIn("Ansicht und Hell/Dunkel werden auf diesem Gerät gespeichert.", self.module.PAGE)
+
     def test_page_path_is_read_once_at_startup(self):
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory, "page.html")
             page.write_text("<!doctype html><title>fixture</title><script>const a=1;</script>")
             with patch.dict(self.module.os.environ, {"AQARA_PAGE_FILE": str(page)}):
-                restarted = load()
+                restarted = load(page=False)
+                self.assertEqual(restarted.PAGE, "")
+                with patch.dict(restarted.os.environ, {"AQARA_LISTEN_ADDRESSES": "127.0.0.1"}), patch.object(restarted, "Server", MagicMock()), patch("sys.stdout", new_callable=io.StringIO):
+                    restarted.serve()
             self.assertEqual(restarted.PAGE, page.read_text())
             page.write_text("changed after startup")
             self.assertIn("<title>fixture</title>", restarted.PAGE)
+
+    def test_standalone_cli_does_not_need_the_page_or_page_environment(self):
+        with patch.object(self.module.Path, "read_text", side_effect=AssertionError("CLI read the page")):
+            standalone = load(page=False)
+            for args, name in ((["get", "plug"], "get_light"), (["set", "round", "5C0701", "44"], "set_light"), (["tone", "plug", "27"], "play_tone"), (["stop", "round"], "stop_sound")):
+                with patch.object(standalone, name, return_value={"ok": True}) as action, patch("sys.stdout", new_callable=io.StringIO):
+                    self.assertEqual(standalone.main(args), 0)
+                    action.assert_called_once()
+
+    def test_missing_page_uses_fixed_startup_error_before_opening_sockets(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(self.module.os.environ, {"AQARA_PAGE_FILE": str(Path(directory, "missing.html"))}):
+            standalone = load(page=False)
+            with patch.object(standalone, "Server") as server, patch("sys.stderr", new_callable=io.StringIO) as journal:
+                self.assertEqual(standalone.main([]), 1)
+            self.assertEqual(journal.getvalue(), "aqara-nightlight: listener startup failed; check listen addresses and port\n")
+            server.assert_not_called()
 
 
 class ListenerTest(unittest.TestCase):

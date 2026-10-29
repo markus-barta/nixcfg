@@ -13,14 +13,20 @@
 built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
 Kinderzimmer nightlight) and **EZ-594F** (`round`, `192.168.1.108`) map to stable
-API handles. The responsive page starts in Kind with KI-18FB selected;
-Kind/Erwachsen and Hell/Dunkel are device preferences. Switching out of Kind
-or opening its loud tones requires a one-second hold. Brightness sends on
-release; readback is marked ≈ because hardware values can lag. The default
-Nachtlicht is **FDEDC9 at 3%** for both hubs; tone volume starts at 15%.
+API handles. On first visit the responsive page starts in Kind with KI-18FB
+selected; hub choice, Kind/Erwachsen and Hell/Dunkel are device preferences.
+Switching out of Kind or opening its loud tones requires a one-second hold.
+Brightness sends on release; readback is marked ≈ because hardware values can lag. The default
+Nachtlicht is **5C0701 at 44%** for both hubs; tone volume starts at 15%.
 The HTML is a separate self-contained file packaged by Nix and read once at
 service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
 no external assets.
+
+Same-origin localStorage keys `nightlight-hub`, `nightlight-mode` and
+`nightlight-theme` hold only these interface choices. The page reads them on
+load and writes them when the user changes a choice; they remain until site data
+is cleared. Storage failures retain the first-visit defaults. Requests go only
+to this service's same-origin API; saved Nachtlicht presets remain on the server.
 
 UI: <http://192.168.1.101:8765/> (LAN), <http://100.64.0.7:8765/> (tailnet),
 and <http://127.0.0.1:8765/> on hsb1. Port 8765 has no other checked-in hsb1
@@ -51,13 +57,13 @@ addresses fail startup before any listener opens.
 
 | Method      | Path       | Parameters                                     | Behavior                                                                 |
 | ----------- | ---------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| GET         | `/`        | —                                              | Responsive light/sound UI; Nachtlicht FDEDC9 at 3%, volume 15            |
+| GET         | `/`        | —                                              | Responsive light/sound UI; Nachtlicht 5C0701 at 44%, volume 15           |
 | GET or POST | `/set`     | `hub`, `rgb` (RRGGBB), `bri` (0–100)           | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms                      |
 | GET         | `/get`     | `hub`                                          | `get_prop ["rgb", "illumination"]`; hardware readback can lag            |
 | GET or POST | `/tone`    | `hub`, `id`, optional `vol` (default 15)       | `play_music_new ["<id>", vol]`                                           |
 | GET or POST | `/stop`    | `hub`                                          | `set_sound_playing ["off"]`                                              |
 | GET         | `/presets` | —                                              | `{ok, presets: {plug: {nacht: {rgb, bri}}, round: {nacht: {rgb, bri}}}}` |
-| GET or POST | `/preset`  | `hub`, `name=nacht`, `rgb`, `bri` or `reset=1` | Save per-hub Nachtlicht or restore FDEDC9 at 3%; no hardware call        |
+| GET or POST | `/preset`  | `hub`, `name=nacht`, `rgb`, `bri` or `reset=1` | Save per-hub Nachtlicht or restore 5C0701 at 44%; no hardware call       |
 | GET or POST | `/apply`   | `hub`, `preset=nacht`                          | Apply the saved Nachtlicht; JSON `ok`, `rgb`, `brightness`, like `/set`  |
 
 All acting calls need `X-Nightlight: 1`; parameters remain in the query string

@@ -4,7 +4,7 @@
 GET /get?hub=plug, /presets and / for the UI. Acting endpoints /set, /tone,
 /stop, /preset and /apply require X-Nightlight: 1 and accept GET or POST.
 GET actions are deprecated compatibility for Home Assistant; the UI uses POST.
-KI-18FB is plug; EZ-594F is round. Default nacht: FDEDC9 at 3%.
+KI-18FB is plug; EZ-594F is round. Default nacht: 5C0701 at 44%.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
 Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
 The handshake token stays in memory; no library payloads or exceptions are logged.
@@ -39,7 +39,7 @@ _miio_log.setLevel(logging.CRITICAL)
 _miio_log.addHandler(logging.NullHandler())
 _miio_log.propagate = False
 
-# Neutral API handles: no hardware identifiers from the prototype in public code.
+# Stable API handles; the page retains the operator-selected hub display labels.
 HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108"}
 TIMEOUT = 1.5
 ATTEMPTS = 4
@@ -53,7 +53,7 @@ ALLOWED_HOSTS = frozenset(
 STATE_DIRECTORY = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/aqara-nightlight"))
 ID_FILE = str(STATE_DIRECTORY / "msgid")
 PRESET_FILE = STATE_DIRECTORY / "presets.json"
-DEFAULT_NIGHTLIGHT = {"rgb": "FDEDC9", "bri": 3}
+DEFAULT_NIGHTLIGHT = {"rgb": "5C0701", "bri": 44}
 ACTING_ENDPOINTS = frozenset(("/set", "/tone", "/stop", "/preset", "/apply"))
 ALLOWED_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
@@ -76,6 +76,16 @@ _dev = {}
 _locks = {name: threading.Lock() for name in HUBS}
 _idlock = threading.Lock()
 _preset_lock = threading.Lock()
+
+
+class HubUnavailableError(RuntimeError):
+    def __init__(self, attempts):
+        self.attempts = attempts
+        super().__init__(f"Hub antwortet nicht ({attempts} Versuche)")
+
+
+class PresetStateError(ValueError):
+    pass
 
 
 def _next_id():
@@ -126,7 +136,7 @@ def call(name, cmd, params=None, attempts=ATTEMPTS):
                 _dev.pop(name, None)
                 time.sleep(0.15 * attempt)
     # Never include library exception strings: they can carry packet/token data.
-    raise RuntimeError(f"Hub {name} antwortet nicht ({attempts} Versuche)")
+    raise HubUnavailableError(attempts)
 
 
 def set_light(name, rgb, bri):
@@ -168,14 +178,21 @@ def stop_sound(name):
     return {"ok": True, "hub": name, "cmd": "stop", "reply": reply, "versuche": attempts}
 
 
-# Read the packaged, self-contained page once at process startup. The fallback
-# keeps the source checkout runnable; Nix supplies its immutable store path.
-PAGE_FILE = Path(os.environ.get("AQARA_PAGE_FILE", Path(__file__).with_name("aqara-nightlight-page.html")))
-PAGE = PAGE_FILE.read_text(encoding="utf-8")
-SCRIPT_HASHES = " ".join(
-    "'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
-    for script in re.findall(r"<script>(.*?)</script>", PAGE, re.DOTALL)
-)
+# Only the HTTP server needs the page. CLI commands also work from a standalone
+# Nix store script without AQARA_PAGE_FILE or an adjacent HTML file.
+PAGE = ""
+SCRIPT_HASHES = ""
+
+
+def _load_page():
+    global PAGE, SCRIPT_HASHES
+    page_file = Path(os.environ.get("AQARA_PAGE_FILE", Path(__file__).with_name("aqara-nightlight-page.html")))
+    page = page_file.read_text(encoding="utf-8")
+    hashes = " ".join(
+        "'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
+        for script in re.findall(r"<script>(.*?)</script>", page, re.DOTALL)
+    )
+    PAGE, SCRIPT_HASHES = page, hashes
 
 
 def _default_presets():
@@ -188,19 +205,21 @@ def _read_presets():
             presets = json.load(handle)
     except FileNotFoundError:
         return _default_presets()
+    except (json.JSONDecodeError, UnicodeError):
+        raise PresetStateError("Ungültige Presets") from None
     # Corrupt state fails closed: never silently apply a different light or
     # overwrite damaged state on the next save. Missing saved entries stay absent.
     if not isinstance(presets, dict) or not presets.keys() <= HUBS.keys():
-        raise ValueError("Ungültige Presets")
+        raise PresetStateError("Ungültige Presets")
     for values in presets.values():
         if not isinstance(values, dict) or not values.keys() <= {"nacht"}:
-            raise ValueError("Ungültige Presets")
+            raise PresetStateError("Ungültige Presets")
         for preset in values.values():
             if (not isinstance(preset, dict) or set(preset) != {"rgb", "bri"}
                     or not isinstance(preset["rgb"], str)
                     or re.fullmatch(r"[0-9A-F]{6}", preset["rgb"]) is None
                     or type(preset["bri"]) is not int or not 0 <= preset["bri"] <= 100):
-                raise ValueError("Ungültiges Preset")
+                raise PresetStateError("Ungültiges Preset")
     return presets
 
 
@@ -269,6 +288,14 @@ def apply_preset(hub, name):
 
 def error_response(error):
     # Fixed messages only, including DeviceError and unexpected library failures.
+    if isinstance(error, PresetStateError):
+        print("aqara-nightlight: preset state corrupt; stop service and move presets.json aside before restart",
+              file=sys.stderr, flush=True)
+        return {"ok": False, "error": "Gespeicherte Nachtlicht-Vorgaben beschädigt; Server prüfen",
+                "code": "presets_corrupt"}
+    if isinstance(error, HubUnavailableError):
+        return {"ok": False, "error": f"Hub antwortet nicht ({error.attempts} Versuche)",
+                "code": "hub_unavailable", "attempts": error.attempts}
     if isinstance(error, (ValueError, KeyError, IndexError, TypeError)):
         message = "Ungültige Anfrage: Hub, Farbe, Helligkeit oder Ton prüfen"
     elif isinstance(error, DeviceError):
@@ -386,6 +413,8 @@ class Server(ThreadingHTTPServer):
 
 
 def serve():
+    # main() covers page-loading failures with the same fixed startup log line.
+    _load_page()
     addresses = [address.strip() for address in os.environ.get("AQARA_LISTEN_ADDRESSES", "127.0.0.1").split(",")]
     # Validate every entry before opening any socket. Empty strings bind all IPv4.
     for address in addresses:

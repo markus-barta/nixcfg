@@ -1466,6 +1466,10 @@
         height: 58px;
         left: -4px;
         top: -4px;
+        visibility: hidden;
+      }
+      .ib.holding .mring {
+        visibility: visible;
       }
       .rp {
         stroke-dasharray: 167;
@@ -1552,10 +1556,6 @@
         background: var(--bg);
         padding-bottom: 10px;
       }
-      .stop {
-        background: var(--stop-bg);
-        color: var(--stop-ink);
-      }
       .loud-button {
         touch-action: none;
         user-select: none;
@@ -1622,13 +1622,6 @@
         min-height: 44px;
         text-decoration: underline;
         text-underline-offset: 3px;
-      }
-      .privacy {
-        text-align: center;
-        color: var(--muted);
-        font-size: 11px;
-        line-height: 16px;
-        margin-top: 24px;
       }
       @media (max-width: 359px) {
         .pg {
@@ -2314,7 +2307,7 @@
             ><svg class="ic sun" aria-hidden="true"><use href="#i-sun" /></svg>
           </button>
         </div>
-        <p id="mode-hint" class="mhint">Zum Wechseln gedrückt halten</p>
+        <p id="mode-hint" class="mhint"></p>
         <div class="hdr">
           <span class="k"
             ><svg class="art night od" viewBox="0 0 96 72" aria-hidden="true">
@@ -2392,12 +2385,12 @@
         <div class="cols">
           <section class="licht" aria-labelledby="light-hl">
             <h2 id="light-hl">Licht</h2>
-            <div class="hero" style="--nl-c: #fdedc9">
+            <div class="hero" style="--nl-c: #5c0701">
               <button
                 type="button"
                 id="nightlight"
                 class="b nl"
-                aria-pressed="true"
+                aria-pressed="false"
               >
                 <span class="k"
                   ><span class="nl-k"
@@ -2405,15 +2398,15 @@
                       <use href="#p-moonstar" /></svg
                     ><span class="nl-t"
                       ><span class="nl-n">Nachtlicht</span
-                      ><span class="nl-v">3 %</span></span
+                      ><span class="nl-v">44 %</span></span
                     ></span
                   ></span
                 ><span class="e"
                   ><span class="nl-e"
                     ><span class="nl-l"
-                      ><span class="dot" style="--c: #fdedc9"></span
+                      ><span class="dot" style="--c: #5c0701"></span
                       >Nachtlicht</span
-                    ><span class="nl-v">3 %</span></span
+                    ><span class="nl-v">44 %</span></span
                   ></span
                 ></button
               ><button
@@ -2435,7 +2428,9 @@
               <button
                 type="button"
                 class="b pre"
-                aria-pressed="false" data-preset="warm" >
+                aria-pressed="false"
+                data-preset="warm"
+              >
                 <span class="k"
                   ><span class="pre-k"
                     ><svg class="ic pic ppic" aria-hidden="true">
@@ -2452,7 +2447,12 @@
                     ><span class="pre-v">40 %</span></span
                   ></span
                 ></button
-              ><button type="button" class="b pre" aria-pressed="false" data-preset="hell">
+              ><button
+                type="button"
+                class="b pre"
+                aria-pressed="false"
+                data-preset="hell"
+              >
                 <span class="k"
                   ><span class="pre-k"
                     ><svg class="ic pic ppic" aria-hidden="true">
@@ -2469,7 +2469,12 @@
                     ><span class="pre-v">80 %</span></span
                   ></span
                 ></button
-              ><button type="button" class="b pre" aria-pressed="false" data-preset="rot">
+              ><button
+                type="button"
+                class="b pre"
+                aria-pressed="false"
+                data-preset="rot"
+              >
                 <span class="k"
                   ><span class="pre-k"
                     ><svg class="ic pic ppic" aria-hidden="true">
@@ -2500,7 +2505,7 @@
                     ><svg class="ic" aria-hidden="true">
                       <use href="#i-sunlow" /></svg></span
                 ></span>
-                <div class="sl" id="bri-track" style="--f: 0.03">
+                <div class="sl" id="bri-track" style="--f: 0">
                   <span class="tr"></span><span class="fi"></span
                   ><span class="th"
                     ><span class="k"
@@ -2518,7 +2523,8 @@
                     id="bri"
                     min="0"
                     max="100"
-                    value="3"
+                    value="0"
+                    disabled
                     aria-label="Helligkeit"
                   />
                 </div>
@@ -2530,7 +2536,7 @@
                     ><svg class="ic" aria-hidden="true">
                       <use href="#i-sun" /></svg></span></span
                 ><output id="bri-value" for="bri" class="val" aria-hidden="true"
-                  >3 %</output
+                  >—</output
                 >
               </div>
               <p id="shift-hint" class="quirk" aria-live="polite"></p>
@@ -2541,7 +2547,10 @@
                 <button
                   type="button"
                   class="b sw"
-                  aria-pressed="false" data-color="FF8C28" data-color-name="Warmweiß" >
+                  aria-pressed="false"
+                  data-color="FF8C28"
+                  data-color-name="Warmweiß"
+                >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2560,7 +2569,13 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ff8c28"></span></span
                   >Warmweiß</button
-                ><button type="button" class="b sw" aria-pressed="false" data-color="FFB46B" data-color-name="Hellwarm">
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FFB46B"
+                  data-color-name="Hellwarm"
+                >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2579,7 +2594,13 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ffb46b"></span></span
                   >Hellwarm</button
-                ><button type="button" class="b sw" aria-pressed="false" data-color="FF5A00" data-color-name="Orange">
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FF5A00"
+                  data-color-name="Orange"
+                >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2598,7 +2619,13 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ff5a00"></span></span
                   >Orange</button
-                ><button type="button" class="b sw" aria-pressed="false" data-color="FF0000" data-color-name="Rot">
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FF0000"
+                  data-color-name="Rot"
+                >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2617,7 +2644,13 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ff0000"></span></span
                   >Rot</button
-                ><button type="button" class="b sw" aria-pressed="false" data-color="0000FF" data-color-name="Blau">
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="0000FF"
+                  data-color-name="Blau"
+                >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2636,7 +2669,13 @@
                   ><span class="e"
                     ><span class="c" style="--c: #0000ff"></span></span
                   >Blau</button
-                ><button type="button" class="b sw" aria-pressed="false" data-color="FFFFFF" data-color-name="Weiß">
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FFFFFF"
+                  data-color-name="Weiß"
+                >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2683,10 +2722,7 @@
                 ><svg class="ic" aria-hidden="true"><use href="#i-round" /></svg
               ></span>
               <div>
-                <p id="last-light" class="hs-last">
-                  Zuletzt: <span class="dot" style="--c: #fdedc9"></span
-                  ><b>Nachtlicht</b> · 3 %
-                </p>
+                <p id="last-light" class="hs-last">Zuletzt: noch kein Befehl</p>
                 <p class="hs-rb">
                   <button type="button" id="readback" class="readback-btn">
                     Hub meldet ≈ — · Raum: — lx
@@ -2712,7 +2748,7 @@
             type="color"
             id="col"
             class="sr"
-            value="#fdedc9"
+            value="#5c0701"
             aria-label="Eigene Farbe"
           />
           <section class="toene" aria-labelledby="tones-ht">
@@ -2790,7 +2826,10 @@
                   <button
                     type="button"
                     class="b tone"
-                    aria-pressed="false" data-t="26" title="Morgenbach" >
+                    aria-pressed="false"
+                    data-t="26"
+                    title="Morgenbach"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2806,7 +2845,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="27" title="Spieluhr">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="27"
+                    title="Spieluhr"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2822,7 +2867,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="20" title="MiMix">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="20"
+                    title="MiMix"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2838,7 +2889,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="21" title="Enthusiastisch">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="21"
+                    title="Enthusiastisch"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2854,7 +2911,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="22" title="Gitarre klassisch">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="22"
+                    title="Gitarre klassisch"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2870,7 +2933,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="23" title="Eiswelt-Klavier">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="23"
+                    title="Eiswelt-Klavier"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2886,7 +2955,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="24" title="Freizeit">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="24"
+                    title="Freizeit"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2902,7 +2977,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="25" title="Kindheit">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="25"
+                    title="Kindheit"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2918,7 +2999,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="28" title="Orange">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="28"
+                    title="Orange"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2934,7 +3021,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="29" title="Denker">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="29"
+                    title="Denker"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2967,7 +3060,13 @@
               </h3>
               <ul class="tg" id="tones-group-2">
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="10" title="Klingel">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="10"
+                    title="Klingel"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2983,7 +3082,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="11" title="Klopfen">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="11"
+                    title="Klopfen"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2999,7 +3104,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="12" title="Lustig">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="12"
+                    title="Lustig"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3015,7 +3126,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="13" title="Wecker-Klingel">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="13"
+                    title="Wecker-Klingel"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3031,7 +3148,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="14" title="Klingel 5">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="14"
+                    title="Klingel 5"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3047,7 +3170,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false" data-t="15" title="Klingel 6">
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="15"
+                    title="Klingel 6"
+                  >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3122,7 +3251,10 @@
                   <button
                     type="button"
                     class="b tone two"
-                    aria-pressed="false" data-t="0" title="Polizei 1" >
+                    aria-pressed="false"
+                    data-t="0"
+                    title="Polizei 1"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3137,7 +3269,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="1" title="Polizei 2">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="1"
+                    title="Polizei 2"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3152,7 +3290,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="2" title="Unfall">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="2"
+                    title="Unfall"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3167,7 +3311,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="3" title="Countdown">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="3"
+                    title="Countdown"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3182,7 +3332,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="4" title="Geist">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="4"
+                    title="Geist"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3197,7 +3353,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="5" title="Scharfschütze">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="5"
+                    title="Scharfschütze"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3212,7 +3374,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="6" title="Gefecht">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="6"
+                    title="Gefecht"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3227,7 +3395,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="7" title="Fliegeralarm">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="7"
+                    title="Fliegeralarm"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3242,7 +3416,13 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false" data-t="8" title="Hundebellen">
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="8"
+                    title="Hundebellen"
+                  >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3296,10 +3476,6 @@
             </button>
           </section>
         </div>
-        <p class="privacy">
-          Ansicht und Hell/Dunkel werden auf diesem Gerät gespeichert.
-          Nachtlicht-Favoriten liegen auf dem Server.
-        </p>
         <noscript
           >Bitte JavaScript aktivieren, um das Nachtlicht zu bedienen.</noscript
         >
@@ -3351,7 +3527,7 @@
             </button>
           </div>
           <button type="button" id="reset-preset" class="tlink">
-            Auf Standard zurücksetzen (#FDEDC9 · 3 %)
+            Auf Standard zurücksetzen (#5C0701 · 44 %)
           </button>
         </div>
       </dialog>
@@ -3361,7 +3537,7 @@
       const $ = (id) => document.getElementById(id);
       const root = document.documentElement;
       const HUB_HANDLES = { "KI-18FB": "plug", "EZ-594F": "round" };
-      const DEFAULT_NIGHTLIGHT = { rgb: "FDEDC9", bri: 3 };
+      const DEFAULT_NIGHTLIGHT = { rgb: "5C0701", bri: 44 };
       const FIXED_PRESETS = {
         warm: { rgb: "FF8C28", bri: 40, label: "Warm" },
         hell: { rgb: "FFF4E0", bri: 80, label: "Hell" },
@@ -3371,9 +3547,15 @@
         Object.keys(HUB_HANDLES).map((label) => [
           label,
           {
-            rgb: "FDEDC9",
-            bri: 3,
-            colorName: "Nachtlicht",
+            rgb: DEFAULT_NIGHTLIGHT.rgb,
+            bri: DEFAULT_NIGHTLIGHT.bri,
+            colorName: "Eigene Farbe",
+            lightReady: false,
+            lightTouched: false,
+            lightIssued: 0,
+            lightSequence: 0,
+            toneSequence: 0,
+            readbackSequence: 0,
             last: null,
             readback: null,
             tone: null,
@@ -3387,8 +3569,11 @@
       let sequence = 0;
       let retryCommand = null;
       let undoCommand = null;
+      let undoSequence = 0;
       let sheetSnapshot = null;
       let serverRejected = false;
+      const presetSequences = {};
+      let modeHintTimer = null;
       const state = () => states[selected];
       const hub = () => HUB_HANDLES[selected];
       const percent = (value) => `${value} %`;
@@ -3396,6 +3581,12 @@
         presets[HUB_HANDLES[label]]?.nacht;
       const sameLight = (a, b) =>
         a && b && a.rgb === b.rgb && Number(a.bri) === Number(b.bri);
+      const validPreset = (value) =>
+        value &&
+        /^[0-9A-F]{6}$/.test(value.rgb) &&
+        Number.isInteger(value.bri) &&
+        value.bri >= 0 &&
+        value.bri <= 100;
       function remember(key, value) {
         try {
           localStorage.setItem(key, value);
@@ -3406,8 +3597,10 @@
       try {
         const mode = localStorage.getItem("nightlight-mode");
         const theme = localStorage.getItem("nightlight-theme");
+        const savedHub = localStorage.getItem("nightlight-hub");
         if (["kind", "erwachsen"].includes(mode)) root.dataset.mode = mode;
         if (["dark", "light"].includes(theme)) root.dataset.theme = theme;
+        if (Object.hasOwn(HUB_HANDLES, savedHub)) selected = savedHub;
       } catch (_) {
         /* First visit remains Kind/Dunkel. */
       }
@@ -3420,24 +3613,40 @@
         $("retry").hidden = action !== "retry" || serverRejected;
         $("reload").hidden = action !== "reload";
         $("undo").hidden =
-          action !== "undo" || root.dataset.mode !== "erwachsen";
+          serverRejected ||
+          !undoCommand ||
+          undoCommand.label !== selected ||
+          root.dataset.mode !== "erwachsen";
       }
       async function request(path, params = {}) {
-        const response = await fetch(path + "?" + new URLSearchParams(params), {
-          method: ["/get", "/presets"].includes(path) ? "GET" : "POST",
-          headers: { "X-Nightlight": "1" },
-          mode: "same-origin",
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        // Check HTTP status before JSON: the security response is deliberately HTML.
-        if (response.status === 403) {
-          const error = new Error("rejected");
-          error.rejected = true;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        try {
+          const response = await fetch(
+            path + "?" + new URLSearchParams(params),
+            {
+              method: ["/get", "/presets"].includes(path) ? "GET" : "POST",
+              headers: { "X-Nightlight": "1" },
+              mode: "same-origin",
+              credentials: "same-origin",
+              cache: "no-store",
+              signal: controller.signal,
+            },
+          );
+          // Check HTTP status before JSON: the security response is deliberately HTML.
+          if (response.status === 403) {
+            const error = new Error("rejected");
+            error.rejected = true;
+            throw error;
+          }
+          if (!response.ok) throw new Error("unavailable");
+          return await response.json();
+        } catch (error) {
+          if (controller.signal.aborted) error.timeout = true;
           throw error;
+        } finally {
+          clearTimeout(timer);
         }
-        if (!response.ok) throw new Error("unavailable");
-        return response.json();
       }
       function rejectServer() {
         serverRejected = true;
@@ -3452,23 +3661,36 @@
         }
         const mine = ++sequence;
         const target = options.target || selected;
+        if (["/set", "/apply"].includes(path))
+          states[target].lightIssued = mine;
         retryCommand = { path, params: { ...params }, label, options };
-        undoCommand = null;
         status("pend", `${label} → ${target} · wird gesendet …`);
         try {
           const result = await request(path, params);
-          if (mine !== sequence) return;
+          // A confirmed late command still happened. Keep its per-hub cache and
+          // Undo, while only the newest request owns the status/retry controls.
+          if (result.ok) {
+            options.success?.(result, target, mine);
+            if ((options.undo || options.clearUndo) && mine >= undoSequence) {
+              undoSequence = mine;
+              undoCommand = options.undo || null;
+            }
+            render();
+          }
+          if (mine !== sequence || serverRejected) return;
           if (!result.ok) {
             const message =
-              result.error ===
-                "Hub oder Dienst nicht erreichbar; erneut versuchen" &&
+              (result.code === "hub_unavailable" ||
+                (!result.code &&
+                  /nicht erreichbar|antwortet nicht/.test(
+                    result.error || "",
+                  ))) &&
               ["/set", "/get", "/tone", "/stop", "/apply"].includes(path)
-                ? `${target} antwortet nicht`
+                ? `${target} antwortet nicht (${result.attempts || 4} Versuche)`
                 : result.error || "Aktion fehlgeschlagen";
             status("bad", message, "retry");
             return;
           }
-          options.success?.(result, target);
           const attempts = Number(result.versuche || 1);
           status(
             attempts > 1 ? "retry" : "ok",
@@ -3476,31 +3698,47 @@
               `${label} → ${target} · angekommen${attempts > 1 ? ` nach ${attempts} Versuchen` : ""}`,
             options.undo ? "undo" : null,
           );
-          if (options.undo) undoCommand = options.undo;
           render();
           if (path === "/set" || path === "/apply")
             refreshReadback(target, mine);
         } catch (error) {
-          if (mine !== sequence) return;
           if (error.rejected) {
             rejectServer();
             return;
           }
-          status("bad", "Keine Verbindung zum Nachtlicht-Server", "retry");
+          if (mine !== sequence || serverRejected) return;
+          status(
+            "bad",
+            error.timeout
+              ? `${target} antwortet nicht (Zeitüberschreitung)`
+              : "Keine Verbindung zum Nachtlicht-Server",
+            "retry",
+          );
         }
       }
       async function refreshReadback(target = selected, mine = sequence) {
         if (serverRejected) return;
         try {
           const result = await request("/get", { hub: HUB_HANDLES[target] });
-          if (mine !== sequence || target !== selected) return;
           if (result.ok) {
-            states[target].readback = result;
+            acceptReadback(result, target, mine);
             render();
           }
         } catch (error) {
-          if (mine === sequence && error.rejected) rejectServer();
+          if (error.rejected) rejectServer();
           // Approximate readback is optional; retain the action's ACK/status.
+        }
+      }
+      function acceptReadback(result, target, mine) {
+        const s = states[target];
+        if (mine < s.readbackSequence) return;
+        s.readbackSequence = mine;
+        s.readback = result;
+        if (!s.last && !s.lightTouched) {
+          s.rgb = result.rgb;
+          s.bri = result.brightness;
+          s.colorName = colorName(s.rgb);
+          s.lightReady = true;
         }
       }
       function colorName(rgb) {
@@ -3509,12 +3747,37 @@
         );
         return swatch?.dataset.colorName || "Eigene Farbe";
       }
-      function acceptLight(result, target, label) {
+      function acceptLight(result, target, label, mine = sequence) {
         const s = states[target];
-        s.rgb = result.rgb;
-        s.bri = result.brightness;
-        s.colorName = label || colorName(s.rgb);
-        s.last = { rgb: s.rgb, bri: s.bri, label: s.colorName };
+        if (mine < s.lightSequence) return;
+        s.lightSequence = mine;
+        s.last = {
+          rgb: result.rgb,
+          bri: result.brightness,
+          label: label || colorName(result.rgb),
+        };
+        if (mine >= s.lightIssued) {
+          s.rgb = s.last.rgb;
+          s.bri = s.last.bri;
+          s.colorName = s.last.label;
+          s.lightReady = true;
+        }
+      }
+      function acceptTone(target, tone, mine) {
+        const s = states[target];
+        if (mine < s.toneSequence) return;
+        s.toneSequence = mine;
+        s.tone = tone;
+      }
+      function cachePreset(target, value, mine) {
+        if (mine < (presetSequences[target] || 0)) return;
+        presetSequences[target] = mine;
+        presets[HUB_HANDLES[target]] = value;
+        presetsReady = true;
+      }
+      function cacheAllPresets(result, mine) {
+        for (const target of Object.keys(HUB_HANDLES))
+          cachePreset(target, result.presets[HUB_HANDLES[target]] || {}, mine);
       }
       function sendLight(label = state().colorName) {
         const s = state();
@@ -3523,7 +3786,8 @@
           { hub: hub(), rgb: s.rgb, bri: s.bri },
           `${label} ${percent(s.bri)}`,
           {
-            success: (result, target) => acceptLight(result, target, label),
+            success: (result, target, mine) =>
+              acceptLight(result, target, label, mine),
           },
         );
       }
@@ -3533,15 +3797,18 @@
           { hub: hub(), preset: "nacht" },
           "Nachtlicht",
           {
-            success: (result, target) => {
+            success: (result, target, mine) => {
               // /apply reads the authoritative server preset, including saves
               // from HA or another device while this page remained open.
               ++presetRevision;
-              presets[HUB_HANDLES[target]] = {
-                nacht: { rgb: result.rgb, bri: result.brightness },
-              };
-              presetsReady = true;
-              acceptLight(result, target, "Nachtlicht");
+              cachePreset(
+                target,
+                {
+                  nacht: { rgb: result.rgb, bri: result.brightness },
+                },
+                mine,
+              );
+              acceptLight(result, target, "Nachtlicht", mine);
             },
           },
         );
@@ -3589,14 +3856,19 @@
       }
       function updateSliders() {
         const s = state();
-        $("bri").value = s.bri;
-        $("bri-track").style.setProperty("--f", s.bri / 100);
-        $("bri-value").textContent = s.bri === 0 ? "Aus" : percent(s.bri);
+        $("bri").disabled = !s.lightReady;
+        $("bri").value = s.lightReady ? s.bri : 0;
+        $("bri-track").style.setProperty("--f", s.lightReady ? s.bri / 100 : 0);
+        $("bri-value").textContent = !s.lightReady
+          ? "—"
+          : s.bri === 0
+            ? "Aus"
+            : percent(s.bri);
         $("bri").setAttribute("aria-valuetext", $("bri-value").textContent);
         $("vol-track").style.setProperty("--f", Number($("vol").value) / 40);
         $("vol-value").textContent = percent($("vol").value);
         $("vol").setAttribute("aria-valuetext", $("vol-value").textContent);
-        const hint = shiftHint(s.rgb, s.bri, s.colorName);
+        const hint = s.lightReady && shiftHint(s.rgb, s.bri, s.colorName);
         $("shift-hint").replaceChildren();
         if (hint) {
           const dot = document.createElement("span");
@@ -3613,7 +3885,8 @@
             ? "Ansicht: Kind · zum Wechseln 1 Sekunde gedrückt halten"
             : "Ansicht: Erwachsen · zu Kind wechseln",
         );
-        $("mode-hint").textContent = kind ? "Zum Wechseln gedrückt halten" : "";
+        clearTimeout(modeHintTimer);
+        $("mode-hint").textContent = "";
         if (kind) {
           $("alarm-list").hidden = true;
           $("loud-toggle").setAttribute("aria-expanded", "false");
@@ -3637,21 +3910,31 @@
           .style.setProperty("--c", "#" + saved.rgb);
         $("nightlight").setAttribute(
           "aria-pressed",
-          String(sameLight(s, saved)),
+          String(Boolean(s.last && sameLight(s, saved))),
         );
-        $("off").setAttribute("aria-pressed", String(s.bri === 0));
+        $("off").setAttribute(
+          "aria-pressed",
+          String(Boolean(s.last && s.bri === 0)),
+        );
         document
           .querySelectorAll("[data-preset]")
           .forEach((b) =>
             b.setAttribute(
               "aria-pressed",
-              String(sameLight(s, FIXED_PRESETS[b.dataset.preset])),
+              String(
+                Boolean(
+                  s.last && sameLight(s, FIXED_PRESETS[b.dataset.preset]),
+                ),
+              ),
             ),
           );
         document
           .querySelectorAll("[data-color]")
           .forEach((b) =>
-            b.setAttribute("aria-pressed", String(s.rgb === b.dataset.color)),
+            b.setAttribute(
+              "aria-pressed",
+              String(Boolean(s.last && s.rgb === b.dataset.color)),
+            ),
           );
         $("col").value = "#" + s.rgb.toLowerCase();
         const own = ![...document.querySelectorAll("[data-color]")].some(
@@ -3659,7 +3942,7 @@
         );
         $("own-color").setAttribute(
           "aria-pressed",
-          String(own && s.colorName !== "Nachtlicht"),
+          String(Boolean(s.last && own && s.colorName !== "Nachtlicht")),
         );
         $("own-color")
           .querySelectorAll(".c, .drop")
@@ -3687,6 +3970,12 @@
           .forEach((b) =>
             b.setAttribute("aria-pressed", String(s.tone === b.dataset.t)),
           );
+        $("stop").classList.toggle("on", s.tone !== null);
+        $("undo").hidden =
+          serverRejected ||
+          !undoCommand ||
+          undoCommand.label !== selected ||
+          root.dataset.mode !== "erwachsen";
         const readIcon = document.querySelector(".hubsays .hspic use");
         readIcon.setAttribute(
           "href",
@@ -3695,11 +3984,11 @@
         updateSliders();
       }
       function selectHub(label) {
-        if (selected === label) return;
+        if (!Object.hasOwn(HUB_HANDLES, label) || selected === label) return;
         selected = label;
+        remember("nightlight-hub", selected);
         ++sequence;
         retryCommand = null;
-        undoCommand = null;
         $("save-sheet").close();
         if (serverRejected) rejectServer();
         else status("", `Bereit · ${selected}`);
@@ -3724,7 +4013,7 @@
           document.querySelector(`[data-hub="${label}"]`).focus();
         });
       });
-      function holdToActivate(button, needsHold, activate, hint) {
+      function holdToActivate(button, needsHold, activate, hint, endHint) {
         let timer = null,
           done = false,
           active = false;
@@ -3733,16 +4022,19 @@
           timer = null;
           active = false;
           button.classList.remove("holding");
+          endHint?.();
         };
         const start = () => {
           if (active || !needsHold()) return;
           active = true;
           done = false;
           button.classList.add("holding");
+          hint?.(true);
           timer = setTimeout(() => {
             timer = null;
             done = true;
             button.classList.remove("holding");
+            endHint?.();
             activate();
           }, 1000);
         };
@@ -3784,7 +4076,7 @@
             return;
           }
           if (needsHold()) {
-            hint?.();
+            hint?.(false);
             return;
           }
           activate();
@@ -3799,11 +4091,18 @@
           remember("nightlight-mode", root.dataset.mode);
           renderMode();
           render();
-          $("undo").hidden = root.dataset.mode !== "erwachsen" || !undoCommand;
         },
-        () =>
-          ($("mode-hint").textContent =
-            "Zum Wechseln 1 Sekunde gedrückt halten"),
+        (holding) => {
+          clearTimeout(modeHintTimer);
+          $("mode-hint").textContent = "Zum Wechseln 1 Sekunde gedrückt halten";
+          if (!holding)
+            modeHintTimer = setTimeout(() => {
+              $("mode-hint").textContent = "";
+            }, 2500);
+        },
+        () => {
+          $("mode-hint").textContent = "";
+        },
       );
       $("theme").addEventListener("click", () => {
         root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
@@ -3831,11 +4130,13 @@
         }),
       );
       $("bri").addEventListener("input", () => {
+        state().lightTouched = state().lightReady = true;
         state().bri = Number($("bri").value);
         updateSliders();
       });
       // Native change fires when the pointer is released (or a keyboard step commits).
       $("bri").addEventListener("change", () => {
+        state().lightTouched = state().lightReady = true;
         state().bri = Number($("bri").value);
         render();
         sendLight();
@@ -3844,6 +4145,7 @@
       $("nightlight").addEventListener("click", applyNightlight);
       $("goodnight").addEventListener("click", applyNightlight);
       $("off").addEventListener("click", () => {
+        state().lightTouched = state().lightReady = true;
         state().bri = 0;
         render();
         sendLight("Aus");
@@ -3852,6 +4154,7 @@
         button.addEventListener("click", () => {
           const p = FIXED_PRESETS[button.dataset.preset];
           Object.assign(state(), p, { colorName: p.label });
+          state().lightTouched = state().lightReady = true;
           render();
           sendLight(p.label);
         }),
@@ -3862,6 +4165,7 @@
             rgb: button.dataset.color,
             colorName: button.dataset.colorName,
           });
+          state().lightTouched = state().lightReady = true;
           render();
           sendLight();
         }),
@@ -3875,6 +4179,7 @@
         }
       });
       $("col").addEventListener("change", () => {
+        state().lightTouched = state().lightReady = true;
         state().rgb = $("col").value.slice(1).toUpperCase();
         state().colorName = colorName(state().rgb);
         render();
@@ -3891,19 +4196,20 @@
             },
             button.title,
             {
-              success: (_, target) => (states[target].tone = button.dataset.t),
+              success: (_, target, mine) =>
+                acceptTone(target, button.dataset.t, mine),
             },
           ),
         ),
       );
       $("stop").addEventListener("click", () =>
         command("/stop", { hub: hub() }, "Stopp", {
-          success: (_, target) => (states[target].tone = null),
+          success: (_, target, mine) => acceptTone(target, null, mine),
         }),
       );
       $("readback").addEventListener("click", () =>
         command("/get", { hub: hub() }, "Status lesen", {
-          success: (result, target) => (states[target].readback = result),
+          success: acceptReadback,
         }),
       );
       $("retry").addEventListener("click", () => {
@@ -3918,7 +4224,7 @@
           return;
         sheetSnapshot = {
           label: selected,
-          old: { ...presetFor() },
+          old: validPreset(presetFor()) ? { ...presetFor() } : null,
           next: { rgb: state().last.rgb, bri: state().last.bri },
         };
         $("sheet-title").textContent = `Nachtlicht für ${selected} speichern?`;
@@ -3926,15 +4232,24 @@
           ["old", sheetSnapshot.old],
           ["new", sheetSnapshot.next],
         ]) {
-          $(prefix + "-preset").textContent =
-            `#${value.rgb} · ${percent(value.bri)}`;
-          $(prefix + "-dot").style.setProperty("--c", "#" + value.rgb);
+          $(prefix + "-preset").textContent = value
+            ? `#${value.rgb} · ${percent(value.bri)}`
+            : "Nicht gespeichert";
+          $(prefix + "-dot").hidden = !value;
+          if (value)
+            $(prefix + "-dot").style.setProperty("--c", "#" + value.rgb);
         }
         $("save-sheet").showModal();
         $("cancel-save").focus();
       });
       $("cancel-save").addEventListener("click", () => $("save-sheet").close());
       function persistPreset(snapshot, reset = false, undo = false) {
+        if (
+          !snapshot ||
+          !Object.hasOwn(HUB_HANDLES, snapshot.label) ||
+          (!reset && !validPreset(snapshot.next))
+        )
+          return;
         const target = snapshot.label;
         const params = {
           hub: HUB_HANDLES[target],
@@ -3953,12 +4268,19 @@
           undo ? "Nachtlicht zurücksetzen" : "Nachtlicht speichern",
           {
             target,
-            success: (result) => {
-              presets = result.presets;
-              presetsReady = true;
+            success: (result, target, mine) => {
+              cachePreset(
+                target,
+                result.presets[HUB_HANDLES[target]] || {},
+                mine,
+              );
             },
             message: `${undo ? "Nachtlicht wiederhergestellt" : "Nachtlicht gespeichert"} · ${target}`,
-            undo: undo ? null : { label: target, next: snapshot.old },
+            undo:
+              undo || !validPreset(snapshot.old)
+                ? null
+                : { label: target, next: snapshot.old },
+            clearUndo: undo || !validPreset(snapshot.old),
           },
         );
       }
@@ -3980,37 +4302,47 @@
         try {
           const result = await request("/presets");
           if (revision !== presetRevision) return;
-          if (!result.ok) throw new Error("unavailable");
-          presets = result.presets;
-          presetsReady = true;
+          if (!result.ok) {
+            const error = new Error("presets");
+            error.userMessage = result.error;
+            throw error;
+          }
+          cacheAllPresets(result, mine);
           render();
         } catch (error) {
-          if (mine !== sequence) return;
           if (error.rejected) {
             rejectServer();
             return;
           }
+          if (mine !== sequence || serverRejected) return;
           retryCommand = {
             path: "/presets",
             params: {},
             label: "Nachtlicht laden",
             options: {
-              success: (result) => {
-                presets = result.presets;
-                presetsReady = true;
+              success: (result, _, mine) => {
+                cacheAllPresets(result, mine);
+                refreshReadback();
               },
             },
           };
-          status("bad", "Nachtlicht-Vorgaben nicht erreichbar", "retry");
+          status(
+            "bad",
+            error.userMessage || "Keine Verbindung zum Nachtlicht-Server",
+            "retry",
+          );
         }
       }
       renderMode();
+      status("", `Bereit · ${selected}`);
       render();
       loadPresets();
       refreshReadback();
       // OPS-496: block pinch zoom (iOS ignores user-scalable=no).
       ["gesturestart", "gesturechange"].forEach((t) =>
-        document.addEventListener(t, (event) => event.preventDefault(), { passive: false }),
+        document.addEventListener(t, (event) => event.preventDefault(), {
+          passive: false,
+        }),
       );
     </script>
   </body>

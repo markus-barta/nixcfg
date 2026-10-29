@@ -49,8 +49,9 @@ The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
 `100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
 `192.168.1.106`, Kinderzimmer) and **EZ-594F** (`round`, `192.168.1.108`) map to
 stable API handles. The self-contained responsive page has Kind/Erwachsen
-and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults.
-Nachtlicht defaults to **FDEDC9 at 3%** for both hubs. Erwachsen can save/reset
+and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
+mode and theme are remembered on the device.
+Nachtlicht defaults to **5C0701 at 44%** for both hubs. Erwachsen can save/reset
 the per-hub Nachtlicht via `/preset`; `/presets` reads it and `/apply` applies
 that same preset for the page and LOCAL-OPS's HA automations.
 `/set`, `/tone`, `/stop`, `/preset` and `/apply` accept **GET or POST** with
