@@ -1267,8 +1267,8 @@ pusher code, with revision 9 still the default. Phase B activation and real
 producer sign-off remain separate; this tag does not set `JOE_V2_CONTRACT_REV=10`.
 Prestage the immutable image before one validated host build and activation.
 
-JOED-100 now prepares `household-v2-switch-set-r20d-202610281030`:
-r20d = r20c (#1159 bounded ownership history) + #1171 (JOED-102 bounded
+JOED-100 now prepares `household-v2-switch-set-r20e-202610291640`:
+r20e = r20d + OPS-497 (pusher two-rate Today via proven SOD FX); r20d = r20c (#1159 bounded ownership history) + #1171 (JOED-102 bounded
 stager cold start, stager-only checkpoint). r20c was built but rolled back on
 2026-10-27 and is never deployed by this combined re-land. The new tag prevents
 reuse of the earlier r20c image without the checkpoint code.

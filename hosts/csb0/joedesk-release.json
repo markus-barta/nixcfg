@@ -50,13 +50,13 @@
         "nixcfg_rev": "e13ceabb217f53871c1b24ae0cfa6e6d58c2b9c8",
         "source_tree": "e5b6530c088e9888a77d73373d01d4c6d0228c68",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
-        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20d-202610281030"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640"
       },
       "executor": {
         "nixcfg_rev": "d5c248f87096a3bbfaed7f63fe2b4f19add532fc",
         "source_tree": "24e09b3f7b8dd5f1d2e063a4c1c3c72bd7acf61e",
         "source_path": "modules/paper-desk-executor",
-        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20d-202610281030"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640"
       },
       "contracts": {
         "schema": "joedesk.release-contracts.v1",

@@ -171,11 +171,11 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.ok(!JSON.stringify(lab).includes("/run/agenix"));
 });
 
-test("active v2 set (JOED-86): shared r20d image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
+test("active v2 set (JOED-86): shared r20e image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
   const r17 = release.sets.v2.pusher.image;
-  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r20d-202610281030");
+  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640");
   assert.equal(release.sets.v2.executor.image, r17);
   for (const enabled of [true, false]) {
     const v2 = hostEval(t, source, enabled, false, "v2");

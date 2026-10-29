@@ -294,7 +294,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # JOED-100 r20d (r20c #1159 bounded ownership history + #1171 JOED-102 stager checkpoint; JOED-86 lineage after JOED-63/HOSTD-77 r19a): household-v2-switch-set-r20d-202610281030, selected
+    # JOED-100 r20e (r20d + OPS-497 two-rate Today; r20d = r20c #1159 bounded ownership history + #1171 JOED-102 stager checkpoint; JOED-86 lineage after JOED-63/HOSTD-77 r19a): household-v2-switch-set-r20e-202610291640, selected
     # only by the release set. Shared-image rollback retains r19a; the separate
     # current v1 set retains household-v2-switch-set-r16d-202610201800. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
