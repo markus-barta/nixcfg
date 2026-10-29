@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -190,6 +191,7 @@ def proxy():
 
 
 def load_gc():
+    require_test_vm()
     source = Path("/etc/ops327/gc.py").read_text()
     if settings().get("mutant_hold"):
         assert source.count("BATCH_S = 10\n") == 1
@@ -201,8 +203,13 @@ def load_gc():
         if settings().get(flag):
             assert source.count(anchor) == 1, (flag, 'missing mutation anchor')
             source = source.replace(anchor, '            if False:\n')
-    module = types.ModuleType("gc_vm")
-    exec(compile(source, "gc.py", "exec"), module.__dict__)
+    spec = importlib.util.spec_from_file_location("vm_gc_harness", Path(__file__).with_name("harness.py"))
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    # The disposable NixOS guest's entire filesystem is this fixture. Its
+    # hypervisor boundary, read-only store, marker and private Docker socket
+    # are required above; an offline workstation fixture may never use '/'.
+    module = harness.execute_source(source, root="/")
     module.SOCKET_PATH = PROXY
     return module
 

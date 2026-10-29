@@ -3,7 +3,9 @@
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo}"
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_docker_image_gc.py' -v
+python3 -B -m unittest discover -s tests -p 'test_docker_image_gc.py' -v
+python3 -B tests/docker-image-gc-unit-orders.py --order random --seed 32706
+python3 -B tests/docker-image-gc-unit-orders.py --order reverse
 for file in hosts/csb1/docker-image-gc.nix tests/docker-image-gc-names.nix tests/docker-image-gc-vm.nix; do
   nix-instantiate --parse "${file}" >/dev/null
 done

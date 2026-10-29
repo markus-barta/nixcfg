@@ -75,6 +75,7 @@ pkgs.testers.runNixOSTest {
           DECLARED_REFS = "[]";
         };
         environment.etc."ops327/support.py".source = ./docker-image-gc-vm-support.py;
+        environment.etc."ops327/harness.py".source = ./docker-image-gc-harness.py;
         environment.etc."ops327/vm-only".text = "OPS-327 disposable VM\n";
         environment.etc."ops327/images.json".text = builtins.toJSON (map toString images);
         environment.etc."ops327/registry.yml".text = ''

@@ -28,12 +28,16 @@ import unittest
 import unicodedata
 import urllib.parse
 import http.client
+import importlib.util
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout, nullcontext
 from pathlib import Path
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "hosts" / "csb1" / "docker-image-gc.py"
+_harness_spec = importlib.util.spec_from_file_location("gc_unit_harness", REPO / "tests/docker-image-gc-harness.py")
+HARNESS = importlib.util.module_from_spec(_harness_spec)
+_harness_spec.loader.exec_module(HARNESS)
 NOW = 1_800_000_000
 DAY = 86400
 AEON = "ghcr.io/inspr-at/aeon"
@@ -64,9 +68,8 @@ def load(declared=(), tmp: Path | None = None):
     if OVERRIDE and OVERRIDE[0] == "text":
         source = OVERRIDE[1](source)
     source = source.replace("@DECLARED_REFS@", json.dumps(list(declared)))
-    module = types.ModuleType("docker_image_gc")
-    exec(compile(source, str(SCRIPT), "exec"), module.__dict__)
-    socket_dir = SOCKET_DIRS.enter_context(tempfile.TemporaryDirectory(prefix="ops327-unit-"))
+    socket_dir = SOCKET_DIRS.enter_context(tempfile.TemporaryDirectory(prefix="ops327-unit-", dir=tmp))
+    module = HARNESS.execute_source(source, tmp if tmp is not None else socket_dir)
     module.SOCKET_PATH = str(Path(socket_dir) / "absent.sock")
     if tmp is not None:
         module.STORE_DIR = str(tmp)
@@ -2619,8 +2622,10 @@ class R34StoreTests(Base):
                         (d / "bad").symlink_to(self.tmp / "absent")
                     else:
                         # A real directory on the same device but outside STORE_DIR.
-                        outside = Path(tempfile.mkdtemp())
-                        self.addCleanup(shutil.rmtree, outside)
+                        # Outside STORE_DIR but within the guarded fixture.
+                        self.gc.STORE_DIR = str(self.tmp / "store-boundary")
+                        Path(self.gc.STORE_DIR).mkdir()
+                        outside = self.tmp / "outside-store"
                         layout(outside)
                         (d / "bad").symlink_to(outside)
                 with self.assertRaises((self.gc.Fatal, OSError)):
@@ -2652,7 +2657,12 @@ class R34StoreTests(Base):
                     if path.startswith("/containers/"):
                         gen(self.tmp, 42).unlink()
                         if removed:
-                            shutil.rmtree(target)
+                            # Absolute operations: shutil's fd-relative open
+                            # loses dir_fd in its audit event, while cwd is
+                            # deliberately outside this fixture.
+                            for child in sorted(target.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                                child.rmdir() if child.is_dir() else child.unlink()
+                            target.rmdir()
                 self.gc.snapshot  # ensure the removal happens after t0, before profiles.
                 budget = self.gc.Budget(10)
                 snap = self.gc.snapshot(self.api(on_get=change), budget)
@@ -2962,8 +2972,8 @@ class R34DeadlineTests(Base):
         source = SCRIPT.read_text()
         if OVERRIDE and OVERRIDE[0] == "text": source = OVERRIDE[1](source)
         source = source.replace("@DECLARED_REFS@", "[]").replace("class DeadlineSocket(socket.socket):", "class DeadlineSocket(BlockingSocket):")
-        ns = {"BlockingSocket": BlockingSocket}
-        exec(compile(source, str(SCRIPT), "exec"), ns)
+        ns = HARNESS.execute_source(source, self.tmp, bindings={"BlockingSocket": BlockingSocket}).__dict__
+        ns["SOCKET_PATH"] = self.gc.SOCKET_PATH
         with mock.patch.object(time, "monotonic", clock), mock.patch.object(socket, "socket", BlockingSocket):
             with self.assertRaises(TimeoutError):
                 ns["docker_api"]("DELETE", "/images/fixture", 30, 1024)
@@ -3019,8 +3029,8 @@ class R34DeadlineTests(Base):
                 if OVERRIDE and OVERRIDE[0] == "text":
                     source = OVERRIDE[1](source)
                 source = source.replace("@DECLARED_REFS@", "[]").replace("class DeadlineSocket(socket.socket):", "class DeadlineSocket(BlockingSocket):")
-                ns = {"BlockingSocket": BlockingSocket}
-                exec(compile(source, str(SCRIPT), "exec"), ns)
+                ns = HARNESS.execute_source(source, self.tmp, bindings={"BlockingSocket": BlockingSocket}).__dict__
+                ns["SOCKET_PATH"] = self.gc.SOCKET_PATH
                 with mock.patch.object(time, "monotonic", clock):
                     sock = ns["DeadlineSocket"](clock() + ns["CALL_DEADLINE_S"])
                     if method != 'connect':
@@ -3058,8 +3068,8 @@ class R34DeadlineTests(Base):
                 source = SCRIPT.read_text()
                 if OVERRIDE and OVERRIDE[0] == "text": source = OVERRIDE[1](source)
                 source = source.replace("@DECLARED_REFS@", "[]").replace("class DeadlineSocket(socket.socket):", "class DeadlineSocket(TrickleSocket):")
-                ns = {"TrickleSocket": TrickleSocket}
-                exec(compile(source, str(SCRIPT), "exec"), ns)
+                ns = HARNESS.execute_source(source, self.tmp, bindings={"TrickleSocket": TrickleSocket}).__dict__
+                ns["SOCKET_PATH"] = self.gc.SOCKET_PATH
                 exec(f"def {frame}(sock):\n    sock.recv_into(bytearray(1))\n    sock.recv_into(bytearray(1))", ns)
                 with mock.patch.object(time, "monotonic", clock):
                     sock = ns["DeadlineSocket"](clock() + 30)
@@ -3185,7 +3195,10 @@ def r34_mutants():
     add("a fresh 30 s socket timeout before each receive", [("        return left\n", "        return CALL_DEADLINE_S\n")], "R34DeadlineTests.test_trickle_phases_injected")
     for label, frames in (("status line", ("_read_status",)), ("header lines", ("_read_headers",)),
                            ("chunked reader", ("_read_chunked", "_read_next_chunk_size")), ("body", ("read",))):
-        code = f"        import inspect\n        if any(f.function in {frames!r} for f in inspect.stack()): return CALL_DEADLINE_S\n        return left\n"
+        # Only frame names matter; source context would read the host test
+        # runner under the production guard and make mutation results depend
+        # on linecache contents and discovery/random/reverse order.
+        code = f"        import inspect\n        if any(f.function in {frames!r} for f in inspect.stack(context=0)): return CALL_DEADLINE_S\n        return left\n"
         add(f"a fresh 30 s socket timeout confined to the {label}", [("        return left\n", code)], "R34DeadlineTests.test_trickle_phases_injected")
     cooltest = "R34LockTests.test_cooldown_every_release_and_first_attempt"
     add("cooldown 2 s", [("COOLDOWN_S = 45\n", "COOLDOWN_S = 2\n")], cooltest)
@@ -3374,6 +3387,8 @@ class SocketIsolationTests(unittest.TestCase):
                 support.UnixConnection("localhost").connect()
             with self.assertRaisesRegex(RuntimeError, "isolated test VM"):
                 support.command("docker", "ps")
+            with self.assertRaisesRegex(RuntimeError, "isolated test VM"):
+                support.load_gc()
             plain_socket.assert_not_called()
             subprocess_run.assert_not_called()
 
@@ -3455,6 +3470,244 @@ class RunnerPathTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     self.check_rejection(runner, option, "/")
             print(f"ok mutant: skip path barrier for --{option}", file=sys.stderr)
+
+
+class AuditGuardTests(unittest.TestCase):
+    # A fresh interpreter for each probe: permanent hook/mutant installation,
+    # cwd changes and any descriptor operations cannot contaminate later tests.
+    PROBE = r'''
+import importlib.util, json, os, sys, tempfile
+from pathlib import Path
+request = json.load(sys.stdin)
+repo = Path(request["repo"])
+spec = importlib.util.spec_from_file_location("audit_probe_harness", repo / "tests/docker-image-gc-harness.py")
+h = importlib.util.module_from_spec(spec)
+helper_source = Path(spec.origin).read_text()
+for before, after in request.get("mutations", []):
+    assert helper_source.count(before) == 1, ("ambiguous audit mutation", before)
+    helper_source = helper_source.replace(before, after)
+exec(compile(helper_source, spec.origin, "exec"), h.__dict__)
+with tempfile.TemporaryDirectory(prefix="ops327-audit-", dir="/tmp") as tmp:
+    base = Path(tmp).resolve()
+    root, outside = base / "fixture", base / "outside"
+    root.mkdir(); outside.mkdir()
+    (outside / "data").write_text("outside control")
+    (root / "inside").write_text("fixture control")
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+    fragment = request["fragment"].replace("@OUTSIDE@", repr(str(outside / "data")))
+    fragment = fragment.replace("@ROOT@", repr(str(root)))
+    source = (repo / "hosts/csb1/docker-image-gc.py").read_text() + "\n" + fragment
+    os.chdir(root if request.get("inside_cwd", True) else base)
+    fd = os.open(outside / "data", os.O_RDONLY)
+    dir_fd = os.open(outside, os.O_RDONLY)
+    result = {"root": str(root), "outside": str(outside / "data"), "violations": []}
+    try:
+        if request.get("loader") == "load":
+            paths, *_ = h.fixture(root)
+            module = h.load(source, paths)
+        else:
+            # Deliberately exercise the behavioural layer independently of
+            # static literal rejection. No inventory widening is the barrier.
+            module = h.execute_source(source, root)
+        module.PROBE_FD = fd
+        module.PROBE_DIR_FD = dir_fd
+        module.leak()
+        result["violations"] = module.__ops327_fixture_guard__.violations
+        result["outcome"] = "returned"
+    except h.FixtureViolation as exc:
+        result.update(outcome="violation", event=exc.event, path=exc.path, violations=exc.recorded)
+    except BaseException as exc:
+        result.update(outcome="unrelated", error=type(exc).__name__ + ": " + str(exc))
+    finally:
+        os.close(fd)
+        os.close(dir_fd)
+        os.chdir(repo)
+    print(json.dumps(result))
+'''
+
+    def probe(self, fragment, *, loader=None, inside_cwd=True):
+        request = {"repo": str(REPO), "fragment": fragment, "loader": loader,
+                   "inside_cwd": inside_cwd, "mutations": getattr(self, "mutations", [])}
+        result = subprocess.run([sys.executable, "-B", "-c", self.PROBE], input=json.dumps(request),
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def violation(self, fragment, event, path, **kwargs):
+        result = self.probe(fragment, **kwargs)
+        expected = path(result) if callable(path) else os.path.realpath(path)
+        self.assertEqual(result["outcome"], "violation", result)
+        self.assertEqual((result["event"], result["path"]), (event, expected), result)
+        self.assertEqual(result["violations"], [{"event": event, "path": expected}])
+
+    def control(self, fragment, **kwargs):
+        result = self.probe(fragment, **kwargs)
+        self.assertEqual(result["outcome"], "returned", result)
+        self.assertEqual(result["violations"], [])
+
+    def test_shared_assignment_dict_is_guarded_after_load(self):
+        self.violation('SOCKET_PATH, NOTES = "/var/run/docker.sock", {"log": "/var/log/docker-image-gc"}\n'
+                       'def leak(): open(NOTES["log"])', "open", "/var/log/docker-image-gc", loader="load")
+
+    def test_derived_dict_is_guarded_after_load(self):
+        self.violation('STATE = {"file": os.path.join(KEEP_DIR, "state")}\n'
+                       'def leak(): open(STATE["file"])', "open", "/var/lib/docker-image-gc/keep.d/state", loader="load")
+
+    def test_subscript_assignment_is_guarded_after_load(self):
+        self.violation('cache = {}\ncache[SOCKET_PATH] = "/etc/docker/daemon.json"\n'
+                       'def leak(): open(next(iter(cache.values())))', "open", "/etc/docker/daemon.json", loader="load")
+
+    def test_function_default_is_guarded_after_load(self):
+        self.violation('def leak(path=KEEP_DIR): open(os.path.join(path, "state"))',
+                       "open", "/var/lib/docker-image-gc/keep.d/state", loader="load")
+
+    def test_standalone_dict_is_guarded_without_inventory(self):
+        self.violation('NOTES = {"log": "/var/log/docker-image-gc"}\ndef leak(): open(NOTES["log"])',
+                       "open", "/var/log/docker-image-gc")
+
+    def test_globals_protocol_value_is_guarded_after_load(self):
+        self.violation('def leak(): open(globals()["PRUNE_PATH"])', "open",
+                       "/build/prune?all=1&filters=%7B%22until%22%3A+%5B%2248h%22%5D%7D", loader="load")
+
+    def test_call_time_path_is_guarded(self):
+        self.violation('def leak(): open("/" + "etc/hosts")', "open", "/etc/hosts")
+
+    def test_pathlib_join_is_guarded(self):
+        self.violation('from pathlib import Path\ndef leak(): (Path("/etc") / "hosts").open()', "open", "/etc/hosts")
+
+    def test_bytes_path_is_guarded(self):
+        self.violation('def leak(): open(b"/etc/hosts")', "open", "/etc/hosts")
+
+    def test_relative_parent_escape_is_guarded(self):
+        self.violation('def leak(): open("../outside/data")', "open", lambda r: r["outside"])
+
+    def test_relative_path_requires_fixture_cwd(self):
+        self.violation('def leak(): open("fixture/inside")', "open", lambda r: r["root"] + "/inside", inside_cwd=False)
+
+    def test_symlink_escape_is_guarded(self):
+        self.violation('def leak(): open("escape/data")', "open", lambda r: r["outside"])
+
+    def test_descriptor_relative_escape_is_guarded(self):
+        for operation, event in (
+            ('os.open("data", os.O_RDONLY, dir_fd=PROBE_DIR_FD)', 'open'),
+            ('os.unlink("data", dir_fd=PROBE_DIR_FD)', 'os.remove'),
+            ('os.rename("inside", "data", dst_dir_fd=PROBE_DIR_FD)', 'os.rename'),
+            ('os.stat("data", dir_fd=PROBE_DIR_FD)', 'metadata.stat'),
+        ):
+            with self.subTest(operation=operation):
+                self.violation('def leak(): ' + operation, event, lambda r: r["outside"])
+
+    def test_unsafe_symlink_target_is_guarded(self):
+        self.violation('def leak():\n'
+                       '    os.symlink("inside", "changing")\n'
+                       '    with open("changing") as stream: stream.read()\n'
+                       '    os.unlink("changing")\n'
+                       '    os.symlink(@OUTSIDE@, "changing")', "os.symlink", lambda r: r["outside"])
+
+    def test_uninventoried_socket_is_guarded(self):
+        self.violation('hidden = {"socket": SOCKET_PATH}\n'
+                       'def leak():\n    with socket.socket(socket.AF_UNIX) as sock: sock.connect(hidden["socket"])',
+                       "socket.connect", "/var/run/docker.sock", loader="load")
+
+    def test_socket_event_family_is_guarded(self):
+        # Missing sibling socket is owned by this probe; a disabled event guard
+        # can fail only with an unrelated OS error, never reach host Docker.
+        self.violation('def leak():\n    with socket.socket(socket.AF_UNIX) as sock: sock.connect(@OUTSIDE@)',
+                       "socket.connect", lambda r: r["outside"])
+
+    def test_top_level_io_is_guarded_before_exec(self):
+        self.violation('open("/etc/hosts")\ndef leak(): pass', "open", "/etc/hosts")
+
+    def test_unit_loader_is_guarded_before_exec_and_after_return(self):
+        with mock.patch.object(sys.modules[__name__], "OVERRIDE", ("text", lambda s: s + '\nopen(KEEP_DIR)\n')):
+            with self.assertRaises(HARNESS.FixtureViolation) as raised:
+                load()
+        self.assertEqual((raised.exception.event, raised.exception.path), ("open", os.path.realpath("/var/lib/docker-image-gc/keep.d")))
+        with mock.patch.object(sys.modules[__name__], "OVERRIDE", ("text", lambda s: s + '\ndef leak(path=KEEP_DIR): open(path)\n')):
+            module = load()
+        with self.assertRaises(HARNESS.FixtureViolation) as raised:
+            module.leak()
+        self.assertEqual((raised.exception.event, raised.exception.path), ("open", os.path.realpath("/var/lib/docker-image-gc/keep.d")))
+        self.assertEqual(module.__ops327_fixture_guard__.violations,
+                         [{"event": "open", "path": os.path.realpath("/var/lib/docker-image-gc/keep.d")}])
+
+    def test_guard_disabled_is_killed(self):
+        # Benign owned sibling file: even the disabled-guard mutant performs
+        # no read of an operator file and no write outside the fixture.
+        self.violation('def leak():\n    with open(@OUTSIDE@) as stream: stream.read()',
+                       "open", lambda r: r["outside"])
+
+    def test_write_and_relative_read_under_fixture_pass(self):
+        self.control('def leak():\n    with open("created", "w") as stream: stream.write("ok")\n'
+                     '    with open("created") as stream: assert stream.read() == "ok"')
+
+    def test_import_and_interpreter_read_roots_pass(self):
+        self.control('def leak():\n    import fractions, sysconfig\n'
+                     '    for path in (sys.prefix, sys.base_prefix, sysconfig.get_path("stdlib"), '
+                     'sysconfig.get_path("platstdlib")):\n        os.listdir(path)')
+
+    def test_nix_store_import_root_passes(self):
+        if not Path("/nix/store").is_dir():
+            self.skipTest("Nix interpreter import store is absent")
+        self.control('def leak(): os.listdir("/nix/store")')
+
+    def test_proc_and_proc_locks_read_passes(self):
+        if not Path("/proc/locks").is_file():
+            self.skipTest("Linux-only /proc/locks control")
+        self.control('def leak():\n    os.listdir("/proc")\n    with open("/proc/locks") as stream: stream.read(64)')
+
+    def test_dev_null_read_passes(self):
+        self.control('def leak():\n    with open("/dev/null") as stream: assert stream.read() == ""')
+
+    def test_read_exceptions_never_allow_writes(self):
+        for path in (sys.prefix, sys.base_prefix, "/nix/store", "/proc", "/dev/null"):
+            with self.subTest(path=path):
+                self.violation(f'def leak(): open({path!r}, "w")', "open", path)
+
+    def test_filesystem_event_families_are_guarded(self):
+        cases = [
+            ('os.unlink(@OUTSIDE@)', 'os.remove'), ('os.remove(@OUTSIDE@)', 'os.remove'),
+            ('os.rename(@OUTSIDE@, "renamed")', 'os.rename'),
+            ('os.replace("inside", @OUTSIDE@)', 'os.rename'),
+            ('os.mkdir(@OUTSIDE@)', 'os.mkdir'), ('os.rmdir(@OUTSIDE@)', 'os.rmdir'),
+            ('os.listdir(@OUTSIDE@)', 'os.listdir'), ('os.scandir(@OUTSIDE@)', 'os.scandir'),
+            ('os.chmod(@OUTSIDE@, 0o600)', 'os.chmod'), ('os.chown(@OUTSIDE@, -1, -1)', 'os.chown'),
+            ('os.utime(@OUTSIDE@, None)', 'os.utime'), ('os.truncate(@OUTSIDE@, 0)', 'os.truncate'),
+            ('os.link(@OUTSIDE@, "linked")', 'os.link'), ('os.symlink(@OUTSIDE@, "linked")', 'os.symlink'),
+            ('fcntl.flock(PROBE_FD, fcntl.LOCK_EX | fcntl.LOCK_NB)', 'fcntl.flock'),
+            ('fcntl.lockf(PROBE_FD, fcntl.LOCK_EX | fcntl.LOCK_NB)', 'fcntl.lockf'),
+            ('open(PROBE_FD)', 'open'),
+            ('socket.socket(socket.AF_UNIX).bind(@OUTSIDE@)', 'socket.bind'),
+            ('shutil.copyfile(@OUTSIDE@, "copy")', 'shutil.copyfile'),
+            ('shutil.copyfile("inside", @OUTSIDE@)', 'shutil.copyfile'),
+            ('shutil.copymode("inside", @OUTSIDE@)', 'shutil.copymode'),
+            ('shutil.copystat("inside", @OUTSIDE@)', 'shutil.copystat'),
+            ('shutil.move(@OUTSIDE@, "moved")', 'shutil.move'),
+            ('shutil.rmtree(@OUTSIDE@)', 'shutil.rmtree'),
+            ('os.stat(@OUTSIDE@)', 'metadata.stat'), ('os.lstat(@OUTSIDE@)', 'metadata.lstat'),
+            ('os.path.exists(@OUTSIDE@)', 'metadata.exists'), ('os.path.isdir(@OUTSIDE@)', 'metadata.isdir'),
+        ]
+        for operation, event in cases:
+            with self.subTest(event=event, operation=operation):
+                self.violation('import shutil\ndef leak(): ' + operation, event, lambda r: r["outside"])
+
+    def test_each_audit_guard_mutant_is_killed_by_named_test(self):
+        mutants = [
+            ('            guard.audit(event, args)\n', '', 'test_guard_disabled_is_killed'),
+            ('{"socket.connect", "socket.bind", "socket.sendto"}', '{"socket.bind", "socket.sendto"}',
+             'test_socket_event_family_is_guarded'),
+            ('resolved = _REALPATH(path)', 'resolved = os.path.abspath(path)', 'test_symlink_escape_is_guarded'),
+            ('allowed = self.inside(resolved, self.root)', 'allowed = self.inside(resolved, "/")',
+             'test_guard_disabled_is_killed'),
+        ]
+        for before, after, method in mutants:
+            probe = type(self)(method)
+            probe.mutations = [(before, after)]
+            result = unittest.TestResult()
+            probe.run(result)
+            self.assertFalse(result.errors, result.errors)
+            self.assertEqual(len(result.failures), 1, f"audit mutant survived: {before}")
+            print(f"ok audit mutant: {method}: {before.strip()}", file=sys.stderr)
 
 
 class PathInventoryTests(unittest.TestCase):
@@ -3656,6 +3909,45 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(Path(self.data["events"]).is_file())
 
+    def test_in_process_and_subprocess_workers_enforce_audit_guard(self):
+        # Same worker path as every real-time Lane.start, with no engine,
+        # wall-clock schedule or socket bind needed for this safety proof.
+        base = SCRIPT.read_text()
+        for fragment in ('open(KEEP_DIR)', 'def main(path=KEEP_DIR): open(path)'):
+            self.source.write_text(base + "\n" + fragment + "\n")
+            self.manifest.write_text(json.dumps(self.data))
+            for child in (False, True):
+                with self.subTest(fragment=fragment, subprocess=child):
+                    if child:
+                        result = subprocess.run([sys.executable, "-B", str(REPO / "tests/docker-image-gc-realtime.py"),
+                                                 "--worker", str(self.manifest)], capture_output=True, text=True, timeout=10)
+                        rc, error = result.returncode, result.stderr
+                    else:
+                        output = io.StringIO()
+                        with redirect_stderr(output):
+                            rc = in_process_worker(self.runner, self.manifest)
+                        error = output.getvalue()
+                    self.assertEqual(rc, 2, error)
+                    self.assertTrue(error.startswith("fixture audit violation: "), error)
+                    self.assertEqual(json.loads(error.split(": ", 1)[1]),
+                                     [{"event": "open", "path": os.path.realpath("/var/lib/docker-image-gc/keep.d")}])
+                    events = Path(self.data["events"])
+                    if fragment.startswith("def"):
+                        self.assertEqual(json.loads(events.read_text())["violations"],
+                                         [{"event": "open", "path": os.path.realpath("/var/lib/docker-image-gc/keep.d")}])
+                    else:
+                        self.assertFalse(events.exists())
+                    events.unlink(missing_ok=True)
+
+    def test_worker_fixture_write_passes_and_records_no_violation(self):
+        self.source.write_text(SCRIPT.read_text() + '\ndef main():\n'
+                               '    with open(os.path.join(KEEP_DIR, "audit-control"), "w") as stream: stream.write("ok")\n'
+                               '    return 0\n')
+        self.manifest.write_text(json.dumps(self.data))
+        self.assertEqual(in_process_worker(self.runner, self.manifest), 0)
+        self.assertEqual(Path(self.paths["KEEP_DIR"], "audit-control").read_text(), "ok")
+        self.assertEqual(json.loads(Path(self.data["events"]).read_text())["violations"], [])
+
     def test_duplicate_json_keys_rejected(self):
         self.manifest.write_text('{"source":1,"source":2}')
         error = io.StringIO()
@@ -3688,7 +3980,8 @@ class WorkerContractTests(unittest.TestCase):
                 self.assertEqual(os.environ.get("DOCKER_IMAGE_GC_DRY_RUN"), "0")
                 if raises: raise RuntimeError("fixture main failure")
                 return 0
-            gc = types.SimpleNamespace(main=main, STOP=mock.Mock(), deploy_locks=mock.Mock())
+            gc = types.SimpleNamespace(main=main, STOP=mock.Mock(), deploy_locks=mock.Mock(),
+                                       __ops327_fixture_guard__=types.SimpleNamespace(violations=[]))
             with mock.patch.object(self.runner, "prepare_worker", return_value=(gc, self.data["events"])):
                 if raises:
                     with self.assertRaisesRegex(RuntimeError, "fixture main failure"):

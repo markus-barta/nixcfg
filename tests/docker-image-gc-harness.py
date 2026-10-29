@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import ast
+import builtins
+import fcntl
 import json
 import os
 import socket
+import sys
+import sysconfig
 import threading
 import time
 import types
@@ -28,9 +32,227 @@ SLASH_EXPRESSIONS = {"rest.rfind('/')", "rest.partition('/')", "'/' not in path"
                      "f'{domain}/{path}'", "f'{stack}/{name}'"}
 
 
-def execute_source(source):
+# Capture normalization before tests patch the shared os.path module. Never
+# cache resolved paths: a fixture may change a symlink between two operations.
+_REALPATH = os.path.realpath
+_READLINK = os.readlink
+_FCNTL = fcntl.fcntl
+
+
+class FixtureViolation(BaseException):
+    """Cannot be swallowed by production's ordinary error-to-Fatal handling."""
+
+    def __init__(self, event, path):
+        self.event, self.path = event, path
+        super().__init__(f"fixture audit violation: {event}: {path}")
+
+
+def _audit_dispatch(event, args):
+    # One permanent, inert-outside-production hook, shared even by source-copy
+    # helper mutants. Looking at frames covers methods, generator resumes,
+    # captured defaults and callbacks without wrapping/changing their identity.
+    if not (event == "open" or event.startswith(("os.", "socket.", "fcntl.", "shutil."))
+            or event in {"import", "ctypes.dlopen", "subprocess.Popen"}):
+        return
+    frame = sys._getframe(1)
+    while frame is not None:
+        guard = frame.f_globals.get("__ops327_fixture_guard__")
+        if guard is not None:
+            guard.audit(event, args)
+            return
+        frame = frame.f_back
+
+
+def install_audit_hook():
+    # Audit hooks cannot be removed. A single dispatcher has no module/root
+    # registry and retains no fixture after its production module is collected.
+    # Only modules with the explicit marker activate it; unittest setup/cleanup
+    # and subsequent tests remain unguarded. Destructive hook mutants run in
+    # disposable subprocesses (AuditGuardTests), never in the suite process.
+    if not getattr(sys, "_ops327_audit_installed", False):
+        sys.addaudithook(_audit_dispatch)
+        sys._ops327_audit_installed = True
+
+
+class FixtureGuard:
+    def __init__(self, root):
+        self.root = _REALPATH(os.fspath(root))
+        self.violations = []
+        # Read-only interpreter files are needed for lazy stdlib imports.
+        self.read_roots = tuple({_REALPATH(path) for path in (
+            sys.prefix,  # Active interpreter/venv's own import files, read-only.
+            sys.base_prefix,  # Base interpreter files used by a venv, read-only.
+            sysconfig.get_path("stdlib"),  # Pure Python standard library, read-only.
+            sysconfig.get_path("platstdlib"),  # Platform stdlib/extension imports, read-only.
+            "/nix/store",  # Immutable Nix import code and its dependencies, read-only.
+        )})
+        # /proc supplies the existing fixture's read-only kernel lock table.
+        self.read_roots += ("/proc",)
+        # /dev/null is the sole device exception, read-only; no device writes.
+        self.read_files = {_REALPATH("/dev/null")}
+
+    @staticmethod
+    def inside(path, root):
+        return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+    def fail(self, event, path):
+        violation = FixtureViolation(event, path)
+        self.violations.append({"event": event, "path": path})
+        violation.recorded = self.violations
+        raise violation
+
+    def fd_path(self, event, fd):
+        try:
+            if sys.platform == "darwin":
+                # F_GETPATH resolves the *actual* open descriptor, including
+                # descriptors obtained before production was loaded.
+                return os.fsdecode(_FCNTL(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0])
+            return _READLINK(f"/proc/self/fd/{fd}")
+        except (OSError, ValueError):
+            self.fail(event, f"unresolved fd {fd}")
+
+    def check(self, event, path, *, write=False, dir_fd=None):
+        if isinstance(path, int):
+            path = self.fd_path(event, path)
+        try:
+            path = os.fsdecode(os.fspath(path))
+        except TypeError:
+            self.fail(event, repr(path))
+        if not os.path.isabs(path):
+            # A relative spelling is meaningful only from inside this fixture,
+            # even if its dir_fd happens to point at an allowed directory.
+            cwd = _REALPATH(os.getcwd())
+            if not self.inside(cwd, self.root):
+                self.fail(event, _REALPATH(os.path.join(cwd, path)))
+            if dir_fd is not None and dir_fd != -1:
+                path = os.path.join(self.fd_path(event, dir_fd), path)
+        resolved = _REALPATH(path)
+        # Fixture root: the only place writes, sockets and locks may occur.
+        allowed = self.inside(resolved, self.root)
+        if not write:
+            allowed = allowed or resolved in self.read_files or any(self.inside(resolved, root) for root in self.read_roots)
+        if not allowed:
+            self.fail(event, resolved)
+
+    def audit(self, event, args):
+        if event == "open":
+            path, mode, flags = args
+            write = bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))
+            self.check(event, path, write=write)
+        elif event in {"socket.connect", "socket.bind", "socket.sendto"}:
+            address = args[-1]
+            if not isinstance(address, (os.PathLike, bytes, str)):
+                self.fail(event, repr(address))
+            address = os.fspath(address)
+            if not address or address[:1] in ("\0", b"\0"):
+                self.fail(event, repr(address))
+            self.check(event, address, write=True)
+        elif event in {"fcntl.flock", "fcntl.lockf", "os.lockf"}:
+            self.check(event, args[0], write=True)
+        elif event == "fcntl.fcntl":
+            if args[1] != getattr(fcntl, "F_GETPATH", None):
+                self.check(event, args[0], write=True)
+        elif event in {"os.listdir", "os.scandir"}:
+            self.check(event, args[0] if args[0] is not None else ".")
+        elif event in {"os.remove", "os.unlink", "os.rmdir"}:
+            self.check(event, args[0], write=True, dir_fd=args[1])
+        elif event in {"os.mkdir", "os.chmod", "os.chown", "os.utime"}:
+            self.check(event, args[0], write=True, dir_fd=args[-1])
+        elif event in {"os.rename", "os.replace", "os.link"}:
+            self.check(event, args[0], write=True, dir_fd=args[2])
+            self.check(event, args[1], write=True, dir_fd=args[3])
+        elif event == "os.symlink":
+            self.check(event, args[0], write=True)
+            self.check(event, args[1], write=True, dir_fd=args[2])
+            target = os.fsdecode(args[0])
+            if not os.path.isabs(target):
+                destination = os.fsdecode(args[1])
+                if not os.path.isabs(destination) and args[2] not in (None, -1):
+                    destination = os.path.join(self.fd_path(event, args[2]), destination)
+                target = os.path.join(os.path.dirname(_REALPATH(destination)), target)
+            self.check(event, target, write=True)
+        elif event in {"os.truncate", "os.chdir"}:
+            self.check(event, args[0], write=True)
+        elif event in {"os.walk", "os.fwalk", "os.getxattr", "os.listxattr"}:
+            self.check(event, args[0], dir_fd=args[4] if event == "os.fwalk" else None)
+        elif event in {"os.chflags", "os.setxattr", "os.removexattr", "os.startfile", "os.startfile/2"}:
+            self.check(event, args[0], write=True)
+        elif event == "os.add_dll_directory":
+            self.check(event, args[0])
+        elif event.startswith("shutil."):
+            if event in {"shutil.copyfile", "shutil.copymode", "shutil.copystat"}:
+                self.check(event, args[0])
+                self.check(event, args[1], write=True)
+            elif event == "shutil.move":
+                self.check(event, args[0], write=True)
+                self.check(event, args[1], write=True)
+            elif event == "shutil.rmtree":
+                self.check(event, args[0], write=True, dir_fd=args[1])
+            elif event == "shutil.chown":
+                self.check(event, args[0], write=True)
+            else:
+                self.fail(event, repr(args[0]))
+        elif event == "import" and args[1] is not None:
+            self.check(event, args[1])
+        elif event == "ctypes.dlopen":
+            self.check(event, args[0])
+        elif event == "subprocess.Popen" or event in {"os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty"}:
+            self.fail(event, "process creation outside fixture contract")
+
+
+class GuardedOS:
+    """os.stat/lstat and os.path predicates emit no audit events.
+
+    Production uses them on decision paths, so its own os import gets these
+    checks as well. The shared os module and test mocks are left intact.
+    realpath itself only discovers a name: its eventual metadata/read/open is
+    guarded. This lets production reject out-of-store targets without reading
+    them. Ancestor lstat/readlink by the guard's realpath is read-only metadata.
+    """
+
+    def __init__(self, guard, module=os):
+        self.guard, self.module = guard, module
+
+    def __getattr__(self, name):
+        if self.module is os and name == "path":
+            return GuardedOS(self.guard, os.path)
+        if self.module is os and name == "open":
+            def opened(path, flags, *args, **kwargs):
+                # CPython's open audit event omits dir_fd. Validate the actual
+                # descriptor-relative target before that incomplete event.
+                write = bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))
+                self.guard.check("open", path, write=write, dir_fd=kwargs.get("dir_fd"))
+                return os.open(path, flags, *args, **kwargs)
+            return opened
+        if name in ({"stat", "lstat"} if self.module is os else {"exists", "lexists", "isdir", "isfile", "islink"}):
+            def metadata(path, *args, **kwargs):
+                self.guard.check("metadata." + name, path, dir_fd=kwargs.get("dir_fd"))
+                return getattr(self.module, name)(path, *args, **kwargs)
+            return metadata
+        return getattr(self.module, name)
+
+
+def fixture_root(paths):
+    files = [os.fspath(item) for key, value in paths.items() if key not in {"PROC", "PROC_LOCKS"}
+             for item in (value if isinstance(value, (list, tuple)) else (value,))]
+    root = os.path.commonpath([os.path.dirname(path) for path in files])
+    if _REALPATH(root) == os.path.sep:
+        raise ValueError("offline fixture paths must share a private root")
+    return root
+
+
+def execute_source(source, root=None, *, bindings=None):
     # Trusted, copied GC source only. __name__ prevents the CLI entry point.
+    install_audit_hook()
+    guard = FixtureGuard(root if root is not None else Path(__file__).parent / ".source-inspection")
     module = types.ModuleType("gc_fixture")
+    module.__dict__.update(bindings or {})
+    module.__ops327_fixture_guard__ = guard
+    original_import = builtins.__import__
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        imported = original_import(name, globals, locals, fromlist, level)
+        return GuardedOS(guard) if name == "os" else imported
+    module.__dict__["__builtins__"] = {**vars(builtins), "__import__": guarded_import}
     exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
     return module
 
@@ -50,7 +272,8 @@ def path_constants(source, module=None):
 
     Derived constants are independent keys: the fixture must override each one.
     Module-level if/try, computed expressions and aliases need no AST evaluator.
-    Imports/definitions must remain free of filesystem I/O, as in production.
+    This fast static layer is intentionally incomplete (containers/defaults).
+    execute_source's behavioural guard is the filesystem/socket barrier.
     """
     module = execute_source(source) if module is None else module
     found = {name for name, value in vars(module).items() if contains_path(value)}
@@ -114,7 +337,7 @@ def check_socket(path):
 
 def load(source, paths):
     check_socket(paths["SOCKET_PATH"])
-    module = execute_source(source)
+    module = execute_source(source, fixture_root(paths))
     check_path_contract(source, paths, module)
     for key, value in paths.items():
         setattr(module, key, value)

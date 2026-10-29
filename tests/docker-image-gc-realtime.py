@@ -101,6 +101,9 @@ def prepare_worker(manifest):
 def worker(manifest):
     try:
         gc, events = prepare_worker(manifest)
+    except h.FixtureViolation as exc:
+        print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
+        return 2
     except (ValueError, TypeError, KeyError, AttributeError, OSError, SyntaxError) as exc:
         print("invalid worker manifest: " + str(exc).replace("\n", " "), file=sys.stderr)
         return 2
@@ -121,8 +124,12 @@ def worker(manifest):
     signal.signal(signal.SIGTERM, gc.STOP.set)
     try:
         rc = gc.main()
+    except h.FixtureViolation as exc:
+        print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
+        rc = 2
     finally:
-        Path(events).write_text(json.dumps({"holds": holds, "attempts": attempts}))
+        Path(events).write_text(json.dumps({"holds": holds, "attempts": attempts,
+                                           "violations": gc.__ops327_fixture_guard__.violations}))
     return rc
 
 
