@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """OPS-496: Aqara light/sound API, ported from the verified local prototype.
 
-GET /set?hub=plug&rgb=FF8C28&bri=10, /get?hub=plug,
-/tone?hub=plug&id=27&vol=10, /stop?hub=plug. The second hub is round.
+GET /get?hub=plug and / for the UI. POST /set?hub=plug&rgb=FF8C28&bri=10,
+/tone?hub=plug&id=27&vol=10, /stop?hub=plug require X-Nightlight: 1.
+The second hub is round.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
 Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
 The handshake token stays in memory; no library payloads or exceptions are logged.
@@ -49,7 +50,8 @@ ALLOWED_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
 ))
 
-# Built-in ringtones (IDs confirmed by the hub's own get_music_info [0]/[1]/[2]; names from Xiaomi docs)
+# Built-in ringtones: get_music_info [0]/[1]/[2] and Xiaomi docs, except
+# 14/15 (door_bell_5/6), confirmed playable in the operator's handoff.
 TONES = [
     ("Alarm", [(0, "Polizei 1"), (1, "Polizei 2"), (2, "Unfall"), (3, "Countdown"), (4, "Geist"),
                (5, "Scharfschütze"), (6, "Gefecht"), (7, "Fliegeralarm"), (8, "Hundebellen")]),
@@ -191,7 +193,7 @@ function status(cls,txt){$('st').className=cls;$('st').textContent=txt}
 async function go(path,params,label){
  last={path,params,label};$('again').disabled=false;const my=++seq;
  status('busy','Sende: '+label+' …');
- try{const r=await fetch(path+'?'+new URLSearchParams(params));const j=await r.json();log(j);
+ try{const r=await fetch(path+'?'+new URLSearchParams(params),{method:path==='/get'?'GET':'POST',headers:{'X-Nightlight':'1'}});const j=await r.json();log(j);
   if(my!==seq)return;
   if(j.ok)status('ok','✓ '+label+' – angekommen'+(j.versuche>1?' (nach '+j.versuche+' Versuchen)':''));
   else status('bad','✗ '+label+' – FEHLER: '+j.error+'  → „Nochmal senden“');
@@ -233,7 +235,7 @@ def allowed_peer(address):
 
 
 def allowed_request(headers):
-    # Check before routing, including GET commands triggered by cross-site images.
+    # Defence in depth: browsers may omit Origin and fetch metadata on HTTP.
     # Reject duplicate security headers rather than trusting only the first one.
     hosts = headers.get_all("Host", [])
     if len(hosts) != 1 or hosts[0].lower() not in ALLOWED_HOSTS:
@@ -249,10 +251,32 @@ class H(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        self._handle()
+
+    def do_POST(self):
+        self._handle()
+
+    def do_OPTIONS(self):
+        # Never approve a cross-origin preflight for the required custom header.
+        self.send_error(403)
+
+    def _handle(self):
         if not allowed_peer(self.client_address[0]) or not allowed_request(self.headers):
             self.send_error(403)
             return
         url = urlparse(self.path)
+        if url.path in ("/set", "/tone", "/stop"):
+            # Images, navigations and simple cross-origin requests cannot add
+            # this header. Reject duplicates as well as missing/wrong values.
+            if self.headers.get_all("X-Nightlight", []) != ["1"]:
+                self.send_error(403)
+                return
+            if self.command != "POST":
+                self._reply(b"", "text/plain; charset=utf-8", status=405, allow="POST")
+                return
+        elif self.command != "GET":
+            self._reply(b"", "text/plain; charset=utf-8", status=405, allow="GET")
+            return
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path == "/set":
@@ -270,11 +294,18 @@ class H(BaseHTTPRequestHandler):
             result = error_response(error)
         self._reply(json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
-    def _reply(self, body, content_type):
+    def _reply(self, body, content_type, status=200, allow=None):
         try:
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            if allow:
+                self.send_header("Allow", allow)
+            if content_type.startswith("text/html"):
+                self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; "
+                                 "style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; "
+                                 "form-action 'none'; frame-ancestors 'none'")
+                self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -312,10 +343,17 @@ def serve():
 
 
 def main(args):
-    try:
-        if not args:
+    if not args:
+        try:
             serve()
-            return 0
+        except Exception:
+            # Listener validation/bind failures are not HTTP/CLI request errors.
+            # Keep arbitrary exception data out of the journal.
+            print("aqara-nightlight: listener startup failed; check listen addresses and port",
+                  file=sys.stderr, flush=True)
+            return 1
+        return 0
+    try:
         if args[0] == "set" and len(args) == 4:
             result = set_light(args[1], args[2], args[3])
         elif args[0] == "get" and len(args) == 2:

@@ -21,14 +21,16 @@ ssh mba@hsb1.lan
 Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
-and neutral `plug`/`round` hub handles. The TICK session's richer UI follows
-against these same endpoints.
+and neutral `plug`/`round` hub handles. The TICK session's richer UI must be
+served from this same origin and use the guarded POST endpoints below.
 
 ```bash
 systemctl status aqara-nightlight.service --no-pager
 journalctl -u aqara-nightlight.service --since '1 hour ago' --no-pager
 sudo systemctl restart aqara-nightlight.service
 curl --fail --max-time 15 'http://127.0.0.1:8765/get?hub=plug' | jq -e .ok
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=FF8C28&bri=10' | jq -e .ok
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/stop?hub=plug' | jq -e .ok
 sudo cat /var/lib/aqara-nightlight/msgid  # message counter only, never a token
 ```
 
@@ -48,7 +50,18 @@ The HTTP handler independently rejects peers outside these networks. It
 accepts only Host names `127.0.0.1`, `localhost`, `192.168.1.101`, `hsb1`,
 `hsb1.lan` and `100.64.0.7`, each with or without `:8765`. A present
 `Sec-Fetch-Site` must be `same-origin` or `none`; a present `Origin` must
-match the request's allowed HTTP Host. Tone volume defaults to 15% and is
+match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
+returns **403**, including an unlisted tunnel Host or port. These checks are
+defence in depth: browsers can omit Origin and fetch metadata on plain HTTP.
+Every acting endpoint (`/set`, `/tone`, `/stop`) requires exactly one
+`X-Nightlight: 1` header, returning **403** if absent, duplicated or invalid.
+With that header, these endpoints accept only **POST**; GET returns **405**
+with `Allow: POST`. `/` and `/get` remain safe GETs without the custom header.
+The built-in UI sends the header and selects POST for actions. Cross-origin
+scripts need a CORS preflight to add this header; **OPTIONS returns 403**
+without CORS permission headers. The HTML denies framing with CSP
+`frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+Tone volume defaults to 15% and is
 clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
 No public reverse proxy is configured. IP rules also govern egress; both hubs
 (`192.168.1.106`, `.108`) remain allowed for miio UDP 54321. Linux
@@ -56,10 +69,14 @@ No public reverse proxy is configured. IP rules also govern egress; both hubs
 unavailable tailnet address does not prevent LAN/loopback access. Tailnet
 access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts
 only explicit IPv4 addresses: empty, wildcard and unspecified entries fail
-startup before any listener opens. Other startup failures retry every five
-seconds; check the journal and `tailscaled.service` when diagnosing them.
+startup before any listener opens. Listener validation and bind failures log
+the fixed line `aqara-nightlight: listener startup failed; check listen addresses and port`
+and exit nonzero. `Restart=on-failure`, `RestartSec=5` and disabled start rate
+limiting retry every five seconds, including invalid listener settings.
+Check the journal, configured addresses/port and `tailscaled.service` when
+diagnosing failures; raw exception details are never logged.
 
-Before OPS activates the change on Friday:
+For each separately reviewed OPS release:
 
 1. DEVOPS verified on **2026-10-29** that hsb1's live HA `config_entries`
    contain no `xiaomi_aqara` or `xiaomi_miio` entries. Retain that dated

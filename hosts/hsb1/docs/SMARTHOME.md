@@ -14,8 +14,9 @@ built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. Hub handles are `plug` (`192.168.1.106`) and `round`
 (`192.168.1.108`); these neutral handles replace the Mac prototype's
 hardware-derived labels. The HTTP paths, query parameters and JSON response
-fields otherwise follow the prototype. The existing small UI is retained;
-a richer UI from the TICK session will use this API later.
+fields follow the prototype, with POST and a required custom header for
+actions. The existing small UI is retained; a richer UI from the TICK session
+must use this guarded API from the same origin.
 
 UI: <http://192.168.1.101:8765/> (LAN), <http://100.64.0.7:8765/> (tailnet),
 and <http://127.0.0.1:8765/> on hsb1. Port 8765 has no other checked-in hsb1
@@ -29,25 +30,40 @@ port restriction; systemd's address rules do not restrict destination ports.
 The HTTP Host allowlist accepts `127.0.0.1`, `localhost`, `192.168.1.101`,
 `hsb1`, `hsb1.lan` and `100.64.0.7`, each with or without `:8765`. A present
 `Sec-Fetch-Site` must be `same-origin` or `none`; a present `Origin` must
-match the request's allowed HTTP Host. Linux `IP_FREEBIND` keeps LAN/loopback
+match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
+returns **403**. These checks are defence in depth because browsers can omit
+Origin and fetch metadata on plain HTTP. Every acting endpoint (`/set`,
+`/tone`, `/stop`) requires exactly one `X-Nightlight: 1` header; absent,
+duplicated or invalid headers return **403**. With that header, actions
+accept only **POST**; GET returns **405** with `Allow: POST`. The UI sends the
+header and uses POST for actions; `/` and `/get` remain safe GETs without it.
+Cross-origin scripts need a preflight to send the custom header; **OPTIONS
+returns 403** without CORS permission headers. CSP `frame-ancestors 'none'`
+and `X-Frame-Options: DENY` prevent framing of the HTML UI. Unlisted tunnel
+Hosts or ports are rejected too. Linux `IP_FREEBIND` keeps LAN/loopback
 available while the tailnet address is absent. Empty or wildcard bind
 addresses fail startup before any listener opens.
 
-| GET path | Parameters                               | Behavior                                                      |
-| -------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `/`      | —                                        | Small light/sound UI; warm white `FF8C28` at 10%, volume 15   |
-| `/set`   | `hub`, `rgb` (RRGGBB), `bri` (0–100)     | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms           |
-| `/get`   | `hub`                                    | `get_prop ["rgb", "illumination"]`; hardware readback can lag |
-| `/tone`  | `hub`, `id`, optional `vol` (default 15) | `play_music_new ["<id>", vol]`                                |
-| `/stop`  | `hub`                                    | `set_sound_playing ["off"]`                                   |
+| Method | Path    | Parameters                               | Behavior                                                      |
+| ------ | ------- | ---------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/`     | —                                        | Small light/sound UI; warm white `FF8C28` at 10%, volume 15   |
+| POST   | `/set`  | `hub`, `rgb` (RRGGBB), `bri` (0–100)     | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms           |
+| GET    | `/get`  | `hub`                                    | `get_prop ["rgb", "illumination"]`; hardware readback can lag |
+| POST   | `/tone` | `hub`, `id`, optional `vol` (default 15) | `play_music_new ["<id>", vol]`                                |
+| POST   | `/stop` | `hub`                                    | `set_sound_playing ["off"]`                                   |
+
+POST parameters remain in the query string; include `-H 'X-Nightlight: 1'
+-X POST` with curl. See the [runbook](RUNBOOK.md#aqara-nightlight-ops-496)
+for complete examples.
 
 The 25 tone IDs/names remain in the Python source and UI: 0–8 (Alarm),
 10–15 (Türklingel), 20–29 (Wecker). Keep live tests at volume 10–15, short,
 and always stop afterwards. Brightness clamps to 0–100. Tone volume defaults
 to 15 and clamps to **0–40** in both the API and CLI; the UI also caps it at 40.
 API responses preserve `ok`, `hub`, command-specific fields and `versuche`;
-failures return `ok: false` and a fixed `error` message with HTTP 200, as in
-the prototype. No handshake token or raw library exception is logged.
+command failures return `ok: false` and a fixed `error` message with HTTP 200,
+as in the prototype; HTTP security/method checks return 403/405 instead.
+No handshake token or raw library exception is logged.
 
 One lock per hub, a 1.5 s timeout, at most four attempts with a fresh handshake
 after packet/session failure, and the shared file-locked counter preserve the

@@ -233,7 +233,7 @@ class ApiTest(unittest.TestCase):
 
     def test_http_and_cli_enforce_the_volume_cap(self):
         with patch.object(self.module, "call", return_value=(["ok"], 1)) as send:
-            handler = self.request("/tone?hub=plug&id=27&vol=100")
+            handler = self.request("/tone?hub=plug&id=27&vol=100", method="POST")
             self.assertEqual(json.loads(handler._reply.call_args.args[0])["vol"], 40)
             with patch("sys.stdout", new_callable=io.StringIO) as output:
                 self.assertEqual(self.module.main(["tone", "plug", "27", "100"]), 0)
@@ -257,16 +257,25 @@ class ApiTest(unittest.TestCase):
         for peer in ("192.168.2.1", "100.63.255.255", "100.128.0.1", "203.0.113.1", "2001:db8::1", "invalid"):
             self.assertFalse(self.module.allowed_peer(peer), peer)
 
-    def request(self, path, peer="192.168.1.42", headers=None):
+    def request(self, path, peer="192.168.1.42", headers=None, method="GET"):
         handler = object.__new__(self.module.H)
         handler.path, handler.client_address = path, (peer, 12345)
+        handler.command = method
         handler.headers = Message()
-        for name, value in headers if headers is not None else [("Host", "hsb1:8765")]:
+        for name, value in headers if headers is not None else [("Host", "hsb1:8765"), ("X-Nightlight", "1")]:
             handler.headers[name] = value
         handler._reply = Mock()
         handler.send_error = Mock()
-        handler.do_GET()
+        getattr(handler, "do_" + method)()
         return handler
+
+    def parsed_request(self, raw):
+        request = Mock()
+        request.makefile.return_value = io.BytesIO(raw)
+        output = io.BytesIO()
+        request.sendall.side_effect = output.write
+        self.module.H(request, ("192.168.1.42", 12345), Mock())
+        return output.getvalue().split(b"\r\n\r\n", 1)
 
     def test_http_routes_and_response_shape(self):
         for path, function, args in (
@@ -276,14 +285,14 @@ class ApiTest(unittest.TestCase):
             ("/stop?hub=round", "stop_sound", ("round",)),
         ):
             with self.subTest(path=path), patch.object(self.module, function, return_value={"ok": True}) as route:
-                handler = self.request(path)
+                handler = self.request(path, method="GET" if path.startswith("/get?") else "POST")
                 route.assert_called_once_with(*args)
                 self.assertEqual(json.loads(handler._reply.call_args.args[0]), {"ok": True})
         self.assertEqual(self.request("/")._reply.call_args.args[0], self.module.PAGE.encode())
 
     def test_denied_http_peer_never_sends_a_command(self):
         with patch.object(self.module, "stop_sound") as stop:
-            handler = self.request("/stop?hub=plug", peer="203.0.113.1")
+            handler = self.request("/stop?hub=plug", peer="203.0.113.1", method="POST")
         handler.send_error.assert_called_once_with(403)
         handler._reply.assert_not_called()
         stop.assert_not_called()
@@ -291,8 +300,9 @@ class ApiTest(unittest.TestCase):
     def test_foreign_missing_and_malformed_hosts_are_rejected(self):
         for host in (None, "", "foreign.example:8765", "hsb1.foreign.example:8765", "hsb1:80", "hsb1:8765@foreign.example"):
             headers = [] if host is None else [("Host", host)]
+            headers.append(("X-Nightlight", "1"))
             with self.subTest(host=host), patch.object(self.module, "stop_sound") as stop:
-                handler = self.request("/stop?hub=plug", headers=headers)
+                handler = self.request("/stop?hub=plug", headers=headers, method="POST")
                 handler.send_error.assert_called_once_with(403)
                 handler._reply.assert_not_called()
                 stop.assert_not_called()
@@ -300,7 +310,7 @@ class ApiTest(unittest.TestCase):
     def test_cross_site_fetch_metadata_is_rejected(self):
         for site in ("cross-site", "same-site", "", "same-origin, cross-site"):
             with self.subTest(site=site), patch.object(self.module, "stop_sound") as stop:
-                handler = self.request("/stop?hub=plug", headers=[("Host", "hsb1:8765"), ("Sec-Fetch-Site", site)])
+                handler = self.request("/stop?hub=plug", headers=[("Host", "hsb1:8765"), ("Sec-Fetch-Site", site), ("X-Nightlight", "1")], method="POST")
                 handler.send_error.assert_called_once_with(403)
                 handler._reply.assert_not_called()
                 stop.assert_not_called()
@@ -308,8 +318,8 @@ class ApiTest(unittest.TestCase):
     def test_mismatched_or_malformed_origin_is_rejected(self):
         for origin in ("http://foreign.example", "http://hsb1.lan:8765", "https://hsb1:8765", "null", "", "http://hsb1:8765/", "http://hsb1:8765@foreign.example"):
             with self.subTest(origin=origin), patch.object(self.module, "stop_sound") as stop:
-                headers = [("Host", "hsb1:8765"), ("Sec-Fetch-Site", "same-origin"), ("Origin", origin)]
-                handler = self.request("/stop?hub=plug", headers=headers)
+                headers = [("Host", "hsb1:8765"), ("Sec-Fetch-Site", "same-origin"), ("Origin", origin), ("X-Nightlight", "1")]
+                handler = self.request("/stop?hub=plug", headers=headers, method="POST")
                 handler.send_error.assert_called_once_with(403)
                 handler._reply.assert_not_called()
                 stop.assert_not_called()
@@ -320,43 +330,111 @@ class ApiTest(unittest.TestCase):
                 host = name + suffix
                 for site in (None, "same-origin", "none"):
                     for origin in (None, "http://" + host):
-                        headers = [("Host", host)]
+                        headers = [("Host", host), ("X-Nightlight", "1")]
                         if site is not None:
                             headers.append(("Sec-Fetch-Site", site))
                         if origin is not None:
                             headers.append(("Origin", origin))
                         with self.subTest(host=host, site=site, origin=origin), patch.object(self.module, "stop_sound", return_value={"ok": True}) as stop:
-                            handler = self.request("/stop?hub=plug", headers=headers)
+                            handler = self.request("/stop?hub=plug", headers=headers, method="POST")
                             handler.send_error.assert_not_called()
                             stop.assert_called_once_with("plug")
                             self.assertEqual(json.loads(handler._reply.call_args.args[0]), {"ok": True})
 
     def test_duplicate_security_headers_are_rejected(self):
         for name, value in (("Host", "hsb1:8765"), ("Sec-Fetch-Site", "same-origin"), ("Origin", "http://hsb1:8765")):
-            headers = [("Host", "hsb1:8765")]
+            headers = [("Host", "hsb1:8765"), ("X-Nightlight", "1")]
             if name != "Host":
                 headers.append((name, value))
             headers.append((name, value))
             with self.subTest(header=name), patch.object(self.module, "stop_sound") as stop:
-                handler = self.request("/stop?hub=plug", headers=headers)
+                handler = self.request("/stop?hub=plug", headers=headers, method="POST")
                 handler.send_error.assert_called_once_with(403)
                 stop.assert_not_called()
 
     def test_same_origin_browser_request_through_http_parser(self):
-        request = Mock()
-        request.makefile.return_value = io.BytesIO(
-            b"GET /tone?hub=plug&id=27&vol=100 HTTP/1.1\r\n"
-            b"Host: hsb1:8765\r\nSec-Fetch-Site: same-origin\r\n"
-            b"Origin: http://hsb1:8765\r\n\r\n"
-        )
-        output = io.BytesIO()
-        request.sendall.side_effect = output.write
         with patch.object(self.module, "call", return_value=(["ok"], 1)) as send:
-            self.module.H(request, ("192.168.1.42", 12345), Mock())
-        headers, body = output.getvalue().split(b"\r\n\r\n", 1)
+            headers, body = self.parsed_request(
+                b"POST /tone?hub=plug&id=27&vol=100 HTTP/1.1\r\n"
+                b"Host: hsb1:8765\r\nSec-Fetch-Site: same-origin\r\n"
+                b"Origin: http://hsb1:8765\r\nX-Nightlight: 1\r\nContent-Length: 0\r\n\r\n"
+            )
         self.assertIn(b"200 OK", headers)
         self.assertTrue(json.loads(body)["ok"])
         send.assert_called_once_with("plug", "play_music_new", ["27", 40])
+
+    def test_acting_endpoints_require_one_exact_custom_header(self):
+        for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug"):
+            for method in ("GET", "POST"):
+                for values in ([], [""], ["0"], ["true"], ["1, 1"], ["1", "1"], ["1", "0"]):
+                    headers = [("Host", "192.168.1.101:8765")] + [("X-Nightlight", v) for v in values]
+                    with self.subTest(path=path, method=method, values=values), patch.object(self.module, "call") as send:
+                        handler = self.request(path, headers=headers, method=method)
+                        handler.send_error.assert_called_once_with(403)
+                        handler._reply.assert_not_called()
+                        send.assert_not_called()
+
+    def test_acting_get_with_header_is_method_not_allowed(self):
+        for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug"):
+            with self.subTest(path=path), patch.object(self.module, "call") as send:
+                headers, _ = self.parsed_request(
+                    f"GET {path} HTTP/1.1\r\nHost: hsb1:8765\r\nX-Nightlight: 1\r\n\r\n".encode()
+                )
+                self.assertIn(b"405 Method Not Allowed", headers)
+                self.assertIn(b"Allow: POST\r\n", headers + b"\r\n")
+                send.assert_not_called()
+
+    def test_safe_gets_need_no_custom_header(self):
+        with patch.object(self.module, "get_light", return_value={"ok": True}) as read:
+            handler = self.request("/get?hub=plug", headers=[("Host", "hsb1:8765")])
+            read.assert_called_once_with("plug")
+            handler.send_error.assert_not_called()
+            self.assertTrue(json.loads(handler._reply.call_args.args[0])["ok"])
+        handler = self.request("/", headers=[("Host", "hsb1:8765")])
+        handler.send_error.assert_not_called()
+        self.assertEqual(handler._reply.call_args.args[0], self.module.PAGE.encode())
+
+    def test_safe_routes_reject_post(self):
+        for path in ("/", "/get?hub=plug", "/unknown"):
+            with self.subTest(path=path), patch.object(self.module, "call") as send:
+                handler = self.request(path, method="POST")
+                self.assertEqual(handler._reply.call_args.kwargs, {"status": 405, "allow": "GET"})
+                send.assert_not_called()
+
+    def test_options_preflight_is_denied_without_cors_permission(self):
+        for path in ("/set", "/tone", "/stop", "/get", "/"):
+            for origin in ("http://foreign.example", "http://hsb1:8765"):
+                with self.subTest(path=path, origin=origin), patch.object(self.module, "call") as send:
+                    headers, _ = self.parsed_request(
+                        (
+                            f"OPTIONS {path} HTTP/1.1\r\nHost: hsb1:8765\r\nOrigin: {origin}\r\n"
+                            "Access-Control-Request-Method: POST\r\n"
+                            "Access-Control-Request-Headers: x-nightlight\r\n\r\n"
+                        ).encode()
+                    )
+                    self.assertIn(b"403 Forbidden", headers)
+                    self.assertNotIn(b"access-control-allow-", headers.lower())
+                    send.assert_not_called()
+
+    def test_http_lan_and_tailnet_without_browser_metadata_cannot_act(self):
+        for host in ("192.168.1.101:8765", "100.64.0.7:8765"):
+            for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug"):
+                for method in ("GET", "POST"):
+                    with self.subTest(host=host, path=path, method=method), patch.object(self.module, "call") as send:
+                        headers, _ = self.parsed_request(
+                            f"{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: 0\r\n\r\n".encode()
+                        )
+                        self.assertIn(b"403 Forbidden", headers)
+                        send.assert_not_called()
+
+    def test_html_response_denies_framing_and_restricts_resources(self):
+        headers, body = self.parsed_request(b"GET / HTTP/1.1\r\nHost: hsb1:8765\r\n\r\n")
+        self.assertIn(b"200 OK", headers)
+        self.assertIn(b"X-Frame-Options: DENY", headers)
+        self.assertIn(b"Content-Security-Policy: default-src 'none'", headers)
+        for directive in (b"frame-ancestors 'none'", b"connect-src 'self'", b"base-uri 'none'", b"form-action 'none'"):
+            self.assertIn(directive, headers)
+        self.assertEqual(body, self.module.PAGE.encode())
 
     def test_http_cli_and_library_logging_do_not_disclose_exceptions(self):
         payload = "private-packet-fixture"
@@ -388,6 +466,14 @@ class ListenerTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.module.serve()
                 server.assert_not_called()
+
+    def test_startup_failures_log_a_distinct_fixed_line_without_exception_details(self):
+        message = "aqara-nightlight: listener startup failed; check listen addresses and port\n"
+        for error in (ValueError("private-packet-fixture"), OSError("private-packet-fixture")):
+            with self.subTest(error=type(error).__name__), patch.object(self.module, "serve", side_effect=error), patch("sys.stderr", new_callable=io.StringIO) as stderr, patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                self.assertEqual(self.module.main([]), 1)
+                self.assertEqual(stderr.getvalue(), message)
+                self.assertEqual(stdout.getvalue(), "")
 
     def test_explicit_addresses_start_separate_listeners(self):
         servers = [MagicMock() for _ in range(3)]
