@@ -16,6 +16,80 @@ ssh mba@hsb1.lan
 
 ---
 
+## Aqara Nightlight (OPS-496)
+
+Native `aqara-nightlight.service`; UI/API on port **8765** at
+<http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
+The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
+and neutral `plug`/`round` hub handles. The TICK session's richer UI follows
+against these same endpoints.
+
+```bash
+systemctl status aqara-nightlight.service --no-pager
+journalctl -u aqara-nightlight.service --since '1 hour ago' --no-pager
+sudo systemctl restart aqara-nightlight.service
+curl --fail --max-time 15 'http://127.0.0.1:8765/get?hub=plug' | jq -e .ok
+sudo cat /var/lib/aqara-nightlight/msgid  # message counter only, never a token
+```
+
+StateDirectory `/var/lib/aqara-nightlight` has mode 0700; systemd gives the
+dynamic service user write access even with `ProtectSystem=strict`. The
+`msgid` file is shared under `flock`, flushed and synced before unlock, and
+retained on restart. IDs stay below 9999, increment through 9000, then choose
+a new start in 1–3000 as in the prototype. Do not delete/reset this file or
+replace it while the service is running. The handshake token stays only in
+memory; logs contain fixed error categories, never library exception bodies.
+
+The host firewall is **disabled** for HomeKit. Port 8765 in `allowedTCPPorts`
+does not provide protection. The service binds exactly loopback, hsb1's LAN
+address and its tailnet address; systemd IP rules allow loopback,
+`192.168.1.0/24`, `100.64.0.0/10` and both hub IPs, denying other addresses.
+The HTTP handler independently rejects peers outside these networks. It
+accepts only Host names `127.0.0.1`, `localhost`, `192.168.1.101`, `hsb1`,
+`hsb1.lan` and `100.64.0.7`, each with or without `:8765`. A present
+`Sec-Fetch-Site` must be `same-origin` or `none`; a present `Origin` must
+match the request's allowed HTTP Host. Tone volume defaults to 15% and is
+clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
+No public reverse proxy is configured. IP rules also govern egress; both hubs
+(`192.168.1.106`, `.108`) remain allowed for miio UDP 54321. Linux
+`IP_FREEBIND` lets each listener bind before its address is assigned, so an
+unavailable tailnet address does not prevent LAN/loopback access. Tailnet
+access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts
+only explicit IPv4 addresses: empty, wildcard and unspecified entries fail
+startup before any listener opens. Other startup failures retry every five
+seconds; check the journal and `tailscaled.service` when diagnosing them.
+
+Before OPS activates the change on Friday:
+
+1. DEVOPS verified on **2026-10-29** that hsb1's live HA `config_entries`
+   contain no `xiaomi_aqara` or `xiaomi_miio` entries. Retain that dated
+   evidence and recheck live `configuration.yaml` and integration entries if
+   ownership changes before activation. That bind-mounted configuration is
+   outside the repo. Do not dump credentials or change HA. If either gateway
+   has another miio controller, stop the cutover and report the message-ID
+   collision risk to the host owner.
+2. Stop the Mac prototype and its UI process; do not run its CLI concurrently.
+   Keep it stopped after cutover. Verify port 8765 is free on hsb1 and that
+   `100.64.0.7` is still hsb1's assigned tailnet address. Preserve the prior
+   NixOS generation for rollback and retain the service's counter state.
+3. After the separately reviewed OPS release, verify the unit is active and
+   its three listeners match the configured addresses. Check the journal for
+   cgroup/BPF IP-filter warnings and verify the rendered `IPAddressAllow` and
+   `IPAddressDeny` settings. Test LAN and tailnet access from actual clients;
+   test rejection from outside those ranges and confirm no public route.
+4. For **each** of `plug` and `round`, visually check warm white `FF8C28` at
+   10%, another color and off. Readback can lag; an ACK alone does not prove
+   the lamp changed. Play one short tone at volume **10**, stop immediately
+   with `/stop`, and confirm silence. Avoid unattended sound tests.
+5. Record `msgid`, restart the unit, issue a request and confirm the counter
+   continued (allowing the documented wrap at 9000), rather than restarting
+   at 1. Confirm both gateways still respond after the restart.
+
+Offline contract: `nix shell nixpkgs#bash -c bash tests/T117-aqara-nightlight.sh`.
+It runs fake-hub/counter tests and evaluates the scoped NixOS unit plus full
+hsb1 unit/firewall without building. `--module-only` explicitly omits the full
+flake check; a scoped pass alone is not release approval.
+
 ## Tailnet Witness (tailnet-watch, OPS-185)
 
 `tailnet-watch.timer` runs every ten minutes and reads **this host's** view of

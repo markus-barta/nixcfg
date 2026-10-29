@@ -28,6 +28,7 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 | **Exposure**                       | LAN-only (192.168.1.0/24)                                |
 | **Web Interface - Home Assistant** | [http://192.168.1.101:8123](http://192.168.1.101:8123)   |
 | **Web Interface - Scrypted**       | [http://192.168.1.101:10443](http://192.168.1.101:10443) |
+| **Aqara nightlight UI**            | [http://192.168.1.101:8765](http://192.168.1.101:8765)   |
 
 ## Features
 
@@ -42,6 +43,16 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 | F06 | VLC Kiosk Mode          | Camera viewing on connected display           | -    |
 | F07 | APC UPS Monitoring      | UPS status via MQTT                           | -    |
 | F08 | ZFS Storage             | Reliable storage with compression & snapshots | -    |
+| F09 | Aqara nightlight        | Local gateway light and quiet built-in sounds | T117 |
+
+The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
+`100.64.0.7:8765` for tailnet clients. It preserves the prototype's HTTP API
+with neutral hub handles `plug` and `round`. Its shared message-ID counter is
+`/var/lib/aqara-nightlight/msgid`; restart with
+`sudo systemctl restart aqara-nightlight.service`. Because hsb1's firewall is
+disabled, the service uses explicit address binds, systemd IP filters and an
+HTTP peer allowlist. See [Smart Home](docs/SMARTHOME.md#aqara-nightlight-ops-496)
+and the [runbook](docs/RUNBOOK.md#aqara-nightlight-ops-496) for API and activation checks.
 
 ---
 
