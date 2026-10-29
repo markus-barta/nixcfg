@@ -9,6 +9,57 @@
 
 ## 📊 Architecture Overview
 
+## Aqara Nightlight (OPS-496)
+
+`aqara-nightlight.service` is a native Python service for light and the 23
+built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
+Zigbee2MQTT. Hub handles are `plug` (`192.168.1.106`) and `round`
+(`192.168.1.108`); these neutral handles replace the Mac prototype's
+hardware-derived labels. The HTTP paths, query parameters and JSON response
+fields otherwise follow the prototype. The existing small UI is retained;
+a richer UI from the TICK session will use this API later.
+
+UI: <http://192.168.1.101:8765/> (LAN), <http://100.64.0.7:8765/> (tailnet),
+and <http://127.0.0.1:8765/> on hsb1. Port 8765 has no other checked-in hsb1
+listener. There is no public proxy, DNS route or login. The host firewall is
+disabled for HomeKit: its `allowedTCPPorts` entry is documentation only.
+Explicit loopback/LAN/tailnet binds, systemd `IPAddressDeny=any` with
+loopback/LAN/tailnet and both hub addresses allowed, and an HTTP peer
+allowlist enforce the service boundary. IP rules apply in both directions;
+the gateways remain reachable on UDP 54321. The host declares no outbound
+port restriction; systemd's address rules do not restrict destination ports.
+
+| GET path | Parameters                               | Behavior                                                      |
+| -------- | ---------------------------------------- | ------------------------------------------------------------- |
+| `/`      | —                                        | Small light/sound UI; warm white `FF8C28` at 10%, volume 15   |
+| `/set`   | `hub`, `rgb` (RRGGBB), `bri` (0–100)     | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms           |
+| `/get`   | `hub`                                    | `get_prop ["rgb", "illumination"]`; hardware readback can lag |
+| `/tone`  | `hub`, `id`, optional `vol` (default 15) | `play_music_new ["<id>", vol]`                                |
+| `/stop`  | `hub`                                    | `set_sound_playing ["off"]`                                   |
+
+The 23 tone IDs/names remain in the Python source and UI: 0–8 (Alarm),
+10–13 (Türklingel), 20–29 (Wecker). Keep live tests at volume 10–15, short,
+and always stop afterwards. Brightness and volume clamp to 0–100.
+API responses preserve `ok`, `hub`, command-specific fields and `versuche`;
+failures return `ok: false` and a fixed `error` message with HTTP 200, as in
+the prototype. No handshake token or raw library exception is logged.
+
+One lock per hub, a 1.5 s timeout, at most four attempts with a fresh handshake
+after packet/session failure, and the shared file-locked counter preserve the
+verified reliability behavior. The counter persists at
+`/var/lib/aqara-nightlight/msgid` in a systemd-managed 0700 StateDirectory
+with a dynamic user. Do not delete/reset it or run an independent controller.
+
+**Integration ownership check before activation:** the checked-in repo has no
+`xiaomi_aqara`/`xiaomi_miio` configuration for these gateways. HA uses a live
+bind mount at `/home/mba/docker/mounts/homeassistant`, including UI-managed
+`.storage`, outside this checkout. OPS must inspect that live configuration
+without dumping credentials, establish that no independent miio controller
+targets these hubs, and stop the Mac prototype before enabling this service.
+Separate counters would collide. Leave HA configuration unchanged; an actual
+conflict needs host-owner resolution. See the
+[runbook](RUNBOOK.md#aqara-nightlight-ops-496) for the handoff checklist.
+
 ## 🏠 Home Assistant (HA) Deep Dive
 
 ### Runtime Context
