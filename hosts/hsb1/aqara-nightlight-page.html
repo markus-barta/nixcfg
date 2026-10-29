@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>Nachtlicht</title>
     <style>
@@ -1734,6 +1734,22 @@
           border-radius: 24px;
         }
       }
+      /* OPS-496: app-like touch page: no zoom, no text selection, no tap highlight or callout. */
+      html,
+      body {
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      input,
+      textarea {
+        -webkit-user-select: auto;
+        user-select: auto;
+      }
     </style>
   </head>
   <body>
@@ -2418,12 +2434,8 @@
             <div class="presets">
               <button
                 type="button"
-                data-preset="warm"
-                data-preset="hell"
-                data-preset="rot"
                 class="b pre"
-                aria-pressed="false"
-              >
+                aria-pressed="false" data-preset="warm" >
                 <span class="k"
                   ><span class="pre-k"
                     ><svg class="ic pic ppic" aria-hidden="true">
@@ -2440,7 +2452,7 @@
                     ><span class="pre-v">40 %</span></span
                   ></span
                 ></button
-              ><button type="button" class="b pre" aria-pressed="false">
+              ><button type="button" class="b pre" aria-pressed="false" data-preset="hell">
                 <span class="k"
                   ><span class="pre-k"
                     ><svg class="ic pic ppic" aria-hidden="true">
@@ -2457,7 +2469,7 @@
                     ><span class="pre-v">80 %</span></span
                   ></span
                 ></button
-              ><button type="button" class="b pre" aria-pressed="false">
+              ><button type="button" class="b pre" aria-pressed="false" data-preset="rot">
                 <span class="k"
                   ><span class="pre-k"
                     ><svg class="ic pic ppic" aria-hidden="true">
@@ -2528,21 +2540,8 @@
               <div class="swg" role="group" aria-labelledby="light-col">
                 <button
                   type="button"
-                  data-color="FF8C28"
-                  data-color-name="Warmweiß"
-                  data-color="FFB46B"
-                  data-color-name="Hellwarm"
-                  data-color="FF5A00"
-                  data-color-name="Orange"
-                  data-color="FF0000"
-                  data-color-name="Rot"
-                  data-color="0000FF"
-                  data-color-name="Blau"
-                  data-color="FFFFFF"
-                  data-color-name="Weiß"
                   class="b sw"
-                  aria-pressed="false"
-                >
+                  aria-pressed="false" data-color="FF8C28" data-color-name="Warmweiß" >
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2561,7 +2560,7 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ff8c28"></span></span
                   >Warmweiß</button
-                ><button type="button" class="b sw" aria-pressed="false">
+                ><button type="button" class="b sw" aria-pressed="false" data-color="FFB46B" data-color-name="Hellwarm">
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2580,7 +2579,7 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ffb46b"></span></span
                   >Hellwarm</button
-                ><button type="button" class="b sw" aria-pressed="false">
+                ><button type="button" class="b sw" aria-pressed="false" data-color="FF5A00" data-color-name="Orange">
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2599,7 +2598,7 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ff5a00"></span></span
                   >Orange</button
-                ><button type="button" class="b sw" aria-pressed="false">
+                ><button type="button" class="b sw" aria-pressed="false" data-color="FF0000" data-color-name="Rot">
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2618,7 +2617,7 @@
                   ><span class="e"
                     ><span class="c" style="--c: #ff0000"></span></span
                   >Rot</button
-                ><button type="button" class="b sw" aria-pressed="false">
+                ><button type="button" class="b sw" aria-pressed="false" data-color="0000FF" data-color-name="Blau">
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2637,7 +2636,7 @@
                   ><span class="e"
                     ><span class="c" style="--c: #0000ff"></span></span
                   >Blau</button
-                ><button type="button" class="b sw" aria-pressed="false">
+                ><button type="button" class="b sw" aria-pressed="false" data-color="FFFFFF" data-color-name="Weiß">
                   <span class="k"
                     ><svg
                       class="drop"
@@ -2791,40 +2790,7 @@
                   <button
                     type="button"
                     class="b tone"
-                    data-t="29"
-                    title="Denker"
-                    data-t="28"
-                    title="Orange"
-                    data-t="25"
-                    title="Kindheit"
-                    data-t="24"
-                    title="Freizeit"
-                    data-t="23"
-                    title="Eiswelt-Klavier"
-                    data-t="22"
-                    title="Gitarre klassisch"
-                    data-t="21"
-                    title="Enthusiastisch"
-                    data-t="20"
-                    title="MiMix"
-                    data-t="27"
-                    title="Spieluhr"
-                    data-t="26"
-                    title="Morgenbach"
-                    data-t="15"
-                    title="Klingel 6"
-                    data-t="14"
-                    title="Klingel 5"
-                    data-t="13"
-                    title="Wecker-Klingel"
-                    data-t="12"
-                    title="Lustig"
-                    data-t="11"
-                    title="Klopfen"
-                    data-t="10"
-                    title="Klingel"
-                    aria-pressed="false"
-                  >
+                    aria-pressed="false" data-t="26" title="Morgenbach" >
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2840,7 +2806,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="27" title="Spieluhr">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2856,7 +2822,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="20" title="MiMix">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2872,7 +2838,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="21" title="Enthusiastisch">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2888,7 +2854,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="22" title="Gitarre klassisch">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2904,7 +2870,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="23" title="Eiswelt-Klavier">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2920,7 +2886,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="24" title="Freizeit">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2936,7 +2902,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="25" title="Kindheit">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2952,7 +2918,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="28" title="Orange">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -2968,7 +2934,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="29" title="Denker">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3001,7 +2967,7 @@
               </h3>
               <ul class="tg" id="tones-group-2">
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="10" title="Klingel">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3017,7 +2983,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="11" title="Klopfen">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3033,7 +2999,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="12" title="Lustig">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3049,7 +3015,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="13" title="Wecker-Klingel">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3065,7 +3031,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="14" title="Klingel 5">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3081,7 +3047,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone" aria-pressed="false">
+                  <button type="button" class="b tone" aria-pressed="false" data-t="15" title="Klingel 6">
                     <span class="k"
                       ><span class="tp"
                         ><svg class="ic pic tpic" aria-hidden="true">
@@ -3156,26 +3122,7 @@
                   <button
                     type="button"
                     class="b tone two"
-                    data-t="8"
-                    title="Hundebellen"
-                    data-t="7"
-                    title="Fliegeralarm"
-                    data-t="6"
-                    title="Gefecht"
-                    data-t="5"
-                    title="Scharfschütze"
-                    data-t="4"
-                    title="Geist"
-                    data-t="3"
-                    title="Countdown"
-                    data-t="2"
-                    title="Unfall"
-                    data-t="1"
-                    title="Polizei 2"
-                    data-t="0"
-                    title="Polizei 1"
-                    aria-pressed="false"
-                  >
+                    aria-pressed="false" data-t="0" title="Polizei 1" >
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3190,7 +3137,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="1" title="Polizei 2">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3205,7 +3152,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="2" title="Unfall">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3220,7 +3167,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="3" title="Countdown">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3235,7 +3182,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="4" title="Geist">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3250,7 +3197,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="5" title="Scharfschütze">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3265,7 +3212,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="6" title="Gefecht">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3280,7 +3227,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="7" title="Fliegeralarm">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -3295,7 +3242,7 @@
                   </button>
                 </li>
                 <li>
-                  <button type="button" class="b tone two" aria-pressed="false">
+                  <button type="button" class="b tone two" aria-pressed="false" data-t="8" title="Hundebellen">
                     <span class="ti"
                       ><svg class="ic" aria-hidden="true">
                         <use href="#i-play" /></svg></span
@@ -4061,6 +4008,10 @@
       render();
       loadPresets();
       refreshReadback();
+      // OPS-496: block pinch zoom (iOS ignores user-scalable=no).
+      ["gesturestart", "gesturechange"].forEach((t) =>
+        document.addEventListener(t, (event) => event.preventDefault(), { passive: false }),
+      );
     </script>
   </body>
 </html>
