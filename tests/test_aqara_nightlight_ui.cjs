@@ -6,11 +6,34 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { test } = require("node:test");
-const html = fs.readFileSync(
+// Import executable repository code through a fixed module path. File/HTTP
+// contents remain data and are never passed to the VM compiler.
+const nightlightPage = require("../hosts/hsb1/aqara-nightlight-script.cjs");
+const program = nightlightPage.toString();
+const prefix = "function nightlightPage() {";
+assert.ok(program.startsWith(prefix) && program.endsWith("}"));
+const script = program.slice(prefix.length, -1);
+const template = fs.readFileSync(
   path.join(__dirname, "../hosts/hsb1/aqara-nightlight-page.html"),
   "utf8",
 );
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+assert.equal(template.split("<!--AQARA_INLINE_SCRIPT-->").length, 2);
+const html = template.replace(
+  "<!--AQARA_INLINE_SCRIPT-->",
+  () => "<script>" + script + "</script>",
+);
+const scripts = [
+  ...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi),
+];
+assert.equal(
+  scripts.length,
+  1,
+  "the shipped page must have exactly one script",
+);
+assert.equal(scripts[0][1], script);
+const shippedScript = new vm.Script(script, {
+  filename: "shipped-nightlight.js",
+});
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const defaultPlaces = [
   { id: "nacht", name: "Nachtlicht", rgb: "5C0701", bri: 44 },
@@ -68,20 +91,112 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
+const DATA_ATTRIBUTES = new Map([
+  ["data-auto-duration", "autoDuration"],
+  ["data-color", "color"],
+  ["data-color-name", "colorName"],
+  ["data-delete-place", "deletePlace"],
+  ["data-disclosure", "disclosure"],
+  ["data-duration", "duration"],
+  ["data-hub", "hub"],
+  ["data-mode", "mode"],
+  ["data-preset", "preset"],
+  ["data-rename-place", "renamePlace"],
+  ["data-rule", "rule"],
+  ["data-rule-color", "ruleColor"],
+  ["data-rule-mode", "ruleMode"],
+  ["data-rule-place", "rulePlace"],
+  ["data-rule-slot", "ruleSlot"],
+  ["data-save-place", "savePlace"],
+  ["data-slider-row", "sliderRow"],
+  ["data-t", "t"],
+  ["data-theme", "theme"],
+  ["data-usage", "usage"],
+]);
+const HTML_ATTRIBUTES = new Set([
+  "aria-atomic",
+  "aria-checked",
+  "aria-controls",
+  "aria-describedby",
+  "aria-expanded",
+  "aria-hidden",
+  "aria-label",
+  "aria-labelledby",
+  "aria-live",
+  "aria-pressed",
+  "aria-valuetext",
+  "charset",
+  "class",
+  "content",
+  "cx",
+  "cy",
+  "d",
+  "data-auto-duration",
+  "data-color",
+  "data-color-name",
+  "data-delete-place",
+  "data-disclosure",
+  "data-duration",
+  "data-hub",
+  "data-mode",
+  "data-preset",
+  "data-rename-place",
+  "data-rule",
+  "data-rule-color",
+  "data-rule-mode",
+  "data-rule-place",
+  "data-rule-slot",
+  "data-save-place",
+  "data-slider-row",
+  "data-t",
+  "data-theme",
+  "data-usage",
+  "disabled",
+  "fill",
+  "for",
+  "height",
+  "hidden",
+  "href",
+  "id",
+  "lang",
+  "max",
+  "maxlength",
+  "min",
+  "name",
+  "opacity",
+  "preserveAspectRatio",
+  "r",
+  "role",
+  "rx",
+  "ry",
+  "step",
+  "stroke",
+  "stroke-dasharray",
+  "stroke-width",
+  "style",
+  "title",
+  "transform",
+  "type",
+  "value",
+  "viewBox",
+  "width",
+  "x",
+  "y",
+]);
 class Element {
   constructor(attrs = {}) {
-    this.attrs = { ...attrs };
+    this.attrs = Object.assign(Object.create(null), attrs);
     this.tagName = attrs._tag || "";
     this.min = attrs.min;
     this.max = attrs.max;
     this.step = attrs.step;
     this.disabled = Object.hasOwn(attrs, "disabled");
     this.checked = Object.hasOwn(attrs, "checked");
-    this.listeners = {};
+    this.listeners = Object.create(null);
     this.children = [];
     this.nested = new Map();
-    this.dataset = {};
-    this.properties = {};
+    this.dataset = Object.create(null);
+    this.properties = new Map();
     const classes = new Set((attrs.class || "").split(/\s+/));
     this.classList = {
       add: (name) => classes.add(name),
@@ -94,20 +209,19 @@ class Element {
       },
     };
     this.style = {
-      setProperty: (key, value) => (this.properties[key] = value),
+      setProperty: (key, value) => this.properties.set(key, value),
     };
     this.hidden = Object.hasOwn(attrs, "hidden");
     this.value = attrs.value || "";
     this.title = attrs.title || "";
     this.textContent = "";
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key.startsWith("data-"))
-        this.dataset[
-          key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())
-        ] = value;
+    for (const [attribute, property] of DATA_ATTRIBUTES) {
+      if (Object.hasOwn(attrs, attribute))
+        this.dataset[property] = attrs[attribute];
     }
   }
   setAttribute(key, value) {
+    assert.ok(HTML_ATTRIBUTES.has(key), `unhandled attribute write ${key}`);
     this.attrs[key] = value;
   }
   getAttribute(key) {
@@ -200,9 +314,17 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       if (i >= 0) stack.length = i;
       continue;
     }
-    const attrs = { _tag: tag };
-    for (const a of match[3].matchAll(/([\w-]+)(?:="([^"]*)")?/g))
-      attrs[a[1]] = a[2] ?? "";
+    const attrs = Object.assign(Object.create(null), { _tag: tag });
+    const parsed = new Map(
+      [...match[3].matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map((a) => [
+        a[1],
+        a[2] ?? "",
+      ]),
+    );
+    for (const key of parsed.keys())
+      assert.ok(HTML_ATTRIBUTES.has(key), `unhandled page attribute ${key}`);
+    for (const key of HTML_ATTRIBUTES)
+      if (parsed.has(key)) attrs[key] = parsed.get(key);
     const element = new Element(attrs);
     if (stack.length) {
       element.parent = stack.at(-1);
@@ -339,7 +461,7 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       );
     },
   });
-  vm.runInContext(script, context, { filename: "shipped-nightlight.js" });
+  shippedScript.runInContext(context);
   await flush();
   function tick(delta) {
     time += delta;
@@ -362,6 +484,24 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
     buttons: (selector) => document.querySelectorAll(selector),
   };
 }
+
+test("DOM harness allowlists attribute writes and isolates map storage", () => {
+  const element = new Element(
+    Object.fromEntries([
+      ["data-hub", "KI-18FB"],
+      ["data-__proto__", "blocked"],
+      ["__proto__", "data only"],
+    ]),
+  );
+  assert.equal(Object.getPrototypeOf(element.attrs), null);
+  assert.equal(Object.getPrototypeOf(element.dataset), null);
+  assert.equal(Object.getPrototypeOf(element.listeners), null);
+  assert.equal(element.dataset.hub, "KI-18FB");
+  assert.equal(Object.hasOwn(element.dataset, "__proto__"), false);
+  assert.throws(() => element.setAttribute("__proto__", "blocked"));
+  element.style.setProperty("__proto__", "data only");
+  assert.equal(element.properties.get("__proto__"), "data only");
+});
 
 test("first visit, remembered appearance and unavailable localStorage", async () => {
   const a = await setup();

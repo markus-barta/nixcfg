@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -45,7 +46,7 @@ class FakeDeviceError(Exception):
     pass
 
 
-def load(page=True):
+def load(page=True, *, state_directory=None, page_file=None):
     # Import no actual miio code and open no UDP sockets in this suite.
     miio = types.ModuleType("miio")
     miio.DeviceError = FakeDeviceError
@@ -53,11 +54,66 @@ def load(page=True):
     protocol.MiIOProtocol = Mock()
     spec = importlib.util.spec_from_file_location("aqara_nightlight", SCRIPT)
     module = importlib.util.module_from_spec(spec)
+    if state_directory is not None:
+        module._TEST_STATE_DIRECTORY = state_directory
     with patch.dict(sys.modules, {"miio": miio, "miio.miioprotocol": protocol}):
         spec.loader.exec_module(module)
+    if page_file is not None:
+        original_load_page = module._load_page
+        module._load_page = lambda: original_load_page(page_file)
     if page:
         module._load_page()
     return module
+
+
+class StateDirectoryTest(unittest.TestCase):
+    def test_production_uses_only_the_canonical_systemd_root(self):
+        for configured in (None, "/var/lib/aqara-nightlight"):
+            with self.subTest(configured=configured), patch.dict(os.environ, {}, clear=True):
+                if configured is not None:
+                    os.environ["STATE_DIRECTORY"] = configured
+                module = load(page=False)
+            root = Path("/var/lib/aqara-nightlight").resolve()
+            self.assertEqual(module.STATE_DIRECTORY, root)
+            self.assertEqual(Path(module.ID_FILE), root / "msgid")
+            self.assertEqual(module.PRESET_FILE, root / "presets.json")
+            self.assertEqual(module.SETTINGS_FILE, root / "settings.json")
+            self.assertEqual(module.FEED_FILE, root / "desk-counts.json")
+
+    def test_invalid_or_noncanonical_environment_fails_before_file_io(self):
+        for configured in ("", "relative", "/tmp", "/var/lib/aqara-nightlight/../aqara-nightlight",
+                           "/var/lib//aqara-nightlight", "/var/lib/aqara-nightlight/.",
+                           "/var/lib/aqara-nightlight/", "//var/lib/aqara-nightlight",
+                           "/var/lib/aqara-nightlight:/tmp"):
+            with self.subTest(configured=configured), patch.dict(os.environ, {"STATE_DIRECTORY": configured}), patch.object(Path, "open") as opened:
+                with self.assertRaises(ValueError):
+                    load(page=False)
+                opened.assert_not_called()
+
+    def test_test_override_is_explicit_resolved_and_validated_at_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            module = load(page=False, state_directory=directory)
+            self.assertEqual(module.STATE_DIRECTORY, Path(directory).resolve())
+            with patch.dict(os.environ, {"STATE_DIRECTORY": "/tmp/changed-after-import"}):
+                self.assertEqual(module.PRESET_FILE, Path(directory).resolve() / "presets.json")
+        for directory in ("relative", "/tmp/../tmp", "/tmp//state", "/tmp/state/"):
+            with self.subTest(directory=directory), self.assertRaises(ValueError):
+                load(page=False, state_directory=directory)
+
+    def test_query_hub_cannot_be_used_as_a_state_filename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            module = load(page=False, state_directory=directory)
+            with patch("builtins.open") as opened:
+                for hub in ("../msgid", "plug/../../outside", "/tmp/outside", "__proto__"):
+                    with self.subTest(hub=hub), self.assertRaises(ValueError):
+                        with module._color_transaction(hub):
+                            self.fail("invalid hub entered a state transaction")
+                opened.assert_not_called()
+            for hub, filename in (("plug", "last-color-plug.json"), ("round", "last-color-round.json")):
+                with module._color_transaction(hub) as path:
+                    self.assertEqual(path, Path(directory).resolve() / filename)
+            self.assertEqual(sorted(p.name for p in Path(directory).iterdir()),
+                             ["last-color-plug.json.lock", "last-color-round.json.lock"])
 
 
 class CounterTest(unittest.TestCase):
@@ -547,9 +603,8 @@ class PresetTest(unittest.TestCase):
 
     def test_persists_across_a_fresh_process_module_with_state_directory(self):
         self.module.save_preset("plug", "nacht", "FFB46B", "5")
-        with patch.dict(self.module.os.environ, {"STATE_DIRECTORY": self.tmp.name}):
-            restarted = load()
-        self.assertEqual(restarted.PRESET_FILE, self.path)
+        restarted = load(state_directory=self.tmp.name)
+        self.assertEqual(restarted.PRESET_FILE, self.path.resolve())
         self.assertEqual(nacht(restarted.get_presets()["presets"], "plug"), {"rgb": "FFB46B", "bri": 5})
         self.assertEqual(nacht(restarted.get_presets()["presets"], "round"), {"rgb": "5C0701", "bri": 44})
         restarted.save_preset("plug", "nacht", reset=True)
@@ -699,7 +754,7 @@ class PageTest(unittest.TestCase):
         self.assertFalse(any(tag == "figure" for tag, _ in self.page.elements))
 
     def test_exact_page_script_hash_is_in_csp_with_no_unsafe_inline_script(self):
-        scripts = re.findall(r"<script>(.*?)</script>", self.module.PAGE, re.DOTALL)
+        scripts = re.findall(r"<script\b[^>]*>(.*?)</script\b[^>]*>", self.module.PAGE, re.DOTALL | re.IGNORECASE)
         self.assertEqual(len(scripts), 1)
         expected = "'sha256-" + base64.b64encode(hashlib.sha256(scripts[0].encode()).digest()).decode() + "'"
         self.assertEqual(self.module.SCRIPT_HASHES, expected)
@@ -708,6 +763,62 @@ class PageTest(unittest.TestCase):
         self.assertNotIn(b"script-src 'unsafe-inline'", headers)
         self.assertIn(b"img-src 'self'", headers)  # Inline SVG fragment references.
         self.assertIn(b"Cache-Control: no-store", headers)
+
+    def test_script_hash_preserves_exact_body_with_case_and_attributes(self):
+        body = "\n  const text = '<tag>';\n"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "page.html")
+            for opening, closing in (("<SCRIPT>", "</SCRIPT>"), ("<ScRiPt type=\"text/javascript\">", "</sCrIpT >"),
+                                     ("<script type=\"text/javascript\">", "</script\t\n bar>")):
+                with self.subTest(opening=opening):
+                    path.write_text(opening + body + closing)
+                    self.module._load_page(path)
+                    expected = "'sha256-" + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode() + "'"
+                    self.assertEqual(self.module.SCRIPT_HASHES, expected)
+                    self.assertEqual(self.module.PAGE, opening + body + closing)
+
+    def test_missing_or_multiple_scripts_fail_closed_and_preserve_loaded_page(self):
+        before = self.module.PAGE, self.module.SCRIPT_HASHES
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "page.html")
+            for page in ("<html></html>", "<scripture>not a script</scripture>",
+                         "<script>a()</script><SCRIPT>b()</SCRIPT>"):
+                path.write_text(page)
+                with self.subTest(page=page), self.assertRaises(ValueError):
+                    self.module._load_page(path)
+                self.assertEqual((self.module.PAGE, self.module.SCRIPT_HASHES), before)
+
+    def test_local_template_assembly_fails_closed_on_marker_or_module_drift(self):
+        before = self.module.PAGE, self.module.SCRIPT_HASHES
+        with tempfile.TemporaryDirectory() as directory:
+            page = Path(directory, "page.html")
+            page.write_text("<!--AQARA_INLINE_SCRIPT--><!--AQARA_INLINE_SCRIPT-->")
+            with self.assertRaises(ValueError):
+                self.module._load_page(page)
+            page.write_text("<!--AQARA_INLINE_SCRIPT-->")
+            read_text = Path.read_text
+            def broken_source(path, *args, **kwargs):
+                if path.name == "aqara-nightlight-script.cjs":
+                    return "invalid module wrapper"
+                return read_text(path, *args, **kwargs)
+            with patch.object(Path, "read_text", broken_source), self.assertRaises(ValueError):
+                self.module._load_page(page)
+            self.assertEqual((self.module.PAGE, self.module.SCRIPT_HASHES), before)
+        asset = "/nix/store/" + "a" * 32 + "-aqara-nightlight-page.html"
+        with patch.dict(os.environ, {"AQARA_PAGE_FILE": asset}), patch.object(Path, "read_text", return_value="<!--AQARA_INLINE_SCRIPT-->"), self.assertRaises(ValueError):
+            self.module._load_page()
+
+    def test_environment_page_is_only_an_immutable_nix_store_asset(self):
+        asset = "/nix/store/" + "a" * 32 + "-aqara-nightlight-page.html"
+        with patch.dict(os.environ, {"AQARA_PAGE_FILE": asset}), patch.object(Path, "read_text", return_value="<script>const a=1;</script>") as read:
+            self.module._load_page()
+            read.assert_called_once_with(encoding="utf-8")
+        for path in ("page.html", "/tmp/page.html", asset + "/../other", "/nix/store/../" + Path(asset).name,
+                     "/nix/store//" + Path(asset).name):
+            with self.subTest(path=path), patch.dict(os.environ, {"AQARA_PAGE_FILE": path}), patch.object(Path, "read_text") as read:
+                with self.assertRaises(ValueError):
+                    self.module._load_page()
+                read.assert_not_called()
 
     def test_each_button_has_one_matching_preset_swatch_or_tone_attribute_set(self):
         expected = {
@@ -751,11 +862,10 @@ class PageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory, "page.html")
             page.write_text("<!doctype html><title>fixture</title><script>const a=1;</script>")
-            with patch.dict(self.module.os.environ, {"AQARA_PAGE_FILE": str(page)}):
-                restarted = load(page=False)
-                self.assertEqual(restarted.PAGE, "")
-                with patch.dict(restarted.os.environ, {"AQARA_LISTEN_ADDRESSES": "127.0.0.1"}), patch.object(restarted, "Server", MagicMock()), patch.object(restarted.SignalEngine, "start"), patch("sys.stdout", new_callable=io.StringIO):
-                    restarted.serve()
+            restarted = load(page=False, page_file=page)
+            self.assertEqual(restarted.PAGE, "")
+            with patch.dict(restarted.os.environ, {"AQARA_LISTEN_ADDRESSES": "127.0.0.1"}), patch.object(restarted, "Server", MagicMock()), patch.object(restarted.SignalEngine, "start"), patch("sys.stdout", new_callable=io.StringIO):
+                restarted.serve()
             self.assertEqual(restarted.PAGE, page.read_text())
             page.write_text("changed after startup")
             self.assertIn("<title>fixture</title>", restarted.PAGE)
@@ -769,8 +879,8 @@ class PageTest(unittest.TestCase):
                     action.assert_called_once()
 
     def test_missing_page_uses_fixed_startup_error_before_opening_sockets(self):
-        with tempfile.TemporaryDirectory() as directory, patch.dict(self.module.os.environ, {"AQARA_PAGE_FILE": str(Path(directory, "missing.html"))}):
-            standalone = load(page=False)
+        with tempfile.TemporaryDirectory() as directory:
+            standalone = load(page=False, page_file=Path(directory, "missing.html"))
             with patch.object(standalone, "Server") as server, patch("sys.stderr", new_callable=io.StringIO) as journal:
                 self.assertEqual(standalone.main([]), 1)
             self.assertEqual(journal.getvalue(), "aqara-nightlight: listener startup failed; check listen addresses and port\n")
@@ -955,8 +1065,7 @@ class RoundFourTest(unittest.TestCase):
         self.assertEqual(defaults['plug']['usage'],'nightlight')
         result=self.result('/settings?hub=round&usage=nightlight')
         self.assertTrue(result['ok'])
-        with patch.dict(self.module.os.environ,{'STATE_DIRECTORY':self.tmp.name}):
-            fresh=load()
+        fresh=load(state_directory=self.tmp.name)
         self.assertEqual(fresh.get_settings()['settings']['round']['usage'],'nightlight')
         self.assertEqual(fresh.get_settings()['settings']['plug'],defaults['plug'])
         self.assertTrue(self.result('/settings?hub=round&rule=urgent:ppm&rgb=ABCDEF&bri=42&mode=alternate&rgb2=123456&takt=3&all=1')['ok'])
@@ -1191,7 +1300,7 @@ class RoundFourTest(unittest.TestCase):
             self.assertEqual(sync.call_count,2)  # data + directory, once per block
             self.assertEqual(self.module._next_id(),257)
             self.assertEqual(sync.call_count,4)
-        with patch.dict(self.module.os.environ,{'STATE_DIRECTORY':self.tmp.name}):fresh=load()
+        fresh=load(state_directory=self.tmp.name)
         self.assertEqual(fresh._next_id(),513)
         self.assertEqual(int(Path(self.module.ID_FILE).read_text()),768)
 
@@ -1277,8 +1386,7 @@ class ColorRecoveryTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        with patch.dict("os.environ", {"STATE_DIRECTORY": self.tmp.name}):
-            self.module = load()
+        self.module = load(state_directory=self.tmp.name)
         self.send = patch.object(self.module, "call", return_value=(["ok"], 1)).start()
         patch.object(self.module.time, "sleep").start()
         self.addCleanup(patch.stopall)
@@ -1293,8 +1401,7 @@ class ColorRecoveryTest(unittest.TestCase):
     def test_set_recovers_saved_color_after_black_off_and_process_restart(self):
         self.assertTrue(self.result("/set?hub=plug&rgb=123456&bri=30")["ok"])
         self.assertTrue(self.result("/set?hub=plug&rgb=000000&bri=0")["ok"])
-        with patch.dict("os.environ", {"STATE_DIRECTORY": self.tmp.name}):
-            fresh = load()
+        fresh = load(state_directory=self.tmp.name)
         with patch.object(fresh, "call", return_value=(["ok"], 1)) as send:
             result = fresh.set_light("plug", "000000", 70)
         self.assertEqual(result["rgb"], "123456")

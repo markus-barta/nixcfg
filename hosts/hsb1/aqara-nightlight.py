@@ -52,7 +52,30 @@ ALLOWED_HOSTS = frozenset(
     for host in ("127.0.0.1", "localhost", "192.168.1.101", "hsb1", "hsb1.lan", "100.64.0.7")
     for suffix in ("", ":8765")
 )
-STATE_DIRECTORY = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/aqara-nightlight"))
+
+def _state_directory():
+    """Use systemd's one state root; tests may explicitly inject a Path at import.
+
+    Never return the environment value: after validation the production root
+    is the constant below. Test loaders set _TEST_STATE_DIRECTORY on the module
+    before executing it; no environment flag enables this in the service.
+    """
+    root = Path("/var/lib/aqara-nightlight")
+    override = globals().get("_TEST_STATE_DIRECTORY")
+    configured = str(override) if override is not None else os.environ.get("STATE_DIRECTORY", str(root))
+    candidate = Path(configured)
+    if (not candidate.is_absolute() or ".." in candidate.parts
+            or str(candidate) != configured or "\x00" in configured):
+        raise ValueError("Ungültiges Zustandsverzeichnis")
+    if override is not None:
+        return candidate.resolve()
+    if configured != str(root):
+        raise ValueError("Ungültiges Zustandsverzeichnis")
+    # systemd DynamicUser may symlink this trusted root into /var/lib/private.
+    return root.resolve()
+
+
+STATE_DIRECTORY = _state_directory()
 ID_FILE = str(STATE_DIRECTORY / "msgid")
 PRESET_FILE = STATE_DIRECTORY / "presets.json"
 SETTINGS_FILE = STATE_DIRECTORY / "settings.json"
@@ -126,7 +149,7 @@ def _next_id():
 
 
 def _reserve_ids(key):
-    with open(str(ID_FILE) + ".lock", "a", encoding="ascii") as handle:
+    with open(Path(ID_FILE).with_name("msgid.lock"), "a", encoding="ascii") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             n = int(Path(ID_FILE).read_text(encoding="ascii").strip())
@@ -274,15 +297,36 @@ PAGE = ""
 SCRIPT_HASHES = ""
 
 
-def _load_page():
+def _load_page(page_file=None):
     global PAGE, SCRIPT_HASHES
-    page_file = Path(os.environ.get("AQARA_PAGE_FILE", Path(__file__).with_name("aqara-nightlight-page.html")))
+    configured = os.environ.get("AQARA_PAGE_FILE") if page_file is None else None
+    page_file = Path(__file__).with_name("aqara-nightlight-page.html") if page_file is None else Path(page_file)
+    if configured is not None:
+        # Nix passes the immutable store file, never a request-selected path.
+        normalized = os.path.normpath(configured)
+        if not normalized.startswith("/nix/store/"):
+            raise ValueError("Ungültige Seitendatei")
+        name = Path(normalized).name
+        if (configured != normalized or normalized != "/nix/store/" + name
+                or re.fullmatch(r"[0-9a-z]{32}-aqara-nightlight-page\.html", name) is None):
+            raise ValueError("Ungültige Seitendatei")
+        page_file = Path(normalized)
     page = page_file.read_text(encoding="utf-8")
-    hashes = " ".join(
-        "'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
-        for script in re.findall(r"<script>(.*?)</script>", page, re.DOTALL)
-    )
-    PAGE, SCRIPT_HASHES = page, hashes
+    marker = "<!--AQARA_INLINE_SCRIPT-->"
+    if marker in page:
+        # Local source checkout only. Nix embeds this body in its immutable page.
+        if configured is not None or page.count(marker) != 1:
+            raise ValueError("Ungültige Seitenvorlage")
+        source = Path(__file__).with_name("aqara-nightlight-script.cjs").read_text(encoding="utf-8")
+        prefix, suffix = "module.exports = function nightlightPage() {", "};\n"
+        if not source.startswith(prefix) or not source.endswith(suffix):
+            raise ValueError("Ungültiges Seitenskript")
+        page = page.replace(marker, "<script>" + source[len(prefix):-len(suffix)] + "</script>")
+    scripts = re.findall(r"<script\b[^>]*>(.*?)</script\b[^>]*>", page, re.DOTALL | re.IGNORECASE)
+    if len(scripts) != 1:
+        raise ValueError("Genau ein Seitenskript erforderlich")
+    script_hash = "'sha256-" + base64.b64encode(hashlib.sha256(scripts[0].encode()).digest()).decode() + "'"
+    PAGE, SCRIPT_HASHES = page, script_hash
 
 
 PRESET_IDS = ("nacht", "p2", "p3", "p4", "p5", "p6")
@@ -335,10 +379,14 @@ def _atomic_json(path, value):
 def _color_transaction(hub):
     if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
-    path = STATE_DIRECTORY / f"last-color-{hub}.json"
+    # Select constant basenames; hub/query text never becomes path data.
+    path = (STATE_DIRECTORY / "last-color-plug.json" if hub == "plug"
+            else STATE_DIRECTORY / "last-color-round.json")
     # Separate files avoid cross-hub lost updates. flock also serializes CLI
     # and HTTP writers; the RLock keeps the first ACK and echo together.
-    with _locks[hub], open(str(path) + ".lock", "a", encoding="ascii") as handle:
+    lock_path = (STATE_DIRECTORY / "last-color-plug.json.lock" if hub == "plug"
+                 else STATE_DIRECTORY / "last-color-round.json.lock")
+    with _locks[hub], open(lock_path, "a", encoding="ascii") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield path
 
@@ -396,7 +444,7 @@ def _read_presets():
 
 @contextmanager
 def _preset_transaction():
-    with _preset_lock, open(str(PRESET_FILE) + ".lock", "a", encoding="ascii") as handle:
+    with _preset_lock, open(PRESET_FILE.with_name("presets.json.lock"), "a", encoding="ascii") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield
 
@@ -532,7 +580,7 @@ def _read_settings():
 
 @contextmanager
 def _settings_transaction():
-    with _settings_lock, open(str(SETTINGS_FILE) + ".lock", "a", encoding="ascii") as handle:
+    with _settings_lock, open(SETTINGS_FILE.with_name("settings.json.lock"), "a", encoding="ascii") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield
 
