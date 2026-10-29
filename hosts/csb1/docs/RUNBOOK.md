@@ -2111,6 +2111,8 @@ The GC takes only `compose-csb1.lock`, `compose-hausv.lock` and `compose-hausv-n
 
 **An unanswered destructive call may still execute later.** Exit 2 with `DELETE <Id> not answered in 30 s` (or `prune ...`) means dockerd stalled or the prune was large. Check `journalctl -u docker` before the next run. The GC closes the connection, gives back all locks and sends nothing more; dockerd may still remove the image after a concurrent pull attached a tag to it. The same uncertainty follows a broken connection, crash or SIGKILL. Reconcile/pull again. If the compose unit has exhausted 3 starts in 300 seconds, recover with `systemctl reset-failed compose-<stack>; systemctl start compose-<stack>`.
 
+A full Engine Unix socket accept queue makes Linux `connect` fail at once with `EAGAIN`, reported as `DELETE <Id>: BlockingIOError: [Errno 11] Resource temporarily unavailable` (or `prune: ...`). This also exits 2 and releases the locks; it does not wait for the 30-second deadline. Check dockerd's health and connection load before the next run.
+
 **Other lock users can time out (residual d).** With no other holder, the GC delays an acquisition by up to approximately 45 seconds. With other holders, the GC's share is at most 45 seconds plus the rest of that wait: for wait W and GC-held time G, `G <= 45 + (W - G)`. Every acquisition, including stop commands and TERM/EXIT handlers, has that bound separately; each wait uses the user's own time budget. Check what a failed unit left, then restart it:
 
 - `hausv-backup-snapshot`: check whether hausv-org is running and start it if stopped. Check `/var/lib/csb1-docker/hausv-org-backup-snapshot`. If absent, move `.hausv-org-backup-snapshot.previous` back to that name **before** running the unit again; the next run deletes `.previous` first. A timeout may leave the previous, new, or renamed previous snapshot according to where publish stopped.
@@ -2118,12 +2120,12 @@ The GC takes only `compose-csb1.lock`, `compose-hausv.lock` and `compose-hausv-n
 
 Store-only protection can retain extra images until an operator collects the corresponding unrooted Nix systems. The summary reports extra systems, references, image count and bytes. Store GC is outside this automation.
 
-| Exit | Meaning                                                                                                      |
-| ---- | ------------------------------------------------------------------------------------------------------------ |
-| 0    | done, baseline not met, another run active, busy/switch for 300 s, or run budget used                        |
-| 1    | SIGTERM without a Fatal                                                                                      |
-| 2    | malformed input, cap, read/device error, Engine error or destructive deadline; takes precedence over SIGTERM |
-| 64   | invalid CLI arguments                                                                                        |
+| Exit | Meaning                                                                                                                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | done, baseline not met, another run active, busy/switch for 300 s, or run budget used                                                                                           |
+| 1    | SIGTERM without a Fatal                                                                                                                                                         |
+| 2    | malformed input, cap, read/device error, Engine error (including full accept queue), destructive deadline, or batch ended before a single DELETE; takes precedence over SIGTERM |
+| 64   | invalid CLI arguments                                                                                                                                                           |
 
 ```bash
 # Dry run: any invocation outside systemd changes nothing and takes no locks.

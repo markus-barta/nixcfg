@@ -31,6 +31,16 @@ SETTINGS = Path("/run/ops327-settings.json")
 COMPOSE = "/run/lock/compose-csb1.lock"
 HAUSV = "/run/lock/compose-hausv.lock"
 PROXY = "/run/ops327-engine.sock"
+DOCKER_SOCKET = "/run/ops327-docker.sock"
+
+
+def require_test_vm():
+    # Both the CLI and direct socket entry points fail closed on a workstation
+    # or fleet host. Only docker-image-gc-vm.nix installs this fixture marker
+    # and starts a disposable daemon on this non-production socket.
+    marker = Path("/etc/ops327/vm-only")
+    if sys.platform != "linux" or not marker.is_file() or marker.read_text() != "OPS-327 disposable VM\n":
+        raise RuntimeError("OPS-327 helper requires its isolated test VM")
 
 
 def settings():
@@ -50,6 +60,9 @@ def record(name, **data):
 
 
 def command(*argv, check=True, timeout=None, pass_fds=()):
+    if argv[0] == "docker":
+        require_test_vm()
+        argv = ("docker", "--host", "unix://" + DOCKER_SOCKET, *argv[1:])
     result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, pass_fds=pass_fds)
     if check and result.returncode:
         raise AssertionError((argv, result.returncode, result.stdout, result.stderr))
@@ -66,9 +79,10 @@ def wait_for(predicate, seconds=60, name="condition"):
 
 class UnixConnection(http.client.HTTPConnection):
     def connect(self):
+        require_test_vm()
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.settimeout(self.timeout)
-        self.sock.connect("/var/run/docker.sock")
+        self.sock.connect(DOCKER_SOCKET)
 
 
 def engine(method, path):
@@ -176,12 +190,12 @@ def load_gc():
             source = source.replace(anchor, '            if False:\n')
     module = types.ModuleType("gc_vm")
     exec(compile(source, "gc.py", "exec"), module.__dict__)
+    module.SOCKET_PATH = PROXY
     return module
 
 
 def gc_run():
     gc = load_gc()
-    gc.SOCKET_PATH = PROXY
     cfg = settings()
     original_locks = gc.deploy_locks
     @contextmanager
@@ -603,6 +617,7 @@ def checks():
 
 
 if __name__ == "__main__":
+    require_test_vm()
     action = sys.argv[1]
     if action == "proxy": proxy()
     elif action == "gc": sys.exit(gc_run())

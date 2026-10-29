@@ -164,7 +164,10 @@ def deadline(lane, *, method="DELETE", phase=None, delay=600):
 
 
 def maximal(lane):
-    engine = lane.engine(delay=[9.9, 29, 29])
+    # Leave ~1 s for a fresh snapshot and the second DELETE, rather than the
+    # former ~70 ms. Its 29 s answer still makes a long (~38 s) two-call hold;
+    # both the <=45 s bound and the BATCH_S=60 mutant check stay in force.
+    engine = lane.engine(delay=[9, 29, 29])
     proc = lane.start({"RUN_BUDGET_S": 55})
     assert engine.sent.wait(55)
     contender = lane.contender()
@@ -173,7 +176,7 @@ def maximal(lane):
     assert max(end - start for start, end in events["holds"]) <= 45, events
     assert float(contender.acquired.read_text()) - events["holds"][0][0] <= 45
     assert len(engine.destructive) >= 2, engine.destructive
-    assert 9.8 <= engine.destructive[1][2] - events["holds"][0][0] <= 10.1
+    assert 8.9 <= engine.destructive[1][2] - events["holds"][0][0] <= 10.1
 
 
 def between(lane):
@@ -297,7 +300,13 @@ def instance(lane):
 
 def schedules(lane, *, extra=False, across=False, adversarial=False):
     engine = lane.engine(delay=[9.9, 29, 9.9, 29])
-    first = lane.start({"RUN_BUDGET_S": 55 if across else 180})
+    # r29-adversarial: COOLDOWN_S=45, BATCH_S=10, CALL_DEADLINE_S=30.
+    # Hold 1: ~45..84 (9.9+29); B: ~84..134; busy attempt: ~129;
+    # next cooldown ends ~174; hold 2: ~174..213; then A and SIGTERM.
+    # r30-adversarial adds C at ~134..134.5, still before the ~174 attempt.
+    # Both need >213 s: 180 exits 0 on release before the bound is checked.
+    # 300 leaves room for SIGTERM (rc 1) and the measured W/G assertion.
+    first = lane.start({"RUN_BUDGET_S": 55 if across else 300 if adversarial else 180})
     assert engine.sent.wait(55)
     # Hold 1 lasts about 39 s. B wins by stopping A before the release.
     b = lane.contender(hold=50 if adversarial else 7, prefix="B")
@@ -329,13 +338,19 @@ def schedules(lane, *, extra=False, across=False, adversarial=False):
         holds = first_events["holds"] + later_events["holds"]
         assert later_events["attempts"][0] - first_events["holds"][-1][1] >= 45
     else:
+        if adversarial:
+            assert first.poll() is None, "GC exited before adversarial SIGTERM"
         first.send_signal(signal.SIGTERM)
         events, _ = lane.finish(first, 40, 1)
         holds = events["holds"]
+    if adversarial:
+        assert len(holds) >= 2, ("adversarial bound needs two GC holds", holds)
     began = engine.destructive[0][2]
     w = acquired - began
     g = sum(max(0, min(end, acquired) - max(start, began)) for start, end in holds)
     assert g <= 45 + (w - g) + 0.2, {"W": w, "G": g, "holds": holds}
+    if adversarial:
+        print(f"adversarial bound checked: W={w:.3f} G={g:.3f} holds={len(holds)}", flush=True)
     if not adversarial:
         assert acquired < holds[1][0] if len(holds) > 1 else True
 

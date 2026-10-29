@@ -45,7 +45,11 @@ pkgs.testers.runNixOSTest {
         virtualisation.memorySize = 3072;
         virtualisation.cores = 2;
         virtualisation.diskSize = 8192;
+        # Every system and specialisation is prebuilt; rollback only updates
+        # profiles. A read-only store avoids overlayfs file/device mismatches.
+        virtualisation.writableStore = false;
         virtualisation.docker.enable = true;
+        virtualisation.docker.listenOptions = [ "/run/ops327-docker.sock" ];
         virtualisation.docker.daemon.settings.insecure-registries = [
           "localhost:5000"
           "localhost:5001"
@@ -71,6 +75,7 @@ pkgs.testers.runNixOSTest {
           DECLARED_REFS = "[]";
         };
         environment.etc."ops327/support.py".source = ./docker-image-gc-vm-support.py;
+        environment.etc."ops327/vm-only".text = "OPS-327 disposable VM\n";
         environment.etc."ops327/images.json".text = builtins.toJSON (map toString images);
         environment.etc."ops327/registry.yml".text = ''
           version: 0.1

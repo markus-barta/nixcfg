@@ -11,6 +11,11 @@ from pathlib import Path
 
 
 def load(source, paths):
+    # A missing fixture override must never fall back to the source's host
+    # Docker socket, including when the source is a connect-bypass mutant.
+    socket_path = Path(paths["SOCKET_PATH"]).resolve()
+    if socket_path in {Path("/var/run/docker.sock").resolve(), Path("/run/docker.sock").resolve()}:
+        raise ValueError("offline fixture cannot use a host Docker socket")
     module = types.ModuleType("gc_fixture")
     exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
     for key, value in paths.items():

@@ -9,6 +9,7 @@ Real Unix trickle tests skip only when this sandbox refuses bind; the injected
 
 from __future__ import annotations
 
+import atexit
 import fcntl
 import io
 import json
@@ -24,7 +25,7 @@ import types
 import unittest
 import urllib.parse
 import http.client
-from contextlib import contextmanager, redirect_stderr, redirect_stdout, nullcontext
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout, nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -37,6 +38,11 @@ AEON = "ghcr.io/inspr-at/aeon"
 # MutantTests sets this to ("text", source -> source), always on a source copy.
 OVERRIDE = None
 
+# Keep each absent socket's private parent alive until this process exits.
+# Even a mutant that bypasses the wrapper must never connect to host Docker.
+SOCKET_DIRS = ExitStack()
+atexit.register(SOCKET_DIRS.close)
+
 
 def load(declared=(), tmp: Path | None = None):
     source = SCRIPT.read_text()
@@ -45,6 +51,8 @@ def load(declared=(), tmp: Path | None = None):
     source = source.replace("@DECLARED_REFS@", json.dumps(list(declared)))
     module = types.ModuleType("docker_image_gc")
     exec(compile(source, str(SCRIPT), "exec"), module.__dict__)
+    socket_dir = SOCKET_DIRS.enter_context(tempfile.TemporaryDirectory(prefix="ops327-unit-"))
+    module.SOCKET_PATH = str(Path(socket_dir) / "absent.sock")
     if tmp is not None:
         module.STORE_DIR = str(tmp)
         module.INSTANCE_LOCK = str(tmp / "instance.lock")
@@ -1978,7 +1986,7 @@ RESOLVE = "        for ref in refs:\n            for image_id in index.resolve(r
 
 def _stale(why):
     return swap(
-        ('SOCKET_PATH = "/var/run/docker.sock"', 'STALE = {}\nSOCKET_PATH = "/var/run/docker.sock"'),
+        ('SOCKET_PATH =', 'STALE = {}\nSOCKET_PATH ='),
         (
             RESOLVE,
             f"        stale = STALE.setdefault((id(budget), why), index) if why == {why!r} else index\n"
@@ -2950,9 +2958,12 @@ class R34DeadlineTests(Base):
                 def __init__(self, deadline): created.append(("create", deadline))
                 def connect(self, path): created.append(("connect", path)); raise TimeoutError()
                 def close(self): created.append(("close",))
-            with mock.patch.object(self.gc, "DeadlineSocket", Sock):
+            with mock.patch.object(self.gc, "DeadlineSocket", Sock), mock.patch.object(
+                socket, "socket", side_effect=AssertionError("plain socket created")
+            ) as plain_socket:
                 with self.assertRaises(TimeoutError):
                     self.gc.docker_api("DELETE", "/images/test", 30, 100)
+                plain_socket.assert_not_called()
             self.assertEqual(created, [("create", clock() + 30), ("connect", self.gc.SOCKET_PATH), ("close",)])
 
     def test_timeout_releases_all_locks_exits_2_and_stops_sending(self):
@@ -3075,7 +3086,85 @@ def r34_mutants():
 MUTANTS.update(r34_mutants())
 
 
+class SocketIsolationTests(unittest.TestCase):
+    @staticmethod
+    def helper(name):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, REPO / "tests" / (name + ".py"))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return module
+
+    def test_every_load_has_a_fresh_absent_socket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            modules = [load(), load(), load(tmp=Path(tmp))]
+            with mock.patch.object(sys.modules[__name__], "OVERRIDE", MUTANTS["no deadline"][0]):
+                modules.append(load())
+            paths = [Path(module.SOCKET_PATH) for module in modules]
+            self.assertEqual(len({path.parent for path in paths}), len(paths))
+            for path in paths:
+                self.assertTrue(path.parent.is_dir())
+                self.assertFalse(path.exists())
+
+    def test_offline_harness_requires_a_fixture_socket(self):
+        harness = self.helper("docker-image-gc-harness")
+        # Reject before executing even the copied production source.
+        source = "raise AssertionError('source must not be evaluated')"
+        with self.assertRaises(KeyError):
+            harness.load(source, {})
+        for path in ("/var/run/docker.sock", "/run/docker.sock"):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "host Docker socket"):
+                harness.load(source, {"SOCKET_PATH": path})
+
+    def test_vm_helper_cannot_use_workstation_docker(self):
+        support = self.helper("docker-image-gc-vm-support")
+        with mock.patch.object(sys, "platform", "darwin"), mock.patch.object(socket, "socket") as plain_socket, \
+             mock.patch.object(support.subprocess, "run") as subprocess_run:
+            with self.assertRaisesRegex(RuntimeError, "isolated test VM"):
+                support.UnixConnection("localhost").connect()
+            with self.assertRaisesRegex(RuntimeError, "isolated test VM"):
+                support.command("docker", "ps")
+            plain_socket.assert_not_called()
+            subprocess_run.assert_not_called()
+
+    def test_mutants_ignore_a_listening_source_default(self):
+        harness = self.helper("docker-image-gc-harness")
+        # Short paths work with macOS's small sockaddr_un as well as Linux.
+        with tempfile.TemporaryDirectory(prefix="ops327-proof-", dir="/tmp") as tmp:
+            path = str(Path(tmp) / "daemon.sock")
+            try:
+                engine = harness.Engine(path)
+            except PermissionError as exc:
+                self.skipTest(f"sandbox refuses listening source-default proof: {exc}")
+            with engine:
+                source = SCRIPT.read_text()
+                original = next(line for line in source.splitlines() if line.startswith("SOCKET_PATH = "))
+                self.assertEqual(source.count(original), 1)
+                copy = Path(tmp) / "gc.py"
+                copy.write_text(source.replace(original, f"SOCKET_PATH = {path!r}"))
+                names = ("the wrapper bypassed for connection setup", "no deadline",
+                         "a parser that reads through its own unwrapped socket")
+                selected = {name: MUTANTS[name] for name in names}
+                with mock.patch.object(sys.modules[__name__], "SCRIPT", copy), mock.patch.dict(MUTANTS, selected, clear=True):
+                    suite = unittest.TestSuite([MutantTests("test_every_mutant_is_caught")])
+                    output = io.StringIO()
+                    result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
+                self.assertTrue(result.wasSuccessful(), output.getvalue())
+                self.assertEqual(engine.calls, [], "test reached the listening source default")
+
+
 class MutantTests(unittest.TestCase):
+    def test_unknown_test_is_rejected(self):
+        # Run the deliberate typo in isolation: a loader placeholder failure
+        # must fail the harness itself, rather than count as a mutant kill.
+        unknown = "R34DeadlineTests.test_deliberately_unknown"
+        with mock.patch.dict(MUTANTS, {"lookup self-check": (swap(), [unknown])}, clear=True):
+            suite = unittest.TestSuite([type(self)("test_every_mutant_is_caught")])
+            output = io.StringIO()
+            result = unittest.TextTestRunner(stream=output, verbosity=0).run(suite)
+        self.assertEqual(result.testsRun, 1)
+        self.assertFalse(result.wasSuccessful())
+        self.assertIn(f"unknown mutant test {unknown!r}", output.getvalue())
+
     def test_every_mutant_is_caught(self):
         global OVERRIDE
         source = SCRIPT.read_text()
@@ -3085,9 +3174,15 @@ class MutantTests(unittest.TestCase):
                 for old, _ in getattr(override[1], "pairs", ()):
                     self.assertEqual(source.count(old), 1, f"mutant {name!r} does not apply: {old!r}")
                 for test in tests:
+                    try:
+                        class_name, method_name = test.split(".")
+                        test_class = getattr(module, class_name)
+                        getattr(test_class, method_name)
+                    except (AttributeError, ValueError):
+                        self.fail(f"unknown mutant test {test!r}")
                     OVERRIDE = override
                     try:
-                        suite = unittest.defaultTestLoader.loadTestsFromName(test, module)
+                        suite = unittest.TestSuite([test_class(method_name)])
                         result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
                     finally:
                         OVERRIDE = None
