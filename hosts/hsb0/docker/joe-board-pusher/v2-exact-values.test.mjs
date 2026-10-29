@@ -51,6 +51,13 @@ function build(input = source(), now = at) {
   assert.equal(store.validProjection(snapshot), true);
   return snapshot;
 }
+function twoRateSource() {
+  const input = source();
+  for (const id of ["j", "joe"]) input.deskEquities.phaseBDesks[id].fx = { ...fx };
+  input.dayPnl.evidence.sodFx = Object.fromEntries(desks.map(id => [id, id === "joel" ? null
+    : { ...fx, rate: 0.90, observedAt: input.dayPnl.evidence.sourceObservedAt }]));
+  return input;
+}
 
 test("rev 9 is the default and remains byte-identical to the pre-change stager, even with exact evidence", async t => {
   for (const value of [undefined, "", "9", "11", "10 ", "true"]) assert.equal(contractRevision(value), 9);
@@ -105,21 +112,76 @@ test("DAY is exact when its recorded SOD and current figures used the same numer
   const snapshot = build(input);
   assert.deepEqual(snapshot.desks[0].money.dayPnl, { amount: "1", currency: "EUR", fx: { ...fx, rate: "0.91" } });
   assert.equal(snapshot.desks[0].pnlSources.day.method, "sod-virtual-equity");
+  assert.equal(Object.hasOwn(snapshot.desks[0].pnlSources.day, "detail"), false);
   assert.equal(snapshot.desks[0].action, "Paper desk values are available.");
   assert.equal(snapshot.totals.dayPnl.amount, "6.00000000");
 });
 
-for (const variant of ["missing-desk", "different-rate", "different-currency", "unrecorded", "eur-only-sod", "missing-time", "after-sod", "before-oldest", "zero", "precision", "multiple"]) test(`DAY with ${variant} SOD FX stays null/not_exact_yet`, () => {
+for (const rate of [0.90, 0.91000001]) test(`DAY is exact across two proven rates (SOD ${rate}) with rev-10 source/time detail`, () => {
+  const input = twoRateSource();
+  for (const id of ["j", "joe"]) input.dayPnl.evidence.sodFx[id].rate = rate;
+  const snapshot = build(input);
+  for (const [index, id] of ["j", "joe"].entries()) {
+    const desk = snapshot.desks[index];
+    assert.deepEqual(desk.money.dayPnl, { amount: String(input.dayPnl.values[id]), currency: "EUR", fx: { ...fx, rate: "0.91" } });
+    assert.equal(desk.pnlSources.day.status, "available");
+    assert.equal(desk.pnlSources.day.detail,
+      `New York SOD conversion: ib-account-ExchangeRate; observedAt ${input.dayPnl.evidence.sourceObservedAt}.`);
+    assert.ok(desk.pnlSources.day.detail.length <= 240);
+    assert.equal(Object.hasOwn(desk.money, "reasons"), false);
+    assert.equal(desk.action, "Paper desk values are available.");
+  }
+  assert.deepEqual(snapshot.desks[2], build().desks[2], "EUR-only Joel is unchanged");
+  assert.equal(snapshot.totals.dayPnl.amount, "6.00000000");
+  assert.equal(snapshot.pnlSources.day.status, "available");
+  for (const desk of snapshot.desks) assert.equal(Object.hasOwn(desk, "accounting"), false);
+});
+
+test("two-rate DAY detail fits rev 10 even with the longest permitted rate source", () => {
+  const input = twoRateSource();
+  input.dayPnl.evidence.sodFx.j.source = "s".repeat(80);
+  const detail = build(input).desks[0].pnlSources.day.detail;
+  assert.equal(detail, `New York SOD conversion: ${"s".repeat(80)}; observedAt ${input.dayPnl.evidence.sourceObservedAt}.`);
+  assert.ok(detail.length <= 240);
+});
+
+test("a SOD rate observed exactly at periodStart can prove two-rate DAY", () => {
+  const input = twoRateSource();
+  const periodStart = input.dayPnl.source.periodStart;
+  Object.assign(input.dayPnl.evidence, { sourceObservedAt: periodStart, oldestSourceObservedAt: periodStart, ageAtBoundaryMs: 0 });
+  for (const id of ["j", "joe"]) input.dayPnl.evidence.sodFx[id].observedAt = periodStart;
+  const snapshot = build(input);
+  assert.equal(snapshot.totals.dayPnl.amount, "6.00000000");
+  for (const desk of snapshot.desks.slice(0, 2)) assert.ok(desk.pnlSources.day.detail.includes(periodStart));
+});
+
+for (const id of desks) test(`household DAY requires all three exact desks (${id} SOD FX missing)`, () => {
+  const input = twoRateSource();
+  input.dayPnl.evidence.sodFx[id] = false;
+  const snapshot = build(input);
+  assert.equal(snapshot.totals.dayPnl, null);
+  assert.equal(snapshot.totals.reasons.dayPnl, "not_exact_yet");
+  assert.equal(snapshot.pnlSources.day.status, "unavailable");
+  for (const desk of snapshot.desks) {
+    if (desk.id === id) {
+      assert.equal(desk.money.dayPnl, null);
+      assert.equal(desk.money.reasons.dayPnl, "not_exact_yet");
+      assert.equal(Object.hasOwn(desk.pnlSources.day, "detail"), false);
+    } else assert.notEqual(desk.money.dayPnl, null);
+  }
+});
+
+for (const variant of ["missing-desk", "different-currency", "unrecorded", "eur-only-sod", "missing-time", "after-snapshot", "after-sod", "before-oldest", "zero", "precision", "multiple"]) test(`DAY with ${variant} SOD FX stays null/not_exact_yet`, () => {
   const input = source();
-  const sodFx = { ...fx, observedAt: input.dayPnl.evidence.sourceObservedAt };
+  const sodFx = { ...fx, rate: 0.90, observedAt: input.dayPnl.evidence.sourceObservedAt };
   input.dayPnl.evidence.sodFx = { j: sodFx, joe: null, joel: null };
   if (variant === "missing-desk") delete input.dayPnl.evidence.sodFx.j;
-  if (variant === "different-rate") sodFx.rate = 0.90;
   if (variant === "different-currency") sodFx.base = "GBP";
   if (variant === "unrecorded") delete input.dayPnl.evidence.sodFx;
   if (variant === "eur-only-sod") input.dayPnl.evidence.sodFx.j = null;
   if (variant === "missing-time") delete sodFx.observedAt;
-  if (variant === "after-sod") sodFx.observedAt = "2026-10-25T04:00:00.000Z";
+  if (variant === "after-snapshot") sodFx.observedAt = "2026-10-25T04:00:00.000Z";
+  if (variant === "after-sod") sodFx.observedAt = "2026-10-25T04:00:01.000Z";
   if (variant === "before-oldest") sodFx.observedAt = "2026-10-25T03:59:58.000Z";
   if (variant === "zero") sodFx.rate = 0;
   if (variant === "precision") sodFx.rate = 0.910000001;
@@ -129,10 +191,33 @@ for (const variant of ["missing-desk", "different-rate", "different-currency", "
   assert.equal(snapshot.desks[0].money.reasons.dayPnl, "not_exact_yet");
   assert.equal(snapshot.desks[0].pnlSources.day.status, "unavailable");
   assert.equal(snapshot.desks[0].pnlSources.day.reason, "not_exact_yet");
+  assert.equal(Object.hasOwn(snapshot.desks[0].pnlSources.day, "detail"), false);
   assert.equal(snapshot.totals.dayPnl, null);
   assert.equal(snapshot.totals.reasons.dayPnl, "not_exact_yet");
   for (const field of ["equity", "openPnl", "totalPnl"]) assert.notEqual(snapshot.desks[0].money[field], null);
   for (const desk of snapshot.desks.slice(1)) assert.notEqual(desk.money.dayPnl, null);
+});
+
+test("current FX freshness still gates two-rate DAY at the inclusive 300-second bound", () => {
+  for (const [observedAt, exact] of [["2026-10-25T19:55:00.000Z", true], [old, false]]) {
+    const input = twoRateSource();
+    input.deskEquities.phaseBDesks.j.fx.observedAt = observedAt;
+    const snapshot = build(input);
+    const desk = snapshot.desks[0];
+    if (exact) {
+      assert.equal(desk.money.dayPnl.fx.observedAt, observedAt);
+      assert.notEqual(snapshot.totals.dayPnl, null);
+    } else {
+      assert.equal(desk.money.dayPnl, null);
+      assert.equal(desk.money.reasons.dayPnl, "not_exact_yet");
+      assert.equal(desk.pnlSources.day.reason, "not_exact_yet");
+      assert.equal(Object.hasOwn(desk.pnlSources.day, "detail"), false);
+      assert.equal(snapshot.totals.dayPnl, null);
+      assert.equal(snapshot.totals.reasons.dayPnl, "not_exact_yet");
+    }
+    assert.notEqual(snapshot.desks[1].money.dayPnl, null);
+    assert.deepEqual(snapshot.desks[2], build().desks[2]);
+  }
 });
 
 test("a current EUR figure cannot hide a foreign rate used by its SOD figure", () => {
