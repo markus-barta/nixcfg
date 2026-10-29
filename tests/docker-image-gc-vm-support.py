@@ -382,13 +382,13 @@ def prepare():
     (ROOT / "base-system").write_text(os.path.realpath("/run/current-system"))
     Path("/run/ops327-ready").touch()
     configure(epoch="init")
-    command("systemctl", "start", "ops327-proxy")
+    start_unit("ops327-proxy")
     command("nix-env", "-p", "/nix/var/nix/profiles/system", "--set", os.path.realpath("/run/current-system"))
 
 
 def restore(reset_compose=True):
-    command("systemctl", "stop", "ops327-gc", check=False)
-    command("systemctl", "stop", "compose-csb1", check=False)
+    stop_unit("ops327-gc")
+    stop_unit("compose-csb1")
     fixtures = command("docker", "container", "ls", "-a", "--filter", "name=compose-fixture-", "-q").stdout.split()
     for container in fixtures: command("docker", "container", "rm", container)
     command("systemctl", "reset-failed", "ops327-gc", "hausv-backup-snapshot", "janus-managed-canary", check=False)
@@ -415,13 +415,55 @@ def run_gc(epoch, delays, *, wait_held=False, wait_event=None, preserve_start_li
 
 
 def journal_since(unit, since):
+    # Flush journald before every read, including gc_done. Bound both commands
+    # so a stuck journal is a setup failure instead of an unbounded fixture.
+    command("journalctl", "--sync", timeout=10)
     return command("journalctl", "--unit", unit, "--since", f"@{since:.6f}",
-                   "--output=cat", "--no-pager").stdout
+                   "--output=cat", "--no-pager", timeout=10).stdout
+
+
+def unit_value(unit, property_name):
+    return command("systemctl", "show", unit, "-p", property_name, "--value").stdout.strip()
+
+
+def require_state(unit, states, substates=None):
+    active = unit_value(unit, "ActiveState")
+    assert active in states, (unit, "unexpected ActiveState", active)
+    if substates is not None:
+        sub = unit_value(unit, "SubState")
+        assert sub in substates, (unit, "unexpected SubState", sub)
+
+
+def start_unit(unit, *, verb="start"):
+    command("systemctl", verb, unit)
+    require_state(unit, ("active",))
+    require_outcome(unit)
+
+
+def stop_unit(unit):
+    # Cleanup can retain a preceding scenario's Result. Here only quiescence
+    # matters; scenario outcome assertions happen before this cleanup.
+    command("systemctl", "stop", unit, check=False)
+    require_state(unit, ("inactive", "failed"), ("dead", "failed"))
+
+
+def require_outcome(unit, since=None, *, allowed=("success",), phase="start"):
+    result = unit_value(unit, "Result")
+    assert result in allowed, (unit, "unexpected Result", result, allowed)
+    if result == "timeout":
+        assert since is not None, "missing timeout invocation timestamp"
+        require_timeout(unit, since, phase)
+    return result
 
 
 def require_timeout(unit, since, phase="start"):
+    assert phase in ("start", "stop"), phase
+    assert unit_value(unit, "Result") == "timeout", (unit, "expected Result=timeout")
     log = journal_since(unit, since)
-    assert f"{phase} operation timed out" in log, (unit, "expected unit timeout", log)
+    # service_dispatch_timer: SERVICE_START uses the state name "start";
+    # SERVICE_STOP uses a different, capitalized sentence. See systemd service.c.
+    message = "Stopping timed out" if phase == "stop" else "start operation timed out"
+    assert message in log, (unit, "expected unit timeout", message, log)
 
 
 def assert_no_registry_rejections():
@@ -430,13 +472,14 @@ def assert_no_registry_rejections():
 
 
 def require_start_limit():
-    result = command("systemctl", "show", "compose-csb1", "-p", "Result", "--value").stdout.strip()
+    result = unit_value("compose-csb1", "Result")
     assert result == "start-limit-hit", ("unexpected start-limit failure", result)
 
 
 def gc_done(expected=2, seconds=50, *, reason="not answered in 30 s", since=None):
-    wait_for(lambda: command("systemctl", "is-active", "ops327-gc", check=False).stdout.strip() in ("inactive", "failed"), seconds, "GC exit")
-    code = command("systemctl", "show", "ops327-gc", "-p", "ExecMainStatus", "--value").stdout.strip()
+    wait_for(lambda: unit_value("ops327-gc", "ActiveState") in ("inactive", "failed"), seconds, "GC exit")
+    require_outcome("ops327-gc", allowed=("success",) if expected == 0 else ("exit-code",))
+    code = unit_value("ops327-gc", "ExecMainStatus")
     assert int(code) == expected, code
     if expected == 2:
         since = GC_SINCE if since is None else since
@@ -457,7 +500,7 @@ def full_unit_outcomes(results):
             epoch = f"compose-{work}-{with_gc}"
             if with_gc: run_gc(epoch, [29], pull_delay=work, acquisitions=1, late_decision=True, wait_held=True)
             else: restore(); configure(epoch=epoch, delays=[0], pull_delay=work, acquisitions=1)
-            command("systemctl", "stop", "compose-csb1", check=False)
+            stop_unit("compose-csb1")
             started = time.monotonic()
             base = (ROOT / 'base-system').read_text()
             target = base + '/specialisation/changed' if os.path.realpath('/run/current-system') == base else base
@@ -467,31 +510,32 @@ def full_unit_outcomes(results):
             result = types.SimpleNamespace(returncode=switch.returncode, stdout=out, stderr=err)
             expected = not (with_gc and work == 580)
             assert (result.returncode == 0) == expected, (epoch, result)
-            if not expected: require_timeout("compose-csb1", since)
+            require_outcome("compose-csb1", since, allowed=("success",) if expected else ("timeout",))
+            if expected: require_state("compose-csb1", ("active",), ("exited",))
             results.append({"case": epoch, "exit": result.returncode, "elapsed": time.monotonic() - started})
-            command("systemctl", "stop", "compose-csb1", check=False)
+            stop_unit("compose-csb1")
             if with_gc: gc_done(0, 5)
     # The hold mutant must push 540 s past the 600 s unit budget.
     run_gc("mutant-hold", [29], pull_delay=540, acquisitions=1, mutant_hold=True, late_decision=True, wait_held=True)
     since = time.time()
     result = command("systemctl", "start", "compose-csb1", check=False, timeout=650)
-    assert result.returncode != 0
-    require_timeout("compose-csb1", since)
+    require_outcome("compose-csb1", since, allowed=("timeout",))
     results.append({"case": "hold-above-45-mutant", "exit": result.returncode})
-    command("systemctl", "stop", "compose-csb1", check=False)
+    stop_unit("compose-csb1")
     # Canary stop with quick and ignoring containers, both actual Docker states.
     for ignored in (False, True):
         for with_gc in (False, True):
             restore(); configure(epoch=f"canary-{ignored}-{with_gc}", ignore_term=ignored)
-            command("systemctl", "start", "janus-managed-canary")
+            start_unit("janus-managed-canary")
             holder = subprocess.Popen(["flock", COMPOSE, "sleep", "25"]) if with_gc else None
             if holder: time.sleep(0.1)
             since = time.time()
             stopped = command("systemctl", "stop", "janus-managed-canary", check=False, timeout=40)
-            if stopped.returncode: require_timeout("janus-managed-canary", since, "stop")
+            outcome = require_outcome("janus-managed-canary", since, allowed=("success", "timeout"), phase="stop")
+            require_state("janus-managed-canary", ("inactive", "failed"), ("dead", "failed"))
             state = command("docker", "ps", "-a", "--filter", "name=^/canary$", "--format", "{{.State}}").stdout.strip()
             assert state in ("running", "exited"), state
-            results.append({"case": "canary-stop", "ignores-term": ignored, "gc": with_gc, "exit": stopped.returncode, "container": state})
+            results.append({"case": "canary-stop", "ignores-term": ignored, "gc": with_gc, "exit": stopped.returncode, "Result": outcome, "container": state})
             if holder: assert holder.wait(timeout=30) == 0
             command("systemctl", "reset-failed", "janus-managed-canary", check=False)
     # Publish order and a killed unit's actual EXIT/TERM traps.
@@ -515,9 +559,8 @@ def full_unit_outcomes(results):
                 time.sleep(120)
                 extra = subprocess.Popen(["flock", HAUSV, "sleep", "39"])
             else: extra = None
-            wait_for(lambda: command("systemctl", "is-active", "hausv-backup-snapshot", check=False).stdout.strip() in ("inactive", "failed"), 290)
-            outcome = command("systemctl", "show", "hausv-backup-snapshot", "-p", "Result", "--value").stdout.strip()
-            if outcome != "success": require_timeout("hausv-backup-snapshot", since)
+            wait_for(lambda: unit_value("hausv-backup-snapshot", "ActiveState") in ("inactive", "failed"), 290)
+            outcome = require_outcome("hausv-backup-snapshot", since, allowed=("success", "timeout"))
             state = command("docker", "ps", "-a", "--filter", "name=^/hausv-org$", "--format", "{{.State}}").stdout.strip()
             snapshots = {name: (ROOT / name / "checked").read_text() for name in ("snapshot", ".previous") if (ROOT / name / "checked").exists()}
             acquisitions = [e for e in events()[begin_events:] if e["event"] == "acquisition" and e["lock"] == HAUSV]
@@ -526,14 +569,14 @@ def full_unit_outcomes(results):
             assert snapshots and all(v in ("previous", "new-integrity-ok") for v in snapshots.values())
             if position == "before": assert snapshots.get("snapshot") == "previous"
             if position == "between": assert snapshots.get(".previous") == "previous" and "snapshot" not in snapshots
-            results.append({"case": f"hausv-{position}", "gc": with_gc, "container": state, "snapshots": snapshots, "acquisitions": acquisitions})
+            results.append({"case": f"hausv-{position}", "gc": with_gc, "Result": outcome, "container": state, "snapshots": snapshots, "acquisitions": acquisitions})
             if holder: assert holder.wait(timeout=45) == 0
             if extra: assert extra.wait(timeout=45) == 0
     # Three acquisitions in one real 600 s unit, 440 fits and 480 fails.
     for work in (440, 480):
         for with_gc in (False, True):
             restore(); configure(epoch=f"three-{work}-{with_gc}", pull_delay=work / 3, acquisitions=3, split_work=True, ready_gates=with_gc)
-            command("systemctl", "stop", "compose-csb1", check=False)
+            stop_unit("compose-csb1")
             thread_errors = []
             def paced_holds():
                 for n in range(3):
@@ -557,9 +600,10 @@ def full_unit_outcomes(results):
                 assert not thread.is_alive(), "paced hold fixture did not finish"
                 if thread_errors: raise RuntimeError("paced hold fixture failed") from thread_errors[0]
             results.append({"case": f"three-acquisitions-{work}", "gc": with_gc, "exit": result.returncode})
-            assert (result.returncode == 0) == (not with_gc or work == 440)
-            if with_gc and work == 480: require_timeout("compose-csb1", since)
-            command("systemctl", "stop", "compose-csb1", check=False)
+            expected = not with_gc or work == 440
+            require_outcome("compose-csb1", since, allowed=("success",) if expected else ("timeout",))
+            if expected: require_state("compose-csb1", ("active",), ("exited",))
+            stop_unit("compose-csb1")
 
 
 def checks():
@@ -576,9 +620,10 @@ def checks():
     gc_done(2)
     out, err = proc.communicate(timeout=650)
     assert proc.returncode == 0, (out, err)
-    command("systemctl", "is-active", "compose-csb1")
+    require_state("compose-csb1", ("active",), ("exited",))
+    require_outcome("compose-csb1")
     results.append({"case": "switch-held-delete-and-real-proc-token", "switch": proc.returncode})
-    command('systemctl', 'restart', 'ops327-proxy')  # cancel the never-forwarded 600 s request
+    start_unit("ops327-proxy", verb="restart")  # cancel the never-forwarded 600 s request
     # Actual nixos-rebuild rollback uses prebuilt generations, entirely offline.
     command('nix-env', '-p', '/nix/var/nix/profiles/system', '--set', base)
     command('nix-env', '-p', '/nix/var/nix/profiles/system', '--set', os.path.realpath(changed))
@@ -611,30 +656,32 @@ def checks():
     victim = request['path'].split('/images/', 1)[1].split('?', 1)[0]
     pull_ref = json.loads((ROOT / 'candidate-refs.json').read_text())[victim]
     cfg = settings(); cfg['pull_ref'] = pull_ref; configure(**cfg)
-    command("systemctl", "stop", "compose-csb1", check=False)
+    stop_unit("compose-csb1")
     switch = switch_async(changed if os.path.realpath("/run/current-system") == base else base)
     command("systemctl", "start", "--no-block", "compose-csb1")
     gc_done(2)
     wait_for(lambda: any(e["event"] == "creation-failed" and e.get("epoch") == "delayed-effect" for e in events()), 20)
     # Prevent the second start from waiting on the first call's event semantics.
     configure(epoch="retry", race=False, pull_ref=pull_ref, acquisitions=1)
-    wait_for(lambda: command("systemctl", "is-active", "compose-csb1", check=False).stdout.strip() == "active", 45)
+    wait_for(lambda: unit_value("compose-csb1", "ActiveState") == "active", 45)
+    require_outcome("compose-csb1")
+    assert int(unit_value("compose-csb1", "NRestarts")) >= 1, "missing automatic recovery restart"
     switch_out, switch_err = switch.communicate(timeout=650)
     sentinel = command("docker", "run", "--name", "sentinel-check", "-v", "ops327-data:/data", "localhost:5000/fixture:r1", "/bin/cat", "/data/sentinel").stdout.strip()
     assert sentinel == "untouched"
     results.append({"case": "delayed-delete-real-effect", "switch": switch.returncode, "volume": sentinel})
     # Exhaust the actual start limit; the third failure is an actual raced pull.
-    command('systemctl', 'stop', 'compose-csb1', check=False)
+    stop_unit("compose-csb1")
     command('systemctl', 'reset-failed', 'compose-csb1')
     for n in range(2):
-        command("systemctl", "stop", "compose-csb1", check=False)
+        stop_unit("compose-csb1")
         epoch = f"fail-{n}"
         configure(epoch=epoch, fail_start=True)
-        failure = command("systemctl", "start", "compose-csb1", check=False)
-        assert failure.returncode != 0
+        command("systemctl", "start", "compose-csb1", check=False)
+        require_outcome("compose-csb1", allowed=("exit-code",))
         assert any(e["event"] == "intentional-start-failure" and e.get("epoch") == epoch for e in events())
     # Keep automatic retries from burning the third slot before the race.
-    command("systemctl", "stop", "compose-csb1", check=False)
+    stop_unit("compose-csb1")
     request = run_gc("start-limit-race", [40], race=True, pull_ref="localhost:5000/fixture:r2", acquisitions=1, preserve_start_limit=True)
     victim = request['path'].split('/images/', 1)[1].split('?', 1)[0]
     pull_ref = json.loads((ROOT / 'candidate-refs.json').read_text())[victim]
@@ -644,10 +691,10 @@ def checks():
     wait_for(lambda: any(e["event"] == "creation-failed" and e.get("epoch") == "start-limit-race" for e in events()), 20)
     configure(epoch="limit-retry", pull_ref=pull_ref, acquisitions=1)
     time.sleep(35)
-    assert command("systemctl", "is-failed", "compose-csb1", check=False).stdout.strip() == "failed"
+    require_state("compose-csb1", ("failed",), ("failed",))
     require_start_limit()
     command("systemctl", "reset-failed", "compose-csb1")
-    command("systemctl", "start", "compose-csb1")
+    start_unit("compose-csb1")
     results.append({"case": "exhausted-start-limit-and-manual-recovery"})
     # Filesystem identity and device nodes: both are rejected before reading.
     keep = Path("/var/lib/docker-image-gc/keep.d")

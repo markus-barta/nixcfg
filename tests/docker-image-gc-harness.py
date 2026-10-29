@@ -17,25 +17,89 @@ STREAM_GAP_S = 9
 STREAM_BYTES = 3
 
 
-def path_constants(source):
-    """Inventory literal module-level absolute paths without executing the source."""
-    found = set()
-    for node in ast.parse(source).body:
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+# These are protocol values, never filesystem paths. Every Load of a named
+# exception must be the Engine-path argument at the specified call site.
+NON_FILESYSTEM_NAMES = {"PRUNE_PATH": ("destructive_call", 2)}
+HTTP_LITERALS = {"/containers/json?all=1": ("get_json", 1),
+                 "/images/json": ("get_json", 1), "/images/": ("destructive_call", 2)}
+# A slash inside a reference/diagnostic label is not an absolute filesystem
+# path. Exact expressions keep a newly introduced open('/') from inheriting it.
+SLASH_EXPRESSIONS = {"rest.rfind('/')", "rest.partition('/')", "'/' not in path",
+                     "f'{domain}/{path}'", "f'{stack}/{name}'"}
+
+
+def execute_source(source):
+    # Trusted, copied GC source only. __name__ prevents the CLI entry point.
+    module = types.ModuleType("gc_fixture")
+    exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
+    return module
+
+
+def absolute_path(value):
+    return isinstance(value, (str, bytes, os.PathLike)) and os.path.isabs(os.fspath(value))
+
+
+def contains_path(value):
+    if absolute_path(value):
+        return True
+    return isinstance(value, (list, tuple, set, frozenset)) and any(contains_path(item) for item in value)
+
+
+def path_constants(source, module=None):
+    """Inventory executed globals, then reject unowned absolute source literals.
+
+    Derived constants are independent keys: the fixture must override each one.
+    Module-level if/try, computed expressions and aliases need no AST evaluator.
+    Imports/definitions must remain free of filesystem I/O, as in production.
+    """
+    module = execute_source(source) if module is None else module
+    found = {name for name, value in vars(module).items() if contains_path(value)}
+    tree = ast.parse(source)
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+    def call_argument(node, rule):
+        call = parents.get(node)
+        return (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id == rule[0] and len(call.args) > rule[1] and call.args[rule[1]] is node)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in NON_FILESYSTEM_NAMES:
+            if not call_argument(node, NON_FILESYSTEM_NAMES[node.id]):
+                raise ValueError(f"non-filesystem name used outside Engine path: {node.id}")
+    found -= NON_FILESYSTEM_NAMES.keys()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not absolute_path(node.value):
             continue
-        try:
-            value = ast.literal_eval(node.value)
-        except (ValueError, TypeError):
+        lineage, ancestor = [], node
+        while ancestor in parents:
+            ancestor = parents[ancestor]
+            lineage.append(ancestor)
+        # Only module-scope assignments own path literals. A local path, even
+        # with the same spelling as a global, must not evade the inventory.
+        owner = next((item for item in lineage if isinstance(item, (ast.Assign, ast.AnnAssign))), None)
+        if owner is not None and not any(isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda))
+                                         for item in lineage):
+            targets = owner.targets if isinstance(owner, ast.Assign) else [owner.target]
+            names = {part.id for target in targets for part in ast.walk(target) if isinstance(part, ast.Name)}
+            if names & found:
+                continue
+            if names == {"PRUNE_PATH"} and node.value == "/build/prune?":
+                continue
+        expression = parents[node]
+        if node.value == "/" and ast.unparse(expression) in SLASH_EXPRESSIONS:
             continue
-        values = value if isinstance(value, tuple) else (value,)
-        if values and all(isinstance(path, str) and os.path.isabs(path) for path in values):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            found.update(target.id for target in targets if isinstance(target, ast.Name))
+        # A DELETE f-string's absolute prefix belongs to its complete Engine
+        # argument, not to an arbitrary use of the same prefix elsewhere.
+        argument = expression if isinstance(expression, ast.JoinedStr) else node
+        if node.value in HTTP_LITERALS and call_argument(argument, HTTP_LITERALS[node.value]):
+            continue
+        raise ValueError(f"uninventoried absolute path at line {node.lineno}: {node.value!r}")
     return found
 
 
-def check_path_contract(source, paths):
-    expected = path_constants(source)
+def check_path_contract(source, paths, module=None):
+    expected = path_constants(source, module)
     if set(paths) != expected:
         raise ValueError(f"path keys: missing={sorted(expected - set(paths))}, extra={sorted(set(paths) - expected)}")
 
@@ -50,8 +114,8 @@ def check_socket(path):
 
 def load(source, paths):
     check_socket(paths["SOCKET_PATH"])
-    module = types.ModuleType("gc_fixture")
-    exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
+    module = execute_source(source)
+    check_path_contract(source, paths, module)
     for key, value in paths.items():
         setattr(module, key, value)
     return module

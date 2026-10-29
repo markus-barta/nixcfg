@@ -2,7 +2,7 @@
 """OPS-327 Linux real-time lane: non-root, Python 3, bash 5, util-linux flock.
 
 No Docker, systemd, network or privileged paths. All fixture paths stay in this checkout.
-Baseline: approximately 45–65 minutes; --mutants adds approximately 2–4 hours.
+Baseline: approximately 70–100 minutes; --mutants adds approximately 2–4 hours.
 --case selects checks (repeatable); --list lists them without running anything.
 Every check prints ok/FAIL; any failed baseline, missing mutation anchor or
 surviving mutant exits nonzero. Watchdogs kill only this harness's children.
@@ -246,11 +246,15 @@ def deadline(lane, *, method="DELETE", phase=None, delay=600):
     require(contender.wait(timeout=5) == 0)
 
 
-def maximal(lane):
+def maximal(lane, *, r34=False):
     # A 5 s first call leaves 5 s to admit the next decision inside BATCH_S.
     # A 24 s answer leaves >=4 s below the deadline after offset/jitter.
     # The real hold is ~29 s; BATCH_S=60 admits four calls and holds ~77 s.
-    engine = lane.engine(delay=[5, 24, 24])
+    # r34 strict-bound exception (in addition to <=31 and >=45): [9,29,29]
+    # sends the second decision at 8.9..10.1 s, with ~38..39 s total hold
+    # against <=45. Its internal 10 s batch/30 s call limits leave ~1 s
+    # headroom, not 2 s. Keep the design's numbers; Linux measures overhead.
+    engine = lane.engine(delay=[9, 29, 29] if r34 else [5, 24, 24])
     proc = lane.start({"RUN_BUDGET_S": 55})
     require(engine.sent.wait(55))
     contender = lane.contender()
@@ -259,7 +263,8 @@ def maximal(lane):
     require(max(end - start for start, end in events["holds"]) <= 45, events)
     require(float(contender.acquired.read_text()) - events["holds"][0][0] <= 45)
     require(len(engine.destructive) >= 2, engine.destructive)
-    require(3 <= engine.destructive[1][2] - events["holds"][0][0] <= 10)
+    decision = engine.destructive[1][2] - events["holds"][0][0]
+    require((8.9 <= decision <= 10.1) if r34 else (3 <= decision <= 10), decision)
 
 
 def between(lane):
@@ -392,8 +397,8 @@ def instance(lane):
     require(engine.destructive[1][2] - restarted_at >= 45)
 
 
-def schedules(lane, *, extra=False, across=False, adversarial=False):
-    engine = lane.engine(delay=[5, 24, 5, 24])
+def schedules(lane, *, extra=False, across=False, adversarial=False, r34=False):
+    engine = lane.engine(delay=[9, 29, 9, 29] if r34 else [5, 24, 5, 24])
     # r29-adversarial: COOLDOWN_S=45, BATCH_S=10, CALL_DEADLINE_S=30.
     # Hold 1: ~45..74 (5+24); B: ~74..124; busy attempt: ~119;
     # next cooldown ends ~164; hold 2: ~164..193; then A and SIGTERM.
@@ -403,7 +408,7 @@ def schedules(lane, *, extra=False, across=False, adversarial=False):
     first = lane.start({"RUN_BUDGET_S": 55 if across else 300 if adversarial else 180})
     require(engine.sent.wait(55))
     # Hold 1 lasts about 29 s. B wins by stopping A before the release.
-    b = lane.contender(hold=50 if adversarial else 5, prefix="B")
+    b = lane.contender(hold=50 if adversarial else 7 if r34 else 5, prefix="B")
     a = lane.contender(prefix="A")
     a.send_signal(signal.SIGSTOP)
     wait_for(lambda: b.acquired.exists(), 45, "B wins first release")
@@ -440,6 +445,9 @@ def schedules(lane, *, extra=False, across=False, adversarial=False):
         holds = events["holds"]
     if adversarial:
         require(len(holds) >= 2, ("adversarial bound needs two GC holds", holds))
+    if r34:
+        require(8.9 <= engine.destructive[1][2] - holds[0][0] <= 10.1)
+        require(all(end - start <= 45 for start, end in holds), holds)
     began = engine.destructive[0][2]
     w = acquired - began
     g = sum(max(0, min(end, acquired) - max(start, began)) for start, end in holds)
@@ -450,7 +458,7 @@ def schedules(lane, *, extra=False, across=False, adversarial=False):
         require(acquired < holds[1][0] if len(holds) > 1 else True)
 
 
-def four_acquisitions(lane):
+def four_acquisitions(lane, *, r34=False):
     # HAUSV-shaped real bash traps. GC holds are spaced >45 s apart. Each of
     # main-stop, interrupted main-start, TERM-start, EXIT-start is counted.
     script = lane.root / "hausv-user.sh"
@@ -481,7 +489,7 @@ stopped=0
         # Drive an actual GC batch for this acquisition, through the same worker.
         # Unique sockets allow independent server lifetimes without unlinking.
         lane.paths["SOCKET_PATH"] = str(lane.root / f"engine-{n}.sock")
-        engine = lane.engine(delay=[5, 24, 24])
+        engine = lane.engine(delay=[9, 29, 29] if r34 else [5, 24, 24])
         proc = lane.start({"RUN_BUDGET_S": 55})
         require(engine.sent.wait(55))
         began = time.monotonic()
@@ -498,6 +506,9 @@ stopped=0
             wait_for(lambda: got.exists(), 45, f"handler acquisition {n}")
             require(float(got.read_text()) - began <= 45)
         events, _ = lane.finish(proc, 45 if n == 2 else 10)
+        if r34:
+            require(8.9 <= engine.destructive[1][2] - events["holds"][0][0] <= 10.1)
+            require(all(end - start <= 45 for start, end in events["holds"]), events)
         last_release = events["holds"][-1][1]
     user.wait(timeout=10)
     require((lane.root / "count").read_text().strip() == "4")
@@ -512,12 +523,20 @@ CASES = {"delete-hold-bound": lambda l: deadline(l), "prune-hold-bound": lambda 
          "r29-adversarial": lambda l: schedules(l, adversarial=True),
          "r30-adversarial": lambda l: schedules(l, extra=True, adversarial=True),
          "across-runs": lambda l: schedules(l, across=True), "four-acquisitions": four_acquisitions}
+CASES.update({"maximal-hold-r34": lambda l: maximal(l, r34=True),
+              "r29-r34": lambda l: schedules(l, r34=True),
+              "r30-r34": lambda l: schedules(l, extra=True, r34=True),
+              "r29-adversarial-r34": lambda l: schedules(l, adversarial=True, r34=True),
+              "r30-adversarial-r34": lambda l: schedules(l, extra=True, adversarial=True, r34=True),
+              "across-runs-r34": lambda l: schedules(l, across=True, r34=True),
+              "four-acquisitions-r34": lambda l: four_acquisitions(l, r34=True)})
 for method in ("DELETE", "POST"):
     for phase in ("status", "header", "chunk-size", "chunk-data", "body", "stream"):
         CASES[f"trickle-{method.lower()}-{phase}"] = lambda l, m=method, p=phase: deadline(l, method=m, phase=p)
 
 
 REAL_MUTANTS = {
+    "BatchOver sleeps 12 s": ["maximal-hold-r34"],
     "BATCH_S 60": ["maximal-hold"], "deadline 120": ["delete-hold-bound", "prune-hold-bound"],
     "no deadline": ["trickle-delete-body"], "a per-receive timeout only": ["trickle-delete-stream"],
     "the locks kept after the deadline": ["delete-hold-bound"],
@@ -538,10 +557,13 @@ REAL_MUTANTS = {
     "a fresh 30 s socket timeout confined to the chunked reader": ["trickle-delete-chunk-size", "trickle-delete-chunk-data"],
     "a fresh 30 s socket timeout confined to the body": ["trickle-delete-body"],
 }
+# A 5 s over-hold still fits ~38+5 <=45. Observe it without promising a kill
+# or weakening the bound. --mutants includes this diagnostic probe separately.
+REAL_PROBES = {"BatchOver sleeps 5 s": ["maximal-hold-r34"]}
 
 
 def validate_mutant_table(mutants):
-    for mutant, names in REAL_MUTANTS.items():
+    for mutant, names in {**REAL_MUTANTS, **REAL_PROBES}.items():
         if mutant not in mutants:
             raise ValueError(f"unknown mutant {mutant!r}")
         if not names:
@@ -556,7 +578,7 @@ def socket_paths(args, checks):
     for index, (name, _, _) in enumerate(checks):
         directory = f"{index:03d}-{name}"
         yield os.path.join(os.path.dirname(args.engine_socket), directory, os.path.basename(args.engine_socket))
-        if name == "four-acquisitions":
+        if name in ("four-acquisitions", "four-acquisitions-r34"):
             for n in range(1, 5):
                 yield os.path.join(args.root, directory, f"engine-{n}.sock")
 
@@ -603,6 +625,9 @@ def run_checks(args, checks):
                 except Exception as exc:
                     error, setup = exc, True
         passed, message = classify_case(name, mutant, baselines.get(name, False), error, setup=setup)
+        if mutant in REAL_PROBES and baselines.get(name, False) and not setup and (error is None or isinstance(error, CaseFailure)):
+            passed = True
+            message = f"{'SURVIVED' if error is None else 'KILLED'} probe {name} [{mutant}]" + (f": {error}" if error else "")
         if mutant is None:
             baselines[name] = passed
         failed += not passed
@@ -647,13 +672,15 @@ def main():
         return 1
     if args.list:
         for name in CASES: print(name)
+        for mutant, names in REAL_MUTANTS.items(): print(f"mutant: {mutant} -> {', '.join(names)}")
+        for mutant, names in REAL_PROBES.items(): print(f"probe: {mutant} -> {', '.join(names)}")
         return 0
     for name in ("root", "compose_lock_dir", "instance_lock", "switch_lock", "keep_dir", "store", "engine_socket"):
         if not getattr(args, name): parser.error("missing --" + name.replace("_", "-"))
     source = Path(repo_path(args.source)).read_text()
     checks = [(name, None, source) for name in (args.case or CASES)]
     if args.mutants:
-        for mutant, names in REAL_MUTANTS.items():
+        for mutant, names in {**REAL_MUTANTS, **REAL_PROBES}.items():
             override = unit.MUTANTS[mutant][0]
             for before, _ in override[1].pairs:
                 if source.count(before) != 1:

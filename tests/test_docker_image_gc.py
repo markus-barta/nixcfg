@@ -231,6 +231,23 @@ def fake_clock(gc):
         yield clock
 
 
+@contextmanager
+def preserved_process_state():
+    """In-process worker calls get the same isolation as a subprocess exit."""
+    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGALRM, signal.SIGINT, signal.SIGHUP)}
+    with mock.patch.dict(os.environ):
+        try:
+            yield
+        finally:
+            for sig, handler in handlers.items():
+                signal.signal(sig, handler)
+
+
+def in_process_worker(runner, manifest):
+    with preserved_process_state():
+        return runner.worker(str(manifest))
+
+
 def run(gc, api, dry=False, manual=False, env=None, sleep=None):
     out, err = io.StringIO(), io.StringIO()
     environ = {"DOCKER_IMAGE_GC_DRY_RUN": "1" if dry else "0", "INVOCATION_ID": "test", **(env or {})}
@@ -2912,6 +2929,23 @@ class R34LockTests(Base):
             self.assertEqual(run(self.gc, self.api())[0], 0)
             self.assertGreaterEqual(entered[0] - last_release, 45)
 
+    def test_batch_over_releases_without_hidden_sleep(self):
+        self.world()
+        self.images += [img(30 + n, 40, tags=[]) for n in range(4)]
+        with fake_clock(self.gc) as clock, mock.patch.object(self.gc.time, "sleep", side_effect=clock.advance):
+            holds = BudgetTests.timed_locks(self, clock)
+            self.gc.RUN_BUDGET_S = 55
+            calls = []
+            def answer(*_):
+                calls.append(clock())
+                clock.advance(9.9 if len(calls) == 1 else 29)
+            rc, out, err = run(self.gc, self.api(after_delete=answer))
+            self.assertEqual(rc, 0, out + err)
+            self.assertEqual(len(calls), 2)
+            # An injected clock must include a direct time.sleep in BatchOver,
+            # not just main's injected cooldown sleep. Both 5 and 12 s regress.
+            self.assertAlmostEqual(max(holds), 38.9)
+
 
 class R34DeadlineTests(Base):
     def test_injected_http_connect_never_sends_after_deadline(self):
@@ -3005,8 +3039,9 @@ class R34DeadlineTests(Base):
                     self.assertEqual(clock(), before)
 
     def test_trickle_phases_injected(self):
-        # Same 29/58 schedule as the real Unix fixtures, below, without a socket
-        # syscall. Each synthetic parser frame selects the corresponding mutant.
+        # r34's original 29/58 schedule, without a socket syscall. The real
+        # Unix fixtures use 18/45; each injected parser frame retains r34's
+        # own numbers and selects the corresponding mutant.
         for frame in ("_read_status", "_read_headers", "_read_chunked", "read"):
             with self.subTest(frame=frame):
                 clock = Clock()
@@ -3129,6 +3164,10 @@ def r34_mutants():
     add("following symlinks in keep.d", [("        if nofollow:\n", "        if False:\n")], "R34ReadTests.test_keep_symlink_and_wrong_device")
     add("no device check", [("            if info.st_dev != expected:\n", "            if False:\n")], "R34ReadTests.test_keep_symlink_and_wrong_device")
     add("BATCH_S 60", [("BATCH_S = 10\n", "BATCH_S = 60\n")], "R34LockTests.test_maximal_hold_and_restart_spacing")
+    for seconds in (5, 12):
+        add(f"BatchOver sleeps {seconds} s",
+            [("    except BatchOver:\n        return OVER\n", f"    except BatchOver:\n        time.sleep({seconds})\n        return OVER\n")],
+            "R34LockTests.test_batch_over_releases_without_hidden_sleep")
     add("deadline 120", [("CALL_DEADLINE_S = 30\n", "CALL_DEADLINE_S = 120\n")], "R34DeadlineTests.test_every_socket_method_blocks_for_58_seconds")
     add("no deadline", [("deadline = time.monotonic() + CALL_DEADLINE_S if method != \"GET\" else None", "deadline = None")], "R34DeadlineTests.test_connection_setup_uses_the_wrapper")
     add("the locks kept after the deadline", [("    except TimeoutError:\n        raise Fatal", "    except TimeoutError:\n        time.sleep(60)\n        raise Fatal")], "R34DeadlineTests.test_timeout_releases_all_locks_exits_2_and_stops_sending")
@@ -3418,6 +3457,118 @@ class RunnerPathTests(unittest.TestCase):
             print(f"ok mutant: skip path barrier for --{option}", file=sys.stderr)
 
 
+class PathInventoryTests(unittest.TestCase):
+    def setUp(self):
+        self.h = SocketIsolationTests.helper("docker-image-gc-harness")
+
+    def form(self, fragment, names=("FAKE_PATH",)):
+        source = "import os\nfrom pathlib import Path\nSOCKET_PATH = '/fixture/socket'\n" + fragment
+        expected = {"SOCKET_PATH", *names}
+        self.assertEqual(returns_normally(self.h.path_constants, source), expected)
+        paths = {name: "/fixture/override-" + name for name in expected}
+        with self.assertRaisesRegex(ValueError, "path keys"):
+            self.h.check_path_contract(source, {"SOCKET_PATH": paths["SOCKET_PATH"]})
+        with self.assertRaisesRegex(ValueError, "path keys"):
+            self.h.load(source, {"SOCKET_PATH": paths["SOCKET_PATH"]})
+        self.h.check_path_contract(source, paths)
+        module = self.h.load(source, paths)
+        for name in expected:
+            self.assertEqual(getattr(module, name), paths[name])
+
+    def test_computed_join(self):
+        self.form("FAKE_PATH = os.path.join('/fixture', 'state')\n")
+
+    def test_f_string(self):
+        self.form("part = 'state'\nFAKE_PATH = f'/fixture/{part}'\n")
+
+    def test_concatenation(self):
+        self.form("part = 'state'\nFAKE_PATH = '/fixture/' + part\n")
+
+    def test_pathlike(self):
+        self.form("FAKE_PATH = Path('/fixture/state')\n")
+
+    def test_list(self):
+        self.form("FAKE_PATH = ['/fixture/state']\n")
+
+    def test_set(self):
+        self.form("FAKE_PATH = {'/fixture/state'}\n")
+
+    def test_tuple(self):
+        self.form("FAKE_PATH = ('/fixture/state',)\n")
+
+    def test_frozenset(self):
+        self.form("FAKE_PATH = frozenset({'/fixture/state'})\n")
+
+    def test_mixed_nested_collection(self):
+        self.form("FAKE_PATH = [None, [Path('/fixture/state')]]\n")
+
+    def test_multiple_targets(self):
+        self.form("FAKE_PATH = ALIAS_PATH = '/fixture/state'\n", ("FAKE_PATH", "ALIAS_PATH"))
+
+    def test_inside_if(self):
+        self.form("if True:\n    FAKE_PATH = '/fixture/state'\n")
+
+    def test_inside_try(self):
+        self.form("try:\n    FAKE_PATH = '/fixture/state'\nexcept ValueError:\n    pass\n")
+
+    def test_bytes(self):
+        self.form("FAKE_PATH = b'/fixture/state'\n")
+
+    def test_derived_constant(self):
+        self.form("RUN_DIR = '/fixture/run'\nSTATE_FILE = os.path.join(RUN_DIR, 'state')\n", ("RUN_DIR", "STATE_FILE"))
+
+    def test_annotated_constant(self):
+        self.form("FAKE_PATH: str = '/fixture/state'\n")
+
+    def test_absolute_literal_outside_constant(self):
+        for fragment in ("def leak(): return '/unowned'", "def leak():\n    LOCAL = '/unowned'",
+                         "if False:\n    HIDDEN = '/unowned'", "def leak(): return b'/unowned'"):
+            with self.subTest(fragment=fragment), self.assertRaisesRegex(ValueError, "uninventoried absolute path"):
+                self.h.path_constants(fragment)
+
+    def test_allowlisted_name_cannot_be_used_as_filesystem_path(self):
+        for fragment in ("def leak(): open(PRUNE_PATH)", "def leak(): return Path(PRUNE_PATH)",
+                         "def leak():\n    alias = PRUNE_PATH\n    return alias"):
+            with self.subTest(fragment=fragment), self.assertRaisesRegex(ValueError, "non-filesystem name"):
+                self.h.path_constants(SCRIPT.read_text() + "\n" + fragment)
+
+    def test_http_and_separator_literals_cannot_be_filesystem_paths(self):
+        self.assertEqual(returns_normally(self.h.path_constants, SCRIPT.read_text()),
+                         {"SOCKET_PATH", "KEEP_DIR", "STORE_DIR", "PROFILES_DIR", "CURRENT_SYSTEM", "BOOTED_SYSTEM",
+                          "LOCK_PATHS", "SWITCH_LOCK", "PROC", "PROC_LOCKS", "INSTANCE_LOCK"})
+        self.h.check_path_contract(SCRIPT.read_text(), dict.fromkeys(self.h.path_constants(SCRIPT.read_text())))
+        for path in ("/", "/containers/json?all=1", "/images/json", "/images/", "/build/prune?"):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "uninventoried absolute path"):
+                self.h.path_constants(SCRIPT.read_text() + f"\ndef leak(): open({path!r})\n")
+
+    def test_each_inventory_rule_removed_is_killed(self):
+        rules = [
+            ('(str, bytes, os.PathLike)', '(bytes, os.PathLike)', 'test_computed_join'),
+            ('(str, bytes, os.PathLike)', '(str, os.PathLike)', 'test_bytes'),
+            ('(str, bytes, os.PathLike)', '(str, bytes)', 'test_pathlike'),
+            ('(list, tuple, set, frozenset)', '(tuple, set, frozenset)', 'test_list'),
+            ('(list, tuple, set, frozenset)', '(list, set, frozenset)', 'test_tuple'),
+            ('(list, tuple, set, frozenset)', '(list, tuple, frozenset)', 'test_set'),
+            ('(list, tuple, set, frozenset)', '(list, tuple, set)', 'test_frozenset'),
+            ('any(contains_path(item) for item in value)', 'all(absolute_path(item) for item in value)', 'test_mixed_nested_collection'),
+            ('found = {name for name, value in vars(module).items() if contains_path(value)}',
+             'found = {target.id for node in ast.parse(source).body if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and absolute_path(node.value.value) for target in node.targets if isinstance(target, ast.Name)}', 'test_derived_constant'),
+            ('if not call_argument(node, NON_FILESYSTEM_NAMES[node.id]):', 'if False:', 'test_allowlisted_name_cannot_be_used_as_filesystem_path'),
+            ('if not isinstance(node, ast.Constant) or not absolute_path(node.value):', 'if True:', 'test_absolute_literal_outside_constant'),
+            ('if names & found:', 'if True:', 'test_absolute_literal_outside_constant'),
+            ('    check_path_contract(source, paths, module)\n', '', 'test_computed_join'),
+            ('    found -= NON_FILESYSTEM_NAMES.keys()\n', '', 'test_http_and_separator_literals_cannot_be_filesystem_paths'),
+        ]
+        for before, after, method in rules:
+            mutant = SocketIsolationTests.helper("docker-image-gc-harness", [(before, after)])
+            probe = type(self)(method)
+            probe.setUp = lambda mutant=mutant: setattr(probe, "h", mutant)
+            result = unittest.TextTestRunner(stream=io.StringIO(), resultclass=BehavioralResult).run(unittest.TestSuite([probe]))
+            self.assertFalse(result.errors, result.errors)
+            self.assertTrue(result.failures, f"inventory mutant survived: {before}")
+            print(f"ok inventory mutant: {before}", file=sys.stderr)
+
+
 class WorkerContractTests(unittest.TestCase):
     def setUp(self):
         self.runner = SocketIsolationTests.helper("docker-image-gc-realtime")
@@ -3441,7 +3592,7 @@ class WorkerContractTests(unittest.TestCase):
         else:
             error = io.StringIO()
             with redirect_stderr(error):
-                try: rc = runner.worker(str(self.manifest))
+                try: rc = in_process_worker(runner, self.manifest)
                 except SystemExit as exc: rc = exc.code
             error = error.getvalue()
         self.assertEqual(rc, 2, error)
@@ -3508,7 +3659,7 @@ class WorkerContractTests(unittest.TestCase):
     def test_duplicate_json_keys_rejected(self):
         self.manifest.write_text('{"source":1,"source":2}')
         error = io.StringIO()
-        with redirect_stderr(error): self.assertEqual(self.runner.worker(str(self.manifest)), 2)
+        with redirect_stderr(error): self.assertEqual(in_process_worker(self.runner, self.manifest), 2)
         self.assertIn("duplicate manifest key", error.getvalue())
         self.assertFalse(Path(self.data["events"]).exists())
 
@@ -3528,6 +3679,27 @@ class WorkerContractTests(unittest.TestCase):
             self.runner.prepare_worker(str(self.manifest))
         self.assertEqual(guard.call_args_list, [mock.call(self.paths["SOCKET_PATH"])] * 2)
 
+    def test_in_process_worker_restores_state_on_return_and_exception(self):
+        for raises in (False, True):
+            previous_env = dict(os.environ)
+            previous_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGALRM, signal.SIGINT, signal.SIGHUP)}
+            def main():
+                self.assertEqual(os.environ.get("INVOCATION_ID"), "ops327-offline-fixture")
+                self.assertEqual(os.environ.get("DOCKER_IMAGE_GC_DRY_RUN"), "0")
+                if raises: raise RuntimeError("fixture main failure")
+                return 0
+            gc = types.SimpleNamespace(main=main, STOP=mock.Mock(), deploy_locks=mock.Mock())
+            with mock.patch.object(self.runner, "prepare_worker", return_value=(gc, self.data["events"])):
+                if raises:
+                    with self.assertRaisesRegex(RuntimeError, "fixture main failure"):
+                        in_process_worker(self.runner, self.manifest)
+                else:
+                    self.assertEqual(in_process_worker(self.runner, self.manifest), 0)
+            # Avoid including environment values in any failure transcript.
+            self.assertTrue(dict(os.environ) == previous_env, "worker leaked environment state")
+            self.assertEqual({sig: signal.getsignal(sig) for sig in previous_handlers}, previous_handlers)
+            Path(self.data["events"]).unlink(missing_ok=True)
+
     def test_each_worker_guard_removed_is_killed(self):
         guards = [
             ('set(data) != {"source", "paths", "events", "constants"}', 'False', 'top extra'),
@@ -3546,7 +3718,14 @@ class WorkerContractTests(unittest.TestCase):
                 runner = SocketIsolationTests.helper("docker-image-gc-realtime", [(before, after)])
                 data, reason = cases[label]
                 with self.assertRaises(AssertionError, msg=f"worker guard survived: {before}"):
-                    self.rejection(runner, data, reason)
+                    if "h.check_path_contract" in before:
+                        # load() now independently enforces the same contract.
+                        # Exercise this barrier directly so its own removal is
+                        # caught even when the deeper defense still rejects it.
+                        with self.assertRaisesRegex(ValueError, "path keys"):
+                            runner.checked_paths(self.source.read_text(), data["paths"])
+                    else:
+                        self.rejection(runner, data, reason)
                 Path(self.data["events"]).unlink(missing_ok=True)
                 print(f"ok worker guard mutant: {before.strip()}", file=sys.stderr)
         for before, after in [
@@ -3639,6 +3818,22 @@ class RealtimeRunnerTests(unittest.TestCase):
                 return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None)
             with mock.patch.dict(r.CASES, {"r29": case}), mock.patch.object(r, "Lane", side_effect=lane), redirect_stdout(io.StringIO()):
                 self.assertEqual(r.run_checks(None, checks), rc)
+
+    def test_diagnostic_probe_reports_survival_without_hiding_setup_errors(self):
+        r = self.runner
+        checks = [("maximal-hold-r34", None, "baseline"),
+                  ("maximal-hold-r34", "BatchOver sleeps 5 s", "changed")]
+        for error, expected, label in ((None, 0, "SURVIVED probe"), (r.CaseFailure("bound"), 0, "KILLED probe"),
+                                       (KeyError("setup typo"), 1, "(setup:")):
+            def case(lane):
+                if lane.source == "changed" and error: raise error
+            def lane(args, name, source):
+                return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None)
+            output = io.StringIO()
+            with mock.patch.dict(r.CASES, {"maximal-hold-r34": case}), \
+                 mock.patch.object(r, "Lane", side_effect=lane), redirect_stdout(output):
+                self.assertEqual(r.run_checks(None, checks), expected)
+            self.assertIn(label, output.getvalue())
 
     def test_socket_inventory_and_byte_preflight(self):
         source = (REPO / "tests/docker-image-gc-realtime.py").read_text()
@@ -3760,6 +3955,44 @@ class BehavioralResult(unittest.TextTestResult):
 
 
 class VMFailureReasonTests(unittest.TestCase):
+    def test_outcome_classifier_uses_result_and_real_timeout_messages(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        for phase, message in (("start", "start operation timed out. Terminating."),
+                               ("stop", "Stopping timed out. Terminating.")):
+            for result in ("success", "timeout", "exit-code", "signal", ""):
+                with self.subTest(phase=phase, result=result), \
+                     mock.patch.object(support, "unit_value", return_value=result), \
+                     mock.patch.object(support, "journal_since", return_value=message) as journal:
+                    if result in ("success", "timeout"):
+                        self.assertEqual(support.require_outcome("fixture", 100, allowed=("success", "timeout"), phase=phase), result)
+                        self.assertEqual(journal.call_count, int(result == "timeout"))
+                    else:
+                        with self.assertRaisesRegex(AssertionError, "unexpected Result"):
+                            support.require_outcome("fixture", 100, allowed=("success", "timeout"), phase=phase)
+                        journal.assert_not_called()
+        for result, log in (("timeout", "stop operation timed out"), ("timeout", "unrelated traceback"),
+                            ("exit-code", "Stopping timed out. Terminating.")):
+            with mock.patch.object(support, "unit_value", return_value=result), \
+                 mock.patch.object(support, "journal_since", return_value=log), self.assertRaises(AssertionError):
+                support.require_outcome("fixture", 100, allowed=("success", "timeout"), phase="stop")
+
+    def test_journal_reads_sync_before_unit_scoped_query(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        with mock.patch.object(support, "command", return_value=types.SimpleNamespace(stdout="message")) as command:
+            self.assertEqual(support.journal_since("fixture", 100), "message")
+        self.assertEqual(command.call_args_list, [mock.call("journalctl", "--sync", timeout=10),
+                         mock.call("journalctl", "--unit", "fixture", "--since", "@100.000000", "--output=cat", "--no-pager", timeout=10)])
+
+    def test_state_classifier_rejects_unexpected_or_missing_properties(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        for active, sub in (("inactive", "dead"), ("failed", "failed"), ("active", "running"), ("", "dead"), ("inactive", "")):
+            with mock.patch.object(support, "unit_value", side_effect=[active, sub]):
+                if (active, sub) in (("inactive", "dead"), ("failed", "failed")):
+                    support.require_state("fixture", ("inactive", "failed"), ("dead", "failed"))
+                else:
+                    with self.assertRaises(AssertionError):
+                        support.require_state("fixture", ("inactive", "failed"), ("dead", "failed"))
+
     def test_start_limit_requires_its_own_result(self):
         support = SocketIsolationTests.helper("docker-image-gc-vm-support")
         for result in ("start-limit-hit", "exit-code", "timeout"):
@@ -3782,13 +4015,13 @@ class VMFailureReasonTests(unittest.TestCase):
     def test_expected_vm_failure_requires_its_own_reason(self):
         support = SocketIsolationTests.helper("docker-image-gc-vm-support")
         for log in ("unrelated traceback", "compose-csb1.service: start operation timed out. Terminating."):
-            with mock.patch.object(support, "journal_since", return_value=log):
+            with mock.patch.object(support, "unit_value", return_value="timeout"), mock.patch.object(support, "journal_since", return_value=log):
                 if "timed out" in log: support.require_timeout("compose-csb1", 100)
                 else:
                     with self.assertRaisesRegex(AssertionError, "expected unit timeout"):
                         support.require_timeout("compose-csb1", 100)
         def command(*argv, **kw):
-            return types.SimpleNamespace(stdout="failed" if "is-active" in argv else "2")
+            return types.SimpleNamespace(stdout={"ActiveState": "failed", "Result": "exit-code", "ExecMainStatus": "2"}[argv[-2]])
         with mock.patch.object(support, "command", side_effect=command):
             with mock.patch.object(support, "journal_since", return_value="not answered in 30 s"):
                 support.gc_done(since=100)
