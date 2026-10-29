@@ -44,7 +44,8 @@ ALLOWED_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
 TONES = [
     ("Alarm", [(0, "Polizei 1"), (1, "Polizei 2"), (2, "Unfall"), (3, "Countdown"), (4, "Geist"),
                (5, "Scharfschütze"), (6, "Gefecht"), (7, "Fliegeralarm"), (8, "Hundebellen")]),
-    ("Türklingel", [(10, "Klingel"), (11, "Klopfen"), (12, "Lustig"), (13, "Wecker-Klingel")]),
+    ("Türklingel", [(10, "Klingel"), (11, "Klopfen"), (12, "Lustig"), (13, "Wecker-Klingel"),
+                    (14, "Klingel 5"), (15, "Klingel 6")]),
     ("Wecker", [(20, "MiMix"), (21, "Enthusiastisch"), (22, "Gitarre klassisch"), (23, "Eiswelt-Klavier"),
                 (24, "Freizeit"), (25, "Kindheit"), (26, "Morgenbach"), (27, "Spieluhr"), (28, "Orange"),
                 (29, "Denker")]),
