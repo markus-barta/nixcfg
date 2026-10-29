@@ -37,12 +37,12 @@
     },
     "v2": {
       "board": {
-        "rev": "b186308269ab9c05247c6b0f0e4b35fac4bc0ce7",
+        "rev": "aedc666492a6379bf946900ce8521d105a70ede5",
         "version_scheme": "inspr-calver-3",
-        "version": "261028081016.0.0",
-        "release_sequence": 36,
+        "version": "261028202622.0.0",
+        "release_sequence": 37,
         "tag": null,
-        "image": "csb0-joe-board:source-b186308269ab9c05247c6b0f0e4b35fac4bc0ce7",
+        "image": "csb0-joe-board:source-aedc666492a6379bf946900ce8521d105a70ede5",
         "data_schema": "v2",
         "public_health": true
       },
