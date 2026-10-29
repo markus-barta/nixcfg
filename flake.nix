@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 53: v261028152744.0.0 (sequence 123). Contents since 52: client bundle (web/src) + release metadata only; no Go/nix/module/flake/workflow changes (HNET confirmed 2026-10-29: no capability change).
+    # HNET pin 54: v261029071333.0.0 (#315 merge, sequence 124). Contents since 53: HNET-411 (HNET-390 slice 4) lighter live updates; client bundle (web/src) + release metadata only; no Go/nix/module/flake/workflow changes (HNET confirmed 2026-10-29: no capability change).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=7aa5cd9055d472fdf248306f416a76cd5690ab30";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=23c5b4581a3909db1749fb66fd201665d5099645";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
