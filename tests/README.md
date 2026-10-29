@@ -47,6 +47,24 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
+## Aqara nightlight (T117 / OPS-496)
+
+```bash
+python3 -B tests/test_aqara_nightlight.py
+node --test tests/test_aqara_nightlight_ui.cjs
+nix shell nixpkgs#bash -c bash tests/T117-aqara-nightlight.sh
+```
+
+T117 requires Python 3, Node 18+ and Bash 5. It runs both offline suites,
+parses the service module, then evaluates the scoped unit and full hsb1
+configuration without building. The Python suite covers the actual HTTP
+parser, network/header guards, private atomic preset storage, restart and
+concurrent writers, the packaged page/CSP, and existing counter/miio behavior.
+The Node suite executes the shipped page script with a minimal DOM, mocked
+fetch and controlled time, including holds, release-only brightness, stale
+replies, 403 handling and save/reset/Undo. It opens no browser or sockets;
+Tick's rendered-page checks remain a separate design gate.
+
 ## Traefik API containment (T103 / OPS-365)
 
 Traefik API is not served on public entrypoints. `T103-traefik-api-auth.py`

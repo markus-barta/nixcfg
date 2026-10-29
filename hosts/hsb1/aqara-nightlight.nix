@@ -21,6 +21,7 @@ in
       PYTHONUNBUFFERED = "1";
       AQARA_LISTEN_ADDRESSES = "127.0.0.1,192.168.1.101,100.64.0.7";
       AQARA_PORT = "8765";
+      AQARA_PAGE_FILE = "${./aqara-nightlight-page.html}";
     };
     serviceConfig = {
       Type = "simple";

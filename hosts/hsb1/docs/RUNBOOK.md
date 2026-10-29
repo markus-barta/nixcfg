@@ -21,16 +21,24 @@ ssh mba@hsb1.lan
 Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
-and neutral `plug`/`round` hub handles. The TICK session's richer UI must be
-served from this same origin and use the guarded POST endpoints below.
+and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
+**EZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
+same-origin guarded API. Both hubs default to Nachtlicht **FDEDC9 at 3%**.
+Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on the server.
 
 ```bash
 systemctl status aqara-nightlight.service --no-pager
 journalctl -u aqara-nightlight.service --since '1 hour ago' --no-pager
 sudo systemctl restart aqara-nightlight.service
 curl --fail --max-time 15 'http://127.0.0.1:8765/get?hub=plug' | jq -e .ok
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=FF8C28&bri=10' | jq -e .ok
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=FDEDC9&bri=3' | jq -e .ok
 curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/stop?hub=plug' | jq -e .ok
+curl --fail --max-time 15 'http://127.0.0.1:8765/presets' | jq -e .ok
+# Save/reset only changes the named hub's preset; these calls do not touch the lamp.
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&rgb=FDEDC9&bri=3' | jq -e .ok
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&reset=1' | jq -e .ok
+# Shared preset path for the page and LOCAL-OPS's HA automations:
+curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/apply?hub=plug&preset=nacht' | jq -e .ok
 sudo cat /var/lib/aqara-nightlight/msgid  # message counter only, never a token
 ```
 
@@ -41,6 +49,15 @@ retained on restart. IDs stay below 9999, increment through 9000, then choose
 a new start in 1–3000 as in the prototype. Do not delete/reset this file or
 replace it while the service is running. The handshake token stays only in
 memory; logs contain fixed error categories, never library exception bodies.
+`presets.json` in the same StateDirectory stores per-hub `{nacht: {rgb, bri}}`
+objects. Saves serialize using a separate stable `presets.json.lock`, write
+0600 temporary files beside it, fsync, atomically replace, then sync the
+directory. Both hubs use FDEDC9 at 3% when the file is absent. Unknown or
+unsaved presets return `ok:false` from `/apply` without a hub call; corrupt
+state also fails closed. Preserve this file and the counter during rollback.
+Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
+the Nix-packaged HTML, loaded once at startup; a separately approved release
+and service restart are needed to change the live page.
 
 The host firewall is **disabled** for HomeKit. Port 8765 in `allowedTCPPorts`
 does not provide protection. The service binds exactly loopback, hsb1's LAN
@@ -53,14 +70,22 @@ accepts only Host names `127.0.0.1`, `localhost`, `192.168.1.101`, `hsb1`,
 match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**, including an unlisted tunnel Host or port. These checks are
 defence in depth: browsers can omit Origin and fetch metadata on plain HTTP.
-Every acting endpoint (`/set`, `/tone`, `/stop`) requires exactly one
+Every acting endpoint (`/set`, `/tone`, `/stop`, `/preset`, `/apply`) requires
+exactly one
 `X-Nightlight: 1` header, returning **403** if absent, duplicated or invalid.
-With that header, these endpoints accept only **POST**; GET returns **405**
-with `Allow: POST`. `/` and `/get` remain safe GETs without the custom header.
-The built-in UI sends the header and selects POST for actions. Cross-origin
+With that header, these endpoints accept **GET or POST** in this release.
+**GET-with-header is deprecated** compatibility for HA's existing
+`rest_command`; new callers and the built-in UI use POST. `/`, `/get` and
+`/presets` remain plain GETs without the custom header (POST returns 405).
+Loopback `/apply` requires the header but no Origin or extra CSRF token. Its
+JSON includes `ok`, `rgb` (RRGGBB) and `brightness`, as `/set` does. HA callers
+should inspect `.ok`, since invalid/unknown preset requests return HTTP 200
+with `ok:false`. LOCAL-OPS owns HA's button double-press and Gute-Nacht wiring.
+Cross-origin
 scripts need a CORS preflight to add this header; **OPTIONS returns 403**
 without CORS permission headers. The HTML denies framing with CSP
-`frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+`frame-ancestors 'none'` and `X-Frame-Options: DENY`; the script is authorized
+by its packaged SHA-256 hash. A 403 in the page offers reload, never retry.
 Tone volume defaults to 15% and is
 clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
 No public reverse proxy is configured. IP rules also govern egress; both hubs
@@ -94,16 +119,25 @@ For each separately reviewed OPS release:
    cgroup/BPF IP-filter warnings and verify the rendered `IPAddressAllow` and
    `IPAddressDeny` settings. Test LAN and tailnet access from actual clients;
    test rejection from outside those ranges and confirm no public route.
-4. For **each** of `plug` and `round`, visually check warm white `FF8C28` at
-   10%, another color and off. Readback can lag; an ACK alone does not prove
+4. For **each** of KI-18FB (`plug`) and EZ-594F (`round`), visually check
+   Nachtlicht `FDEDC9` at 3%, another color and off. Readback can lag; an ACK
+   alone does not prove
    the lamp changed. Play one short tone at volume **10**, stop immediately
    with `/stop`, and confirm silence. Avoid unattended sound tests.
 5. Record `msgid`, restart the unit, issue a request and confirm the counter
    continued (allowing the documented wrap at 9000), rather than restarting
-   at 1. Confirm both gateways still respond after the restart.
+   at 1. Confirm both gateways still respond after the restart. Save a custom
+   Nachtlicht for one hub and check that `/presets` and `/apply` retain it
+   across restart while the other hub is unchanged; reset afterwards.
+6. Tick's design approval remains required before merge: check the actual page
+   on hsb1 in Kind/Erwachsen × Hell/Dunkel, at phone and laptop widths. Verify
+   holds, fixed status/no layout jumps, release-only brightness, low-brightness
+   color hint, approximate readback/lux, save confirmation/reset/Undo, and
+   offline/retry/403 behavior. A blocked browser launch is not a QA pass.
 
 Offline contract: `nix shell nixpkgs#bash -c bash tests/T117-aqara-nightlight.sh`.
-It runs fake-hub/counter tests and evaluates the scoped NixOS unit plus full
+It runs fake-hub/counter/preset and Node script tests, then evaluates the
+scoped NixOS unit plus full
 hsb1 unit/firewall without building. `--module-only` explicitly omits the full
 flake check; a scoped pass alone is not release approval.
 

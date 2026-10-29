@@ -46,17 +46,26 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 | F09 | Aqara nightlight        | Local gateway light and quiet built-in sounds | T117 |
 
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
-`100.64.0.7:8765` for tailnet clients, using neutral hub handles `plug` and
-`round`. `/set`, `/tone` and `/stop` require **POST** with exactly one
-`X-Nightlight: 1` header; `/` and `/get` remain safe GETs. Missing or invalid
-action headers and disallowed Host/Origin/fetch metadata return **403**;
-GET actions with the header return **405**. CORS preflights are denied and
-the HTML UI cannot be framed. Tone volume defaults to 15% and is capped at
-**40%** in the HTTP API, CLI and UI. Its shared message-ID counter is
-`/var/lib/aqara-nightlight/msgid`; restart with
-`sudo systemctl restart aqara-nightlight.service`. Because hsb1's firewall is
-disabled, the service uses explicit address binds, systemd IP filters and an
-HTTP peer allowlist. See [Smart Home](docs/SMARTHOME.md#aqara-nightlight-ops-496)
+`100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
+`192.168.1.106`, Kinderzimmer) and **EZ-594F** (`round`, `192.168.1.108`) map to
+stable API handles. The self-contained responsive page has Kind/Erwachsen
+and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults.
+Nachtlicht defaults to **FDEDC9 at 3%** for both hubs. Erwachsen can save/reset
+the per-hub Nachtlicht via `/preset`; `/presets` reads it and `/apply` applies
+that same preset for the page and LOCAL-OPS's HA automations.
+`/set`, `/tone`, `/stop`, `/preset` and `/apply` accept **GET or POST** with
+exactly one `X-Nightlight: 1` header. GET-with-header is deprecated HA
+compatibility; the UI uses POST. `/`, `/get` and `/presets` are plain GETs.
+Loopback HA `/apply` needs no Origin or extra CSRF token, and returns `ok`,
+`rgb`, `brightness`; an unknown/unsaved preset returns `ok:false` with no hub
+call. Missing/invalid action headers and disallowed Host/Origin/fetch metadata
+return **403**. CORS preflights are denied and the hash-authorized HTML UI
+cannot be framed. Tone volume starts at 15% and is capped at **40%** in the
+HTTP API, CLI and UI. Its message counter and atomically saved presets are
+`/var/lib/aqara-nightlight/msgid` and `presets.json`; retain both across
+restarts and rollback. Restart with `sudo systemctl restart aqara-nightlight.service`.
+Because hsb1's firewall is disabled, the service uses explicit address binds,
+systemd IP filters and an HTTP peer allowlist. See [Smart Home](docs/SMARTHOME.md#aqara-nightlight-ops-496)
 and the [runbook](docs/RUNBOOK.md#aqara-nightlight-ops-496) for API and activation checks.
 
 ---

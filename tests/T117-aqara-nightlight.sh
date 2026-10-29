@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# OPS-496: fake hubs + scoped NixOS evaluation + full hsb1 evaluation; no builds.
+# OPS-496: fake hubs + script behavior + scoped/full NixOS evaluation; no builds.
+# Requires Python 3, Node 18+ and Bash 5; no browser or live devices.
 set -euo pipefail
 
 if [ "${BASH_VERSINFO[0]}" -lt 5 ]; then
@@ -19,6 +20,7 @@ esac
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_aqara_nightlight.py' -v
+node --test "${repo}/tests/test_aqara_nightlight_ui.cjs"
 nix-instantiate --parse "${repo}/hosts/hsb1/aqara-nightlight.nix" >/dev/null
 grep -Fq './aqara-nightlight.nix # OPS-496:' "${repo}/hosts/hsb1/configuration.nix"
 
@@ -63,6 +65,7 @@ def verify(result):
         assert unit[option] is True, option
     assert service["environment"]["AQARA_LISTEN_ADDRESSES"] == "127.0.0.1,192.168.1.101,100.64.0.7"
     assert service["environment"]["AQARA_PORT"] == "8765"
+    assert service["environment"]["AQARA_PAGE_FILE"].endswith("-aqara-nightlight-page.html")
     assert "network-online.target" in service["wants"]
     assert "tailscaled.service" in service["after"]
     assert service["wantedBy"] == ["multi-user.target"]

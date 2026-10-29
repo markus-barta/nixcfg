@@ -11,12 +11,16 @@
 
 `aqara-nightlight.service` is a native Python service for light and the 25
 built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
-Zigbee2MQTT. Hub handles are `plug` (`192.168.1.106`) and `round`
-(`192.168.1.108`); these neutral handles replace the Mac prototype's
-hardware-derived labels. The HTTP paths, query parameters and JSON response
-fields follow the prototype, with POST and a required custom header for
-actions. The existing small UI is retained; a richer UI from the TICK session
-must use this guarded API from the same origin.
+Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
+Kinderzimmer nightlight) and **EZ-594F** (`round`, `192.168.1.108`) map to stable
+API handles. The responsive page starts in Kind with KI-18FB selected;
+Kind/Erwachsen and Hell/Dunkel are device preferences. Switching out of Kind
+or opening its loud tones requires a one-second hold. Brightness sends on
+release; readback is marked ≈ because hardware values can lag. The default
+Nachtlicht is **FDEDC9 at 3%** for both hubs; tone volume starts at 15%.
+The HTML is a separate self-contained file packaged by Nix and read once at
+service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
+no external assets.
 
 UI: <http://192.168.1.101:8765/> (LAN), <http://100.64.0.7:8765/> (tailnet),
 and <http://127.0.0.1:8765/> on hsb1. Port 8765 has no other checked-in hsb1
@@ -33,27 +37,43 @@ The HTTP Host allowlist accepts `127.0.0.1`, `localhost`, `192.168.1.101`,
 match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**. These checks are defence in depth because browsers can omit
 Origin and fetch metadata on plain HTTP. Every acting endpoint (`/set`,
-`/tone`, `/stop`) requires exactly one `X-Nightlight: 1` header; absent,
-duplicated or invalid headers return **403**. With that header, actions
-accept only **POST**; GET returns **405** with `Allow: POST`. The UI sends the
-header and uses POST for actions; `/` and `/get` remain safe GETs without it.
-Cross-origin scripts need a preflight to send the custom header; **OPTIONS
+`/tone`, `/stop`, `/preset`, `/apply`) requires exactly one
+`X-Nightlight: 1` header; absent, duplicated or invalid headers return **403**.
+Actions accept **GET or POST** for this release. **GET-with-header is deprecated**
+compatibility for Home Assistant's existing `rest_command`; new callers and
+the UI use POST. The custom header is the CSRF protection. `/`, `/get` and
+`/presets` remain safe GETs without it. POST to these read-only paths returns 405. Cross-origin scripts need a preflight to send the custom header; **OPTIONS
 returns 403** without CORS permission headers. CSP `frame-ancestors 'none'`
 and `X-Frame-Options: DENY` prevent framing of the HTML UI. Unlisted tunnel
 Hosts or ports are rejected too. Linux `IP_FREEBIND` keeps LAN/loopback
 available while the tailnet address is absent. Empty or wildcard bind
 addresses fail startup before any listener opens.
 
-| Method | Path    | Parameters                               | Behavior                                                      |
-| ------ | ------- | ---------------------------------------- | ------------------------------------------------------------- |
-| GET    | `/`     | —                                        | Small light/sound UI; warm white `FF8C28` at 10%, volume 15   |
-| POST   | `/set`  | `hub`, `rgb` (RRGGBB), `bri` (0–100)     | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms           |
-| GET    | `/get`  | `hub`                                    | `get_prop ["rgb", "illumination"]`; hardware readback can lag |
-| POST   | `/tone` | `hub`, `id`, optional `vol` (default 15) | `play_music_new ["<id>", vol]`                                |
-| POST   | `/stop` | `hub`                                    | `set_sound_playing ["off"]`                                   |
+| Method      | Path       | Parameters                                     | Behavior                                                                 |
+| ----------- | ---------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| GET         | `/`        | —                                              | Responsive light/sound UI; Nachtlicht FDEDC9 at 3%, volume 15            |
+| GET or POST | `/set`     | `hub`, `rgb` (RRGGBB), `bri` (0–100)           | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms                      |
+| GET         | `/get`     | `hub`                                          | `get_prop ["rgb", "illumination"]`; hardware readback can lag            |
+| GET or POST | `/tone`    | `hub`, `id`, optional `vol` (default 15)       | `play_music_new ["<id>", vol]`                                           |
+| GET or POST | `/stop`    | `hub`                                          | `set_sound_playing ["off"]`                                              |
+| GET         | `/presets` | —                                              | `{ok, presets: {plug: {nacht: {rgb, bri}}, round: {nacht: {rgb, bri}}}}` |
+| GET or POST | `/preset`  | `hub`, `name=nacht`, `rgb`, `bri` or `reset=1` | Save per-hub Nachtlicht or restore FDEDC9 at 3%; no hardware call        |
+| GET or POST | `/apply`   | `hub`, `preset=nacht`                          | Apply the saved Nachtlicht; JSON `ok`, `rgb`, `brightness`, like `/set`  |
 
-POST parameters remain in the query string; include `-H 'X-Nightlight: 1'
--X POST` with curl. See the [runbook](RUNBOOK.md#aqara-nightlight-ops-496)
+All acting calls need `X-Nightlight: 1`; parameters remain in the query string
+for both methods. Prefer `-H 'X-Nightlight: 1' -X POST` with curl. `/apply`
+works from `127.0.0.1` with the header and no Origin or extra CSRF token,
+including HA's legacy GET caller. An unknown or missing saved preset returns
+`ok:false` without sending anything to the hub.
+
+`/var/lib/aqara-nightlight/presets.json` is the server's source of truth for
+both the page and HA's Kinderzimmer double-press/Gute-Nacht actions. A missing
+file supplies the defaults for both hubs; an absent entry in an existing file
+is unsaved. Saves use a separate stable `presets.json.lock` and an atomic,
+private file replacement, with file/directory sync. Corrupt state fails closed
+rather than silently applying defaults or overwriting it. The page offers
+Erwachsen-only save confirmation, default reset and Undo; HA configuration
+remains LOCAL-OPS-owned. See the [runbook](RUNBOOK.md#aqara-nightlight-ops-496)
 for complete examples.
 
 The 25 tone IDs/names remain in the Python source and UI: 0–8 (Alarm),
@@ -63,6 +83,10 @@ to 15 and clamps to **0–40** in both the API and CLI; the UI also caps it at 4
 API responses preserve `ok`, `hub`, command-specific fields and `versuche`;
 command failures return `ok: false` and a fixed `error` message with HTTP 200,
 as in the prototype; HTTP security/method checks return 403/405 instead.
+The page distinguishes a 403 as ‘Vom Server abgelehnt · Seite neu laden’ with
+reload and no retry. Other command failures offer manual retry; late replies
+do not replace a newer command's status. The CSP permits only the packaged
+script's SHA-256 hash, inline styles and same-origin connections/SVG references.
 No handshake token or raw library exception is logged.
 
 One lock per hub, a 1.5 s timeout, at most four attempts with a fresh handshake

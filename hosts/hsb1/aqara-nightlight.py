@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """OPS-496: Aqara light/sound API, ported from the verified local prototype.
 
-GET /get?hub=plug and / for the UI. POST /set?hub=plug&rgb=FF8C28&bri=10,
-/tone?hub=plug&id=27&vol=10, /stop?hub=plug require X-Nightlight: 1.
-The second hub is round.
+GET /get?hub=plug, /presets and / for the UI. Acting endpoints /set, /tone,
+/stop, /preset and /apply require X-Nightlight: 1 and accept GET or POST.
+GET actions are deprecated compatibility for Home Assistant; the UI uses POST.
+KI-18FB is plug; EZ-594F is round. Default nacht: FDEDC9 at 3%.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
 Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
 The handshake token stays in memory; no library payloads or exceptions are logged.
 """
 
+import base64
 import fcntl
+import hashlib
 import ipaddress
 import json
 import logging
@@ -18,10 +21,12 @@ import random
 import re
 import socket
 import sys
+import tempfile
 import threading
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from miio import DeviceError
@@ -45,7 +50,11 @@ ALLOWED_HOSTS = frozenset(
     for host in ("127.0.0.1", "localhost", "192.168.1.101", "hsb1", "hsb1.lan", "100.64.0.7")
     for suffix in ("", ":8765")
 )
-ID_FILE = os.path.join(os.environ.get("STATE_DIRECTORY", "/var/lib/aqara-nightlight"), "msgid")
+STATE_DIRECTORY = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/aqara-nightlight"))
+ID_FILE = str(STATE_DIRECTORY / "msgid")
+PRESET_FILE = STATE_DIRECTORY / "presets.json"
+DEFAULT_NIGHTLIGHT = {"rgb": "FDEDC9", "bri": 3}
+ACTING_ENDPOINTS = frozenset(("/set", "/tone", "/stop", "/preset", "/apply"))
 ALLOWED_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
 ))
@@ -66,6 +75,7 @@ TONES = [
 _dev = {}
 _locks = {name: threading.Lock() for name in HUBS}
 _idlock = threading.Lock()
+_preset_lock = threading.Lock()
 
 
 def _next_id():
@@ -158,61 +168,103 @@ def stop_sound(name):
     return {"ok": True, "hub": name, "cmd": "stop", "reply": reply, "versuche": attempts}
 
 
-def _tone_html():
-    out = []
-    for group, items in TONES:
-        out.append(f"<div class=grp>{group}</div>")
-        out += [f'<button class=tone data-t="{i}" title="ID {i}">{name} <small>{i}</small></button>'
-                for i, name in items]
-    return "".join(out)
+# Read the packaged, self-contained page once at process startup. The fallback
+# keeps the source checkout runnable; Nix supplies its immutable store path.
+PAGE_FILE = Path(os.environ.get("AQARA_PAGE_FILE", Path(__file__).with_name("aqara-nightlight-page.html")))
+PAGE = PAGE_FILE.read_text(encoding="utf-8")
+SCRIPT_HASHES = " ".join(
+    "'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
+    for script in re.findall(r"<script>(.*?)</script>", PAGE, re.DOTALL)
+)
 
 
-PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width">
-<title>Nachtlicht</title><style>body{font-family:system-ui;background:#111;color:#eee;max-width:460px;margin:2em auto;padding:0 1em}
-label{display:block;margin:1.2em 0 .3em}input[type=range]{width:100%}button{margin:.3em .3em 0 0;padding:.6em 1em;border:0;border-radius:8px;cursor:pointer}
-h3{margin:1.6em 0 .2em;border-top:1px solid #333;padding-top:1em}.grp{color:#999;font-size:13px;margin:.8em 0 0}
-button.tone{background:#2a2a3a;color:#eee;padding:.5em .8em}button.tone small{color:#888}#stop{background:#b33;color:#fff;font-weight:bold}
-#st{margin-top:1em;padding:.6em .8em;border-radius:8px;background:#222;min-height:1.3em}#st.ok{background:#173d22}#st.bad{background:#5a1a1a}#st.busy{background:#3a3415}
-#again{background:#e0b030;color:#000}#log{font:12px monospace;white-space:pre-wrap;color:#9c9;margin-top:1em;max-height:14em;overflow:auto}</style>
-<h2>Aqara Nachtlicht</h2>
-<label>Hub <select id=hub><option>plug<option>round</select></label>
-<div id=st>Bereit.</div><button id=again disabled>Nochmal senden</button>
-<label>Farbe <input type=color id=col value="#ff8c28"></label>
-<div><button data-c="#ff8c28" style="background:#ff8c28">Warmweiß</button><button data-c="#ffb46b" style="background:#ffb46b">Hellwarm</button><button data-c="#ff5a00" style="background:#ff5a00">Orange</button><button data-c="#ff0000" style="background:#f00">Rot</button><button data-c="#0000ff" style="background:#00f;color:#fff">Blau</button><button data-c="#ffffff" style="background:#fff">Weiß</button></div>
-<label>Helligkeit <b id=bv>10</b> %<input type=range id=bri min=0 max=100 value=10></label>
-<button id=nightlight>Nachtlicht 10 %</button><button id=off>Aus</button><button id=rd>Status lesen</button>
-<h3>Töne</h3>
-<label>Lautstärke <b id=vv>15</b> % (max. __MAX_TONE_VOLUME__ %)<input type=range id=vol min=1 max=__MAX_TONE_VOLUME__ value=15></label>
-<button id=stop>■ Stop</button>
-__TONES__
-<div id=log></div>
-<script>
-const $=id=>document.getElementById(id);let t,last=null,seq=0;
-function log(x){$('log').textContent=JSON.stringify(x)+"\\n"+$('log').textContent}
-function status(cls,txt){$('st').className=cls;$('st').textContent=txt}
-async function go(path,params,label){
- last={path,params,label};$('again').disabled=false;const my=++seq;
- status('busy','Sende: '+label+' …');
- try{const r=await fetch(path+'?'+new URLSearchParams(params),{method:path==='/get'?'GET':'POST',headers:{'X-Nightlight':'1'}});const j=await r.json();log(j);
-  if(my!==seq)return;
-  if(j.ok)status('ok','✓ '+label+' – angekommen'+(j.versuche>1?' (nach '+j.versuche+' Versuchen)':''));
-  else status('bad','✗ '+label+' – FEHLER: '+j.error+'  → „Nochmal senden“');
- }catch(e){if(my===seq)status('bad','✗ '+label+' – keine Verbindung zum Nachtlicht-Server')}}
-$('again').onclick=()=>{if(last)go(last.path,last.params,last.label)};
-const hub=()=>$('hub').value;
-function send(){go('/set',{hub:hub(),rgb:$('col').value.slice(1),bri:$('bri').value},'Licht '+$('col').value+' '+$('bri').value+'% ('+hub()+')')}
-function later(){clearTimeout(t);t=setTimeout(send,250)}
-$('bri').oninput=()=>{$('bv').textContent=$('bri').value;later()};
-$('col').oninput=later;
-$('vol').oninput=()=>{$('vv').textContent=$('vol').value};
-document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{$('col').value=b.dataset.c;send()});
-document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>go('/tone',{hub:hub(),id:b.dataset.t,vol:$('vol').value},'Ton „'+b.firstChild.textContent.trim()+'“ ('+hub()+')'));
-$('stop').onclick=()=>go('/stop',{hub:hub()},'Stop ('+hub()+')');
-$('nightlight').onclick=()=>{$('col').value='#ff8c28';$('bri').value=10;$('bv').textContent=10;send()};
-$('off').onclick=()=>{$('bri').value=0;$('bv').textContent=0;send()};
-$('rd').onclick=()=>go('/get',{hub:hub()},'Status lesen ('+hub()+')');
-</script>""".replace("__TONES__", _tone_html()).replace("__MAX_TONE_VOLUME__", str(MAX_TONE_VOLUME))
+def _default_presets():
+    return {hub: {"nacht": dict(DEFAULT_NIGHTLIGHT)} for hub in HUBS}
 
+
+def _read_presets():
+    try:
+        with open(PRESET_FILE, encoding="utf-8") as handle:
+            presets = json.load(handle)
+    except FileNotFoundError:
+        return _default_presets()
+    # Corrupt state fails closed: never silently apply a different light or
+    # overwrite damaged state on the next save. Missing saved entries stay absent.
+    if not isinstance(presets, dict) or not presets.keys() <= HUBS.keys():
+        raise ValueError("Ungültige Presets")
+    for values in presets.values():
+        if not isinstance(values, dict) or not values.keys() <= {"nacht"}:
+            raise ValueError("Ungültige Presets")
+        for preset in values.values():
+            if (not isinstance(preset, dict) or set(preset) != {"rgb", "bri"}
+                    or not isinstance(preset["rgb"], str)
+                    or re.fullmatch(r"[0-9A-F]{6}", preset["rgb"]) is None
+                    or type(preset["bri"]) is not int or not 0 <= preset["bri"] <= 100):
+                raise ValueError("Ungültiges Preset")
+    return presets
+
+
+@contextmanager
+def _preset_transaction():
+    # Lock a stable inode, never the file replaced by the atomic write. This
+    # also prevents lost updates from independent service/maintenance processes.
+    with _preset_lock, open(str(PRESET_FILE) + ".lock", "a", encoding="ascii") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+
+
+def get_presets():
+    with _preset_transaction():
+        return {"ok": True, "presets": _read_presets()}
+
+
+def save_preset(hub, name, rgb=None, bri=None, reset=False):
+    if hub not in HUBS or name != "nacht":
+        raise ValueError("Unbekanntes Preset")
+    if reset:
+        preset = dict(DEFAULT_NIGHTLIGHT)
+    else:
+        if not isinstance(rgb, str) or re.fullmatch(r"[0-9a-fA-F]{6}", rgb) is None:
+            raise ValueError("Farbe muss RRGGBB sein")
+        brightness = int(bri)
+        if not 0 <= brightness <= 100:
+            raise ValueError("Helligkeit muss 0–100 sein")
+        preset = {"rgb": rgb.upper(), "bri": brightness}
+    with _preset_transaction():
+        presets = _read_presets()
+        presets.setdefault(hub, {})[name] = preset
+        # Same directory/filesystem, private mode, fsync before replace. Sync the
+        # directory as well so a reported save survives a restart/power loss.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=Path(PRESET_FILE).parent,
+                                             prefix=".presets-", delete=False) as handle:
+                temporary = handle.name
+                json.dump(presets, handle, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, PRESET_FILE)
+            temporary = None
+            directory = os.open(Path(PRESET_FILE).parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if temporary is not None:
+                os.unlink(temporary)
+    return {"ok": True, "hub": hub, "name": name, "presets": presets}
+
+
+def apply_preset(hub, name):
+    if hub not in HUBS:
+        raise ValueError("Unbekannter Hub")
+    with _preset_transaction():
+        preset = _read_presets().get(hub, {}).get(name)
+    if preset is None:
+        return {"ok": False, "error": "Preset nicht gespeichert"}
+    return set_light(hub, preset["rgb"], preset["bri"])
 
 
 def error_response(error):
@@ -265,15 +317,13 @@ class H(BaseHTTPRequestHandler):
             self.send_error(403)
             return
         url = urlparse(self.path)
-        if url.path in ("/set", "/tone", "/stop"):
+        if url.path in ACTING_ENDPOINTS:
             # Images, navigations and simple cross-origin requests cannot add
             # this header. Reject duplicates as well as missing/wrong values.
             if self.headers.get_all("X-Nightlight", []) != ["1"]:
                 self.send_error(403)
                 return
-            if self.command != "POST":
-                self._reply(b"", "text/plain; charset=utf-8", status=405, allow="POST")
-                return
+            # GET-with-header is deprecated; retained for live HA rest_command.
         elif self.command != "GET":
             self._reply(b"", "text/plain; charset=utf-8", status=405, allow="GET")
             return
@@ -287,6 +337,13 @@ class H(BaseHTTPRequestHandler):
                 result = play_tone(query["hub"], query["id"], query.get("vol", 15))
             elif url.path == "/stop":
                 result = stop_sound(query["hub"])
+            elif url.path == "/presets":
+                result = get_presets()
+            elif url.path == "/preset":
+                result = save_preset(query["hub"], query["name"], query.get("rgb"),
+                                     query.get("bri"), reset=query.get("reset") == "1")
+            elif url.path == "/apply":
+                result = apply_preset(query["hub"], query["preset"])
             else:
                 self._reply(PAGE.encode(), "text/html; charset=utf-8")
                 return
@@ -299,11 +356,13 @@ class H(BaseHTTPRequestHandler):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             if allow:
                 self.send_header("Allow", allow)
             if content_type.startswith("text/html"):
-                self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; "
-                                 "style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; "
+                self.send_header("Content-Security-Policy", f"default-src 'none'; script-src {SCRIPT_HASHES}; "
+                                 "style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; "
                                  "form-action 'none'; frame-ancestors 'none'")
                 self.send_header("X-Frame-Options", "DENY")
             self.end_headers()

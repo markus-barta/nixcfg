@@ -1,9 +1,12 @@
 """OPS-496: offline counter, miio retry, wire payload and HTTP boundary tests."""
 
+import base64
+import hashlib
 import importlib.util
 import io
 import json
 import logging
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,11 +15,28 @@ import types
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "hosts/hsb1/aqara-nightlight.py"
+
+
+class PageParser(HTMLParser):
+    def __init__(self, page):
+        super().__init__()
+        self.ids = {}
+        self.elements = []
+        self.feed(page)
+
+    def handle_starttag(self, tag, attributes):
+        attributes = dict(attributes)
+        self.elements.append((tag, attributes))
+        if "id" in attributes:
+            if attributes["id"] in self.ids:
+                raise AssertionError("duplicate page id: " + attributes["id"])
+            self.ids[attributes["id"]] = (tag, attributes)
 
 
 class FakeDeviceError(Exception):
@@ -247,9 +267,11 @@ class ApiTest(unittest.TestCase):
         for i, name in tones:
             self.assertIn(f'data-t="{i}"', self.module.PAGE)
             self.assertIn(name, self.module.PAGE)
-        self.assertIn('id=bri min=0 max=100 value=10', self.module.PAGE)
-        self.assertIn("$('col').value='#ff8c28';$('bri').value=10", self.module.PAGE)
-        self.assertIn('id=vol min=1 max=40 value=15', self.module.PAGE)
+        page = PageParser(self.module.PAGE)
+        for key, low, high, default in (("bri", "0", "100", "3"), ("vol", "0", "40", "15")):
+            attributes = page.ids[key][1]
+            self.assertEqual([attributes[k] for k in ("min", "max", "value")], [low, high, default])
+        self.assertEqual(page.ids["col"][1]["value"], "#fdedc9")
 
     def test_allowed_peers_cover_only_loopback_lan_and_tailnet(self):
         for peer in ("127.0.0.1", "::1", "192.168.1.42", "100.64.0.1", "100.127.255.254"):
@@ -364,7 +386,8 @@ class ApiTest(unittest.TestCase):
         send.assert_called_once_with("plug", "play_music_new", ["27", 40])
 
     def test_acting_endpoints_require_one_exact_custom_header(self):
-        for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug"):
+        for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug",
+                     "/preset?hub=plug&name=nacht&rgb=FDEDC9&bri=3", "/apply?hub=plug&preset=nacht"):
             for method in ("GET", "POST"):
                 for values in ([], [""], ["0"], ["true"], ["1, 1"], ["1", "1"], ["1", "0"]):
                     headers = [("Host", "192.168.1.101:8765")] + [("X-Nightlight", v) for v in values]
@@ -374,15 +397,22 @@ class ApiTest(unittest.TestCase):
                         handler._reply.assert_not_called()
                         send.assert_not_called()
 
-    def test_acting_get_with_header_is_method_not_allowed(self):
-        for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug"):
-            with self.subTest(path=path), patch.object(self.module, "call") as send:
-                headers, _ = self.parsed_request(
-                    f"GET {path} HTTP/1.1\r\nHost: hsb1:8765\r\nX-Nightlight: 1\r\n\r\n".encode()
-                )
-                self.assertIn(b"405 Method Not Allowed", headers)
-                self.assertIn(b"Allow: POST\r\n", headers + b"\r\n")
-                send.assert_not_called()
+    def test_acting_get_with_header_remains_compatible(self):
+        for path, function in (
+            ("/set?hub=plug&rgb=FDEDC9&bri=3", "set_light"),
+            ("/tone?hub=plug&id=27", "play_tone"),
+            ("/stop?hub=plug", "stop_sound"),
+            ("/preset?hub=plug&name=nacht&reset=1", "save_preset"),
+            ("/apply?hub=plug&preset=nacht", "apply_preset"),
+        ):
+            for method in ("GET", "POST"):
+                with self.subTest(path=path, method=method), patch.object(self.module, function, return_value={"ok": True}) as action:
+                    headers, body = self.parsed_request(
+                        f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nX-Nightlight: 1\r\nContent-Length: 0\r\n\r\n".encode()
+                    )
+                    self.assertIn(b"200 OK", headers)
+                    self.assertTrue(json.loads(body)["ok"])
+                    action.assert_called_once()
 
     def test_safe_gets_need_no_custom_header(self):
         with patch.object(self.module, "get_light", return_value={"ok": True}) as read:
@@ -395,14 +425,14 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(handler._reply.call_args.args[0], self.module.PAGE.encode())
 
     def test_safe_routes_reject_post(self):
-        for path in ("/", "/get?hub=plug", "/unknown"):
+        for path in ("/", "/get?hub=plug", "/presets", "/unknown"):
             with self.subTest(path=path), patch.object(self.module, "call") as send:
                 handler = self.request(path, method="POST")
                 self.assertEqual(handler._reply.call_args.kwargs, {"status": 405, "allow": "GET"})
                 send.assert_not_called()
 
     def test_options_preflight_is_denied_without_cors_permission(self):
-        for path in ("/set", "/tone", "/stop", "/get", "/"):
+        for path in ("/set", "/tone", "/stop", "/preset", "/apply", "/presets", "/get", "/"):
             for origin in ("http://foreign.example", "http://hsb1:8765"):
                 with self.subTest(path=path, origin=origin), patch.object(self.module, "call") as send:
                     headers, _ = self.parsed_request(
@@ -418,7 +448,8 @@ class ApiTest(unittest.TestCase):
 
     def test_http_lan_and_tailnet_without_browser_metadata_cannot_act(self):
         for host in ("192.168.1.101:8765", "100.64.0.7:8765"):
-            for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug"):
+            for path in ("/set?hub=plug&rgb=FF8C28&bri=10", "/tone?hub=plug&id=27", "/stop?hub=plug",
+                     "/preset?hub=plug&name=nacht&rgb=FDEDC9&bri=3", "/apply?hub=plug&preset=nacht"):
                 for method in ("GET", "POST"):
                     with self.subTest(host=host, path=path, method=method), patch.object(self.module, "call") as send:
                         headers, _ = self.parsed_request(
@@ -454,6 +485,205 @@ class ApiTest(unittest.TestCase):
             finally:
                 child.setLevel(old_level)
         self.assertEqual(output.getvalue(), "")
+
+
+class PresetTest(unittest.TestCase):
+    request = ApiTest.request
+    parsed_request = ApiTest.parsed_request
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.module = load()
+        self.path = Path(self.tmp.name, "presets.json")
+        self.module.PRESET_FILE = self.path
+        self.module.ID_FILE = str(Path(self.tmp.name, "msgid"))
+
+    def result(self, path, method="POST", headers=None, peer="127.0.0.1"):
+        response = self.request(path, method=method, headers=headers, peer=peer)
+        return json.loads(response._reply.call_args.args[0])
+
+    def test_defaults_for_both_hubs_are_readable_without_custom_header(self):
+        with patch.object(self.module, "call") as send:
+            result = self.result("/presets", method="GET", headers=[("Host", "127.0.0.1:8765")])
+        self.assertEqual(result, {"ok": True, "presets": {hub: {"nacht": {"rgb": "FDEDC9", "bri": 3}} for hub in ("plug", "round")}})
+        send.assert_not_called()
+        self.assertFalse(self.path.exists())
+
+    def test_save_and_reset_are_per_hub_and_never_contact_hardware(self):
+        with patch.object(self.module, "call") as send:
+            saved = self.result("/preset?hub=plug&name=nacht&rgb=ffb46b&bri=5")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(saved["presets"]["plug"]["nacht"], {"rgb": "FFB46B", "bri": 5})
+            self.assertEqual(saved["presets"]["round"]["nacht"], {"rgb": "FDEDC9", "bri": 3})
+            self.result("/preset?hub=round&name=nacht&rgb=112233&bri=6", method="GET")
+            reset = self.result("/preset?hub=plug&name=nacht&reset=1")
+            self.assertEqual(reset["presets"]["plug"]["nacht"], {"rgb": "FDEDC9", "bri": 3})
+            self.assertEqual(reset["presets"]["round"]["nacht"], {"rgb": "112233", "bri": 6})
+        send.assert_not_called()
+
+    def test_persists_across_a_fresh_process_module_with_state_directory(self):
+        self.module.save_preset("plug", "nacht", "FFB46B", "5")
+        with patch.dict(self.module.os.environ, {"STATE_DIRECTORY": self.tmp.name}):
+            restarted = load()
+        self.assertEqual(restarted.PRESET_FILE, self.path)
+        self.assertEqual(restarted.get_presets()["presets"]["plug"]["nacht"], {"rgb": "FFB46B", "bri": 5})
+        self.assertEqual(restarted.get_presets()["presets"]["round"]["nacht"], {"rgb": "FDEDC9", "bri": 3})
+        restarted.save_preset("plug", "nacht", reset=True)
+        self.assertEqual(self.module.get_presets()["presets"]["plug"]["nacht"], self.module.DEFAULT_NIGHTLIGHT)
+
+    def test_atomic_write_is_complete_private_and_preserves_counter_inode(self):
+        counter = Path(self.module.ID_FILE)
+        counter.write_text("3456")
+        inode = counter.stat().st_ino
+        replace = self.module.os.replace
+        observed = []
+        def inspect_replace(source, destination):
+            staged = Path(source)
+            self.assertEqual(staged.parent, self.path.parent)
+            self.assertEqual(staged.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(staged.read_text())["plug"]["nacht"], {"rgb": "ABCDEF", "bri": 9})
+            observed.append((source, destination))
+            replace(source, destination)
+        with patch.object(self.module.os, "replace", side_effect=inspect_replace):
+            self.module.save_preset("plug", "nacht", "ABCDEF", 9)
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(list(self.path.parent.glob(".presets-*")), [])
+        self.assertEqual((counter.stat().st_ino, counter.read_text()), (inode, "3456"))
+
+    def test_failed_replace_preserves_previous_preset_and_cleans_own_temporary_file(self):
+        self.module.save_preset("plug", "nacht", "ABCDEF", 9)
+        previous = self.path.read_bytes()
+        with patch.object(self.module.os, "replace", side_effect=OSError("fixture")):
+            with self.assertRaises(OSError):
+                self.module.save_preset("plug", "nacht", "FFFFFF", 50)
+        self.assertEqual(self.path.read_bytes(), previous)
+        self.assertEqual(list(self.path.parent.glob(".presets-*")), [])
+
+    def test_concurrent_hub_saves_preserve_both_hubs(self):
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda i: self.module.save_preset("plug" if i % 2 else "round", "nacht", "123456" if i % 2 else "ABCDEF", 5), range(40)))
+        presets = self.module.get_presets()["presets"]
+        self.assertEqual(presets["plug"]["nacht"], {"rgb": "123456", "bri": 5})
+        self.assertEqual(presets["round"]["nacht"], {"rgb": "ABCDEF", "bri": 5})
+
+    def test_independent_processes_do_not_lose_other_hub_updates(self):
+        program = """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / 'tests'))
+from test_aqara_nightlight import load
+module = load()
+module.PRESET_FILE = Path(sys.argv[2])
+for i in range(12):
+    module.save_preset(sys.argv[3], 'nacht', sys.argv[4], i)
+"""
+        children = [subprocess.Popen([sys.executable, "-B", "-c", program, str(ROOT), str(self.path), hub, rgb], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    for hub, rgb in (("plug", "123456"), ("round", "ABCDEF"))]
+        for child in children:
+            _, error = child.communicate(timeout=15)
+            self.assertEqual(child.returncode, 0, error)
+        saved = self.module.get_presets()["presets"]
+        self.assertEqual(saved["plug"]["nacht"], {"rgb": "123456", "bri": 11})
+        self.assertEqual(saved["round"]["nacht"], {"rgb": "ABCDEF", "bri": 11})
+
+    def test_apply_default_and_saved_nightlight_returns_set_shape_for_ha(self):
+        for method in ("GET", "POST"):
+            for hub in ("plug", "round"):
+                with self.subTest(method=method, hub=hub), patch.object(self.module, "call", return_value=(["ok"], 2)) as send, patch.object(self.module.time, "sleep"):
+                    # No browser Origin/CSRF token, exactly the HA loopback contract.
+                    result = self.result(f"/apply?hub={hub}&preset=nacht", method=method, headers=[("Host", "127.0.0.1:8765"), ("X-Nightlight", "1")])
+                    self.assertEqual((result["ok"], result["rgb"], result["brightness"], result["versuche"]), (True, "FDEDC9", 3, 2))
+                    self.assertEqual(send.call_args_list, [call(hub, "set_rgb", [(3 << 24) | 0xFDEDC9]), call(hub, "set_rgb", [(3 << 24) | 0xFDEDC9], attempts=1)])
+        self.module.save_preset("round", "nacht", "112233", "7")
+        with patch.object(self.module, "set_light", return_value={"ok": True}) as action:
+            self.result("/apply?hub=round&preset=nacht")
+            action.assert_called_once_with("round", "112233", 7)
+
+    def test_unknown_and_unsaved_preset_or_hub_never_contacts_hardware(self):
+        with patch.object(self.module, "call") as send:
+            for method in ("GET", "POST"):
+                for query in ("hub=plug&preset=unknown", "hub=missing&preset=nacht", "hub=plug", "preset=nacht", "hub=plug&preset=../msgid"):
+                    self.assertFalse(self.result("/apply?" + query, method=method)["ok"])
+            self.path.write_text(json.dumps({"plug": {}, "round": {}}))
+            for hub in ("plug", "round"):
+                self.assertFalse(self.result(f"/apply?hub={hub}&preset=nacht")["ok"])
+        send.assert_not_called()
+
+    def test_invalid_saves_cannot_change_state_or_contact_hardware(self):
+        self.module.save_preset("plug", "nacht", reset=True)
+        before = self.path.read_bytes()
+        with patch.object(self.module, "call") as send:
+            for query in ("hub=other&name=nacht&rgb=ABCDEF&bri=5", "hub=plug&name=other&rgb=ABCDEF&bri=5", "hub=plug&name=nacht&rgb=invalid&bri=5", "hub=plug&name=nacht&rgb=FFFFFF&bri=-1", "hub=plug&name=nacht&rgb=FFFFFF&bri=101", "hub=plug&name=nacht&rgb=FFFFFF&bri=3.5", "hub=plug&name=nacht", "hub=plug&name=nacht&reset=0"):
+                self.assertFalse(self.result("/preset?" + query)["ok"], query)
+                self.assertEqual(self.path.read_bytes(), before)
+        send.assert_not_called()
+
+    def test_corrupt_state_fails_closed_without_hub_calls_or_overwrite(self):
+        for content in ("not json", "[]", '{"plug":{"nacht":{"rgb":"FDEDC9","bri":101}}}', '{"plug":{"nacht":{"rgb":"invalid","bri":3}}}', '{"plug":{"nacht":{"rgb":"FDEDC9","bri":true}}}'):
+            self.path.write_text(content)
+            with patch.object(self.module, "call") as send:
+                self.assertFalse(self.result("/apply?hub=plug&preset=nacht")["ok"])
+                self.assertFalse(self.result("/preset?hub=plug&name=nacht&reset=1")["ok"])
+                self.assertFalse(self.result("/presets", method="GET")["ok"])
+            self.assertEqual(self.path.read_text(), content)
+            send.assert_not_called()
+
+    def test_new_routes_preserve_host_origin_fetch_and_peer_guards(self):
+        for path in ("/presets", "/preset?hub=plug&name=nacht&reset=1", "/apply?hub=plug&preset=nacht"):
+            for method in (("GET",) if path == "/presets" else ("GET", "POST")):
+                for bad_headers in ([('Host', 'foreign.example'), ('X-Nightlight', '1')], [('Host', 'hsb1:8765'), ('X-Nightlight', '1'), ('Origin', 'http://foreign.example')], [('Host', 'hsb1:8765'), ('X-Nightlight', '1'), ('Sec-Fetch-Site', 'cross-site')]):
+                    with self.subTest(path=path, method=method, headers=bad_headers), patch.object(self.module, "call") as send:
+                        response = self.request(path, headers=bad_headers, method=method)
+                        response.send_error.assert_called_once_with(403)
+                        send.assert_not_called()
+                response = self.request(path, peer="203.0.113.1", method=method)
+                response.send_error.assert_called_once_with(403)
+        self.assertFalse(self.path.exists())
+
+
+class PageTest(unittest.TestCase):
+    def setUp(self):
+        self.module = load()
+        self.page = PageParser(self.module.PAGE)
+
+    def test_packaged_page_has_controls_and_no_remote_assets_or_inline_handlers(self):
+        for key in ("mode", "theme", "nightlight", "off", "bri", "vol", "own-color", "col", "stop", "status", "retry", "reload", "undo", "readback", "save-nightlight", "save-sheet", "confirm-save", "reset-preset", "goodnight", "alarm-list"):
+            self.assertIn(key, self.page.ids)
+        for tag, attrs in self.page.elements:
+            self.assertFalse(any(name.startswith("on") for name in attrs), tag)
+            for key in ("src", "href"):
+                if key in attrs:
+                    self.assertTrue(attrs[key].startswith("#"), (tag, key))
+                    self.assertIn(attrs[key][1:], self.page.ids)
+        self.assertIn("hidden", self.page.ids["alarm-list"][1])
+        self.assertEqual(self.page.ids["loud-toggle"][1]["aria-expanded"], "false")
+        self.assertEqual(self.page.ids["status"][1]["role"], "status")
+        self.assertEqual(self.page.ids["save-sheet"][0], "dialog")
+        self.assertEqual(sum(tag == "main" for tag, _ in self.page.elements), 1)
+        self.assertFalse(any(tag == "figure" for tag, _ in self.page.elements))
+
+    def test_exact_page_script_hash_is_in_csp_with_no_unsafe_inline_script(self):
+        scripts = re.findall(r"<script>(.*?)</script>", self.module.PAGE, re.DOTALL)
+        self.assertEqual(len(scripts), 1)
+        expected = "'sha256-" + base64.b64encode(hashlib.sha256(scripts[0].encode()).digest()).decode() + "'"
+        self.assertEqual(self.module.SCRIPT_HASHES, expected)
+        headers, _ = ApiTest.parsed_request(self, b"GET / HTTP/1.1\r\nHost: hsb1:8765\r\n\r\n")
+        self.assertIn(("script-src " + expected).encode(), headers)
+        self.assertNotIn(b"script-src 'unsafe-inline'", headers)
+        self.assertIn(b"img-src 'self'", headers)  # Inline SVG fragment references.
+        self.assertIn(b"Cache-Control: no-store", headers)
+
+    def test_page_path_is_read_once_at_startup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            page = Path(directory, "page.html")
+            page.write_text("<!doctype html><title>fixture</title><script>const a=1;</script>")
+            with patch.dict(self.module.os.environ, {"AQARA_PAGE_FILE": str(page)}):
+                restarted = load()
+            self.assertEqual(restarted.PAGE, page.read_text())
+            page.write_text("changed after startup")
+            self.assertIn("<title>fixture</title>", restarted.PAGE)
 
 
 class ListenerTest(unittest.TestCase):
