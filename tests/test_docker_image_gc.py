@@ -10,6 +10,7 @@ Real Unix trickle tests skip only when this sandbox refuses bind; the injected
 from __future__ import annotations
 
 import atexit
+import ast
 import fcntl
 import io
 import json
@@ -17,12 +18,14 @@ import os
 import shutil
 import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 import types
 import unittest
+import unicodedata
 import urllib.parse
 import http.client
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout, nullcontext
@@ -42,6 +45,18 @@ OVERRIDE = None
 # Even a mutant that bypasses the wrapper must never connect to host Docker.
 SOCKET_DIRS = ExitStack()
 atexit.register(SOCKET_DIRS.close)
+
+
+def returns_normally(call, *args, **kwargs):
+    """A behavioural assertion scoped to the production call under test.
+
+    Keep fixture setup and test-name lookup outside this boundary. Tests of a
+    raised exception use assertRaises directly instead.
+    """
+    try:
+        return call(*args, **kwargs)
+    except Exception as exc:
+        raise AssertionError(f"{call.__qualname__} must return normally; raised {type(exc).__name__}: {exc}") from exc
 
 
 def load(declared=(), tmp: Path | None = None):
@@ -234,7 +249,7 @@ def run(gc, api, dry=False, manual=False, env=None, sleep=None):
     with mock.patch.object(gc.time, "monotonic", clock), mock.patch.dict(os.environ, environ, clear=False), redirect_stdout(out), redirect_stderr(err):
         if manual:
             del os.environ["INVOCATION_ID"]
-        rc = gc.main(api=api, now=NOW, sleep=fake_sleep)
+        rc = returns_normally(gc.main, api=api, now=NOW, sleep=fake_sleep)
     return rc, out.getvalue(), err.getvalue()
 
 
@@ -327,8 +342,8 @@ class PlanTests(unittest.TestCase):
         prev_old = img(4, 32, tags=["hausvogt:prev-1", "hausvogt:release-1"])
         newer = [img(10 + k, 20, tags=[f"site:v{k}", f"hausvogt:build-{k}"]) for k in range(3)]
         p = self.plan([ctr(live)], [r, live, prev_new, prev_old, *newer])
-        self.assertEqual(p.reasons[r["Id"]], "tagged :rollback")
-        self.assertEqual(p.reasons[prev_new["Id"]], "newest prev-* of its repository")
+        self.assertEqual(p.reasons.get(r["Id"]), "tagged :rollback")
+        self.assertEqual(p.reasons.get(prev_new["Id"]), "newest prev-* of its repository")
         self.assertIn(prev_old["Id"], self.ids(p))
 
     def test_janus_repositories_are_always_kept(self):
@@ -343,13 +358,13 @@ class PlanTests(unittest.TestCase):
         staged = img(1, 30, tags=["ghcr.io/inspr-at/x:v0.1.44"], digests=["ghcr.io/inspr-at/x@" + dg(1)])
         newer = [img(10 + k, 20, tags=[f"ghcr.io/inspr-at/x:v{k}"]) for k in range(3)]
         p = self.plan([ctr(img(99, 1))], [staged, *newer], refs=["ghcr.io/inspr-at/x:v0.1.44@" + dg(1)])
-        self.assertEqual(p.reasons[staged["Id"]], "declared by a NixOS system on disk")
+        self.assertEqual(p.reasons.get(staged["Id"]), "declared by a NixOS system on disk")
 
     def test_keep_d_refs_are_kept(self):
         held = img(1, 30, digests=["x@" + dg(1)])
         newer = [img(10 + k, 20, digests=[f"x@{dg(10 + k)}"]) for k in range(3)]
         p = self.plan([ctr(img(99, 1))], [held, *newer], keep={"hold.refs": ["x@" + dg(1)]})
-        self.assertEqual(p.reasons[held["Id"]], "listed in keep.d")
+        self.assertEqual(p.reasons.get(held["Id"]), "listed in keep.d")
 
     def test_declared_forms(self):
         a = img(1, 30, tags=["redis:latest"])
@@ -375,7 +390,7 @@ class PlanTests(unittest.TestCase):
         old = img(1, 30, tags=["redis:7"])
         newer = [img(10 + k, 20, tags=[f"redis:8.{k}"]) for k in range(3)]
         p = self.plan([ctr(img(99, 1))], [old, *newer], refs=["docker.io/library/redis:7"])
-        self.assertEqual(p.reasons[old["Id"]], "declared by a NixOS system on disk")
+        self.assertEqual(p.reasons.get(old["Id"]), "declared by a NixOS system on disk")
 
     def test_malformed_references_refuse(self):
         for bad in ("!!!@" + dg(1), "Upper:1", "app:", "app:-bad", "a@sha256:abc", " app:1", "a//b:1", ""):
@@ -431,7 +446,7 @@ class GrammarTests(unittest.TestCase):
         images = [old, *[img(10 + k, 20, tags=[newer.format(k)]) for k in range(3)]]
         refs = {} if declared_refs else {"s": declared}
         snap = gc.Snapshot(0.0, [ctr(img(99, 1))], images, [("sys", refs)], {})
-        p = gc.plan(snap, NOW, gc.Budget(1e6))
+        p = returns_normally(gc.plan, snap, NOW, gc.Budget(1e6))
         return old["Id"] in p.reasons
 
     def test_control_another_name_is_not_protection(self):
@@ -2409,7 +2424,7 @@ class R34SwitchTests(Base):
             return real_stat(path, *args, **kw)
         with mock.patch.object(os, "stat", stat_), mock.patch.object(self.gc, "Reader") as reader:
             reader.return_value.read.return_value = data
-            return self.gc.switch_lock_used(self.gc.Budget(10))
+            return returns_normally(self.gc.switch_lock_used, self.gc.Budget(10))
 
     def test_switch_token_exact_ascii_grammar(self):
         for word, token in (("00:e1:451718", (0, 0xe1, 451718)), ("0A:E1:5", (10, 0xe1, 5))):
@@ -2424,6 +2439,21 @@ class R34SwitchTests(Base):
         for word, token in (("0x1:0:1", (1, 0, 1)), ("0:0x1:1", (0, 1, 1))):
             with self.subTest(word=word):
                 self.assertFalse(self.switch_token(word, token))
+
+    def test_every_switch_token_character(self):
+        for position, alphabet in enumerate(SWITCH_ALPHABETS):
+            for char in alphabet:
+                parts = ["0", "0", "1"]
+                parts[position] = char
+                token = (int(parts[0], 16), int(parts[1], 16), int(parts[2]))
+                line = f"17: -> FLOCK ADVISORY WRITE 42 {':'.join(parts)} 0 EOF\n"
+                with self.subTest(position=position, char=char):
+                    self.assertTrue(self.switch_token(line, token))
+            for char in ("gGxX" if position < 2 else "aA"):
+                parts = ["0", "0", "1"]
+                parts[position] = char
+                with self.subTest(position=position, rejected=char):
+                    self.assertFalse(self.switch_token(":".join(parts)))
 
     def test_long_switch_tokens_finish_quickly(self):
         previous = signal.getsignal(signal.SIGALRM)
@@ -2473,7 +2503,7 @@ class R34SwitchTests(Base):
                 for arrow in ("", "-> "):
                     with self.subTest(token=token, arrow=arrow):
                         Path(self.gc.PROC_LOCKS).write_text(f"17: {arrow}FLOCK ADVISORY WRITE 42 {token} 0 EOF\n")
-                        self.assertEqual(self.gc.switch_lock_used(self.gc.Budget(10)), expected)
+                        self.assertEqual(returns_normally(self.gc.switch_lock_used, self.gc.Budget(10)), expected)
 
     def test_switch_absent_and_errors(self):
         self.world()
@@ -2553,7 +2583,7 @@ class R34StoreTests(Base):
             d = source / "specialisation"
             d.mkdir()
             (d / name).symlink_to(target)
-        snap, p = self.decision()
+        snap, p = returns_normally(self.decision)
         self.assertEqual(p.deletable, [])
         self.assertEqual(len(snap.systems), 3)
         self.assertEqual(snap.store_only, set())
@@ -3143,6 +3173,122 @@ def r34_mutants():
 MUTANTS.update(r34_mutants())
 
 
+SWITCH_ALPHABETS = ("0123456789abcdefABCDEF", "0123456789abcdefABCDEF", "0123456789")
+
+
+def safety_inventory(source):
+    """Scripted inventory; a new regex/helper or token class requires a sweep decision."""
+    tree = ast.parse(source)
+    regexes, helpers, tokens = set(), set(), []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if not isinstance(target, ast.Name):
+                    continue
+                if isinstance(node.value, ast.Call) and ast.unparse(node.value.func) == "re.compile":
+                    regexes.add(target.id)
+                elif target.id in ("_DOMAIN_PART", "_HOST", "_PATH_PART"):
+                    helpers.add(target.id)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if node.func.value.id == "re" and node.func.attr != "compile":
+                regexes.add(f"inline:{node.lineno}:{node.func.attr}")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "zip":
+            if len(node.args) == 2 and isinstance(node.args[1], ast.Tuple):
+                tokens.append(ast.literal_eval(node.args[1]))
+    return regexes, helpers, tokens
+
+
+class SafetyAlphabetTests(Base):
+    def test_inventory_is_closed(self):
+        regexes, helpers, tokens = safety_inventory(SCRIPT.read_text())
+        self.assertEqual(regexes, {"IMAGE_ID", "ID_FORM", "FULL_HEX", "DOMAIN", "PATH", "TAG",
+                                  "DIGEST", "SHA256_DIGEST", "STORE_SYSTEM", "GENERATION"})
+        self.assertEqual(helpers, {"_DOMAIN_PART", "_HOST", "_PATH_PART"})
+        self.assertEqual(tokens, [SWITCH_ALPHABETS])
+
+    def test_store_suffix_entire_unicode_alphabet_and_narrowing_mutants(self):
+        # Unlike the hash and switch classes, [^/] is not an ASCII alphabet.
+        # Exercise its entire Python character domain without creating a
+        # million filesystem fixtures. Store-scan integration is tested below.
+        import re
+        pattern = self.gc.STORE_SYSTEM.pattern
+        self.assertEqual(pattern.count("[^/]"), 1, "missing store suffix class anchor")
+        prefix = "0" * 32 + "-nixos-system-"
+        killed = 0
+        for point in range(sys.maxunicode + 1):
+            char = chr(point)
+            if char == "/":
+                self.assertIsNone(self.gc.STORE_SYSTEM.fullmatch(prefix + char))
+                continue
+            name = prefix + char
+            self.assertIsNotNone(self.gc.STORE_SYSTEM.fullmatch(name), f"suffix U+{point:04X}")
+            narrowed = pattern.replace("[^/]", "(?:(?!" + re.escape(char) + ")[^/])")
+            self.assertIsNone(re.compile(narrowed).fullmatch(name), f"surviving suffix U+{point:04X}")
+            killed += 1
+        self.assertEqual(killed, sys.maxunicode)
+        print(f"ok store suffix regex mutants: {killed}", file=sys.stderr)
+
+
+def safety_character_tests():
+    """Generate focused integration tests and source mutants, never hand-list characters."""
+    result = {}
+    token_anchor = repr(SWITCH_ALPHABETS).replace("'", '"')
+    # Production formats the tuple on one line; an absent anchor is fatal.
+    for position, alphabet in enumerate(SWITCH_ALPHABETS):
+        for char in alphabet:
+            changed = list(SWITCH_ALPHABETS)
+            changed[position] = alphabet.replace(char, "")
+            replacement = repr(tuple(changed)).replace("'", '"')
+            result[f"switch alphabet {position} without {char}"] = (
+                swap((token_anchor, replacement)), ["R34SwitchTests.test_every_switch_token_character"])
+
+    def add(kind, char, old, new, check):
+        name = f"test_{kind}_u{ord(char):04x}"
+        def test(self):
+            self.world()
+            check(self, char)
+        setattr(SafetyAlphabetTests, name, test)
+        result[f"{kind} alphabet without U+{ord(char):04X}"] = (swap((old, new)), [f"SafetyAlphabetTests.{name}"])
+
+    def identifier(self, char):
+        image = img(int(char * 64, 16), 40)
+        self.images.append(image)
+        self.gc.DECLARED_REFS = [char * 12]
+        _, plan = R34StoreTests.decision(self)
+        self.assertIn(image["Id"], plan.reasons)
+    old = 'ID_FORM = re.compile(r"^(?:sha256:)?([0-9a-f]{1,64})$")'
+    for char in "0123456789abcdef":
+        alphabet = "0123456789abcdef".replace(char, "")
+        add("id_form", char, old, old.replace("[0-9a-f]", "[" + alphabet + "]"), identifier)
+
+    def store_hash(self, char):
+        system(self.tmp / (char * 32 + "-nixos-system-old"), {"old": "app:3"})
+        _, plan = R34StoreTests.decision(self)
+        self.assertIn(self.apps[3]["Id"], plan.reasons)
+    old = 'STORE_SYSTEM = re.compile(r"^[0-9a-z]{32}-nixos-system-[^/]+$")'
+    for char in "0123456789abcdefghijklmnopqrstuvwxyz":
+        alphabet = "0123456789abcdefghijklmnopqrstuvwxyz".replace(char, "")
+        add("store_hash", char, old, old.replace("[0-9a-z]", "[" + alphabet + "]"), store_hash)
+
+    def generation(self, char):
+        target = system(self.tmp / "custom-system", {"old": "app:3"})
+        (self.tmp / "profiles" / f"system-42{char}-link").symlink_to(target)
+        _, plan = R34StoreTests.decision(self)
+        self.assertIn(self.apps[3]["Id"], plan.reasons)
+    old = 'GENERATION = re.compile(r"^system-(\\d+)-link$")'
+    for point in range(sys.maxunicode + 1):
+        char = chr(point)
+        if unicodedata.category(char) == "Nd":
+            # Python's \d includes every Unicode decimal digit, not only 0..9.
+            narrowed = "(?:(?!" + f"\\U{point:08x}" + ")\\d)"
+            add("generation", char, old, old.replace("\\d", narrowed), generation)
+    return result
+
+
+MUTANTS.update(safety_character_tests())
+
+
 class SocketIsolationTests(unittest.TestCase):
     @staticmethod
     def helper(name, pairs=()):
@@ -3272,6 +3418,268 @@ class RunnerPathTests(unittest.TestCase):
             print(f"ok mutant: skip path barrier for --{option}", file=sys.stderr)
 
 
+class WorkerContractTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = SocketIsolationTests.helper("docker-image-gc-realtime")
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ops327-worker-", dir=REPO)))
+        self.paths, *_ = self.runner.h.fixture(self.root / "fixture")
+        self.source = self.root / "source.py"
+        # Execute the real loader and post-load checks; main alone is a stub.
+        self.source.write_text(SCRIPT.read_text() + "\ndef main(): return 0\n")
+        self.manifest = self.root / "manifest.json"
+        self.data = {"source": str(self.source), "paths": self.paths,
+                     "events": str(self.root / "events.json"), "constants": {"RUN_BUDGET_S": 300}}
+
+    def rejection(self, runner, data, reason, *, subprocess_worker=False):
+        self.manifest.write_text(json.dumps(data))
+        before = {str(path.relative_to(self.root)) for path in self.root.rglob("*")}
+        if subprocess_worker:
+            result = subprocess.run([sys.executable, "-B", str(REPO / "tests/docker-image-gc-realtime.py"),
+                                     "--worker", str(self.manifest)], capture_output=True, text=True, timeout=10)
+            rc, error = result.returncode, result.stderr
+            self.assertEqual(result.stdout, "")
+        else:
+            error = io.StringIO()
+            with redirect_stderr(error):
+                try: rc = runner.worker(str(self.manifest))
+                except SystemExit as exc: rc = exc.code
+            error = error.getvalue()
+        self.assertEqual(rc, 2, error)
+        self.assertIn(reason, error)
+        self.assertEqual(len(error.splitlines()), 1, error)
+        self.assertEqual(before, {str(path.relative_to(self.root)) for path in self.root.rglob("*")})
+
+    def invalid_manifests(self, outside):
+        import copy
+        def variant(): return copy.deepcopy(self.data)
+        for key in self.paths:
+            data = variant(); del data["paths"][key]
+            yield f"missing {key}", data, "path keys"
+        data = variant(); data["paths"]["EXTRA"] = str(self.root / "extra")
+        yield "extra path", data, "path keys"
+        for key in self.paths:
+            if key in ("PROC", "PROC_LOCKS"):
+                data = variant(); data["paths"][key] = str(self.root / "fake-proc")
+                yield key, data, key + " must name"
+            else:
+                data = variant(); data["paths"][key] = [outside] * 3 if key == "LOCK_PATHS" else outside
+                yield key, data, "path must stay inside checkout"
+        for key in ("source", "events"):
+            data = variant(); data[key] = outside
+            yield key, data, "path must stay inside checkout"
+        for value in (None, True, False, "300", 3.5, [], {}):
+            data = variant(); data["constants"]["RUN_BUDGET_S"] = value
+            yield f"budget type {value!r}", data, "must be an int"
+        for value in (-1, 0, 3001):
+            data = variant(); data["constants"]["RUN_BUDGET_S"] = value
+            yield f"budget bound {value}", data, "within 1..3000"
+        for key in ("SOCKET_PATH", "INSTANCE_LOCK", "PROC", "PROC_LOCKS", "BATCH_S", "unknown"):
+            data = variant(); data["constants"][key] = str(self.root / "override")
+            yield f"constant {key}", data, "constants keys"
+        for key in self.data:
+            data = variant(); del data[key]
+            yield f"top missing {key}", data, "top-level keys"
+        data = variant(); data["extra"] = 1
+        yield "top extra", data, "top-level keys"
+        for value in ("bad", [], None):
+            data = variant(); data["constants"] = value
+            yield f"constants type {value!r}", data, "constants keys"
+        for value in ([], "bad", [str(self.root)] * 2):
+            data = variant(); data["paths"]["LOCK_PATHS"] = value
+            yield f"lock tuple {value!r}", data, "LOCK_PATHS must contain"
+
+    def test_every_manifest_rule_in_subprocess(self):
+        with tempfile.TemporaryDirectory(prefix="ops327-escape-") as outside:
+            for label, data, reason in self.invalid_manifests(outside):
+                with self.subTest(rule=label):
+                    self.rejection(self.runner, data, reason, subprocess_worker=True)
+                    self.assertEqual(list(Path(outside).iterdir()), [])
+
+    def test_valid_manifest_and_closed_fixture_inventory(self):
+        self.runner.h.check_path_contract(SCRIPT.read_text(), self.paths)
+        with self.assertRaisesRegex(ValueError, "path keys"):
+            self.runner.h.check_path_contract(SCRIPT.read_text() + '\nFAKE_PATH = "/fake"\n', self.paths)
+        self.manifest.write_text(json.dumps(self.data))
+        result = subprocess.run([sys.executable, "-B", str(REPO / "tests/docker-image-gc-realtime.py"),
+                                 "--worker", str(self.manifest)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(Path(self.data["events"]).is_file())
+
+    def test_duplicate_json_keys_rejected(self):
+        self.manifest.write_text('{"source":1,"source":2}')
+        error = io.StringIO()
+        with redirect_stderr(error): self.assertEqual(self.runner.worker(str(self.manifest)), 2)
+        self.assertIn("duplicate manifest key", error.getvalue())
+        self.assertFalse(Path(self.data["events"]).exists())
+
+    def test_loaded_paths_and_socket_are_rechecked(self):
+        for key, value in (("KEEP_DIR", str(self.root / "other-keep")), ("PROC", "/wrong-proc"),
+                           ("SOCKET_PATH", "/var/run/docker.sock")):
+            original = self.runner.h.load
+            def tamper(source, paths):
+                module = original(source, paths); setattr(module, key, value); return module
+            with self.subTest(key=key), mock.patch.object(self.runner.h, "load", side_effect=tamper):
+                reason = "loaded path constants" if key == "KEEP_DIR" else ("PROC must name" if key == "PROC" else "path must stay")
+                self.rejection(self.runner, self.data, reason)
+        # Re-run the same socket barrier after applying constants, even though
+        # today's constant whitelist excludes paths.
+        with mock.patch.object(self.runner.h, "check_socket") as guard:
+            self.manifest.write_text(json.dumps(self.data))
+            self.runner.prepare_worker(str(self.manifest))
+        self.assertEqual(guard.call_args_list, [mock.call(self.paths["SOCKET_PATH"])] * 2)
+
+    def test_each_worker_guard_removed_is_killed(self):
+        guards = [
+            ('set(data) != {"source", "paths", "events", "constants"}', 'False', 'top extra'),
+            ('    h.check_path_contract(source, paths)\n', '', 'extra path'),
+            ('if value != {"PROC": "/proc", "PROC_LOCKS": "/proc/locks"}[key]:', 'if False:', 'PROC'),
+            ('not isinstance(value, (tuple, list)) or len(value) != 3', 'False', 'lock tuple []'),
+            ('not isinstance(constants, dict) or not set(constants) <= {"RUN_BUDGET_S"}', 'False', 'constant BATCH_S'),
+            ('type(value) is not int', 'False', 'budget type True'),
+            ('not 1 <= value <= 3000', 'False', 'budget bound 0'),
+            ('checked[key] = repo_path(value)', 'checked[key] = value', 'KEEP_DIR'),
+            ('tuple(repo_path(path) for path in value)', 'tuple(value)', 'LOCK_PATHS'),
+        ]
+        with tempfile.TemporaryDirectory(prefix="ops327-escape-") as outside:
+            cases = {label: (data, reason) for label, data, reason in self.invalid_manifests(outside)}
+            for before, after, label in guards:
+                runner = SocketIsolationTests.helper("docker-image-gc-realtime", [(before, after)])
+                data, reason = cases[label]
+                with self.assertRaises(AssertionError, msg=f"worker guard survived: {before}"):
+                    self.rejection(runner, data, reason)
+                Path(self.data["events"]).unlink(missing_ok=True)
+                print(f"ok worker guard mutant: {before.strip()}", file=sys.stderr)
+        for before, after in [
+            ('if checked_paths(source, actual) != paths:', 'if False:'),
+            ('    h.check_socket(gc.SOCKET_PATH)\n', ''),
+        ]:
+            runner = SocketIsolationTests.helper("docker-image-gc-realtime", [(before, after)])
+            def check():
+                if "checked_paths" in before:
+                    original = runner.h.load
+                    def tamper(source, paths):
+                        module = original(source, paths)
+                        module.KEEP_DIR = str(self.root / "other-keep")
+                        return module
+                    with mock.patch.object(runner.h, "load", side_effect=tamper):
+                        self.rejection(runner, self.data, "loaded path constants")
+                else:
+                    self.manifest.write_text(json.dumps(self.data))
+                    with mock.patch.object(runner.h, "check_socket") as guard:
+                        runner.prepare_worker(str(self.manifest))
+                    self.assertEqual(guard.call_count, 2)
+            with self.assertRaises(AssertionError): check()
+            Path(self.data["events"]).unlink(missing_ok=True)
+            print(f"ok worker guard mutant: {before.strip()}", file=sys.stderr)
+
+
+class RealtimeRunnerTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = SocketIsolationTests.helper("docker-image-gc-realtime")
+
+    def test_table_must_be_valid_even_for_list(self):
+        for table in ({"unknown-mutant": ["r29"]}, {"BATCH_S 60": ["typo"]}, {"BATCH_S 60": []}):
+            output = io.StringIO()
+            with self.subTest(table=table), mock.patch.dict(self.runner.REAL_MUTANTS, table, clear=True), \
+                 mock.patch.object(sys, "argv", ["realtime", "--list"]), redirect_stdout(output):
+                self.assertEqual(self.runner.main(), 1)
+            self.assertIn("FAIL mutant table:", output.getvalue())
+
+    def test_classification_requires_behavior_and_passing_baseline(self):
+        r = self.runner
+        for error, baseline, setup, passed in (
+            (KeyError("typo"), True, False, False), (AssertionError("setup"), True, True, False),
+            (OSError("AF_UNIX path too long"), True, False, False),
+            (r.CaseFailure("observed bound"), True, False, True),
+            (r.CaseFailure("observed bound"), False, False, False), (None, True, False, False),
+        ):
+            result, message = r.classify_case("case", "mutant", baseline, error, setup=setup)
+            self.assertEqual(result, passed, message)
+            if error and not isinstance(error, r.CaseFailure): self.assertIn("(setup:", message)
+
+    def test_worker_start_failure_overrides_case_watchdog(self):
+        r = self.runner
+        check_workers = r.Lane.check_workers
+        proc = types.SimpleNamespace(events=Path("/never-created-ops327-events"), poll=lambda: 2,
+                                     returncode=2, communicate=lambda: ("", "invalid worker manifest"))
+        lane = types.SimpleNamespace(processes=[proc])
+        with self.assertRaisesRegex(RuntimeError, "worker startup failed"):
+            check_workers(lane)
+        lane.check_workers = lambda: check_workers(lane)
+        lane.close = lambda: None
+        def case(_): raise r.CaseFailure("watchdog")
+        checks = [("r29", None, "baseline"), ("r29", "mutant", "changed")]
+        output = io.StringIO()
+        with mock.patch.dict(r.CASES, {"r29": case}), mock.patch.object(r, "Lane", return_value=lane), redirect_stdout(output):
+            self.assertEqual(r.run_checks(None, checks), 1)
+        self.assertEqual(output.getvalue().count("(setup: worker startup failed"), 2)
+
+    def test_engine_timing_fixture_is_not_deadline_aligned(self):
+        h = self.runner.h
+        for phase, waits in (("stream", [9, 9, 9, 600]), ("body", [18, 27])):
+            server = types.SimpleNamespace(scale=1, phase=phase, calls=[], destructive=[], on_request=None,
+                                           stop=mock.Mock(), sent=mock.Mock())
+            server.stop.wait.return_value = False
+            conn = mock.MagicMock()
+            conn.__enter__.return_value = conn
+            conn.recv.return_value = b"DELETE /images/test HTTP/1.1\r\n\r\n"
+            h.Engine.answer(server, conn)
+            self.assertEqual(server.stop.wait.call_args_list, [mock.call(value) for value in waits])
+            self.assertEqual(len(server.destructive), 1)
+            if phase == "stream": self.assertEqual(conn.sendall.call_count, 4)
+
+    def test_run_checks_tracks_actual_baselines_and_setup(self):
+        r = self.runner
+        checks = [("r29", None, "baseline"), ("r29", "mutant", "changed")]
+        for baseline_fails, setup_fails, rc in ((False, False, 0), (True, False, 1), (False, True, 1)):
+            def case(lane):
+                if lane.source == "changed" or baseline_fails: raise r.CaseFailure("bound")
+            def lane(args, name, source):
+                if setup_fails and source == "changed": raise AssertionError("existing directory")
+                return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None)
+            with mock.patch.dict(r.CASES, {"r29": case}), mock.patch.object(r, "Lane", side_effect=lane), redirect_stdout(io.StringIO()):
+                self.assertEqual(r.run_checks(None, checks), rc)
+
+    def test_socket_inventory_and_byte_preflight(self):
+        source = (REPO / "tests/docker-image-gc-realtime.py").read_text()
+        tree = ast.parse(source)
+        sites = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("bind", "Engine"):
+                sites.append(ast.unparse(node))
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Subscript) and ast.unparse(target).endswith("['SOCKET_PATH']"):
+                        sites.append(ast.unparse(node))
+        self.assertEqual(sorted(sites), sorted([
+            "h.Engine(self.paths['SOCKET_PATH'], self.images, self.containers, **kw)",
+            "server.bind(lane.paths['SOCKET_PATH'])",
+            "lane.paths['SOCKET_PATH'] = str(lane.root / f'engine-{n}.sock')",
+        ]))
+        checks = [("r29", None, ""), ("four-acquisitions", "hold above 45 s", "")]
+        args = types.SimpleNamespace(root="/a", engine_socket="/e/engine.sock")
+        self.assertIn("/a/001-four-acquisitions/engine-4.sock", list(self.runner.socket_paths(args, checks)))
+        self.assertTrue(self.runner.preflight_sockets(args, checks))
+        for attr in ("root", "engine_socket"):
+            long = types.SimpleNamespace(**vars(args))
+            setattr(long, attr, "/" + "é" * 55 + ("/engine.sock" if attr == "engine_socket" else ""))
+            output = io.StringIO()
+            with redirect_stdout(output): self.assertFalse(self.runner.preflight_sockets(long, checks))
+            self.assertIn("FAIL socket path too long:", output.getvalue())
+            self.assertIn("bytes; shorten --root)", output.getvalue())
+
+    def test_long_socket_main_exits_before_creation_or_platform(self):
+        root = str(REPO / ("x" * 110))
+        argv = ["realtime", "--root", root, "--case", "four-acquisitions", "--mutants"]
+        for name in ("compose-lock-dir", "instance-lock", "switch-lock", "keep-dir", "store", "engine-socket"):
+            argv += ["--" + name, root + "/" + name]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(self.runner, "Lane") as lane, \
+             mock.patch.object(self.runner.subprocess, "run") as run, redirect_stdout(io.StringIO()):
+            self.assertEqual(self.runner.main(), 2)
+        lane.assert_not_called(); run.assert_not_called()
+
+
 class RegistryPathTests(unittest.TestCase):
     @staticmethod
     def handler(support, path, method="GET"):
@@ -3340,7 +3748,71 @@ class RegistryPathTests(unittest.TestCase):
         print("ok mutant: skip registry path allowlist", file=sys.stderr)
 
 
+class BehavioralResult(unittest.TextTestResult):
+    def addFailure(self, test, err):
+        trace = err[2]
+        while trace:
+            if trace.tb_frame.f_code.co_name == "_callTestMethod":
+                return super().addFailure(test, err)
+            trace = trace.tb_next
+        # AssertionError in setUp/tearDown is a fixture error, too.
+        self.addError(test, err)
+
+
+class VMFailureReasonTests(unittest.TestCase):
+    def test_start_limit_requires_its_own_result(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        for result in ("start-limit-hit", "exit-code", "timeout"):
+            with mock.patch.object(support, "command", return_value=types.SimpleNamespace(stdout=result)):
+                if result == "start-limit-hit": support.require_start_limit()
+                else:
+                    with self.assertRaisesRegex(AssertionError, "unexpected start-limit failure"):
+                        support.require_start_limit()
+
+    def test_registry_rejection_assertion_at_end(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        with mock.patch.object(support, "events", return_value=[]): support.assert_no_registry_rejections()
+        with mock.patch.object(support, "events", return_value=[{"event": "registry-rejected", "path": "/v3/"}]):
+            with self.assertRaisesRegex(AssertionError, "registry-rejected"): support.assert_no_registry_rejections()
+        tree = ast.parse((REPO / "tests/docker-image-gc-vm-support.py").read_text())
+        checks = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "checks")
+        calls = [ast.unparse(node.value) for node in checks.body if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)]
+        self.assertLess(calls.index("full_unit_outcomes(outcomes)"), calls.index("assert_no_registry_rejections()"))
+
+    def test_expected_vm_failure_requires_its_own_reason(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        for log in ("unrelated traceback", "compose-csb1.service: start operation timed out. Terminating."):
+            with mock.patch.object(support, "journal_since", return_value=log):
+                if "timed out" in log: support.require_timeout("compose-csb1", 100)
+                else:
+                    with self.assertRaisesRegex(AssertionError, "expected unit timeout"):
+                        support.require_timeout("compose-csb1", 100)
+        def command(*argv, **kw):
+            return types.SimpleNamespace(stdout="failed" if "is-active" in argv else "2")
+        with mock.patch.object(support, "command", side_effect=command):
+            with mock.patch.object(support, "journal_since", return_value="not answered in 30 s"):
+                support.gc_done(since=100)
+            with mock.patch.object(support, "journal_since", return_value="unrelated traceback"):
+                with self.assertRaisesRegex(AssertionError, "unexpected GC failure"):
+                    support.gc_done(since=100)
+
+
 class MutantTests(unittest.TestCase):
+    def test_setup_assertion_and_runtime_error_never_kill(self):
+        module = sys.modules[__name__]
+        for stage in ("setup", "runtime"):
+            class Probe(unittest.TestCase):
+                def setUp(self):
+                    if OVERRIDE and stage == "setup": raise AssertionError("fixture setup")
+                def test_probe(self):
+                    if OVERRIDE: raise KeyError("unrelated")
+            with mock.patch.object(module, "Probe", Probe, create=True), \
+                 mock.patch.dict(MUTANTS, {"probe": (swap(), ["Probe.test_probe"])}, clear=True):
+                output = io.StringIO()
+                result = unittest.TextTestRunner(stream=output).run(unittest.TestSuite([type(self)("test_every_mutant_is_caught")]))
+            self.assertFalse(result.wasSuccessful())
+            self.assertIn("setup/runtime error", output.getvalue())
+
     def test_unknown_test_is_rejected(self):
         # Run the deliberate typo in isolation: a loader placeholder failure
         # must fail the harness itself, rather than count as a mutant kill.
@@ -3357,6 +3829,7 @@ class MutantTests(unittest.TestCase):
         global OVERRIDE
         source = SCRIPT.read_text()
         module = sys.modules[__name__]
+        baselines = set()
         for name, (override, tests) in MUTANTS.items():
             with self.subTest(mutant=name):
                 for old, _ in getattr(override[1], "pairs", ()):
@@ -3368,14 +3841,24 @@ class MutantTests(unittest.TestCase):
                         getattr(test_class, method_name)
                     except (AttributeError, ValueError):
                         self.fail(f"unknown mutant test {test!r}")
+                    if test not in baselines:
+                        suite = unittest.TestSuite([test_class(method_name)])
+                        baseline = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0,
+                                                           resultclass=BehavioralResult).run(suite)
+                        self.assertTrue(baseline.wasSuccessful() and not baseline.skipped,
+                                        f"baseline did not pass: {test}")
+                        baselines.add(test)
                     OVERRIDE = override
                     try:
                         suite = unittest.TestSuite([test_class(method_name)])
-                        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
+                        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0,
+                                                         resultclass=BehavioralResult).run(suite)
                     finally:
                         OVERRIDE = None
                     self.assertEqual(result.testsRun, 1, test)
-                    self.assertFalse(result.wasSuccessful(), f"mutant {name!r} passed {test}")
+                    self.assertFalse(result.errors, f"mutant {name!r} setup/runtime error: {result.errors}")
+                    self.assertFalse(result.skipped, f"mutant {name!r} skipped {test}")
+                    self.assertTrue(result.failures, f"mutant {name!r} passed {test}")
                 print(f"ok mutant: {name}", file=sys.stderr)
 
 

@@ -46,18 +46,64 @@ def repo_path(value, *, directory=False):
     raise SystemExit(2)
 
 
-def worker(manifest):
-    data = json.loads(Path(repo_path(manifest)).read_text())
-    source = repo_path(data["source"])
+def unique_keys(pairs):
+    data = {}
+    for key, value in pairs:
+        if key in data:
+            raise ValueError(f"duplicate manifest key: {key}")
+        data[key] = value
+    return data
+
+
+def checked_paths(source, paths):
+    h.check_path_contract(source, paths)
+    checked = {}
+    for key, value in paths.items():
+        if key in ("PROC", "PROC_LOCKS"):
+            if value != {"PROC": "/proc", "PROC_LOCKS": "/proc/locks"}[key]:
+                raise ValueError(f"{key} must name the read-only kernel table")
+            checked[key] = value
+        elif key == "LOCK_PATHS":
+            if not isinstance(value, (tuple, list)) or len(value) != 3:
+                raise ValueError("LOCK_PATHS must contain three fixture paths")
+            checked[key] = tuple(repo_path(path) for path in value)
+        else:
+            checked[key] = repo_path(value)
+    return checked
+
+
+def prepare_worker(manifest):
+    """Validate the entire closed manifest before loading or creating anything."""
+    data = json.loads(Path(repo_path(manifest)).read_text(), object_pairs_hook=unique_keys)
+    if not isinstance(data, dict) or set(data) != {"source", "paths", "events", "constants"}:
+        raise ValueError("top-level keys must be source, paths, events, constants")
+    source = Path(repo_path(data["source"])).read_text()
     events = repo_path(data["events"])
-    paths = {key: (tuple(repo_path(path) for path in value) if key == "LOCK_PATHS"
-                   else value if key in ("PROC", "PROC_LOCKS") else repo_path(value))
-             for key, value in data["paths"].items()}
-    # These read-only kernel tables are the lane's only paths outside the checkout.
-    paths["PROC"], paths["PROC_LOCKS"] = "/proc", "/proc/locks"
-    gc = h.load(Path(source).read_text(), paths)
-    for name, value in data.get("constants", {}).items():
+    paths = checked_paths(source, data["paths"])
+    constants = data["constants"]
+    if not isinstance(constants, dict) or not set(constants) <= {"RUN_BUDGET_S"}:
+        raise ValueError("constants keys may only contain RUN_BUDGET_S")
+    for value in constants.values():
+        if type(value) is not int:
+            raise ValueError("RUN_BUDGET_S must be an int, not bool")
+        if not 1 <= value <= 3000:
+            raise ValueError("RUN_BUDGET_S must be within 1..3000 seconds")
+    gc = h.load(source, paths)
+    for name, value in constants.items():
         setattr(gc, name, value)
+    actual = {name: getattr(gc, name) for name in h.path_constants(source)}
+    if checked_paths(source, actual) != paths:
+        raise ValueError("loaded path constants differ from the manifest")
+    h.check_socket(gc.SOCKET_PATH)
+    return gc, events
+
+
+def worker(manifest):
+    try:
+        gc, events = prepare_worker(manifest)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, SyntaxError) as exc:
+        print("invalid worker manifest: " + str(exc).replace("\n", " "), file=sys.stderr)
+        return 2
     holds, attempts = [], []
     original = gc.deploy_locks
     @contextmanager
@@ -80,6 +126,15 @@ def worker(manifest):
     return rc
 
 
+class CaseFailure(AssertionError):
+    """Only an assertion of the case's observed GC behaviour can kill a mutant."""
+
+
+def require(condition, message="case assertion failed"):
+    if not condition:
+        raise CaseFailure(message)
+
+
 def wait_for(predicate, seconds, label):
     until = time.monotonic() + seconds
     while time.monotonic() < until:
@@ -87,7 +142,7 @@ def wait_for(predicate, seconds, label):
         if result:
             return result
         time.sleep(0.01)
-    raise AssertionError(f"watchdog: {label} ({seconds:g} s)")
+    raise CaseFailure(f"watchdog: {label} ({seconds:g} s)")
 
 
 class Lane:
@@ -133,8 +188,10 @@ class Lane:
             out, err = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill(); out, err = process.communicate()
-            raise AssertionError(f"GC watchdog after {timeout}s: {out} {err}") from None
-        assert process.returncode == expected, (process.returncode, out, err)
+            raise CaseFailure(f"GC watchdog after {timeout}s: {out} {err}") from None
+        if not process.events.exists():
+            raise RuntimeError(f"worker startup failed: {process.returncode}: {err}")
+        require(process.returncode == expected, (process.returncode, out, err))
         return json.loads(process.events.read_text()), out + err
 
     def contender(self, lock=0, hold=0, prefix="contender"):
@@ -147,6 +204,12 @@ class Lane:
         proc.acquired = acquired
         self.processes.append(proc)
         return proc
+
+    def check_workers(self):
+        for proc in self.processes:
+            if hasattr(proc, "events") and proc.poll() is not None and proc.returncode >= 0 and not proc.events.exists():
+                out, err = proc.communicate()
+                raise RuntimeError(f"worker startup failed: {proc.returncode}: {out} {err}")
 
     def close(self):
         for proc in self.processes:
@@ -170,45 +233,45 @@ def deadline(lane, *, method="DELETE", phase=None, delay=600):
         lane.images[:] = lane.images[:2]
     engine = lane.engine(delay=delay, phase=phase)
     proc = lane.start()
-    assert engine.sent.wait(55), "no destructive call after initial cooldown"
+    require(engine.sent.wait(55), "no destructive call after initial cooldown")
     sent = engine.destructive[0][2]
     contender = lane.contender()
     acquired = float(wait_for(lambda: contender.acquired.read_text() if contender.acquired.exists() else None,
                               31 if phase else 45, "deadline contender"))
-    assert acquired - sent <= (31 if phase else 45), acquired - sent
+    require(acquired - sent <= (31 if phase else 45), acquired - sent)
     events, output = lane.finish(proc, 5, 2)
-    assert "not answered in 30 s" in output, output
-    assert events["holds"][-1][1] - sent <= 31
-    assert len(engine.destructive) == 1, engine.destructive
-    assert contender.wait(timeout=2) == 0
+    require("not answered in 30 s" in output, output)
+    require(events["holds"][-1][1] - sent <= 31)
+    require(len(engine.destructive) == 1, engine.destructive)
+    require(contender.wait(timeout=5) == 0)
 
 
 def maximal(lane):
-    # Leave ~1 s for a fresh snapshot and the second DELETE, rather than the
-    # former ~70 ms. Its 29 s answer still makes a long (~38 s) two-call hold;
-    # both the <=45 s bound and the BATCH_S=60 mutant check stay in force.
-    engine = lane.engine(delay=[9, 29, 29])
+    # A 5 s first call leaves 5 s to admit the next decision inside BATCH_S.
+    # A 24 s answer leaves >=4 s below the deadline after offset/jitter.
+    # The real hold is ~29 s; BATCH_S=60 admits four calls and holds ~77 s.
+    engine = lane.engine(delay=[5, 24, 24])
     proc = lane.start({"RUN_BUDGET_S": 55})
-    assert engine.sent.wait(55)
+    require(engine.sent.wait(55))
     contender = lane.contender()
     wait_for(lambda: contender.acquired.exists(), 45, "maximal hold")
     events, _ = lane.finish(proc, 50)
-    assert max(end - start for start, end in events["holds"]) <= 45, events
-    assert float(contender.acquired.read_text()) - events["holds"][0][0] <= 45
-    assert len(engine.destructive) >= 2, engine.destructive
-    assert 8.9 <= engine.destructive[1][2] - events["holds"][0][0] <= 10.1
+    require(max(end - start for start, end in events["holds"]) <= 45, events)
+    require(float(contender.acquired.read_text()) - events["holds"][0][0] <= 45)
+    require(len(engine.destructive) >= 2, engine.destructive)
+    require(3 <= engine.destructive[1][2] - events["holds"][0][0] <= 10)
 
 
 def between(lane):
     engine = lane.engine(delay=[11, 0])
     proc = lane.start({"RUN_BUDGET_S": 110})
-    assert engine.sent.wait(55)
+    require(engine.sent.wait(55))
     contender = lane.contender(hold=3)
     wait_for(lambda: contender.acquired.exists(), 45, "between-batch waiter")
     events, _ = lane.finish(proc, 100)
-    assert len(events["holds"]) >= 2, events
-    assert events["holds"][1][0] - events["holds"][0][1] >= 45, events
-    assert float(contender.acquired.read_text()) < events["holds"][1][0]
+    require(len(events["holds"]) >= 2, events)
+    require(events["holds"][1][0] - events["holds"][0][1] >= 45, events)
+    require(float(contender.acquired.read_text()) < events["holds"][1][0])
 
 
 def backlog(lane):
@@ -227,40 +290,49 @@ def backlog(lane):
             except BlockingIOError:
                 client.close()
                 break
-        assert len(clients) >= 1
+        require(len(clients) >= 1)
         gc = h.load(lane.source.read_text(), lane.paths)
         # Exercise the real main()/compose finally path, not just a connect.
         real = gc.docker_api
-        started = []
         def api(method, path, timeout, limit):
             if method == "GET":
                 return 200, json.dumps(lane.containers if path.startswith("/containers/") else lane.images).encode()
-            started.append(time.monotonic())
+            (lane.root / "backlog.started").write_text(str(time.monotonic()))
             return real(method, path, timeout, limit)
         # A watchdog child bounds no-deadline mutants, even if connect hangs.
         pid = os.fork()
         if pid == 0:
-            os.environ["INVOCATION_ID"] = "ops327-backlog"
-            signal.signal(signal.SIGTERM, gc.STOP.set)
-            rc = gc.main(api)
-            Path(lane.root / "backlog.result").write_text(str(rc))
+            try:
+                os.environ["INVOCATION_ID"] = "ops327-backlog"
+                os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
+                signal.signal(signal.SIGTERM, gc.STOP.set)
+                rc = gc.main(api)
+                Path(lane.root / "backlog.result").write_text(str(rc))
+            except Exception as exc:
+                Path(lane.root / "backlog.error").write_text(f"{type(exc).__name__}: {exc}")
+                os._exit(2)
             os._exit(rc)
         try:
-            # Initial cooldown is real; then let the child hold the compose lock.
-            time.sleep(46)
+            # Observe the actual destructive connect, rather than guessing
+            # that a 46 s sleep outlasted cooldown plus worker scheduling.
+            def started():
+                if (lane.root / "backlog.error").exists():
+                    raise RuntimeError((lane.root / "backlog.error").read_text())
+                return (lane.root / "backlog.started").exists()
+            wait_for(started, 55, "backlog destructive connect starts")
             contender = lane.contender()
             began = time.monotonic()
             wait_for(lambda: contender.acquired.exists(), 31, "full accept queue contender")
-            assert float(contender.acquired.read_text()) - began <= 31
+            require(float(contender.acquired.read_text()) - began <= 31)
             wait_for(lambda: (lane.root / "backlog.result").exists(), 3, "backlog GC exit")
-            assert (lane.root / "backlog.result").read_text() == "2"
+            require((lane.root / "backlog.result").read_text() == "2")
             # The only queued connections were the prefill: no HTTP request.
             server.settimeout(1)
             for _ in clients:
                 conn, _ = server.accept()
                 conn.setblocking(False)
                 try:
-                    assert not conn.recv(100), "destructive request reached prefill socket"
+                    require(not conn.recv(100), "destructive request reached prefill socket")
                 except BlockingIOError:
                     pass
                 conn.close()
@@ -268,6 +340,8 @@ def backlog(lane):
             try: os.kill(pid, signal.SIGKILL)
             except ProcessLookupError: pass
             os.waitpid(pid, 0)
+            if (lane.root / "backlog.error").exists():
+                raise RuntimeError((lane.root / "backlog.error").read_text())
     finally:
         for client in clients: client.close()
         server.close()
@@ -284,18 +358,18 @@ def fifo(lane, where):
     contender = lane.contender()
     wait_for(lambda: contender.acquired.exists(), 5, "FIFO contender")
     _, output = lane.finish(proc, 5, 2)
-    assert time.monotonic() - began < 5
-    assert "not a regular file" in output, output
+    require(time.monotonic() - began < 5)
+    require("not a regular file" in output, output)
 
 
 def never_switch_lock(lane):
     Path(lane.paths["SWITCH_LOCK"]).touch()
     engine = lane.engine(delay=5)
     proc = lane.start({"RUN_BUDGET_S": 55})
-    assert engine.sent.wait(55)
+    require(engine.sent.wait(55))
     for _ in range(25):
         result = subprocess.run(["flock", "-n", lane.paths["SWITCH_LOCK"], "true"], check=False)
-        assert result.returncode == 0, "GC locked the switch lock"
+        require(result.returncode == 0, "GC locked the switch lock")
         time.sleep(0.02)
     lane.finish(proc, 50)
 
@@ -303,33 +377,33 @@ def never_switch_lock(lane):
 def instance(lane):
     engine = lane.engine(delay=600)
     first = lane.start()
-    assert engine.sent.wait(55)
+    require(engine.sent.wait(55))
     second = lane.start()
-    events, output = lane.finish(second, 3)
-    assert "another run is in progress" in output
-    assert not events["attempts"]
+    events, output = lane.finish(second, 5)
+    require("another run is in progress" in output)
+    require(not events["attempts"])
     first.kill(); first.wait(timeout=5)
     restarted_at = time.monotonic()
     third = lane.start()
     # Busy instance has gone, but third must still cool down after SIGKILL.
-    time.sleep(44)
-    assert len(engine.destructive) == 1
+    time.sleep(40)
+    require(len(engine.destructive) == 1)
     wait_for(lambda: len(engine.destructive) > 1, 10, "post-SIGKILL first attempt")
-    assert engine.destructive[1][2] - restarted_at >= 45
+    require(engine.destructive[1][2] - restarted_at >= 45)
 
 
 def schedules(lane, *, extra=False, across=False, adversarial=False):
-    engine = lane.engine(delay=[9.9, 29, 9.9, 29])
+    engine = lane.engine(delay=[5, 24, 5, 24])
     # r29-adversarial: COOLDOWN_S=45, BATCH_S=10, CALL_DEADLINE_S=30.
-    # Hold 1: ~45..84 (9.9+29); B: ~84..134; busy attempt: ~129;
-    # next cooldown ends ~174; hold 2: ~174..213; then A and SIGTERM.
-    # r30-adversarial adds C at ~134..134.5, still before the ~174 attempt.
-    # Both need >213 s: 180 exits 0 on release before the bound is checked.
+    # Hold 1: ~45..74 (5+24); B: ~74..124; busy attempt: ~119;
+    # next cooldown ends ~164; hold 2: ~164..193; then A and SIGTERM.
+    # r30-adversarial adds C at ~124..124.5, before the ~164 attempt.
+    # Both need >193 s: 180 exits 0 on release before the bound is checked.
     # 300 leaves room for SIGTERM (rc 1) and the measured W/G assertion.
     first = lane.start({"RUN_BUDGET_S": 55 if across else 300 if adversarial else 180})
-    assert engine.sent.wait(55)
-    # Hold 1 lasts about 39 s. B wins by stopping A before the release.
-    b = lane.contender(hold=50 if adversarial else 7, prefix="B")
+    require(engine.sent.wait(55))
+    # Hold 1 lasts about 29 s. B wins by stopping A before the release.
+    b = lane.contender(hold=50 if adversarial else 5, prefix="B")
     a = lane.contender(prefix="A")
     a.send_signal(signal.SIGSTOP)
     wait_for(lambda: b.acquired.exists(), 45, "B wins first release")
@@ -344,35 +418,36 @@ def schedules(lane, *, extra=False, across=False, adversarial=False):
     if across:
         next_run = lane.start({"RUN_BUDGET_S": 90})
     # Let the adversarial variant admit a second GC hold inside A's wait.
-    # Otherwise 2.5 s spans the mutant's 2 s retry, but not the real cooldown.
+    # Otherwise 8 s spans the mutant's 2 s retry plus scheduling tolerance,
+    # while the real rule's 45 s cooldown remains far away.
     if adversarial:
         wait_for(lambda: len(engine.destructive) >= 3, 100, 'next GC hold inside A wait')
     else:
-        time.sleep(2.5)
+        time.sleep(8)
     a.send_signal(signal.SIGCONT)
     wait_for(lambda: a.acquired.exists(), 50, "A after B/C")
     acquired = float(a.acquired.read_text())
-    a.wait(timeout=2)
+    a.wait(timeout=5)
     if across:
         later_events, _ = lane.finish(next_run, 140)
         holds = first_events["holds"] + later_events["holds"]
-        assert later_events["attempts"][0] - first_events["holds"][-1][1] >= 45
+        require(later_events["attempts"][0] - first_events["holds"][-1][1] >= 45)
     else:
         if adversarial:
-            assert first.poll() is None, "GC exited before adversarial SIGTERM"
+            require(first.poll() is None, "GC exited before adversarial SIGTERM")
         first.send_signal(signal.SIGTERM)
         events, _ = lane.finish(first, 40, 1)
         holds = events["holds"]
     if adversarial:
-        assert len(holds) >= 2, ("adversarial bound needs two GC holds", holds)
+        require(len(holds) >= 2, ("adversarial bound needs two GC holds", holds))
     began = engine.destructive[0][2]
     w = acquired - began
     g = sum(max(0, min(end, acquired) - max(start, began)) for start, end in holds)
-    assert g <= 45 + (w - g) + 0.2, {"W": w, "G": g, "holds": holds}
+    require(g <= 45 + (w - g) + 0.2, {"W": w, "G": g, "holds": holds})
     if adversarial:
         print(f"adversarial bound checked: W={w:.3f} G={g:.3f} holds={len(holds)}", flush=True)
     if not adversarial:
-        assert acquired < holds[1][0] if len(holds) > 1 else True
+        require(acquired < holds[1][0] if len(holds) > 1 else True)
 
 
 def four_acquisitions(lane):
@@ -406,9 +481,9 @@ stopped=0
         # Drive an actual GC batch for this acquisition, through the same worker.
         # Unique sockets allow independent server lifetimes without unlinking.
         lane.paths["SOCKET_PATH"] = str(lane.root / f"engine-{n}.sock")
-        engine = lane.engine(delay=[9.9, 29, 29])
+        engine = lane.engine(delay=[5, 24, 24])
         proc = lane.start({"RUN_BUDGET_S": 55})
-        assert engine.sent.wait(55)
+        require(engine.sent.wait(55))
         began = time.monotonic()
         (lane.root / f"go-{n}").touch()
         if n == 2:
@@ -417,15 +492,15 @@ stopped=0
             # The interrupted attempt ends at SIGTERM; TERM and EXIT each
             # make a subsequent, separately bounded acquisition.
             os.killpg(user.pid, signal.SIGTERM)
-            assert time.monotonic() - began <= 45
+            require(time.monotonic() - began <= 45)
         else:
             got = lane.root / f"got-{n}"
             wait_for(lambda: got.exists(), 45, f"handler acquisition {n}")
-            assert float(got.read_text()) - began <= 45
+            require(float(got.read_text()) - began <= 45)
         events, _ = lane.finish(proc, 45 if n == 2 else 10)
         last_release = events["holds"][-1][1]
     user.wait(timeout=10)
-    assert (lane.root / "count").read_text().strip() == "4"
+    require((lane.root / "count").read_text().strip() == "4")
 
 
 CASES = {"delete-hold-bound": lambda l: deadline(l), "prune-hold-bound": lambda l: deadline(l, method="POST"),
@@ -444,7 +519,7 @@ for method in ("DELETE", "POST"):
 
 REAL_MUTANTS = {
     "BATCH_S 60": ["maximal-hold"], "deadline 120": ["delete-hold-bound", "prune-hold-bound"],
-    "no deadline": ["delete-hold-bound"], "a per-receive timeout only": ["trickle-delete-stream"],
+    "no deadline": ["trickle-delete-body"], "a per-receive timeout only": ["trickle-delete-stream"],
     "the locks kept after the deadline": ["delete-hold-bound"],
     "exit 0 instead of 2 after the deadline": ["delete-hold-bound"],
     "re-take the locks without the sleep": ["between-batches"],
@@ -463,6 +538,77 @@ REAL_MUTANTS = {
     "a fresh 30 s socket timeout confined to the chunked reader": ["trickle-delete-chunk-size", "trickle-delete-chunk-data"],
     "a fresh 30 s socket timeout confined to the body": ["trickle-delete-body"],
 }
+
+
+def validate_mutant_table(mutants):
+    for mutant, names in REAL_MUTANTS.items():
+        if mutant not in mutants:
+            raise ValueError(f"unknown mutant {mutant!r}")
+        if not names:
+            raise ValueError(f"mutant {mutant!r} has no cases")
+        for name in names:
+            if name not in CASES:
+                raise ValueError(f"unknown case {name!r} for {mutant!r}")
+
+
+def socket_paths(args, checks):
+    """All bind sites: Lane.engine, backlog and four_acquisitions' four sockets."""
+    for index, (name, _, _) in enumerate(checks):
+        directory = f"{index:03d}-{name}"
+        yield os.path.join(os.path.dirname(args.engine_socket), directory, os.path.basename(args.engine_socket))
+        if name == "four-acquisitions":
+            for n in range(1, 5):
+                yield os.path.join(args.root, directory, f"engine-{n}.sock")
+
+
+def preflight_sockets(args, checks):
+    longest = max(socket_paths(args, checks), key=lambda path: len(os.fsencode(path)), default="")
+    size = len(os.fsencode(longest))
+    if size > 107:
+        print(f"FAIL socket path too long: {longest} ({size} bytes; shorten --root)")
+        return False
+    return True
+
+
+def classify_case(name, mutant, baseline_passed, error, *, setup=False):
+    label = name + (f" [mutant: {mutant}]" if mutant else "")
+    if error is not None and (setup or not isinstance(error, CaseFailure)):
+        return False, f"FAIL {label} (setup: {error})"
+    if mutant and not baseline_passed:
+        return False, f"FAIL {label} (baseline did not pass in this run)"
+    passed = isinstance(error, CaseFailure) if mutant else error is None
+    detail = f": {error}" if error and not mutant else ""
+    return passed, f"{'ok' if passed else 'FAIL'} {label}{detail}"
+
+
+def run_checks(args, checks):
+    failed, baselines = 0, {}
+    for index, (name, mutant, candidate) in enumerate(checks):
+        lane, error, setup = None, None, True
+        try:
+            case = CASES[name]
+            lane = Lane(args, f"{index:03d}-{name}", candidate)
+            setup = False
+            case(lane)
+        except Exception as exc:
+            error = exc
+        finally:
+            if lane:
+                try:
+                    lane.check_workers()
+                except Exception as exc:
+                    error, setup = exc, True
+                try:
+                    lane.close()
+                except Exception as exc:
+                    error, setup = exc, True
+        passed, message = classify_case(name, mutant, baselines.get(name, False), error, setup=setup)
+        if mutant is None:
+            baselines[name] = passed
+        failed += not passed
+        print(message, flush=True)
+    print(f"{len(checks) - failed}/{len(checks)} checks passed; {failed} failed")
+    return int(bool(failed))
 
 
 def main():
@@ -492,21 +638,21 @@ def main():
             setattr(args, name, repo_path(value, directory=directory))
     if args.worker:
         return worker(args.worker)
+    sys.path.insert(0, str(HERE))
+    import test_docker_image_gc as unit
+    try:
+        validate_mutant_table(unit.MUTANTS)
+    except ValueError as exc:
+        print(f"FAIL mutant table: {exc}")
+        return 1
     if args.list:
         for name in CASES: print(name)
         return 0
-    if sys.platform != "linux":
-        print("SKIP: real-time lane requires Linux and util-linux flock", file=sys.stderr)
-        return 77
     for name in ("root", "compose_lock_dir", "instance_lock", "switch_lock", "keep_dir", "store", "engine_socket"):
         if not getattr(args, name): parser.error("missing --" + name.replace("_", "-"))
-    subprocess.run(["flock", "--version"], check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["bash", "-c", 'test "${BASH_VERSINFO[0]}" -ge 5'], check=True)
     source = Path(repo_path(args.source)).read_text()
     checks = [(name, None, source) for name in (args.case or CASES)]
     if args.mutants:
-        sys.path.insert(0, str(HERE))
-        import test_docker_image_gc as unit
         for mutant, names in REAL_MUTANTS.items():
             override = unit.MUTANTS[mutant][0]
             for before, _ in override[1].pairs:
@@ -515,24 +661,14 @@ def main():
                     return 1
             changed = override[1](source)
             checks += [(name, mutant, changed) for name in names if not args.case or name in args.case]
-    failed = 0
-    for index, (name, mutant, candidate) in enumerate(checks):
-        lane = None
-        error = None
-        try:
-            lane = Lane(args, f"{index:03d}-{name}", candidate)
-            CASES[name](lane)
-        except Exception as exc:
-            error = exc
-        finally:
-            if lane: lane.close()
-        # Mutations are successful only if the same behavioural check fails.
-        passed = error is not None if mutant else error is None
-        failed += not passed
-        label = name + (f" [mutant: {mutant}]" if mutant else "")
-        print(f"{'ok' if passed else 'FAIL'} {label}" + (f": {error}" if error and not mutant else ""), flush=True)
-    print(f"{len(checks) - failed}/{len(checks)} checks passed; {failed} failed")
-    return int(bool(failed))
+    if not preflight_sockets(args, checks):
+        return 2
+    if sys.platform != "linux":
+        print("SKIP: real-time lane requires Linux and util-linux flock", file=sys.stderr)
+        return 77
+    subprocess.run(["flock", "--version"], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["bash", "-c", 'test "${BASH_VERSINFO[0]}" -ge 5'], check=True)
+    return run_checks(args, checks)
 
 
 if __name__ == "__main__":

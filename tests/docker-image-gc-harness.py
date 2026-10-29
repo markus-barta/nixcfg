@@ -2,20 +2,54 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import os
 import socket
 import threading
 import time
 import types
 from pathlib import Path
 
+PHASE_FIRST_S = 18
+PHASE_LAST_S = 45
+STREAM_GAP_S = 9
+STREAM_BYTES = 3
 
-def load(source, paths):
+
+def path_constants(source):
+    """Inventory literal module-level absolute paths without executing the source."""
+    found = set()
+    for node in ast.parse(source).body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, TypeError):
+            continue
+        values = value if isinstance(value, tuple) else (value,)
+        if values and all(isinstance(path, str) and os.path.isabs(path) for path in values):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            found.update(target.id for target in targets if isinstance(target, ast.Name))
+    return found
+
+
+def check_path_contract(source, paths):
+    expected = path_constants(source)
+    if set(paths) != expected:
+        raise ValueError(f"path keys: missing={sorted(expected - set(paths))}, extra={sorted(set(paths) - expected)}")
+
+
+def check_socket(path):
     # A missing fixture override must never fall back to the source's host
     # Docker socket, including when the source is a connect-bypass mutant.
-    socket_path = Path(paths["SOCKET_PATH"]).resolve()
+    socket_path = Path(path).resolve()
     if socket_path in {Path("/var/run/docker.sock").resolve(), Path("/run/docker.sock").resolve()}:
         raise ValueError("offline fixture cannot use a host Docker socket")
+
+
+def load(source, paths):
+    check_socket(paths["SOCKET_PATH"])
     module = types.ModuleType("gc_fixture")
     exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
     for key, value in paths.items():
@@ -85,7 +119,9 @@ class Engine:
     """Real AF_UNIX HTTP server, independent connection thread per request.
 
     delay can be a list (per destructive call) or a scalar. phase uses two
-    fragments at 29 and 58 seconds. stop interrupts every timer on cleanup.
+    fragments at 18 and 45 seconds. Each gap stays below a plain 30-second
+    timeout even with 1 second of scheduling delay; the first fragment is
+    safely before the absolute deadline. stop interrupts timers on cleanup.
     """
 
     def __init__(self, path, images=(), containers=(), *, delay=0, phase=None, scale=1, on_request=None):
@@ -144,18 +180,22 @@ class Engine:
                     if self.phase == "stream":
                         stream = b" " * 60 + body
                         conn.sendall(f"HTTP/1.1 200 OK\r\nContent-Length: {len(stream)}\r\n\r\n".encode())
-                        for byte in stream:
-                            if self.stop.wait(10 * self.scale):
+                        # Send at 9, 18 and 27 s, then stay silent. A fresh
+                        # per-receive timeout waits until ~57 s; the absolute
+                        # deadline ends at ~30 s, independent of byte alignment.
+                        for byte in stream[:STREAM_BYTES]:
+                            if self.stop.wait(STREAM_GAP_S * self.scale):
                                 return
                             conn.sendall(bytes([byte]))
+                        self.stop.wait(600 * self.scale)
                         return
                     if self.phase:
                         pre, first, last = fragments(self.phase, body)
                         conn.sendall(pre)
-                        if self.stop.wait(29 * self.scale):
+                        if self.stop.wait(PHASE_FIRST_S * self.scale):
                             return
                         conn.sendall(first)
-                        if self.stop.wait(29 * self.scale):
+                        if self.stop.wait((PHASE_LAST_S - PHASE_FIRST_S) * self.scale):
                             return
                         conn.sendall(last)
                         return

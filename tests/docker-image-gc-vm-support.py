@@ -33,6 +33,7 @@ COMPOSE = "/run/lock/compose-csb1.lock"
 HAUSV = "/run/lock/compose-hausv.lock"
 PROXY = "/run/ops327-engine.sock"
 DOCKER_SOCKET = "/run/ops327-docker.sock"
+GC_SINCE = None
 
 
 def require_test_vm():
@@ -263,7 +264,9 @@ def locked(path, wait=570):
 
 def compose():
     cfg = settings()
-    if cfg.get("fail_start"): return 1
+    if cfg.get("fail_start"):
+        record("intentional-start-failure", epoch=cfg.get("epoch"))
+        return 1
     for n in range(cfg.get("acquisitions", 3)):
         (ROOT / f"compose-ready-{n}").touch()
         if cfg.get('ready_gates'):
@@ -403,16 +406,43 @@ def restore(reset_compose=True):
 
 
 def run_gc(epoch, delays, *, wait_held=False, wait_event=None, preserve_start_limit=False, **kw):
+    global GC_SINCE
     restore(reset_compose=not preserve_start_limit); configure(epoch=epoch, delays=delays, **kw)
+    GC_SINCE = time.time()
     command("systemctl", "start", "--no-block", "ops327-gc")
     event = wait_event or ('batch-held' if wait_held else 'destructive')
     return wait_for(lambda: next((e for e in events() if e["event"] == event and e.get("epoch") == epoch), None), 60, "GC request/hold")
 
 
-def gc_done(expected=2, seconds=50):
+def journal_since(unit, since):
+    return command("journalctl", "--unit", unit, "--since", f"@{since:.6f}",
+                   "--output=cat", "--no-pager").stdout
+
+
+def require_timeout(unit, since, phase="start"):
+    log = journal_since(unit, since)
+    assert f"{phase} operation timed out" in log, (unit, "expected unit timeout", log)
+
+
+def assert_no_registry_rejections():
+    rejected = [event for event in events() if event["event"] == "registry-rejected"]
+    assert not rejected, ("registry-rejected", rejected)
+
+
+def require_start_limit():
+    result = command("systemctl", "show", "compose-csb1", "-p", "Result", "--value").stdout.strip()
+    assert result == "start-limit-hit", ("unexpected start-limit failure", result)
+
+
+def gc_done(expected=2, seconds=50, *, reason="not answered in 30 s", since=None):
     wait_for(lambda: command("systemctl", "is-active", "ops327-gc", check=False).stdout.strip() in ("inactive", "failed"), seconds, "GC exit")
     code = command("systemctl", "show", "ops327-gc", "-p", "ExecMainStatus", "--value").stdout.strip()
     assert int(code) == expected, code
+    if expected == 2:
+        since = GC_SINCE if since is None else since
+        assert since is not None, "missing GC invocation timestamp"
+        log = journal_since("ops327-gc", since)
+        assert reason in log, ("unexpected GC failure", reason, log)
 
 
 def switch_async(target):
@@ -431,18 +461,22 @@ def full_unit_outcomes(results):
             started = time.monotonic()
             base = (ROOT / 'base-system').read_text()
             target = base + '/specialisation/changed' if os.path.realpath('/run/current-system') == base else base
+            since = time.time()
             switch = switch_async(target)
             out, err = switch.communicate(timeout=650)
             result = types.SimpleNamespace(returncode=switch.returncode, stdout=out, stderr=err)
             expected = not (with_gc and work == 580)
             assert (result.returncode == 0) == expected, (epoch, result)
+            if not expected: require_timeout("compose-csb1", since)
             results.append({"case": epoch, "exit": result.returncode, "elapsed": time.monotonic() - started})
             command("systemctl", "stop", "compose-csb1", check=False)
             if with_gc: gc_done(0, 5)
     # The hold mutant must push 540 s past the 600 s unit budget.
     run_gc("mutant-hold", [29], pull_delay=540, acquisitions=1, mutant_hold=True, late_decision=True, wait_held=True)
+    since = time.time()
     result = command("systemctl", "start", "compose-csb1", check=False, timeout=650)
     assert result.returncode != 0
+    require_timeout("compose-csb1", since)
     results.append({"case": "hold-above-45-mutant", "exit": result.returncode})
     command("systemctl", "stop", "compose-csb1", check=False)
     # Canary stop with quick and ignoring containers, both actual Docker states.
@@ -452,11 +486,13 @@ def full_unit_outcomes(results):
             command("systemctl", "start", "janus-managed-canary")
             holder = subprocess.Popen(["flock", COMPOSE, "sleep", "25"]) if with_gc else None
             if holder: time.sleep(0.1)
+            since = time.time()
             stopped = command("systemctl", "stop", "janus-managed-canary", check=False, timeout=40)
+            if stopped.returncode: require_timeout("janus-managed-canary", since, "stop")
             state = command("docker", "ps", "-a", "--filter", "name=^/canary$", "--format", "{{.State}}").stdout.strip()
             assert state in ("running", "exited"), state
             results.append({"case": "canary-stop", "ignores-term": ignored, "gc": with_gc, "exit": stopped.returncode, "container": state})
-            if holder: holder.wait(timeout=30)
+            if holder: assert holder.wait(timeout=30) == 0
             command("systemctl", "reset-failed", "janus-managed-canary", check=False)
     # Publish order and a killed unit's actual EXIT/TERM traps.
     for position in ("before", "after", "between"):
@@ -471,6 +507,7 @@ def full_unit_outcomes(results):
             begin_events = len(events())
             holder = subprocess.Popen(["flock", HAUSV, "sleep", "39"]) if with_gc else None
             if holder: time.sleep(0.1)
+            since = time.time()
             command("systemctl", "start", "--no-block", "hausv-backup-snapshot")
             if with_gc and position == "after":
                 wait_for(lambda: (ROOT / "hausv-working").exists(), 50)
@@ -479,6 +516,8 @@ def full_unit_outcomes(results):
                 extra = subprocess.Popen(["flock", HAUSV, "sleep", "39"])
             else: extra = None
             wait_for(lambda: command("systemctl", "is-active", "hausv-backup-snapshot", check=False).stdout.strip() in ("inactive", "failed"), 290)
+            outcome = command("systemctl", "show", "hausv-backup-snapshot", "-p", "Result", "--value").stdout.strip()
+            if outcome != "success": require_timeout("hausv-backup-snapshot", since)
             state = command("docker", "ps", "-a", "--filter", "name=^/hausv-org$", "--format", "{{.State}}").stdout.strip()
             snapshots = {name: (ROOT / name / "checked").read_text() for name in ("snapshot", ".previous") if (ROOT / name / "checked").exists()}
             acquisitions = [e for e in events()[begin_events:] if e["event"] == "acquisition" and e["lock"] == HAUSV]
@@ -488,14 +527,14 @@ def full_unit_outcomes(results):
             if position == "before": assert snapshots.get("snapshot") == "previous"
             if position == "between": assert snapshots.get(".previous") == "previous" and "snapshot" not in snapshots
             results.append({"case": f"hausv-{position}", "gc": with_gc, "container": state, "snapshots": snapshots, "acquisitions": acquisitions})
-            if holder: holder.wait(timeout=45)
-            if extra: extra.wait(timeout=45)
+            if holder: assert holder.wait(timeout=45) == 0
+            if extra: assert extra.wait(timeout=45) == 0
     # Three acquisitions in one real 600 s unit, 440 fits and 480 fails.
     for work in (440, 480):
         for with_gc in (False, True):
             restore(); configure(epoch=f"three-{work}-{with_gc}", pull_delay=work / 3, acquisitions=3, split_work=True, ready_gates=with_gc)
             command("systemctl", "stop", "compose-csb1", check=False)
-            stoppers = []
+            thread_errors = []
             def paced_holds():
                 for n in range(3):
                     # For later acquisitions hold before unblocking the previous
@@ -507,10 +546,19 @@ def full_unit_outcomes(results):
             if with_gc:
                 # Hold before the unit's first attempt, then work/readiness hooks
                 # provide the next two opportunities (assert the measured waits).
-                thread = threading.Thread(target=paced_holds, daemon=True); thread.start()
+                def checked_holds():
+                    try: paced_holds()
+                    except Exception as exc: thread_errors.append(exc)
+                thread = threading.Thread(target=checked_holds, daemon=True); thread.start()
+            since = time.time()
             result = command("systemctl", "start", "compose-csb1", check=False, timeout=650)
+            if with_gc:
+                thread.join(timeout=5)
+                assert not thread.is_alive(), "paced hold fixture did not finish"
+                if thread_errors: raise RuntimeError("paced hold fixture failed") from thread_errors[0]
             results.append({"case": f"three-acquisitions-{work}", "gc": with_gc, "exit": result.returncode})
             assert (result.returncode == 0) == (not with_gc or work == 440)
+            if with_gc and work == 480: require_timeout("compose-csb1", since)
             command("systemctl", "stop", "compose-csb1", check=False)
 
 
@@ -578,10 +626,13 @@ def checks():
     # Exhaust the actual start limit; the third failure is an actual raced pull.
     command('systemctl', 'stop', 'compose-csb1', check=False)
     command('systemctl', 'reset-failed', 'compose-csb1')
-    for _ in range(2):
+    for n in range(2):
         command("systemctl", "stop", "compose-csb1", check=False)
-        configure(epoch="fail", fail_start=True)
-        command("systemctl", "start", "compose-csb1", check=False)
+        epoch = f"fail-{n}"
+        configure(epoch=epoch, fail_start=True)
+        failure = command("systemctl", "start", "compose-csb1", check=False)
+        assert failure.returncode != 0
+        assert any(e["event"] == "intentional-start-failure" and e.get("epoch") == epoch for e in events())
     # Keep automatic retries from burning the third slot before the race.
     command("systemctl", "stop", "compose-csb1", check=False)
     request = run_gc("start-limit-race", [40], race=True, pull_ref="localhost:5000/fixture:r2", acquisitions=1, preserve_start_limit=True)
@@ -594,6 +645,7 @@ def checks():
     configure(epoch="limit-retry", pull_ref=pull_ref, acquisitions=1)
     time.sleep(35)
     assert command("systemctl", "is-failed", "compose-csb1", check=False).stdout.strip() == "failed"
+    require_start_limit()
     command("systemctl", "reset-failed", "compose-csb1")
     command("systemctl", "start", "compose-csb1")
     results.append({"case": "exhausted-start-limit-and-manual-recovery"})
@@ -609,8 +661,9 @@ def checks():
             Path("/run/ops327-other/refs").write_text("")
             command("mount", "--bind", "/run/ops327-other/refs", str(path))
         else: os.mknod(path, 0o020600, os.makedev(1, 3))
+        since = time.time()
         command("systemctl", "start", "ops327-gc", check=False, timeout=60)
-        gc_done(2, 5)
+        gc_done(2, 5, reason="unexpected file system" if kind == "bind" else "not a regular file", since=since)
         # Re-run exactly the same fixture with its single check removed.
         # The behavioural test must reject the mutant (it no longer exits 2).
         command('systemctl', 'reset-failed', 'ops327-gc')
@@ -623,6 +676,7 @@ def checks():
         path.unlink()
         results.append({"case": f"keep-{kind}-rejected"})
     full_unit_outcomes(outcomes)
+    assert_no_registry_rejections()
     (ROOT / "results.json").write_text(json.dumps(results, indent=2))
     (ROOT / "unit-outcomes.json").write_text(json.dumps(outcomes, indent=2))
     for result in results + outcomes: print("ok", result["case"], json.dumps(result))
