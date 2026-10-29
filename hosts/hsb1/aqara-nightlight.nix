@@ -15,7 +15,7 @@ in
       "network-online.target"
       "tailscaled.service"
     ];
-    # Explicit binds wait for both addresses; keep retrying if tailnet starts late.
+    # IP_FREEBIND keeps LAN/loopback available even before tailnet is assigned.
     startLimitIntervalSec = 0;
     environment = {
       PYTHONUNBUFFERED = "1";

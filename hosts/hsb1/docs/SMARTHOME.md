@@ -7,11 +7,9 @@
 
 ---
 
-## 📊 Architecture Overview
-
 ## Aqara Nightlight (OPS-496)
 
-`aqara-nightlight.service` is a native Python service for light and the 23
+`aqara-nightlight.service` is a native Python service for light and the 25
 built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. Hub handles are `plug` (`192.168.1.106`) and `round`
 (`192.168.1.108`); these neutral handles replace the Mac prototype's
@@ -28,6 +26,12 @@ loopback/LAN/tailnet and both hub addresses allowed, and an HTTP peer
 allowlist enforce the service boundary. IP rules apply in both directions;
 the gateways remain reachable on UDP 54321. The host declares no outbound
 port restriction; systemd's address rules do not restrict destination ports.
+The HTTP Host allowlist accepts `127.0.0.1`, `localhost`, `192.168.1.101`,
+`hsb1`, `hsb1.lan` and `100.64.0.7`, each with or without `:8765`. A present
+`Sec-Fetch-Site` must be `same-origin` or `none`; a present `Origin` must
+match the request's allowed HTTP Host. Linux `IP_FREEBIND` keeps LAN/loopback
+available while the tailnet address is absent. Empty or wildcard bind
+addresses fail startup before any listener opens.
 
 | GET path | Parameters                               | Behavior                                                      |
 | -------- | ---------------------------------------- | ------------------------------------------------------------- |
@@ -37,9 +41,10 @@ port restriction; systemd's address rules do not restrict destination ports.
 | `/tone`  | `hub`, `id`, optional `vol` (default 15) | `play_music_new ["<id>", vol]`                                |
 | `/stop`  | `hub`                                    | `set_sound_playing ["off"]`                                   |
 
-The 23 tone IDs/names remain in the Python source and UI: 0–8 (Alarm),
-10–13 (Türklingel), 20–29 (Wecker). Keep live tests at volume 10–15, short,
-and always stop afterwards. Brightness and volume clamp to 0–100.
+The 25 tone IDs/names remain in the Python source and UI: 0–8 (Alarm),
+10–15 (Türklingel), 20–29 (Wecker). Keep live tests at volume 10–15, short,
+and always stop afterwards. Brightness clamps to 0–100. Tone volume defaults
+to 15 and clamps to **0–40** in both the API and CLI; the UI also caps it at 40.
 API responses preserve `ok`, `hub`, command-specific fields and `versuche`;
 failures return `ok: false` and a fixed `error` message with HTTP 200, as in
 the prototype. No handshake token or raw library exception is logged.
@@ -50,12 +55,14 @@ verified reliability behavior. The counter persists at
 `/var/lib/aqara-nightlight/msgid` in a systemd-managed 0700 StateDirectory
 with a dynamic user. Do not delete/reset it or run an independent controller.
 
-**Integration ownership check before activation:** the checked-in repo has no
-`xiaomi_aqara`/`xiaomi_miio` configuration for these gateways. HA uses a live
+**Integration ownership:** DEVOPS verified on **2026-10-29** that hsb1's live
+HA `config_entries` contain no `xiaomi_aqara` or `xiaomi_miio` entries. The
+checked-in repo also has no configuration for these integrations. HA uses a live
 bind mount at `/home/mba/docker/mounts/homeassistant`, including UI-managed
-`.storage`, outside this checkout. OPS must inspect that live configuration
-without dumping credentials, establish that no independent miio controller
-targets these hubs, and stop the Mac prototype before enabling this service.
+`.storage`, outside this checkout. Retain the dated verification and recheck
+live configuration without dumping credentials if ownership changes before
+activation. OPS must ensure no independent miio controller targets these
+hubs and stop the Mac prototype before enabling this service.
 Separate counters would collide. Leave HA configuration unchanged; an actual
 conflict needs host-owner resolution. See the
 [runbook](RUNBOOK.md#aqara-nightlight-ops-496) for the handoff checklist.

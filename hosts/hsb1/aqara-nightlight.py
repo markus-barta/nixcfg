@@ -4,6 +4,7 @@
 GET /set?hub=plug&rgb=FF8C28&bri=10, /get?hub=plug,
 /tone?hub=plug&id=27&vol=10, /stop?hub=plug. The second hub is round.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
+Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
 The handshake token stays in memory; no library payloads or exceptions are logged.
 """
 
@@ -14,6 +15,7 @@ import logging
 import os
 import random
 import re
+import socket
 import sys
 import threading
 import time
@@ -35,6 +37,13 @@ _miio_log.propagate = False
 HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108"}
 TIMEOUT = 1.5
 ATTEMPTS = 4
+MAX_TONE_VOLUME = 40
+IP_FREEBIND = getattr(socket, "IP_FREEBIND", 15)  # Linux; bind before an address is assigned.
+ALLOWED_HOSTS = frozenset(
+    host + suffix
+    for host in ("127.0.0.1", "localhost", "192.168.1.101", "hsb1", "hsb1.lan", "100.64.0.7")
+    for suffix in ("", ":8765")
+)
 ID_FILE = os.path.join(os.environ.get("STATE_DIRECTORY", "/var/lib/aqara-nightlight"), "msgid")
 ALLOWED_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
@@ -134,7 +143,7 @@ def get_light(name):
 
 def play_tone(name, tid, vol=15):
     tid = int(tid)
-    vol = max(0, min(100, int(vol)))
+    vol = max(0, min(MAX_TONE_VOLUME, int(vol)))
     if tid not in {i for _, items in TONES for i, _ in items}:
         raise ValueError("Unbekannter Ton")
     reply, attempts = call(name, "play_music_new", [str(tid), vol])
@@ -171,7 +180,7 @@ button.tone{background:#2a2a3a;color:#eee;padding:.5em .8em}button.tone small{co
 <label>Helligkeit <b id=bv>10</b> %<input type=range id=bri min=0 max=100 value=10></label>
 <button id=nightlight>Nachtlicht 10 %</button><button id=off>Aus</button><button id=rd>Status lesen</button>
 <h3>Töne</h3>
-<label>Lautstärke <b id=vv>15</b> %<input type=range id=vol min=1 max=100 value=15></label>
+<label>Lautstärke <b id=vv>15</b> % (max. __MAX_TONE_VOLUME__ %)<input type=range id=vol min=1 max=__MAX_TONE_VOLUME__ value=15></label>
 <button id=stop>■ Stop</button>
 __TONES__
 <div id=log></div>
@@ -200,7 +209,7 @@ $('stop').onclick=()=>go('/stop',{hub:hub()},'Stop ('+hub()+')');
 $('nightlight').onclick=()=>{$('col').value='#ff8c28';$('bri').value=10;$('bv').textContent=10;send()};
 $('off').onclick=()=>{$('bri').value=0;$('bv').textContent=0;send()};
 $('rd').onclick=()=>go('/get',{hub:hub()},'Status lesen ('+hub()+')');
-</script>""".replace("__TONES__", _tone_html())
+</script>""".replace("__TONES__", _tone_html()).replace("__MAX_TONE_VOLUME__", str(MAX_TONE_VOLUME))
 
 
 
@@ -223,12 +232,24 @@ def allowed_peer(address):
     return any(peer in network for network in ALLOWED_NETWORKS)
 
 
+def allowed_request(headers):
+    # Check before routing, including GET commands triggered by cross-site images.
+    # Reject duplicate security headers rather than trusting only the first one.
+    hosts = headers.get_all("Host", [])
+    if len(hosts) != 1 or hosts[0].lower() not in ALLOWED_HOSTS:
+        return False
+    if headers.get_all("Sec-Fetch-Site", []) not in ([], ["same-origin"], ["none"]):
+        return False
+    # Direct HTTP UI only: a present Origin must match this request's allowed Host.
+    return headers.get_all("Origin", []) in ([], [f"http://{hosts[0].lower()}"])
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
     def do_GET(self):
-        if not allowed_peer(self.client_address[0]):
+        if not allowed_peer(self.client_address[0]) or not allowed_request(self.headers):
             self.send_error(403)
             return
         url = urlparse(self.path)
@@ -261,13 +282,26 @@ class H(BaseHTTPRequestHandler):
 
 
 class Server(ThreadingHTTPServer):
+    def server_bind(self):
+        if sys.platform == "linux":
+            try:
+                self.socket.setsockopt(socket.IPPROTO_IP, IP_FREEBIND, 1)
+            except OSError:
+                pass
+        super().server_bind()
+
     def handle_error(self, request, client_address):
         # BaseServer otherwise prints a traceback with arbitrary exception data.
         print("aqara-nightlight: HTTP request failed", file=sys.stderr, flush=True)
 
 
 def serve():
-    addresses = os.environ.get("AQARA_LISTEN_ADDRESSES", "127.0.0.1").split(",")
+    addresses = [address.strip() for address in os.environ.get("AQARA_LISTEN_ADDRESSES", "127.0.0.1").split(",")]
+    # Validate every entry before opening any socket. Empty strings bind all IPv4.
+    for address in addresses:
+        parsed = ipaddress.ip_address(address)
+        if parsed.version != 4 or parsed.is_unspecified:
+            raise ValueError("Listener muss eine konkrete IPv4-Adresse sein")
     port = int(os.environ.get("AQARA_PORT", "8765"))
     with ExitStack() as stack:
         servers = [stack.enter_context(Server((address, port), H)) for address in addresses]

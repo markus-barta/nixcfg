@@ -11,8 +11,9 @@ import threading
 import types
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from email.message import Message
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "hosts/hsb1/aqara-nightlight.py"
@@ -223,6 +224,22 @@ class ApiTest(unittest.TestCase):
                 self.module.play_tone("plug", 5001)
         send.assert_not_called()
 
+    def test_tone_volume_is_capped_on_the_wire(self):
+        for volume, expected in ((-1, 0), (0, 0), (15, 15), (40, 40), (41, 40), (100, 40)):
+            with self.subTest(volume=volume), patch.object(self.module, "call", return_value=(["ok"], 1)) as send:
+                result = self.module.play_tone("plug", 27, volume)
+                send.assert_called_once_with("plug", "play_music_new", ["27", expected])
+                self.assertEqual(result["vol"], expected)
+
+    def test_http_and_cli_enforce_the_volume_cap(self):
+        with patch.object(self.module, "call", return_value=(["ok"], 1)) as send:
+            handler = self.request("/tone?hub=plug&id=27&vol=100")
+            self.assertEqual(json.loads(handler._reply.call_args.args[0])["vol"], 40)
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(self.module.main(["tone", "plug", "27", "100"]), 0)
+            self.assertEqual(json.loads(output.getvalue())["vol"], 40)
+        self.assertEqual(send.call_args_list, [call("plug", "play_music_new", ["27", 40])] * 2)
+
     def test_all_25_tones_and_ui_defaults(self):
         tones = [tone for _, items in self.module.TONES for tone in items]
         self.assertEqual([i for i, _ in tones], list(range(9)) + list(range(10, 16)) + list(range(20, 30)))
@@ -232,7 +249,7 @@ class ApiTest(unittest.TestCase):
             self.assertIn(name, self.module.PAGE)
         self.assertIn('id=bri min=0 max=100 value=10', self.module.PAGE)
         self.assertIn("$('col').value='#ff8c28';$('bri').value=10", self.module.PAGE)
-        self.assertIn('id=vol min=1 max=100 value=15', self.module.PAGE)
+        self.assertIn('id=vol min=1 max=40 value=15', self.module.PAGE)
 
     def test_allowed_peers_cover_only_loopback_lan_and_tailnet(self):
         for peer in ("127.0.0.1", "::1", "192.168.1.42", "100.64.0.1", "100.127.255.254"):
@@ -240,9 +257,12 @@ class ApiTest(unittest.TestCase):
         for peer in ("192.168.2.1", "100.63.255.255", "100.128.0.1", "203.0.113.1", "2001:db8::1", "invalid"):
             self.assertFalse(self.module.allowed_peer(peer), peer)
 
-    def request(self, path, peer="192.168.1.42"):
+    def request(self, path, peer="192.168.1.42", headers=None):
         handler = object.__new__(self.module.H)
         handler.path, handler.client_address = path, (peer, 12345)
+        handler.headers = Message()
+        for name, value in headers if headers is not None else [("Host", "hsb1:8765")]:
+            handler.headers[name] = value
         handler._reply = Mock()
         handler.send_error = Mock()
         handler.do_GET()
@@ -268,6 +288,76 @@ class ApiTest(unittest.TestCase):
         handler._reply.assert_not_called()
         stop.assert_not_called()
 
+    def test_foreign_missing_and_malformed_hosts_are_rejected(self):
+        for host in (None, "", "foreign.example:8765", "hsb1.foreign.example:8765", "hsb1:80", "hsb1:8765@foreign.example"):
+            headers = [] if host is None else [("Host", host)]
+            with self.subTest(host=host), patch.object(self.module, "stop_sound") as stop:
+                handler = self.request("/stop?hub=plug", headers=headers)
+                handler.send_error.assert_called_once_with(403)
+                handler._reply.assert_not_called()
+                stop.assert_not_called()
+
+    def test_cross_site_fetch_metadata_is_rejected(self):
+        for site in ("cross-site", "same-site", "", "same-origin, cross-site"):
+            with self.subTest(site=site), patch.object(self.module, "stop_sound") as stop:
+                handler = self.request("/stop?hub=plug", headers=[("Host", "hsb1:8765"), ("Sec-Fetch-Site", site)])
+                handler.send_error.assert_called_once_with(403)
+                handler._reply.assert_not_called()
+                stop.assert_not_called()
+
+    def test_mismatched_or_malformed_origin_is_rejected(self):
+        for origin in ("http://foreign.example", "http://hsb1.lan:8765", "https://hsb1:8765", "null", "", "http://hsb1:8765/", "http://hsb1:8765@foreign.example"):
+            with self.subTest(origin=origin), patch.object(self.module, "stop_sound") as stop:
+                headers = [("Host", "hsb1:8765"), ("Sec-Fetch-Site", "same-origin"), ("Origin", origin)]
+                handler = self.request("/stop?hub=plug", headers=headers)
+                handler.send_error.assert_called_once_with(403)
+                handler._reply.assert_not_called()
+                stop.assert_not_called()
+
+    def test_all_allowed_hosts_support_their_own_ui_requests(self):
+        for name in ("127.0.0.1", "localhost", "192.168.1.101", "hsb1", "hsb1.lan", "100.64.0.7"):
+            for suffix in ("", ":8765"):
+                host = name + suffix
+                for site in (None, "same-origin", "none"):
+                    for origin in (None, "http://" + host):
+                        headers = [("Host", host)]
+                        if site is not None:
+                            headers.append(("Sec-Fetch-Site", site))
+                        if origin is not None:
+                            headers.append(("Origin", origin))
+                        with self.subTest(host=host, site=site, origin=origin), patch.object(self.module, "stop_sound", return_value={"ok": True}) as stop:
+                            handler = self.request("/stop?hub=plug", headers=headers)
+                            handler.send_error.assert_not_called()
+                            stop.assert_called_once_with("plug")
+                            self.assertEqual(json.loads(handler._reply.call_args.args[0]), {"ok": True})
+
+    def test_duplicate_security_headers_are_rejected(self):
+        for name, value in (("Host", "hsb1:8765"), ("Sec-Fetch-Site", "same-origin"), ("Origin", "http://hsb1:8765")):
+            headers = [("Host", "hsb1:8765")]
+            if name != "Host":
+                headers.append((name, value))
+            headers.append((name, value))
+            with self.subTest(header=name), patch.object(self.module, "stop_sound") as stop:
+                handler = self.request("/stop?hub=plug", headers=headers)
+                handler.send_error.assert_called_once_with(403)
+                stop.assert_not_called()
+
+    def test_same_origin_browser_request_through_http_parser(self):
+        request = Mock()
+        request.makefile.return_value = io.BytesIO(
+            b"GET /tone?hub=plug&id=27&vol=100 HTTP/1.1\r\n"
+            b"Host: hsb1:8765\r\nSec-Fetch-Site: same-origin\r\n"
+            b"Origin: http://hsb1:8765\r\n\r\n"
+        )
+        output = io.BytesIO()
+        request.sendall.side_effect = output.write
+        with patch.object(self.module, "call", return_value=(["ok"], 1)) as send:
+            self.module.H(request, ("192.168.1.42", 12345), Mock())
+        headers, body = output.getvalue().split(b"\r\n\r\n", 1)
+        self.assertIn(b"200 OK", headers)
+        self.assertTrue(json.loads(body)["ok"])
+        send.assert_called_once_with("plug", "play_music_new", ["27", 40])
+
     def test_http_cli_and_library_logging_do_not_disclose_exceptions(self):
         payload = "private-packet-fixture"
         for error in (FakeDeviceError(payload), TimeoutError(payload), ValueError(payload)):
@@ -286,6 +376,77 @@ class ApiTest(unittest.TestCase):
             finally:
                 child.setLevel(old_level)
         self.assertEqual(output.getvalue(), "")
+
+
+class ListenerTest(unittest.TestCase):
+    def setUp(self):
+        self.module = load()
+
+    def test_empty_wildcard_and_invalid_binds_fail_before_opening_any_listener(self):
+        for addresses in ("", " ", "*", "0.0.0.0", "::", "::0", "127.0.0.1,", ",127.0.0.1", "127.0.0.1,,100.64.0.7", "127.0.0.1,0.0.0.0", "127.0.0.1,*", "127.0.0.1,::", "localhost", "invalid"):
+            with self.subTest(addresses=addresses), patch.dict(self.module.os.environ, {"AQARA_LISTEN_ADDRESSES": addresses}), patch.object(self.module, "Server") as server:
+                with self.assertRaises(ValueError):
+                    self.module.serve()
+                server.assert_not_called()
+
+    def test_explicit_addresses_start_separate_listeners(self):
+        servers = [MagicMock() for _ in range(3)]
+        for server in servers:
+            server.__enter__.return_value = server
+        settings = {"AQARA_LISTEN_ADDRESSES": "127.0.0.1, 192.168.1.101,100.64.0.7", "AQARA_PORT": "8765"}
+        with patch.dict(self.module.os.environ, settings), patch.object(self.module, "Server", side_effect=servers) as constructor, patch.object(self.module.threading, "Thread") as thread, patch("sys.stdout", new_callable=io.StringIO):
+            self.module.serve()
+        self.assertEqual(constructor.call_args_list, [call((address, 8765), self.module.H) for address in ("127.0.0.1", "192.168.1.101", "100.64.0.7")])
+        self.assertEqual(thread.call_count, 2)
+        self.assertEqual(thread.return_value.start.call_count, 2)
+        servers[-1].serve_forever.assert_called_once_with()
+        for server in servers:
+            server.__exit__.assert_called_once()
+
+    def test_freebind_is_enabled_before_binding(self):
+        server = object.__new__(self.module.Server)
+        server.socket = Mock()
+        def bind():
+            server.socket.setsockopt.assert_called_once_with(self.module.socket.IPPROTO_IP, self.module.IP_FREEBIND, 1)
+        with patch.object(self.module.sys, "platform", "linux"), patch.object(self.module.ThreadingHTTPServer, "server_bind", side_effect=bind) as parent_bind:
+            server.server_bind()
+        parent_bind.assert_called_once_with()
+
+    def test_missing_tailnet_address_does_not_prevent_other_listeners(self):
+        addresses = ("127.0.0.1", "192.168.1.101", "100.64.0.7")
+        sockets = [Mock() for _ in addresses]
+        for address, listener in zip(addresses, sockets):
+            listener.getsockname.return_value = (address, 8765)
+        def bind_tailnet(address):
+            # Simulate Linux EADDRNOTAVAIL until freebind has been set.
+            if call(self.module.socket.IPPROTO_IP, self.module.IP_FREEBIND, 1) not in sockets[-1].setsockopt.call_args_list:
+                raise OSError("address not assigned")
+        sockets[-1].bind.side_effect = bind_tailnet
+        settings = {"AQARA_LISTEN_ADDRESSES": ",".join(addresses), "AQARA_PORT": "8765"}
+        with patch.dict(self.module.os.environ, settings), patch.object(self.module.sys, "platform", "linux"), patch.object(self.module.socket, "socket", side_effect=sockets), patch.object(self.module.socket, "getfqdn", return_value="hsb1"), patch.object(self.module.Server, "serve_forever") as serve, patch.object(self.module.threading, "Thread") as thread, patch("sys.stdout", new_callable=io.StringIO):
+            self.module.serve()
+        for address, listener in zip(addresses, sockets):
+            listener.bind.assert_called_once_with((address, 8765))
+            listener.listen.assert_called_once()
+            listener.close.assert_called_once_with()
+        self.assertEqual(thread.return_value.start.call_count, 2)
+        serve.assert_called_once_with()
+
+    def test_unsupported_freebind_still_attempts_normal_bind(self):
+        server = object.__new__(self.module.Server)
+        server.socket = Mock()
+        server.socket.setsockopt.side_effect = OSError("unsupported")
+        with patch.object(self.module.sys, "platform", "linux"), patch.object(self.module.ThreadingHTTPServer, "server_bind") as parent_bind:
+            server.server_bind()
+        parent_bind.assert_called_once_with()
+
+    def test_non_linux_does_not_set_linux_socket_options(self):
+        server = object.__new__(self.module.Server)
+        server.socket = Mock()
+        with patch.object(self.module.sys, "platform", "darwin"), patch.object(self.module.ThreadingHTTPServer, "server_bind") as parent_bind:
+            server.server_bind()
+        server.socket.setsockopt.assert_not_called()
+        parent_bind.assert_called_once_with()
 
 
 if __name__ == "__main__":
