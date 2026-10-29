@@ -223,10 +223,10 @@ class ApiTest(unittest.TestCase):
                 self.module.play_tone("plug", 5001)
         send.assert_not_called()
 
-    def test_all_23_tones_and_ui_defaults(self):
+    def test_all_25_tones_and_ui_defaults(self):
         tones = [tone for _, items in self.module.TONES for tone in items]
-        self.assertEqual([i for i, _ in tones], list(range(9)) + list(range(10, 14)) + list(range(20, 30)))
-        self.assertEqual(len(tones), 23)
+        self.assertEqual([i for i, _ in tones], list(range(9)) + list(range(10, 16)) + list(range(20, 30)))
+        self.assertEqual(len(tones), 25)
         for i, name in tones:
             self.assertIn(f'data-t="{i}"', self.module.PAGE)
             self.assertIn(name, self.module.PAGE)
