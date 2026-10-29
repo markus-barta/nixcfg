@@ -47,24 +47,28 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
 `100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
-`192.168.1.106`, Kinderzimmer) and **EZ-594F** (`round`, `192.168.1.108`) map to
+`192.168.1.106`, Kinderzimmer) and **WZ-594F** (`round`, `192.168.1.108`) map to
 stable API handles. The self-contained responsive page has Kind/Erwachsen
 and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
 mode and theme are remembered on the device.
-Nachtlicht defaults to **5C0701 at 44%** for both hubs. Erwachsen can save/reset
-the per-hub Nachtlicht via `/preset`; `/presets` reads it and `/apply` applies
-that same preset for the page and LOCAL-OPS's HA automations.
-`/set`, `/tone`, `/stop`, `/preset` and `/apply` accept **GET or POST** with
-exactly one `X-Nightlight: 1` header. GET-with-header is deprecated HA
-compatibility; the UI uses POST. `/`, `/get` and `/presets` are plain GETs.
-Loopback HA `/apply` needs no Origin or extra CSRF token, and returns `ok`,
-`rgb`, `brightness`; an unknown/unsaved preset returns `ok:false` with no hub
-call. Missing/invalid action headers and disallowed Host/Origin/fetch metadata
-return **403**. CORS preflights are denied and the hash-authorized HTML UI
-cannot be framed. Tone volume starts at 15% and is capped at **40%** in the
-HTTP API, CLI and UI. Its message counter and atomically saved presets are
-`/var/lib/aqara-nightlight/msgid` and `presets.json`; retain both across
-restarts and rollback. Restart with `sudo systemctl restart aqara-nightlight.service`.
+The `nacht` place defaults to **5C0701 at 44%** for both hubs. Erwachsen can
+save, rename, reset and manage up to six fixed-ID places per hub; `/presets`
+returns ordered arrays, and `/apply?hub&preset=<id>` applies any saved place.
+Old single-Nachtlicht files migrate atomically and preserve their saved values.
+KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+Without the separately owned poller feed, Desk-Signal shows **Unbekannt** at
+5%, never Aus. Per-hub use, signal rules and automatic audio persist server-side.
+Vienna quiet hours are 20:00–07:30; automatic sound starts off.
+Acting endpoints accept **GET or POST** with exactly one `X-Nightlight: 1`;
+GET-with-header remains deprecated HA compatibility. Loopback HA `/apply` needs
+no Origin or extra CSRF token; unknown/unsaved presets never call a hub. All
+Host/Origin/fetch guards, OPTIONS denial and the script-hash CSP remain in place.
+Tap controls lock immediately; drags coalesce at most once per second. Every
+slider uses an 80 px row, 20 px track and 40 px thumb. Manual tones cap at **40%**
+and support an optional 200–3000 ms stop timer; automatic audio caps at 15%.
+StateDirectory contains the reserved-ID counter, named presets and settings.
+Preserve all state on restart and prepare a reviewed schema/ID rollback before
+release; never restore an older counter. No deployment is part of this change.
 Because hsb1's firewall is disabled, the service uses explicit address binds,
 systemd IP filters and an HTTP peer allowlist. See [Smart Home](docs/SMARTHOME.md#aqara-nightlight-ops-496)
 and the [runbook](docs/RUNBOOK.md#aqara-nightlight-ops-496) for API and activation checks.

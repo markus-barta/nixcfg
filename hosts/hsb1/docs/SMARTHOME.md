@@ -12,11 +12,11 @@
 `aqara-nightlight.service` is a native Python service for light and the 25
 built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
-Kinderzimmer nightlight) and **EZ-594F** (`round`, `192.168.1.108`) map to stable
+Kinderzimmer nightlight) and **WZ-594F** (`round`, `192.168.1.108`) map to stable
 API handles. On first visit the responsive page starts in Kind with KI-18FB
 selected; hub choice, Kind/Erwachsen and Hell/Dunkel are device preferences.
 Switching out of Kind or opening its loud tones requires a one-second hold.
-Brightness sends on release; readback is marked ≈ because hardware values can lag. The default
+Brightness and colour drags coalesce at one command per second and send the final release value; readback is marked ≈ because hardware values can lag. The default
 Nachtlicht is **5C0701 at 44%** for both hubs; tone volume starts at 15%.
 The HTML is a separate self-contained file packaged by Nix and read once at
 service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
@@ -43,28 +43,33 @@ The HTTP Host allowlist accepts `127.0.0.1`, `localhost`, `192.168.1.101`,
 match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**. These checks are defence in depth because browsers can omit
 Origin and fetch metadata on plain HTTP. Every acting endpoint (`/set`,
-`/tone`, `/stop`, `/preset`, `/apply`) requires exactly one
+`/tone`, `/stop`, `/preset`, `/apply`, `/settings`, `/seen`, `/signal-test`) requires exactly one
 `X-Nightlight: 1` header; absent, duplicated or invalid headers return **403**.
 Actions accept **GET or POST** for this release. **GET-with-header is deprecated**
 compatibility for Home Assistant's existing `rest_command`; new callers and
 the UI use POST. The custom header is the CSRF protection. `/`, `/get` and
-`/presets` remain safe GETs without it. POST to these read-only paths returns 405. Cross-origin scripts need a preflight to send the custom header; **OPTIONS
+`/presets`, `/config` and `/signal` remain read-only GETs without it. POST to these read-only paths returns 405. Cross-origin scripts need a preflight to send the custom header; **OPTIONS
 returns 403** without CORS permission headers. CSP `frame-ancestors 'none'`
 and `X-Frame-Options: DENY` prevent framing of the HTML UI. Unlisted tunnel
 Hosts or ports are rejected too. Linux `IP_FREEBIND` keeps LAN/loopback
 available while the tailnet address is absent. Empty or wildcard bind
 addresses fail startup before any listener opens.
 
-| Method      | Path       | Parameters                                     | Behavior                                                                 |
-| ----------- | ---------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
-| GET         | `/`        | —                                              | Responsive light/sound UI; Nachtlicht 5C0701 at 44%, volume 15           |
-| GET or POST | `/set`     | `hub`, `rgb` (RRGGBB), `bri` (0–100)           | `set_rgb [(bri << 24) \| rgb]`; resend after 300 ms                      |
-| GET         | `/get`     | `hub`                                          | `get_prop ["rgb", "illumination"]`; hardware readback can lag            |
-| GET or POST | `/tone`    | `hub`, `id`, optional `vol` (default 15)       | `play_music_new ["<id>", vol]`                                           |
-| GET or POST | `/stop`    | `hub`                                          | `set_sound_playing ["off"]`                                              |
-| GET         | `/presets` | —                                              | `{ok, presets: {plug: {nacht: {rgb, bri}}, round: {nacht: {rgb, bri}}}}` |
-| GET or POST | `/preset`  | `hub`, `name=nacht`, `rgb`, `bri` or `reset=1` | Save per-hub Nachtlicht or restore 5C0701 at 44%; no hardware call       |
-| GET or POST | `/apply`   | `hub`, `preset=nacht`                          | Apply the saved Nachtlicht; JSON `ok`, `rgb`, `brightness`, like `/set`  |
+| Method      | Path           | Parameters                                            | Behavior                                        |
+| ----------- | -------------- | ----------------------------------------------------- | ----------------------------------------------- |
+| GET         | `/`            | —                                                     | Responsive Nachtlicht/Desk UI                   |
+| GET or POST | `/set`         | `hub`, `rgb`, `bri`                                   | Manual light; one 300 ms echo                   |
+| GET         | `/get`         | `hub`                                                 | Approximate RGB/illumination readback           |
+| GET or POST | `/tone`        | `hub`, `id`, optional `vol`, `ms=200..3000`           | Play; optional timed stop                       |
+| GET or POST | `/stop`        | `hub`                                                 | Stop; cancel timed stop                         |
+| GET         | `/presets`     | —                                                     | Ordered `[{id,name,rgb,bri}]` per hub           |
+| GET or POST | `/preset`      | `hub`, `id` plus colour/name/reset/delete, or `new=1` | Save/manage up to six places; no light command  |
+| GET or POST | `/apply`       | `hub`, `preset=<id>`                                  | Apply any saved place; HA-compatible JSON       |
+| GET         | `/config`      | —                                                     | Per-hub Verwendung, rules, thresholds and sound |
+| GET or POST | `/settings`    | `hub`, setting fields                                 | Persist use, rules or sound                     |
+| GET         | `/signal`      | `hub`                                                 | Resolved signal, counts and last hub ACK        |
+| GET or POST | `/seen`        | `hub`                                                 | Quiet until a new held generation               |
+| GET or POST | `/signal-test` | `hub`, `rule`, optional rule fields                   | Ten-second preview, then live signal            |
 
 All acting calls need `X-Nightlight: 1`; parameters remain in the query string
 for both methods. Prefer `-H 'X-Nightlight: 1' -X POST` with curl. `/apply`
@@ -77,8 +82,10 @@ both the page and HA's Kinderzimmer double-press/Gute-Nacht actions. A missing
 file supplies the defaults for both hubs; an absent entry in an existing file
 is unsaved. Saves use a separate stable `presets.json.lock` and an atomic,
 private file replacement, with file/directory sync. Corrupt state fails closed
-rather than silently applying defaults or overwriting it. The page offers
-Erwachsen-only save confirmation, default reset and Undo; HA configuration
+rather than silently applying defaults or overwriting it. The old single-Nachtlicht file migrates atomically and losslessly to named slots
+`nacht`, `p2`–`p6`; IDs stay fixed and `nacht` cannot be deleted. The page offers
+an Erwachsen-only “Speichern als …” sheet with rename, delete confirmation,
+default reset and save-only Undo; HA configuration
 remains LOCAL-OPS-owned. See the [runbook](RUNBOOK.md#aqara-nightlight-ops-496)
 for complete examples.
 
@@ -95,11 +102,29 @@ do not replace a newer command's status. The CSP permits only the packaged
 script's SHA-256 hash, inline styles and same-origin connections/SVG references.
 No handshake token or raw library exception is logged.
 
-One lock per hub, a 1.5 s timeout, at most four attempts with a fresh handshake
-after packet/session failure, and the shared file-locked counter preserve the
-verified reliability behavior. The counter persists at
-`/var/lib/aqara-nightlight/msgid` in a systemd-managed 0700 StateDirectory
-with a dynamic user. Do not delete/reset it or run an independent controller.
+KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Use,
+11 matrix rules, four-hour urgency thresholds and automatic audio are persisted
+in `settings.json`. Until the separately owned poller supplies the documented
+`desk-counts.json` input, the Desk hub stays **Unbekannt** at 5%, and both desk
+rows say “nicht verbunden”. This service has no Desk credentials or poller.
+Automatic sound starts off, is capped at 15%, never repeats a consumed held
+generation, and is limited to once per ten minutes. Vienna quiet hours
+20:00–07:30 disable animation/audio and hold lit rules at 5%.
+
+Each hub has a lock and a dedicated bounded signal worker. Blink/alternate ticks
+send one attempt, skip busy hubs, and have a 2–5 s Takt. Manual commands pause the
+engine through their reply and retain the existing four-attempt reliability
+path. Explicit 1.5 s discovery and response timeouts bound transport at 19.4 s
+including lock wait and echo; the page times out after 30 s. Tap controls lock
+immediately; the overlay appears after 250 ms with actual streamed retry
+progress. Drags wait for replies, coalesce and stay at one per second.
+
+The shared counter reserves blocks of 256 monotonic wire IDs, with file and
+directory sync per block; restart discards unused IDs. It bypasses python-miio's
+internal 9999 wrap. Preserve `msgid`, `msgid.lock`, presets and settings; never
+restore an older counter. Old code cannot read new preset arrays, so rollback
+requires a reviewed compatibility plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
+for API details, retry budgets, the exact feed schema and poller ownership.
 
 **Integration ownership:** DEVOPS verified on **2026-10-29** that hsb1's live
 HA `config_entries` contain no `xiaomi_aqara` or `xiaomi_miio` entries. The

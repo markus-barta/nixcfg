@@ -22,8 +22,10 @@ Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
 and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
-**EZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
-same-origin guarded API. Both hubs default to Nachtlicht **5C0701 at 44%**.
+**WZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
+same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on both hubs.
+KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
 Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
 the server. On first load no light is marked as commanded: brightness starts
 from approximate readback and “Zuletzt: noch kein Befehl” remains until a light
@@ -33,31 +35,52 @@ command succeeds.
 systemctl status aqara-nightlight.service --no-pager
 journalctl -u aqara-nightlight.service --since '1 hour ago' --no-pager
 sudo systemctl restart aqara-nightlight.service
-curl --fail --max-time 15 'http://127.0.0.1:8765/get?hub=plug' | jq -e .ok
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=5C0701&bri=44' | jq -e .ok
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/stop?hub=plug' | jq -e .ok
-curl --fail --max-time 15 'http://127.0.0.1:8765/presets' | jq -e .ok
+curl --fail --max-time 30 'http://127.0.0.1:8765/get?hub=plug' | jq -e .ok
+curl --fail --max-time 30 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/set?hub=plug&rgb=5C0701&bri=44' | jq -e .ok
+curl --fail --max-time 30 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/stop?hub=plug' | jq -e .ok
+curl --fail --max-time 30 'http://127.0.0.1:8765/presets' | jq -e .ok
 # Save/reset only changes the named hub's preset; these calls do not touch the lamp.
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&rgb=5C0701&bri=44' | jq -e .ok
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&name=nacht&reset=1' | jq -e .ok
+curl --fail --max-time 30 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&id=nacht&rgb=5C0701&bri=44' | jq -e .ok
+curl --fail --max-time 30 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/preset?hub=plug&id=nacht&reset=1' | jq -e .ok
 # Shared preset path for the page and LOCAL-OPS's HA automations:
-curl --fail --max-time 15 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/apply?hub=plug&preset=nacht' | jq -e .ok
+curl --fail --max-time 30 -H 'X-Nightlight: 1' -X POST 'http://127.0.0.1:8765/apply?hub=plug&preset=nacht' | jq -e .ok
 sudo cat /var/lib/aqara-nightlight/msgid  # message counter only, never a token
 ```
 
 StateDirectory `/var/lib/aqara-nightlight` has mode 0700; systemd gives the
 dynamic service user write access even with `ProtectSystem=strict`. The
-`msgid` file is shared under `flock`, flushed and synced before unlock, and
-retained on restart. IDs stay below 9999, increment through 9000, then choose
-a new start in 1–3000 as in the prototype. Do not delete/reset this file or
-replace it while the service is running. The handshake token stays only in
-memory; logs contain fixed error categories, never library exception bodies.
-`presets.json` in the same StateDirectory stores per-hub `{nacht: {rgb, bri}}`
-objects. Saves serialize using a separate stable `presets.json.lock`, write
-0600 temporary files beside it, fsync, atomically replace, then sync the
-directory. Both hubs use 5C0701 at 44% when the file is absent. Unknown or
-unsaved presets return `ok:false` from `/apply` without a hub call; corrupt
-state also fails closed. Preserve this file and the counter during rollback.
+`msgid` file records the durable reservation high-water mark. A separate stable
+`msgid.lock` serializes processes. Reserve 256 IDs with a private atomic replacement,
+file fsync and directory fsync before issuing any of them; subsequent commands
+use memory. A restart discards unused reservations, so gaps are expected and a
+crash never reuses an issued ID. IDs are monotonic up to 2147483000; exhaustion or
+corruption fails closed. Counter I/O/format failure returns `msgid_state`, logs
+`aqara-nightlight: message id state failed` and makes no hub call; it is never
+reported as a hub timeout. No rolling/random reset remains. python-miio's own
+9999 wrap is bypassed on the wire using `extra_parameters={"id": reserved_id}`.
+Never delete/reset these files or restore an older counter after commands have
+been issued. The handshake token stays only in memory; logs contain fixed error
+categories, never library exception bodies.
+
+`presets.json` contains ordered arrays per hub: `[{id,name,rgb,bri}, ...]`.
+There are at most six fixed slots: `nacht`, `p2`–`p6`. Defaults also include Warm
+FF8C28/40, Hell FFF4E0/80 and Rot leise FF2A00/5. The old
+`{hub:{nacht:{rgb,bri}}}` shape is accepted and migrated on first access, retaining
+its exact Nachtlicht colour/brightness and adding the other three defaults.
+Missing old `nacht` entries remain unsaved. Migration validates every hub before
+writing, is atomic and idempotent, and shares `presets.json.lock` with saves.
+Saves use 0600 temporary files, fsync, replace and directory fsync. A missing file
+supplies defaults; unknown/unsaved `/apply` returns `ok:false` without a hub call.
+Reset keeps the slot's ID and name; deleting a slot never renumbers other slots.
+`nacht` cannot be deleted. The page's Erwachsen-only “Speichern als …” sheet
+provides previews, inline rename, delete confirmation, reset and save-only Undo.
+
+`settings.json`, serialized by `settings.json.lock` and written atomically, stores
+per-hub use, the 11 signal rules, thresholds, automatic audio settings, Gesehen
+and consumed sound-generation high-water marks. Preserve all state files across
+restarts. Corrupt settings fail closed with `settings_corrupt` and the fixed
+journal line `aqara-nightlight: settings state corrupt`.
+
 Corrupt JSON/schema returns `code: presets_corrupt` with
 “Gespeicherte Nachtlicht-Vorgaben beschädigt; Server prüfen” and logs the fixed
 line `aqara-nightlight: preset state corrupt; stop service and move presets.json aside before restart`.
@@ -72,7 +95,8 @@ sudo systemctl start aqara-nightlight.service
 
 Confirm the move succeeded before starting; preserve the backup, `msgid` and
 `presets.json.lock`. With no presets file, both hubs use 5C0701 at 44%; recovery
-does not send a lamp command. Re-save any desired custom presets afterward.
+does not call `/apply`. A Desk hub resumes its configured signal on service start.
+Re-save any desired custom presets afterward.
 Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
 the Nix-packaged HTML, loaded once at startup; a separately approved release
 and service restart are needed to change the live page.
@@ -88,13 +112,14 @@ accepts only Host names `127.0.0.1`, `localhost`, `192.168.1.101`, `hsb1`,
 match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**, including an unlisted tunnel Host or port. These checks are
 defence in depth: browsers can omit Origin and fetch metadata on plain HTTP.
-Every acting endpoint (`/set`, `/tone`, `/stop`, `/preset`, `/apply`) requires
+Every acting endpoint (`/set`, `/tone`, `/stop`, `/preset`, `/apply`, `/settings`,
+`/seen`, `/signal-test`) requires
 exactly one
 `X-Nightlight: 1` header, returning **403** if absent, duplicated or invalid.
 With that header, these endpoints accept **GET or POST** in this release.
 **GET-with-header is deprecated** compatibility for HA's existing
 `rest_command`; new callers and the built-in UI use POST. `/`, `/get` and
-`/presets` remain plain GETs without the custom header (POST returns 405).
+`/presets`, `/config` and `/signal` remain plain GETs without the custom header (POST returns 405).
 Loopback `/apply` requires the header but no Origin or extra CSRF token. Its
 JSON includes `ok`, `rgb` (RRGGBB) and `brightness`, as `/set` does. HA callers
 should inspect `.ok`, since invalid/unknown preset requests return HTTP 200
@@ -120,6 +145,125 @@ limiting retry every five seconds, including invalid listener settings.
 Check the journal, configured addresses/port and `tailscaled.service` when
 diagnosing failures; raw exception details are never logged.
 
+### Round 4 API and timing
+
+`GET /presets` returns `{ok:true,presets:{plug:[{id,name,rgb,bri},...],round:[...]}}`.
+`POST /preset?hub=...` supports `id&rgb&bri` (save), `id&name` (rename, 1–16
+characters), `new=1` (optional colour/brightness/name; refused when full),
+`id&delete=1` (except `nacht`), and `id&reset=1`. The old `name=nacht` save/reset
+caller remains compatible; new clients use `id=nacht`.
+`/apply?hub&preset=<id>` accepts every saved slot with the same HA
+loopback/header/no-Origin contract. No HA configuration is changed here.
+
+`GET /config` reads per-hub settings. `POST /settings?hub&usage=nightlight|desk`
+changes use. Other supported updates are `threshold_ppm=1..48`,
+`threshold_pma=1..48`, `auto_sound=0|1`, `sound_vol=0..15`, and
+`sound_ms=200..3000` (empty value means Ganz). A rule update uses
+`rule=urgent:ppm|urgent:pma|urgent:both|regular:ppm|regular:pma|regular:both|open:ppm|open:pma|open:both|idle|unknown`
+plus `rgb`, `bri`, `mode=steady|blink|alternate`, `rgb2`, `takt=2..5`.
+`all=1` copies a matrix cell to all three desk columns in its row.
+Unbekannt must stay lit: nonzero brightness, nonblack colours, and no blink/off
+mode. The editor warns when Ruhe looks too similar.
+`GET /signal?hub` returns the resolved rule, current counts or null, and the last
+hub ACK separately. `POST /seen?hub` quiets a current generation until a new
+held item arrives; missing/stale data remains Unbekannt.
+`POST /signal-test?hub&rule=<key>` tests a saved rule for ten seconds; the editor
+can supply the same validated rule fields to test an unsaved draft. It returns
+to the live rule. Quiet hours still apply.
+
+`/tone` accepts optional `ms=200..3000` and schedules a single stop after the
+play ACK plus that duration. A new tone or explicit Stopp cancels the old timer;
+a failed scheduled stop logs `aqara-nightlight: timed sound stop failed`.
+Manual volume still caps at 40%; automatic sound caps at 15% and starts disabled.
+Automatic audio consumes each new held generation durably before play, at most
+once per ten minutes per hub, never during 20:00–07:30 Europe/Vienna. Suppressed
+generations do not replay later. `zoneinfo` uses bundled tzdata for DST.
+During quiet hours, lit rules stay at 5% with no animation; Aus rules remain Aus.
+
+Tap commands disable all controls immediately. At 250 ms a top-layer blur card
+appears; its attempt count comes from NDJSON progress on the same request
+(`Accept: application/x-ndjson`). No progress polling or automatic readback after
+commands is needed. HA/default clients continue to receive plain JSON. Drags
+have no overlay, send at most one command per second, wait for the previous
+reply, coalesce values and send the final release value. A tap arriving during
+a drag locks immediately and waits for that in-flight reply.
+
+Upstream [python-miio transport](https://github.com/rytilahti/python-miio/blob/0.5.12/miio/miioprotocol.py)
+uses a separate **5 s** default for discovery; the instance timeout does not
+bound `send_handshake`. The service calls `discover(address, timeout=1.5)` once
+and initializes the protocol handshake fields before sending. Each attempt is
+bounded by 1.5 s discovery + 1.5 s response. Four attempts plus backoff cost at
+most 12.9 s; the light echo adds 0.3 + 3 s = **16.2 s**. A page may wait up to
+3.2 s for the hub lock; the **30 s** browser timeout covers the **19.4 s**
+transport budget with headroom for local I/O. A busy hub returns a retryable
+`hub_busy` response instead of queuing indefinitely. A cold engine tick can
+take 3 s; missed ticks are skipped, so the configured 2 s minimum is a rate cap,
+not a promise to achieve 2 s when reconnecting. Each blink tick sends exactly
+one `set_rgb` attempt, without the manual-light echo or retries, and uses a
+nonblocking hub lock. Page requests pause it through the HTTP reply. State
+changes start on the new rule's defined first/static colour; leaving Desk use
+finishes the old animation before another page command can start. Dedicated
+per-hub daemon workers catch exceptions with the fixed line
+`aqara-nightlight: signal engine tick failed`; they cannot crash the HTTP loop.
+
+### Future poller input (poller is outside OPS-496 round 4)
+
+The only feed input is `/var/lib/aqara-nightlight/desk-counts.json`. The service
+makes **no outbound Desk/API calls**. Both desk labels say “nicht verbunden”
+when missing; the signal is Unbekannt, never Aus. The future poller owns fetching,
+credentials, restart/watchdog and cross-context approval. PPM first; PMA access
+still requires the owner's explicit approval. Nothing in this file grants it.
+
+Write UTF-8 JSON atomically beside the target, with a readable private mode for
+the service's DynamicUser/StateDirectory and no titles, content, identities,
+credentials or item IDs. Arrange shared write/read ownership declaratively in
+the poller ticket; do not relax this service's permissions. Maximum input is
+16 KiB. Exact schema (all timestamps are Unix UTC seconds):
+
+```json
+{
+  "version": 1,
+  "updated_at": 1793271600,
+  "desks": {
+    "ppm": {
+      "open": 3,
+      "held": 2,
+      "oldest_held_at": 1793260800,
+      "oldest_expiry_at": null,
+      "generation": 17
+    }
+  }
+}
+```
+
+`desks` is nonempty and may contain only `ppm` and/or `pma`; omission means not
+connected, never zero counts. No extra fields are allowed. `open` includes held;
+`0 <= held <= open`, both integer counts. `oldest_held_at` is required when held
+is nonzero, otherwise null is allowed. `oldest_expiry_at` is the earliest held
+approval expiry or null. `generation` is a durable monotonic nonnegative integer
+per desk, incremented only for a newly waiting held item, never reset on polling
+or restart and never incremented just because an existing item ages or is read.
+It is a counts-only event watermark, not an item ID; persist it in the poller.
+If the provider cannot supply this semantics, keep automatic sound disabled
+until its poller mapping has been reviewed. All counts/generations are at most 9007199254740991. Poll every 30–60 s. Missing, invalid, future-dated or older than
+**120 s** means Unbekannt. A present desk with zero counts means Ruhe. One
+connected desk is sufficient to resolve that desk's state; an absent second
+desk is shown as not connected and is never included in Beide.
+
+Mapping: urgent held expiry within one hour or oldest held age at/above the
+per-desk threshold (default four hours) selects Dringend; otherwise held selects
+Regulär; open minus held selects Ohne Eile; neither selects Ruhe. Highest urgency
+wins the row; both desks with held items select Beide even when only one is
+urgent. Ohne Eile is considered only when no desk has held items. Gesehen
+suppresses the current held-generation pair, never a missing feed.
+
+Before a future deployment, capture a private state backup and the prior NixOS
+generation. Old service revisions cannot read the new preset arrays. Preserve
+the complete new state when planning a schema rollback; the old rolling-ID
+transport also needs an owner-reviewed compatibility plan. Restoring a stale
+`msgid` is not a safe rollback. No migration, remote backup or deployment was
+performed while preparing this change.
+
 For each separately reviewed OPS release:
 
 1. DEVOPS verified on **2026-10-29** that hsb1's live HA `config_entries`
@@ -138,19 +282,19 @@ For each separately reviewed OPS release:
    cgroup/BPF IP-filter warnings and verify the rendered `IPAddressAllow` and
    `IPAddressDeny` settings. Test LAN and tailnet access from actual clients;
    test rejection from outside those ranges and confirm no public route.
-4. For **each** of KI-18FB (`plug`) and EZ-594F (`round`), visually check
+4. Actual blink or sound tests require LOCAL-OPS's or Markus's explicit go and
+   target WZ-594F only. Under a separately approved light check, visually check
    Nachtlicht `5C0701` at 44%, another color and off. Readback can lag; an ACK
    alone does not prove
    the lamp changed. Play one short tone at volume **10**, stop immediately
    with `/stop`, and confirm silence. Avoid unattended sound tests.
 5. Record `msgid`, restart the unit, issue a request and confirm the counter
-   continued (allowing the documented wrap at 9000), rather than restarting
-   at 1. Confirm both gateways still respond after the restart. Save a custom
+   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm both gateways still respond after the restart. Save a custom
    Nachtlicht for one hub and check that `/presets` and `/apply` retain it
    across restart while the other hub is unchanged; reset afterwards.
 6. Tick's design approval remains required before merge: check the actual page
    on hsb1 in Kind/Erwachsen × Hell/Dunkel, at phone and laptop widths. Verify
-   holds, fixed status/no layout jumps, release-only brightness, low-brightness
+   holds, fixed status/no layout jumps, the immediate tap lock and throttled drags, low-brightness
    color hint, approximate readback/lux, save confirmation/reset/Undo, and
    offline/retry/403 behavior. A blocked browser launch is not a QA pass.
 

@@ -73,17 +73,18 @@ class CounterTest(unittest.TestCase):
         self.assertEqual(self.module._next_id(), 4001)
         fresh = load()
         fresh.ID_FILE = str(self.path)
-        self.assertEqual(fresh._next_id(), 4002)
+        self.assertEqual(fresh._next_id(), 4257)  # unspent reserved IDs are discarded
 
-    def test_initial_corrupt_and_wrapped_state_stays_in_prototype_range(self):
-        for state in (None, "", "corrupt", "-1", "0", "9000", "9999"):
-            with self.subTest(state=state), patch.object(self.module.random, "randint", return_value=1234):
-                if state is not None:
-                    self.path.write_text(state)
-                self.assertEqual(self.module._next_id(), 1234)
-                self.assertEqual(self.path.read_text(), "1234")
-        self.path.write_text("8999")
-        self.assertEqual(self.module._next_id(), 9000)
+    def test_counter_never_wraps_and_corrupt_state_fails_closed(self):
+        for state in ("", "corrupt", "-1", str(self.module.ID_LIMIT)):
+            with self.subTest(state=state):
+                self.path.write_text(state)
+                with self.assertRaises(ValueError):
+                    self.module._next_id()
+                self.assertEqual(self.path.read_text(), state)
+        self.path.write_text("9998")
+        self.assertEqual(self.module._next_id(), 9999)
+        self.assertEqual(self.module._next_id(), 10000)
 
     def test_concurrent_threads_get_distinct_ids(self):
         self.path.write_text("100")
@@ -111,8 +112,10 @@ print(','.join(str(module._next_id()) for _ in range(40)))
             stdout, stderr = child.communicate(timeout=15)
             self.assertEqual(child.returncode, 0, stderr)
             ids.extend(map(int, stdout.strip().split(",")))
-        self.assertEqual(sorted(ids), list(range(101, 261)))
-        self.assertEqual(self.path.read_text(), "260")
+        self.assertEqual(len(set(ids)), 160)
+        expected = sorted(start+i for start in (101,357,613,869) for i in range(40))
+        self.assertEqual(sorted(ids), expected)
+        self.assertEqual(int(self.path.read_text()), 1124)
 
 
 class ProtocolTest(unittest.TestCase):
@@ -125,7 +128,7 @@ class ProtocolTest(unittest.TestCase):
     def fake_protocol(self, outcome=None):
         protocol = Mock()
         def send(*args, **kwargs):
-            protocol._MiIOProtocol__id += 1
+            protocol._MiIOProtocol__id = kwargs["extra_parameters"]["id"]
             if isinstance(outcome, Exception):
                 raise outcome
             return outcome or ["ok"]
@@ -134,10 +137,12 @@ class ProtocolTest(unittest.TestCase):
 
     def test_handshake_and_timeout_contract(self):
         protocol = self.module.MiIOProtocol.return_value
-        handshake = protocol.send_handshake.return_value
+        handshake = self.module.MiIOProtocol.discover.return_value
         self.assertIs(self.module._connect("plug"), protocol)
         self.module.MiIOProtocol.assert_called_once_with("192.168.1.106", timeout=1.5)
-        protocol.send_handshake.assert_called_once_with(retry_count=1)
+        self.module.MiIOProtocol.discover.assert_called_once_with("192.168.1.106", timeout=1.5)
+        protocol.send_handshake.assert_not_called()
+        self.assertTrue(protocol._discovered)
         self.assertIs(protocol.token, handshake.checksum)
 
     def test_retry_rehandshakes_and_uses_new_id_without_library_retry(self):
@@ -148,8 +153,8 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(connect.call_count, 2)
         self.assertEqual(lost._MiIOProtocol__id, 101)
         self.assertEqual(good._MiIOProtocol__id, 103)
-        lost.send.assert_called_once_with("set_rgb", [1], retry_count=0)
-        good.send.assert_has_calls([call("set_rgb", [1], retry_count=0), call("get_prop", [], retry_count=0)])
+        lost.send.assert_called_once_with("set_rgb", [1], retry_count=0, extra_parameters={"id":101})
+        good.send.assert_has_calls([call("set_rgb", [1], retry_count=0, extra_parameters={"id":102}), call("get_prop", [], retry_count=0, extra_parameters={"id":103})])
         self.sleep.assert_called_once_with(0.15)
 
     def test_exactly_four_attempts_then_no_cached_session_or_exception_payload(self):
@@ -172,7 +177,7 @@ class ProtocolTest(unittest.TestCase):
         with patch.object(self.module, "_connect", side_effect=[TimeoutError(), peer]) as connect:
             self.assertEqual(self.module.call("round", "get_prop"), (["ok"], 2))
         self.assertEqual(connect.call_count, 2)
-        self.ids.assert_called_once()
+        self.assertEqual(self.ids.call_count, 2)
 
     def test_device_verdict_is_not_retried(self):
         peer = self.fake_protocol(FakeDeviceError("private-packet-fixture"))
@@ -311,7 +316,7 @@ class ApiTest(unittest.TestCase):
         for path, function, args in (
             ("/set?hub=plug&rgb=FF8C28&bri=10", "set_light", ("plug", "FF8C28", "10")),
             ("/get?hub=round", "get_light", ("round",)),
-            ("/tone?hub=plug&id=27", "play_tone", ("plug", "27", 15)),
+            ("/tone?hub=plug&id=27", "play_tone", ("plug", "27", 15, None)),
             ("/stop?hub=round", "stop_sound", ("round",)),
         ):
             with self.subTest(path=path), patch.object(self.module, function, return_value={"ok": True}) as route:
@@ -495,6 +500,11 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
 
 
+def nacht(presets, hub):
+    p = next(p for p in presets[hub] if p["id"] == "nacht")
+    return {"rgb":p["rgb"], "bri":p["bri"]}
+
+
 class PresetTest(unittest.TestCase):
     request = ApiTest.request
     parsed_request = ApiTest.parsed_request
@@ -514,7 +524,7 @@ class PresetTest(unittest.TestCase):
     def test_defaults_for_both_hubs_are_readable_without_custom_header(self):
         with patch.object(self.module, "call") as send:
             result = self.result("/presets", method="GET", headers=[("Host", "127.0.0.1:8765")])
-        self.assertEqual(result, {"ok": True, "presets": {hub: {"nacht": {"rgb": "5C0701", "bri": 44}} for hub in ("plug", "round")}})
+        self.assertEqual(result, {"ok": True, "presets": self.module._default_presets()})
         send.assert_not_called()
         self.assertFalse(self.path.exists())
 
@@ -522,12 +532,12 @@ class PresetTest(unittest.TestCase):
         with patch.object(self.module, "call") as send:
             saved = self.result("/preset?hub=plug&name=nacht&rgb=ffb46b&bri=5")
             self.assertTrue(saved["ok"])
-            self.assertEqual(saved["presets"]["plug"]["nacht"], {"rgb": "FFB46B", "bri": 5})
-            self.assertEqual(saved["presets"]["round"]["nacht"], {"rgb": "5C0701", "bri": 44})
+            self.assertEqual(nacht(saved["presets"], "plug"), {"rgb": "FFB46B", "bri": 5})
+            self.assertEqual(nacht(saved["presets"], "round"), {"rgb": "5C0701", "bri": 44})
             self.result("/preset?hub=round&name=nacht&rgb=112233&bri=6", method="GET")
             reset = self.result("/preset?hub=plug&name=nacht&reset=1")
-            self.assertEqual(reset["presets"]["plug"]["nacht"], {"rgb": "5C0701", "bri": 44})
-            self.assertEqual(reset["presets"]["round"]["nacht"], {"rgb": "112233", "bri": 6})
+            self.assertEqual(nacht(reset["presets"], "plug"), {"rgb": "5C0701", "bri": 44})
+            self.assertEqual(nacht(reset["presets"], "round"), {"rgb": "112233", "bri": 6})
         send.assert_not_called()
 
     def test_persists_across_a_fresh_process_module_with_state_directory(self):
@@ -535,10 +545,10 @@ class PresetTest(unittest.TestCase):
         with patch.dict(self.module.os.environ, {"STATE_DIRECTORY": self.tmp.name}):
             restarted = load()
         self.assertEqual(restarted.PRESET_FILE, self.path)
-        self.assertEqual(restarted.get_presets()["presets"]["plug"]["nacht"], {"rgb": "FFB46B", "bri": 5})
-        self.assertEqual(restarted.get_presets()["presets"]["round"]["nacht"], {"rgb": "5C0701", "bri": 44})
+        self.assertEqual(nacht(restarted.get_presets()["presets"], "plug"), {"rgb": "FFB46B", "bri": 5})
+        self.assertEqual(nacht(restarted.get_presets()["presets"], "round"), {"rgb": "5C0701", "bri": 44})
         restarted.save_preset("plug", "nacht", reset=True)
-        self.assertEqual(self.module.get_presets()["presets"]["plug"]["nacht"], self.module.DEFAULT_NIGHTLIGHT)
+        self.assertEqual(nacht(self.module.get_presets()["presets"], "plug"), self.module.DEFAULT_NIGHTLIGHT)
 
     def test_atomic_write_is_complete_private_and_preserves_counter_inode(self):
         counter = Path(self.module.ID_FILE)
@@ -550,7 +560,7 @@ class PresetTest(unittest.TestCase):
             staged = Path(source)
             self.assertEqual(staged.parent, self.path.parent)
             self.assertEqual(staged.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(json.loads(staged.read_text())["plug"]["nacht"], {"rgb": "ABCDEF", "bri": 9})
+            self.assertEqual(nacht(json.loads(staged.read_text()), "plug"), {"rgb": "ABCDEF", "bri": 9})
             observed.append((source, destination))
             replace(source, destination)
         with patch.object(self.module.os, "replace", side_effect=inspect_replace):
@@ -573,8 +583,8 @@ class PresetTest(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(lambda i: self.module.save_preset("plug" if i % 2 else "round", "nacht", "123456" if i % 2 else "ABCDEF", 5), range(40)))
         presets = self.module.get_presets()["presets"]
-        self.assertEqual(presets["plug"]["nacht"], {"rgb": "123456", "bri": 5})
-        self.assertEqual(presets["round"]["nacht"], {"rgb": "ABCDEF", "bri": 5})
+        self.assertEqual(nacht(presets, "plug"), {"rgb": "123456", "bri": 5})
+        self.assertEqual(nacht(presets, "round"), {"rgb": "ABCDEF", "bri": 5})
 
     def test_independent_processes_do_not_lose_other_hub_updates(self):
         program = """
@@ -593,8 +603,8 @@ for i in range(12):
             _, error = child.communicate(timeout=15)
             self.assertEqual(child.returncode, 0, error)
         saved = self.module.get_presets()["presets"]
-        self.assertEqual(saved["plug"]["nacht"], {"rgb": "123456", "bri": 11})
-        self.assertEqual(saved["round"]["nacht"], {"rgb": "ABCDEF", "bri": 11})
+        self.assertEqual(nacht(saved, "plug"), {"rgb": "123456", "bri": 11})
+        self.assertEqual(nacht(saved, "round"), {"rgb": "ABCDEF", "bri": 11})
 
     def test_apply_default_and_saved_nightlight_returns_set_shape_for_ha(self):
         for method in ("GET", "POST"):
@@ -696,7 +706,7 @@ class PageTest(unittest.TestCase):
 
     def test_each_button_has_one_matching_preset_swatch_or_tone_attribute_set(self):
         expected = {
-            "data-preset": {"warm": None, "hell": None, "rot": None},
+            "data-preset": {i:None for i in ("p2", "p3", "p4", "p5", "p6")},
             "data-color": {"FF8C28": "Warmweiß", "FFB46B": "Hellwarm", "FF5A00": "Orange", "FF0000": "Rot", "0000FF": "Blau", "FFFFFF": "Weiß"},
             "data-t": {str(i): name for _, tones in self.module.TONES for i, name in tones},
         }
@@ -739,7 +749,7 @@ class PageTest(unittest.TestCase):
             with patch.dict(self.module.os.environ, {"AQARA_PAGE_FILE": str(page)}):
                 restarted = load(page=False)
                 self.assertEqual(restarted.PAGE, "")
-                with patch.dict(restarted.os.environ, {"AQARA_LISTEN_ADDRESSES": "127.0.0.1"}), patch.object(restarted, "Server", MagicMock()), patch("sys.stdout", new_callable=io.StringIO):
+                with patch.dict(restarted.os.environ, {"AQARA_LISTEN_ADDRESSES": "127.0.0.1"}), patch.object(restarted, "Server", MagicMock()), patch.object(restarted.SignalEngine, "start"), patch("sys.stdout", new_callable=io.StringIO):
                     restarted.serve()
             self.assertEqual(restarted.PAGE, page.read_text())
             page.write_text("changed after startup")
@@ -789,8 +799,8 @@ class ListenerTest(unittest.TestCase):
         with patch.dict(self.module.os.environ, settings), patch.object(self.module, "Server", side_effect=servers) as constructor, patch.object(self.module.threading, "Thread") as thread, patch("sys.stdout", new_callable=io.StringIO):
             self.module.serve()
         self.assertEqual(constructor.call_args_list, [call((address, 8765), self.module.H) for address in ("127.0.0.1", "192.168.1.101", "100.64.0.7")])
-        self.assertEqual(thread.call_count, 2)
-        self.assertEqual(thread.return_value.start.call_count, 2)
+        self.assertEqual(thread.call_count, 4)
+        self.assertEqual(thread.return_value.start.call_count, 4)
         servers[-1].serve_forever.assert_called_once_with()
         for server in servers:
             server.__exit__.assert_called_once()
@@ -821,7 +831,7 @@ class ListenerTest(unittest.TestCase):
             listener.bind.assert_called_once_with((address, 8765))
             listener.listen.assert_called_once()
             listener.close.assert_called_once_with()
-        self.assertEqual(thread.return_value.start.call_count, 2)
+        self.assertEqual(thread.return_value.start.call_count, 4)
         serve.assert_called_once_with()
 
     def test_unsupported_freebind_still_attempts_normal_bind(self):
@@ -839,6 +849,417 @@ class ListenerTest(unittest.TestCase):
             server.server_bind()
         server.socket.setsockopt.assert_not_called()
         parent_bind.assert_called_once_with()
+
+
+class RoundFourTest(unittest.TestCase):
+    request = ApiTest.request
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.module = load()
+        root = Path(self.tmp.name)
+        self.module.PRESET_FILE = root / 'presets.json'
+        self.module.SETTINGS_FILE = root / 'settings.json'
+        self.module.FEED_FILE = root / 'desk-counts.json'
+        self.module.ID_FILE = str(root / 'msgid')
+        self.send = patch.object(self.module, 'call', return_value=(["ok"], 1)).start()
+        self.addCleanup(patch.stopall)
+        self.now = self.stamp('2026-10-29T12:00:00+01:00')
+
+    def stamp(self, text):
+        return self.module.datetime.fromisoformat(text).timestamp()
+
+    def feed(self, **overrides):
+        counts = dict(open=2, held=1, oldest_held_at=self.now-3600,
+                      oldest_expiry_at=None, generation=1)
+        counts.update(overrides)
+        feed = dict(version=1, updated_at=self.now, desks={'ppm': counts})
+        self.module.FEED_FILE.write_text(json.dumps(feed))
+        return feed
+
+    def result(self, path, method='POST', **kwargs):
+        handler = self.request(path, method=method, **kwargs)
+        return json.loads(handler._reply.call_args.args[0])
+
+    def test_lossless_atomic_idempotent_legacy_migration(self):
+        old = {h:{'nacht':dict(rgb='5C0701',bri=44)} for h in ('plug','round')}
+        self.module.PRESET_FILE.write_text(json.dumps(old))
+        with patch.object(self.module.os, 'replace', wraps=self.module.os.replace) as replace:
+            result = self.module.get_presets()
+            self.assertEqual(replace.call_count, 1)
+            first = self.module.PRESET_FILE.read_bytes()
+            self.assertEqual(self.module.get_presets(), result)
+            self.assertEqual(self.module.PRESET_FILE.read_bytes(), first)
+            self.assertEqual(replace.call_count, 1)
+        for hub in ('plug', 'round'):
+            self.assertEqual(nacht(result['presets'],hub), old[hub]['nacht'])
+            self.assertEqual([p['id'] for p in result['presets'][hub]], ['nacht','p2','p3','p4'])
+        self.send.assert_not_called()
+
+    def test_migration_validates_every_hub_before_writing_and_preserves_on_failure(self):
+        old = dict(plug={'nacht':dict(rgb='5C0701',bri=44)}, round={'nacht':dict(rgb='bad',bri=44)})
+        self.module.PRESET_FILE.write_text(json.dumps(old))
+        before = self.module.PRESET_FILE.read_bytes()
+        with self.assertRaises(self.module.PresetStateError):
+            self.module.get_presets()
+        self.assertEqual(self.module.PRESET_FILE.read_bytes(), before)
+        old['round']['nacht']['rgb']='5C0701'
+        self.module.PRESET_FILE.write_text(json.dumps(old))
+        before = self.module.PRESET_FILE.read_bytes()
+        with patch.object(self.module.os,'replace',side_effect=OSError()), self.assertRaises(OSError):
+            self.module.get_presets()
+        self.assertEqual(self.module.PRESET_FILE.read_bytes(),before)
+        self.assertEqual(list(self.module.PRESET_FILE.parent.glob('.presets-*')),[])
+
+    def test_all_preset_ops_fixed_ids_names_capacity_and_delete_refusals(self):
+        saved=self.result('/preset?hub=plug&id=p2&rgb=123456&bri=12')
+        self.assertTrue(saved['ok'])
+        renamed=self.result('/preset?hub=plug&id=p2&name=Lesen')
+        self.assertEqual(renamed['presets']['plug'][1],dict(id='p2',name='Lesen',rgb='123456',bri=12))
+        for name in ('','%20','12345678901234567','bad%0Aname'):
+            self.assertFalse(self.result('/preset?hub=plug&id=p2&name='+name)['ok'])
+        created=self.result('/preset?hub=plug&new=1&rgb=AABBCC&bri=8&name=Leselicht')
+        self.assertEqual(created['id'],'p5')
+        self.assertEqual(self.result('/preset?hub=plug&new=1')['id'],'p6')
+        self.assertFalse(self.result('/preset?hub=plug&new=1')['ok'])
+        self.assertFalse(self.result('/preset?hub=plug&id=nacht&delete=1')['ok'])
+        self.assertFalse(self.result('/preset?hub=plug&id=missing&delete=1')['ok'])
+        self.assertTrue(self.result('/preset?hub=plug&id=p3&delete=1')['ok'])
+        remaining=self.module.get_presets()['presets']['plug']
+        self.assertEqual([p['id'] for p in remaining],['nacht','p2','p4','p5','p6'])
+        reset=self.result('/preset?hub=plug&id=p2&reset=1')['presets']['plug'][1]
+        self.assertEqual((reset['id'],reset['name'],reset['rgb'],reset['bri']),('p2','Lesen','FF8C28',40))
+        self.send.assert_not_called()
+
+    def test_ha_can_apply_any_saved_id_and_refusals_never_call_hub(self):
+        with patch.object(self.module,'set_light',return_value={'ok':True}) as light:
+            for preset in self.module.PLACE_DEFAULTS:
+                self.assertTrue(self.result('/apply?hub=round&preset='+preset['id'],method='GET')['ok'])
+                light.assert_called_with('round',preset['rgb'],preset['bri'])
+            self.result('/preset?hub=round&id=p2&delete=1')
+            light.reset_mock()
+            for id in ('p2','p5','unknown','../msgid',''):
+                self.assertFalse(self.result('/apply?hub=round&preset='+id,method='GET')['ok'])
+            light.assert_not_called()
+
+    def test_usage_and_rules_persist_per_hub_across_restart(self):
+        defaults=self.result('/config',method='GET')['settings']
+        self.assertEqual(defaults['round']['usage'],'desk')
+        self.assertEqual(defaults['plug']['usage'],'nightlight')
+        result=self.result('/settings?hub=round&usage=nightlight')
+        self.assertTrue(result['ok'])
+        with patch.dict(self.module.os.environ,{'STATE_DIRECTORY':self.tmp.name}):
+            fresh=load()
+        self.assertEqual(fresh.get_settings()['settings']['round']['usage'],'nightlight')
+        self.assertEqual(fresh.get_settings()['settings']['plug'],defaults['plug'])
+        self.assertTrue(self.result('/settings?hub=round&rule=urgent:ppm&rgb=ABCDEF&bri=42&mode=alternate&rgb2=123456&takt=3&all=1')['ok'])
+        rules=fresh.get_settings()['settings']['round']['rules']
+        self.assertEqual(rules['urgent:ppm'],rules['urgent:pma'])
+        self.assertEqual(rules['urgent:ppm'],rules['urgent:both'])
+        for suffix in ('usage=bad','threshold_ppm=0','threshold_pma=49','auto_sound=2','sound_vol=16','sound_ms=199'):
+            self.assertFalse(self.result('/settings?hub=round&'+suffix)['ok'])
+        self.send.assert_not_called()
+
+    def test_rule_minimum_and_unknown_never_off_including_alternate(self):
+        for query in ('rule=urgent:ppm&bri=60&mode=blink&takt=1',
+                      'rule=unknown&bri=0&mode=steady&takt=2',
+                      'rule=unknown&bri=5&mode=blink&takt=2',
+                      'rule=unknown&bri=5&mode=steady&takt=6'):
+            self.assertFalse(self.result('/settings?hub=round&rgb=8FA3B0&rgb2=000000&'+query)['ok'])
+        self.assertEqual(self.module.default_settings()['round']['rules']['urgent:ppm']['takt'],2)
+        self.assertTrue(self.result('/settings?hub=round&rule=unknown&rgb=8FA3B0&rgb2=18C2B0&bri=5&mode=alternate&takt=2')['ok'])
+
+    def test_new_endpoints_preserve_every_http_guard(self):
+        paths=('/settings?hub=round&usage=desk','/seen?hub=round','/signal-test?hub=round&rule=unknown')
+        for path in paths:
+            for headers in ([('Host','hsb1:8765')], [('Host','hsb1:8765'),('X-Nightlight','1'),('X-Nightlight','1')],
+                            [('Host','foreign.example'),('X-Nightlight','1')],
+                            [('Host','hsb1:8765'),('X-Nightlight','1'),('Origin','null')],
+                            [('Host','hsb1:8765'),('X-Nightlight','1'),('Sec-Fetch-Site','cross-site')]):
+                for method in ('GET','POST'):
+                    handler=self.request(path,headers=headers,method=method)
+                    handler.send_error.assert_called_once_with(403)
+            self.request(path,method='OPTIONS').send_error.assert_called_once_with(403)
+        self.send.assert_not_called()
+
+    def test_tone_duration_is_validated_before_play_and_timer_sends_stop(self):
+        for ms in (199,3001,'bad'):
+            self.assertFalse(self.result('/tone?hub=plug&id=10&ms='+str(ms))['ok'])
+        self.send.assert_not_called()
+        with patch.object(self.module.threading,'Timer') as timer:
+            value=self.result('/tone?hub=plug&id=10&vol=100&ms=200')
+            self.assertEqual((value['ms'],value['vol']),(200,40))
+            timer.assert_called_once_with(.2,self.module._timed_stop,('plug',))
+            timer.return_value.start.assert_called_once()
+            with patch.object(self.module.threading,'current_thread',return_value=timer.return_value):
+                self.module._timed_stop('plug')
+        self.send.assert_called_with('plug','set_sound_playing',['off'],attempts=1)
+
+    def test_replacing_or_stopping_sound_cancels_old_duration(self):
+        with patch.object(self.module.threading,'Timer') as timer:
+            first,second=Mock(),Mock()
+            timer.side_effect=[first,second]
+            self.module.play_tone('plug',10,10,1000)
+            self.module.play_tone('plug',10,10,3000)
+            first.cancel.assert_called_once()
+            self.module.stop_sound('plug')
+            second.cancel.assert_called_once()
+            before=self.send.call_count
+            with patch.object(self.module.threading,'current_thread',return_value=first):
+                self.module._timed_stop('plug')
+            self.assertEqual(self.send.call_count,before)
+
+    def test_quiet_hours_vienna_midnight_boundaries_and_dst(self):
+        for text,quiet in [('2026-10-29T19:59:59+01:00',False),('2026-10-29T20:00:00+01:00',True),
+                           ('2026-10-30T00:00:00+01:00',True),('2026-10-30T07:29:59+01:00',True),
+                           ('2026-10-30T07:30:00+01:00',False),('2026-07-01T20:00:00+02:00',True),
+                           ('2026-10-25T02:30:00+02:00',True),('2026-10-25T02:30:00+01:00',True)]:
+            self.assertEqual(self.module.quiet_hours(self.stamp(text)),quiet,text)
+
+    def test_feed_absent_stale_invalid_or_future_is_unknown_never_idle(self):
+        cfg=self.module.default_settings()['round']
+        for content in (None,'bad','{}','[]'):
+            if content is not None:self.module.FEED_FILE.write_text(content)
+            feed=self.module.read_feed(self.now)
+            result=self.module.resolve_signal(cfg,feed,self.now)
+            self.assertEqual(result['key'],'unknown')
+            self.assertEqual(result['rule']['bri'],5)
+        good=self.feed()
+        for stamp in (self.now-121,self.now+1):
+            bad={**good,'updated_at':stamp}
+            self.module.FEED_FILE.write_text(json.dumps(bad))
+            self.assertIsNone(self.module.read_feed(self.now))
+        self.feed(held=3,open=2)
+        self.assertIsNone(self.module.read_feed(self.now))
+        self.feed()
+        self.assertIsNotNone(self.module.read_feed(self.now+120))
+
+    def test_mapping_threshold_expiry_open_minus_held_and_both(self):
+        cfg=self.module.default_settings()['round']
+        def key(feed):return self.module.resolve_signal(cfg,feed,self.now)['key']
+        self.assertEqual(key(self.feed()),'regular:ppm')
+        self.assertEqual(key(self.feed(oldest_held_at=self.now-4*3600)),'urgent:ppm')
+        self.assertEqual(key(self.feed(oldest_expiry_at=self.now+3600)),'urgent:ppm')
+        self.assertEqual(key(self.feed(oldest_expiry_at=self.now+3601)),'regular:ppm')
+        self.assertEqual(key(self.feed(held=0,oldest_held_at=None)),'open:ppm')
+        self.assertEqual(key(self.feed(held=0,open=0,oldest_held_at=None)),'idle')
+        feed=self.feed();feed['desks']['pma']=dict(feed['desks']['ppm'])
+        self.assertEqual(key(feed),'regular:both')
+        feed['desks']['pma']['oldest_expiry_at']=self.now+60
+        self.assertEqual(key(feed),'urgent:both')
+
+    def test_seen_survives_restart_until_new_held_generation(self):
+        feed=self.feed()
+        with patch.object(self.module.time,'time',return_value=self.now):
+            self.assertTrue(self.module.mark_seen('round')['ok'])
+        cfg=self.module.get_settings()['settings']['round']
+        self.assertEqual(self.module.resolve_signal(cfg,feed,self.now)['key'],'idle')
+        feed['desks']['ppm']['generation']+=1
+        self.assertEqual(self.module.resolve_signal(cfg,feed,self.now)['key'],'regular:ppm')
+        self.assertEqual(self.module.resolve_signal(cfg,None,self.now)['key'],'unknown')
+
+    def test_engine_single_attempt_minimum_no_echo_and_static_on_transition(self):
+        self.feed(oldest_expiry_at=self.now+60)
+        engine=self.module.SignalEngine()
+        self.assertTrue(engine.tick('round',self.now,0))
+        self.send.assert_called_once_with('round','set_rgb',[(60<<24)|0x18C2B0],attempts=1)
+        self.assertFalse(engine.tick('round',self.now+1,1))
+        self.assertTrue(engine.tick('round',self.now+2,2))
+        self.send.assert_called_with('round','set_rgb',[0x18C2B0],attempts=1)
+        self.feed(oldest_expiry_at=None)
+        self.assertTrue(engine.tick('round',self.now+4,4))
+        self.send.assert_called_with('round','set_rgb',[(20<<24)|0x18C2B0],attempts=1)
+        self.assertFalse(engine.tick('round',self.now+6,6))
+
+    def test_engine_skips_busy_hub_without_queue_or_blocking_other_hub(self):
+        engine=self.module.SignalEngine()
+        entered,release=threading.Event(),threading.Event()
+        def busy():
+            with self.module._locks['round']:
+                entered.set();release.wait(3)
+        worker=threading.Thread(target=busy);worker.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            self.assertFalse(engine.tick('round',self.now,0))
+            self.send.assert_not_called()
+        finally:release.set();worker.join(2)
+        self.assertTrue(engine.tick('round',self.now,2))
+        self.assertEqual(self.send.call_count,1)
+
+    def test_page_command_pauses_engine_until_http_reply_has_been_sent(self):
+        engine=self.module.SignalEngine()
+        def reply(*args,**kwargs):
+            self.assertFalse(engine.tick('round',self.now,0))
+            self.assertEqual(self.module._page_active['round'],1)
+        handler=object.__new__(self.module.H)
+        handler.path='/signal?hub=round';handler.client_address=('127.0.0.1',123)
+        handler.command='GET';handler.headers=Message();handler.headers['Host']='hsb1:8765'
+        handler._reply=Mock(side_effect=reply)
+        handler.do_GET()
+        self.assertEqual(self.module._page_active['round'],0)
+        self.send.assert_not_called()
+        self.assertTrue(engine.tick('round',self.now,2))
+
+    def test_quiet_hours_force_steady_five_percent_and_unknown_stays_lit(self):
+        night=self.stamp('2026-10-29T23:00:00+01:00')
+        self.now=night;self.feed(oldest_expiry_at=night+60)
+        engine=self.module.SignalEngine()
+        self.assertTrue(engine.tick('round',night,0))
+        self.send.assert_called_once_with('round','set_rgb',[(5<<24)|0x18C2B0],attempts=1)
+        self.assertFalse(engine.tick('round',night+2,2))
+        self.assertEqual(engine.previous['round'][1]['mode'],'steady')
+        self.module.FEED_FILE.write_text('bad')
+        self.assertTrue(engine.tick('round',night+4,4))
+        self.send.assert_called_with('round','set_rgb',[(5<<24)|0x8FA3B0],attempts=1)
+
+    def test_alternate_and_ten_second_test_return_to_static_live_state(self):
+        self.module.save_settings('round',dict(rule='regular:ppm',rgb='18C2B0',rgb2='FFA020',bri='20',mode='alternate',takt='2'))
+        self.feed();engine=self.module.SignalEngine()
+        engine.tick('round',self.now,0);engine.tick('round',self.now+2,2)
+        self.send.assert_called_with('round','set_rgb',[(20<<24)|0xFFA020],attempts=1)
+        self.module._signal_tests['round']=(10,'unknown',self.module.default_settings()['round']['rules']['unknown'])
+        engine.tick('round',self.now+4,4)
+        self.send.assert_called_with('round','set_rgb',[(5<<24)|0x8FA3B0],attempts=1)
+        engine.tick('round',self.now+10,10)
+        self.send.assert_called_with('round','set_rgb',[(20<<24)|0x18C2B0],attempts=1)
+
+    def test_automatic_sound_off_by_default_rate_limited_and_durable_deduplication(self):
+        feed=self.feed()
+        engine=self.module.SignalEngine()
+        with patch.object(self.module,'play_tone') as tone:
+            engine._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now)
+            tone.assert_not_called()
+            self.module.save_settings('round',{'auto_sound':'1'})
+            feed['desks']['ppm']['generation']=2
+            engine._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now)
+            tone.assert_called_once_with('round',10,10,1000)
+            feed['desks']['ppm']['generation']=3
+            engine._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now+100)
+            self.assertEqual(tone.call_count,1)
+            engine._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now+700)
+            self.assertEqual(tone.call_count,1)  # suppressed item never replays later
+            feed['desks']['ppm']['generation']=4
+            engine._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now+700)
+            self.assertEqual(tone.call_count,2)
+            fresh=self.module.SignalEngine()
+            fresh._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now+1400)
+            self.assertEqual(tone.call_count,2)
+
+    def test_automatic_sound_never_runs_in_vienna_quiet_hours(self):
+        self.module.save_settings('round',{'auto_sound':'1'})
+        engine=self.module.SignalEngine()
+        with patch.object(self.module,'play_tone') as tone:
+            for stamp in ('2026-10-29T20:00:00+01:00','2026-10-30T07:29:00+01:00'):
+                self.now=self.stamp(stamp);feed=self.feed(generation=int(self.now))
+                engine._auto_sound('round',self.module.get_settings()['settings']['round'],feed,self.now)
+            tone.assert_not_called()
+
+    def test_engine_exceptions_have_fixed_log_and_worker_keeps_running(self):
+        engine=self.module.SignalEngine()
+        engine.stop=Mock();engine.stop.is_set.side_effect=[False,False,True]
+        with patch.object(engine,'tick',side_effect=[RuntimeError('private-packet-fixture'),True]) as tick, patch('sys.stderr',new_callable=io.StringIO) as log:
+            engine.run('round')
+        self.assertEqual(tick.call_count,2)
+        self.assertEqual(log.getvalue(),'aqara-nightlight: signal engine tick failed\n')
+        self.assertEqual(engine.stop.wait.call_count,2)
+
+    def test_leaving_desk_finishes_blink_before_a_later_page_command(self):
+        self.feed(oldest_expiry_at=self.now+60)
+        engine=self.module.SignalEngine();self.module._engine=engine
+        engine.tick('round',self.now,0);engine.tick('round',self.now+2,2)
+        self.send.reset_mock()
+        self.module.save_settings('round',{'usage':'nightlight'})
+        self.send.assert_called_once_with('round','set_rgb',[(60<<24)|0x18C2B0],attempts=1)
+        self.assertFalse(engine.tick('round',self.now+4,4))
+        self.assertEqual(self.send.call_count,1)
+
+    def test_unknown_black_colours_are_rejected_in_both_slots(self):
+        for first,second in [('000000','18C2B0'),('8FA3B0','000000')]:
+            self.assertFalse(self.result(f'/settings?hub=round&rule=unknown&rgb={first}&rgb2={second}&bri=5&mode=alternate&takt=2')['ok'])
+
+    def test_block_reservation_reduces_fsync_and_never_reuses_after_crash(self):
+        with patch.object(self.module.os,'fsync',wraps=self.module.os.fsync) as sync:
+            ids=[self.module._next_id() for _ in range(256)]
+            self.assertEqual(ids,list(range(1,257)))
+            self.assertEqual(sync.call_count,2)  # data + directory, once per block
+            self.assertEqual(self.module._next_id(),257)
+            self.assertEqual(sync.call_count,4)
+        with patch.dict(self.module.os.environ,{'STATE_DIRECTORY':self.tmp.name}):fresh=load()
+        self.assertEqual(fresh._next_id(),513)
+        self.assertEqual(int(Path(self.module.ID_FILE).read_text()),768)
+
+    def test_counter_file_failure_never_calls_or_blames_the_hub(self):
+        module = load()
+        module.ID_FILE = self.module.ID_FILE
+        Path(module.ID_FILE).write_text('corrupt')
+        with patch.object(module,'_connect') as connect:
+            with self.assertRaises(module.MessageIdStateError) as caught:
+                module.call('round','set_rgb',[1])
+            connect.assert_not_called()
+        with patch('sys.stderr',new_callable=io.StringIO) as journal:
+            result=module.error_response(caught.exception)
+        self.assertEqual(result['code'],'msgid_state')
+        self.assertEqual(journal.getvalue(),'aqara-nightlight: message id state failed\n')
+
+    def test_failed_reservation_does_not_issue_ids_or_damage_high_water_mark(self):
+        Path(self.module.ID_FILE).write_text('10000')
+        with patch.object(self.module.os,'replace',side_effect=OSError()), self.assertRaises(OSError):
+            self.module._next_id()
+        self.assertEqual(Path(self.module.ID_FILE).read_text(),'10000')
+        self.assertEqual(self.module._next_id(),10001)
+
+    def test_every_new_control_attribute_has_one_value_and_expected_identity(self):
+        page=PageParser(self.module.PAGE)
+        expected={'data-usage':{'nightlight','desk'},'data-duration':{'full','short'},'data-auto-duration':{'full','short'},
+                  'data-rule':set(self.module.RULE_KEYS),'data-rule-mode':{'steady','blink','alternate'},
+                  'data-rule-slot':{'rgb','rgb2'}, 'data-rule-color':{'18C2B0','FFA020','9B6BFF','8FA3B0','FF2A00','FFFFFF'},
+                  'data-save-place':set(self.module.PRESET_IDS),'data-rename-place':set(self.module.PRESET_IDS),
+                  'data-delete-place':set(self.module.PRESET_IDS),'data-rule-place':set(self.module.PRESET_IDS)}
+        for attribute,values in expected.items():
+            found=[]
+            for tag,pairs in page.raw_elements:
+                if tag!='button':continue
+                keys=[key for key,_ in pairs]
+                self.assertEqual(len(keys),len(set(keys)),pairs)
+                found.extend(v for k,v in pairs if k==attribute)
+            self.assertEqual(set(found),values,attribute)
+            self.assertEqual(len(found),len(values),attribute)
+
+
+class StreamingProgressTest(unittest.TestCase):
+    parsed_request = ApiTest.parsed_request
+
+    def setUp(self):
+        self.module = load()
+        self.ids = patch.object(self.module, '_next_id', side_effect=range(101,120)).start()
+        patch.object(self.module.time,'sleep').start()
+        self.addCleanup(patch.stopall)
+
+    def test_retry_frames_and_final_reply_share_one_guarded_response(self):
+        lost,good=Mock(),Mock()
+        lost.send.side_effect=TimeoutError()
+        good.send.return_value=['ok']
+        with patch.object(self.module,'_connect',side_effect=[lost,good]):
+            headers,body=self.parsed_request(b'POST /set?hub=plug&rgb=5C0701&bri=44 HTTP/1.1\r\nHost: hsb1:8765\r\nX-Nightlight: 1\r\nAccept: application/x-ndjson\r\nContent-Length: 0\r\n\r\n')
+        self.assertIn(b'application/x-ndjson',headers)
+        frames=[json.loads(line) for line in body.splitlines()]
+        self.assertEqual(frames[:-1],[dict(progress=1,attempts=4),dict(progress=2,attempts=4)])
+        self.assertEqual(frames[-1]['versuche'],2)
+        self.assertTrue(frames[-1]['ok'])
+        self.assertIsNone(self.module._request_progress.callback)
+        self.assertNotIn(b'access-control-',headers.lower())
+        self.assertEqual(good.send.call_args_list[0].kwargs['extra_parameters'],{'id':102})
+
+    def test_ha_without_stream_accept_keeps_plain_json_and_header_guards(self):
+        good=Mock();good.send.return_value=['ok']
+        with patch.object(self.module,'_connect',return_value=good):
+            headers,body=self.parsed_request(b'GET /stop?hub=plug HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nX-Nightlight: 1\r\n\r\n')
+        self.assertIn(b'application/json',headers)
+        self.assertTrue(json.loads(body)['ok'])
+        headers,body=self.parsed_request(b'POST /stop?hub=plug HTTP/1.1\r\nHost: hsb1:8765\r\nAccept: application/x-ndjson\r\nContent-Length: 0\r\n\r\n')
+        self.assertIn(b'403 Forbidden',headers)
+        self.assertNotIn(b'application/x-ndjson',headers)
 
 
 if __name__ == "__main__":

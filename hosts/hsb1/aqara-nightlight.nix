@@ -1,7 +1,11 @@
 # OPS-496: local light + built-in sounds for the two LAN Aqara gateways.
 { pkgs, ... }:
 let
-  pythonEnv = pkgs.python3.withPackages (ps: [ ps.python-miio ]);
+  # zoneinfo must have Vienna's DST rules even in the hardened service root.
+  pythonEnv = pkgs.python3.withPackages (ps: [
+    ps.python-miio
+    ps.tzdata
+  ]);
 in
 {
   systemd.services.aqara-nightlight = {

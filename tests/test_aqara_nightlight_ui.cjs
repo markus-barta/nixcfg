@@ -12,10 +12,49 @@ const html = fs.readFileSync(
 );
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const defaults = {
-  plug: { nacht: { rgb: "5C0701", bri: 44 } },
-  round: { nacht: { rgb: "5C0701", bri: 44 } },
-};
+const defaultPlaces = [
+  { id: "nacht", name: "Nachtlicht", rgb: "5C0701", bri: 44 },
+  { id: "p2", name: "Warm", rgb: "FF8C28", bri: 40 },
+  { id: "p3", name: "Hell", rgb: "FFF4E0", bri: 80 },
+  { id: "p4", name: "Rot leise", rgb: "FF2A00", bri: 5 },
+];
+const defaults = { plug: defaultPlaces, round: defaultPlaces };
+const rules = Object.fromEntries(
+  ["urgent", "regular", "open"]
+    .flatMap((level) =>
+      ["ppm", "pma", "both"].map((desk) => [
+        level + ":" + desk,
+        {
+          rgb: { ppm: "18C2B0", pma: "FFA020", both: "9B6BFF" }[desk],
+          bri: level === "urgent" ? 60 : level === "regular" ? 20 : 0,
+          mode: level === "urgent" ? "blink" : "steady",
+          rgb2: "FFFFFF",
+          takt: 2,
+        },
+      ]),
+    )
+    .concat([
+      [
+        "idle",
+        { rgb: "8FA3B0", bri: 0, mode: "steady", rgb2: "FFFFFF", takt: 2 },
+      ],
+      [
+        "unknown",
+        { rgb: "8FA3B0", bri: 5, mode: "steady", rgb2: "FFFFFF", takt: 2 },
+      ],
+    ]),
+);
+const configDefaults = Object.fromEntries(
+  ["plug", "round"].map((h) => [
+    h,
+    {
+      usage: h === "round" ? "desk" : "nightlight",
+      rules,
+      thresholds: { ppm: 4, pma: 4 },
+      auto_sound: false,
+    },
+  ]),
+);
 const response = (value, status = 200) => ({
   ok: status === 200,
   status,
@@ -32,6 +71,12 @@ function deferred() {
 class Element {
   constructor(attrs = {}) {
     this.attrs = { ...attrs };
+    this.tagName = attrs._tag || "";
+    this.min = attrs.min;
+    this.max = attrs.max;
+    this.step = attrs.step;
+    this.disabled = Object.hasOwn(attrs, "disabled");
+    this.checked = Object.hasOwn(attrs, "checked");
     this.listeners = {};
     this.children = [];
     this.nested = new Map();
@@ -75,15 +120,58 @@ class Element {
     const event = { button: 0, pointerId: 1, preventDefault() {}, ...attrs };
     return Promise.all((this.listeners[key] || []).map((fn) => fn(event)));
   }
+  matches(selector) {
+    if (selector.includes(" ")) {
+      const parts = selector.split(/\s+/);
+      if (!this.matches(parts.pop())) return false;
+      let parent = this.parent;
+      while (parts.length) {
+        const part = parts.pop();
+        while (parent && !parent.matches(part)) parent = parent.parent;
+        if (!parent) return false;
+        parent = parent.parent;
+      }
+      return true;
+    }
+    const attr = selector.match(/^(?:([\w-]+))?\[([\w-]+)(?:="([^"]*)")?\]$/);
+    if (attr)
+      return (
+        (!attr[1] || this.tagName === attr[1]) &&
+        Object.hasOwn(this.attrs, attr[2]) &&
+        (attr[3] === undefined || this.attrs[attr[2]] === attr[3])
+      );
+    if (selector.startsWith("."))
+      return this.classList.contains(selector.slice(1));
+    return this.tagName === selector;
+  }
   querySelector(key) {
-    if (!this.nested.has(key)) this.nested.set(key, new Element());
-    return this.nested.get(key);
+    return this.querySelectorAll(key)[0] || null;
   }
   querySelectorAll(key) {
-    return [this.querySelector(key)];
+    const selectors = key.split(",").map((x) => x.trim());
+    const found = [];
+    const visit = (e) => {
+      for (const child of e.children) {
+        if (!(child instanceof Element)) continue;
+        if (selectors.some((k) => child.matches(k))) found.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
   }
   closest(key) {
-    return this.querySelector(key);
+    for (let p = this; p; p = p.parent) if (p.matches(key)) return p;
+    return null;
+  }
+  getBoundingClientRect() {
+    return { left: 0, width: 240 };
+  }
+  dispatchEvent(event) {
+    return this.fire(event.type, event);
+  }
+  userFire(key, attrs = {}) {
+    return this.disabled ? Promise.resolve([]) : this.fire(key, attrs);
   }
   replaceChildren(...children) {
     this.children = children;
@@ -102,12 +190,30 @@ class Element {
 }
 async function setup(stored = {}, storageFails = false, initial = {}) {
   const elements = [];
-  for (const match of html.matchAll(/<([\w-]+)\b([^>]*?)>/g)) {
-    if (match[1] === "script") break;
-    const attrs = {};
-    for (const a of match[2].matchAll(/([\w-]+)(?:="([^"]*)")?/g))
+  const stack = [];
+  for (const match of html.matchAll(/<(\/?)([\w-]+)\b([^>]*?)>/g)) {
+    const closing = match[1],
+      tag = match[2];
+    if (tag === "script") break;
+    if (closing) {
+      const i = stack.findLastIndex((e) => e.tagName === tag);
+      if (i >= 0) stack.length = i;
+      continue;
+    }
+    const attrs = { _tag: tag };
+    for (const a of match[3].matchAll(/([\w-]+)(?:="([^"]*)")?/g))
       attrs[a[1]] = a[2] ?? "";
-    elements.push(new Element(attrs));
+    const element = new Element(attrs);
+    if (stack.length) {
+      element.parent = stack.at(-1);
+      element.parent.children.push(element);
+    }
+    elements.push(element);
+    if (
+      !["input", "meta", "link", "br", "hr"].includes(tag) &&
+      !match[3].trimEnd().endsWith("/")
+    )
+      stack.push(element);
   }
   const byId = new Map(
     elements.filter((e) => e.attrs.id).map((e) => [e.attrs.id, e]),
@@ -124,6 +230,10 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       return byId.get(id);
     },
     querySelectorAll: (selector) => {
+      if (selector === "button, input, select")
+        return elements.filter((e) =>
+          ["button", "input", "select"].includes(e.tagName),
+        );
       const key = selector.match(/^\[([\w-]+)\]$/)?.[1];
       assert.ok(key, `unhandled DOM query ${selector}`);
       return elements.filter((e) => Object.hasOwn(e.attrs, key));
@@ -134,7 +244,7 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       if (!queries.has(selector)) queries.set(selector, new Element());
       return queries.get(selector);
     },
-    createElement: () => new Element(),
+    createElement: (tag) => new Element({ _tag: tag }),
     createTextNode: (text) => text,
   };
   const calls = [],
@@ -146,6 +256,18 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
     document,
     URLSearchParams,
     AbortController,
+    TextDecoder,
+    Event: class {
+      constructor(type, attrs) {
+        this.type = type;
+        Object.assign(this, attrs);
+      }
+    },
+    Date: class extends Date {
+      static now() {
+        return time;
+      }
+    },
     console,
     localStorage: {
       getItem(key) {
@@ -170,6 +292,20 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       const u = new URL(url, "http://hsb1:8765");
       calls.push({ path: u.pathname, params: u.searchParams, options });
       if (initial[u.pathname]) return initial[u.pathname](u, options);
+      if (u.pathname === "/config")
+        return Promise.resolve(
+          response({ ok: true, settings: structuredClone(configDefaults) }),
+        );
+      if (u.pathname === "/signal")
+        return Promise.resolve(
+          response({
+            ok: true,
+            key: "unknown",
+            rule: configDefaults.round.rules.unknown,
+            settings: configDefaults.round,
+            feed: null,
+          }),
+        );
       if (pending.length) return pending.shift()(u, options);
       if (u.pathname === "/presets")
         return Promise.resolve(
@@ -184,6 +320,18 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
             illumination: 24,
           }),
         );
+      if (u.pathname === "/apply") {
+        const p = defaultPlaces.find(
+          (p) => p.id === u.searchParams.get("preset"),
+        );
+        return Promise.resolve(
+          response(
+            p
+              ? { ok: true, rgb: p.rgb, brightness: p.bri, versuche: 1 }
+              : { ok: false, error: "Preset nicht gespeichert" },
+          ),
+        );
+      }
       const rgb = u.searchParams.get("rgb") || "5C0701",
         bri = Number(u.searchParams.get("bri") ?? 44);
       return Promise.resolve(
@@ -305,7 +453,7 @@ test("brightness sends once on release and every acting fetch uses POST and head
   a.calls.length = 0;
   a.el("bri").value = "2";
   await a.el("bri").fire("input");
-  assert.equal(a.calls.length, 0);
+  assert.equal(a.calls.filter((c) => c.path === "/set").length, 1);
   await a.el("bri").fire("change");
   await flush();
   assert.equal(a.calls.filter((c) => c.path === "/set").length, 1);
@@ -357,10 +505,10 @@ test("late replies preserve confirmed light effects without replacing newer stat
   const third = deferred();
   a.pending.push(() => third.promise);
   const p3 = a.eval('command("/stop",{hub:"plug"},"Stopp")');
-  a.eval('selectHub("EZ-594F")');
+  a.eval('selectHub("WZ-594F")');
   third.resolve(response({ ok: true }));
   await p3;
-  assert.match(a.el("status-text").textContent, /Bereit · EZ-594F/);
+  assert.match(a.el("status-text").textContent, /Bereit · WZ-594F/);
 });
 
 test("403 HTML becomes reload-only rejection and disables retries", async () => {
@@ -404,7 +552,7 @@ test("device timeout and transport loss offer only manual retry", async () => {
   await a.eval('command("/set",{hub:"plug",rgb:"5C0701",bri:44},"Nachtlicht")');
   assert.equal(
     a.el("status-text").textContent,
-    "KI-18FB antwortet nicht (4 Versuche)",
+    "Hub oder Dienst nicht erreichbar; erneut versuchen",
   );
   assert.equal(a.el("retry").hidden, false);
   const before = a.calls.length;
@@ -427,7 +575,10 @@ test("device timeout and transport loss offer only manual retry", async () => {
     ),
   );
   await a.eval('command("/apply",{hub:"plug",preset:"nacht"},"Nachtlicht")');
-  assert.match(a.el("status-text").textContent, /KI-18FB antwortet nicht/);
+  assert.match(
+    a.el("status-text").textContent,
+    /Hub oder Dienst nicht erreichbar/,
+  );
 });
 
 test("color hint implements channel floor and suppresses near white or ordinary brightness", async () => {
@@ -516,26 +667,26 @@ test("apply uses the server preset and updates its preview after an external sav
 
 test("hub choice is remembered, validated and safe when storage is disabled", async () => {
   const a = await setup();
-  a.eval('selectHub("EZ-594F")');
+  a.eval('selectHub("WZ-594F")');
   await flush();
-  assert.equal(a.storage.get("nightlight-hub"), "EZ-594F");
+  assert.equal(a.storage.get("nightlight-hub"), "WZ-594F");
   const b = await setup(Object.fromEntries(a.storage));
-  assert.equal(b.eval("selected"), "EZ-594F");
+  assert.equal(b.eval("selected"), "WZ-594F");
   assert.equal(
     b.calls.find((c) => c.path === "/get").params.get("hub"),
     "round",
   );
-  assert.equal(b.el("status-text").textContent, "Bereit · EZ-594F");
+  assert.equal(b.el("status-text").textContent, "Bereit · WZ-594F");
   for (const hub of ["invalid", "__proto__", "constructor"]) {
     const c = await setup({ "nightlight-hub": hub });
     assert.equal(c.eval("selected"), "KI-18FB");
     c.eval('selectHub("invalid")');
     assert.equal(c.eval("selected"), "KI-18FB");
   }
-  const d = await setup({ "nightlight-hub": "EZ-594F" }, true);
+  const d = await setup({ "nightlight-hub": "WZ-594F" }, true);
   assert.equal(d.eval("selected"), "KI-18FB");
-  d.eval('selectHub("EZ-594F")');
-  assert.equal(d.eval("selected"), "EZ-594F");
+  d.eval('selectHub("WZ-594F")');
+  assert.equal(d.eval("selected"), "WZ-594F");
 });
 
 test("first readback initializes brightness without selecting or claiming a command", async () => {
@@ -556,7 +707,11 @@ test("first readback initializes brightness without selecting or claiming a comm
     "false",
   );
   assert.equal(a.el("last-light").textContent, "Zuletzt: noch kein Befehl");
-  assert.deepEqual(a.calls.map((c) => c.path).sort(), ["/get", "/presets"]);
+  assert.deepEqual(a.calls.map((c) => c.path).sort(), [
+    "/config",
+    "/get",
+    "/presets",
+  ]);
 });
 
 test("every preset, swatch and tone button sends its own bound value", async () => {
@@ -565,13 +720,11 @@ test("every preset, swatch and tone button sends its own bound value", async () 
     const before = a.calls.length;
     await button.fire("click");
     await flush();
-    const calls = a.calls.slice(before).filter((c) => c.path === "/set");
+    const calls = a.calls.slice(before).filter((c) => c.path === "/apply");
     assert.equal(calls.length, 1);
-    const p = a.eval(`FIXED_PRESETS[${JSON.stringify(button.dataset.preset)}]`);
-    assert.equal(calls[0].params.get("rgb"), p.rgb);
-    assert.equal(calls[0].params.get("bri"), String(p.bri));
+    assert.equal(calls[0].params.get("preset"), button.dataset.preset);
   }
-  assert.equal(a.buttons("[data-preset]").length, 3);
+  assert.equal(a.buttons("[data-preset]").length, 5);
   for (const button of a.buttons("[data-color]")) {
     const before = a.calls.length;
     await button.fire("click");
@@ -670,7 +823,7 @@ test("both startup requests failing use the server connection error and recover 
   assert.equal(a.el("bri").disabled, false);
 });
 
-test("hung fetch or response body aborts after 12 seconds with manual retry", async () => {
+test("hung fetch or response body aborts after 30 seconds with manual retry", async () => {
   for (const stage of ["fetch", "json"]) {
     const a = await setup();
     let signal;
@@ -693,7 +846,7 @@ test("hung fetch or response body aborts after 12 seconds with manual retry", as
     });
     const action = a.el("stop").fire("click");
     await flush();
-    a.tick(11999);
+    a.tick(29999);
     assert.equal(signal.aborted, false);
     assert.match(a.el("status-text").textContent, /wird gesendet/);
     a.tick(1);
@@ -708,7 +861,7 @@ test("hung fetch or response body aborts after 12 seconds with manual retry", as
     await flush();
     assert.match(a.el("status-text").textContent, /Stopp.*angekommen/);
     const completed = a.calls.at(-1).options.signal;
-    a.tick(12000);
+    a.tick(30000);
     assert.equal(completed.aborted, false);
   }
 });
@@ -754,14 +907,10 @@ test("late save keeps its preset cache and Undo without replacing a newer status
   await saving;
   assert.equal(a.el("status-text").textContent, latest);
   assert.equal(a.eval("presetFor().rgb"), "FFB46B");
-  assert.equal(a.el("undo").hidden, false);
-  a.pending.push(() =>
-    Promise.resolve(response({ ok: true, presets: structuredClone(defaults) })),
-  );
-  await a.el("undo").fire("click");
-  await flush();
-  assert.equal(a.calls.at(-1).path, "/preset");
-  assert.equal(a.calls.at(-1).params.get("rgb"), "5C0701");
+  assert.equal(a.el("undo").hidden, true);
+  assert.equal(a.eval("undoCommand.next.rgb"), "5C0701");
+  await a.el("stop").fire("click");
+  assert.equal(a.eval("undoCommand"), null);
   assert.equal(a.el("undo").hidden, true);
 });
 
@@ -867,7 +1016,7 @@ test("late effects belong to their original hub while current hub status stays u
   const action = a.eval(
     'command("/set",{hub:"plug",rgb:"FF0000",bri:5},"Rot",{success:(r,t,n)=>acceptLight(r,t,"Rot",n)})',
   );
-  a.eval('selectHub("EZ-594F")');
+  a.eval('selectHub("WZ-594F")');
   await flush();
   const latest = a.el("status-text").textContent;
   light.resolve(response({ ok: true, rgb: "FF0000", brightness: 5 }));
@@ -913,7 +1062,7 @@ test("a late hub save cannot replace the other hub's newer preset or Undo", asyn
   const first = a.eval(
     'persistPreset({label:"KI-18FB",old:{rgb:"5C0701",bri:44},next:{rgb:"FF0000",bri:5}})',
   );
-  a.eval('selectHub("EZ-594F")');
+  a.eval('selectHub("WZ-594F")');
   await flush();
   a.pending.push(() =>
     Promise.resolve(
@@ -927,7 +1076,7 @@ test("a late hub save cannot replace the other hub's newer preset or Undo", asyn
     ),
   );
   await a.eval(
-    'persistPreset({label:"EZ-594F",old:{rgb:"5C0701",bri:44},next:{rgb:"0000FF",bri:6}})',
+    'persistPreset({label:"WZ-594F",old:{rgb:"5C0701",bri:44},next:{rgb:"0000FF",bri:6}})',
   );
   const latest = a.el("status-text").textContent;
   old.resolve(
@@ -941,8 +1090,8 @@ test("a late hub save cannot replace the other hub's newer preset or Undo", asyn
   );
   await first;
   assert.equal(a.eval('presetFor("KI-18FB").rgb'), "FF0000");
-  assert.equal(a.eval('presetFor("EZ-594F").rgb'), "0000FF");
-  assert.equal(a.eval("undoCommand.label"), "EZ-594F");
+  assert.equal(a.eval('presetFor("WZ-594F").rgb'), "0000FF");
+  assert.equal(a.eval("undoCommand.label"), "WZ-594F");
   assert.equal(a.el("status-text").textContent, latest);
 });
 
@@ -972,4 +1121,467 @@ test("a late apply updates last light without undoing a newer saved preset", asy
   assert.equal(a.eval("state().last.rgb"), "5C0701");
   assert.equal(a.el("undo").hidden, false);
   assert.equal(a.el("status-text").textContent, latest);
+});
+
+test("tap locks every control immediately, delays the overlay, then unlocks on reply", async () => {
+  const a = await setup(),
+    pending = deferred();
+  a.calls.length = 0;
+  a.pending.push(() => pending.promise);
+  const action = a.el("nightlight").userFire("click");
+  assert.equal(a.el("stop").disabled, true);
+  assert.equal(a.el("bri").disabled, true);
+  assert.equal(a.buttons("[data-hub]")[1].disabled, true);
+  assert.equal(a.el("theme").disabled, true);
+  assert.equal(a.el("sending-overlay").hidden, true);
+  await a.el("stop").userFire("click");
+  await a.buttons("[data-hub]")[1].userFire("click");
+  assert.equal(a.calls.length, 1);
+  assert.equal(a.eval("selected"), "KI-18FB");
+  a.tick(249);
+  assert.equal(a.el("sending-overlay").hidden, true);
+  a.tick(1);
+  assert.equal(a.el("sending-overlay").hidden, false);
+  assert.equal(a.el("sending-overlay").open, true);
+  pending.resolve(response({ ok: true, rgb: "5C0701", brightness: 44 }));
+  await action;
+  assert.equal(a.el("sending-overlay").hidden, true);
+  assert.equal(a.el("sending-overlay").open, false);
+  assert.equal(a.el("stop").disabled, false);
+  assert.equal(a.el("bri").disabled, false);
+});
+
+test("fast replies never show the overlay and errors release the sending lock", async () => {
+  const a = await setup();
+  await a.el("stop").userFire("click");
+  a.tick(250);
+  assert.equal(a.el("sending-overlay").hidden, true);
+  a.pending.push(() => Promise.reject(new Error("offline")));
+  await a.el("stop").userFire("click");
+  assert.equal(a.el("stop").disabled, false);
+  assert.equal(a.el("retry").hidden, false);
+  assert.equal(a.el("sending-overlay").hidden, true);
+});
+
+test("drag throttle waits for reply and one second, coalesces values, sends release value", async () => {
+  const a = await setup(),
+    first = deferred();
+  a.calls.length = 0;
+  a.pending.push(() => first.promise);
+  a.el("bri").value = "10";
+  await a.el("bri").userFire("input");
+  assert.equal(a.calls.filter((c) => c.path === "/set").length, 1);
+  assert.equal(a.el("stop").disabled, false);
+  a.tick(2000);
+  assert.equal(a.el("sending-overlay").hidden, true);
+  for (const value of [20, 30, 40, 50]) {
+    a.el("bri").value = String(value);
+    await a.el("bri").userFire("input");
+  }
+  await a.el("bri").userFire("change");
+  assert.equal(a.calls.filter((c) => c.path === "/set").length, 1);
+  first.resolve(response({ ok: true, rgb: "FF8C28", brightness: 10 }));
+  await flush();
+  const values = a.calls
+    .filter((c) => c.path === "/set")
+    .map((c) => c.params.get("bri"));
+  assert.deepEqual(values, ["10", "50"]);
+  assert.equal(a.eval("state().bri"), 50);
+  a.el("bri").value = "70";
+  await a.el("bri").userFire("input");
+  a.el("bri").value = "80";
+  await a.el("bri").userFire("change");
+  a.tick(999);
+  await flush();
+  assert.equal(a.calls.filter((c) => c.path === "/set").length, 2);
+  a.tick(1);
+  await flush();
+  assert.equal(
+    a.calls
+      .filter((c) => c.path === "/set")
+      .at(-1)
+      .params.get("bri"),
+    "80",
+  );
+});
+
+test("tap during a drag locks immediately and waits for that drag reply", async () => {
+  const a = await setup(),
+    first = deferred();
+  a.calls.length = 0;
+  a.pending.push(() => first.promise);
+  a.el("bri").value = "20";
+  await a.el("bri").fire("input");
+  const tap = a.el("off").userFire("click");
+  assert.equal(a.el("stop").disabled, true);
+  assert.equal(a.calls.length, 1);
+  first.resolve(response({ ok: true, rgb: "FF8C28", brightness: 20 }));
+  await tap;
+  await flush();
+  assert.deepEqual(
+    a.calls.filter((c) => c.path === "/set").map((c) => c.params.get("bri")),
+    ["20", "0"],
+  );
+  assert.equal(a.eval("state().bri"), 0);
+});
+
+test("volume and own colour drags use the same latest-value throttle without overlays", async () => {
+  const a = await setup();
+  await a.buttons("[data-t]")[0].fire("click");
+  a.calls.length = 0;
+  a.el("vol").value = "12";
+  await a.el("vol").fire("input");
+  await flush();
+  a.el("vol").value = "14";
+  await a.el("vol").fire("change");
+  assert.equal(a.calls.filter((c) => c.path === "/tone").length, 1);
+  a.tick(1000);
+  await flush();
+  assert.equal(
+    a.calls
+      .filter((c) => c.path === "/tone")
+      .at(-1)
+      .params.get("vol"),
+    "14",
+  );
+  a.el("col").value = "#112233";
+  await a.el("col").fire("input");
+  a.el("col").value = "#445566";
+  await a.el("col").fire("change");
+  a.tick(1000);
+  await flush();
+  assert.equal(
+    a.calls
+      .filter((c) => c.path === "/set")
+      .at(-1)
+      .params.get("rgb"),
+    "445566",
+  );
+  assert.equal(a.el("sending-overlay").hidden, true);
+});
+
+test("sound duration selector, range and field stay in sync and optional ms reaches tone", async () => {
+  const a = await setup();
+  await a.buttons("[data-duration]")[1].fire("click");
+  assert.equal(a.el("duration-controls").hidden, false);
+  a.el("duration").value = "1200";
+  await a.el("duration").fire("input");
+  assert.equal(a.el("duration-ms").value, "1200");
+  a.el("duration-ms").value = "2200";
+  await a.el("duration-ms").fire("change");
+  assert.equal(Number(a.el("duration").value), 2200);
+  a.el("duration-ms").value = "199";
+  await a.el("duration-ms").fire("change");
+  assert.equal(Number(a.el("duration-ms").value), 2200);
+  await a.el("tone-test").fire("click");
+  assert.equal(a.calls.at(-1).params.get("ms"), "2200");
+  await a.buttons("[data-duration]")[0].fire("click");
+  await a.el("tone-test").fire("click");
+  assert.equal(a.calls.at(-1).params.has("ms"), false);
+});
+
+test("WZ defaults to Desk-Signal with honest disconnected and unknown copy in both modes", async () => {
+  const a = await setup({ "nightlight-hub": "WZ-594F" });
+  assert.equal(a.el("desk-controls").hidden, false);
+  assert.equal(a.el("nightlight-controls").hidden, true);
+  assert.match(a.el("desk-lit").textContent, /Unbekannt.*5/);
+  assert.equal(a.el("desk-pma").textContent, "PMA · nicht verbunden");
+  assert.equal(a.el("desk-ppm").textContent, "PPM · nicht verbunden");
+  assert.equal(a.el("desk-kind").textContent, "WZ-594F zeigt den Desk");
+  assert.equal(a.el("usage-text").textContent, "Verwendung: Desk-Signal");
+  assert.equal(a.el("desk-seen").disabled, true);
+  assert.equal(a.el("auto-sound").getAttribute("aria-checked"), "false");
+});
+
+test("Verwendung saves on the server for exactly the selected hub", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" });
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/settings");
+    assert.equal(url.searchParams.get("hub"), "plug");
+    const settings = structuredClone(configDefaults);
+    settings.plug.usage = "desk";
+    return Promise.resolve(response({ ok: true, settings }));
+  });
+  await a.buttons("[data-usage]")[1].fire("click");
+  await flush();
+  assert.equal(a.eval("settings.plug.usage"), "desk");
+  assert.equal(a.el("nightlight-controls").hidden, true);
+  assert.equal(a.el("desk-controls").hidden, false);
+});
+
+test("named places preserve their IDs, previews and safe labels in the save sheet", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" });
+  a.eval(
+    'acceptLight({rgb:"FFB46B",brightness:5},"KI-18FB","Hellwarm"); render();',
+  );
+  await a.el("save-nightlight").fire("click");
+  await a
+    .buttons("[data-save-place]")
+    .find((b) => b.dataset.savePlace === "p2")
+    .fire("click");
+  assert.match(a.el("old-preset").textContent, /FF8C28/);
+  assert.match(a.el("new-preset").textContent, /FFB46B/);
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("id"), "p2");
+    const presets = structuredClone(defaults);
+    Object.assign(presets.plug[1], { rgb: "FFB46B", bri: 5 });
+    return Promise.resolve(response({ ok: true, presets }));
+  });
+  await a.el("confirm-save").fire("click");
+  await flush();
+  assert.equal(a.eval("placesFor().p2.rgb"), "FFB46B");
+  assert.equal(a.el("undo").hidden, false);
+  await a.el("off").fire("click");
+  assert.equal(a.el("undo").hidden, true);
+  assert.equal(a.eval("undoCommand"), null);
+});
+
+test("place rename is inline, deletion needs confirmation, nacht cannot be deleted", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" });
+  a.eval(
+    'acceptLight({rgb:"FFB46B",brightness:5},"KI-18FB","Hellwarm"); render();',
+  );
+  await a.el("save-nightlight").fire("click");
+  await a.el("edit-places").fire("click");
+  a.el("rename-p2").value = "<Lesen>";
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("id"), "p2");
+    assert.equal(url.searchParams.get("name"), "<Lesen>");
+    const presets = structuredClone(defaults);
+    presets.plug[1].name = "<Lesen>";
+    return Promise.resolve(response({ ok: true, presets }));
+  });
+  await a
+    .buttons("[data-rename-place]")
+    .find((b) => b.dataset.renamePlace === "p2")
+    .fire("click");
+  await flush();
+  assert.equal(
+    a.buttons("[data-preset]")[0].querySelector(".pre-n").textContent,
+    "<Lesen>",
+  );
+  const before = a.calls.length;
+  await a
+    .buttons("[data-delete-place]")
+    .find((b) => b.dataset.deletePlace === "nacht")
+    .fire("click");
+  assert.equal(a.calls.length, before);
+  await a
+    .buttons("[data-delete-place]")
+    .find((b) => b.dataset.deletePlace === "p2")
+    .fire("click");
+  assert.equal(a.calls.length, before);
+  assert.equal(a.el("delete-place-confirm").hidden, false);
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("delete"), "1");
+    const presets = structuredClone(defaults);
+    presets.plug = presets.plug.filter((p) => p.id !== "p2");
+    return Promise.resolve(response({ ok: true, presets }));
+  });
+  await a.el("confirm-place-delete").fire("click");
+  await flush();
+  assert.equal(a.eval("placesFor().p2"), undefined);
+});
+
+test("matrix editor exposes all 11 rules, preserves takt minimum and saves all desks", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  assert.equal(a.buttons("[data-rule]").length, 11);
+  await a.buttons("[data-rule]")[0].fire("click");
+  assert.equal(a.el("rule-sheet").open, true);
+  assert.equal(a.el("rule-takt").getAttribute("min"), "2");
+  await a
+    .buttons("[data-rule-mode]")
+    .find((b) => b.dataset.ruleMode === "alternate")
+    .fire("click");
+  await a.buttons("[data-rule-slot]")[1].fire("click");
+  await a
+    .buttons("[data-rule-color]")
+    .find((b) => b.dataset.ruleColor === "FFA020")
+    .fire("click");
+  a.el("rule-all").checked = true;
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("all"), "1");
+    assert.equal(url.searchParams.get("takt"), "2");
+    assert.equal(url.searchParams.get("mode"), "alternate");
+    assert.equal(url.searchParams.get("rgb2"), "FFA020");
+    return Promise.resolve(
+      response({ ok: true, settings: structuredClone(configDefaults) }),
+    );
+  });
+  await a.el("rule-save").fire("click");
+});
+
+test("unknown editor cannot blink or turn off and warns when idle is too similar", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  await a
+    .buttons("[data-rule]")
+    .find((b) => b.dataset.rule === "unknown")
+    .fire("click");
+  assert.equal(a.el("rule-bri").min, 1);
+  assert.equal(
+    a.buttons("[data-rule-mode]").find((b) => b.dataset.ruleMode === "blink")
+      .disabled,
+    true,
+  );
+  a.eval(
+    "settings.round.rules.idle={...settings.round.rules.unknown};renderRuleEditor();",
+  );
+  assert.match(a.el("rule-warning").textContent, /zu ähnlich/);
+});
+
+test("whole slider row takes pointer at both ends and retains native keyboard steps", async () => {
+  const a = await setup(),
+    row = a.el("bri").closest(".slrow");
+  a.calls.length = 0;
+  await row.fire("pointerdown", { clientX: 0 });
+  await flush();
+  assert.equal(Number(a.el("bri").value), 0);
+  await row.fire("pointermove", { clientX: 240 });
+  await row.fire("pointerup", { clientX: 240 });
+  a.tick(1000);
+  await flush();
+  assert.equal(
+    a.calls
+      .filter((c) => c.path === "/set")
+      .at(-1)
+      .params.get("bri"),
+    "100",
+  );
+  assert.equal(a.el("rule-takt").getAttribute("step"), "1");
+  assert.equal(a.el("duration").getAttribute("step"), "100");
+});
+
+test("automatic audio duration and volume can be saved without playing", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.el("auto-duration").value = "1400";
+  await a.el("auto-duration").fire("input");
+  a.el("auto-vol").value = "12";
+  await a.el("auto-vol").fire("input");
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/settings");
+    assert.equal(url.searchParams.get("sound_ms"), "1400");
+    assert.equal(url.searchParams.get("sound_vol"), "12");
+    const settings = structuredClone(configDefaults);
+    settings.round.sound_ms = 1400;
+    settings.round.sound_vol = 12;
+    return Promise.resolve(response({ ok: true, settings }));
+  });
+  const before = a.calls.length;
+  await a.el("auto-tone-save").fire("click");
+  await flush();
+  assert.equal(
+    a.calls.slice(before).some((c) => c.path === "/tone"),
+    false,
+  );
+  await a.el("auto-tone-test").fire("click");
+  assert.equal(a.calls.at(-1).params.get("ms"), "1400");
+});
+
+test("streamed retries update the actual attempt while the overlay is visible", async () => {
+  const a = await setup(),
+    final = deferred();
+  let reads = 0;
+  a.pending.push(() =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/x-ndjson" },
+      body: {
+        getReader: () => ({
+          read() {
+            reads++;
+            if (reads === 1)
+              return Promise.resolve({
+                value: Buffer.from(
+                  '{"progress":1,"attempts":4}\n{"progress":2,"attempts":4}\n',
+                ),
+                done: false,
+              });
+            if (reads === 2) return final.promise;
+            return Promise.resolve({ done: true });
+          },
+        }),
+      },
+    }),
+  );
+  const action = a.el("stop").userFire("click");
+  await flush();
+  a.tick(250);
+  assert.equal(a.el("sending-overlay").hidden, false);
+  assert.equal(a.el("sending-attempt").textContent, "Versuch 2 von 4");
+  assert.equal(a.calls.at(-1).options.headers.Accept, "application/x-ndjson");
+  final.resolve({
+    value: Buffer.from('{"ok":true,"versuche":2}\n'),
+    done: false,
+  });
+  await action;
+  assert.match(a.el("status-text").textContent, /nach 2 Versuchen/);
+  assert.equal(a.el("sending-overlay").hidden, true);
+});
+
+test("incomplete streamed reply cannot claim success and releases all controls", async () => {
+  const a = await setup();
+  let reads = 0;
+  a.pending.push(() =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/x-ndjson" },
+      body: {
+        getReader: () => ({
+          read: async () =>
+            ++reads === 1
+              ? {
+                  value: Buffer.from('{"progress":1,"attempts":4}\n'),
+                  done: false,
+                }
+              : { done: true },
+        }),
+      },
+    }),
+  );
+  await a.el("stop").fire("click");
+  assert.equal(a.el("retry").hidden, false);
+  assert.equal(a.el("stop").disabled, false);
+  assert.equal(a.el("sending-overlay").hidden, true);
+  assert.match(a.el("status-text").textContent, /Keine Verbindung/);
+});
+
+test("adult can manage named places from the initial readback without actuating a hub", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" });
+  assert.equal(a.eval("state().last"), null);
+  assert.equal(a.el("save-nightlight").hidden, false);
+  const count = a.calls.length;
+  await a.el("save-nightlight").userFire("click");
+  assert.equal(a.el("save-sheet").open, true);
+  assert.equal(a.calls.length, count);
+  assert.match(a.el("new-preset").textContent, /FF8C28/);
+});
+
+test("failed config load offers manual retry and recovers the settings controls", async () => {
+  let offline = true;
+  const a = await setup({ "nightlight-mode": "erwachsen" }, false, {
+    "/config": () =>
+      offline
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve(
+            response({ ok: true, settings: structuredClone(configDefaults) }),
+          ),
+  });
+  assert.equal(a.eval("configReady"), false);
+  assert.equal(a.el("retry").hidden, false);
+  offline = false;
+  await a.el("retry").userFire("click");
+  await flush();
+  assert.equal(a.eval("configReady"), true);
+  assert.equal(a.buttons("[data-usage]")[0].disabled, false);
 });
