@@ -299,6 +299,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T89-tm-watch.sh
 
+      - name: Verify hsb1 Aqara nightlight retries and network boundary (OPS-496)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T117-aqara-nightlight.sh
+
       - name: Keep Traefik ACME bind sources boot-safe
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh
