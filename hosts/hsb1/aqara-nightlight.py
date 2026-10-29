@@ -534,13 +534,17 @@ class SettingsStateError(ValueError):
     pass
 
 
+class RuleValidationError(ValueError):
+    pass
+
+
 def _valid_rule(rule, key):
     return (_valid_light(rule) and set(rule) == {"rgb", "bri", "mode", "rgb2", "takt"}
             and rule["mode"] in ("steady", "blink", "alternate")
             and isinstance(rule["rgb2"], str) and re.fullmatch(r"[0-9A-F]{6}", rule["rgb2"]) is not None
             and type(rule["takt"]) is int and 2 <= rule["takt"] <= 5
-            and (key != "unknown" or rule["bri"] >= 1 and rule["mode"] != "blink"
-                 and rule["rgb"] != "000000" and (rule["mode"] != "alternate" or rule["rgb2"] != "000000")))
+            and (rule["bri"] == 0 or all(rule[slot] != "000000" for slot in ("rgb", "rgb2")))
+            and (key != "unknown" or rule["bri"] >= 1 and rule["mode"] != "blink"))
 
 
 def _require_settings(condition):
@@ -610,7 +614,7 @@ def save_settings(hub, query):
                     "mode": query["mode"], "rgb2": query.get("rgb2", "FFFFFF").upper(),
                     "takt": int(query["takt"])}
             if not _valid_rule(rule, key):
-                raise ValueError("Ungültige Regel; Unbekannt muss immer leuchten")
+                raise RuleValidationError()
             keys = [key]
             if query.get("all") == "1" and ":" in key:
                 keys = [key.split(":")[0] + ":" + desk for desk in (*DESKS, "both")]
@@ -740,7 +744,7 @@ def test_signal(hub, query):
         rule = {"rgb": query["rgb"].upper(), "bri": int(query["bri"]), "mode": query["mode"],
                 "rgb2": query["rgb2"].upper(), "takt": int(query["takt"])}
     if not _valid_rule(rule, key):
-        raise ValueError("Ungültige Signalprobe")
+        raise RuleValidationError()
     if quiet_hours():
         rule.update(mode="steady", bri=5 if rule["bri"] else 0)
     set_light(hub, rule["rgb"], rule["bri"])
@@ -785,6 +789,8 @@ class SignalEngine:
     def finish(self, hub):
         old = self.previous.get(hub)
         if old:
+            if not _valid_rule(old[1], old[0]):
+                raise RuleValidationError()
             call(hub, "set_rgb", [(old[1]["bri"] << 24) | int(old[1]["rgb"], 16)], attempts=1)
             self.previous.pop(hub, None)
 
@@ -819,6 +825,10 @@ class SignalEngine:
                         rule.update(mode="steady", bri=5 if rule["bri"] else 0)
                 elif test:
                     _signal_tests.pop(hub, None)
+            # Validate again at the direct-send boundary, including test and
+            # cached state. Never route engine sends through set_light retries.
+            if not _valid_rule(rule, key):
+                raise RuleValidationError()
             changed = old != (key, rule)
             if not changed and monotonic < self.next_tick.get(hub, 0):
                 return False
@@ -895,6 +905,9 @@ def error_response(error):
                 "code": "settings_corrupt"}
     if isinstance(error, HubBusyError):
         return {"ok": False, "error": "Hub beschäftigt; erneut versuchen", "code": "hub_busy"}
+    if isinstance(error, RuleValidationError):
+        return {"ok": False, "error": "Ungültige Signal-Regel: Bei Helligkeit über 0 % darf keine der beiden Farben Schwarz sein; Unbekannt muss ohne Blinken leuchten",
+                "code": "invalid_rule"}
     if isinstance(error, (ValueError, KeyError, IndexError, TypeError)):
         message = "Ungültige Anfrage: Hub, Farbe, Helligkeit oder Ton prüfen"
     elif isinstance(error, DeviceError):
@@ -961,6 +974,7 @@ class H(BaseHTTPRequestHandler):
             self._reply(json.dumps(error_response(error)).encode(), "application/json; charset=utf-8")
 
     def _dispatch(self, url, query):
+        status = 200
         self._streaming = self.headers.get_all("Accept", []) == ["application/x-ndjson"] and url.path in (
             "/set", "/get", "/tone", "/stop", "/apply")
         if self._streaming:
@@ -1008,9 +1022,11 @@ class H(BaseHTTPRequestHandler):
                 return
         except Exception as error:
             result = error_response(error)
+            if isinstance(error, RuleValidationError):
+                status = 400
         finally:
             _request_progress.callback = None
-        self._reply(json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        self._reply(json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8", status=status)
 
     def _progress(self, attempt):
         try:

@@ -1293,6 +1293,99 @@ class RoundFourTest(unittest.TestCase):
         for first,second in [('000000','18C2B0'),('8FA3B0','000000')]:
             self.assertFalse(self.result(f'/settings?hub=round&rule=unknown&rgb={first}&rgb2={second}&bri=5&mode=alternate&takt=2')['ok'])
 
+    def test_every_lit_rule_rejects_black_in_either_slot_in_every_mode(self):
+        for key in self.module.RULE_KEYS:
+            for mode in ('steady', 'blink', 'alternate'):
+                for slot in ('rgb', 'rgb2'):
+                    for bri in (1, 20, 100):
+                        with self.subTest(key=key, mode=mode, slot=slot, bri=bri):
+                            rule = dict(rgb='18C2B0', rgb2='FFA020', bri=bri, mode=mode, takt=2)
+                            rule[slot] = '000000'
+                            self.assertFalse(self.module._valid_rule(rule, key))
+                            rule['bri'] = 0
+                            self.assertEqual(self.module._valid_rule(rule, key), key != 'unknown')
+
+    def test_black_rule_saves_and_signal_tests_return_400_without_side_effects(self):
+        self.module.save_settings('round', {})
+        before = self.module.SETTINGS_FILE.read_bytes()
+        with patch.object(self.module, 'set_light') as light, patch.object(self.module, 'quiet_hours', return_value=True):
+            for endpoint in ('settings', 'signal-test'):
+                for method in ('GET', 'POST'):
+                    for key in self.module.RULE_KEYS:
+                        for mode in ('steady', 'blink', 'alternate'):
+                            for slot in ('rgb', 'rgb2'):
+                                with self.subTest(endpoint=endpoint, method=method, key=key, mode=mode, slot=slot):
+                                    colors = dict(rgb='18C2B0', rgb2='FFA020')
+                                    colors[slot] = '000000'
+                                    handler = self.request(f'/{endpoint}?hub=round&rule={key}&rgb={colors["rgb"]}&rgb2={colors["rgb2"]}&bri=20&mode={mode}&takt=2&all=1', method=method)
+                                    result = json.loads(handler._reply.call_args.args[0])
+                                    self.assertEqual(handler._reply.call_args.kwargs['status'], 400)
+                                    self.assertFalse(result['ok'])
+                                    self.assertEqual(result['code'], 'invalid_rule')
+                                    self.assertIn('Schwarz', result['error'])
+                                    self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), before)
+            light.assert_not_called()
+        self.assertEqual(self.module._signal_tests, {})
+        self.send.assert_not_called()
+
+    def test_saved_black_lit_rules_fail_closed_on_read(self):
+        for slot in ('rgb', 'rgb2'):
+            with self.subTest(slot=slot):
+                settings = self.module.default_settings()
+                settings['round']['rules']['regular:ppm'][slot] = '000000'
+                self.module.SETTINGS_FILE.write_text(json.dumps(settings))
+                with self.assertRaises(self.module.SettingsStateError):
+                    self.module.SignalEngine().tick('round', self.now, 0)
+        self.send.assert_not_called()
+
+    def test_engine_rejects_black_in_live_and_test_rules_before_single_attempt_send(self):
+        for source in ('live', 'test'):
+            for slot in ('rgb', 'rgb2'):
+                for mode in ('steady', 'blink', 'alternate'):
+                    with self.subTest(source=source, slot=slot, mode=mode):
+                        rule = dict(rgb='18C2B0', rgb2='FFA020', bri=20, mode=mode, takt=2)
+                        rule[slot] = '000000'
+                        engine = self.module.SignalEngine()
+                        signal = dict(key='regular:ppm', rule=rule, quiet=False)
+                        if source == 'test':
+                            self.module._signal_tests['round'] = (10, 'regular:ppm', rule)
+                            signal = dict(key='unknown', rule=self.module.default_settings()['round']['rules']['unknown'], quiet=False)
+                        with patch.object(self.module, 'resolve_signal', return_value=signal), self.assertRaises(self.module.RuleValidationError):
+                            engine.tick('round', self.now, 0)
+                        self.send.assert_not_called()
+                        self.assertEqual(engine.next_tick, {})
+                        self.assertEqual(engine.previous, {})
+                        self.assertEqual(engine.applied, {})
+                        self.module._signal_tests.clear()
+        self.feed()
+        engine = self.module.SignalEngine()
+        self.assertTrue(engine.tick('round', self.now, 0))
+        self.send.assert_called_once_with('round', 'set_rgb', [(20 << 24) | 0x18C2B0], attempts=1)
+
+    def test_engine_finish_rejects_cached_black_in_either_slot(self):
+        for slot in ('rgb', 'rgb2'):
+            with self.subTest(slot=slot):
+                rule = dict(rgb='18C2B0', rgb2='FFA020', bri=20, mode='alternate', takt=2)
+                rule[slot] = '000000'
+                engine = self.module.SignalEngine()
+                engine.previous['round'] = ('regular:ppm', rule)
+                with self.assertRaises(self.module.RuleValidationError):
+                    engine.finish('round')
+        self.send.assert_not_called()
+
+    def test_explicit_zero_brightness_black_rule_remains_off(self):
+        query = dict(rule='regular:ppm', rgb='000000', rgb2='000000', bri='0', mode='alternate', takt='2')
+        self.assertTrue(self.module.save_settings('round', query)['ok'])
+        with patch.object(self.module, 'set_light', return_value={'ok': True}) as light:
+            self.assertTrue(self.module.test_signal('round', query)['ok'])
+            light.assert_called_once_with('round', '000000', 0)
+        self.module._signal_tests.clear()
+        self.feed()
+        engine = self.module.SignalEngine()
+        self.assertTrue(engine.tick('round', self.now, 0))
+        self.assertTrue(engine.tick('round', self.now + 2, 2))
+        self.assertEqual(self.send.call_args_list, [call('round', 'set_rgb', [0], attempts=1)] * 2)
+
     def test_block_reservation_reduces_fsync_and_never_reuses_after_crash(self):
         with patch.object(self.module.os,'fsync',wraps=self.module.os.fsync) as sync:
             ids=[self.module._next_id() for _ in range(256)]

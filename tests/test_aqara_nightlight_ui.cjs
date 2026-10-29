@@ -1575,6 +1575,148 @@ test("unknown editor cannot blink or turn off and warns when idle is too similar
   assert.match(a.el("rule-warning").textContent, /zu ähnlich/);
 });
 
+test("rule color picker rejects black in both slots and sends safe save/test colors", async () => {
+  for (const action of ["rule-save", "rule-test"]) {
+    const a = await setup({
+      "nightlight-mode": "erwachsen",
+      "nightlight-hub": "WZ-594F",
+    });
+    await a
+      .buttons("[data-rule]")
+      .find((b) => b.dataset.rule === "regular:ppm")
+      .fire("click");
+    await a
+      .buttons("[data-rule-mode]")
+      .find((b) => b.dataset.ruleMode === "alternate")
+      .fire("click");
+    for (const slot of ["rgb", "rgb2"]) {
+      await a
+        .buttons("[data-rule-slot]")
+        .find((b) => b.dataset.ruleSlot === slot)
+        .fire("click");
+      const previous = a.eval(`ruleDraft.${slot}`);
+      a.el("rule-color").value = "#000000";
+      await a.el("rule-color").fire("input");
+      assert.equal(a.eval(`ruleDraft.${slot}`), previous);
+      assert.equal(a.el("rule-color").value, "#" + previous);
+      assert.match(a.el("rule-warning").textContent, /Schwarz/);
+    }
+    a.pending.push((url) => {
+      assert.equal(
+        url.pathname,
+        action === "rule-save" ? "/settings" : "/signal-test",
+      );
+      assert.equal(url.searchParams.get("bri"), "20");
+      assert.equal(url.searchParams.get("rgb"), "18C2B0");
+      assert.equal(url.searchParams.get("rgb2"), "FFFFFF");
+      return Promise.resolve(
+        response({ ok: true, settings: structuredClone(configDefaults) }),
+      );
+    });
+    await a.el(action).fire("click");
+    await flush();
+    assert.equal(a.pending.length, 0);
+  }
+});
+
+test("black saved places are disabled in the rule editor for both color slots", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval('presets.round.p2.rgb="000000";');
+  await a
+    .buttons("[data-rule]")
+    .find((b) => b.dataset.rule === "regular:ppm")
+    .fire("click");
+  await a
+    .buttons("[data-rule-mode]")
+    .find((b) => b.dataset.ruleMode === "alternate")
+    .fire("click");
+  const place = a
+    .buttons("[data-rule-place]")
+    .find((b) => b.dataset.rulePlace === "p2");
+  assert.equal(place.disabled, true);
+  for (const slot of ["rgb", "rgb2"]) {
+    await a
+      .buttons("[data-rule-slot]")
+      .find((b) => b.dataset.ruleSlot === slot)
+      .fire("click");
+    const previous = a.eval(`ruleDraft.${slot}`);
+    await place.fire("click");
+    assert.equal(a.eval(`ruleDraft.${slot}`), previous);
+  }
+});
+
+test("black off-rule colors become usable colors before brightness is raised", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval(
+    'settings.round.rules.idle={rgb:"000000",rgb2:"000000",bri:0,mode:"alternate",takt:2};',
+  );
+  await a
+    .buttons("[data-rule]")
+    .find((b) => b.dataset.rule === "idle")
+    .fire("click");
+  a.el("rule-bri").value = "20";
+  await a.el("rule-bri").fire("input");
+  assert.notEqual(a.eval("ruleDraft.rgb"), "000000");
+  assert.notEqual(a.eval("ruleDraft.rgb2"), "000000");
+  await a.el("rule-test").fire("click");
+  await flush();
+  const sent = a.calls.find((c) => c.path === "/signal-test");
+  assert.ok(sent);
+  assert.equal(sent.params.get("bri"), "20");
+  assert.notEqual(sent.params.get("rgb"), "000000");
+  assert.notEqual(sent.params.get("rgb2"), "000000");
+});
+
+test("rule save/test refuse a black lit draft in either slot without closing", async () => {
+  for (const action of ["rule-save", "rule-test"]) {
+    for (const slot of ["rgb", "rgb2"]) {
+      const a = await setup({
+        "nightlight-mode": "erwachsen",
+        "nightlight-hub": "WZ-594F",
+      });
+      await a
+        .buttons("[data-rule]")
+        .find((b) => b.dataset.rule === "regular:ppm")
+        .fire("click");
+      a.eval(`ruleDraft.${slot}="000000";`);
+      const before = a.calls.length;
+      await a.el(action).fire("click");
+      assert.equal(a.calls.length, before);
+      assert.equal(a.el("rule-sheet").open, true);
+      assert.match(a.el("rule-warning").textContent, /Schwarz/);
+    }
+  }
+});
+
+test("HTTP 400 rule validation keeps the server's German error visible", async () => {
+  for (const action of ["rule-save", "rule-test"]) {
+    const a = await setup({
+      "nightlight-mode": "erwachsen",
+      "nightlight-hub": "WZ-594F",
+    });
+    await a
+      .buttons("[data-rule]")
+      .find((b) => b.dataset.rule === "regular:ppm")
+      .fire("click");
+    const message = "Bei Helligkeit über 0 % darf keine Farbe Schwarz sein.";
+    a.pending.push(() =>
+      Promise.resolve(
+        response({ ok: false, code: "invalid_rule", error: message }, 400),
+      ),
+    );
+    await a.el(action).fire("click");
+    await flush();
+    assert.equal(a.el("status-text").textContent, message);
+    assert.equal(a.eval("serverRejected"), false);
+  }
+});
+
 test("whole slider row takes pointer at both ends and retains native keyboard steps", async () => {
   const a = await setup(),
     row = a.el("bri").closest(".slrow");

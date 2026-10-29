@@ -150,6 +150,15 @@ module.exports = function nightlightPage() {
         error.rejected = true;
         throw error;
       }
+      if (
+        response.status === 400 &&
+        ["/settings", "/signal-test"].includes(path)
+      ) {
+        const result = await response.json();
+        if (result.ok === false && result.code === "invalid_rule")
+          return result;
+        throw new Error("unavailable");
+      }
       if (!response.ok) throw new Error("unavailable");
       if (
         response.headers
@@ -982,6 +991,8 @@ module.exports = function nightlightPage() {
   });
   function renderRuleEditor() {
     if (!ruleDraft) return;
+    for (const slot of ["rgb", "rgb2"])
+      if (!nonBlack(ruleDraft[slot])) ruleDraft[slot] = DEFAULT_NIGHTLIGHT.rgb;
     $("rule-color").value = "#" + ruleDraft[ruleSlot];
     $("rule-bri").value = ruleDraft.bri;
     $("rule-bri").min = editingRule === "unknown" ? 1 : 0;
@@ -1002,6 +1013,7 @@ module.exports = function nightlightPage() {
     document.querySelectorAll("[data-rule-place]").forEach((b) => {
       const p = placesFor()[b.dataset.rulePlace];
       b.hidden = !p;
+      b.disabled = !nonBlack(p?.rgb);
       b.textContent = p?.name || "";
     });
     sliderValue("rule-bri", " %");
@@ -1061,12 +1073,19 @@ module.exports = function nightlightPage() {
   );
   document.querySelectorAll("[data-rule-place]").forEach((b) =>
     b.addEventListener("click", () => {
+      if (!nonBlack(placesFor()[b.dataset.rulePlace]?.rgb)) return;
       ruleDraft[ruleSlot] = placesFor()[b.dataset.rulePlace].rgb;
       renderRuleEditor();
     }),
   );
   $("rule-color").addEventListener("input", () => {
-    ruleDraft[ruleSlot] = $("rule-color").value.slice(1).toUpperCase();
+    const rgb = $("rule-color").value.slice(1).toUpperCase();
+    if (!nonBlack(rgb)) {
+      renderRuleEditor();
+      $("rule-warning").textContent = "Bitte eine Farbe außer Schwarz wählen.";
+      return;
+    }
+    ruleDraft[ruleSlot] = rgb;
     renderRuleEditor();
   });
   $("rule-bri").addEventListener("input", () => {
@@ -1078,7 +1097,16 @@ module.exports = function nightlightPage() {
     renderRuleEditor();
   });
   $("rule-cancel").addEventListener("click", () => $("rule-sheet").close());
+  function ruleColorsReady() {
+    if (ruleDraft.bri > 0 && ![ruleDraft.rgb, ruleDraft.rgb2].every(nonBlack)) {
+      $("rule-warning").textContent =
+        "Bei Helligkeit über 0 % darf keine der beiden Farben Schwarz sein.";
+      return false;
+    }
+    return true;
+  }
   $("rule-save").addEventListener("click", () => {
+    if (!ruleColorsReady()) return;
     $("rule-sheet").close();
     saveConfig(
       {
@@ -1090,6 +1118,7 @@ module.exports = function nightlightPage() {
     );
   });
   $("rule-test").addEventListener("click", () => {
+    if (!ruleColorsReady()) return;
     $("rule-sheet").close();
     command(
       "/signal-test",
