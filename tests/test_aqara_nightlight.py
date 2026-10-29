@@ -220,7 +220,11 @@ class ProtocolTest(unittest.TestCase):
 
 class ApiTest(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.module = load()
+        self.module.STATE_DIRECTORY = Path(self.tmp.name)
+        self.module.PRESET_FILE = Path(self.tmp.name, "presets.json")
 
     def test_light_wire_encoding_clamping_and_300ms_echo(self):
         for brightness, expected in ((10, 10), (-1, 0), (101, 100)):
@@ -513,6 +517,7 @@ class PresetTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.module = load()
+        self.module.STATE_DIRECTORY = Path(self.tmp.name)
         self.path = Path(self.tmp.name, "presets.json")
         self.module.PRESET_FILE = self.path
         self.module.ID_FILE = str(Path(self.tmp.name, "msgid"))
@@ -859,6 +864,7 @@ class RoundFourTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.module = load()
         root = Path(self.tmp.name)
+        self.module.STATE_DIRECTORY = root
         self.module.PRESET_FILE = root / 'presets.json'
         self.module.SETTINGS_FILE = root / 'settings.json'
         self.module.FEED_FILE = root / 'desk-counts.json'
@@ -1231,7 +1237,10 @@ class StreamingProgressTest(unittest.TestCase):
     parsed_request = ApiTest.parsed_request
 
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.module = load()
+        self.module.STATE_DIRECTORY = Path(self.tmp.name)
         self.ids = patch.object(self.module, '_next_id', side_effect=range(101,120)).start()
         patch.object(self.module.time,'sleep').start()
         self.addCleanup(patch.stopall)
@@ -1260,6 +1269,99 @@ class StreamingProgressTest(unittest.TestCase):
         headers,body=self.parsed_request(b'POST /stop?hub=plug HTTP/1.1\r\nHost: hsb1:8765\r\nAccept: application/x-ndjson\r\nContent-Length: 0\r\n\r\n')
         self.assertIn(b'403 Forbidden',headers)
         self.assertNotIn(b'application/x-ndjson',headers)
+
+
+class ColorRecoveryTest(unittest.TestCase):
+    request = ApiTest.request
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        with patch.dict("os.environ", {"STATE_DIRECTORY": self.tmp.name}):
+            self.module = load()
+        self.send = patch.object(self.module, "call", return_value=(["ok"], 1)).start()
+        patch.object(self.module.time, "sleep").start()
+        self.addCleanup(patch.stopall)
+
+    def color_path(self, hub="plug"):
+        return Path(self.tmp.name, f"last-color-{hub}.json")
+
+    def result(self, query):
+        response = self.request(query, method="POST")
+        return json.loads(response._reply.call_args.args[0])
+
+    def test_set_recovers_saved_color_after_black_off_and_process_restart(self):
+        self.assertTrue(self.result("/set?hub=plug&rgb=123456&bri=30")["ok"])
+        self.assertTrue(self.result("/set?hub=plug&rgb=000000&bri=0")["ok"])
+        with patch.dict("os.environ", {"STATE_DIRECTORY": self.tmp.name}):
+            fresh = load()
+        with patch.object(fresh, "call", return_value=(["ok"], 1)) as send:
+            result = fresh.set_light("plug", "000000", 70)
+        self.assertEqual(result["rgb"], "123456")
+        self.assertEqual(send.call_args_list[0], call("plug", "set_rgb", [(70 << 24) | 0x123456]))
+        self.assertEqual(json.loads(self.color_path().read_text()), "123456")
+
+    def test_fallback_uses_each_hubs_saved_nacht_without_replacing_it(self):
+        for hub, rgb in (("plug", "ABCDEF"), ("round", "123456")):
+            self.module.save_preset(hub, "nacht", rgb, 44)
+        before = self.module.PRESET_FILE.read_bytes()
+        for hub, rgb in (("plug", "ABCDEF"), ("round", "123456")):
+            result = self.result(f"/set?hub={hub}&rgb=000000&bri=65")
+            self.assertEqual((result["rgb"], result["brightness"]), (rgb, 65))
+        self.assertEqual(self.module.PRESET_FILE.read_bytes(), before)
+
+    def test_missing_or_black_nacht_still_cannot_send_black_with_brightness(self):
+        self.module.save_preset("plug", "nacht", "000000", 44)
+        self.assertEqual(self.module.set_light("plug", "000000", 50)["rgb"], "5C0701")
+        self.assertEqual(self.module.set_light("round", "000000", 50)["rgb"], "5C0701")
+
+    def test_apply_updates_recovery_color_and_preserves_ha_response_shape(self):
+        result = self.result("/apply?hub=round&preset=p2")
+        self.assertEqual(set(result), {"ok", "hub", "cmd", "sent", "brightness", "rgb", "reply", "versuche"})
+        self.assertEqual(json.loads(self.color_path("round").read_text()), "FF8C28")
+        self.assertFalse(self.color_path("plug").exists())
+        self.assertEqual(self.module.set_light("round", "000000", 80)["rgb"], "FF8C28")
+
+    def test_readback_keeps_raw_black_and_exposes_per_hub_recovery_color(self):
+        self.module.set_light("plug", "ABCDEF", 20)
+        self.send.return_value = ([0, 42], 1)
+        result = self.module.get_light("plug")
+        self.assertEqual((result["raw"], result["rgb"], result["brightness"], result["last_rgb"]),
+                         ("0x00000000", "000000", 0, "ABCDEF"))
+        self.assertEqual(self.module.get_light("round")["last_rgb"], "5C0701")
+        self.assertFalse(self.color_path("round").exists())
+
+    def test_failed_set_never_changes_the_durable_color(self):
+        self.module.set_light("plug", "123456", 20)
+        before = self.color_path().read_bytes()
+        self.send.side_effect = self.module.HubUnavailableError(4)
+        self.assertFalse(self.result("/set?hub=plug&rgb=ABCDEF&bri=50")["ok"])
+        self.assertEqual(self.color_path().read_bytes(), before)
+
+    def test_atomic_color_file_is_private_and_failed_replace_preserves_previous(self):
+        self.module.set_light("plug", "123456", 20)
+        self.assertEqual(self.color_path().stat().st_mode & 0o777, 0o600)
+        before = self.color_path().read_bytes()
+        with patch.object(self.module.os, "replace", side_effect=OSError()):
+            self.assertFalse(self.result("/set?hub=plug&rgb=ABCDEF&bri=50")["ok"])
+        self.assertEqual(self.color_path().read_bytes(), before)
+        self.assertEqual(list(Path(self.tmp.name).glob(".last-color-*")), [])
+
+    def test_corrupt_color_state_fails_without_contacting_hub(self):
+        for invalid in ('"000000"', '"GGGGGG"', '{}', 'broken'):
+            self.color_path().write_text(invalid)
+            self.send.reset_mock()
+            self.assertFalse(self.result("/set?hub=plug&rgb=000000&bri=50")["ok"])
+            self.send.assert_not_called()
+            self.assertEqual(self.color_path().read_text(), invalid)
+
+    def test_independent_hub_writers_preserve_both_colors(self):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda args: self.module.set_light(*args),
+                                    (("plug", "123456", 20), ("round", "ABCDEF", 30))))
+        self.assertTrue(all(r["ok"] for r in results))
+        self.assertEqual(json.loads(self.color_path().read_text()), "123456")
+        self.assertEqual(json.loads(self.color_path("round").read_text()), "ABCDEF")
 
 
 if __name__ == "__main__":

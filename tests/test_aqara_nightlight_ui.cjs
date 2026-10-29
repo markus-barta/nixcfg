@@ -1585,3 +1585,319 @@ test("failed config load offers manual retry and recovers the settings controls"
   assert.equal(a.eval("configReady"), true);
   assert.equal(a.buttons("[data-usage]")[0].disabled, false);
 });
+
+test("brightness from raw Aus uses the server's durable colour, including unknown colour", async () => {
+  for (const rgb of ["000000", null]) {
+    const a = await setup({}, false, {
+      "/get": async () =>
+        response({
+          ok: true,
+          rgb,
+          raw: "0x00000000",
+          brightness: 0,
+          illumination: 12,
+          last_rgb: "123456",
+        }),
+    });
+    assert.equal(a.eval("state().rgb"), "123456");
+    assert.equal(a.eval("state().readback.rgb"), rgb);
+    assert.equal(a.el("col").value, "#123456");
+    a.el("bri").value = "70";
+    await a.el("bri").userFire("input");
+    await flush();
+    const sent = a.calls.filter((c) => c.path === "/set");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].params.get("rgb"), "123456");
+    assert.equal(sent[0].params.get("bri"), "70");
+  }
+});
+
+test("without a previous colour, off-state brightness uses that hub's nacht", async () => {
+  const presets = structuredClone(defaults);
+  presets.plug[0].rgb = "225577";
+  const a = await setup({}, false, {
+    "/presets": async () => response({ ok: true, presets }),
+    "/get": async () =>
+      response({ ok: true, rgb: "000000", brightness: 0, illumination: 0 }),
+  });
+  a.el("bri").value = "60";
+  await a.el("bri").userFire("input");
+  await flush();
+  assert.equal(
+    a.calls
+      .filter((c) => c.path === "/set")
+      .at(-1)
+      .params.get("rgb"),
+    "225577",
+  );
+});
+
+test("Eigene Farbe and direct light sends recover black or unknown at positive brightness", async () => {
+  const a = await setup();
+  a.eval(
+    'acceptLight({rgb:"AABBCC",brightness:50},selected,"Eigene Farbe");render();',
+  );
+  a.el("col").value = "#000000";
+  await a.el("col").userFire("input");
+  await flush();
+  assert.equal(a.calls.at(-1).params.get("rgb"), "AABBCC");
+  assert.equal(a.calls.at(-1).params.get("bri"), "50");
+  a.eval("state().rgb=null;state().bri=80;");
+  await a.eval("sendLight()");
+  assert.equal(a.calls.at(-1).params.get("rgb"), "AABBCC");
+  assert.equal(
+    a.calls.some(
+      (c) =>
+        c.path === "/set" &&
+        c.params.get("rgb") === "000000" &&
+        Number(c.params.get("bri")) > 0,
+    ),
+    false,
+  );
+});
+
+test("recovery colours remain separate across hub switches and late readbacks", async () => {
+  const a = await setup({}, false, {
+    "/get": async (url) =>
+      response({
+        ok: true,
+        rgb: "000000",
+        brightness: 0,
+        illumination: 0,
+        last_rgb: url.searchParams.get("hub") === "plug" ? "112233" : "AABBCC",
+      }),
+  });
+  a.eval('settings.round.usage="nightlight";selectHub("WZ-594F");');
+  await flush();
+  a.el("bri").value = "40";
+  await a.el("bri").userFire("input");
+  await flush();
+  assert.equal(a.calls.at(-1).params.get("rgb"), "AABBCC");
+  a.eval('selectHub("KI-18FB");');
+  await flush();
+  a.tick(1000);
+  a.el("bri").value = "50";
+  await a.el("bri").userFire("input");
+  await flush();
+  assert.equal(a.calls.at(-1).params.get("rgb"), "112233");
+  a.eval(
+    'acceptReadback({rgb:"000000",brightness:0,last_rgb:"999999"},selected,0);',
+  );
+  assert.equal(a.eval("state().lastRgb"), "112233");
+});
+
+test("Verwendung selects exactly one styled radio on both hubs, modes and themes", async () => {
+  assert.match(
+    html,
+    /\.seg button\[aria-checked="true"\]\s*\{[^}]*background: var\(--raised\)/,
+  );
+  for (const theme of ["dark", "light"])
+    for (const mode of ["kind", "erwachsen"])
+      for (const [hub, usage] of [
+        ["KI-18FB", "nightlight"],
+        ["WZ-594F", "desk"],
+      ]) {
+        const a = await setup({
+          "nightlight-theme": theme,
+          "nightlight-mode": mode,
+          "nightlight-hub": hub,
+        });
+        const buttons = a.buttons("[data-usage]");
+        assert.equal(
+          buttons.filter((b) => b.getAttribute("aria-checked") === "true")
+            .length,
+          1,
+        );
+        for (const button of buttons) {
+          assert.equal(button.getAttribute("role"), "radio");
+          assert.equal(
+            button.getAttribute("aria-checked"),
+            String(button.dataset.usage === usage),
+          );
+          assert.equal(button.getAttribute("aria-pressed"), undefined);
+          assert.equal(
+            button.tabIndex,
+            button.dataset.usage === usage ? 0 : -1,
+          );
+        }
+      }
+});
+
+test("matrix motion uses the frozen wave icon with accessible blink and alternate text", async () => {
+  const a = await setup({ "nightlight-hub": "WZ-594F" });
+  const urgent = a
+    .buttons("[data-rule]")
+    .find((b) => b.dataset.rule === "urgent:ppm");
+  assert.match(urgent.querySelector(".cv").textContent, /^60\s%$/);
+  assert.equal(
+    urgent.querySelector(".cwave").classList.contains("motion-hidden"),
+    false,
+  );
+  assert.equal(
+    urgent.querySelector(".cwave").getAttribute("aria-hidden"),
+    "true",
+  );
+  assert.equal(urgent.querySelector("use").getAttribute("href"), "#i-wave");
+  assert.match(urgent.querySelector(".rule-motion").textContent, /blinkt/);
+  assert.match(urgent.getAttribute("aria-label"), /blinkt.*2 s/);
+  a.eval('settings.round.rules["urgent:ppm"].mode="alternate";renderDesk();');
+  assert.match(urgent.querySelector(".rule-motion").textContent, /wechselt/);
+  a.eval('settings.round.rules["urgent:ppm"].mode="steady";renderDesk();');
+  assert.equal(
+    urgent.querySelector(".cwave").classList.contains("motion-hidden"),
+    true,
+  );
+  assert.equal(urgent.querySelector(".rule-motion").textContent, "");
+});
+
+test("Gesehen appears only for a lit Desk state and hides for unknown, idle and off", async () => {
+  const a = await setup({
+    "nightlight-hub": "WZ-594F",
+    "nightlight-mode": "erwachsen",
+  });
+  assert.equal(a.el("desk-seen").hidden, true);
+  for (const [key, bri, visible] of [
+    ["unknown", 5, false],
+    ["idle", 0, false],
+    ["urgent:ppm", 60, true],
+    ["open:ppm", 0, false],
+    ["regular:ppm", 20, true],
+  ]) {
+    a.eval(
+      `signal={hub:"round",key:${JSON.stringify(key)},rule:{...settings.round.rules[${JSON.stringify(key)}],bri:${bri}},feed:{updated_at:0,desks:{ppm:{held:1,oldest_held_at:0}}}};renderDesk();`,
+    );
+    assert.equal(a.el("desk-seen").hidden, !visible, key);
+    assert.equal(a.el("desk-seen").disabled, !visible, key);
+  }
+});
+
+test("Kind WZ hub and Zuletzt use the sofa; Desk card uses the lamp and bell", async () => {
+  const a = await setup({ "nightlight-hub": "WZ-594F" });
+  const wz = a.buttons("[data-hub]").find((b) => b.dataset.hub === "WZ-594F");
+  assert.equal(wz.querySelector(".k use").getAttribute("href"), "#p-sofa");
+  assert.equal(
+    a.eval(
+      'document.querySelector(".hubsays .hspic use").getAttribute("href")',
+    ),
+    "#p-sofa",
+  );
+  assert.equal(
+    a.el("desk-controls").querySelector(".kpic use").getAttribute("href"),
+    "#p-lampbell",
+  );
+  assert.match(html, /<h2>Ton bei neuer Entscheidung<\/h2>/);
+  assert.doesNotMatch(html, /Ton bei neuem Eintrag/);
+});
+
+test("identical drag input and release send once, both in flight and after reply", async () => {
+  for (const inFlight of [false, true]) {
+    const a = await setup(),
+      first = deferred();
+    a.calls.length = 0;
+    if (inFlight) a.pending.push(() => first.promise);
+    a.el("bri").value = "100";
+    await a.el("bri").userFire("input");
+    await flush();
+    if (!inFlight) a.tick(1000);
+    await a.el("bri").userFire("input");
+    await a.el("bri").userFire("change");
+    if (inFlight)
+      first.resolve(response({ ok: true, rgb: "FF8C28", brightness: 100 }));
+    await flush();
+    a.tick(2000);
+    await flush();
+    assert.equal(a.calls.filter((c) => c.path === "/set").length, 1);
+  }
+});
+
+test("returning to the sent value cancels an unsent intermediate drag", async () => {
+  const a = await setup();
+  a.calls.length = 0;
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("input");
+  await flush();
+  a.el("bri").value = "50";
+  await a.el("bri").userFire("input");
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("change");
+  a.tick(1000);
+  await flush();
+  assert.deepEqual(
+    a.calls.filter((c) => c.path === "/set").map((c) => c.params.get("bri")),
+    ["100"],
+  );
+});
+
+test("drag deduplication is per hub and is invalidated by intervening tap commands", async () => {
+  const a = await setup();
+  a.calls.length = 0;
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("input");
+  await flush();
+  await a.el("off").userFire("click");
+  await flush();
+  a.tick(1000);
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("input");
+  await flush();
+  a.eval('settings.round.usage="nightlight";selectHub("WZ-594F");');
+  await flush();
+  a.tick(1000);
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("input");
+  await flush();
+  assert.deepEqual(
+    a.calls
+      .filter((c) => c.path === "/set")
+      .map((c) => [c.params.get("hub"), c.params.get("bri")]),
+    [
+      ["plug", "100"],
+      ["plug", "0"],
+      ["plug", "100"],
+      ["round", "100"],
+    ],
+  );
+});
+
+test("volume and own-colour input/release also skip identical sends", async () => {
+  const a = await setup();
+  await a.buttons("[data-t]")[0].fire("click");
+  a.calls.length = 0;
+  a.el("vol").value = "12";
+  await a.el("vol").userFire("input");
+  await flush();
+  a.tick(1000);
+  await a.el("vol").userFire("input");
+  await a.el("vol").userFire("change");
+  a.el("col").value = "#123456";
+  await a.el("col").userFire("input");
+  await flush();
+  a.tick(1000);
+  await a.el("col").userFire("input");
+  await a.el("col").userFire("change");
+  a.tick(1000);
+  await flush();
+  assert.equal(a.calls.filter((c) => c.path === "/tone").length, 1);
+  assert.equal(a.calls.filter((c) => c.path === "/set").length, 1);
+});
+
+test("Verwendung radio keyboard saves the new selection and respects the sending lock", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" });
+  const night = a.buttons("[data-usage]")[0];
+  const first = deferred();
+  a.pending.push(() => first.promise);
+  await night.userFire("keydown", { key: "ArrowRight" });
+  assert.equal(a.calls.at(-1).params.get("usage"), "desk");
+  const count = a.calls.length;
+  await night.userFire("keydown", { key: "End" });
+  assert.equal(a.calls.length, count);
+  const settings = structuredClone(configDefaults);
+  settings.plug.usage = "desk";
+  first.resolve(response({ ok: true, settings }));
+  await flush();
+  assert.equal(
+    a.buttons("[data-usage]")[1].getAttribute("aria-checked"),
+    "true",
+  );
+  assert.equal(a.buttons("[data-usage]")[1].tabIndex, 0);
+});

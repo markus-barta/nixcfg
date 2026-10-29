@@ -190,26 +190,38 @@ def call(name, cmd, params=None, attempts=ATTEMPTS):
 
 
 def set_light(name, rgb, bri):
+    if name not in HUBS:
+        raise ValueError("Unbekannter Hub")
     bri = max(0, min(100, int(bri)))
-    rgb = rgb.lstrip("#")
+    rgb = rgb.lstrip("#").upper()
     if re.fullmatch(r"[0-9a-fA-F]{6}", rgb) is None:
         raise ValueError("Farbe muss RRGGBB sein")
-    val = (bri << 24) | int(rgb, 16)
-    reply, attempts = call(name, "set_rgb", [val])
-    time.sleep(0.3)
-    try:
-        call(name, "set_rgb", [val], attempts=1)
-    except Exception:
-        pass
+    with _color_transaction(name) as path:
+        if rgb == "000000" and bri > 0:
+            rgb = _resume_color(name, path)
+        val = (bri << 24) | int(rgb, 16)
+        reply, attempts = call(name, "set_rgb", [val])
+        # Only an acknowledged non-black command changes the recovery colour.
+        # A black/off readback or failed command must never erase it.
+        if rgb != "000000":
+            _atomic_json(path, rgb)
+        time.sleep(0.3)
+        try:
+            call(name, "set_rgb", [val], attempts=1)
+        except Exception:
+            pass
     return {"ok": True, "hub": name, "cmd": "set_rgb", "sent": f"0x{val:08x}",
             "brightness": bri, "rgb": rgb.upper(), "reply": reply, "versuche": attempts}
 
 
 def get_light(name):
-    value, attempts = call(name, "get_prop", ["rgb", "illumination"])
+    with _color_transaction(name) as path:
+        value, attempts = call(name, "get_prop", ["rgb", "illumination"])
+        last_rgb = _resume_color(name, path)
     rgb = value[0]
     return {"ok": True, "hub": name, "raw": f"0x{rgb:08x}", "brightness": rgb >> 24,
-            "rgb": f"{rgb & 0xFFFFFF:06X}", "illumination": value[1], "versuche": attempts,
+            "rgb": f"{rgb & 0xFFFFFF:06X}", "last_rgb": last_rgb,
+            "illumination": value[1], "versuche": attempts,
             "hinweis": "Rücklesen hinkt oft hinterher"}
 
 
@@ -317,6 +329,32 @@ def _atomic_json(path, value):
     finally:
         if temporary is not None:
             os.unlink(temporary)
+
+
+@contextmanager
+def _color_transaction(hub):
+    if hub not in HUBS:
+        raise ValueError("Unbekannter Hub")
+    path = STATE_DIRECTORY / f"last-color-{hub}.json"
+    # Separate files avoid cross-hub lost updates. flock also serializes CLI
+    # and HTTP writers; the RLock keeps the first ACK and echo together.
+    with _locks[hub], open(str(path) + ".lock", "a", encoding="ascii") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield path
+
+
+def _resume_color(hub, path):
+    try:
+        rgb = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        with _preset_transaction():
+            nacht = next((p for p in _read_presets().get(hub, []) if p["id"] == "nacht"), None)
+        rgb = nacht["rgb"] if nacht else DEFAULT_NIGHTLIGHT["rgb"]
+        return rgb if rgb != "000000" else DEFAULT_NIGHTLIGHT["rgb"]
+    # Invalid durable state fails closed, just like presets/settings.
+    if not isinstance(rgb, str) or re.fullmatch(r"[0-9A-F]{6}", rgb) is None or rgb == "000000":
+        raise ValueError("Ungültige gespeicherte Farbe")
+    return rgb
 
 
 def _read_presets():

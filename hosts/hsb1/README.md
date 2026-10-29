@@ -63,10 +63,14 @@ Acting endpoints accept **GET or POST** with exactly one `X-Nightlight: 1`;
 GET-with-header remains deprecated HA compatibility. Loopback HA `/apply` needs
 no Origin or extra CSRF token; unknown/unsaved presets never call a hub. All
 Host/Origin/fetch guards, OPTIONS denial and the script-hash CSP remain in place.
-Tap controls lock immediately; drags coalesce at most once per second. Every
+Tap controls lock immediately; drags coalesce at most once per second and skip
+an unchanged value on release. Off-state brightness and colour edits recover
+the hub's last acknowledged nonblack colour, falling back to its `nacht` colour.
+`/get` keeps raw readback and exposes this recovery colour as `last_rgb`. Every
 slider uses an 80 px row, 20 px track and 40 px thumb. Manual tones cap at **40%**
 and support an optional 200–3000 ms stop timer; automatic audio caps at 15%.
-StateDirectory contains the reserved-ID counter, named presets and settings.
+StateDirectory contains the reserved-ID counter, named presets, settings and
+atomic per-hub `last-color-<hub>.json` recovery records.
 Preserve all state on restart and prepare a reviewed schema/ID rollback before
 release; never restore an older counter. No deployment is part of this change.
 Because hsb1's firewall is disabled, the service uses explicit address binds,

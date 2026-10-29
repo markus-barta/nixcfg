@@ -62,6 +62,17 @@ Never delete/reset these files or restore an older counter after commands have
 been issued. The handshake token stays only in memory; logs contain fixed error
 categories, never library exception bodies.
 
+`last-color-plug.json` and `last-color-round.json` each store a nonblack RRGGBB
+JSON string. Every acknowledged nonblack `/set` or `/apply` persists it with
+0600 permissions, atomic replace and file/directory fsync; a stable per-hub
+`.json.lock` serializes CLI and HTTP writes. Black commands and failed hub
+calls preserve it. With `rgb=000000&bri>0`, `/set` uses this saved colour, or that
+hub's `nacht` colour when no record exists. A missing/black `nacht` falls back
+to the built-in nonblack nightlight colour. `/get` preserves raw `rgb` and
+brightness and adds `last_rgb` for page brightness and Eigene Farbe controls.
+Corrupt recovery state fails closed; preserve these records across restarts.
+The `/apply` response shape remains unchanged for HA.
+
 `presets.json` contains ordered arrays per hub: `[{id,name,rgb,bri}, ...]`.
 There are at most six fixed slots: `nacht`, `p2`–`p6`. Defaults also include Warm
 FF8C28/40, Hell FFF4E0/80 and Rot leise FF2A00/5. The old
