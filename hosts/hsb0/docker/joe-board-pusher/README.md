@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20b-202610260915` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager, executor and mailbox runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -53,7 +53,7 @@ rev-10 board release **32** (JOED-87) is live. An absent or any other value
 keeps the revision-9 snapshot bytes and receipts unchanged. This setting is
 independent of `JOE_PUSH_SCHEMA`; it neither selects a POST target nor enables
 publication. The lock supervisor forwards only this explicit opt-in alongside
-its existing PATH/NODE_ENV allowlist. The r20b image preparation delivers this
+its existing PATH/NODE_ENV allowlist. The r20e image preparation delivers this
 code with revision 9 still the default; it does not set that opt-in. Prestage
 from the exact reviewed merge, then activate one validated host build. The
 four shared-image services and the declarative `hsb0-home` post-recreation
@@ -64,14 +64,14 @@ existing v1 calculation/settlement. It contains no account, execution or conid
 identifiers and no ledger. The stager still validates source clocks and gateway
 readiness independently of its advancing generation clock.
 
-| Value                                | Revision-10 emission rule                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Position quantity, last, worth, OPEN | Match the broker position to exactly one `updatePortfolio` callback by conid and quantity. Copy native-currency values without rounding, with actual callback `updatedAt`. Every field has its own callback clock; a valid price cannot renew retained worth/OPEN. Missing, ambiguous or mismatched callbacks stay `null/not_exact_yet`; observations over the existing five-minute mark bound use `position_stale`. Position coverage keeps its separate 420-second bound. |
-| Desk equity, OPEN, since start       | Use that desk's existing FIFO result only after complete all-account history, ownership and broker-position reconciliation. Missing/unclaimed/pre-ledger input uses `ledger_unreconciled`. Independently reconciled siblings can remain exact when another desk lacks a mark; totals require all three exact summands. Stale inputs stay null.                                                                                                                              |
-| Desk DAY                             | Additionally require the durable, once-daily exact America/New_York midnight SOD proof. Missing/missed/reseeded SOD and `session_open_proxy` use `null/sod_missing`. Copy `sod-virtual-equity` evidence with its actual period and observation time; the v1 approximate DAY remains unchanged.                                                                                                                                                                              |
-| Since-start base                     | EUR **5,000 per desk**, EUR **15,000 aggregate**, as verified in JOED-85 against `project.mjs`, `desk-ledger.mjs` and `family-ledger.mjs`. Unknown base withholds `totalPnl/not_exact_yet`. The verified FIFO accounting period remains 2026-09-10 New York onward.                                                                                                                                                                                                         |
-| J/other converted desk money         | Every converted field carries `money.fx` with the actual IB `ExchangeRate` used, quote EUR and its original callback time. Missing, stale, future, nonpositive or unrepresentable rates keep money null. A calculation requiring more than one foreign rate stays `not_exact_yet`: the existing wire money object can represent only one rate.                                                                                                                              |
-| Cash and KEEP                        | Cash is solely fresh EUR `TotalCashValue` in `brokerAccount.cash`; NAV never substitutes. There is no per-desk cash property. SXR8/TSLA remain `scope:keep, desk:null` and never enter desk money or totals. Position DAY remains reasoned null.                                                                                                                                                                                                                            |
+| Value                                | Revision-10 emission rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Position quantity, last, worth, OPEN | Match the broker position to exactly one `updatePortfolio` callback by conid and quantity. Copy native-currency values without rounding, with actual callback `updatedAt`. Every field has its own callback clock; a valid price cannot renew retained worth/OPEN. Missing, ambiguous or mismatched callbacks stay `null/not_exact_yet`; observations over the existing five-minute mark bound use `position_stale`. Position coverage keeps its separate 420-second bound.                                                                                                                                                                                                                                                                   |
+| Desk equity, OPEN, since start       | Use that desk's existing FIFO result only after complete all-account history, ownership and broker-position reconciliation. Missing/unclaimed/pre-ledger input uses `ledger_unreconciled`. Independently reconciled siblings can remain exact when another desk lacks a mark; totals require all three exact summands. Stale inputs stay null.                                                                                                                                                                                                                                                                                                                                                                                                |
+| Desk DAY                             | Additionally require the durable, once-daily exact America/New_York midnight SOD proof. Missing/missed/reseeded SOD and `session_open_proxy` use `null/sod_missing`. Copy `sod-virtual-equity` evidence with its actual period and observation time; the v1 approximate DAY remains unchanged.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Since-start base                     | EUR **5,000 per desk**, EUR **15,000 aggregate**, as verified in JOED-85 against `project.mjs`, `desk-ledger.mjs` and `family-ledger.mjs`. Unknown base withholds `totalPnl/not_exact_yet`. The verified FIFO accounting period remains 2026-09-10 New York onward.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| J/other converted desk money         | Every converted field carries `money.fx` with the actual IB `ExchangeRate` used, quote EUR and its original callback time. Missing, stale, future, nonpositive or unrepresentable rates keep money null. DAY is exact across two rates when its durable SOD rate proof exists at or before `periodStart` and the current rate is fresh (300 seconds); both must cover the same currency pair. `money.dayPnl.fx` keeps the current rate. When rates differ, `pnlSources.day.detail` names the SOD rate source and observation time (no rate values, at most 240 characters). Missing or late SOD FX proof stays `not_exact_yet`; missing SOD stays `sod_missing`. A single valuation requiring multiple foreign rates remains `not_exact_yet`. |
+| Cash and KEEP                        | Cash is solely fresh EUR `TotalCashValue` in `brokerAccount.cash`; NAV never substitutes. There is no per-desk cash property. SXR8/TSLA remain `scope:keep, desk:null` and never enter desk money or totals. Position DAY remains reasoned null.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Per-desk `pnlSources.day/open` lets exact siblings coexist with unavailable
 desks. Aggregate evidence and totals stay unavailable until every corresponding
@@ -364,7 +364,7 @@ The service has no networking, credentials or broker mounts, a separate 128m
 memory/swap limit, 1 CPU (JOED-100: 0.25 starved the cold start past the watchdog) and 32 processes. It runs as 1000:1000 with a read-only
 root, no capabilities and no-new-privileges. Only the private v2 state and IPC
 directories are writable. The supervisor discards child stdout/stderr, enforces
-a five-second startup/job watchdog, kills the actual `flock --no-fork` worker,
+a separate 60-second startup deadline and five-second per-job watchdog, kills the actual `flock --no-fork` worker,
 and restarts with 1/2/4/8/16/30-second bounded backoff. Its logs contain only
 closed, value-free control events.
 
@@ -417,6 +417,98 @@ meaning local pointer publication only. The supervisor emits exactly
 `{event:"v2_stage_committed",seq}` for a completed commit. Unknown files, wrong
 ownership/modes, inconsistent sequences/digests or torn log lines disable staging
 and preserve evidence. v1 state is untouched.
+
+Receipt recovery uses an optional, atomically replaced 0600 checkpoint named
+`receipts-checkpoint.json` in **stager-only persistent storage**. Its directory
+comes only from the absolute `JOE_V2_STAGE_CHECKPOINT_DIR` environment variable.
+Unset or empty disables all checkpoint reads/writes and uses the original full
+scan. The directory must already exist as a real directory (no symlink), owned
+by the stager's uid:gid with mode exactly 0700. Shared paths are refused,
+including `/run/joe-household-v2`, the v2 state directory and its pusher-visible
+parent `/var/lib/joe-board-pusher`, and the socket directory; ancestors and
+descendants of those shared paths and aliases into them are also refused.
+Invalid configuration disables the feature for that worker with one value-free
+`{event:"v2_stage_checkpoint_disabled",reason:"directory_unsafe"}` log line.
+There is no fallback to `/run/joe-household-v2/receipts-checkpoint.json`; a stale
+file there is ignored, never read or replaced.
+
+It records a line-boundary byte offset, the last receipt sequence at that offset,
+and SHA256 of every preceding byte. Startup streams the prefix hash in 64 KiB
+chunks, checks the boundary row's sequence, and parses/validates only the tail.
+After completed recovery and fsynced appends, the checkpoint stays before the
+last `retainPairs + 1` non-rejected receipts; each retained pair must still
+match a validated receipt (including v1 binding).
+During full and resumed scans, validated progress is saved every 4 MiB at a
+line boundary strictly before the oldest retained pair's receipt. A startup
+deadline kill can therefore resume after rehashing the saved prefix, rather
+than repeat JSON/binding validation from byte 0. Completed scans and fsynced
+appends keep the usual conservative boundary without rehashing history on each
+job. Hash state and recent boundary anchors stay bounded in memory.
+Missing/corrupt/unsafe checkpoints, hash/offset/sequence disagreement, or a
+retained pair before the checkpoint cause a full scan with the original strict
+checks. Invalid or torn log rows still disable staging without truncation.
+Checkpoint write failures leave the authoritative state/log intact and permit
+the next start to verify an older checkpoint or perform a full scan.
+
+Recovery cost is O(log bytes) for streamed SHA256, plus JSON/binding validation
+for the tail (normally 11 receipts and one boundary row at default retention),
+plus validation of retained pairs. Rejected rows since the oldest retained pair
+also belong to that tail. Full recovery validates every receipt, so its CPU cost
+grows with history; a checkpoint bounds the usual expensive validation work,
+not the bytes hashed. With the persistent host mount below, the checkpoint
+survives both container recreation and host reboot, avoiding a reboot-triggered
+full scan. A missing mount, unset variable or unusable checkpoint safely falls
+back to the full scan under the longer startup deadline. A missing directory
+is never created by the worker.
+OPS measured approximately **0.12 s CPU/MB** for full validation on hsb0. The
+**60 s** startup deadline permits roughly **400–450 MB at 1.0 CPU**, or
+**100–110 MB at 0.25 CPU**, allowing for startup overhead. Reverting the stager
+to **0.25 CPU reintroduces the risk** of hitting the startup deadline. Periodic
+checkpoints let validation accumulate across restarts, provided the cache is
+writable and each attempt can rehash the prefix and validate another 4 MiB;
+the remaining retained-pair tail must also fit within one startup attempt.
+These are approximate host measurements, not timing guarantees.
+
+The network-facing pusher shares the **0700 `/run/joe-household-v2` mount** and
+runs as the same UID as the network-less stager. Mode 0600, ownership and
+O_NOFOLLOW therefore do not separate those writers. A matching SHA256 proves
+byte equality, not that the prefix was previously validated: a forged checkpoint
+could conceal malformed history or decreasing sequences and hide a retained
+receipt. OPS-392's trust boundary requires the checkpoint directory to be
+mounted **only into the stager**, never into the pusher, even read-only. The
+pusher's `v2/` mount remains read-only. The checkpoint is trusted validation
+progress only within this isolated mount; prefix hashing detects changes to
+the receipt bytes, and boundary/tail/pair validation still runs.
+
+OPS must include these exact host changes in the same PR (this source patch
+does not edit host configuration):
+
+- In `hosts/hsb0/configuration.nix`, add the systemd tmpfiles rule
+  `"d /var/lib/joe-household-v2-stage-checkpoint 0700 1000 1000 - -"`
+  to `systemd.tmpfiles.rules` (the stager runs as uid:gid `1000:1000`).
+- In `hosts/hsb0/docker/compose-spec.nix`, append
+  `"/var/lib/joe-household-v2-stage-checkpoint:/var/lib/joe-household-v2-stage-checkpoint:rw"`
+  to `services.joe-household-v2-stage.volumes`, and set its `environment` to
+  include
+  `"JOE_V2_STAGE_CHECKPOINT_DIR=/var/lib/joe-household-v2-stage-checkpoint"`.
+  Keep both the mount and variable exclusive to `joe-household-v2-stage`;
+  do not add them to `joe-board-pusher` or place the checkpoint under its
+  `/var/lib/joe-board-pusher` mount. The lock-holding child receives this variable
+  through the launcher's explicit environment allowlist.
+
+It is outside `v2/`, whose unknown-entry checks in previous releases remain
+unchanged; rollback ignores the cache and can append receipts normally. A later
+forward start validates those appends as tail rows. Rolling back the mount/env
+configuration leaves this worker safe with checkpoints disabled; rolling back
+the worker leaves the isolated cache unused. No allocator format change is
+required. Recovery tests execute the supplied
+previous-main worker and the pinned r15 recovery code against new state.
+
+Once ready, the supervisor emits only `{event:"v2_stage_ready",startupMs,
+rowsScanned,scanMode}` (`full` or `tail`); row counts include the single boundary
+row checked on a nonempty prefix. Startup expiry uses `worker_startup_timeout`;
+per-job expiry remains `worker_timeout`. Startup timing covers worker launch
+through readiness and carries no receipt or payload values.
 
 For rollback, set `joeHouseholdV2StageEnabled = false` through the normal
 reviewed configuration workflow. The service, socket env/mount and updater
@@ -610,6 +702,72 @@ saved official receipt wakes the pending accounting retry without reconnecting t
 Gateway. Normal history refresh remains fifteen minutes when recovery is unnecessary.
 Persisted rows alone are never unioned into completeness evidence; unproved cross-day
 gaps still require authoritative backfill.
+
+JOED-100 bounds the capture metadata in `family-history.json`. On every save,
+overlapping or contiguous KNOWN receipts are coalesced, retaining the latest
+original receipt for exact replay/source-reuse checks. A digest
+and observation count replace the old capture provenance; historical source IDs are
+no longer an exhaustive replay index. Membership lists are deduplicated by execution
+and commission ID. Legacy digest-only receipts remain digest-only, with aggregate
+observation counts; compaction never invents their missing memberships. Every raw
+execution revision, orphan commission, account/classifier binding and economic
+observation time stays intact. No KNOWN receipt becomes COMPLETE.
+
+Compaction leaves every COMPLETE receipt untouched, including its ID, authority,
+membership, window and observation time, as well as truncated replies and legacy
+memberships.
+This preserves official-chain recovery, midnight imports and desk-boundary checks.
+Distinct coverage/proof boundaries still require storage; redundant polling does
+not add KNOWN receipt history. Saved coverage keeps exhaustive `receiptIds` lists;
+readers also accept the compact reference format. Only the in-memory projection's
+diagnostic references keep at most the first/last IDs, with `receiptCount` and
+`receiptIdsSha256` when there are more than two. These references are not membership
+proofs.
+
+CLI stdout contains exactly one JSON summary; compaction and size-warning events
+go to stderr. Preview reports the post-compaction receipt count and IDs that an
+import would save, without writing the state file.
+CLI imports report receipt IDs from the saved file. If compaction absorbed an
+imported KNOWN receipt, its `importedReceiptId` list is empty. Re-importing an older
+KNOWN source after its binding was merged can still add a receipt and extend the
+target; exact historical source replay/reuse checks require provenance the bounded
+compacted state no longer retains. Retained original receipts and conflicting
+execution/commission facts still fail closed as before.
+
+Load compacts files at **16 MiB** or more, before accepting their state. A separate
+**64 MiB** recovery-read ceiling permits an existing file above the write cap to
+self-heal; an irreducible state above **32 MiB** remains unavailable. The next
+successful capture persists the repaired state and advances its target even when
+the broker returns no new executions or commissions. Callers adopt the saved
+compacted snapshot in memory. Writes retain the **32 MiB** hard cap and the existing
+exclusive temporary file, mode 0600, file fsync, atomic rename and directory fsync.
+No manual move-aside is required. `family_history_compacted` logs only before/after
+byte counts on a compacted load, or a save that compacts and reduces the last
+read/written file by at least **1 MiB** or **10%**. Save measures the single serialized
+write body. `family_history_size_warning` logs only byte counts if more than **24 MiB**
+remains after compaction. Schema/version and executor coverage/record semantics
+remain unchanged. Compacted files remain readable by the previous release, so
+rollback needs no history-file migration. Compaction cannot close an actual
+historical completeness gap.
+
+The offline regression fixture builds **127,058** real-writer receipts over 50 days
+at 34-second intervals, with 100 execution/commission records. It reduces
+**166,792,900 B → 190,644 B**, preserving the executor-visible fields. Receipts
+dominate the original size (148,181,383 B as a standalone pretty-printed array),
+followed by repeated coverage references (9,663,600 B); execution/commission arrays
+are only 36,903/11,053 B. A **34,104,001 B** on-disk fixture recovers and saves as
+**45,209 B** after its next update. These are synthetic measurements, not live-host
+verification. Run `node --test history-compaction.test.mjs` to reproduce them.
+
+The sibling `family-ledger.json` keeps deduplicated execution/commission rows and
+the current query identity set, replacing its scalar coverage timestamps; its cap
+is **16 MiB**, not 32 MiB. Executor attribution memory is keyed by
+account/client/exec ID, retaining one proof and at most one conflict per key, under
+**100,000 entries / 32 MiB**. Neither appends a receipt per capture, so unchanged
+replays have no time-to-cap. Growth depends on new identities/record sizes: at 100
+new attribution identities per day, the entry ceiling is at most 1,000 days from
+empty (the byte ceiling can arrive first). A calendar estimate for either sibling
+needs an observed new-fill rate; repeated capture cadence alone cannot supply it.
 
 FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
 freshness window expires, the adapter cancels that request and opens a new request

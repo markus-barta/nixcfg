@@ -13,6 +13,8 @@ let
   joePushV2 = joeSet.board.data_schema == "v2";
   # OPS-392: disable only staging for rollback; preserve its durable high water.
   joeHouseholdV2StageEnabled = true;
+  # JOED-102: stager-only receipt-scan checkpoint; must match compose-spec.nix and the contract tests.
+  joeStageCheckpointDir = "/var/lib/joe-household-v2-stage-checkpoint";
   # HNET-236/237: keep the pinned board aligned with this host's routes and status.
   hostdashHsb0 =
     inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0.overrideAttrs
@@ -292,7 +294,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # JOED-86 candidate (after JOED-63/HOSTD-77 r19a): household-v2-switch-set-r20b-202610260915, selected
+    # JOED-100 r20e (r20d + OPS-497 two-rate Today; r20d = r20c #1159 bounded ownership history + #1171 JOED-102 stager checkpoint; JOED-86 lineage after JOED-63/HOSTD-77 r19a): household-v2-switch-set-r20e-202610291640, selected
     # only by the release set. Shared-image rollback retains r19a; the separate
     # current v1 set retains household-v2-switch-set-r16d-202610201800. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
@@ -342,13 +344,147 @@ assert joeSet.pusher != null && joeSet.executor != null;
                 // lib.optionalAttrs joePushV2 {
                   # JOED-87 Phase B: the supervisor forwards this to the stager child
                   # (v2-stage-worker.mjs:589) only when its own environment has it.
-                  environment = [ "JOE_V2_CONTRACT_REV=10" ];
+                  # JOED-102: append, never replace. recursiveUpdate replaces lists, so a bare list here
+                  # would drop the base JOE_V2_STAGE_CHECKPOINT_DIR and bring back the full cold scan.
+                  environment = (joeComposeBase.services.joe-household-v2-stage.environment or [ ]) ++ [
+                    "JOE_V2_CONTRACT_REV=10"
+                  ];
                 };
               }
             )
         )
     );
   };
+
+  # JOED-102 (L1): the stager-only checkpoint stays stager-only in the EVALUATED compose spec, whichever
+  # overlay produced it, so a list-replacing overlay or a new mount fails the build before any switch.
+  # Paths are compared canonically (repeated slashes, ".", "..", relative and "~" sources), indirect
+  # mounts (volumes_from the stager, named volumes bound to a host path) count as mounts, and the
+  # environment is judged by its effective value (bare keys inherit; the last assignment wins).
+  # Residual: env_file contents cannot be read at eval time. The mount checks are the real boundary.
+  assertions =
+    let
+      stack = config.nixcfg.composeStack;
+      services = stack.spec.services;
+      topVolumes = stack.spec.volumes or { };
+      stageName = "joe-household-v2-stage";
+      stage = services.${stageName} or null;
+      checkpointVar = "JOE_V2_STAGE_CHECKPOINT_DIR";
+      canon =
+        p:
+        let
+          abs =
+            if lib.hasPrefix "/" p then
+              p
+            else if p == "~" || lib.hasPrefix "~/" p then
+              "/root/${lib.removePrefix "~" p}"
+            else
+              "${stack.projectDirectory}/${p}";
+          step =
+            acc: seg:
+            if seg == "" || seg == "." then
+              acc
+            else if seg == ".." then
+              (if acc == [ ] then [ ] else lib.init acc)
+            else
+              acc ++ [ seg ];
+        in
+        "/" + lib.concatStringsSep "/" (builtins.foldl' step [ ] (lib.splitString "/" abs));
+      isPath = src: lib.hasPrefix "/" src || lib.hasPrefix "." src || lib.hasPrefix "~" src;
+      # host path behind a named volume, if its driver binds one
+      namedPath =
+        name:
+        let
+          device = (topVolumes.${name} or { }).driver_opts.device or null;
+        in
+        if device == null then null else canon (toString device);
+      hostPath =
+        v:
+        if builtins.isAttrs v then
+          (
+            if (v.type or "volume") == "bind" then
+              canon (toString (v.source or ""))
+            else if (v.type or "volume") == "volume" && (v.source or null) != null then
+              namedPath v.source
+            else
+              null
+          )
+        else
+          let
+            src = builtins.head (lib.splitString ":" (toString v));
+          in
+          if isPath src then canon src else namedPath src;
+      # equal to, inside, or above the checkpoint dir ("/" is above everything)
+      overlaps =
+        p:
+        p != null
+        && (
+          p == joeStageCheckpointDir
+          || lib.hasPrefix "${joeStageCheckpointDir}/" p
+          || p == "/"
+          || lib.hasPrefix "${p}/" joeStageCheckpointDir
+        );
+      fromStage =
+        ref:
+        let
+          bare = lib.removePrefix "container:" (lib.removePrefix "service:" (toString ref));
+          target = builtins.head (lib.splitString ":" bare);
+        in
+        target == stageName || target == (stage.container_name or stageName);
+      envPairs =
+        s:
+        let
+          e = s.environment or [ ];
+        in
+        if builtins.isList e then
+          map (
+            entry:
+            let
+              parts = lib.splitString "=" (toString entry);
+            in
+            {
+              key = builtins.head parts;
+              value = if builtins.length parts > 1 then lib.concatStringsSep "=" (builtins.tail parts) else null;
+            }
+          ) e
+        else
+          lib.mapAttrsToList (k: v: {
+            key = k;
+            value = if v == null then null else toString v;
+          }) e;
+      effective =
+        s:
+        let
+          hits = builtins.filter (pair: pair.key == checkpointVar) (envPairs s);
+        in
+        if hits == [ ] then null else (lib.last hits).value;
+      leaking = lib.attrNames (
+        lib.filterAttrs (
+          name: s:
+          name != stageName
+          && (
+            lib.any (v: overlaps (hostPath v)) (s.volumes or [ ])
+            || lib.any fromStage (s.volumes_from or [ ])
+            || lib.any (pair: pair.key == checkpointVar) (envPairs s)
+          )
+        ) services
+      );
+    in
+    [
+      {
+        assertion =
+          stage == null
+          || (
+            effective stage == joeStageCheckpointDir
+            && lib.elem "${joeStageCheckpointDir}:${joeStageCheckpointDir}:rw" (stage.volumes or [ ])
+          );
+        message = "JOED-102: joe-household-v2-stage must end up with ${checkpointVar}=${joeStageCheckpointDir} (effective value; a later or empty assignment disables it) and its rw mount (did an overlay replace the environment or volumes list instead of appending?)";
+      }
+      {
+        assertion = leaking == [ ];
+        message = "JOED-102: only joe-household-v2-stage may mount (directly, via volumes_from or a bound named volume) or name ${joeStageCheckpointDir}; offending services: ${lib.concatStringsSep ", " leaking}";
+      }
+    ];
 
   # OPS-128: hsb0 was the one host with the prune SERVICE but no TIMER — docker
   # had never pruned and reached 108 G (dangling images + openclaw build cache)
@@ -1282,6 +1418,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
     "d /var/lib/joe-board-pusher/v2 0700 1000 1000 - -"
     "d /run/joe-household-v2 0700 1000 1000 - -"
+    # JOED-102: stager-only receipt-scan checkpoint (never mounted by the pusher or any other service).
+    "d ${joeStageCheckpointDir} 0700 1000 1000 - -"
     # OPS-353: In-flight page content; mba pushes index.html, hsb0-home reads it (ro mount).
     "d /var/lib/inflight 0755 mba users - -"
     # OPS-380: video overview page content; mba pushes index.html, hsb0-home reads it (ro mount).
