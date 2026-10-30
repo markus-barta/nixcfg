@@ -4061,8 +4061,8 @@ class WorkerContractTests(unittest.TestCase):
                 self.assertIn("(setup:", message)
 
     def test_worker_success_omits_violations_mutant_is_killed(self):
-        before = '            publish_events(events, report)'
-        after = '            report.pop("violations", None)\n' + before
+        before = 'def finish_worker_report(events, report, publisher, rc):'
+        after = before + '\n    report.pop("violations", None)'
         probe = type(self)("test_worker_fixture_write_passes_and_records_no_violation")
         result = unittest.TestResult()
         # Keep setup's fresh fixture/runner, then mutate the worker under test.
@@ -4234,6 +4234,25 @@ class RealtimeRunnerTests(unittest.TestCase):
                 path.write_text(contents)
             process = mock.Mock(events=path, returncode=returncode, fixture_killed=killed)
             process.poll.return_value = returncode
+            # Summary cleanliness alone is no longer a certificate. Supply an
+            # independent already-reaped/EOF journal for legacy rc controls.
+            channel = object.__new__(r.WorkerEvidence)
+            channel.identity = dict(worker="legacy-control", token="owned", source="s", manifest="m")
+            channel.state = r.EvidenceState(channel.identity, 1234)
+            for kind, fields in (("START", {}), ("READY", {}),
+                                 ("END", dict(rc=max(returncode, 0), violations=[], setup_error=None))):
+                channel.state.accept(dict(identity=channel.identity, pid=1234, seq=len(channel.state.records)+1, kind=kind, **fields))
+            channel.thread = mock.Mock()
+            channel.thread.is_alive.return_value = False
+            channel.eof = threading.Event(); channel.eof.set()
+            channel.lock = threading.RLock(); channel.errors = []; channel.stop = None
+            process.evidence = channel
+            if contents is not None:
+                try: data = json.loads(contents)
+                except ValueError: data = None
+                if isinstance(data, dict) and data.get("violations") == []:
+                    data.update(identity=channel.identity, pid=1234, last_seq=3, rc=returncode)
+                    path.write_text(json.dumps(data))
             process.communicate.side_effect = ([subprocess.TimeoutExpired("worker", 1), ("", "")]
                                                if timeout else None)
             process.communicate.return_value = ("", "")
@@ -4636,6 +4655,922 @@ class MutantTests(unittest.TestCase):
                     self.assertFalse(result.skipped, f"mutant {name!r} skipped {test}")
                     self.assertTrue(result.failures, f"mutant {name!r} passed {test}")
                 print(f"ok mutant: {name}", file=sys.stderr)
+
+
+class Isolation9PathTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ops327-r9-", dir=REPO)))
+        self.root, self.outside = self.base / "fixture", self.base / "outside"
+        self.root.mkdir(); self.outside.mkdir()
+        self.guard = HARNESS.FixtureGuard(self.root)
+
+    def denies(self, path, **kw):
+        with self.assertRaises(HARNESS.FixtureViolation):
+            self.guard.check("probe", path, **kw)
+
+    def test_nixos_etc_hosts_store_chain(self):
+        store, etc = self.base / "nix/store", self.base / "etc"
+        store.mkdir(parents=True); etc.mkdir()
+        (store / "hosts").write_text("owned fixture")
+        (etc / "hop").symlink_to(store / "hosts")
+        (etc / "hosts").symlink_to("hop")
+        self.guard.add_root(store, "R", interpreter=True)
+        self.guard.check("probe", store / "hosts")
+        self.denies(etc / "hosts")
+        # The resolved-only mutant used in r8 admits this exact fixture chain.
+        mutant = SocketIsolationTests.helper("docker-image-gc-harness", [
+            ('self.inside(lexical, left) and self.inside(resolved, right)', 'self.inside(resolved, right)')])
+        guard = mutant.FixtureGuard(self.root, interpreter_roots=(store,))
+        guard.check("probe", etc / "hosts")
+        self.assertEqual(guard.violations, [])
+
+    def test_profile_alias_store_import(self):
+        store = self.base / "nix/store"; store.mkdir(parents=True)
+        profile = self.base / "profile"; profile.symlink_to(store, target_is_directory=True)
+        guard = HARNESS.FixtureGuard(self.root, interpreter_roots=(profile,))
+        for path in (store / "code", profile / "code"):
+            guard.check("read", path)
+            for kind in "WDSL":
+                with self.assertRaises(HARNESS.FixtureViolation): guard.check("write", path, kind=kind)
+
+    def test_fixture_canonical_self_pair_and_all_aliases(self):
+        alias = self.base / "alias"; alias.symlink_to(self.root, target_is_directory=True)
+        guard = HARNESS.FixtureGuard(alias)
+        for spelling in (alias, self.root):
+            for kind in "RWDSL":
+                guard.check("probe", spelling / "file", kind=kind)
+        for left in (str(alias), str(self.root)):
+            mutant = HARNESS.FixtureGuard(alias)
+            mutant.entries = [e for e in mutant.entries if e[0] != left]
+            with self.assertRaises(HARNESS.FixtureViolation): mutant.check("probe", Path(left) / "file")
+        self.assertEqual({e[2] for e in guard.entries if "W" in e[2]}, {frozenset("RWDSL")})
+
+    @unittest.skipUnless(sys.platform == "darwin", "native macOS /tmp and /var spellings")
+    def test_tmp_var_scoped_alias(self):
+        for prefix in ("/tmp", "/var"):
+            lexical = prefix + "/ops327-scoped-fixture"
+            canonical = os.path.realpath(lexical)
+            guard = HARNESS.FixtureGuard(lexical)
+            for root in (lexical, canonical):
+                for kind in "RWDSL": guard.check("probe", root + "/data", kind=kind)
+                with self.assertRaises(HARNESS.FixtureViolation): guard.check("probe", root + "-sibling/data")
+            with self.assertRaises(HARNESS.FixtureViolation): guard.check("probe", prefix + "/other/data")
+
+    def test_alias_retarget_rejects(self):
+        alias = self.base / "alias"; alias.symlink_to(self.root, target_is_directory=True)
+        guard = HARNESS.FixtureGuard(alias)
+        guard.check("probe", alias / "file")
+        # A retarget inside the old namespace must still invalidate this alias.
+        child = self.root / "child"; child.mkdir()
+        alias.unlink(); alias.symlink_to(child, target_is_directory=True)
+        with self.assertRaises(HARNESS.FixtureViolation): guard.check("probe", alias / "file")
+        alias.unlink(); alias.symlink_to(self.outside, target_is_directory=True)
+        with self.assertRaises(HARNESS.FixtureViolation): guard.check("probe", alias / "file")
+
+    def test_fixture_sibling(self):
+        self.denies(str(self.root) + "-sibling/file")
+
+    def test_raw_symlink_dotdot_resolution(self):
+        (self.outside / "sub").mkdir()
+        (self.root / "hop").symlink_to(self.outside / "sub", target_is_directory=True)
+        self.denies(str(self.root / "hop") + "/../data")
+
+    def test_bytes_pathlike(self):
+        for value in (self.root / "file", os.fsencode(self.root / "file")):
+            returns_normally(self.guard.check, "probe", value)
+        self.denies(os.fsencode(self.outside / "file"))
+
+    def test_invalid_path(self):
+        for value in (None, object(), ("tuple",)):
+            self.denies(value)
+
+    def test_cwd_dirfd_fd(self):
+        fd = os.open(self.root, os.O_RDONLY)
+        outside = os.open(self.outside, os.O_RDONLY)
+        try:
+            self.guard.check("probe", fd)
+            self.denies(outside)
+            with mock.patch.object(os, "getcwd", return_value=str(self.root)):
+                self.guard.check("probe", "file", dir_fd=fd)
+                self.denies("file", dir_fd=outside)
+            self.denies("file", dir_fd=fd)
+            self.denies(-1000)
+        finally:
+            os.close(fd); os.close(outside)
+
+    def test_symlink_destination_relative_target(self):
+        (self.root / "sub").mkdir()
+        self.guard.audit("os.symlink", ("../file", str(self.root / "sub/link"), -1))
+        with self.assertRaises(HARNESS.FixtureViolation):
+            self.guard.audit("os.symlink", ("../../outside/file", str(self.root / "sub/link"), -1))
+
+    def test_two_path_second_operand(self):
+        for event in ("os.rename", "os.replace", "os.link"):
+            with self.assertRaises(HARNESS.FixtureViolation):
+                self.guard.audit(event, (str(self.root / "a"), str(self.outside / "b"), -1, -1))
+
+    def test_audit_event_os_listxattr_none_cwd(self):
+        with mock.patch.object(os, "getcwd", return_value=str(self.root)):
+            self.guard.audit("os.listxattr", (None,))
+        with self.assertRaises(HARNESS.FixtureViolation): self.guard.audit("os.listxattr", (None,))
+
+    def test_audit_event_defaults_and_nonpath_none(self):
+        for event in ("os.listdir", "os.scandir", "os.listxattr"):
+            with mock.patch.object(os, "getcwd", return_value=str(self.root)):
+                self.guard.audit(event, (None,))
+        self.guard.audit("import", ("unresolved_name", None))
+        self.guard.audit("ctypes.dlopen", (None,))
+        fd = os.open(self.outside, os.O_RDONLY)
+        try:
+            with mock.patch.object(os, "getcwd", return_value=str(self.root)):
+                self.guard.audit("os.fwalk", ())
+                with self.assertRaises(HARNESS.FixtureViolation): self.guard.audit("os.fwalk", (".", True, None, False, fd))
+        finally: os.close(fd)
+
+    def test_import_shadow(self):
+        (self.outside / "fractions.py").write_text('raise AssertionError("shadow")')
+        with mock.patch.object(sys, "path", [str(self.outside), *sys.path]):
+            saved = {name: sys.modules.pop(name) for name in ("fractions", "decimal", "_decimal") if name in sys.modules}
+            try:
+                module = HARNESS.execute_source("import fractions\nvalue=fractions.Fraction(1,2)", self.root)
+                self.assertEqual(module.value.numerator, 1)
+            finally:
+                for name in ("fractions", "decimal", "_decimal"): sys.modules.pop(name, None)
+                sys.modules.update(saved)
+        fake = types.ModuleType("fractions")
+        fake.__spec__ = importlib.util.spec_from_file_location("fractions", self.outside / "fractions.py")
+        with mock.patch.dict(sys.modules, {"fractions": fake}):
+            with self.assertRaisesRegex(ValueError, "untrusted cached stdlib"):
+                HARNESS.execute_source("import fractions", self.root)
+
+    def test_import_cold_concurrent_fixture(self):
+        saved_path = sys.path[:]
+        trusted = HARNESS.TrustedImports(self.guard)
+        for path in trusted.path: sys.path_importer_cache.pop(path, None)
+        saved = {name: sys.modules.pop(name) for name in ("fractions", "decimal", "_decimal") if name in sys.modules}
+        entered = threading.Event()
+        def fixtures():
+            entered.wait(5)
+            for n in range(120): (self.outside / str(n)).mkdir()
+        thread = threading.Thread(target=fixtures); thread.start()
+        try:
+            entered.set()
+            module = HARNESS.execute_source(SCRIPT.read_text()+"\nimport fractions\n", self.root)
+            self.assertEqual(module.fractions.Fraction(1, 2).denominator, 2)
+        finally:
+            thread.join(5)
+            for name in ("fractions", "decimal", "_decimal"): sys.modules.pop(name, None)
+            sys.modules.update(saved)
+        self.assertEqual(len(list(self.outside.iterdir())), 120)
+        self.assertEqual(sys.path, saved_path)
+
+    def test_import_explicit_io_guard(self):
+        module = HARNESS.execute_source("import fractions, os\ndef probe(path): return os.listdir(path)", self.root)
+        with self.assertRaises(HARNESS.FixtureViolation): module.probe(str(self.outside))
+        self.assertEqual(module.probe(str(self.root)), [])
+
+    def test_import_scope_serializes_and_restores(self):
+        trusted = HARNESS.TrustedImports(self.guard)
+        previous = sys.path[:]
+        with trusted.scope():
+            with trusted.scope(): self.assertEqual(sys.path, list(trusted.path))
+        self.assertEqual(sys.path, previous)
+        with self.assertRaises(RuntimeError):
+            with trusted.scope(): raise RuntimeError("control")
+        self.assertEqual(sys.path, previous)
+
+
+# Independent audit operands: direct dispatch never performs native side effects.
+AUDIT9 = {
+    "open": lambda a,b,fd: (b,"r",os.O_RDONLY),
+    "sqlite3.connect": lambda a,b,fd: (b,),
+    **{name: lambda a,b,fd: (None,b) for name in ("socket.connect","socket.bind","socket.sendto")},
+    **{name: lambda a,b,fd: (fd,0,0) for name in ("fcntl.flock","fcntl.lockf","os.lockf","fcntl.fcntl")},
+    **{name: lambda a,b,fd: (b,) for name in ("os.listdir","os.scandir","os.truncate","os.chdir","os.walk","os.getxattr","os.listxattr","os.chflags","os.setxattr","os.removexattr","os.startfile","os.startfile/2","os.add_dll_directory")},
+    **{name: lambda a,b,fd: (b,-1) for name in ("os.remove","os.unlink","os.rmdir")},
+    **{name: lambda a,b,fd: (b,0,-1) for name in ("os.mkdir","os.chmod","os.chown","os.utime")},
+    **{name: lambda a,b,fd: (a,b,-1,-1) for name in ("os.rename","os.replace","os.link")},
+    "os.symlink": lambda a,b,fd: (a,b,-1),
+    "os.fwalk": lambda a,b,fd: (b,True,None,False,None),
+    **{name: lambda a,b,fd: (a,b) for name in ("shutil.copyfile","shutil.copymode","shutil.copystat","shutil.move")},
+    "shutil.rmtree": lambda a,b,fd: (b,None),
+    "shutil.chown": lambda a,b,fd: (b,),
+    "shutil.": lambda a,b,fd: (b,),
+    "import": lambda a,b,fd: ("probe",b),
+    "ctypes.dlopen": lambda a,b,fd: (b,),
+    **{name: lambda a,b,fd: (b,) for name in ("subprocess.Popen","os.system","os.exec","os.posix_spawn","os.spawn","os.fork","os.forkpty")},
+}
+
+
+def audit9_test(event):
+    def check(self, guard=None):
+        guard = guard or self.guard
+        fd = os.open(self.outside, os.O_RDONLY)
+        try:
+            with self.assertRaises(HARNESS.FixtureViolation) as caught:
+                guard.audit(event, AUDIT9[event](str(self.root), str(self.outside), fd))
+            self.assertEqual(caught.exception.event, event)
+            if event.startswith("shutil.") and event != "shutil.": self.assertEqual(caught.exception.path, str(self.outside))
+        finally: os.close(fd)
+    return check
+
+
+def audit9_mutant(event):
+    def check(self):
+        tree = ast.parse((REPO / "tests/docker-image-gc-harness.py").read_text())
+        fn = next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name == "_audit")
+        class Omit(ast.NodeTransformer):
+            def visit_Constant(self, node):
+                if node.value == event: node.value = "omitted.audit.branch"
+                return node
+        fn = Omit().visit(fn)
+        namespace = dict(HARNESS.__dict__)
+        exec(compile(ast.fix_missing_locations(ast.Module([fn], [])), "<audit-mutant>", "exec"), namespace)
+        guard = HARNESS.FixtureGuard(self.root)
+        guard._audit = types.MethodType(namespace["_audit"], guard)
+        with self.assertRaises(AssertionError): audit9_test(event)(self,guard)
+    return check
+
+
+for _event in AUDIT9:
+    _suffix = _event.replace(".", "_").replace("/", "_").rstrip("_")
+    setattr(Isolation9PathTests, "test_audit_event_"+_suffix, audit9_test(_event))
+    setattr(Isolation9PathTests, "test_mutant_omit_audit_"+_suffix, audit9_mutant(_event))
+
+
+class Isolation9BindingTests(unittest.TestCase):
+    setUp = Isolation9PathTests.setUp
+
+
+for _inherited in dir(Isolation9PathTests):
+    if _inherited.startswith("test_"): setattr(Isolation9BindingTests, _inherited, None)
+
+
+def binding9_test(module, name, *, admission=False, mutant=False):
+    def check(self):
+        if not hasattr(module,name): self.skipTest("native API unavailable on this platform")
+        facade = HARNESS.GuardedOS(self.guard, module)
+        native = getattr(module,name)
+        signature = HARNESS._NATIVE_SIGNATURES[(module is os,name)]
+        path_names = {"path","s","filename","f1","f2"}
+        values = {p: str(self.root) for p in path_names}
+        values.update(flags=os.O_RDONLY,mode=os.F_OK,name="PC_NAME_MAX")
+        kwargs = {p.name: values[p.name] for p in signature.parameters.values() if p.default is HARNESS.inspect.Parameter.empty}
+        if admission:
+            for operand in path_names & kwargs.keys():
+                outside = {**kwargs,operand:str(self.outside)}
+                with self.assertRaises(HARNESS.FixtureViolation): getattr(facade,name)(**outside)
+            return
+        sentinel = object()
+        # Capture the wrapper before replacing the delegate: delegation is dynamic.
+        wrapped = getattr(facade,name)
+        for extras in ({}, {p.name:p.default for p in signature.parameters.values() if p.default is not HARNESS.inspect.Parameter.empty}):
+            arguments = {**kwargs,**extras}
+            with mock.patch.object(module,name,return_value=sentinel) as delegated:
+                self.assertIs(wrapped(**arguments),sentinel)
+                delegated.assert_called_once_with(**arguments)
+        bads=[((),{}),((),{**kwargs,"unexpected_keyword":1}),((str(self.root),),kwargs)]
+        bads += [((),{k:v for k,v in kwargs.items() if k!=missing}) for missing in kwargs]
+        def error(fn,args,kw):
+            try: fn(*args,**kw)
+            except TypeError as exc: return str(exc)
+            self.fail("native invalid arguments returned")
+        for args,kw in bads:
+            self.assertEqual(error(wrapped,args,kw),error(native,args,kw))
+        if mutant:
+            return
+        # The named drop-bind mutant is checked by native missing-argument parity.
+        helper = SocketIsolationTests.helper("docker-image-gc-harness", [('bound = signature.bind(*args, **kwargs)', 'bound = signature.bind_partial(*args, **kwargs)')])
+        broken = getattr(helper.GuardedOS(helper.FixtureGuard(self.root), module),name)
+        try: result = error(broken,(),{})
+        except (KeyError,TypeError): result = "non-native argument binding"
+        self.assertNotEqual(result,error(native,(),{}),"drop_bind_"+name+" survived")
+    return check
+
+
+for _module,_names in ((os,{"open":()} | HARNESS.GuardedOS.OS_METADATA | HARNESS.GuardedOS.OS_WRITES), (os.path,HARNESS.GuardedOS.PATH_METADATA)):
+    for _name in _names:
+        _label=("os_" if _module is os else "os_path_")+_name
+        setattr(Isolation9BindingTests,"test_bind_"+_label,binding9_test(_module,_name))
+        setattr(Isolation9BindingTests,"test_admit_"+_label,binding9_test(_module,_name,admission=True))
+
+
+class Isolation9EvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.r = SocketIsolationTests.helper("docker-image-gc-realtime")
+        self.identity = dict(worker="worker-1",token="fixture-token",source="s"*64,manifest="m"*64)
+
+    def state(self, phases=("main-entered","destructive-phase"), rc=None):
+        state=self.r.EvidenceState(self.identity,1234)
+        def send(kind,**kw): state.accept(dict(identity=self.identity,pid=1234,seq=len(state.records)+1,kind=kind,**kw))
+        send("START");send("SETUP_BEGIN",id="setup");send("SETUP_END",id="setup");send("READY")
+        for phase in phases: send("PHASE",label=phase)
+        if rc is not None: send("END",rc=rc,violations=[],setup_error=None)
+        return state,send
+
+    def summary(self,state,rc=0):
+        return dict(identity=self.identity,pid=1234,last_seq=len(state.records),rc=rc,violations=[],holds=[],attempts=[])
+
+    def certificate(self,required=("main-entered","destructive-phase")):
+        return dict(identity=self.identity,case="instance-and-sigkill",site="RT:468",required=list(required))
+
+    def test_natural_exit_requires_end_and_report(self):
+        for rc in (0,1,2):
+            state,_=self.state(rc=rc);state.validate(rc,self.summary(state,rc),None)
+            with self.assertRaises(self.r.EvidenceError): state.validate(rc,None,None)
+            state,_=self.state()
+            with self.assertRaises(self.r.EvidenceError): state.validate(rc,self.summary(state,rc),None)
+
+    def test_final_summary_agrees(self):
+        state,_=self.state(rc=0);summary=self.summary(state)
+        for field,value in (("identity",{}),("last_seq",999),("pid",2),("rc",2),("violations",[{}]),("setup_error","failed")):
+            with self.subTest(field=field),self.assertRaises(self.r.EvidenceError): state.validate(0,{**summary,field:value},None)
+
+    def test_sigkill_validates_all_existing_end_and_summary_first(self):
+        state,_=self.state();state.validate(-9,None,self.certificate())
+        for report in ({},[],{"violations":[]},self.summary(state,0),{**self.summary(state,-9),"setup_error":"failure"}):
+            with self.assertRaises(self.r.EvidenceError): state.validate(-9,report,self.certificate())
+        for rc in (0,1,2):
+            ended,send=self.state(rc=rc)
+            with self.assertRaises(self.r.EvidenceError): ended.validate(-9,self.summary(ended,rc),self.certificate())
+            with self.assertRaises(self.r.EvidenceError): send("END",rc=rc,violations=[],setup_error=None)
+        for fields in ({"rc":-9,"violations":[],"setup_error":None},{"rc":0,"violations":[{}],"setup_error":None},{"rc":0,"violations":[],"setup_error":"bad"}):
+            bad,send=self.state()
+            with self.assertRaises(self.r.EvidenceError): send("END",**fields)
+
+    def test_start_setup_scope_and_ready_required(self):
+        state=self.r.EvidenceState(self.identity,1234)
+        with self.assertRaises(self.r.EvidenceError): state.accept(dict(identity=self.identity,pid=1234,seq=1,kind="READY"))
+        state,send=self.state();send("SETUP_BEGIN",id="late")
+        with self.assertRaises(self.r.EvidenceError): state.validate(-9,None,self.certificate())
+
+    def test_record_identity_sequence_eof(self):
+        for field,value in (("identity",{}),("pid",999),("seq",9),("kind","bad")):
+            state=self.r.EvidenceState(self.identity,1234)
+            record=dict(identity=self.identity,pid=1234,seq=1,kind="START")
+            with self.assertRaises(self.r.EvidenceError):state.accept({**record,field:value})
+
+    def test_cleanup_sigkill_pending_denial_never_kills(self):
+        for mode in ("pending","deny","setup","runtime","cleanup"):
+            state,send=self.state()
+            if mode in ("pending","deny"):send("GUARD_BEGIN",id="guard")
+            if mode=="deny":send("DENY",event="open",path="/owned-outside")
+            if mode in ("setup","runtime"):send("SETUP_ERROR" if mode=="setup" else "RUNTIME_ERROR",error="injected")
+            with self.subTest(mode=mode),self.assertRaises(self.r.EvidenceError):state.validate(-9,None,None if mode=="cleanup" else self.certificate())
+
+    def test_lazy_import_setup_error_is_sticky(self):
+        records=[]
+        publisher=object.__new__(self.r.EvidencePublisher)
+        publisher.lock=threading.RLock();publisher.transaction_id=0
+        publisher.send=lambda kind,**kw:records.append((kind,kw))
+        with tempfile.TemporaryDirectory(dir=REPO) as root:
+            module=HARNESS.execute_source("def probe():\n    try:\n        import random\n    except ValueError: return 0\n",root,evidence=publisher)
+            records.clear()
+            self.assertEqual(module.probe(),0)
+        self.assertEqual([kind for kind,_ in records],["SETUP_BEGIN","SETUP_ERROR"])
+
+    def test_evidence_begin_before_normalize(self):
+        trace=[]
+        class Evidence:
+            @contextmanager
+            def transaction(self,kind):
+                trace.append(kind+"_BEGIN")
+                yield
+                trace.append("ALLOW")
+            def send(self,kind,**kw):trace.append(kind)
+        with tempfile.TemporaryDirectory(dir=REPO) as root:
+            guard=HARNESS.FixtureGuard(root,evidence=Evidence())
+            class Operand:
+                def __fspath__(self):
+                    trace.append("FSPATH")
+                    return root+"/file"
+            guard.check("probe",Operand())
+            self.assertEqual(trace,["GUARD_BEGIN","FSPATH","ALLOW"])
+
+    def test_violation_ack_before_raise(self):
+        trace=[]
+        evidence=mock.Mock()
+        evidence.transaction.return_value=nullcontext()
+        evidence.send.side_effect=lambda *a,**kw:trace.append(a[0])
+        with tempfile.TemporaryDirectory(dir=REPO) as root:
+            guard=HARNESS.FixtureGuard(root,evidence=evidence)
+            try:guard.check("probe","/outside-owned-probe")
+            except HARNESS.FixtureViolation:trace.append("RAISE")
+        self.assertEqual(trace,["DENY","RAISE"])
+
+    def test_endpoint_plan_all_35_cases(self):
+        self.assertEqual(len(self.r.CASES),35)
+        self.assertEqual(set(self.r.CASE_ENDPOINTS),set(self.r.CASES))
+        self.assertEqual(set(self.r.STOP_PLAN),set(self.r.CASES))
+        for case,site in self.r.CASE_ENDPOINTS.items():self.assertIn(site,self.r.STOP_PLAN[case])
+
+    def missing_witness_controls(self,r=None):
+        r=r or self.r
+        for case,site,role in (("instance-and-sigkill","RT:468","third"),("never-switch-lock","RT:447","proc"),("four-acquisitions","RT:578","proc")):
+            required=r.STOP_PLAN[case][site][role]
+            for removed in required:
+                phases=set(required)-{removed}
+                state,_=self.state(phases=phases)
+                with tempfile.TemporaryDirectory(dir=REPO) as root:
+                    channel=object.__new__(r.WorkerEvidence)
+                    channel.identity=self.identity;channel.state=state;channel.errors=[];channel.stop=None;channel.window_started=0.0
+                    channel.lock=threading.RLock();channel.case=case;channel.journal=Path(root)/"journal.jsonl"
+                    with self.assertRaises(r.EvidenceError, msg=f"{case}: missing {removed}"):channel.arm(site,required)
+                    self.assertIsNone(channel.stop)
+
+    def test_stop_requires_parent_observation_window(self):
+        state,_=self.state()
+        with tempfile.TemporaryDirectory(dir=REPO) as root:
+            channel=object.__new__(self.r.WorkerEvidence)
+            channel.identity=self.identity;channel.state=state;channel.errors=[];channel.stop=None
+            channel.window_started=None;channel.case="instance-and-sigkill"
+            channel.lock=threading.RLock();channel.journal=Path(root)/"journal.jsonl"
+            with self.assertRaises(self.r.EvidenceError):channel.arm("RT:468",("main-entered","destructive-phase"))
+            channel.open_window();channel.arm("RT:468",("main-entered","destructive-phase"))
+            self.assertIsNotNone(channel.stop)
+
+    def test_required_witness_removed_before_arm(self):
+        self.missing_witness_controls()
+
+    def test_mutant_fallback_witness_is_killed(self):
+        r=SocketIsolationTests.helper("docker-image-gc-realtime", [
+            ('not set(required) <= self.state.phases', 'not (set(required) & self.state.phases)')])
+        with self.assertRaises(AssertionError):self.missing_witness_controls(r)
+
+    def test_instance_third_endpoint_stop(self):
+        self.assertEqual(self.r.STOP_PLAN["instance-and-sigkill"]["RT:468"]["third"],("main-entered","destructive-phase"))
+        self.assertEqual(self.r.CASE_ENDPOINTS["instance-and-sigkill"],"RT:468")
+
+    def test_live_assertion_stop_447_578(self):
+        for case,site in (("never-switch-lock","RT:447"),("four-acquisitions","RT:578")):
+            self.assertEqual(self.r.STOP_PLAN[case][site]["proc"],("main-entered","destructive-phase"))
+
+    def test_instance_all_workers_certified(self):
+        plan=self.r.STOP_PLAN["instance-and-sigkill"]
+        self.assertEqual(set(plan["RT:457"]),{"first","second"})
+        self.assertEqual(plan["RT:457"]["second"],("main-entered","instance-attempt"))
+
+    def test_backlog_evidence_protocol_parity(self):
+        for site,workers in self.r.STOP_PLAN["full-accept-queue"].items():
+            if workers:self.assertIn("connect-start",workers["pid"])
+        source=Path(self.r.__file__).read_text()
+        self.assertIn('os._exit(worker(manifest, publisher, make_api))',source)
+
+    def test_close_error_still_drains_all(self):
+        checked=[]
+        lane=object.__new__(self.r.Lane)
+        proc=mock.Mock(returncode=0,stdout=None,stderr=None)
+        proc.poll.return_value=0
+        proc.wait.side_effect=RuntimeError("injected wait error")
+        lane.processes=[proc];lane.engines=[mock.Mock()]
+        lane.engines[0].close.side_effect=RuntimeError("injected close error")
+        lane.check_workers=lambda:checked.append("drained")
+        with self.assertRaises(self.r.EvidenceError):lane.close()
+        self.assertEqual(checked,["drained"])
+
+    def test_diagnostic_probe_never_overrides_setup(self):
+        for mutant in (None,"probe"):
+            self.assertFalse(self.r.classify_case("case",mutant,True,self.r.EvidenceError("pending"))[0])
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux real-time transport/deadline measurement belongs to coordinator")
+    def test_evidence_preserves_real_deadlines(self):
+        source=SCRIPT.read_text()
+        self.assertIn("BATCH_S = 10",source)
+        self.assertIn("CALL_DEADLINE_S = 30",source)
+        self.assertIn("COOLDOWN_S = 45",source)
+
+
+
+class Isolation9TransportTests(unittest.TestCase):
+    setUp = Isolation9EvidenceTests.setUp
+    # Actual anonymous-pipe/SIGKILL probes use the implementation's collector.
+    PRODUCER = r'''
+import importlib.util,json,os,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("transport_rt",sys.argv[1])
+r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
+p=r.EvidencePublisher(int(sys.argv[2]),int(sys.argv[3]),json.loads(sys.argv[4]))
+mode=sys.argv[5];events=Path(sys.argv[6])
+p.send("START")
+if mode=="setup":
+    p.send("SETUP_BEGIN",id="incomplete")
+else:
+    p.send("READY");p.send("PHASE",label="main-entered");p.send("PHASE",label="destructive-phase")
+    if mode in ("pending","deny"):
+        p.send("GUARD_BEGIN",id="incomplete")
+        if mode=="deny":p.send("DENY",event="open",path="/fixture-owned-outside")
+    elif mode=="runtime":p.send("RUNTIME_ERROR",error="injected")
+    elif mode.startswith("end"):
+        p.send("END",rc=0,violations=[{}] if mode=="end-violation" else [],setup_error="injected" if mode=="end-setup" else None)
+    elif mode=="summary":events.write_text('{"violations":[]}')
+    elif mode=="normal":
+        r.finish_worker_report(events,{"violations":[],"holds":[],"attempts":[]},p,0)
+        p.close();sys.exit(0)
+# A harmless blocking syscall: SIGKILL cannot run final reporting.
+os.read(int(sys.argv[7]),1)
+'''
+
+    def exercise_transport(self,mode,expected):
+        r=self.r
+        with tempfile.TemporaryDirectory(prefix="ops327-evidence-",dir=REPO) as root:
+            root=Path(root);events=root/"events.json"
+            channel=r.WorkerEvidence(root,"worker-1","s"*64,"m"*64,"instance-and-sigkill")
+            block,release=os.pipe()
+            proc=subprocess.Popen([sys.executable,"-B","-c",self.PRODUCER,str(REPO/"tests/docker-image-gc-realtime.py"),
+                                   str(channel.send_fd),str(channel.ack_fd),json.dumps(channel.identity),mode,str(events),str(block)],
+                                  pass_fds=(channel.send_fd,channel.ack_fd,block),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            proc.events=events;proc.evidence=channel
+            channel.attach(proc.pid);os.close(block)
+            try:
+                if mode=="normal":proc.communicate(timeout=10)
+                else:
+                    wanted={"setup":"SETUP_BEGIN","pending":"GUARD_BEGIN","deny":"DENY","runtime":"RUNTIME_ERROR"}.get(mode,"END" if mode.startswith("end") else "PHASE")
+                    until=time.monotonic()+10
+                    while time.monotonic()<until:
+                        with channel.lock:
+                            seen=channel.state.records and channel.state.records[-1]["kind"]==wanted
+                        if seen or channel.errors:break
+                        time.sleep(.01)
+                    self.assertTrue(seen or channel.errors,"producer never reached barrier")
+                    if mode=="hang":
+                        channel.open_window();channel.arm("RT:468",("main-entered","destructive-phase"))
+                    proc.kill();proc.communicate(timeout=5)
+                if expected=="pass":channel.validate(proc)
+                else:
+                    with self.assertRaises(RuntimeError):channel.validate(proc)
+                if channel.journal.exists():
+                    records=[json.loads(line) for line in channel.journal.read_text().splitlines()]
+                    self.assertEqual(records,channel.state.records)
+            finally:
+                if proc.poll() is None:proc.kill();proc.communicate(timeout=5)
+                os.close(release)
+                channel.abort.set();channel.thread.join(2)
+
+    def test_actual_sigkill_evidence_matrix(self):
+        for mode in ("normal","hang","pending","deny","setup","runtime","summary","end-violation","end-setup","end-contradictory"):
+            with self.subTest(mode=mode):self.exercise_transport(mode,"pass" if mode in ("normal","hang") else "setup")
+
+    def test_parent_rejects_partial_frame_and_held_open_endpoint(self):
+        for payload in (b'{"partial":',b'{"identity":{}}\n'):
+            with tempfile.TemporaryDirectory(dir=REPO) as root:
+                channel=self.r.WorkerEvidence(root,"worker-1","s","m","instance-and-sigkill")
+                send,ack=os.dup(channel.send_fd),os.dup(channel.ack_fd)
+                channel.attach(os.getpid())
+                os.write(send,payload);os.close(send);os.close(ack)
+                channel.thread.join(2)
+                self.assertTrue(channel.errors)
+                self.assertFalse(channel.eof.is_set())
+        # A valid reaped worker is insufficient while a duplicate inherited
+        # writer prevents EOF. Exercise the real bounded-drain failure too.
+        with tempfile.TemporaryDirectory(dir=REPO) as root:
+            root=Path(root);channel=self.r.WorkerEvidence(root,"worker-1","s","m","instance-and-sigkill")
+            writer,ack=os.dup(channel.send_fd),os.dup(channel.ack_fd)
+            channel.attach(os.getpid())
+            publisher=self.r.EvidencePublisher(writer,ack,channel.identity)
+            publisher.send("START");publisher.send("READY")
+            events=root/"events.json"
+            self.r.finish_worker_report(events,{"violations":[],"holds":[],"attempts":[]},publisher,0)
+            proc=types.SimpleNamespace(events=events,poll=lambda:0,returncode=0)
+            try:
+                with self.assertRaisesRegex(self.r.EvidenceError,"EOF"):
+                    channel.validate(proc)
+                self.assertFalse(channel.eof.is_set())
+            finally:
+                publisher.close();channel.abort.set();channel.thread.join(2)
+
+    def test_actual_registered_worker_natural_exit(self):
+        with tempfile.TemporaryDirectory(prefix="ops327-lane-",dir=REPO) as root:
+            args=types.SimpleNamespace(root=root,keep_dir=root+"/keep",store=root+"/store",instance_lock=root+"/instance",switch_lock=root+"/switch",compose_lock_dir=root+"/locks",engine_socket=root+"/engine.sock")
+            lane=self.r.Lane(args,"000-instance-and-sigkill",SCRIPT.read_text()+"\ndef main(sleep=None): return 0\n")
+            try:
+                proc=lane.start();events,_=lane.finish(proc,10)
+                self.assertEqual(events["rc"],0)
+                self.assertTrue(proc.evidence.eof.is_set())
+            finally:lane.close()
+
+
+# Avoid repeating the inherited pure-state matrix in transport discovery.
+for _name in dir(Isolation9EvidenceTests):
+    if _name.startswith("test_") and _name not in Isolation9TransportTests.__dict__:
+        setattr(Isolation9TransportTests,_name,None)
+
+
+class Isolation9CasePathTests(unittest.TestCase):
+    def setUp(self):
+        self.r=SocketIsolationTests.helper("docker-image-gc-realtime")
+        self.root=Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ops327-case-",dir=REPO)))
+
+    def instance_exclusion(self,mode):
+        # Replay the note's source-extracted lock model against exact mutants.
+        source=SCRIPT.read_text()
+        if mode!="baseline":source=MUTANTS[mode][0][1](source)
+        tree=ast.parse(source)
+        lock=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="instance_lock")
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="main")
+        uses=any(isinstance(n,ast.With) and any(isinstance(i.context_expr,ast.Call) and isinstance(i.context_expr.func,ast.Name) and i.context_expr.func.id=="instance_lock" for i in n.items) for n in ast.walk(main))
+        owner=[None];serial=[0]
+        class Busy(Exception):pass
+        def opened(*a):serial[0]+=1;return serial[0]
+        def closed(fd):
+            if owner[0]==fd:owner[0]=None
+        def flock(fd,flags):
+            if flags&fcntl.LOCK_UN:
+                if owner[0]==fd:owner[0]=None
+            else:
+                if owner[0] not in (None,fd):raise BlockingIOError()
+                owner[0]=fd
+        ns=dict(contextmanager=contextmanager,Busy=Busy,INSTANCE_LOCK="owned-lock",os=types.SimpleNamespace(open=opened,close=closed,O_RDONLY=0,O_CREAT=64,O_CLOEXEC=128),fcntl=types.SimpleNamespace(flock=flock,LOCK_EX=fcntl.LOCK_EX,LOCK_NB=fcntl.LOCK_NB,LOCK_UN=fcntl.LOCK_UN))
+        exec(compile(ast.Module([lock],[]),"<instance-model>","exec"),ns)
+        make=ns["instance_lock"] if uses else nullcontext
+        with make():
+            try:
+                with make():blocked=False
+            except Busy:blocked=True
+        return blocked
+
+    def case_path(self,case,mode="baseline",fault=None):
+        r=self.r;root=self.root
+        busy=self.instance_exclusion(mode) if case=="instance-and-sigkill" else True
+        class Clock:
+            now=0
+            def monotonic(self):return self.now
+            def sleep(clock,seconds):
+                clock.now+=seconds
+                for p in lane.processes:
+                    if not hasattr(p,"evidence"):continue
+                    if p.returncode is None and not p.sent and clock.now>=p.started+45:
+                        lane.engine_object.destructive.append(("DELETE","fixture",p.started+45));p.sent=True;p.send("PHASE",label="destructive-phase")
+        clock=Clock()
+        class Process:
+            stdout=stderr=None
+            def __init__(p,role):
+                p.role=role;p.started=clock.now;p.returncode=None;p.sent=False
+                identity=dict(worker=role,token=role,source="s",manifest="m")
+                channel=object.__new__(r.WorkerEvidence)
+                channel.state=r.EvidenceState(identity,1234);channel.identity=identity;channel.errors=[];channel.stop=None;channel.window_started=clock.now;channel.case=case;channel.lock=threading.RLock();channel.journal=root/(role+str(len(lane.processes))+".journal")
+                p.evidence=channel
+                p.send("START");p.send("READY");p.send("PHASE",label="main-entered");p.send("PHASE",label="instance-attempt");p.send("PHASE",label="cooldown")
+            def send(p,kind,**kw):p.evidence.state.accept(dict(identity=p.evidence.identity,pid=1234,seq=len(p.evidence.state.records)+1,kind=kind,**kw))
+            def poll(p):return p.returncode
+            def kill(p):p.returncode=-9
+            def wait(p,timeout=5):return p.returncode
+            def end(p,rc=0):
+                p.returncode=rc;p.send("END",rc=rc,violations=[],setup_error=None)
+        class Lane:
+            def __init__(lane):lane.processes=[];lane.case=case;lane.stop_plan=r.STOP_PLAN[case];lane.root=root;lane.paths={"SWITCH_LOCK":str(root/"switch"),"LOCK_PATHS":[str(root/"lock")]}
+            stop_at=r.Lane.stop_at
+            def engine(lane,**kw):
+                class Sent:
+                    def wait(_,seconds):clock.sleep(max(0,lane.processes[-1].started+45-clock.now));return True
+                lane.engine_object=types.SimpleNamespace(sent=Sent(),destructive=[]);return lane.engine_object
+            def start(lane,constants=None):
+                role=("first","second","third")[len(lane.processes)] if case=="instance-and-sigkill" else "proc"
+                p=Process(role);lane.processes.append(p)
+                if role=="second" and busy:p.end()
+                return p
+            def require(lane,site,condition,message="case assertion failed"):
+                return r.Lane.require(lane,site,False if fault==site else condition,message)
+            def wait_for(lane,site,predicate,seconds,label):
+                if label.startswith("acquisition ") and label.endswith(" ready"):
+                    n=label.split()[1];(root/"ready").write_text(n);(root/"count").write_text(n)
+                elif label.startswith("handler acquisition "):
+                    clock.sleep(29);(root/("got-"+label.split()[-1])).write_text(str(clock.now))
+                until=clock.now+seconds
+                while clock.now<=until:
+                    result=predicate()
+                    if result:return result
+                    clock.sleep(.01)
+                lane.stop_at(site);raise r.CaseFailure(label)
+            def finish(lane,p,timeout=100,expected=0,*,site=None):
+                if p.role=="second" and not busy:
+                    clock.sleep(timeout);lane.stop_at(site);raise r.CaseFailure("instance exclusion missing")
+                if p.returncode is None:clock.sleep(29);p.end(expected)
+                return {"attempts":[],"holds":[(p.started+45,clock.now)]},"another run is in progress" if p.role=="second" else ""
+        lane=Lane();aux=types.SimpleNamespace(pid=123,wait=lambda timeout:0)
+        failure=None
+        with mock.patch.object(r,"time",clock),mock.patch.object(r,"subprocess",types.SimpleNamespace(Popen=lambda *a,**k:aux,run=lambda *a,**k:types.SimpleNamespace(returncode=0))),mock.patch.object(r.os,"killpg",lambda *a:None):
+            try:r.CASES[case](lane)
+            except r.CaseFailure as exc:failure=exc
+        for p in lane.processes:
+            if not hasattr(p,"evidence"):continue
+            if p.returncode is None:p.kill()
+            state=p.evidence.state
+            summary=dict(identity=p.evidence.identity,pid=1234,last_seq=len(state.records),rc=p.returncode,violations=[]) if p.returncode>=0 else None
+            state.validate(p.returncode,summary,p.evidence.stop)
+        return failure
+
+    def test_actual_instance_baseline_and_both_mutant_models(self):
+        self.assertIsNone(self.case_path("instance-and-sigkill"))
+        for mode,cases in self.r.REAL_MUTANTS.items():
+            if "instance-and-sigkill" not in cases:continue
+            # Fresh stop journals per modeled run.
+            with tempfile.TemporaryDirectory(prefix="ops327-model-",dir=REPO) as root:
+                original=self.root;self.root=Path(root)
+                try:self.assertIsInstance(self.case_path("instance-and-sigkill",mode),self.r.CaseFailure)
+                finally:self.root=original
+
+    def test_actual_live_assertions_447_578(self):
+        for case,site in (("never-switch-lock","RT:447"),("four-acquisitions","RT:578")):
+            with tempfile.TemporaryDirectory(prefix="ops327-model-",dir=REPO) as root:
+                original=self.root;self.root=Path(root)
+                try:self.assertIsNone(self.case_path(case))
+                finally:self.root=original
+            with tempfile.TemporaryDirectory(prefix="ops327-model-",dir=REPO) as root:
+                original=self.root;self.root=Path(root)
+                try:self.assertIsInstance(self.case_path(case,"injected",site),self.r.CaseFailure)
+                finally:self.root=original
+
+
+
+ALLOW9 = {
+    "root": lambda self: str(self.root),
+    "sys_prefix": lambda self: sys.prefix,
+    "sys_base_prefix": lambda self: sys.base_prefix,
+    "sysconfig_get_path_stdlib": lambda self: HARNESS.sysconfig.get_path("stdlib"),
+    "sysconfig_get_path_platstdlib": lambda self: HARNESS.sysconfig.get_path("platstdlib"),
+    "nix_store": lambda self: "/nix/store",
+    "proc": lambda self: "/proc",
+    "dev_null": lambda self: "/dev/null",
+}
+
+
+def allow9_test(entry,kind="R",mutant=False):
+    def check(self):
+        path=ALLOW9[entry](self)
+        guard=HARNESS.FixtureGuard(self.root)
+        if mutant:
+            guard.entries=[(left,right,frozenset("RWDSL"),exact,anchor) for left,right,kinds,exact,anchor in guard.entries]
+        for spelling in dict.fromkeys((path,os.path.realpath(path))):
+            if entry=="root" or kind=="R":guard.check("allow",spelling,kind=kind)
+            else:
+                for denied in "WDSL":
+                    with self.assertRaises(HARNESS.FixtureViolation):guard.check("readonly",spelling,kind=denied)
+    return check
+
+
+for _entry in ALLOW9:
+    setattr(Isolation9PathTests,"test_allow_"+_entry,allow9_test(_entry))
+    setattr(Isolation9PathTests,"test_read_exception_never_writes_"+_entry,allow9_test(_entry,"W"))
+    if _entry!="root":
+        def mutant(self,entry=_entry):
+            with self.assertRaises(AssertionError):allow9_test(entry,"W",True)(self)
+        setattr(Isolation9PathTests,"test_mutant_read_exception_"+_entry,mutant)
+
+
+class Isolation9MutationTests(unittest.TestCase):
+    def setUp(self):
+        self.base=Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ops327-mutant-",dir=REPO)))
+        self.root=self.base/"fixture";self.root.mkdir()
+        self.outside=self.base/"outside";self.outside.mkdir()
+
+    def guard_mutant(self,pairs,method):
+        helper=SocketIsolationTests.helper("docker-image-gc-harness",pairs)
+        probe=Isolation9PathTests(method)
+        probe.guard=helper.FixtureGuard(self.root);probe.base=self.base;probe.root=self.root;probe.outside=self.outside
+        # FixtureViolation is BaseException; expose only its trusted class to
+        # assertRaises while keeping mutation failures as ordinary assertions.
+        with mock.patch.object(sys.modules[__name__],"HARNESS",helper):
+            try:getattr(probe,method)()
+            except helper.FixtureViolation as exc:raise AssertionError("mutant rejected a required positive control") from exc
+
+    def test_named_path_mutants(self):
+        mutations=[
+            ([("resolved = _REALPATH(path)","resolved = _REALPATH(lexical)")],"test_raw_symlink_dotdot_resolution"),
+            ([("if not self.inside(cwd, self.root):","if False:")],"test_cwd_dirfd_fd"),
+            ([("return path == root or path.startswith(root.rstrip(os.sep) + os.sep)","return path.startswith(root)")],"test_fixture_sibling"),
+            ([("os.fsdecode(os.fspath(path))","os.fspath(path)")],"test_bytes_pathlike"),
+            ([("if event == \"os.listxattr\" and path is None:","if False:")],"test_audit_event_os_listxattr_none_cwd"),
+            ([("and args[0] is not None:","and True:")],"test_audit_event_defaults_and_nonpath_none"),
+            ([("self.inside(lexical, left) and self.inside(resolved, right)","self.inside(resolved, right)")],"test_nixos_etc_hosts_store_chain"),
+        ]
+        for pairs,method in mutations:
+            # Execute the named test against a source-copy helper. Catch test
+            # assertion failures explicitly; unrelated exceptions are not kills.
+            with self.subTest(mutant=pairs):
+                result=unittest.TestResult()
+                probe=unittest.FunctionTestCase(lambda:self.guard_mutant(pairs,method))
+                probe.run(result)
+                # Mutants producing a Python type error are setup failures and
+                # deliberately do not count as kills here.
+                if result.errors:
+                    self.fail(f"path mutant produced setup error: {pairs}: {result.errors}")
+                self.assertTrue(result.failures,"surviving path mutant: "+repr(pairs))
+
+    def test_stale_alias_anchor_mutant_is_killed(self):
+        pairs=[('kind in kinds and _REALPATH(left) == anchor and', 'kind in kinds and True and')]
+        result=unittest.TestResult()
+        probe=unittest.FunctionTestCase(lambda:self.guard_mutant(pairs,"test_alias_retarget_rejects"))
+        probe.run(result)
+        self.assertFalse(result.errors,result.errors)
+        self.assertTrue(result.failures,"stale alias anchor mutant survived")
+
+    def test_fallback_witness_mutant_named_controls(self):
+        probe=Isolation9EvidenceTests("test_mutant_fallback_witness_is_killed")
+        result=unittest.TestResult();probe.run(result)
+        self.assertFalse(result.errors);self.assertFalse(result.failures)
+
+    def test_two_operands_are_one_pending_transaction(self):
+        r=SocketIsolationTests.helper("docker-image-gc-realtime")
+        log=[]
+        class Evidence:
+            @contextmanager
+            def transaction(self,kind):
+                log.append("BEGIN");yield;log.append("ALLOW")
+            def send(self,kind,**kw):log.append(kind)
+        guard=HARNESS.FixtureGuard(self.root,evidence=Evidence())
+        with self.assertRaises(HARNESS.FixtureViolation):guard.audit("os.rename",(str(self.root/"a"),str(self.outside/"b"),-1,-1))
+        self.assertEqual(log[0],"BEGIN")
+        self.assertEqual(log[-1],"DENY")
+        self.assertGreater(log.count("BEGIN"),log.count("ALLOW"))
+
+    def test_f_getpath_resolution_metadata_control(self):
+        guard=HARNESS.FixtureGuard(self.root)
+        with mock.patch.object(fcntl,"F_GETPATH",99999,create=True):
+            guard.audit("fcntl.fcntl",(-1000,99999,0))
+        self.assertEqual(guard.violations,[])
+
+    def test_cached_package_origin_rejected(self):
+        fake=types.ModuleType("urllib")
+        fake.__spec__=importlib.util.spec_from_file_location("urllib",self.outside/"urllib/__init__.py")
+        fake.__path__=[str(self.outside)]
+        with mock.patch.dict(sys.modules,{"urllib":fake}):
+            with self.assertRaisesRegex(ValueError,"untrusted cached stdlib"):
+                HARNESS.execute_source("import urllib",self.root)
+
+
+
+def facade9_admit_mutant(module,name):
+    def check(self):
+        if not hasattr(module,name):self.skipTest("native API unavailable on this platform")
+        # A removed admission check delegates successfully; the named negative
+        # test must fail an assertion rather than touch an external path.
+        with mock.patch.object(self.guard,"check"),mock.patch.object(module,name,return_value=object()):
+            with self.assertRaises(AssertionError):binding9_test(module,name,admission=True)(self)
+    return check
+
+
+def facade9_cached_mutant(module,name):
+    def check(self):
+        if not hasattr(module,name):self.skipTest("native API unavailable on this platform")
+        helper=SocketIsolationTests.helper("docker-image-gc-harness",[
+            ('        signature = _NATIVE_SIGNATURES[(self.module is os, name)]',
+             '        signature = _NATIVE_SIGNATURES[(self.module is os, name)]\n        cached_delegate = getattr(self.module, name)'),
+            ('\n            return getattr(self.module, name)(*args, **kwargs)','\n            return cached_delegate(*args, **kwargs)')])
+        signature=HARNESS._NATIVE_SIGNATURES[(module is os,name)]
+        values={key:str(self.root) for key in ("path","s","filename","f1","f2")}
+        values.update(flags=os.O_RDONLY,mode=os.F_OK,name="PC_NAME_MAX")
+        kw={p.name:values[p.name] for p in signature.parameters.values() if p.default is HARNESS.inspect.Parameter.empty}
+        first,second=object(),object()
+        facade=helper.GuardedOS(helper.FixtureGuard(self.root),module)
+        with mock.patch.object(module,name,return_value=first):wrapped=getattr(facade,name)
+        with mock.patch.object(module,name,return_value=second):
+            with self.assertRaises(AssertionError):self.assertIs(wrapped(**kw),second)
+    return check
+
+
+for _module,_names in ((os,{"open":()} | HARNESS.GuardedOS.OS_METADATA | HARNESS.GuardedOS.OS_WRITES),(os.path,HARNESS.GuardedOS.PATH_METADATA)):
+    for _name in _names:
+        _label=("os_" if _module is os else "os_path_")+_name
+        setattr(Isolation9BindingTests,"test_mutant_drop_admit_"+_label,facade9_admit_mutant(_module,_name))
+        setattr(Isolation9BindingTests,"test_mutant_cached_delegate_"+_label,facade9_cached_mutant(_module,_name))
+
+
+def evidence9_mutant(pairs,method):
+    def check(self):
+        runner=SocketIsolationTests.helper("docker-image-gc-realtime",pairs)
+        probe=Isolation9EvidenceTests(method)
+        probe.r=runner;probe.identity=dict(worker="worker-1",token="fixture-token",source="s"*64,manifest="m"*64)
+        probe.setUp=lambda:None
+        result=unittest.TestResult();probe.run(result)
+        self.assertFalse(result.errors,result.errors)
+        self.assertTrue(result.failures,"evidence mutant survived: "+repr(pairs))
+    return check
+
+
+EVIDENCE9_MUTANTS = {
+    "sigkill_bypasses_existing_summary": ([('if summary is not None:', 'if summary is not None and rc >= 0:')], "test_sigkill_validates_all_existing_end_and_summary_first"),
+    "summary_not_validated": ([('if summary is not None:', 'if False:')], "test_final_summary_agrees"),
+    "natural_report_not_required": ([('if self.end is None or summary is None:', 'if False:')], "test_natural_exit_requires_end_and_report"),
+    "missing_start_allowed": ([('not self.records and kind != "START"', 'False')], "test_start_setup_scope_and_ready_required"),
+    "missing_ready_or_pending_allowed": ([('if not self.records or not self.ready or self.pending or self.fatal:', 'if False:')], "test_start_setup_scope_and_ready_required"),
+    "pending_denial_cleanup_allowed": ([('if not self.records or not self.ready or self.pending or self.fatal:', 'if False:')], "test_cleanup_sigkill_pending_denial_never_kills"),
+    "wrong_identity_allowed": ([('record["identity"] != self.identity', 'False')], "test_record_identity_sequence_eof"),
+    "wrong_sequence_allowed": ([('record["seq"] != len(self.records) + 1', 'False')], "test_record_identity_sequence_eof"),
+    "end_errors_allowed": ([('if type(record["rc"]) is not int or record["rc"] < 0 or record["violations"] != [] or record["setup_error"] is not None:', 'if False:')], "test_sigkill_validates_all_existing_end_and_summary_first"),
+    "mandatory_witness_fallback": ([('not set(required) <= self.state.phases', 'not (set(required) & self.state.phases)')], "test_required_witness_removed_before_arm"),
+}
+for _label,(_pairs,_method) in EVIDENCE9_MUTANTS.items():
+    setattr(Isolation9EvidenceTests,"test_mutant_"+_label,evidence9_mutant(_pairs,_method))
+
+
+class Isolation9LinuxLaneTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "linux", "Linux AF_UNIX backlog and both native connect mutants are coordinator lane")
+    def test_accept_queue_sigkill_preserves_kill(self):
+        # The coordinator's full real-time invocation exercises these exact
+        # predeclared cases; this unit check guards their assignment.
+        runner=SocketIsolationTests.helper("docker-image-gc-realtime")
+        for name in ("the timeout update dropped from `connect`","the wrapper bypassed for connection setup"):
+            self.assertIn("full-accept-queue",runner.REAL_MUTANTS[name])
 
 
 if __name__ == "__main__":

@@ -19,6 +19,10 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import hashlib
+import select
+import threading
+import uuid
 import os
 from pathlib import Path
 import signal
@@ -26,7 +30,7 @@ import socket
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 HERE = Path(__file__).resolve().parent
 REPO = os.path.realpath(HERE.parent)
@@ -72,12 +76,241 @@ def checked_paths(source, paths):
     return checked
 
 
+class EvidenceError(RuntimeError):
+    """Incomplete or inconsistent setup evidence can never kill a mutant."""
+
+
+class EvidenceState:
+    """Streaming schema/state validator; errors are sticky through SIGKILL."""
+
+    def __init__(self, identity, pid):
+        self.identity, self.pid = identity, pid
+        self.records, self.pending, self.phases = [], {}, set()
+        self.ready, self.end, self.fatal = False, None, []
+
+    def accept(self, record):
+        common = {"identity", "pid", "seq", "kind"}
+        fields = {"START": set(), "READY": set(), "GUARD_BEGIN": {"id"},
+                  "ALLOW": {"id"}, "SETUP_BEGIN": {"id"}, "SETUP_END": {"id"},
+                  "DENY": {"event", "path"}, "SETUP_ERROR": {"error"},
+                  "RUNTIME_ERROR": {"error"}, "PHASE": {"label"},
+                  "END": {"rc", "violations", "setup_error"}}
+        if not isinstance(record, dict) or record.get("kind") not in fields:
+            raise EvidenceError("malformed evidence record")
+        kind = record["kind"]
+        if (set(record) != common | fields[kind] or record["identity"] != self.identity
+                or type(record["pid"]) is not int or record["pid"] != self.pid
+                or type(record["seq"]) is not int or record["seq"] != len(self.records) + 1):
+            raise EvidenceError("wrong evidence identity, digest, pid, sequence or schema")
+        if self.end is not None or (not self.records and kind != "START") or (self.records and kind == "START"):
+            raise EvidenceError("missing START, duplicate START/END or records after END")
+        if kind.endswith("_BEGIN"):
+            if not isinstance(record["id"], str) or record["id"] in self.pending:
+                raise EvidenceError("invalid evidence transaction")
+            self.pending[record["id"]] = kind
+        elif kind in ("ALLOW", "SETUP_END"):
+            if self.pending.pop(record["id"], None) != ("GUARD_BEGIN" if kind == "ALLOW" else "SETUP_BEGIN"):
+                raise EvidenceError("unmatched evidence transaction")
+        elif kind == "READY":
+            if self.ready or self.pending or self.fatal:
+                raise EvidenceError("READY before completed setup")
+            self.ready = True
+        elif kind == "PHASE":
+            if not self.ready or not isinstance(record["label"], str):
+                raise EvidenceError("phase before READY")
+            self.phases.add(record["label"])
+        elif kind in ("DENY", "SETUP_ERROR", "RUNTIME_ERROR"):
+            if any(not isinstance(record[key], str) for key in fields[kind]):
+                raise EvidenceError("invalid error evidence")
+            self.fatal.append(record)
+        elif kind == "END":
+            if type(record["rc"]) is not int or record["rc"] < 0 or record["violations"] != [] or record["setup_error"] is not None:
+                raise EvidenceError("invalid END or END contains violations/setup_error")
+            self.end = record
+        self.records.append(record)
+
+    def validate(self, rc, summary, stop):
+        # Existing summaries and ENDs are checked BEFORE the stop exception.
+        if summary is not None:
+            if (not isinstance(summary, dict) or summary.get("identity") != self.identity
+                    or summary.get("pid") != self.pid or type(summary.get("last_seq")) is not int
+                    or summary["last_seq"] != len(self.records) or summary.get("violations") != []
+                    or summary.get("setup_error") is not None or type(summary.get("rc")) is not int
+                    or summary["rc"] < 0 or summary["rc"] != rc):
+                raise EvidenceError("malformed, stale or contradictory final summary")
+        if self.end is not None and (self.end["rc"] != rc or summary is None or summary["rc"] != self.end["rc"]):
+            raise EvidenceError("END contradicts observation/summary")
+        if not self.records or not self.ready or self.pending or self.fatal:
+            raise EvidenceError("missing START/READY, pending transaction or sticky error")
+        if rc >= 0:
+            if self.end is None or summary is None:
+                raise EvidenceError("natural exit requires END and final summary")
+        elif rc != -signal.SIGKILL or stop is None:
+            raise EvidenceError("unexpected death or unplanned cleanup kill")
+        elif (stop.get("identity") != self.identity or not stop.get("case") or not stop.get("site")
+              or not stop.get("required") or not set(stop["required"]) <= self.phases):
+            raise EvidenceError("declared stop lacks mandatory phase witness")
+
+
+class EvidencePublisher:
+    def __init__(self, send, ack, identity):
+        self.send_fd, self.ack_fd, self.identity = send, ack, identity
+        self.sequence, self.transaction_id = 0, 0
+        self.ack_count, self.ack_total_s, self.ack_max_s = 0, 0.0, 0.0
+        self.lock = threading.RLock()
+
+    def send(self, kind, **fields):
+        with self.lock:
+            began = time.monotonic()
+            self.sequence += 1
+            record = dict(identity=self.identity, pid=os.getpid(), seq=self.sequence, kind=kind, **fields)
+            payload = json.dumps(record, separators=(",", ":")).encode() + b"\n"
+            if len(payload) > 4096:
+                raise EvidenceError("evidence record exceeds atomic pipe frame")
+            if not select.select([], [self.send_fd], [], 5)[1] or os.write(self.send_fd, payload) != len(payload):
+                raise EvidenceError("broken or stalled evidence collector")
+            if not select.select([self.ack_fd], [], [], 5)[0] or os.read(self.ack_fd, 1) != b"+":
+                raise EvidenceError("missing persisted evidence acknowledgement")
+            elapsed = time.monotonic() - began
+            self.ack_count += 1
+            self.ack_total_s += elapsed
+            self.ack_max_s = max(self.ack_max_s, elapsed)
+
+    @contextmanager
+    def transaction(self, kind):
+        with self.lock:
+            self.transaction_id += 1
+            token = str(self.transaction_id)
+        self.send(kind + "_BEGIN", id=token)
+        try:
+            yield
+        except BaseException as exc:
+            # No successful END/ALLOW: an interrupted callback remains pending.
+            if kind == "SETUP":
+                self.send("SETUP_ERROR", error=type(exc).__name__)
+            raise
+        else:
+            self.send("ALLOW" if kind == "GUARD" else "SETUP_END", id=token)
+
+    def close(self):
+        os.close(self.send_fd)
+        os.close(self.ack_fd)
+
+
+class WorkerEvidence:
+    """Parent owns the journal, collector, launch identity and stop certificate."""
+
+    def __init__(self, root, worker, source_digest, manifest_digest, case):
+        self.identity = dict(worker=worker, token=uuid.uuid4().hex, source=source_digest, manifest=manifest_digest)
+        self.case = case
+        self.journal = Path(root) / (worker + ".journal.jsonl")
+        self.read, self.send_fd = os.pipe()
+        self.ack_fd, self.ack_write = os.pipe()
+        self.stop = None
+        self.window_started = None
+        self.errors = []
+        self.eof = threading.Event()
+        self.abort = threading.Event()
+        self.lock = threading.RLock()
+        self.thread = None
+        self.state = None
+
+    def attach(self, pid):
+        self.state = EvidenceState(self.identity, pid)
+        os.close(self.send_fd)
+        os.close(self.ack_fd)
+        self.thread = threading.Thread(target=self.collect, name="ops327-evidence", daemon=True)
+        self.thread.start()
+
+    def collect(self):
+        buffer = b""
+        try:
+            with self.journal.open("xb") as journal:
+                while not self.abort.is_set():
+                    if not select.select([self.read], [], [], .1)[0]:
+                        continue
+                    data = os.read(self.read, 8192)
+                    if not data:
+                        if buffer:
+                            raise EvidenceError("truncated evidence frame at EOF")
+                        self.eof.set()
+                        return
+                    buffer += data
+                    if len(buffer) > 65536:
+                        raise EvidenceError("oversize evidence frame")
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        record = json.loads(line, object_pairs_hook=unique_keys)
+                        with self.lock:
+                            self.state.accept(record)
+                            journal.write(line + b"\n")
+                            journal.flush()
+                            os.fsync(journal.fileno())
+                            os.write(self.ack_write, b"+")
+                raise EvidenceError("evidence drain timeout")
+        except BaseException as exc:
+            self.errors.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            os.close(self.read)
+            os.close(self.ack_write)
+
+    def open_window(self):
+        with self.lock:
+            if self.errors or not self.state.ready or "main-entered" not in self.state.phases:
+                raise EvidenceError("observation window before acknowledged READY/main-entry")
+            self.window_started = time.monotonic()
+            with self.journal.with_suffix(".window.json").open("x") as output:
+                json.dump(dict(identity=self.identity, case=self.case, seq=len(self.state.records),
+                               opened=self.window_started), output)
+                output.flush()
+                os.fsync(output.fileno())
+
+    def arm(self, site, required):
+        with self.lock:
+            if self.errors or self.window_started is None or not self.state.ready or not set(required) <= self.state.phases:
+                raise EvidenceError(f"stop {site} lacks mandatory witnesses {required}")
+            if self.state.pending or self.state.fatal:
+                raise EvidenceError("cannot authorize stop with pending admission or sticky error")
+            certificate = dict(identity=self.identity, case=self.case, site=site, required=list(required),
+                               window_started=self.window_started)
+            # Parent persistence precedes signal delivery; cleanup cannot invent it.
+            with self.journal.with_suffix(".stop.json").open("x") as output:
+                json.dump(certificate, output)
+                output.flush()
+                os.fsync(output.fileno())
+            self.stop = certificate
+
+    def validate(self, process):
+        if process.poll() is None:
+            raise EvidenceError("worker not reaped")
+        self.thread.join(5)
+        if self.thread.is_alive():
+            self.abort.set()
+            self.thread.join(1)
+        summary = worker_events(process.events) if process.events.exists() else None
+        if self.errors or not self.eof.is_set():
+            raise EvidenceError("worker evidence not drained through EOF: " + "; ".join(self.errors))
+        with self.lock:
+            self.state.validate(process.returncode, summary, self.stop)
+        return summary
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
 def prepare_worker(manifest, *, report=None):
     """Validate the entire closed manifest before loading or creating anything."""
-    data = json.loads(Path(repo_path(manifest)).read_text(), object_pairs_hook=unique_keys)
+    raw_manifest = Path(repo_path(manifest)).read_bytes()
+    data = json.loads(raw_manifest, object_pairs_hook=unique_keys)
     if not isinstance(data, dict) or set(data) != {"source", "paths", "events", "constants"}:
         raise ValueError("top-level keys must be source, paths, events, constants")
-    source = Path(repo_path(data["source"])).read_text()
+    source_bytes = Path(repo_path(data["source"])).read_bytes()
+    publisher = getattr(h._EVIDENCE, "current", None)
+    if publisher is not None and (digest(raw_manifest) != publisher.identity["manifest"] or
+                                  digest(source_bytes) != publisher.identity["source"]):
+        raise EvidenceError("launch manifest/source digest changed")
+    source = source_bytes.decode()
     events = repo_path(data["events"])
     try:
         paths = checked_paths(source, data["paths"])
@@ -109,47 +342,99 @@ def prepare_worker(manifest, *, report=None):
     return gc, events
 
 
-def worker(manifest):
-    report = {"events": None, "holds": [], "attempts": [], "violations": []}
-    try:
-        try:
-            gc, events = prepare_worker(manifest, report=report)
-        except h.FixtureViolation as exc:
-            report["violations"] = exc.recorded
-            print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
-            return 2
-        except (ValueError, TypeError, KeyError, AttributeError, OSError, SyntaxError) as exc:
-            report["setup_error"] = str(exc).replace("\n", " ")
-            print("invalid worker manifest: " + report["setup_error"], file=sys.stderr)
-            return 2
-        report["events"] = events
-        report["violations"] = gc.__ops327_fixture_guard__.violations
-        original = gc.deploy_locks
+def instrument_worker(gc, report, publisher):
+    original = gc.deploy_locks
+    @contextmanager
+    def tracked(paths):
+        report["attempts"].append(time.monotonic())
+        with original(paths):
+            started = time.monotonic()
+            try:
+                yield
+            finally:
+                report["holds"].append((started, time.monotonic()))
+    gc.deploy_locks = tracked
+    if publisher is not None:
+        instance = gc.instance_lock
         @contextmanager
-        def tracked(paths):
-            report["attempts"].append(time.monotonic())
-            with original(paths):
-                started = time.monotonic()
-                try:
-                    yield
-                finally:
-                    report["holds"].append((started, time.monotonic()))
-        gc.deploy_locks = tracked
-        os.environ["INVOCATION_ID"] = "ops327-offline-fixture"
-        os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
-        signal.signal(signal.SIGTERM, gc.STOP.set)
-        try:
-            return gc.main()
-        except h.FixtureViolation as exc:
-            print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
-            return 2
+        def instance_attempt():
+            publisher.send("PHASE", label="instance-attempt")
+            with instance():
+                yield
+        gc.instance_lock = instance_attempt
+        destructive = gc.destructive_call
+        def destructive_phase(*args, **kwargs):
+            publisher.send("PHASE", label="destructive-phase")
+            return destructive(*args, **kwargs)
+        gc.destructive_call = destructive_phase
+    os.environ["INVOCATION_ID"] = "ops327-offline-fixture"
+    os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
+    signal.signal(signal.SIGTERM, gc.STOP.set)
+
+
+def run_worker_main(gc, publisher, api=None):
+    if publisher is None:
+        return gc.main() if api is None else gc.main(api)
+    publisher.send("READY")
+    publisher.send("PHASE", label="main-entered")
+    def sleep(seconds):
+        publisher.send("PHASE", label="cooldown")
+        time.sleep(seconds)
+    return gc.main(sleep=sleep) if api is None else gc.main(api, sleep=sleep)
+
+
+def finish_worker_report(events, report, publisher, rc):
+    if publisher is not None:
+        with publisher.transaction("SETUP"):
+            report.update(identity=publisher.identity, pid=os.getpid(), last_seq=publisher.sequence + 2, rc=rc,
+                          evidence_transport=dict(count=publisher.ack_count, total_s=publisher.ack_total_s, max_s=publisher.ack_max_s))
+            publish_events(events, report)
+        publisher.send("END", rc=rc, violations=report["violations"], setup_error=report.get("setup_error"))
+    else:
+        publish_events(events, report)
+
+
+def worker(manifest, publisher=None, api_factory=None):
+    report = {"events": None, "holds": [], "attempts": [], "violations": []}
+    rc = 2
+    if publisher is not None:
+        publisher.send("START")
+    try:
+        with h.evidence_scope(publisher):
+            try:
+                with publisher.transaction("SETUP") if publisher is not None else nullcontext():
+                    gc, events = prepare_worker(manifest, report=report)
+                    report["events"] = events
+                    report["violations"] = gc.__ops327_fixture_guard__.violations
+                    instrument_worker(gc, report, publisher)
+                    api = api_factory(gc) if api_factory is not None else None
+            except h.FixtureViolation as exc:
+                report["violations"] = exc.recorded
+                print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
+                return 2
+            except (ValueError, TypeError, KeyError, AttributeError, OSError, SyntaxError, EvidenceError) as exc:
+                report["setup_error"] = str(exc).replace("\n", " ")
+                print("invalid worker manifest: " + report["setup_error"], file=sys.stderr)
+                return 2
+            try:
+                rc = run_worker_main(gc, publisher, api)
+                return rc
+            except h.FixtureViolation as exc:
+                print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
+                return 2
     except BaseException as exc:
         report["setup_error"] = f"{type(exc).__name__}: {exc}"
+        if publisher is not None:
+            publisher.send("RUNTIME_ERROR", error=type(exc).__name__)
         raise
     finally:
         events = report.pop("events")
-        if events is not None:
-            publish_events(events, report)
+        try:
+            if events is not None:
+                finish_worker_report(events, report, publisher, rc)
+        finally:
+            if publisher is not None:
+                publisher.close()
 
 
 class CaseFailure(AssertionError):
@@ -199,6 +484,318 @@ def worker_events(path):
     return events
 
 
+# Revision 9b site IDs are stable original-source locations, not current lines.
+# These tables are an explicit launch contract, never inferred from witnesses.
+STOP_PLAN = {'delete-hold-bound': {'RT:294': {'proc': ('main-entered',)},
+                       'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:301': {},
+                       'RT:302': {},
+                       'RT:303': {},
+                       'RT:304': {}},
+ 'prune-hold-bound': {'RT:294': {'proc': ('main-entered',)},
+                      'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                      'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                      'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                      'RT:301': {},
+                      'RT:302': {},
+                      'RT:303': {},
+                      'RT:304': {}},
+ 'maximal-hold': {'RT:317': {'proc': ('main-entered',)},
+                  'RT:319': {'proc': ('main-entered', 'destructive-phase')},
+                  'RT:320': {'proc': ('main-entered', 'destructive-phase')},
+                  'RT:321': {},
+                  'RT:322': {},
+                  'RT:323': {},
+                  'RT:325': {}},
+ 'between-batches': {'RT:331': {'proc': ('main-entered',)},
+                     'RT:333': {'proc': ('main-entered', 'destructive-phase')},
+                     'RT:334': {'proc': ('main-entered', 'destructive-phase')},
+                     'RT:335': {},
+                     'RT:336': {},
+                     'RT:337': {}},
+ 'full-accept-queue': {'RT:377': {},
+                       'RT:397': {'pid': ('main-entered', 'connect-start')},
+                       'RT:400': {'pid': ('main-entered', 'connect-start')},
+                       'RT:401': {'pid': ('main-entered', 'connect-start')},
+                       'RT:402': {'pid': ('main-entered', 'connect-start')},
+                       'RT:404': {'pid': ('main-entered', 'connect-start')},
+                       'RT:411': {'pid': ('main-entered', 'connect-start')},
+                       'RT:422': {}},
+ 'fifo-keep': {'RT:431': {'proc': ('main-entered',)},
+               'RT:434': {'proc': ('main-entered',)},
+               'RT:435': {'proc': ('main-entered',)},
+               'RT:436': {},
+               'RT:437': {}},
+ 'fifo-spec': {'RT:431': {'proc': ('main-entered',)},
+               'RT:434': {'proc': ('main-entered',)},
+               'RT:435': {'proc': ('main-entered',)},
+               'RT:436': {},
+               'RT:437': {}},
+ 'fifo-role': {'RT:431': {'proc': ('main-entered',)},
+               'RT:434': {'proc': ('main-entered',)},
+               'RT:435': {'proc': ('main-entered',)},
+               'RT:436': {},
+               'RT:437': {}},
+ 'never-switch-lock': {'RT:444': {'proc': ('main-entered',)},
+                       'RT:447': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:449': {'proc': ('main-entered', 'destructive-phase')}},
+ 'instance-and-sigkill': {'RT:455': {'first': ('main-entered',)},
+                          'RT:457': {'first': ('main-entered', 'destructive-phase'),
+                                     'second': ('main-entered', 'instance-attempt')},
+                          'RT:458': {'first': ('main-entered', 'destructive-phase')},
+                          'RT:459': {'first': ('main-entered', 'destructive-phase')},
+                          'RT:461': {'first': ('main-entered', 'destructive-phase')},
+                          'RT:466': {'third': ('main-entered', 'cooldown')},
+                          'RT:467': {'third': ('main-entered', 'cooldown')},
+                          'RT:468': {'third': ('main-entered', 'destructive-phase')}},
+ 'r29': {'RT:480': {'first': ('main-entered',)},
+         'RT:485': {'first': ('main-entered', 'destructive-phase')},
+         'RT:504': {'first': ('main-entered', 'destructive-phase')},
+         'RT:515': {'first': ('main-entered', 'destructive-phase')},
+         'RT:525': {},
+         'RT:529': {}},
+ 'r30': {'RT:480': {'first': ('main-entered',)},
+         'RT:485': {'first': ('main-entered', 'destructive-phase')},
+         'RT:492': {'first': ('main-entered', 'destructive-phase')},
+         'RT:504': {'first': ('main-entered', 'destructive-phase')},
+         'RT:515': {'first': ('main-entered', 'destructive-phase')},
+         'RT:525': {},
+         'RT:529': {}},
+ 'r29-adversarial': {'RT:480': {'first': ('main-entered',)},
+                     'RT:485': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:500': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:504': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:513': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:515': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:518': {},
+                     'RT:525': {},
+                     'RT:529': {}},
+ 'r30-adversarial': {'RT:480': {'first': ('main-entered',)},
+                     'RT:485': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:492': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:500': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:504': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:513': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:515': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:518': {},
+                     'RT:525': {},
+                     'RT:529': {}},
+ 'across-runs': {'RT:480': {'first': ('main-entered',)},
+                 'RT:485': {'first': ('main-entered', 'destructive-phase')},
+                 'RT:487': {'first': ('main-entered', 'destructive-phase')},
+                 'RT:504': {'next_run': ('main-entered', 'cooldown')},
+                 'RT:508': {'next_run': ('main-entered', 'cooldown')},
+                 'RT:510': {},
+                 'RT:525': {},
+                 'RT:529': {}},
+ 'four-acquisitions': {'RT:557': {},
+                       'RT:565': {'proc': ('main-entered',)},
+                       'RT:577': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:578': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:579': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:574': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:585': {}},
+ 'maximal-hold-r34': {'RT:317': {'proc': ('main-entered',)},
+                      'RT:319': {'proc': ('main-entered', 'destructive-phase')},
+                      'RT:320': {'proc': ('main-entered', 'destructive-phase')},
+                      'RT:321': {},
+                      'RT:322': {},
+                      'RT:323': {},
+                      'RT:325': {}},
+ 'r29-r34': {'RT:480': {'first': ('main-entered',)},
+             'RT:485': {'first': ('main-entered', 'destructive-phase')},
+             'RT:504': {'first': ('main-entered', 'destructive-phase')},
+             'RT:515': {'first': ('main-entered', 'destructive-phase')},
+             'RT:520': {},
+             'RT:521': {},
+             'RT:525': {},
+             'RT:529': {}},
+ 'r30-r34': {'RT:480': {'first': ('main-entered',)},
+             'RT:485': {'first': ('main-entered', 'destructive-phase')},
+             'RT:492': {'first': ('main-entered', 'destructive-phase')},
+             'RT:504': {'first': ('main-entered', 'destructive-phase')},
+             'RT:515': {'first': ('main-entered', 'destructive-phase')},
+             'RT:520': {},
+             'RT:521': {},
+             'RT:525': {},
+             'RT:529': {}},
+ 'r29-adversarial-r34': {'RT:480': {'first': ('main-entered',)},
+                         'RT:485': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:500': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:504': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:513': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:515': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:518': {},
+                         'RT:520': {},
+                         'RT:521': {},
+                         'RT:525': {},
+                         'RT:529': {}},
+ 'r30-adversarial-r34': {'RT:480': {'first': ('main-entered',)},
+                         'RT:485': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:492': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:500': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:504': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:513': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:515': {'first': ('main-entered', 'destructive-phase')},
+                         'RT:518': {},
+                         'RT:520': {},
+                         'RT:521': {},
+                         'RT:525': {},
+                         'RT:529': {}},
+ 'across-runs-r34': {'RT:480': {'first': ('main-entered',)},
+                     'RT:485': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:487': {'first': ('main-entered', 'destructive-phase')},
+                     'RT:504': {'next_run': ('main-entered', 'cooldown')},
+                     'RT:508': {'next_run': ('main-entered', 'cooldown')},
+                     'RT:510': {},
+                     'RT:520': {},
+                     'RT:521': {},
+                     'RT:525': {},
+                     'RT:529': {}},
+ 'four-acquisitions-r34': {'RT:557': {},
+                           'RT:565': {'proc': ('main-entered',)},
+                           'RT:577': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:578': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:579': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:581': {},
+                           'RT:582': {},
+                           'RT:574': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:585': {}},
+ 'trickle-delete-status': {'RT:294': {'proc': ('main-entered',)},
+                           'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:301': {},
+                           'RT:302': {},
+                           'RT:303': {},
+                           'RT:304': {}},
+ 'trickle-delete-header': {'RT:294': {'proc': ('main-entered',)},
+                           'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:301': {},
+                           'RT:302': {},
+                           'RT:303': {},
+                           'RT:304': {}},
+ 'trickle-delete-chunk-size': {'RT:294': {'proc': ('main-entered',)},
+                               'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                               'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                               'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                               'RT:301': {},
+                               'RT:302': {},
+                               'RT:303': {},
+                               'RT:304': {}},
+ 'trickle-delete-chunk-data': {'RT:294': {'proc': ('main-entered',)},
+                               'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                               'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                               'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                               'RT:301': {},
+                               'RT:302': {},
+                               'RT:303': {},
+                               'RT:304': {}},
+ 'trickle-delete-body': {'RT:294': {'proc': ('main-entered',)},
+                         'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:301': {},
+                         'RT:302': {},
+                         'RT:303': {},
+                         'RT:304': {}},
+ 'trickle-delete-stream': {'RT:294': {'proc': ('main-entered',)},
+                           'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                           'RT:301': {},
+                           'RT:302': {},
+                           'RT:303': {},
+                           'RT:304': {}},
+ 'trickle-post-status': {'RT:294': {'proc': ('main-entered',)},
+                         'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:301': {},
+                         'RT:302': {},
+                         'RT:303': {},
+                         'RT:304': {}},
+ 'trickle-post-header': {'RT:294': {'proc': ('main-entered',)},
+                         'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:301': {},
+                         'RT:302': {},
+                         'RT:303': {},
+                         'RT:304': {}},
+ 'trickle-post-chunk-size': {'RT:294': {'proc': ('main-entered',)},
+                             'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                             'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                             'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                             'RT:301': {},
+                             'RT:302': {},
+                             'RT:303': {},
+                             'RT:304': {}},
+ 'trickle-post-chunk-data': {'RT:294': {'proc': ('main-entered',)},
+                             'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                             'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                             'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                             'RT:301': {},
+                             'RT:302': {},
+                             'RT:303': {},
+                             'RT:304': {}},
+ 'trickle-post-body': {'RT:294': {'proc': ('main-entered',)},
+                       'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                       'RT:301': {},
+                       'RT:302': {},
+                       'RT:303': {},
+                       'RT:304': {}},
+ 'trickle-post-stream': {'RT:294': {'proc': ('main-entered',)},
+                         'RT:297': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:299': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:300': {'proc': ('main-entered', 'destructive-phase')},
+                         'RT:301': {},
+                         'RT:302': {},
+                         'RT:303': {},
+                         'RT:304': {}}}
+CASE_ENDPOINTS = {'delete-hold-bound': 'RT:304',
+ 'prune-hold-bound': 'RT:304',
+ 'maximal-hold': 'RT:325',
+ 'between-batches': 'RT:337',
+ 'full-accept-queue': 'RT:422',
+ 'fifo-keep': 'RT:437',
+ 'fifo-spec': 'RT:437',
+ 'fifo-role': 'RT:437',
+ 'never-switch-lock': 'RT:449',
+ 'instance-and-sigkill': 'RT:468',
+ 'r29': 'RT:529',
+ 'r30': 'RT:529',
+ 'r29-adversarial': 'RT:529',
+ 'r30-adversarial': 'RT:529',
+ 'across-runs': 'RT:529',
+ 'four-acquisitions': 'RT:585',
+ 'maximal-hold-r34': 'RT:325',
+ 'r29-r34': 'RT:529',
+ 'r30-r34': 'RT:529',
+ 'r29-adversarial-r34': 'RT:529',
+ 'r30-adversarial-r34': 'RT:529',
+ 'across-runs-r34': 'RT:529',
+ 'four-acquisitions-r34': 'RT:585',
+ 'trickle-delete-status': 'RT:304',
+ 'trickle-delete-header': 'RT:304',
+ 'trickle-delete-chunk-size': 'RT:304',
+ 'trickle-delete-chunk-data': 'RT:304',
+ 'trickle-delete-body': 'RT:304',
+ 'trickle-delete-stream': 'RT:304',
+ 'trickle-post-status': 'RT:304',
+ 'trickle-post-header': 'RT:304',
+ 'trickle-post-chunk-size': 'RT:304',
+ 'trickle-post-chunk-data': 'RT:304',
+ 'trickle-post-body': 'RT:304',
+ 'trickle-post-stream': 'RT:304'}
+
+
 class Lane:
     def __init__(self, args, name, source):
         self.root = Path(repo_path(os.path.join(args.root, name)))
@@ -219,32 +816,110 @@ class Lane:
         self.processes = []
         self.engines = []
         self.sequence = 0
+        self.case = name.split("-", 1)[1]
+        if self.case not in STOP_PLAN:
+            raise EvidenceError("case has no predeclared endpoint plan")
+        self.stop_plan = STOP_PLAN[self.case]
 
     def engine(self, **kw):
         server = h.Engine(self.paths["SOCKET_PATH"], self.images, self.containers, **kw)
         self.engines.append(server)
         return server
 
-    def start(self, constants=None):
+    def register(self, manifest, events, role):
         self.sequence += 1
-        manifest = self.root / f"worker-{self.sequence}.json"
-        events = self.root / f"events-{self.sequence}.json"
+        evidence = WorkerEvidence(self.root, f"worker-{self.sequence}", digest(self.source.read_bytes()),
+                                  digest(manifest.read_bytes()), self.case)
+        return evidence
+
+    def start(self, constants=None):
+        index = self.sequence + 1
+        manifest = self.root / f"worker-{index}.json"
+        events = self.root / f"events-{index}.json"
         manifest.write_text(json.dumps({"source": str(self.source), "paths": self.paths,
                                         "events": str(events), "constants": constants or {}}))
-        process = subprocess.Popen([sys.executable, "-B", str(Path(__file__).resolve()), "--worker", str(manifest)],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        process.events = events
+        role = ("first", "second", "third")[index-1] if self.case == "instance-and-sigkill" else (
+            "next_run" if self.case.startswith("across-runs") and index == 2 else
+            "first" if self.case in {"r29", "r30", "r29-adversarial", "r30-adversarial", "r29-r34", "r30-r34", "r29-adversarial-r34", "r30-adversarial-r34"} or self.case.startswith("across-runs") else "proc")
+        evidence = self.register(manifest, events, role)
+        try:
+            process = subprocess.Popen([sys.executable, "-B", str(Path(__file__).resolve()), "--worker", str(manifest),
+                                       "--evidence", str(evidence.send_fd), str(evidence.ack_fd), json.dumps(evidence.identity)],
+                                       pass_fds=(evidence.send_fd, evidence.ack_fd),
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except BaseException:
+            for fd in (evidence.read, evidence.send_fd, evidence.ack_fd, evidence.ack_write):
+                os.close(fd)
+            raise
+        process.events, process.evidence, process.role = events, evidence, role
         self.processes.append(process)
+        evidence.attach(process.pid)
+        self.await_ready(process)
         return process
 
-    def finish(self, process, timeout=100, expected=0):
+    def await_ready(self, process):
+        evidence = process.evidence
+        until = time.monotonic() + 5
+        while time.monotonic() < until:
+            if evidence.errors:
+                raise EvidenceError("worker startup failed: " + "; ".join(evidence.errors))
+            if process.events.exists():
+                worker_events(process.events)
+            with evidence.lock:
+                if evidence.state.ready and "main-entered" in evidence.state.phases:
+                    evidence.open_window()
+                    return
+            if process.poll() is not None:
+                evidence.validate(process)
+                raise EvidenceError("worker startup ended before main-entry")
+            time.sleep(.01)
+        raise EvidenceError("worker startup timeout before READY/main-entry")
+
+    def stop_at(self, site):
+        if site not in self.stop_plan:
+            raise EvidenceError(f"undeclared case observation site {site}")
+        # Arm ALL live workers at this observation, including unrelated subjects.
+        for process in self.processes:
+            if not hasattr(process, "evidence") or process.poll() is not None:
+                continue
+            required = self.stop_plan[site].get(process.role)
+            if required is None:
+                raise EvidenceError(f"undeclared worker {process.role} at {site}")
+            if process.evidence.stop is None:
+                process.evidence.arm(site, required)
+            process.kill()
+
+    def require(self, site, condition, message="case assertion failed"):
+        if not condition:
+            self.stop_at(site)
+            raise CaseFailure(message)
+
+    def wait_for(self, site, predicate, seconds, label):
+        try:
+            return wait_for(predicate, seconds, label)
+        except CaseFailure:
+            self.stop_at(site)
+            raise
+
+    def finish(self, process, timeout=100, expected=0, *, site=None):
         try:
             out, err = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            process.kill(); out, err = process.communicate()
-            worker_events(process.events)
+            if process.events.exists():
+                worker_events(process.events)
+            if site is None:
+                raise EvidenceError("finish watchdog has no declared site") from None
+            self.stop_at(site)
+            out, err = process.communicate(timeout=5)
+            process.evidence.validate(process)
             raise CaseFailure(f"GC watchdog after {timeout}s: {out} {err}") from None
-        events = worker_events(process.events)
+        # The journal is mandatory for every scored worker; reports are secondary.
+        events = worker_events(process.events) if process.events.exists() else None
+        if not isinstance(getattr(process, "evidence", None), WorkerEvidence):
+            raise EvidenceError("worker startup failed: no registered evidence stream")
+        process.evidence.validate(process)
+        if process.returncode != expected and site is not None:
+            self.stop_at(site)
         require(process.returncode == expected, (process.returncode, out, err))
         return events, out + err
 
@@ -260,81 +935,96 @@ class Lane:
         return proc
 
     def check_workers(self):
+        errors = []
         for proc in self.processes:
             if not hasattr(proc, "events"):
-                continue  # flock/bash contenders do not execute GC source.
-            exited = proc.poll() is not None
-            intentionally_killed = exited and proc.returncode < 0 and getattr(proc, "fixture_killed", False)
-            if proc.events.exists() or (exited and not intentionally_killed):
-                worker_events(proc.events)
+                continue
+            try:
+                # Always reject an existing bad summary, even while still live.
+                if proc.events.exists():
+                    worker_events(proc.events)
+                if not isinstance(getattr(proc, "evidence", None), WorkerEvidence):
+                    raise EvidenceError("worker startup failed: no registered evidence stream")
+                if proc.poll() is not None:
+                    proc.evidence.validate(proc)
+            except Exception as exc:
+                errors.append(str(exc))
+        if errors:
+            raise EvidenceError("; ".join(errors))
 
     def close(self):
+        errors = []
         for proc in self.processes:
-            if proc.poll() is None:
-                # A stopped waiter must be continued so termination can run.
-                if getattr(proc, "owned_group", False):
-                    os.killpg(proc.pid, signal.SIGCONT)
-                    os.killpg(proc.pid, signal.SIGKILL)
-                else:
-                    proc.send_signal(signal.SIGCONT)
-                    proc.fixture_killed = True
-                    proc.kill()
-            proc.wait(timeout=5)
-            for pipe in (getattr(proc, "stdout", None), getattr(proc, "stderr", None)):
-                if pipe: pipe.close()
+            try:
+                if proc.poll() is None:
+                    if getattr(proc, "owned_group", False):
+                        os.killpg(proc.pid, signal.SIGCONT)
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    else:
+                        proc.send_signal(signal.SIGCONT)
+                        # Reaping for resource ownership grants NO stop authority.
+                        proc.kill()
+                proc.wait(timeout=5)
+                if not hasattr(proc, "events") and proc.returncode not in (0, -signal.SIGKILL):
+                    raise EvidenceError(f"auxiliary failed: {proc.returncode}")
+            except Exception as exc:
+                errors.append(str(exc))
+            finally:
+                for pipe in (getattr(proc, "stdout", None), getattr(proc, "stderr", None)):
+                    if pipe:
+                        try: pipe.close()
+                        except Exception as exc: errors.append(str(exc))
         for server in self.engines:
-            server.close()
+            try: server.close()
+            except Exception as exc: errors.append(str(exc))
+        # Independent final drain even if a wait, close or engine teardown failed.
+        try: self.check_workers()
+        except Exception as exc: errors.append(str(exc))
+        if errors:
+            raise EvidenceError("; ".join(errors))
 
 
-def deadline(lane, *, method="DELETE", phase=None, delay=600):
-    if method == "POST":
+def deadline(lane, *, method='DELETE', phase=None, delay=600):
+    if method == 'POST':
         lane.images[:] = lane.images[:2]
     engine = lane.engine(delay=delay, phase=phase)
     proc = lane.start()
-    require(engine.sent.wait(55), "no destructive call after initial cooldown")
+    lane.require('RT:294', engine.sent.wait(55), 'no destructive call after initial cooldown')
     sent = engine.destructive[0][2]
     contender = lane.contender()
-    acquired = float(wait_for(lambda: contender.acquired.read_text() if contender.acquired.exists() else None,
-                              31 if phase else 45, "deadline contender"))
-    require(acquired - sent <= (31 if phase else 45), acquired - sent)
-    events, output = lane.finish(proc, 5, 2)
-    require("not answered in 30 s" in output, output)
-    require(events["holds"][-1][1] - sent <= 31)
-    require(len(engine.destructive) == 1, engine.destructive)
-    require(contender.wait(timeout=5) == 0)
+    acquired = float(lane.wait_for('RT:297', lambda: contender.acquired.read_text() if contender.acquired.exists() else None, 31 if phase else 45, 'deadline contender'))
+    lane.require('RT:299', acquired - sent <= (31 if phase else 45), acquired - sent)
+    events, output = lane.finish(proc, 5, 2, site='RT:300')
+    lane.require('RT:301', 'not answered in 30 s' in output, output)
+    lane.require('RT:302', events['holds'][-1][1] - sent <= 31)
+    lane.require('RT:303', len(engine.destructive) == 1, engine.destructive)
+    lane.require('RT:304', contender.wait(timeout=5) == 0)
 
 
 def maximal(lane, *, r34=False):
-    # A 5 s first call leaves 5 s to admit the next decision inside BATCH_S.
-    # A 24 s answer leaves >=4 s below the deadline after offset/jitter.
-    # The real hold is ~29 s; BATCH_S=60 admits four calls and holds ~77 s.
-    # r34 strict-bound exception (in addition to <=31 and >=45): [9,29,29]
-    # sends the second decision at 8.9..10.1 s, with ~38..39 s total hold
-    # against <=45. Its internal 10 s batch/30 s call limits leave ~1 s
-    # headroom, not 2 s. Keep the design's numbers; Linux measures overhead.
     engine = lane.engine(delay=[9, 29, 29] if r34 else [5, 24, 24])
-    proc = lane.start({"RUN_BUDGET_S": 55})
-    require(engine.sent.wait(55))
+    proc = lane.start({'RUN_BUDGET_S': 55})
+    lane.require('RT:317', engine.sent.wait(55))
     contender = lane.contender()
-    wait_for(lambda: contender.acquired.exists(), 45, "maximal hold")
-    events, _ = lane.finish(proc, 50)
-    require(max(end - start for start, end in events["holds"]) <= 45, events)
-    require(float(contender.acquired.read_text()) - events["holds"][0][0] <= 45)
-    require(len(engine.destructive) >= 2, engine.destructive)
-    decision = engine.destructive[1][2] - events["holds"][0][0]
-    require((8.9 <= decision <= 10.1) if r34 else (3 <= decision <= 10), decision)
+    lane.wait_for('RT:319', lambda: contender.acquired.exists(), 45, 'maximal hold')
+    events, _ = lane.finish(proc, 50, site='RT:320')
+    lane.require('RT:321', max((end - start for start, end in events['holds'])) <= 45, events)
+    lane.require('RT:322', float(contender.acquired.read_text()) - events['holds'][0][0] <= 45)
+    lane.require('RT:323', len(engine.destructive) >= 2, engine.destructive)
+    decision = engine.destructive[1][2] - events['holds'][0][0]
+    lane.require('RT:325', 8.9 <= decision <= 10.1 if r34 else 3 <= decision <= 10, decision)
 
 
 def between(lane):
     engine = lane.engine(delay=[11, 0])
-    proc = lane.start({"RUN_BUDGET_S": 110})
-    require(engine.sent.wait(55))
+    proc = lane.start({'RUN_BUDGET_S': 110})
+    lane.require('RT:331', engine.sent.wait(55))
     contender = lane.contender(hold=3)
-    wait_for(lambda: contender.acquired.exists(), 45, "between-batch waiter")
-    events, _ = lane.finish(proc, 100)
-    require(len(events["holds"]) >= 2, events)
-    require(events["holds"][1][0] - events["holds"][0][1] >= 45, events)
-    require(float(contender.acquired.read_text()) < events["holds"][1][0])
+    lane.wait_for('RT:333', lambda: contender.acquired.exists(), 45, 'between-batch waiter')
+    events, _ = lane.finish(proc, 100, site='RT:334')
+    lane.require('RT:335', len(events['holds']) >= 2, events)
+    lane.require('RT:336', events['holds'][1][0] - events['holds'][0][1] >= 45, events)
+    lane.require('RT:337', float(contender.acquired.read_text()) < events['holds'][1][0])
 
 
 def backlog_worker(gc, api, root):
@@ -358,12 +1048,47 @@ def backlog_worker(gc, api, root):
             Path(root / "backlog.result").write_text(str(rc))
 
 
+class ForkProcess:
+    """The fork has the same ownership/reap API and evidence as Popen workers."""
+
+    stdout = stderr = None
+
+    def __init__(self, pid, events, evidence):
+        self.pid, self.events, self.evidence = pid, events, evidence
+        self.role, self.returncode = "pid", None
+
+    def poll(self):
+        if self.returncode is None:
+            pid, status = os.waitpid(self.pid, os.WNOHANG)
+            if pid:
+                self.returncode = os.waitstatus_to_exitcode(status)
+        return self.returncode
+
+    def wait(self, timeout=5):
+        until = time.monotonic() + timeout
+        while self.poll() is None:
+            if time.monotonic() >= until:
+                raise subprocess.TimeoutExpired("backlog worker", timeout)
+            time.sleep(.01)
+        return self.returncode
+
+    def communicate(self, timeout=5):
+        self.wait(timeout)
+        return "", ""
+
+    def send_signal(self, sig):
+        if self.poll() is None:
+            os.kill(self.pid, sig)
+
+    def kill(self):
+        self.send_signal(signal.SIGKILL)
+
+
 def backlog(lane):
-    # Fake listings remain in-process; the destructive connection alone meets
-    # the full real AF_UNIX accept queue. No request can have been sent.
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     clients = []
-    server.bind(lane.paths["SOCKET_PATH"]); server.listen(1)
+    server.bind(lane.paths["SOCKET_PATH"])
+    server.listen(1)
     try:
         for _ in range(16):
             client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -374,215 +1099,192 @@ def backlog(lane):
             except BlockingIOError:
                 client.close()
                 break
-        require(len(clients) >= 1)
-        gc = h.load(lane.source.read_text(), lane.paths)
-        # Exercise the real main()/compose finally path, not just a connect.
-        real = gc.docker_api
-        def api(method, path, timeout, limit):
-            if method == "GET":
-                return 200, json.dumps(lane.containers if path.startswith("/containers/") else lane.images).encode()
-            (lane.root / "backlog.started").write_text(str(time.monotonic()))
-            return real(method, path, timeout, limit)
-        # A watchdog child bounds no-deadline mutants, even if connect hangs.
+        lane.require("RT:377", len(clients) >= 1)
+        manifest, events = lane.root / "backlog.manifest.json", lane.root / "backlog.events.json"
+        manifest.write_text(json.dumps({"source": str(lane.source), "paths": lane.paths,
+                                        "events": str(events), "constants": {}}))
+        evidence = lane.register(manifest, events, "pid")
+        # Registration/channel creation precedes fork; source load is child-only.
         pid = os.fork()
         if pid == 0:
-            os._exit(backlog_worker(gc, api, lane.root))
-        try:
-            # Observe the actual destructive connect, rather than guessing
-            # that a 46 s sleep outlasted cooldown plus worker scheduling.
-            def started():
-                if (lane.root / "backlog.events.json").exists():
-                    worker_events(lane.root / "backlog.events.json")
-                return (lane.root / "backlog.started").exists()
-            wait_for(started, 55, "backlog destructive connect starts")
-            contender = lane.contender()
-            began = time.monotonic()
-            wait_for(lambda: contender.acquired.exists(), 31, "full accept queue contender")
-            require(float(contender.acquired.read_text()) - began <= 31)
-            wait_for(lambda: (lane.root / "backlog.result").exists(), 3, "backlog GC exit")
-            worker_events(lane.root / "backlog.events.json")
-            require((lane.root / "backlog.result").read_text() == "2")
-            # The only queued connections were the prefill: no HTTP request.
-            server.settimeout(1)
-            for _ in clients:
-                conn, _ = server.accept()
+            os.close(evidence.read)
+            os.close(evidence.ack_write)
+            for client in clients:
+                client.close()
+            server.close()
+            publisher = EvidencePublisher(evidence.send_fd, evidence.ack_fd, evidence.identity)
+            def make_api(gc):
+                real = gc.docker_api
+                def api(method, path, timeout, limit):
+                    if method == "GET":
+                        return 200, json.dumps(lane.containers if path.startswith("/containers/") else lane.images).encode()
+                    publisher.send("PHASE", label="connect-start")
+                    return real(method, path, timeout, limit)
+                return api
+            os._exit(worker(manifest, publisher, make_api))
+        process = ForkProcess(pid, events, evidence)
+        lane.processes.append(process)
+        evidence.attach(pid)
+        lane.await_ready(process)
+        def started():
+            if events.exists():
+                worker_events(events)
+            if evidence.errors:
+                raise EvidenceError("; ".join(evidence.errors))
+            with evidence.lock:
+                return "connect-start" in evidence.state.phases
+        lane.wait_for("RT:397", started, 55, "backlog destructive connect starts")
+        contender = lane.contender()
+        began = time.monotonic()
+        lane.wait_for("RT:400", lambda: contender.acquired.exists(), 31, "full accept queue contender")
+        lane.require("RT:401", float(contender.acquired.read_text()) - began <= 31)
+        lane.finish(process, 3, 2, site="RT:402")
+        # The only queued connections were the prefill: no HTTP request.
+        server.settimeout(1)
+        for _ in clients:
+            conn, _ = server.accept()
+            with conn:
                 conn.setblocking(False)
                 try:
-                    require(not conn.recv(100), "destructive request reached prefill socket")
+                    lane.require("RT:411", not conn.recv(100), "destructive request reached prefill socket")
                 except BlockingIOError:
                     pass
-                conn.close()
-        finally:
-            try: os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError: pass
-            os.waitpid(pid, 0)
-            worker_events(lane.root / "backlog.events.json")
     finally:
-        for client in clients: client.close()
+        for client in clients:
+            client.close()
         server.close()
 
 
 def fifo(lane, where):
-    path = lane.spec if where == "spec" else Path(lane.paths["KEEP_DIR"]) / ("aeon-live.refs" if where == "role" else "stuck.refs")
-    if path.exists(): path.unlink()  # only a fixture file created by this case
+    path = lane.spec if where == 'spec' else Path(lane.paths['KEEP_DIR']) / ('aeon-live.refs' if where == 'role' else 'stuck.refs')
+    if path.exists():
+        path.unlink()
     os.mkfifo(path)
     engine = lane.engine()
     proc = lane.start()
-    wait_for(lambda: engine.calls, 55, "FIFO snapshot starts")
+    lane.wait_for('RT:431', lambda: engine.calls, 55, 'FIFO snapshot starts')
     began = engine.calls[0][2]
     contender = lane.contender()
-    wait_for(lambda: contender.acquired.exists(), 5, "FIFO contender")
-    _, output = lane.finish(proc, 5, 2)
-    require(time.monotonic() - began < 5)
-    require("not a regular file" in output, output)
+    lane.wait_for('RT:434', lambda: contender.acquired.exists(), 5, 'FIFO contender')
+    _, output = lane.finish(proc, 5, 2, site='RT:435')
+    lane.require('RT:436', time.monotonic() - began < 5)
+    lane.require('RT:437', 'not a regular file' in output, output)
 
 
 def never_switch_lock(lane):
-    Path(lane.paths["SWITCH_LOCK"]).touch()
+    Path(lane.paths['SWITCH_LOCK']).touch()
     engine = lane.engine(delay=5)
-    proc = lane.start({"RUN_BUDGET_S": 55})
-    require(engine.sent.wait(55))
+    proc = lane.start({'RUN_BUDGET_S': 55})
+    lane.require('RT:444', engine.sent.wait(55))
     for _ in range(25):
-        result = subprocess.run(["flock", "-n", lane.paths["SWITCH_LOCK"], "true"], check=False)
-        require(result.returncode == 0, "GC locked the switch lock")
+        result = subprocess.run(['flock', '-n', lane.paths['SWITCH_LOCK'], 'true'], check=False)
+        lane.require('RT:447', result.returncode == 0, 'GC locked the switch lock')
         time.sleep(0.02)
-    lane.finish(proc, 50)
+    lane.finish(proc, 50, site='RT:449')
 
 
 def instance(lane):
     engine = lane.engine(delay=600)
     first = lane.start()
-    require(engine.sent.wait(55))
+    lane.require('RT:455', engine.sent.wait(55))
     second = lane.start()
-    events, output = lane.finish(second, 5)
-    require("another run is in progress" in output)
-    require(not events["attempts"])
-    first.fixture_killed = True
-    first.kill(); first.wait(timeout=5)
+    events, output = lane.finish(second, 5, site='RT:457')
+    lane.require('RT:458', 'another run is in progress' in output)
+    lane.require('RT:459', not events['attempts'])
+    lane.stop_at('RT:461')
+    first.wait(timeout=5)
     restarted_at = time.monotonic()
     third = lane.start()
-    # Busy instance has gone, but third must still cool down after SIGKILL.
     time.sleep(40)
-    require(len(engine.destructive) == 1)
-    wait_for(lambda: len(engine.destructive) > 1, 10, "post-SIGKILL first attempt")
-    require(engine.destructive[1][2] - restarted_at >= 45)
+    lane.require('RT:466', len(engine.destructive) == 1)
+    lane.wait_for('RT:467', lambda: len(engine.destructive) > 1, 10, 'post-SIGKILL first attempt')
+    lane.require('RT:468', engine.destructive[1][2] - restarted_at >= 45)
+    lane.stop_at('RT:468')
 
 
 def schedules(lane, *, extra=False, across=False, adversarial=False, r34=False):
     engine = lane.engine(delay=[9, 29, 9, 29] if r34 else [5, 24, 5, 24])
-    # r29-adversarial: COOLDOWN_S=45, BATCH_S=10, CALL_DEADLINE_S=30.
-    # Hold 1: ~45..74 (5+24); B: ~74..124; busy attempt: ~119;
-    # next cooldown ends ~164; hold 2: ~164..193; then A and SIGTERM.
-    # r30-adversarial adds C at ~124..124.5, before the ~164 attempt.
-    # Both need >193 s: 180 exits 0 on release before the bound is checked.
-    # 300 leaves room for SIGTERM (rc 1) and the measured W/G assertion.
-    first = lane.start({"RUN_BUDGET_S": 55 if across else 300 if adversarial else 180})
-    require(engine.sent.wait(55))
-    # Hold 1 lasts about 29 s. B wins by stopping A before the release.
-    b = lane.contender(hold=50 if adversarial else 7 if r34 else 5, prefix="B")
-    a = lane.contender(prefix="A")
+    first = lane.start({'RUN_BUDGET_S': 55 if across else 300 if adversarial else 180})
+    lane.require('RT:480', engine.sent.wait(55))
+    b = lane.contender(hold=50 if adversarial else 7 if r34 else 5, prefix='B')
+    a = lane.contender(prefix='A')
     a.send_signal(signal.SIGSTOP)
-    wait_for(lambda: b.acquired.exists(), 45, "B wins first release")
+    lane.wait_for('RT:485', lambda: b.acquired.exists(), 45, 'B wins first release')
     if across:
-        first_events, _ = lane.finish(first, 5)
+        first_events, _ = lane.finish(first, 5, site='RT:487')
     b.wait(timeout=60)
     if extra:
-        # C lives between former sample points; A remains stopped at C's release.
-        c = lane.contender(hold=0.5, prefix="C")
-        wait_for(lambda: c.acquired.exists(), 3, "C's intervening hold")
+        c = lane.contender(hold=0.5, prefix='C')
+        lane.wait_for('RT:492', lambda: c.acquired.exists(), 3, "C's intervening hold")
         c.wait(timeout=3)
     if across:
-        next_run = lane.start({"RUN_BUDGET_S": 90})
-    # Let the adversarial variant admit a second GC hold inside A's wait.
-    # Otherwise 8 s spans the mutant's 2 s retry plus scheduling tolerance,
-    # while the real rule's 45 s cooldown remains far away.
+        next_run = lane.start({'RUN_BUDGET_S': 90})
     if adversarial:
-        wait_for(lambda: len(engine.destructive) >= 3, 100, 'next GC hold inside A wait')
+        lane.wait_for('RT:500', lambda: len(engine.destructive) >= 3, 100, 'next GC hold inside A wait')
     else:
         time.sleep(8)
     a.send_signal(signal.SIGCONT)
-    wait_for(lambda: a.acquired.exists(), 50, "A after B/C")
+    lane.wait_for('RT:504', lambda: a.acquired.exists(), 50, 'A after B/C')
     acquired = float(a.acquired.read_text())
     a.wait(timeout=5)
     if across:
-        later_events, _ = lane.finish(next_run, 140)
-        holds = first_events["holds"] + later_events["holds"]
-        require(later_events["attempts"][0] - first_events["holds"][-1][1] >= 45)
+        later_events, _ = lane.finish(next_run, 140, site='RT:508')
+        holds = first_events['holds'] + later_events['holds']
+        lane.require('RT:510', later_events['attempts'][0] - first_events['holds'][-1][1] >= 45)
     else:
         if adversarial:
-            require(first.poll() is None, "GC exited before adversarial SIGTERM")
+            lane.require('RT:513', first.poll() is None, 'GC exited before adversarial SIGTERM')
         first.send_signal(signal.SIGTERM)
-        events, _ = lane.finish(first, 40, 1)
-        holds = events["holds"]
+        events, _ = lane.finish(first, 40, 1, site='RT:515')
+        holds = events['holds']
     if adversarial:
-        require(len(holds) >= 2, ("adversarial bound needs two GC holds", holds))
+        lane.require('RT:518', len(holds) >= 2, ('adversarial bound needs two GC holds', holds))
     if r34:
-        require(8.9 <= engine.destructive[1][2] - holds[0][0] <= 10.1)
-        require(all(end - start <= 45 for start, end in holds), holds)
+        lane.require('RT:520', 8.9 <= engine.destructive[1][2] - holds[0][0] <= 10.1)
+        lane.require('RT:521', all((end - start <= 45 for start, end in holds)), holds)
     began = engine.destructive[0][2]
     w = acquired - began
-    g = sum(max(0, min(end, acquired) - max(start, began)) for start, end in holds)
-    require(g <= 45 + (w - g) + 0.2, {"W": w, "G": g, "holds": holds})
+    g = sum((max(0, min(end, acquired) - max(start, began)) for start, end in holds))
+    lane.require('RT:525', g <= 45 + (w - g) + 0.2, {'W': w, 'G': g, 'holds': holds})
     if adversarial:
-        print(f"adversarial bound checked: W={w:.3f} G={g:.3f} holds={len(holds)}", flush=True)
+        print(f'adversarial bound checked: W={w:.3f} G={g:.3f} holds={len(holds)}', flush=True)
     if not adversarial:
-        require(acquired < holds[1][0] if len(holds) > 1 else True)
+        lane.require('RT:529', acquired < holds[1][0] if len(holds) > 1 else True)
 
 
 def four_acquisitions(lane, *, r34=False):
-    # HAUSV-shaped real bash traps. GC holds are spaced >45 s apart. Each of
-    # main-stop, interrupted main-start, TERM-start, EXIT-start is counted.
-    script = lane.root / "hausv-user.sh"
-    script.write_text('''#!/usr/bin/env bash
-set -eu
-stopped=1
-acquire() {
-  n=$(cat "$1/count"); n=$((n+1)); echo "$n" > "$1/count"
-  echo "$n" > "$1/ready"
-  while [ ! -f "$1/go-$n" ]; do sleep 0.02; done
-  flock -w 570 "$2" python3 -c 'import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(time.monotonic()))' "$1/got-$n"
-}
-restart() { if [ "$stopped" = 1 ]; then acquire "$1" "$2"; fi; }
-trap 'restart "$1" "$2"' EXIT HUP INT TERM
-acquire "$1" "$2"
-acquire "$1" "$2"
-stopped=0
-''')
-    (lane.root / "count").write_text("0")
-    user = subprocess.Popen(["bash", str(script), str(lane.root), lane.paths["LOCK_PATHS"][0]], start_new_session=True)
+    script = lane.root / 'hausv-user.sh'
+    script.write_text('#!/usr/bin/env bash\nset -eu\nstopped=1\nacquire() {\n  n=$(cat "$1/count"); n=$((n+1)); echo "$n" > "$1/count"\n  echo "$n" > "$1/ready"\n  while [ ! -f "$1/go-$n" ]; do sleep 0.02; done\n  flock -w 570 "$2" python3 -c \'import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(time.monotonic()))\' "$1/got-$n"\n}\nrestart() { if [ "$stopped" = 1 ]; then acquire "$1" "$2"; fi; }\ntrap \'restart "$1" "$2"\' EXIT HUP INT TERM\nacquire "$1" "$2"\nacquire "$1" "$2"\nstopped=0\n')
+    (lane.root / 'count').write_text('0')
+    user = subprocess.Popen(['bash', str(script), str(lane.root), lane.paths['LOCK_PATHS'][0]], start_new_session=True)
     user.owned_group = True
     lane.processes.append(user)
     last_release = None
     for n in range(1, 5):
-        wait_for(lambda: (lane.root / "ready").read_text().strip() == str(n) if (lane.root / "ready").exists() else False, 10, f"acquisition {n} ready")
+        lane.wait_for('RT:557', lambda: (lane.root / 'ready').read_text().strip() == str(n) if (lane.root / 'ready').exists() else False, 10, f'acquisition {n} ready')
         if last_release is not None:
             time.sleep(max(0, last_release + 45 - time.monotonic()))
-        # Drive an actual GC batch for this acquisition, through the same worker.
-        # Unique sockets allow independent server lifetimes without unlinking.
-        lane.paths["SOCKET_PATH"] = str(lane.root / f"engine-{n}.sock")
+        lane.paths['SOCKET_PATH'] = str(lane.root / f'engine-{n}.sock')
         engine = lane.engine(delay=[9, 29, 29] if r34 else [5, 24, 24])
-        proc = lane.start({"RUN_BUDGET_S": 55})
-        require(engine.sent.wait(55))
+        proc = lane.start({'RUN_BUDGET_S': 55})
+        lane.require('RT:565', engine.sent.wait(55))
         began = time.monotonic()
-        (lane.root / f"go-{n}").touch()
+        (lane.root / f'go-{n}').touch()
         if n == 2:
             time.sleep(0.1)
-            # As systemd does, signal the shell and its waiting flock child.
-            # The interrupted attempt ends at SIGTERM; TERM and EXIT each
-            # make a subsequent, separately bounded acquisition.
             os.killpg(user.pid, signal.SIGTERM)
-            require(time.monotonic() - began <= 45)
+            lane.require('RT:574', time.monotonic() - began <= 45)
         else:
-            got = lane.root / f"got-{n}"
-            wait_for(lambda: got.exists(), 45, f"handler acquisition {n}")
-            require(float(got.read_text()) - began <= 45)
-        events, _ = lane.finish(proc, 45 if n == 2 else 10)
+            got = lane.root / f'got-{n}'
+            lane.wait_for('RT:577', lambda: got.exists(), 45, f'handler acquisition {n}')
+            lane.require('RT:578', float(got.read_text()) - began <= 45)
+        events, _ = lane.finish(proc, 45 if n == 2 else 10, site='RT:579')
         if r34:
-            require(8.9 <= engine.destructive[1][2] - events["holds"][0][0] <= 10.1)
-            require(all(end - start <= 45 for start, end in events["holds"]), events)
-        last_release = events["holds"][-1][1]
+            lane.require('RT:581', 8.9 <= engine.destructive[1][2] - events['holds'][0][0] <= 10.1)
+            lane.require('RT:582', all((end - start <= 45 for start, end in events['holds'])), events)
+        last_release = events['holds'][-1][1]
     user.wait(timeout=10)
-    require((lane.root / "count").read_text().strip() == "4")
+    lane.require('RT:585', (lane.root / 'count').read_text().strip() == '4')
 
 
 CASES = {"delete-hold-bound": lambda l: deadline(l), "prune-hold-bound": lambda l: deadline(l, method="POST"),
@@ -695,6 +1397,9 @@ def run_checks(args, checks):
                     error, setup = exc, True
                 try:
                     lane.close()
+                except Exception as exc:
+                    error, setup = exc, True
+                try:
                     # Re-check after reaping: a worker can report a violation
                     # between the first check and cleanup's signal delivery.
                     lane.check_workers()
@@ -716,6 +1421,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--worker", help=argparse.SUPPRESS)
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--evidence", nargs=3, metavar=("SEND", "ACK", "IDENTITY"))
     parser.add_argument("--case", action="append", choices=CASES)
     parser.add_argument("--mutants", action="store_true")
     parser.add_argument("--source", default=str(HERE.parent / "hosts/csb1/docker-image-gc.py"))
@@ -738,7 +1444,8 @@ def main():
         if value is not None:
             setattr(args, name, repo_path(value, directory=directory))
     if args.worker:
-        return worker(args.worker)
+        publisher = EvidencePublisher(int(args.evidence[0]), int(args.evidence[1]), json.loads(args.evidence[2])) if args.evidence else None
+        return worker(args.worker, publisher)
     sys.path.insert(0, str(HERE))
     import test_docker_image_gc as unit
     try:

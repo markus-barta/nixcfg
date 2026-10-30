@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import builtins
 import fcntl
+import inspect
 import json
 import os
 import socket
@@ -14,6 +15,7 @@ import threading
 import time
 import types
 from pathlib import Path
+from contextlib import contextmanager, nullcontext
 
 PHASE_FIRST_S = 18
 PHASE_LAST_S = 45
@@ -34,7 +36,20 @@ SLASH_EXPRESSIONS = {"rest.rfind('/')", "rest.partition('/')", "'/' not in path"
 
 # Capture normalization before tests patch the shared os.path module. Never
 # cache resolved paths: a fixture may change a symlink between two operations.
-_REALPATH = os.path.realpath
+# Resolve through captured metadata even when a facade delegate is mocked.
+class _ResolutionOS:
+    lstat = staticmethod(os.lstat)
+    readlink = staticmethod(os.readlink)
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+
+_resolution_globals = {**os.path.realpath.__globals__, "os": _ResolutionOS(),
+                       "lstat": os.lstat, "readlink": os.readlink}
+_REALPATH = types.FunctionType(os.path.realpath.__code__, _resolution_globals,
+                               os.path.realpath.__name__, os.path.realpath.__defaults__)
+_REALPATH.__kwdefaults__ = os.path.realpath.__kwdefaults__
 _READLINK = os.readlink
 _FCNTL = fcntl.fcntl
 
@@ -74,44 +89,79 @@ def install_audit_hook():
         sys._ops327_audit_installed = True
 
 
+_EVIDENCE = threading.local()
+
+
+@contextmanager
+def evidence_scope(publisher):
+    before = getattr(_EVIDENCE, "current", None)
+    _EVIDENCE.current = publisher
+    try:
+        yield
+    finally:
+        _EVIDENCE.current = before
+
+
 class FixtureGuard:
-    def __init__(self, root):
-        self.root = _REALPATH(os.fspath(root))
+    """One predeclared lexical/canonical pair must admit the complete access."""
+
+    def __init__(self, root, *, aliases=(), interpreter_roots=None, evidence=None):
+        self.root = _REALPATH(os.fsdecode(os.fspath(root)))
         self.violations = []
-        # Read-only interpreter files are needed for lazy stdlib imports.
-        self.read_roots = tuple({_REALPATH(path) for path in (
-            sys.prefix,  # Active interpreter/venv's own import files, read-only.
-            sys.base_prefix,  # Base interpreter files used by a venv, read-only.
-            sysconfig.get_path("stdlib"),  # Pure Python standard library, read-only.
-            sysconfig.get_path("platstdlib"),  # Platform stdlib/extension imports, read-only.
-            "/nix/store",  # Immutable Nix import code and its dependencies, read-only.
-        )})
-        # /proc supplies the existing fixture's read-only kernel lock table.
-        self.read_roots += ("/proc",)
-        # /dev/null is the sole device exception, read-only; no device writes.
-        self.read_files = {_REALPATH("/dev/null")}
+        self.evidence = evidence if evidence is not None else getattr(_EVIDENCE, "current", None)
+        self.entries = []
+        self.add_root(root, "RWDSL", aliases=aliases)
+        roots = interpreter_roots if interpreter_roots is not None else (
+            sys.prefix, sys.base_prefix, sysconfig.get_path("stdlib"),
+            sysconfig.get_path("platstdlib"), "/nix/store")
+        self.interpreter_roots = tuple(roots)
+        for path in roots:
+            self.add_root(path, "R", interpreter=True)
+        self.add_root("/proc", "R")
+        self.add_root("/dev/null", "R", exact=True)
+        self.read_roots = tuple(entry[1] for entry in self.entries if entry[2] == frozenset("R") and not entry[3])
+        self.read_files = {entry[1] for entry in self.entries if entry[3]}
+
+    def add_root(self, root, kinds, *, aliases=(), interpreter=False, exact=False):
+        lexical = os.path.normpath(os.path.abspath(os.fsdecode(os.fspath(root))))
+        canonical = _REALPATH(lexical)
+        namespace = "/nix/store" if interpreter and self.inside(canonical, "/nix/store") else canonical
+        # Keep BOTH directions, even when several aliases share a destination.
+        for spelling in dict.fromkeys((canonical, lexical, *map(os.fspath, aliases))):
+            spelling = os.path.normpath(os.path.abspath(spelling))
+            if _REALPATH(spelling) != canonical:
+                raise ValueError("fixture alias does not resolve to its declared root")
+            self.entries.append((spelling, namespace, frozenset(kinds), exact, canonical))
 
     @staticmethod
     def inside(path, root):
         return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
+    def transaction(self):
+        return self.evidence.transaction("GUARD") if self.evidence is not None else nullcontext()
+
     def fail(self, event, path):
         violation = FixtureViolation(event, path)
         self.violations.append({"event": event, "path": path})
+        if self.evidence is not None:
+            self.evidence.send("DENY", event=event, path=path)
         violation.recorded = self.violations
         raise violation
 
     def fd_path(self, event, fd):
         try:
             if sys.platform == "darwin":
-                # F_GETPATH resolves the *actual* open descriptor, including
-                # descriptors obtained before production was loaded.
                 return os.fsdecode(_FCNTL(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0])
             return _READLINK(f"/proc/self/fd/{fd}")
         except (OSError, ValueError):
             self.fail(event, f"unresolved fd {fd}")
 
-    def check(self, event, path, *, write=False, dir_fd=None):
+    def check(self, event, path, *, write=False, kind=None, dir_fd=None):
+        # BEGIN is acknowledged before fspath callbacks, fd lookup and realpath.
+        with self.transaction():
+            return self._check(event, path, kind=kind or ("W" if write else "R"), dir_fd=dir_fd)
+
+    def _check(self, event, path, *, kind, dir_fd=None):
         if isinstance(path, int):
             path = self.fd_path(event, path)
         try:
@@ -119,22 +169,26 @@ class FixtureGuard:
         except TypeError:
             self.fail(event, repr(path))
         if not os.path.isabs(path):
-            # A relative spelling is meaningful only from inside this fixture,
-            # even if its dir_fd happens to point at an allowed directory.
             cwd = _REALPATH(os.getcwd())
             if not self.inside(cwd, self.root):
                 self.fail(event, _REALPATH(os.path.join(cwd, path)))
-            if dir_fd is not None and dir_fd != -1:
-                path = os.path.join(self.fd_path(event, dir_fd), path)
+            base = self.fd_path(event, dir_fd) if dir_fd not in (None, -1) else os.getcwd()
+            path = os.path.join(base, path)
+        lexical = os.path.normpath(path)
         resolved = _REALPATH(path)
-        # Fixture root: the only place writes, sockets and locks may occur.
-        allowed = self.inside(resolved, self.root)
-        if not write:
-            allowed = allowed or resolved in self.read_files or any(self.inside(resolved, root) for root in self.read_roots)
+        allowed = any(
+            kind in kinds and _REALPATH(left) == anchor and
+            ((lexical == left and resolved == right) if exact else
+             (self.inside(lexical, left) and self.inside(resolved, right)))
+            for left, right, kinds, exact, anchor in self.entries)
         if not allowed:
             self.fail(event, resolved)
 
     def audit(self, event, args):
+        with self.transaction():
+            self._audit(event, args)
+
+    def _audit(self, event, args):
         if event == "open":
             path, mode, flags = args
             write = bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))
@@ -148,23 +202,22 @@ class FixtureGuard:
             address = os.fspath(address)
             if not address or address[:1] in ("\0", b"\0"):
                 self.fail(event, repr(address))
-            self.check(event, address, write=True)
+            self.check(event, address, kind="S")
         elif event in {"fcntl.flock", "fcntl.lockf", "os.lockf"}:
-            self.check(event, args[0], write=True)
+            self.check(event, args[0], kind="L")
         elif event == "fcntl.fcntl":
             if args[1] != getattr(fcntl, "F_GETPATH", None):
-                self.check(event, args[0], write=True)
+                self.check(event, args[0], kind="L")
         elif event in {"os.listdir", "os.scandir"}:
-            self.check(event, args[0] if args[0] is not None else ".")
+            self.check(event, args[0] if args and args[0] is not None else ".")
         elif event in {"os.remove", "os.unlink", "os.rmdir"}:
-            self.check(event, args[0], write=True, dir_fd=args[1])
+            self.check(event, args[0], kind="D", dir_fd=args[1])
         elif event in {"os.mkdir", "os.chmod", "os.chown", "os.utime"}:
             self.check(event, args[0], write=True, dir_fd=args[-1])
         elif event in {"os.rename", "os.replace", "os.link"}:
-            self.check(event, args[0], write=True, dir_fd=args[2])
+            self.check(event, args[0], kind="W" if event == "os.link" else "D", dir_fd=args[2])
             self.check(event, args[1], write=True, dir_fd=args[3])
         elif event == "os.symlink":
-            self.check(event, args[0], write=True)
             self.check(event, args[1], write=True, dir_fd=args[2])
             target = os.fsdecode(args[0])
             if not os.path.isabs(target):
@@ -176,7 +229,10 @@ class FixtureGuard:
         elif event in {"os.truncate", "os.chdir"}:
             self.check(event, args[0], write=True)
         elif event in {"os.walk", "os.fwalk", "os.getxattr", "os.listxattr"}:
-            self.check(event, args[0], dir_fd=args[4] if event == "os.fwalk" else None)
+            path = args[0] if args else "."
+            if event == "os.listxattr" and path is None:
+                path = "."
+            self.check(event, path, dir_fd=args[4] if event == "os.fwalk" and len(args) > 4 else None)
         elif event in {"os.chflags", "os.setxattr", "os.removexattr", "os.startfile", "os.startfile/2"}:
             self.check(event, args[0], write=True)
         elif event == "os.add_dll_directory":
@@ -186,17 +242,17 @@ class FixtureGuard:
                 self.check(event, args[0])
                 self.check(event, args[1], write=True)
             elif event == "shutil.move":
-                self.check(event, args[0], write=True)
+                self.check(event, args[0], kind="D")
                 self.check(event, args[1], write=True)
             elif event == "shutil.rmtree":
-                self.check(event, args[0], write=True, dir_fd=args[1])
+                self.check(event, args[0], kind="D", dir_fd=args[1])
             elif event == "shutil.chown":
                 self.check(event, args[0], write=True)
             else:
                 self.fail(event, repr(args[0]))
         elif event == "import" and args[1] is not None:
             self.check(event, args[1])
-        elif event == "ctypes.dlopen":
+        elif event == "ctypes.dlopen" and args[0] is not None:
             self.check(event, args[0])
         elif event == "subprocess.Popen" or event in {"os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty"}:
             self.fail(event, "process creation outside fixture contract")
@@ -231,25 +287,96 @@ class GuardedOS:
     def __getattr__(self, name):
         if self.module is os and name == "path":
             return GuardedOS(self.guard, os.path)
-        if self.module is os and name == "open":
-            def opened(path, flags, *args, **kwargs):
-                # CPython's open audit event omits dir_fd. Validate the actual
-                # descriptor-relative target before that incomplete event.
-                write = bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))
-                self.guard.check("open", path, write=write, dir_fd=kwargs.get("dir_fd"))
-                return os.open(path, flags, *args, **kwargs)
-            return opened
-        parameters = (self.OS_METADATA | self.OS_WRITES) if self.module is os else self.PATH_METADATA
-        if name in parameters and hasattr(self.module, name):
-            write = self.module is os and name in self.OS_WRITES
-            def metadata(*args, **kwargs):
-                for index, parameter in enumerate(parameters[name]):
-                    path = args[index] if len(args) > index else kwargs[parameter]
-                    self.guard.check(("os." if write else "metadata.") + name, path,
-                                     write=write, dir_fd=kwargs.get("dir_fd"))
+        parameters = ({"open": ("path",)} | self.OS_METADATA | self.OS_WRITES) if self.module is os else self.PATH_METADATA
+        if name not in parameters or not hasattr(self.module, name):
+            return getattr(self.module, name)
+        signature = _NATIVE_SIGNATURES[(self.module is os, name)]
+        def metadata(*args, **kwargs):
+            try:
+                bound = signature.bind(*args, **kwargs)
+            except TypeError:
+                # The native parser owns TypeError wording and cannot do I/O.
                 return getattr(self.module, name)(*args, **kwargs)
-            return metadata
-        return getattr(self.module, name)
+            write = self.module is os and name in self.OS_WRITES
+            if self.module is os and name == "open":
+                write = bool(bound.arguments["flags"] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))
+            event = "open" if self.module is os and name == "open" else ("os." if write else "metadata.") + name
+            with self.guard.transaction():
+                for parameter in parameters[name]:
+                    # isdir's native argument is named s, not path.
+                    if name == "isdir":
+                        parameter = "s"
+                    self.guard.check(event, bound.arguments[parameter], write=write,
+                                     dir_fd=bound.arguments.get("dir_fd"))
+            return getattr(self.module, name)(*args, **kwargs)
+        return metadata
+
+
+# Capture signatures before unit tests install dynamic/mock delegates.
+_NATIVE_SIGNATURES = {
+    (module is os, name): inspect.signature(getattr(module, name))
+    for module, names in ((os, {"open": ()} | GuardedOS.OS_METADATA | GuardedOS.OS_WRITES),
+                          (os.path, GuardedOS.PATH_METADATA))
+    for name in names if hasattr(module, name)
+}
+_IMPORT_LOCK = threading.RLock()
+# Production imports are explicitly reviewed; tests may approve an extra stdlib
+# name for a cold-import control without admitting arbitrary top-level imports.
+_PRODUCTION_IMPORTS = frozenset(("__future__", "typing", "inspect", "shutil", "sysconfig", "pathlib", "sqlite3", "ctypes", "fractions", "decimal", "contextlib", "fcntl", "http", "json", "os", "re", "signal", "socket", "stat", "sys", "time", "urllib"))
+
+
+class TrustedImports:
+    def __init__(self, guard, approved=()):
+        self.guard = guard
+        self.depth = 0
+        self.approved = _PRODUCTION_IMPORTS | frozenset(approved)
+        if not self.approved <= sys.stdlib_module_names:
+            raise ValueError("only reviewed stdlib imports are allowed")
+        candidates = list(sys.path)
+        for root in guard.interpreter_roots:
+            candidates.extend((root, os.path.join(root, "lib-dynload")))
+        self.path = tuple(dict.fromkeys(p for p in candidates if p and self.admitted(p)))
+        if not self.path:
+            raise ValueError("no trusted interpreter search path")
+
+    def admitted(self, path):
+        lexical = os.path.normpath(os.path.abspath(path))
+        resolved = _REALPATH(path)
+        return any(kinds == frozenset("R") and left not in ("/proc", "/dev/null") and
+                   _REALPATH(left) == anchor and self.guard.inside(lexical, left) and self.guard.inside(resolved, right)
+                   for left, right, kinds, exact, anchor in self.guard.entries if not exact)
+
+    def validate_cached(self):
+        for name, module in tuple(sys.modules.items()):
+            if name.partition(".")[0] not in sys.stdlib_module_names or module is None:
+                continue
+            spec = getattr(module, "__spec__", None)
+            origin = getattr(spec, "origin", None)
+            if origin not in (None, "built-in", "frozen") and not self.admitted(origin):
+                raise ValueError(f"untrusted cached stdlib origin: {name}")
+            for path in getattr(module, "__path__", ()):
+                if not self.admitted(path):
+                    raise ValueError(f"untrusted cached stdlib package: {name}")
+
+    @contextmanager
+    def scope(self):
+        with _IMPORT_LOCK:
+            if self.depth:
+                self.depth += 1
+                try:
+                    yield
+                finally:
+                    self.depth -= 1
+                return
+            before = sys.path[:]
+            try:
+                self.validate_cached()
+                sys.path[:] = self.path
+                self.depth = 1
+                yield
+            finally:
+                self.depth = 0
+                sys.path[:] = before
 
 
 def fixture_root(paths):
@@ -261,23 +388,30 @@ def fixture_root(paths):
     return root
 
 
-def execute_source(source, root=None, *, bindings=None):
+def execute_source(source, root=None, *, bindings=None, evidence=None, approved_imports=()):
     # Trusted, copied GC source only. __name__ prevents the CLI entry point.
     install_audit_hook()
-    guard = FixtureGuard(root if root is not None else Path(__file__).parent / ".source-inspection")
+    guard = FixtureGuard(root if root is not None else Path(__file__).parent / ".source-inspection", evidence=evidence)
+    trusted = TrustedImports(guard, approved_imports)
     module = types.ModuleType("gc_fixture")
     module.__dict__.update(bindings or {})
     module.__ops327_fixture_guard__ = guard
     original_import = builtins.__import__
     def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        imported = original_import(name, globals, locals, fromlist, level)
-        if name == "os" or (name == "os.path" and not fromlist):
-            return GuardedOS(guard)
-        if name == "os.path":
-            return GuardedOS(guard, os.path)
-        return imported
+        setup = guard.evidence.transaction("SETUP") if guard.evidence is not None else nullcontext()
+        with setup:
+            if level or name.partition(".")[0] not in trusted.approved:
+                raise ValueError(f"unreviewed production import: {name}")
+            with trusted.scope():
+                imported = original_import(name, globals, locals, fromlist, level)
+            if name == "os" or (name == "os.path" and not fromlist):
+                return GuardedOS(guard)
+            if name == "os.path":
+                return GuardedOS(guard, os.path)
+            return imported
     module.__dict__["__builtins__"] = {**vars(builtins), "__import__": guarded_import}
-    exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
+    with trusted.scope(), guard.transaction():
+        exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
     return module
 
 
