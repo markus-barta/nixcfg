@@ -123,29 +123,65 @@ in
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "hausnetz-tailnet-guard-start" ''
         set -eu
-        ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
-          ${pkgs.iptables}/bin/iptables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
-        ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
-          ${pkgs.iptables}/bin/iptables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
-        ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
-          ${pkgs.iptables}/bin/ip6tables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
-        ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
-          ${pkgs.iptables}/bin/ip6tables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        ensure_rule() {
+          local command="$1" rc
+          shift
+          if "$command" -w 30 -t raw -C "$@"; then
+            return 0
+          else
+            rc=$?
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "hausnetz-tailnet-guard: $command -C failed (exit $rc): $*" >&2
+            exit "$rc"
+          fi
+          if "$command" -w 30 -t raw -I "$@"; then
+            return 0
+          else
+            rc=$?
+            echo "hausnetz-tailnet-guard: $command -I failed (exit $rc): $*" >&2
+            exit "$rc"
+          fi
+        }
+        ensure_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ensure_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        ensure_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ensure_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
       '';
       ExecStop = pkgs.writeShellScript "hausnetz-tailnet-guard-stop" ''
         set -eu
-        while ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null; do
-          ${pkgs.iptables}/bin/iptables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
-        done
-        while ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null; do
-          ${pkgs.iptables}/bin/iptables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
-        done
-        while ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null; do
-          ${pkgs.iptables}/bin/ip6tables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
-        done
-        while ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null; do
-          ${pkgs.iptables}/bin/ip6tables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
-        done
+        remove_rule() {
+          local command="$1" rc attempt
+          shift
+          # Delete at most ten copies, then check once more for completion.
+          for attempt in {0..10}; do
+            if "$command" -w 30 -t raw -C "$@"; then
+              :
+            else
+              rc=$?
+              if [ "$rc" -eq 1 ]; then
+                return 0
+              fi
+              echo "hausnetz-tailnet-guard: $command -C failed (exit $rc): $*" >&2
+              exit "$rc"
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo "hausnetz-tailnet-guard: cleanup limit reached (10 deletions): $command $*" >&2
+              exit 1
+            fi
+            if "$command" -w 30 -t raw -D "$@"; then
+              :
+            else
+              rc=$?
+              echo "hausnetz-tailnet-guard: $command -D failed (exit $rc): $*" >&2
+              exit "$rc"
+            fi
+          done
+        }
+        remove_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        remove_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        remove_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        remove_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
       '';
     };
   };

@@ -91,25 +91,18 @@ assert declared["hausnetzAfter"] == ["hausnetz-tailnet-guard.service"]
 for option in ("extraCommands", "extraStopCommands"):
     assert "OPS-506" not in declared["firewall"].get(option, ""), option
 
-# Require exact interface-scoped rules, checked insertion and duplicate cleanup.
-start_commands, stop_commands, rule_keys = ["set -eu"], ["set -eu"], []
+# Require exact interface-scoped rules and lock waits on every helper command.
+start_commands, stop_commands, rule_keys = [], [], []
 for binary in ("iptables", "ip6tables"):
-    command = f"/nix/store/iptables-fixture/bin/{binary} -t raw"
+    command = f"/nix/store/iptables-fixture/bin/{binary}"
     for ports, comment in (
         ("-p tcp --dport 8377", "OPS-506-hausnetz-http"),
         ("-p udp -m multiport --dports 5353,1901", "OPS-506-hausnetz-discovery"),
     ):
         rule = (f'PREROUTING -i tailscale0 {ports} '
                 f'-m comment --comment "{comment}" -j DROP')
-        start_commands.append(
-            f"{command} -C {rule} 2>/dev/null || "
-            f"{command} -I {rule}"
-        )
-        stop_commands.extend([
-            f"while {command} -C {rule} 2>/dev/null; do",
-            f"{command} -D {rule} 2>/dev/null || true",
-            "done",
-        ])
+        start_commands.append(f"ensure_rule {command} {rule}")
+        stop_commands.append(f"remove_rule {command} {rule}")
         rule_keys.append(f"{binary}:{comment}")
 
 
@@ -118,26 +111,45 @@ def script_commands(script):
             if line.strip()]
 
 
-assert script_commands(guard_config["ExecStart"]) == start_commands
-assert script_commands(guard_config["ExecStop"]) == stop_commands
+for option, helper, commands, actions in (
+    ("ExecStart", "ensure_rule", start_commands, ("-C", "-I")),
+    ("ExecStop", "remove_rule", stop_commands, ("-C", "-D")),
+):
+    lines = script_commands(guard_config[option])
+    assert lines[0] == "set -eu"
+    assert [line for line in lines if line.startswith(helper + " ")] == commands
+    assert [line for line in lines if line.startswith('if "$command" ')] == [
+        f'if "$command" -w 30 -t raw {action} "$@"; then' for action in actions
+    ]
+    assert "|| true" not in guard_config[option]
 
 # Execute the declared scripts against fake iptables binaries, never host rules.
 with tempfile.TemporaryDirectory(prefix="ops506-guard-") as directory:
     root = Path(directory)
     (root / "bin").mkdir()
     state = root / "rules.json"
+    calls = root / "calls.json"
     fixture = f"#!{sys.executable}\n" + '''import json, os, sys
 from pathlib import Path
 state = Path(os.environ["OPS506_RULE_STATE"])
 rules = json.loads(state.read_text())
-key = Path(sys.argv[0]).name + ":" + sys.argv[sys.argv.index("--comment") + 1]
-action = sys.argv[3]
+args = sys.argv[1:]
+if "-w" not in args:
+    sys.exit(2)
+wait_index = args.index("-w")
+args.pop(wait_index)
+if wait_index < len(args) and args[wait_index].isdigit():
+    args.pop(wait_index)
+key = Path(sys.argv[0]).name + ":" + args[args.index("--comment") + 1]
+action, = [arg for arg in args if arg in ("-C", "-I", "-D")]
+calls = Path(os.environ["OPS506_CALL_LOG"])
+calls.write_text(json.dumps(json.loads(calls.read_text()) + [{"key": key, "action": action}]))
+if key == os.environ.get("OPS506_FAIL_RULE") and action == os.environ.get("OPS506_FAIL_ACTION"):
+    sys.exit(4 if action == "-C" else 42)
 count = rules.get(key, 0)
 if action == "-C":
     sys.exit(0 if count else 1)
 if action == "-I":
-    if key == os.environ.get("OPS506_FAIL_RULE"):
-        sys.exit(42)
     rules[key] = count + 1
 elif action == "-D":
     if not count:
@@ -151,10 +163,12 @@ state.write_text(json.dumps(rules))
         path = root / "bin" / binary
         path.write_text(fixture)
         path.chmod(0o700)
-    child_env = dict(os.environ, OPS506_RULE_STATE=str(state), OPS506_FAIL_RULE="")
+    child_env = dict(os.environ, OPS506_RULE_STATE=str(state), OPS506_CALL_LOG=str(calls),
+                     OPS506_FAIL_RULE="", OPS506_FAIL_ACTION="-I")
 
     def run_guard(action):
         script = guard_config[action].replace("/nix/store/iptables-fixture", directory)
+        calls.write_text("[]")
         return subprocess.run(["bash", "-c", script], env=child_env,
                               capture_output=True, text=True, timeout=10)
 
@@ -163,17 +177,57 @@ state.write_text(json.dumps(rules))
         result = run_guard("ExecStart")
         assert result.returncode == 0, result.stderr
         assert json.loads(state.read_text()) == dict.fromkeys(rule_keys, 1)
-    state.write_text(json.dumps(dict.fromkeys(rule_keys, 3)))
-    for _ in range(2):
-        result = run_guard("ExecStop")
-        assert result.returncode == 0, result.stderr
-        assert not any(json.loads(state.read_text()).values())
+    assert all(call["action"] == "-C" for call in json.loads(calls.read_text()))
+    for duplicates in (3, 10):
+        state.write_text(json.dumps(dict.fromkeys(rule_keys, duplicates)))
+        for _ in range(2):
+            result = run_guard("ExecStop")
+            assert result.returncode == 0, result.stderr
+            assert not any(json.loads(state.read_text()).values())
     for index, key in enumerate(rule_keys):
         state.write_text("{}")
         child_env["OPS506_FAIL_RULE"] = key
         result = run_guard("ExecStart")
         assert result.returncode == 42, (key, result.stderr)
+        assert "-I failed (exit 42)" in result.stderr
         assert json.loads(state.read_text()) == dict.fromkeys(rule_keys[:index], 1)
+
+    # A failed presence check must never become an insertion attempt.
+    state.write_text("{}")
+    child_env.update(OPS506_FAIL_RULE=rule_keys[0], OPS506_FAIL_ACTION="-C")
+    result = run_guard("ExecStart")
+    assert result.returncode == 4 and "-C failed (exit 4)" in result.stderr
+    assert json.loads(state.read_text()) == {}
+    assert json.loads(calls.read_text()) == [{"key": rule_keys[0], "action": "-C"}]
+    for key in rule_keys:
+        present = dict.fromkeys(rule_keys, 1)
+        state.write_text(json.dumps(present))
+        child_env["OPS506_FAIL_RULE"] = key
+        result = run_guard("ExecStart")
+        assert result.returncode == 4 and "-C failed (exit 4)" in result.stderr
+        assert json.loads(state.read_text()) == present
+        assert all(call["action"] == "-C" for call in json.loads(calls.read_text()))
+
+    # Both check and deletion errors fail stop immediately, for either family.
+    for action, status in (("-C", 4), ("-D", 42)):
+        for index, key in enumerate(rule_keys):
+            state.write_text(json.dumps(dict.fromkeys(rule_keys, 1)))
+            child_env.update(OPS506_FAIL_RULE=key, OPS506_FAIL_ACTION=action)
+            result = run_guard("ExecStop")
+            assert result.returncode == status, (action, key, result.stderr)
+            assert f"{action} failed (exit {status})" in result.stderr
+            expected = {key: int(i >= index) for i, key in enumerate(rule_keys)}
+            assert json.loads(state.read_text()) == expected
+            assert json.loads(calls.read_text())[-1] == {"key": key, "action": action}
+
+    # An excessive duplicate set cannot cause an unbounded cleanup loop.
+    child_env["OPS506_FAIL_RULE"] = ""
+    for key in rule_keys:
+        state.write_text(json.dumps({key: 11}))
+        result = run_guard("ExecStop")
+        assert result.returncode == 1 and "cleanup limit reached (10 deletions)" in result.stderr
+        assert json.loads(state.read_text()) == {key: 1}
+        assert sum(call["action"] == "-D" for call in json.loads(calls.read_text())) == 10
 
 host_source = Path("hosts/hsb8/configuration.nix").read_text()
 assert 'leasesFile = if enableAdGuard then "/var/lib/AdGuardHome/data/leases.json" else null;' in host_source
