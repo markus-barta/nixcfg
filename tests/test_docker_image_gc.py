@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import atexit
 import ast
+import builtins
 import fcntl
 import io
 import json
 import os
+import re
 import shutil
 import select
 import signal
@@ -5357,7 +5359,9 @@ class Isolation9CasePathTests(unittest.TestCase):
                                             wait=lambda timeout:aux_rc,stdout=None,stderr=None)
         failure=None
         with mock.patch.object(r,"time",clock),mock.patch.object(r,"subprocess",types.SimpleNamespace(Popen=lambda *a,**k:aux,run=lambda *a,**k:types.SimpleNamespace(returncode=0))),mock.patch.object(r.os,"killpg",lambda *a:None),mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=lambda: [])):
-            try:r.CASES[case](lane)
+            try:
+                if case == 'never-switch-lock': invoke_switch_case(r, lane, r.CASES[case])
+                else: r.CASES[case](lane)
             except r.CaseFailure as exc:failure=exc
         for p in lane.processes:
             if not hasattr(p,"evidence"):continue
@@ -5391,6 +5395,12 @@ class Isolation9CasePathTests(unittest.TestCase):
 
 
 
+def invoke_switch_case(r, lane, case=None):
+    """Enter the case's sole guard before even a decorator wrapper executes."""
+    with r.SwitchObservationGuard(lane.paths['SWITCH_LOCK']):
+        return (r.never_switch_lock if case is None else case)(lane)
+
+
 def validate_switch_observation_surface(source):
     """Closed observation surface, following every reachable local helper.
 
@@ -5403,9 +5413,31 @@ def validate_switch_observation_surface(source):
     functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     observer = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SwitchLockObserver')
     methods = {n.name: n for n in observer.body if isinstance(n, ast.FunctionDef)}
+    # Reviewed data only: callee -> (allowed positional counts, keyword names).
+    # In particular, no key/default/cls callbacks or argument unpacking.
+    signatures = {
+        'Path': ((1,), ()), 'dict': ((0, 1), ('pid', 'relation', 'worker_or_descendant')),
+        'int': ((1, 2), ()), 'len': ((1,), ()), 'max': ((1, 2), ()), 'min': ((1, 2), ()),
+        'range': ((1, 2, 3), ()), 'set': ((0, 1), ()), 'str': ((1,), ()),
+        'EvidenceError': ((1,), ()), 'os.stat': ((1,), ()), 'os.major': ((1,), ()),
+        'os.minor': ((1,), ()), 're.fullmatch': ((2,), ()), 'json.dumps': ((1,), ()),
+        'time.monotonic': ((0,), ()), 'time.sleep': ((1,), ()),
+        'SwitchObservationGuard.active': ((1,), ()),
+        'audit.create_fixture': ((0,), ()), 'audit.worker_launch': ((0,), ()),
+        'lane.engine': ((0,), ('delay',)), 'lane.start': ((1,), ()),
+        'lane.require': ((2, 3), ()), 'lane.finish': ((2,), ('site',)),
+        'SwitchLockObserver': ((2,), ()), 'observer.sample': ((0,), ()),
+        'engine.sent.wait': ((1,), ()), 'seen.add': ((1,), ()), 'holders.append': ((1,), ()),
+        'line.split': ((0,), ()), 'fields.pop': ((1,), ()), 'fields[5].split': ((1,), ()),
+        'self.locks_path.read_text': ((0,), ('encoding',)),
+        "self.locks_path.read_text(encoding='ascii').splitlines": ((0,), ()),
+        "(self.proc_path / str(pid) / 'stat').read_text": ((0,), ()),
+        "(self.proc_path / str(pid) / 'stat').read_text().rpartition": ((1,), ()),
+        "(self.proc_path / str(pid) / 'stat').read_text().rpartition(')')[2].split": ((0,), ()),
+    }
     primitive = {'Path', 'dict', 'int', 'len', 'max', 'min', 'range', 'set', 'str', 'EvidenceError',
                  'os.stat', 'os.major', 'os.minor', 're.fullmatch', 'json.dumps', 'time.monotonic', 'time.sleep'}
-    case_calls = {'SwitchObservationGuard', 'audit.create_fixture', 'audit.worker_launch',
+    case_calls = {'SwitchObservationGuard.active', 'audit.create_fixture', 'audit.worker_launch',
                   'lane.engine', 'lane.start', 'lane.require', 'lane.finish',
                   'SwitchLockObserver', 'observer.sample', 'engine.sent.wait'}
     reader_calls = {'seen.add', 'holders.append', 'line.split', 'fields.pop', 'fields[5].split',
@@ -5416,12 +5448,12 @@ def validate_switch_observation_surface(source):
     protected = {v.split('.')[0] for v in primitive | case_calls} | set(functions)
     imports = {'os': 'import os', 're': 'import re', 'json': 'import json', 'time': 'import time',
                'Path': 'from pathlib import Path'}
-    builtins = {'dict', 'int', 'len', 'max', 'min', 'range', 'set', 'str'}
+    builtin_bindings = {'dict', 'int', 'len', 'max', 'min', 'range', 'set', 'str'}
     for top in tree.body:
         # A syntactically approved call is resolved only while its module or
         # builtin binding is canonical. Module-level aliases cannot replace it.
         if isinstance(top, (ast.FunctionDef, ast.ClassDef)):
-            assert top.name not in imports.keys() | builtins, 'rebound observation global: ' + top.name
+            assert top.name not in imports.keys() | builtin_bindings, 'rebound observation global: ' + top.name
             continue
         for binding in ast.walk(top):
             if isinstance(binding, (ast.Import, ast.ImportFrom)):
@@ -5434,11 +5466,50 @@ def validate_switch_observation_surface(source):
                 root = ast.unparse(binding).split('.')[0]
                 assert root not in protected, 'rebound observation global: ' + root
     visited = set()
+    function_names = set(functions) | {
+        name for name, value in vars(builtins).items() if callable(value)} | {
+        'Path', 'EvidenceError', 'SwitchLockObserver'}
+    aliases = {}
+    for binding in ast.walk(tree):
+        if isinstance(binding, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            targets = binding.targets if isinstance(binding, ast.Assign) else [binding.target]
+            for target in targets:
+                if isinstance(target, (ast.Name, ast.Attribute)) and binding.value is not None:
+                    aliases.setdefault(ast.unparse(target), []).append(binding.value)
+    class_methods = {top.name: {n.name for n in top.body if isinstance(n, ast.FunctionDef)}
+                     for top in tree.body if isinstance(top, ast.ClassDef)}
+    def function_reference(arg, local_functions, seen=frozenset()):
+        if isinstance(arg, ast.Lambda):
+            return True
+        if isinstance(arg, (ast.Name, ast.Attribute)):
+            name = ast.unparse(arg)
+            if name not in seen and any(function_reference(value, local_functions, seen | {name}) for value in aliases.get(name, ())):
+                return True
+        if isinstance(arg, ast.Name):
+            return arg.id in function_names | local_functions
+        if isinstance(arg, ast.Attribute):
+            name = ast.unparse(arg)
+            root = name.split('.')[0]
+            if name in signatures or (root == 'self' and arg.attr in methods):
+                return True
+            if root in class_methods and arg.attr in class_methods[root]:
+                return True
+            value = globals().get(root)
+            if isinstance(value, types.ModuleType):
+                for part in name.split('.')[1:]:
+                    value = getattr(value, part, None)
+                return callable(value)
+            return False
+        return False
     def visit(node, role):
         if id(node) in visited:
             return
         visited.add(id(node))
+        local_functions = {n.name for n in ast.walk(node)
+                           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n is not node}
         for child in ast.walk(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                assert not child.decorator_list, 'G.2.1 no decorators: ' + child.name
             if isinstance(child, (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal, ast.Lambda)):
                 raise AssertionError('unresolved observation binding: ' + ast.unparse(child))
             if isinstance(child, ast.arg) and child.arg in protected and not (role == 'case' and child.arg == 'lane'):
@@ -5452,7 +5523,14 @@ def validate_switch_observation_surface(source):
             if not isinstance(child, ast.Call):
                 continue
             call = ast.unparse(child.func)
+            assert not any(isinstance(arg, ast.Starred) for arg in child.args) and all(
+                kw.arg is not None for kw in child.keywords), 'G.2.2 no argument unpacking: ' + call
+            assert not any(function_reference(arg, local_functions) for arg in child.args + [kw.value for kw in child.keywords]), (
+                'G.2.2 no function-reference arguments: ' + call)
             if call in primitive or (role == 'case' and call in case_calls) or (role == 'observer' and call in reader_calls):
+                counts, keywords = signatures[call]
+                assert len(child.args) in counts, 'G.2.2 primitive positional count: ' + call
+                assert all(kw.arg in keywords for kw in child.keywords), 'G.2.2 primitive keyword: ' + call
                 continue
             if isinstance(child.func, ast.Name) and call in functions:
                 visit(functions[call], 'helper')
@@ -5461,23 +5539,21 @@ def validate_switch_observation_surface(source):
             else:
                 raise AssertionError('unresolved or forbidden observation call: ' + call)
     case = functions['never_switch_lock']
+    assert not observer.decorator_list, 'G.2.1 no decorators: SwitchLockObserver'
     visit(case, 'case')
     for method in methods.values():
         visit(method, 'observer')
-    # The audit covers the whole case. Fixture creation is consumed exactly
-    # once, before the sole declared launch. No helper receives its capability.
-    assert len(case.body) == 1 and isinstance(case.body[0], ast.With), 'case escaped parent audit'
-    scope = case.body[0]
-    assert ast.unparse(scope.items[0].context_expr) == "SwitchObservationGuard(lane.paths['SWITCH_LOCK'])"
-    assert ast.unparse(scope.items[0].optional_vars) == 'audit'
-    assert ast.unparse(scope.body[0]) == 'audit.create_fixture()'
-    assert ast.unparse(scope.body[1]) == 'engine = lane.engine(delay=5)'
-    launch = scope.body[2]
+    # The caller owns the sole guard, including decorator execution. The case
+    # consumes that active object's capabilities and never enters another guard.
+    assert ast.unparse(case.body[0]) == "audit = SwitchObservationGuard.active(lane.paths['SWITCH_LOCK'])", 'G.3.1 active guard'
+    assert ast.unparse(case.body[1]) == 'audit.create_fixture()'
+    assert ast.unparse(case.body[2]) == 'engine = lane.engine(delay=5)'
+    launch = case.body[3]
     assert isinstance(launch, ast.With) and ast.unparse(launch.items[0].context_expr) == 'audit.worker_launch()'
     assert len(launch.body) == 1 and ast.unparse(launch.body[0]) == "proc = lane.start({'RUN_BUDGET_S': 55})"
-    assert ast.unparse(scope.body[3]) == "observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)"
+    assert ast.unparse(case.body[4]) == "observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)"
     calls = [n for n in ast.walk(case) if isinstance(n, ast.Call)]
-    for name in ('audit.create_fixture', 'audit.worker_launch', 'lane.start', 'SwitchLockObserver'):
+    for name in ('SwitchObservationGuard.active', 'audit.create_fixture', 'audit.worker_launch', 'lane.start', 'SwitchLockObserver'):
         assert sum(ast.unparse(n.func) == name for n in calls) == 1, 'repeated fixture/launch capability'
     for name in ('audit', 'engine', 'observer'):
         assert sum(isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == name
@@ -5654,19 +5730,23 @@ class Isolation12dRegressionTests(unittest.TestCase):
                 raise AssertionError(f'{exc}; rc={proc.returncode}; stdout={out}; stderr={err}') from exc
         lane.finish = finish
         class Sent:
+            def observed_request(_):
+                if not (root / 'request').exists():
+                    return False
+                if post_holder:
+                    # Kept until sample acknowledges it by stopping the case.
+                    (root / 'locks').write_text(self.row(9876))
+                return True
+
             def wait(_, seconds):
                 until = time.monotonic() + seconds
                 while time.monotonic() < until:
-                    if (root / 'request').exists():
-                        if post_holder:
-                            # Declared modeled-kernel control: introduce an
-                            # unrelated holder exactly at request receipt.
-                            (root / 'locks').write_text(self.row(9876))
+                    if _.observed_request():
                         return True
                     if lane.processes and lane.processes[0].poll() is not None:
                         raise AssertionError('production worker ended without DELETE: ' + (root / 'result').read_text())
                     time.sleep(min(.001, max(0, until - time.monotonic())))
-                return (root / 'request').exists()
+                return _.observed_request()
         lane.engine = lambda **kw: types.SimpleNamespace(sent=Sent())
         # Reproduce the old util-linux sampler using a native lock on Darwin,
         # and expose its held inode through the modeled kernel table. The
@@ -5688,7 +5768,7 @@ class Isolation12dRegressionTests(unittest.TestCase):
         failure = None; began = time.monotonic()
         try:
             with mock.patch.object(r, 'SwitchLockObserver', observer, create=True), mock.patch.object(r.subprocess, 'run', old_probe):
-                try: r.never_switch_lock(lane)
+                try: invoke_switch_case(r, lane)
                 except r.CaseFailure as exc: failure = exc
             elapsed = time.monotonic() - began
             if mutant or post_holder:
@@ -5752,17 +5832,9 @@ class Isolation12eRegressionTests(unittest.TestCase):
     setUp = Isolation9CasePathTests.setUp
 
     def static_guard(self, source):
-        # Exercise the actual static regression, including its old-revision
-        # implementation in the red replay. No new checker substitutes for it.
-        path = self.root / 'static-source.py'
-        path.write_text(source)
-        tree = ast.parse(source)
-        case = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'never_switch_lock')
-        namespace = {}
-        exec(compile(ast.Module([case], []), str(path), 'exec'), namespace)
-        fixture = Isolation12dRegressionTests('test_static_observer_has_no_locking_or_production_dependencies')
-        fixture.r = types.SimpleNamespace(never_switch_lock=namespace['never_switch_lock'], SwitchLockObserver=object)
-        fixture.test_static_observer_has_no_locking_or_production_dependencies()
+        # Parse only: decorated source must reach the actual checker without
+        # executing the decorator. Red replay installs the original checker.
+        validate_switch_observation_surface(source)
 
     def test_static_guard_follows_helper_to_native_lock(self):
         source = Path(self.r.__file__).read_text()
@@ -5822,7 +5894,7 @@ class Isolation12eRegressionTests(unittest.TestCase):
                                      start=lambda constants: types.SimpleNamespace(pid=1234), require=mock.Mock(), finish=mock.Mock())
         with mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=hidden_probe)), \
              mock.patch.object(r.time, 'sleep'), self.assertRaises(r.EvidenceError):
-            r.never_switch_lock(lane)
+            invoke_switch_case(r, lane)
         lane.finish.assert_not_called()
 
     def test_runtime_guard_blocks_native_process_in_actual_case(self):
@@ -5835,7 +5907,7 @@ class Isolation12eRegressionTests(unittest.TestCase):
                                      start=lambda constants: types.SimpleNamespace(pid=1234), require=mock.Mock(), finish=mock.Mock())
         with mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=hidden_probe)), \
              mock.patch.object(r.time, 'sleep'), self.assertRaises(r.EvidenceError):
-            r.never_switch_lock(lane)
+            invoke_switch_case(r, lane)
         lane.finish.assert_not_called()
 
     def test_runtime_guard_records_native_lock_calls_on_preopened_fd(self):
@@ -5970,6 +6042,318 @@ class Isolation12eRegressionTests(unittest.TestCase):
         self.assertNotIn('ok ', output.getvalue())
 
 
+class Isolation12fRegressionTests(unittest.TestCase):
+    setUp = Isolation9CasePathTests.setUp
+    static_guard = Isolation12eRegressionTests.static_guard
+    row = Isolation12dRegressionTests.row
+
+    def static_control(self, baseline, variant, rule):
+        # In the red replay this is the actual c1e56dc3 checker. Both sources
+        # differ only in the construct under test; baseline must always pass.
+        self.static_guard(baseline)
+        with self.assertRaisesRegex(AssertionError, rule):
+            self.static_guard(variant)
+
+    def inject(self, statement):
+        source = Path(self.r.__file__).read_text()
+        line = next(line for line in source.splitlines() if line.lstrip() == 'until = time.monotonic() + 55')
+        indent = line[:len(line) - len(line.lstrip())]
+        return source.replace(line, indent + statement + '\n' + line, 1)
+
+    def decorator_control(self, decorator, target='helper'):
+        source = self.inject('helper()')
+        # The wrappers are intentionally outside the 12e walk: the bare and
+        # attribute decorators aren't calls, and max is a 12e primitive.
+        factory = """
+def decorate(fn):
+    def wrapper(*args, **kwargs):
+        fd = os.open('/ordinary-edit-fixture', os.O_RDONLY)
+        return fn(*args, **kwargs)
+    return wrapper
+
+class Decorators:
+    wrap = decorate
+
+decorators = Decorators
+
+def helper():
+    return 0
+"""
+        baseline = source + factory
+        if target == 'helper':
+            variant = baseline.replace('\ndef helper():', '\n' + decorator + '\ndef helper():')
+        else:
+            variant = baseline.replace(target, decorator + '\n' + target, 1)
+        self.static_control(baseline, variant, 'G.2.1 no decorators')
+
+    def test_static_bare_decorator_returns_unwalked_wrapper(self):
+        self.decorator_control('@decorate')
+
+    def test_static_attribute_decorator_returns_unwalked_wrapper(self):
+        self.decorator_control('@decorators.wrap')
+
+    def test_static_call_decorator_returns_unwalked_wrapper(self):
+        self.decorator_control('@max([decorate])')
+
+    def test_static_class_and_method_decorators_are_forbidden(self):
+        for target in ('class SwitchLockObserver:', '    def sample(self):'):
+            with self.subTest(target=target):
+                indent = '    ' if target.startswith(' ') else ''
+                self.decorator_control(indent + '@decorate', target)
+
+    def callback_control(self, baseline, variant, rule):
+        helper = '\ndef helper(value):\n    return os.open(value, os.O_RDONLY)\n'
+        self.static_control(self.inject(baseline) + helper, self.inject(variant) + helper, rule)
+
+    def test_static_max_key_function_is_forbidden(self):
+        self.callback_control('max([0])', 'max([0], key=helper)', 'G.2.2 no function-reference arguments')
+
+    def test_static_min_key_function_is_forbidden(self):
+        self.callback_control('min([0])', 'min([0], key=helper)', 'G.2.2 no function-reference arguments')
+
+    def test_static_json_default_function_is_forbidden(self):
+        self.callback_control('json.dumps({})', 'json.dumps({}, default=helper)', 'G.2.2 no function-reference arguments')
+
+    def test_static_max_star_arguments_are_forbidden(self):
+        self.callback_control('xs = [0, 1]; max(xs)', 'xs = [0, 1]; max(*xs)', 'G.2.2 no argument unpacking')
+
+    def test_static_dict_keyword_unpacking_is_forbidden(self):
+        self.callback_control('kw = {}; dict(kw)', 'kw = {}; dict(**kw)', 'G.2.2 no argument unpacking')
+
+    def test_static_positional_function_is_forbidden(self):
+        self.callback_control('max(1, 0)', 'max(helper, 0)', 'G.2.2 no function-reference arguments')
+
+    def test_static_attribute_method_and_builtin_function_arguments_are_forbidden(self):
+        for function in ('os.path.realpath', 'SwitchLockObserver.sample', 'print'):
+            with self.subTest(function=function):
+                self.static_control(self.inject('max(1, 0)'), self.inject(f'max({function}, 0)'),
+                                    'G.2.2 no function-reference arguments')
+
+    def test_static_aliased_function_arguments_are_forbidden(self):
+        self.callback_control('alias = helper; max(1, 0)', 'alias = helper; max(alias, 0)',
+                              'G.2.2 no function-reference arguments')
+
+    def test_static_primitive_signature_rejects_keywords_and_counts(self):
+        for baseline, variant, rule in (
+            ('json.dumps({})', 'json.dumps({}, indent=2)', 'G.2.2 primitive keyword'),
+            ('len([])', 'len([], 0)', 'G.2.2 primitive positional count'),
+        ):
+            with self.subTest(rule=rule):
+                self.static_control(self.inject(baseline), self.inject(variant), rule)
+
+    def lane(self):
+        return types.SimpleNamespace(paths={'SWITCH_LOCK': str(self.root / 'switch')},
+            engine=lambda **kw: types.SimpleNamespace(sent=types.SimpleNamespace(wait=lambda seconds: True)),
+            start=mock.Mock(return_value=types.SimpleNamespace(pid=1234)), require=mock.Mock(),
+            finish=mock.Mock(), check_workers=mock.Mock(), close=mock.Mock(), finalize_evidence=mock.Mock())
+
+    def test_runtime_case_wrapper_is_inside_single_caller_guard(self):
+        r = self.r
+        (self.root / 'switch').touch()
+        original = r.never_switch_lock
+        acquired = []
+        def wrapper(lane):
+            fd = os.open(lane.paths['SWITCH_LOCK'], os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired.append(True)
+            finally:
+                os.close(fd)
+            return original(lane)
+        for direct in (False, True):
+            with self.subTest(direct=direct):
+                acquired.clear()
+                lane = self.lane()
+                with mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=lambda: [])), \
+                     mock.patch.object(r.time, 'sleep'), mock.patch.object(r, 'Lane', return_value=lane), \
+                     mock.patch.dict(r.CASES, {'never-switch-lock': wrapper}), redirect_stdout(io.StringIO()) as output:
+                    if direct:
+                        with self.assertRaisesRegex(r.EvidenceError, 'parent switch observation audit'):
+                            invoke_switch_case(r, lane, wrapper)
+                    else:
+                        self.assertEqual(r.run_checks(None, [('never-switch-lock', None, '')]), 1)
+                        self.assertIn('(setup: parent switch observation audit:', output.getvalue())
+                        self.assertNotIn('ok ', output.getvalue())
+                self.assertFalse(acquired, 'G.3.1 wrapper ran before caller guard')
+                lane.start.assert_not_called()
+
+    def test_runtime_case_uses_exactly_one_guard_and_single_use_capabilities(self):
+        r = self.r
+        made, entered = [], []
+        cls = r.SwitchObservationGuard
+        init, enter = cls.__init__, cls.__enter__
+        def record_init(guard, fixture):
+            made.append(guard)
+            init(guard, fixture)
+        def record_enter(guard):
+            entered.append(guard)
+            return enter(guard)
+        for direct in (False, True):
+            with self.subTest(direct=direct):
+                made.clear(); entered.clear()
+                lane = self.lane()
+                with mock.patch.object(cls, '__init__', record_init), mock.patch.object(cls, '__enter__', record_enter), \
+                     mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=lambda: [])), \
+                     mock.patch.object(r.time, 'sleep'), mock.patch.object(r, 'Lane', return_value=lane), redirect_stdout(io.StringIO()):
+                    if direct: invoke_switch_case(r, lane)
+                    else: self.assertEqual(r.run_checks(None, [('never-switch-lock', None, '')]), 0)
+                self.assertEqual(len(made), 1, 'G.3.1 one guard instance')
+                self.assertEqual(entered, made, 'G.3.1 enter once')
+                self.assertTrue(made[0].created and getattr(made[0], 'launched', False), 'G.3.1 same guard owns both capabilities')
+                lane.start.assert_called_once_with({'RUN_BUDGET_S': 55})
+
+    def test_runtime_nested_duplicate_and_reentered_guards_fail_setup(self):
+        r = self.r
+        for mode in ('nested', 'duplicate', 'reenter'):
+            with self.subTest(mode=mode):
+                guard = r.SwitchObservationGuard(self.root / 'switch')
+                if mode == 'reenter':
+                    with guard: pass
+                    with self.assertRaisesRegex(r.EvidenceError, 'duplicate'):
+                        with guard: pass
+                else:
+                    with self.assertRaisesRegex(r.EvidenceError, 'duplicate'):
+                        with guard:
+                            # Catching the nested refusal must remain sticky.
+                            try:
+                                with (guard if mode == 'duplicate' else r.SwitchObservationGuard(self.root / 'switch')): pass
+                            except r.EvidenceError: pass
+                self.assertFalse(sys._ops327_switch_audit_guards)
+
+    def test_runtime_capabilities_require_active_guard_and_launch_is_single_use(self):
+        r = self.r
+        guard = r.SwitchObservationGuard(self.root / 'switch')
+        with self.assertRaisesRegex(r.EvidenceError, 'active guard'): guard.create_fixture()
+        with self.assertRaisesRegex(r.EvidenceError, 'active guard'):
+            with guard.worker_launch(): pass
+        with self.assertRaisesRegex(r.EvidenceError, 'active switch observation guard'):
+            r.SwitchObservationGuard.active(self.root / 'switch')
+        for capability in ('create_fixture', 'worker_launch'):
+            guard = r.SwitchObservationGuard(self.root / 'switch')
+            with self.subTest(capability=capability), self.assertRaisesRegex(r.EvidenceError, 'already consumed'):
+                with guard:
+                    guard.create_fixture()
+                    with guard.worker_launch(): pass
+                    try:
+                        if capability == 'create_fixture': guard.create_fixture()
+                        else:
+                            with guard.worker_launch(): pass
+                    except r.EvidenceError: pass
+        with self.assertRaisesRegex(r.EvidenceError, 'active guard'):
+            with guard.worker_launch(): pass
+
+    def test_runtime_pathlike_audit_events_normalize_before_relative_check(self):
+        r = self.r
+        class Target:
+            def __init__(self, value): self.value = value
+            def __fspath__(self): return self.value
+        for exists in (False, True):
+            if exists: (self.root / 'switch').touch()
+            for target in (Target('switch'), Target(b'switch'), Target(str(self.root / 'switch')), Target(os.fsencode(self.root / 'switch'))):
+                with self.subTest(exists=exists, target_type=type(target.value).__name__, absolute=os.path.isabs(target.value)):
+                    guard = r.SwitchObservationGuard(self.root / 'switch')
+                    with self.assertRaisesRegex(r.EvidenceError, 'parent switch observation audit: open'):
+                        with guard: sys.audit('open', target, 'r', os.O_RDONLY)
+                    self.assertFalse(guard.calls[-1]['allowed'], 'G.3.2 PathLike normalization')
+        directory = os.open(self.root, os.O_RDONLY)
+        try:
+            guard = r.SwitchObservationGuard(self.root / 'switch')
+            with self.assertRaises(r.EvidenceError):
+                with guard: os.open(Target('switch'), os.O_RDONLY, dir_fd=directory)
+        finally: os.close(directory)
+
+    def test_runtime_synthetic_spawn_event_is_sticky_setup_failure(self):
+        r = self.r
+        guard = r.SwitchObservationGuard(self.root / 'switch')
+        with self.assertRaisesRegex(r.EvidenceError, 'parent switch observation audit: os.spawn'):
+            with guard:
+                try: sys.audit('os.spawn', os.P_WAIT, '/usr/bin/true', ['true'], {})
+                except r.EvidenceError: pass
+        self.assertEqual(guard.calls[-1], dict(event='os.spawn', fixture=False, allowed=False))
+        passed, message = r.classify_case('never-switch-lock', 'the GC takes the lock', True, r.EvidenceError('os.spawn'))
+        self.assertFalse(passed)
+        self.assertIn('(setup:', message)
+
+    def test_runtime_public_spawn_variants_record_native_rejection_event(self):
+        r = self.r
+        for name in ('spawnl', 'spawnle', 'spawnlp', 'spawnlpe', 'spawnv', 'spawnve', 'spawnvp', 'spawnvpe'):
+            if not hasattr(os, name): continue
+            with self.subTest(api=name):
+                guard = r.SwitchObservationGuard(self.root / 'switch')
+                argv = (['true'],) if name.startswith('spawnv') else ('true',)
+                args = (os.P_WAIT, '/usr/bin/true', *argv, *([{}] if name.endswith('e') else []))
+                with self.assertRaises(r.EvidenceError):
+                    with guard: getattr(os, name)(*args)
+                event = guard.calls[-1]['event']
+                self.assertIn(event, ('os.spawn', 'os.fork'))
+                self.assertFalse(guard.calls[-1]['allowed'])
+                print(f'OPS327_SPAWN api={name} event={event} platform={sys.platform} python={sys.version.split()[0]}')
+
+    def test_other_cases_start_workers_without_observation_guard(self):
+        # Reach the first launch in each actual case through run_checks.
+        # Stop there deliberately; no socket, real worker or wall-clock wait.
+        r = self.r
+        for case in ('instance-and-sigkill', 'r29'):
+            with self.subTest(case=case):
+                lane = self.lane()
+                lane.start.side_effect = r.EvidenceError('positive launch witness')
+                with mock.patch.object(r, 'SwitchObservationGuard', side_effect=AssertionError('unexpected guard')) as guard, \
+                     mock.patch.object(r, 'Lane', return_value=lane), redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(r.run_checks(None, [(case, None, '')]), 1)
+                guard.assert_not_called()
+                lane.start.assert_called_once()
+                self.assertIn('positive launch witness', output.getvalue())
+        fixture = Isolation9CasePathTests()
+        fixture.r, fixture.root = r, self.root
+        with mock.patch.object(r, 'SwitchObservationGuard', side_effect=AssertionError('unexpected guard')) as guard:
+            self.assertIsNone(fixture.case_path('four-acquisitions'))
+        guard.assert_not_called()
+
+    def test_request_holder_installation_precedes_sample_in_both_schedules(self):
+        r = self.r
+        # Compile the actual nested Sent class, including the c1e56dc3 one
+        # during red replay. Only the clock schedule is injected; no sleeps.
+        method = Isolation12dRegressionTests.process_case
+        tree = ast.parse(Path(method.__code__.co_filename).read_text())
+        owner = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Isolation12dRegressionTests')
+        body = next(n for n in owner.body if isinstance(n, ast.FunctionDef) and n.name == 'process_case')
+        sent = next(n for n in ast.walk(body) if isinstance(n, ast.ClassDef) and n.name == 'Sent')
+        for schedule in ('loop', 'timeout-fallback'):
+            with self.subTest(schedule=schedule):
+                (self.root / 'switch').touch(); (self.root / 'locks').write_text('')
+                (self.root / 'request').touch(); (self.root / 'proc').mkdir(exist_ok=True)
+                events = []
+                clock = types.SimpleNamespace(monotonic=mock.Mock(side_effect=[0, .005 if schedule == 'loop' else 1]))
+                namespace = dict(root=self.root, post_holder=True, self=self, time=clock)
+                exec(compile(ast.Module([sent], []), '<actual-Sent>', 'exec'), namespace)
+                receiver = namespace['Sent']()
+                write = Path.write_text
+                def record_write(path, *args, **kwargs):
+                    result = write(path, *args, **kwargs)
+                    if path == self.root / 'locks': events.append('holder installed')
+                    return result
+                lane = self.lane()
+                lane.engine = lambda **kw: types.SimpleNamespace(sent=receiver)
+                observer = r.SwitchLockObserver(self.root / 'switch', 1234, locks_path=self.root / 'locks', proc_path=self.root / 'proc')
+                sample = observer.sample
+                def record_sample():
+                    rows = sample()
+                    if rows: events.append('sample sees holder')
+                    return rows
+                observer.sample = record_sample
+                def require(site, condition, message=''):
+                    if not condition:
+                        events.append(site + ' CaseFailure')
+                        raise r.CaseFailure(message)
+                lane.require = require
+                with mock.patch.object(Path, 'write_text', record_write), mock.patch.object(r, 'SwitchLockObserver', return_value=observer), \
+                     mock.patch.object(r.time, 'sleep'), self.assertRaises(r.CaseFailure, msg='G.4 every True wait installs holder'):
+                    invoke_switch_case(r, lane)
+                self.assertEqual(events, ['holder installed', 'sample sees holder', 'RT:447 CaseFailure'])
+                self.assertEqual((self.root / 'locks').read_text(), self.row(9876), 'holder cleared before observation acknowledgement')
+                lane.finish.assert_not_called()
+
+
 class Isolation12cRegressionTests(unittest.TestCase):
     setUp = Isolation9CasePathTests.setUp
 
@@ -6014,7 +6398,7 @@ class Isolation12cRegressionTests(unittest.TestCase):
         error = None
         with mock.patch.object(r, 'time', clock), mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=probe)):
             try:
-                r.never_switch_lock(lane)
+                invoke_switch_case(r, lane)
             except r.CaseFailure as exc:
                 error = exc
         if kills:

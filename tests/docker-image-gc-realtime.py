@@ -1558,6 +1558,11 @@ def switch_audit_dispatch(event, args):
         guard.audit(event, args)
 
 
+# Regression protection for ordinary edits to the case, observation helpers
+# and callbacks: a restricted static subset plus auditing for the whole case.
+# This does not cover deliberate tampering, native code (ctypes/cffi/C
+# extensions), exec/eval/compile, replacement of the guard/observer/Lane/Engine,
+# or deliberately obfuscated code. It claims no visibility into those escapes.
 class SwitchObservationGuard:
     """Parent audit, independent of the modeled kernel table and AST check.
 
@@ -1567,11 +1572,11 @@ class SwitchObservationGuard:
     """
 
     def __init__(self, fixture):
-        self.fixture = os.path.realpath(fixture)
+        self.fixture = os.path.realpath(os.fsdecode(fixture))
         self.pid = os.getpid()
         self.calls, self.violations = [], []
         self.creating = self.launching = None
-        self.created = False
+        self.created = self.launched = self.entered = self.used = False
         try:
             info = os.stat(self.fixture)
             self.token = (info.st_dev, info.st_ino)
@@ -1579,16 +1584,34 @@ class SwitchObservationGuard:
             self.token = None
 
     def __enter__(self):
+        guards = getattr(sys, '_ops327_switch_audit_guards', ())
+        if self.used or guards:
+            for guard in guards:
+                guard.violations.append('nested or duplicate guard entry')
+            raise EvidenceError('nested or duplicate switch observation guard entry')
         if not hasattr(sys, '_ops327_switch_audit_guards'):
             sys._ops327_switch_audit_guards = []
             sys.addaudithook(switch_audit_dispatch)
         sys._ops327_switch_audit_guards.append(self)
+        self.used = self.entered = True
         return self
 
     def __exit__(self, *exc):
         sys._ops327_switch_audit_guards.remove(self)
+        self.entered = False
         if self.violations:
             raise EvidenceError('parent switch observation audit: ' + ', '.join(self.violations))
+
+    @classmethod
+    def active(cls, fixture):
+        guards = getattr(sys, '_ops327_switch_audit_guards', ())
+        if len(guards) != 1 or guards[0].fixture != os.path.realpath(os.fsdecode(fixture)):
+            raise EvidenceError('missing active switch observation guard')
+        return guards[0]
+
+    def require_active(self):
+        if not self.entered or self.active(self.fixture) is not self:
+            raise EvidenceError('switch observation capability requires active guard')
 
     def is_fixture(self, target):
         if isinstance(target, int):
@@ -1597,7 +1620,7 @@ class SwitchObservationGuard:
             except OSError:
                 return False
         elif isinstance(target, (str, bytes, os.PathLike)):
-            if os.path.realpath(target) == self.fixture:
+            if os.fsdecode(os.path.realpath(target)) == self.fixture:
                 return True
             try:
                 info = os.stat(target)
@@ -1617,13 +1640,16 @@ class SwitchObservationGuard:
                                   'F_SETLKW64', 'F_OFD_GETLK', 'F_OFD_SETLK', 'F_OFD_SETLKW')}
         opening = event == 'open'
         spawning = event in ('subprocess.Popen', 'os.posix_spawn', 'os.fork', 'os.forkpty',
-                             'os.system', 'os.exec', 'os.execve')
+                             'os.system', 'os.exec', 'os.execve', 'os.spawn')
         if not (locking or opening or spawning):
             return
-        fixture = (locking or opening) and self.is_fixture(args[0])
+        target = args[0] if opening or locking else None
+        if opening and not isinstance(target, int):
+            target = os.fspath(target)
+        fixture = (locking or opening) and self.is_fixture(target)
         # The native open audit event omits dir_fd. An unresolved relative
         # name could therefore alias the fixture without stat revealing it.
-        relative_open = opening and isinstance(args[0], (str, bytes)) and not os.path.isabs(args[0])
+        relative_open = opening and not isinstance(target, int) and not os.path.isabs(target)
         thread = threading.get_ident()
         allowed = not relative_open and (not fixture or (opening and self.creating == thread)) and (
             not spawning or self.launching == thread)
@@ -1633,7 +1659,9 @@ class SwitchObservationGuard:
             raise EvidenceError('parent switch observation audit: ' + event)
 
     def create_fixture(self):
+        self.require_active()
         if self.created:
+            self.violations.append('switch fixture creation was already consumed')
             raise EvidenceError('switch fixture creation was already consumed')
         self.created = True
         self.creating = threading.get_ident()
@@ -1646,6 +1674,11 @@ class SwitchObservationGuard:
 
     @contextmanager
     def worker_launch(self):
+        self.require_active()
+        if self.launched:
+            self.violations.append('switch worker launch was already consumed')
+            raise EvidenceError('switch worker launch was already consumed')
+        self.launched = True
         self.launching = threading.get_ident()
         try:
             yield
@@ -1707,26 +1740,26 @@ class SwitchLockObserver:
 
 
 def never_switch_lock(lane):
-    with SwitchObservationGuard(lane.paths['SWITCH_LOCK']) as audit:
-        # Declared fixture control: the only write, before worker launch.
-        audit.create_fixture()
-        engine = lane.engine(delay=5)
-        with audit.worker_launch():
-            proc = lane.start({'RUN_BUDGET_S': 55})
-        observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)
-        # Retain the full request budget: stale snapshots may be discarded and
-        # retried after cooldown. Sample the switch lock while waiting so the
-        # registered lock-taking mutant is stopped before its 55 s final report.
-        until = time.monotonic() + 55
-        while not engine.sent.wait(min(.02, max(0, until - time.monotonic()))):
-            holders = observer.sample()
-            lane.require('RT:444', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
-            lane.require('RT:444', time.monotonic() < until)
-        for _ in range(25):
-            holders = observer.sample()
-            lane.require('RT:447', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
-            time.sleep(0.02)
-        lane.finish(proc, 50, site='RT:449')
+    audit = SwitchObservationGuard.active(lane.paths['SWITCH_LOCK'])
+    # Declared fixture control: the only write, before worker launch.
+    audit.create_fixture()
+    engine = lane.engine(delay=5)
+    with audit.worker_launch():
+        proc = lane.start({'RUN_BUDGET_S': 55})
+    observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)
+    # Retain the full request budget: stale snapshots may be discarded and
+    # retried after cooldown. Sample the switch lock while waiting so the
+    # registered lock-taking mutant is stopped before its 55 s final report.
+    until = time.monotonic() + 55
+    while not engine.sent.wait(min(.02, max(0, until - time.monotonic()))):
+        holders = observer.sample()
+        lane.require('RT:444', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
+        lane.require('RT:444', time.monotonic() < until)
+    for _ in range(25):
+        holders = observer.sample()
+        lane.require('RT:447', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
+        time.sleep(0.02)
+    lane.finish(proc, 50, site='RT:449')
 
 
 def instance(lane):
@@ -1938,7 +1971,11 @@ def run_checks(args, checks):
             case = CASES[name]
             lane = Lane(args, f"{index:03d}-{name}", candidate)
             setup = False
-            case(lane)
+            if name == 'never-switch-lock':
+                with SwitchObservationGuard(lane.paths['SWITCH_LOCK']):
+                    case(lane)
+            else:
+                case(lane)
         except Exception as exc:
             error = exc
         except h.FixtureViolation as exc:
