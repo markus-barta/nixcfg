@@ -5391,6 +5391,304 @@ class Isolation9CasePathTests(unittest.TestCase):
 
 
 
+class Isolation12cRegressionTests(unittest.TestCase):
+    setUp = Isolation9CasePathTests.setUp
+
+    def observe_switch(self, first_delete=None, locked_at=None):
+        # Replay production's request time through the actual parent case.
+        # Only scheduling, Engine delivery and the external flock probe are
+        # modeled; require/stop_at and the persisted stop certificate are real.
+        r = self.r
+        clock = types.SimpleNamespace(now=0.0)
+        clock.monotonic = lambda: clock.now
+        clock.sleep = lambda seconds: setattr(clock, 'now', clock.now + seconds)
+        channel = r.WorkerEvidence(self.root, 'switch-worker', 's', 'm', 'never-switch-lock')
+        for fd in (channel.read, channel.send_fd, channel.ack_fd, channel.ack_write):
+            os.close(fd)
+        channel.state = r.EvidenceState(channel.identity, 1234)
+        for kind, fields in (('START', {}), ('READY', {}),
+                             ('PHASE', {'label': 'main-entered'}), ('PHASE', {'label': 'cooldown'})):
+            channel.state.accept(dict(identity=channel.identity, pid=1234,
+                                     seq=len(channel.state.records) + 1, kind=kind, **fields))
+        channel.window_started = 0.0
+        proc = types.SimpleNamespace(evidence=channel, role='proc', returncode=None)
+        proc.poll = lambda: proc.returncode
+        kills, waits, probes = [], [], []
+        def kill():
+            kills.append(clock.now)
+            proc.returncode = -signal.SIGKILL
+        proc.kill = kill
+        def wait(seconds):
+            waits.append(seconds)
+            target = clock.now + seconds
+            clock.now = min(target, first_delete) if first_delete is not None and clock.now < first_delete else target
+            return first_delete is not None and clock.now >= first_delete
+        def probe(*args, **kwargs):
+            probes.append(clock.now)
+            return types.SimpleNamespace(returncode=int(locked_at is not None and clock.now >= locked_at))
+        lane = object.__new__(r.Lane)
+        lane.case = 'never-switch-lock'; lane.stop_plan = r.STOP_PLAN[lane.case]
+        lane.processes = [proc]; lane.paths = {'SWITCH_LOCK': str(self.root / 'switch')}
+        lane.start = lambda constants: proc
+        lane.engine = lambda **kw: types.SimpleNamespace(sent=types.SimpleNamespace(wait=wait))
+        lane.finish = mock.Mock()
+        error = None
+        with mock.patch.object(r, 'time', clock), mock.patch.object(r.subprocess, 'run', probe):
+            try:
+                r.never_switch_lock(lane)
+            except r.CaseFailure as exc:
+                error = exc
+        if kills:
+            channel.state.validate(proc.returncode, None, channel.stop)
+        return error, kills, probes, lane.finish, waits
+
+    def snapshot_retry(self, durations):
+        # Actual production main -> batch -> snapshot -> plan, with a clock
+        # and Engine response delay injected instead of a 55-second wall wait.
+        fixture = Base(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        fixture.world(); gc = fixture.gc; clock = Clock(); started = clock.t
+        remaining = iter(durations); requests = []
+        original_snapshot = gc.snapshot
+        def snapshot(api, budget):
+            snap = original_snapshot(api, budget)
+            clock.advance(next(remaining, 0))
+            return snap
+        api = fixture.api()
+        def engine(method, path, **kwargs):
+            if method != 'GET':
+                requests.append((method, clock.t - started))
+                clock.advance(5)
+            return api(method, path, **kwargs)
+        gc.RUN_BUDGET_S = 55
+        with mock.patch.object(gc.time, 'monotonic', clock), \
+             mock.patch.object(gc, 'snapshot', snapshot), \
+             mock.patch.dict(os.environ, {'INVOCATION_ID': 'ops327-local', 'DOCKER_IMAGE_GC_DRY_RUN': '0'}), \
+             redirect_stdout(io.StringIO()) as output:
+            rc = gc.main(engine, now=NOW, sleep=clock.advance)
+        self.assertEqual(rc, 0, output.getvalue())
+        self.assertEqual(output.getvalue().count('snapshot too slow'), len(durations) - 1)
+        first_delete = next(at for method, at in requests if method == 'DELETE')
+        self.assertAlmostEqual(first_delete, 45 + sum(durations))
+        error, kills, probes, finish, waits = self.observe_switch(first_delete)
+        self.assertIsNone(error, str(error)); self.assertFalse(kills); finish.assert_called_once()
+        self.assertTrue(any(at < first_delete for at in probes), 'switch lock was not observed during request wait')
+        print(f'OPS327_RETRY durations={durations} first_DELETE={first_delete:.1f}s baseline=True')
+
+    def test_snapshot_retry_2_6_2_6_0_2_preserves_baseline(self):
+        self.snapshot_retry([2.6, 2.6, 0.2])
+
+    def test_snapshot_retry_5_1_0_2_preserves_baseline(self):
+        self.snapshot_retry([5.1, 0.2])
+
+    def test_switch_lock_mutant_is_behaviourally_killed_before_final_report(self):
+        error, kills, probes, finish, waits = self.observe_switch(locked_at=45)
+        self.assertIsInstance(error, self.r.CaseFailure)
+        self.assertIn('GC locked the switch lock', str(error))
+        self.assertEqual(len(kills), 1); self.assertLess(kills[0], 46)
+        finish.assert_not_called()
+        passed, message = self.r.classify_case('never-switch-lock', 'the GC takes the lock', True, error)
+        self.assertTrue(passed, message)
+        print(f'OPS327_SWITCH_MUTANT kill={kills[0]:.3f}s before_final_report=True behavioural=True')
+
+    @contextmanager
+    def sidecar_channel(self, site):
+        r = self.r
+        with tempfile.TemporaryDirectory(prefix='ops327-sidecar-', dir=REPO) as root:
+            channel = r.WorkerEvidence(root, 'worker', 's', 'm', 'maximal-hold-r34')
+            writer, ack = os.dup(channel.send_fd), os.dup(channel.ack_fd)
+            channel.attach(os.getpid())
+            publisher = r.EvidencePublisher(writer, ack, channel.identity)
+            publisher.send('START'); publisher.send('READY'); publisher.send('PHASE', label='main-entered')
+            proc = types.SimpleNamespace(evidence=channel, events=Path(root) / 'events.json', role='proc',
+                                         poll=lambda: None, kill=mock.Mock())
+            lane = object.__new__(r.Lane)
+            lane.case = channel.case; lane.stop_plan = r.STOP_PLAN[lane.case]; lane.processes = [proc]
+            if site == 'arm':
+                lane.await_ready(proc)
+            try:
+                yield channel, publisher, proc, (lambda: lane.await_ready(proc)) if site == 'open_window' else (lambda: lane.stop_at('RT:317'))
+            finally:
+                publisher.close(); channel.abort.set(); channel.thread.join(2)
+
+    def slow_sidecar(self, site, *, overlap=False):
+        r = self.r
+        with self.sidecar_channel(site) as (channel, publisher, proc, operation):
+            entered, release, delivered = threading.Event(), threading.Event(), threading.Event()
+            errors, publisher_errors = [], []
+            native_fsync = os.fsync
+            def fsync(fd):
+                entered.set()
+                if not release.wait(3):
+                    raise RuntimeError('test did not release sidecar fsync')
+                native_fsync(fd)
+            def call():
+                try: operation()
+                except Exception as exc: errors.append(exc)
+            def publish():
+                try:
+                    if overlap:
+                        publisher.begin_timed_window(r._MONOTONIC())
+                    publisher.send('PHASE', label='during-sidecar')
+                    if overlap:
+                        publisher.end_timed_window()
+                except Exception as exc: publisher_errors.append(exc)
+                finally: delivered.set()
+            with mock.patch.object(r.os, 'fsync', fsync):
+                caller = threading.Thread(target=call); caller.start()
+                producer = threading.Thread(target=publish)
+                try:
+                    self.assertTrue(entered.wait(2), 'sidecar fsync not reached')
+                    began = time.monotonic()
+                    producer.start()
+                    unblocked = delivered.wait(.2)
+                    # The 310 ms disk wait must neither hold the collector lock
+                    # nor be charged to an already-open certified window.
+                    time.sleep(max(0, .31 - (time.monotonic() - began)))
+                finally:
+                    release.set(); caller.join(3)
+                    if producer.ident is not None: producer.join(3)
+            self.assertFalse(caller.is_alive()); self.assertFalse(producer.is_alive())
+            self.assertTrue(unblocked, f'{site}: collector blocked by sidecar fsync')
+            self.assertFalse(publisher_errors, publisher_errors)
+            if overlap:
+                self.assertTrue(errors, 'window overlapping disk persistence was certified')
+                self.assertIsInstance(errors[0], r.EvidenceError)
+                self.assertIsNone(channel.stop); proc.kill.assert_not_called()
+                self.assertTrue(channel.errors, 'disk/window failure must remain sticky')
+            else:
+                self.assertFalse(errors, errors)
+                if site == 'arm': proc.kill.assert_called_once()
+                publisher.begin_timed_window(r._MONOTONIC())
+                publisher.send('PHASE', label='after-sidecar')
+                publisher.end_timed_window(); publisher.close(); publisher.close = lambda: None
+                channel.thread.join(2); channel.persist()
+                totals = channel.certify_timing()
+                self.assertEqual(len(totals), 1)
+                self.assertLess(totals[0]['instrumentation_s'], .250)
+
+    def test_open_window_slow_sidecar_does_not_block_collector(self):
+        self.slow_sidecar('open_window')
+
+    def test_arm_slow_sidecar_does_not_block_collector(self):
+        self.slow_sidecar('arm')
+
+    def test_open_window_disk_overlap_is_uncertifiable(self):
+        self.slow_sidecar('open_window', overlap=True)
+
+    def test_arm_disk_overlap_is_uncertifiable(self):
+        self.slow_sidecar('arm', overlap=True)
+
+    def active_sidecar(self, site):
+        r = self.r
+        with self.sidecar_channel(site) as (channel, publisher, proc, operation):
+            publisher.begin_timed_window(r._MONOTONIC())
+            publisher.send('PHASE', label='destructive-phase')
+            # Ensure the confirmation is received before testing persistence.
+            deadline = time.monotonic() + 1
+            while channel.timing_pending is not None and time.monotonic() < deadline:
+                time.sleep(.001)
+            with mock.patch.object(r.os, 'fsync') as fsync:
+                with self.assertRaises(r.EvidenceError): operation()
+            fsync.assert_not_called(); self.assertIsNone(channel.stop); proc.kill.assert_not_called()
+            publisher.end_timed_window()
+
+    def test_open_window_rejects_active_window_before_any_disk_wait(self):
+        self.active_sidecar('open_window')
+
+    def test_arm_rejects_active_window_before_any_disk_wait(self):
+        self.active_sidecar('arm')
+
+    def persist_deadline(self, site):
+        r = self.r
+        with self.sidecar_channel(site) as (channel, publisher, proc, operation):
+            finished = threading.Event()
+            def fsync(fd):
+                try: time.sleep(1.2)
+                finally: finished.set()
+            # stop_at has its real shared one-second budget; direct startup
+            # persistence must also respect the caller's remaining budget.
+            operation = operation if site == 'arm' else lambda: channel.open_window(r._MONOTONIC() + 1)
+            try:
+                with mock.patch.object(r.os, 'fsync', fsync):
+                    started = time.monotonic()
+                    with self.assertRaises(r.EvidenceError): operation()
+                    elapsed = time.monotonic() - started
+                    self.assertLess(elapsed, 1.15, 'persistence outlived the caller deadline')
+                    self.assertIsNone(channel.stop); proc.kill.assert_not_called()
+                    if site == 'open_window': self.assertIsNone(channel.window_started)
+                    self.assertTrue(channel.errors, 'late persistence must remain infrastructure failure')
+                    self.assertTrue(finished.wait(2), 'sidecar helper did not finish')
+            finally:
+                finished.wait(2)
+
+    def test_open_window_persistence_deadline_grants_no_authority(self):
+        self.persist_deadline('open_window')
+
+    def test_arm_persistence_deadline_grants_no_stop_authority(self):
+        self.persist_deadline('arm')
+
+    def peer_window(self, site):
+        r = self.r
+        with self.sidecar_channel(site) as (channel, publisher, proc, _), \
+             self.sidecar_channel('open_window') as (peer, peer_publisher, peer_proc, _):
+            peer_publisher.begin_timed_window(r._MONOTONIC())
+            lane = object.__new__(r.Lane)
+            lane.case = channel.case; lane.stop_plan = r.STOP_PLAN[lane.case]
+            lane.processes = [proc, peer_proc]
+            with mock.patch.object(r.os, 'fsync') as fsync:
+                with self.assertRaises(r.EvidenceError):
+                    if site == 'arm': lane.stop_at('RT:317')
+                    else: lane.await_ready(proc)
+            fsync.assert_not_called(); proc.kill.assert_not_called(); peer_proc.kill.assert_not_called()
+            self.assertIsNone(channel.stop); self.assertIsNone(peer.stop)
+            peer_publisher.end_timed_window()
+
+    def test_open_window_rejects_an_affected_peers_window(self):
+        self.peer_window('open_window')
+
+    def test_arm_rejects_an_affected_peers_window(self):
+        self.peer_window('arm')
+
+    def late_begin(self, site):
+        r = self.r
+        with self.sidecar_channel(site) as (channel, publisher, proc, operation):
+            began = []
+            native_fsync = os.fsync
+            def fsync(fd):
+                began.append(r._MONOTONIC()); native_fsync(fd)
+            with mock.patch.object(r.os, 'fsync', fsync): operation()
+            # Model a BEGIN timestamped during persistence but delivered only
+            # after revalidation. Final certification must still see overlap.
+            publisher.begin_timed_window(began[0])
+            publisher.end_timed_window(); publisher.close(); publisher.close = lambda: None
+            channel.thread.join(2); channel.persist()
+            with self.assertRaisesRegex(r.EvidenceError, 'disk wait overlapped'):
+                channel.certify_timing()
+
+    def test_open_window_late_begin_cannot_conceal_disk_overlap(self):
+        self.late_begin('open_window')
+
+    def test_arm_late_begin_cannot_conceal_disk_overlap(self):
+        self.late_begin('arm')
+
+    def test_arm_revalidates_admission_after_disk_persistence(self):
+        r = self.r
+        with self.sidecar_channel('arm') as (channel, publisher, proc, operation):
+            native_fsync = os.fsync
+            def fsync(fd):
+                # Inject the state transition here; the separate real-pipe
+                # regressions prove the collector remains free to deliver it.
+                with channel.locked(r._MONOTONIC() + 1):
+                    channel.state.pending['during-sidecar'] = 'GUARD_BEGIN'
+                native_fsync(fd)
+            try:
+                with mock.patch.object(r.os, 'fsync', fsync):
+                    with self.assertRaises(r.EvidenceError): operation()
+                self.assertIsNone(channel.stop); proc.kill.assert_not_called()
+            finally:
+                with channel.locked(): channel.state.pending.clear()
+
+
 class Isolation12bRegressionTests(unittest.TestCase):
     setUp = Isolation9CasePathTests.setUp
 
@@ -5478,36 +5776,12 @@ os.read(block,1)
         self.assertIsNotNone(self.stopped_report(planned=False))
 
     def test_no_request_stop_precedes_the_worker_final_report(self):
-        # The mutant sees its own switch lock and never sends DELETE. Inject
-        # its clock: at RUN_BUDGET_S it publishes a summary before END. A stop
-        # there correctly fails evidence; the case must observe absence sooner.
-        r=self.r;events=self.root/'events.json'
-        channel=object.__new__(r.WorkerEvidence)
-        channel.identity=dict(worker='worker-1',token='owned',source='s'*64,manifest='m'*64)
-        channel.state=r.EvidenceState(channel.identity,1234)
-        for kind,fields in (('START',{}),('READY',{}),('PHASE',{'label':'main-entered'})):
-            channel.state.accept(dict(identity=channel.identity,pid=1234,seq=len(channel.state.records)+1,kind=kind,**fields))
-        channel.errors=[];channel.lock=threading.RLock();channel.stop=None;channel.window_started=0.0
-        channel.case='never-switch-lock';channel.journal=self.root/'journal.jsonl'
-        channel.thread=mock.Mock();channel.thread.is_alive.return_value=False
-        channel.eof=threading.Event();channel.eof.set()
-        proc=types.SimpleNamespace(events=events,evidence=channel,role='proc',returncode=None)
-        proc.poll=lambda:proc.returncode
-        proc.kill=lambda:setattr(proc,'returncode',-signal.SIGKILL)
-        budget=[]
-        def start(constants):budget.append(constants['RUN_BUDGET_S']);return proc
-        def wait(seconds):
-            if seconds>=budget[0]:
-                events.write_text(json.dumps(dict(identity=channel.identity,pid=1234,
-                    last_seq=len(channel.state.records)+1,rc=0,violations=[])))
-            return False
-        lane=object.__new__(r.Lane)
-        lane.case='never-switch-lock';lane.stop_plan=r.STOP_PLAN[lane.case]
-        lane.processes=[proc];lane.paths={'SWITCH_LOCK':str(self.root/'switch')}
-        lane.start=start;lane.engine=lambda **kw:types.SimpleNamespace(sent=types.SimpleNamespace(wait=wait))
-        with self.assertRaises(r.CaseFailure):r.never_switch_lock(lane)
-        lane.check_workers()
-        self.assertIsNotNone(channel.stop)
+        # Retain the reporting-race regression with the corrected observation:
+        # the registered mutant locks at 45 s; no partial 55 s summary exists.
+        error, kills, _, _, _ = Isolation12cRegressionTests.observe_switch(self, locked_at=45)
+        self.assertIsInstance(error, self.r.CaseFailure)
+        self.assertLess(kills[0], 55)
+        self.assertIn('GC locked the switch lock', str(error))
 
     def test_case_declares_and_asserts_only_its_auxiliary_exit(self):
         # The real case with injected scheduling/processes, as in the existing
@@ -5587,6 +5861,7 @@ class Isolation10StopPathTests(unittest.TestCase):
                 channel = object.__new__(r.WorkerEvidence)
                 channel.state, channel.identity = state, self.identity
                 channel.errors, channel.stop, channel.window_started = [], None, 0.0
+                channel.sidecar_waits = []
                 channel.lock, channel.case = threading.RLock(), case
                 channel.journal = Path(root) / (role + ".journal")
                 proc = types.SimpleNamespace(role=role, evidence=channel, returncode=None)
@@ -5646,9 +5921,9 @@ class Isolation10StopPathTests(unittest.TestCase):
         # Mutate arm too: path selection must independently reject an
         # incomplete path rather than relying on that later mandatory check.
         original = runner.WorkerEvidence.arm
-        def weak_arm(channel, site, required, until=None):
+        def weak_arm(channel, site, required, until=None, **kwargs):
             remaining = tuple(set(required) & channel.state.phases)
-            return original(channel, site, remaining, until)
+            return original(channel, site, remaining, until, **kwargs)
         with mock.patch.object(runner.WorkerEvidence, 'arm', weak_arm):
             result = unittest.TestResult()
             probe.run(result)
@@ -5663,7 +5938,7 @@ class Isolation10StopPathTests(unittest.TestCase):
         for index in range(2):
             channel = types.SimpleNamespace(state=types.SimpleNamespace(phases={'main-entered'}), stop=None)
             channel.locked = lambda until: nullcontext()
-            channel.arm = lambda site, required, until, index=index: trace.append(('arm', index))
+            channel.arm = lambda site, required, until, index=index, **kwargs: trace.append(('arm', index))
             proc = types.SimpleNamespace(role='proc', evidence=channel, poll=lambda: None)
             proc.kill = lambda index=index: trace.append(('kill', index))
             lane.processes.append(proc)
@@ -5925,7 +6200,7 @@ barrier.touch();native_read(block,1)
     def test_reportless_interrupted_ack_cannot_kill_mutant(self):
         result, output = self.boundary_run('interrupted')
         self.assertEqual(result, 1)
-        self.assertIn('missing parent timing certification', output)
+        self.assertIn('open window or unpublished window END forbids sidecar persistence', output)
 
     def test_reportless_certified_stop_can_kill_mutant(self):
         result, output = self.boundary_run('clean')
@@ -5941,6 +6216,7 @@ barrier.touch();native_read(block,1)
         channel.state = types.SimpleNamespace(records=[object()], current_window=None, windows={1.0: True})
         channel.timing_confirmed = 1
         channel.timing_windows = {1.0: [(1.0, 1.25)]}
+        channel.sidecar_waits = []
         self.assertEqual(channel.certify_timing()[0]['instrumentation_s'], .250)
         for windows in ({1.0: [(1.0, 1.250001)]},
                         {1.0: [(1.0, 1.125)], 2.0: [(2.0, 2.250001)]}):

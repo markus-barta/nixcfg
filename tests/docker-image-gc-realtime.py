@@ -282,6 +282,8 @@ class WorkerEvidence:
         self.timing_pending = None
         self.timing_confirmed = 0
         self.timing_windows = {}
+        self.timing_ends = {}
+        self.sidecar_waits = []
 
     def attach(self, pid):
         self.state = EvidenceState(self.identity, pid)
@@ -340,6 +342,8 @@ class WorkerEvidence:
                                             None if kind == "WINDOW_END" else self.state.current_window)
                                 if metadata["window"] != expected:
                                     raise EvidenceError("timing membership contradicts window lifecycle")
+                                if kind == 'WINDOW_END':
+                                    self.timing_ends[record['window']] = metadata['started']
                             self.state.accept(record)
                             payload = line + b"\n"
                             if journal.write(payload) != len(payload):
@@ -365,30 +369,89 @@ class WorkerEvidence:
         finally:
             self.lock.release()
 
-    def open_window(self, until=None):
+    def sidecar(self, suffix, payload, until, affected):
+        """Persist without owning any collector lock, within the caller's budget.
+
+        A window already open prevents disk I/O. A window beginning while I/O
+        runs makes this infrastructure, even if it closes before revalidation.
+        Collectors remain free to receive those lifecycle records throughout.
+        """
+        windows = {}
+        interval = [_MONOTONIC(), None]
+        writer = None
+        try:
+            for evidence in affected:
+                if evidence.case.endswith('-r34'):
+                    with evidence.locked(until):
+                        if evidence.errors or evidence.state.current_window is not None:
+                            raise EvidenceError('open window or unpublished window END forbids sidecar persistence')
+                        windows[evidence] = set(evidence.state.windows)
+                        evidence.sidecar_waits.append(interval)
+            if _MONOTONIC() >= until:
+                raise EvidenceError('sidecar persistence deadline expired')
+            done, errors = threading.Event(), []
+            def write():
+                try:
+                    with self.journal.with_suffix(suffix).open('x') as output:
+                        json.dump(payload, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+                except BaseException as exc:
+                    errors.append(exc)
+                finally:
+                    interval[1] = _MONOTONIC()
+                    done.set()
+            # A filesystem stall cannot be cancelled safely. On timeout this
+            # daemon can only finish the sidecar; it can never grant authority.
+            writer = threading.Thread(target=write, name='ops327-sidecar', daemon=True)
+            writer.start()
+            if not done.wait(max(0, until - _MONOTONIC())) or _MONOTONIC() >= until:
+                raise EvidenceError('sidecar persistence deadline expired')
+            if errors:
+                raise EvidenceError(f'sidecar persistence failed: {errors[0]}')
+            for evidence, before in windows.items():
+                with evidence.locked(until):
+                    if (evidence.errors or evidence.state.current_window is not None
+                            or set(evidence.state.windows) != before):
+                        raise EvidenceError('timed window overlapped sidecar persistence')
+        except Exception as exc:
+            self.errors.append(str(exc))
+            raise
+        finally:
+            if writer is None:
+                interval[1] = _MONOTONIC()
+
+    def open_window(self, until=None, *, affected=()):
+        until = _MONOTONIC() + 1 if until is None else until
         with self.locked(until):
             if self.errors or not self.state.ready or "main-entered" not in self.state.phases:
                 raise EvidenceError("observation window before acknowledged READY/main-entry")
-            self.window_started = time.monotonic()
-            with self.journal.with_suffix(".window.json").open("x") as output:
-                json.dump(dict(identity=self.identity, case=self.case, seq=len(self.state.records),
-                               opened=self.window_started), output)
-                output.flush()
-                os.fsync(output.fileno())
-
-    def arm(self, site, required, until=None):
+            if self.window_started is not None:
+                raise EvidenceError('observation window already opened')
+            opened = time.monotonic()
+            payload = dict(identity=self.identity, case=self.case, seq=len(self.state.records), opened=opened)
+        self.sidecar('.window.json', payload, until, (self, *affected))
         with self.locked(until):
+            if (self.errors or not self.state.ready or 'main-entered' not in self.state.phases
+                    or self.window_started is not None):
+                raise EvidenceError('observation state changed during sidecar persistence')
+            self.window_started = opened
+
+    def arm(self, site, required, until=None, *, affected=()):
+        until = _MONOTONIC() + 1 if until is None else until
+        def witnesses():
             if self.errors or self.window_started is None or not self.state.ready or not set(required) <= self.state.phases:
                 raise EvidenceError(f"stop {site} lacks mandatory witnesses {required}")
             if self.state.pending or self.state.fatal:
                 raise EvidenceError("cannot authorize stop with pending admission or sticky error")
+        with self.locked(until):
+            witnesses()
             certificate = dict(identity=self.identity, case=self.case, site=site, required=list(required),
                                window_started=self.window_started)
-            # Parent persistence precedes signal delivery; cleanup cannot invent it.
-            with self.journal.with_suffix(".stop.json").open("x") as output:
-                json.dump(certificate, output)
-                output.flush()
-                os.fsync(output.fileno())
+        # Parent persistence precedes signal delivery; cleanup cannot invent it.
+        self.sidecar('.stop.json', certificate, until, (self, *affected))
+        with self.locked(until):
+            witnesses()
             self.stop = certificate
 
     def validate(self, process):
@@ -449,6 +512,12 @@ class WorkerEvidence:
                 raise EvidenceError("window lifecycle/timing ledger mismatch")
             totals = []
             for window, intervals in self.timing_windows.items():
+                # A BEGIN can be delivered after the disk wait and its
+                # revalidation. Check timestamps too, so that unpublished
+                # lifecycle records cannot conceal overlap with persistence.
+                if any(end is None or (window <= end and self.timing_ends[window] >= start)
+                       for start, end in self.sidecar_waits):
+                    raise EvidenceError('sidecar disk wait overlapped a timed window')
                 total = sum(end - start for start, end in intervals)
                 if total > TIMING_INSTRUMENTATION_MAX_S:
                     raise EvidenceError("parent timed-window instrumentation exceeds 250 ms")
@@ -1092,9 +1161,11 @@ class Lane:
             with evidence.locked(until):
                 if evidence.errors:
                     raise EvidenceError("worker startup failed: " + "; ".join(evidence.errors))
-                if evidence.state.ready and "main-entered" in evidence.state.phases:
-                    evidence.open_window(until)
-                    return
+                ready = evidence.state.ready and "main-entered" in evidence.state.phases
+            if ready:
+                evidence.open_window(until, affected=tuple(p.evidence for p in self.processes
+                                                         if hasattr(p, 'evidence') and p is not process))
+                return
             if process.poll() is not None:
                 evidence.validate(process)
                 raise EvidenceError("worker startup ended before main-entry")
@@ -1128,7 +1199,8 @@ class Lane:
         for process in live:
             required = path[process.role]
             if not armed[id(process)]:
-                process.evidence.arm(site, required, until)
+                process.evidence.arm(site, required, until, affected=tuple(p.evidence for p in self.processes
+                                                                        if hasattr(p, 'evidence') and p is not process))
         for process in live:
             process.kill()
 
@@ -1443,9 +1515,14 @@ def never_switch_lock(lane):
     Path(lane.paths['SWITCH_LOCK']).touch()
     engine = lane.engine(delay=5)
     proc = lane.start({'RUN_BUDGET_S': 55})
-    # Observe a missing request after the 45 s initial cooldown, with 5 s
-    # remaining before the worker's 55 s run budget starts final reporting.
-    lane.require('RT:444', engine.sent.wait(50))
+    # Retain the full request budget: stale snapshots may be discarded and
+    # retried after cooldown. Sample the switch lock while waiting so the
+    # registered lock-taking mutant is stopped before its 55 s final report.
+    until = time.monotonic() + 55
+    while not engine.sent.wait(min(.02, max(0, until - time.monotonic()))):
+        result = subprocess.run(['flock', '-n', lane.paths['SWITCH_LOCK'], 'true'], check=False)
+        lane.require('RT:444', result.returncode == 0, 'GC locked the switch lock')
+        lane.require('RT:444', time.monotonic() < until)
     for _ in range(25):
         result = subprocess.run(['flock', '-n', lane.paths['SWITCH_LOCK'], 'true'], check=False)
         lane.require('RT:447', result.returncode == 0, 'GC locked the switch lock')
