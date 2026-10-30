@@ -188,7 +188,7 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_unit("ops327-registry.service")
     machine.succeed("ops327-vm prepare", timeout=180)
     machine.succeed("ops327-vm checks", timeout=12000)
-    machine.copy_from_vm("/var/lib/ops327/results.json")
-    machine.copy_from_vm("/var/lib/ops327/unit-outcomes.json")
+    machine.copy_from_machine("/var/lib/ops327/results.json")
+    machine.copy_from_machine("/var/lib/ops327/unit-outcomes.json")
   '';
 }
