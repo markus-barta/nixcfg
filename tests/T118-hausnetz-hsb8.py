@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 
@@ -27,6 +28,8 @@ declared = evaluate('''
     host = import ./hosts/hsb8/configuration.nix {
       pkgs.stdenv.hostPlatform.system = "fixture";
       pkgs.runCommand = _: _: _: "hostdash-fixture";
+      pkgs.iptables = "/nix/store/iptables-fixture";
+      pkgs.writeShellScript = _: script: script;
       lib.mkForce = x: x;
       lib.optionals = condition: values: if condition then values else [];
       inputs.hausnetz-hsb8.nixosModules.default = "hausnetz-hsb8-fixture";
@@ -39,6 +42,9 @@ declared = evaluate('''
     imports = map toString host.imports;
     service = host.services.hausnetz;
     limits = host.systemd.services.hausnetz.serviceConfig;
+    hausnetzRequires = host.systemd.services.hausnetz.requires;
+    hausnetzAfter = host.systemd.services.hausnetz.after;
+    tailnetGuard = host.systemd.services.hausnetz-tailnet-guard;
     composeAfter = host.nixcfg.composeStack.extraAfter;
     sourceDependencies = map toString host.system.extraDependencies;
     firewall = host.networking.firewall;
@@ -70,10 +76,25 @@ assert declared["composeAfter"] == ["hausnetz.service"]
 assert "/nix/store/hausnetz-hsb8-source-fixture" in declared["sourceDependencies"]
 assert 8377 not in declared["firewall"]["allowedTCPPorts"]
 assert not {5353, 1901}.intersection(declared["firewall"]["allowedUDPPorts"])
-# OPS-506: ts-input accepts tailnet peers before nixos-fw. Require exact,
-# interface-scoped raw rules, idempotent insertion and matching teardown.
-start_commands, stop_commands = [], []
+# OPS-506: the guard owns these rules independently of the firewall lifecycle.
+guard = declared["tailnetGuard"]
+assert guard["wantedBy"] == ["multi-user.target"]
+assert guard["after"] == ["network-pre.target"]
+assert guard["before"] == ["hausnetz.service"]
+assert set(guard) == {"wantedBy", "after", "before", "serviceConfig"}
+guard_config = guard["serviceConfig"]
+assert guard_config["Type"] == "oneshot"
+assert guard_config["RemainAfterExit"] is True
+assert set(guard_config) == {"Type", "RemainAfterExit", "ExecStart", "ExecStop"}
+assert declared["hausnetzRequires"] == ["hausnetz-tailnet-guard.service"]
+assert declared["hausnetzAfter"] == ["hausnetz-tailnet-guard.service"]
+for option in ("extraCommands", "extraStopCommands"):
+    assert "OPS-506" not in declared["firewall"].get(option, ""), option
+
+# Require exact interface-scoped rules, checked insertion and duplicate cleanup.
+start_commands, stop_commands, rule_keys = ["set -eu"], ["set -eu"], []
 for binary in ("iptables", "ip6tables"):
+    command = f"/nix/store/iptables-fixture/bin/{binary} -t raw"
     for ports, comment in (
         ("-p tcp --dport 8377", "OPS-506-hausnetz-http"),
         ("-p udp -m multiport --dports 5353,1901", "OPS-506-hausnetz-discovery"),
@@ -81,19 +102,79 @@ for binary in ("iptables", "ip6tables"):
         rule = (f'PREROUTING -i tailscale0 {ports} '
                 f'-m comment --comment "{comment}" -j DROP')
         start_commands.append(
-            f"{binary} -t raw -C {rule} 2>/dev/null || "
-            f"{binary} -t raw -I {rule}"
+            f"{command} -C {rule} 2>/dev/null || "
+            f"{command} -I {rule}"
         )
-        stop_commands.append(f"{binary} -t raw -D {rule} 2>/dev/null || true")
+        stop_commands.extend([
+            f"while {command} -C {rule} 2>/dev/null; do",
+            f"{command} -D {rule} 2>/dev/null || true",
+            "done",
+        ])
+        rule_keys.append(f"{binary}:{comment}")
 
 
-def firewall_commands(script):
+def script_commands(script):
     return [" ".join(line.split()) for line in script.replace("\\\n", " ").splitlines()
             if line.strip()]
 
 
-assert firewall_commands(declared["firewall"]["extraCommands"]) == start_commands
-assert firewall_commands(declared["firewall"]["extraStopCommands"]) == stop_commands
+assert script_commands(guard_config["ExecStart"]) == start_commands
+assert script_commands(guard_config["ExecStop"]) == stop_commands
+
+# Execute the declared scripts against fake iptables binaries, never host rules.
+with tempfile.TemporaryDirectory(prefix="ops506-guard-") as directory:
+    root = Path(directory)
+    (root / "bin").mkdir()
+    state = root / "rules.json"
+    fixture = f"#!{sys.executable}\n" + '''import json, os, sys
+from pathlib import Path
+state = Path(os.environ["OPS506_RULE_STATE"])
+rules = json.loads(state.read_text())
+key = Path(sys.argv[0]).name + ":" + sys.argv[sys.argv.index("--comment") + 1]
+action = sys.argv[3]
+count = rules.get(key, 0)
+if action == "-C":
+    sys.exit(0 if count else 1)
+if action == "-I":
+    if key == os.environ.get("OPS506_FAIL_RULE"):
+        sys.exit(42)
+    rules[key] = count + 1
+elif action == "-D":
+    if not count:
+        sys.exit(1)
+    rules[key] = count - 1
+else:
+    sys.exit(2)
+state.write_text(json.dumps(rules))
+'''
+    for binary in ("iptables", "ip6tables"):
+        path = root / "bin" / binary
+        path.write_text(fixture)
+        path.chmod(0o700)
+    child_env = dict(os.environ, OPS506_RULE_STATE=str(state), OPS506_FAIL_RULE="")
+
+    def run_guard(action):
+        script = guard_config[action].replace("/nix/store/iptables-fixture", directory)
+        return subprocess.run(["bash", "-c", script], env=child_env,
+                              capture_output=True, text=True, timeout=10)
+
+    state.write_text("{}")
+    for _ in range(2):
+        result = run_guard("ExecStart")
+        assert result.returncode == 0, result.stderr
+        assert json.loads(state.read_text()) == dict.fromkeys(rule_keys, 1)
+    state.write_text(json.dumps(dict.fromkeys(rule_keys, 3)))
+    for _ in range(2):
+        result = run_guard("ExecStop")
+        assert result.returncode == 0, result.stderr
+        assert not any(json.loads(state.read_text()).values())
+    for index, key in enumerate(rule_keys):
+        state.write_text("{}")
+        child_env["OPS506_FAIL_RULE"] = key
+        result = run_guard("ExecStart")
+        assert result.returncode == 42, (key, result.stderr)
+        assert json.loads(state.read_text()) == dict.fromkeys(rule_keys[:index], 1)
+
 host_source = Path("hosts/hsb8/configuration.nix").read_text()
 assert 'leasesFile = if enableAdGuard then "/var/lib/AdGuardHome/data/leases.json" else null;' in host_source
 assert "hausnetz_deploy" not in host_source and "hsb8-hausnetz-" not in host_source
@@ -220,4 +301,4 @@ with tempfile.TemporaryDirectory(prefix="ops506-backup-") as directory:
             "/backup/var/lib/hausnetz", "/backup/etc",
         ]
 
-print("OPS-506 offline host, pin, tailnet firewall, nginx access/proxy and backup contracts: OK")
+print("OPS-506 offline host, pin, tailnet guard lifecycle/failure, nginx access/proxy and backup contracts: OK")

@@ -18,6 +18,7 @@ can reach TCP 8377. Direct tailnet access to TCP 8377 and discovery UDP 5353/190
 is dropped in raw PREROUTING, before Tailscale's early accept in `ts-input`;
 tailnet clients use <http://100.64.0.3/> through nginx. The rules cover IPv4 and
 IPv6 without affecting Docker bridges or LAN discovery on `enp2s0f0`.
+The drops are owned by `hausnetz-tailnet-guard.service`, independent of firewall reloads.
 Nginx permits the LAN and tailnet. AdGuard leases are
 copied by the module's root unit; passive discovery and Starlink are off.
 The existing Hetzner restic job includes `/var/lib/hausnetz`.

@@ -108,12 +108,57 @@ in
   # OPS-506: retain the seeded private source through GC; hsb8 has no deploy key.
   system.extraDependencies = [ inputs.hausnetz-hsb8 ];
 
-  systemd.services.hausnetz.serviceConfig = {
-    # exec delays After= until DynamicUser StateDirectory setup has completed.
-    Type = "exec";
-    MemoryMax = "512M";
-    CPUQuota = "50%";
-    Nice = 10;
+  # OPS-506: ts-input accepts tailscale0 before nixos-fw, so block direct
+  # hausnetz HTTP and discovery in raw PREROUTING. Tailnet uses nginx :80;
+  # Docker bridge proxy traffic and discovery on enp2s0f0 remain unaffected.
+  # Own these rules independently of firewall reloads: NixOS only manages its
+  # own chains and extraCommands, Tailscale its ts-* chains in filter/nat, and
+  # Docker its per-container rules; none flushes raw PREROUTING.
+  systemd.services.hausnetz-tailnet-guard = {
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-pre.target" ];
+    before = [ "hausnetz.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "hausnetz-tailnet-guard-start" ''
+        set -eu
+        ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
+          ${pkgs.iptables}/bin/iptables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
+          ${pkgs.iptables}/bin/iptables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
+          ${pkgs.iptables}/bin/ip6tables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
+          ${pkgs.iptables}/bin/ip6tables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+      '';
+      ExecStop = pkgs.writeShellScript "hausnetz-tailnet-guard-stop" ''
+        set -eu
+        while ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null; do
+          ${pkgs.iptables}/bin/iptables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
+        done
+        while ${pkgs.iptables}/bin/iptables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null; do
+          ${pkgs.iptables}/bin/iptables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
+        done
+        while ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null; do
+          ${pkgs.iptables}/bin/ip6tables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
+        done
+        while ${pkgs.iptables}/bin/ip6tables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null; do
+          ${pkgs.iptables}/bin/ip6tables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
+        done
+      '';
+    };
+  };
+  systemd.services.hausnetz = {
+    requires = [ "hausnetz-tailnet-guard.service" ];
+    after = [ "hausnetz-tailnet-guard.service" ];
+    serviceConfig = {
+      # exec delays After= until DynamicUser StateDirectory setup has completed.
+      Type = "exec";
+      MemoryMax = "512M";
+      CPUQuota = "50%";
+      Nice = 10;
+    };
   };
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
@@ -248,25 +293,6 @@ in
         53 # DNS (AdGuard Home)
         67 # DHCP (AdGuard Home - if enabled)
       ];
-      # OPS-506: ts-input accepts tailscale0 before nixos-fw, so block direct
-      # hausnetz HTTP and discovery in raw PREROUTING. Tailnet uses nginx :80;
-      # Docker bridge proxy traffic and discovery on enp2s0f0 remain unaffected.
-      extraCommands = ''
-        iptables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
-          iptables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
-        iptables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
-          iptables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
-        ip6tables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
-          ip6tables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
-        ip6tables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
-          ip6tables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
-      '';
-      extraStopCommands = ''
-        iptables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
-        iptables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
-        ip6tables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
-        ip6tables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
-      '';
     };
   };
 
