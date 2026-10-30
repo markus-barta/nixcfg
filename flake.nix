@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/aedc666492a6379bf946900ce8521d105a70ede5";
+      url = "github:markus-barta/joedesk/95aa934293c4a96b3ad80b64496b53966bc18360";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
