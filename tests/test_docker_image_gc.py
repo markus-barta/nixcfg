@@ -16,6 +16,7 @@ import io
 import json
 import os
 import shutil
+import select
 import signal
 import socket
 import subprocess
@@ -4999,7 +5000,8 @@ class Isolation9EvidenceTests(unittest.TestCase):
             with self.assertRaises(self.r.EvidenceError): state.validate(-9,report,self.certificate())
         for rc in (0,1,2):
             ended,send=self.state(rc=rc)
-            with self.assertRaises(self.r.EvidenceError): ended.validate(-9,self.summary(ended,rc),self.certificate())
+            ended.validate(-9,self.summary(ended,rc),self.certificate())
+            with self.assertRaises(self.r.EvidenceError): ended.validate(-9,self.summary(ended,(rc+1)%3),self.certificate())
             with self.assertRaises(self.r.EvidenceError): send("END",rc=rc,violations=[],setup_error=None)
         for fields in ({"rc":-9,"violations":[],"setup_error":None},{"rc":0,"violations":[{}],"setup_error":None},{"rc":0,"violations":[],"setup_error":"bad"}):
             bad,send=self.state()
@@ -5286,7 +5288,7 @@ class Isolation9CasePathTests(unittest.TestCase):
             except Busy:blocked=True
         return blocked, uses
 
-    def case_path(self,case,mode="baseline",fault=None):
+    def case_path(self,case,mode="baseline",fault=None,*,aux_rc=143,close=False):
         r=self.r;root=self.root
         busy, uses_instance = self.instance_exclusion(mode) if case=="instance-and-sigkill" else (True, False)
         class Clock:
@@ -5351,7 +5353,8 @@ class Isolation9CasePathTests(unittest.TestCase):
                     clock.sleep(timeout);lane.stop_at(site);raise r.CaseFailure("instance exclusion missing")
                 if p.returncode is None:clock.sleep(29);p.end(expected)
                 return {"attempts":[],"holds":[(p.started+45,clock.now)]},"another run is in progress" if p.role=="second" else ""
-        lane=Lane();aux=types.SimpleNamespace(pid=123,wait=lambda timeout:0)
+        lane=Lane();aux=types.SimpleNamespace(pid=123,returncode=aux_rc,poll=lambda:aux_rc,
+                                            wait=lambda timeout:aux_rc,stdout=None,stderr=None)
         failure=None
         with mock.patch.object(r,"time",clock),mock.patch.object(r,"subprocess",types.SimpleNamespace(Popen=lambda *a,**k:aux,run=lambda *a,**k:types.SimpleNamespace(returncode=0))),mock.patch.object(r.os,"killpg",lambda *a:None):
             try:r.CASES[case](lane)
@@ -5362,6 +5365,7 @@ class Isolation9CasePathTests(unittest.TestCase):
             state=p.evidence.state
             summary=dict(identity=p.evidence.identity,pid=1234,last_seq=len(state.records),rc=p.returncode,violations=[]) if p.returncode>=0 else None
             state.validate(p.returncode,summary,p.evidence.stop)
+        if close:r.Lane.close(lane)
         return failure
 
     def test_actual_instance_baseline_and_both_mutant_models(self):
@@ -5385,6 +5389,187 @@ class Isolation9CasePathTests(unittest.TestCase):
                 try:self.assertIsInstance(self.case_path(case,"injected",site),self.r.CaseFailure)
                 finally:self.root=original
 
+
+
+class Isolation12bRegressionTests(unittest.TestCase):
+    setUp = Isolation9CasePathTests.setUp
+
+    PRODUCER = r'''
+import importlib.util,json,os,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("transport_rt",sys.argv[1])
+r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
+p=r.EvidencePublisher(int(sys.argv[2]),int(sys.argv[3]),json.loads(sys.argv[4]))
+events=Path(sys.argv[5]);mode=sys.argv[6];notify=int(sys.argv[7]);block=int(sys.argv[8])
+p.send("START");p.send("READY");p.send("PHASE",label="main-entered")
+start=r.time.monotonic();p.begin_timed_window(start)
+p.send("PHASE",label="destructive-phase");p.end_timed_window()
+report={"violations":[],"holds":[[start,r.time.monotonic()]],"attempts":[]}
+if mode=="partial":
+    original=p.send
+    def send(kind,**fields):
+        if kind=="END":
+            os.write(notify,b"+");os.read(block,1)
+        original(kind,**fields)
+    p.send=send
+r.finish_worker_report(events,report,p,0)
+if mode in ("last_seq","rc","identity","pid","violations","setup_error"):
+    report[mode]={"last_seq":999,"rc":2,"identity":{},"pid":0,"violations":[{"event":"open","path":"/owned-denied"}],"setup_error":"injected"}[mode]
+    r.publish_events(events,report)
+os.write(notify,b"+")
+os.read(block,1)
+'''
+
+    def stopped_report(self, mode="complete", *, case="never-switch-lock", planned=True):
+        r=self.r
+        with tempfile.TemporaryDirectory(prefix="ops327-stop-report-",dir=REPO) as root:
+            root=Path(root);events=root/"events.json"
+            channel=r.WorkerEvidence(root,"worker-1","s"*64,"m"*64,case)
+            ready,notify=os.pipe();block,release=os.pipe()
+            proc=subprocess.Popen([sys.executable,"-B","-c",self.PRODUCER,str(REPO/"tests/docker-image-gc-realtime.py"),
+                                   str(channel.send_fd),str(channel.ack_fd),json.dumps(channel.identity),str(events),mode,str(notify),str(block)],
+                                  pass_fds=(channel.send_fd,channel.ack_fd,notify,block),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            proc.events=events;proc.evidence=channel;proc.role="proc"
+            channel.attach(proc.pid);os.close(notify);os.close(block)
+            lane=object.__new__(r.Lane)
+            lane.case=case;lane.stop_plan=r.STOP_PLAN[case];lane.processes=[proc];lane.engines=[]
+            try:
+                self.assertTrue(select.select([ready],[],[],10)[0],"producer did not reach report barrier")
+                self.assertEqual(os.read(ready,1),b"+")
+                channel.open_window()
+                if planned:lane.stop_at('RT:444' if case=="never-switch-lock" else 'RT:565')
+                else:proc.kill()
+                proc.communicate(timeout=5)
+                self.assertEqual(proc.returncode,-signal.SIGKILL)
+                error=None
+                try:lane.check_workers()
+                except Exception as exc:error=exc
+                lane.finalize_evidence()
+                self.assertTrue(channel.journal_synced)
+                self.assertTrue(channel.eof.is_set())
+                records=[json.loads(line) for line in channel.journal.read_text().splitlines()]
+                journal_records=[{key:value for key,value in record.items() if key!='_timing'}
+                                 for record in records if 'kind' in record]
+                self.assertEqual(journal_records,channel.state.records)
+                if case.endswith('-r34'):
+                    self.assertEqual(len(channel.certify_timing()),1)
+                return error
+            finally:
+                if proc.poll() is None:proc.kill();proc.communicate(timeout=5)
+                for fd in (ready,release):os.close(fd)
+                channel.abort.set();channel.thread.join(2)
+
+    def test_complete_summary_before_sigkill_preserves_behavioural_kill(self):
+        error=self.stopped_report()
+        self.assertIsNone(error)
+        passed,message=self.r.classify_case('never-switch-lock','the GC takes the lock',True,
+                                            self.r.CaseFailure('no destructive call'))
+        self.assertTrue(passed,message)
+
+    def test_complete_r34_summary_stop_retains_lifecycle_timing_and_fsync(self):
+        self.assertIsNone(self.stopped_report(case='four-acquisitions-r34'))
+
+    def test_incomplete_or_contradictory_summary_still_rejects_planned_kill(self):
+        for mode in ('partial','last_seq','rc','identity','pid','violations','setup_error'):
+            with self.subTest(mode=mode):
+                self.assertIsNotNone(self.stopped_report(mode))
+
+    def test_complete_summary_without_stop_authority_still_rejects_kill(self):
+        self.assertIsNotNone(self.stopped_report(planned=False))
+
+    def test_no_request_stop_precedes_the_worker_final_report(self):
+        # The mutant sees its own switch lock and never sends DELETE. Inject
+        # its clock: at RUN_BUDGET_S it publishes a summary before END. A stop
+        # there correctly fails evidence; the case must observe absence sooner.
+        r=self.r;events=self.root/'events.json'
+        channel=object.__new__(r.WorkerEvidence)
+        channel.identity=dict(worker='worker-1',token='owned',source='s'*64,manifest='m'*64)
+        channel.state=r.EvidenceState(channel.identity,1234)
+        for kind,fields in (('START',{}),('READY',{}),('PHASE',{'label':'main-entered'})):
+            channel.state.accept(dict(identity=channel.identity,pid=1234,seq=len(channel.state.records)+1,kind=kind,**fields))
+        channel.errors=[];channel.lock=threading.RLock();channel.stop=None;channel.window_started=0.0
+        channel.case='never-switch-lock';channel.journal=self.root/'journal.jsonl'
+        channel.thread=mock.Mock();channel.thread.is_alive.return_value=False
+        channel.eof=threading.Event();channel.eof.set()
+        proc=types.SimpleNamespace(events=events,evidence=channel,role='proc',returncode=None)
+        proc.poll=lambda:proc.returncode
+        proc.kill=lambda:setattr(proc,'returncode',-signal.SIGKILL)
+        budget=[]
+        def start(constants):budget.append(constants['RUN_BUDGET_S']);return proc
+        def wait(seconds):
+            if seconds>=budget[0]:
+                events.write_text(json.dumps(dict(identity=channel.identity,pid=1234,
+                    last_seq=len(channel.state.records)+1,rc=0,violations=[])))
+            return False
+        lane=object.__new__(r.Lane)
+        lane.case='never-switch-lock';lane.stop_plan=r.STOP_PLAN[lane.case]
+        lane.processes=[proc];lane.paths={'SWITCH_LOCK':str(self.root/'switch')}
+        lane.start=start;lane.engine=lambda **kw:types.SimpleNamespace(sent=types.SimpleNamespace(wait=wait))
+        with self.assertRaises(r.CaseFailure):r.never_switch_lock(lane)
+        lane.check_workers()
+        self.assertIsNotNone(channel.stop)
+
+    def test_case_declares_and_asserts_only_its_auxiliary_exit(self):
+        # The real case with injected scheduling/processes, as in the existing
+        # live-site regression, must declare 143 before it can reach teardown.
+        original=self.r.Lane.close
+        seen=[]
+        def close(lane):
+            aux=lane.processes[-1] if not hasattr(lane.processes[-1],'evidence') else next(
+                p for p in lane.processes if not hasattr(p,'evidence'))
+            seen.append(aux.expected_exits)
+            lane.engines=[];lane.check_workers=lambda:None
+            original(lane)
+        with mock.patch.object(self.r.Lane,'close',close):
+            self.assertIsNone(Isolation9CasePathTests.case_path(self,'four-acquisitions',aux_rc=143,close=True))
+        self.assertEqual(seen,[frozenset({143,-signal.SIGKILL})])
+        # A behavioural failure before iteration 2 leaves the handler live.
+        # Its teardown SIGKILL must not turn the mutant kill into setup failure.
+        with tempfile.TemporaryDirectory(prefix='ops327-aux-cleanup-',dir=REPO) as root:
+            original_root=self.root;self.root=Path(root)
+            try:
+                with mock.patch.object(self.r.Lane,'close',close):
+                    self.assertIsInstance(Isolation9CasePathTests.case_path(
+                        self,'four-acquisitions',fault='RT:578',aux_rc=-signal.SIGKILL,close=True),self.r.CaseFailure)
+            finally:self.root=original_root
+        self.assertIsInstance(Isolation9CasePathTests.case_path(self,'four-acquisitions',aux_rc=0),self.r.CaseFailure)
+
+    def test_real_shell_trapped_term_exit_requires_per_auxiliary_declaration(self):
+        # A real shell/process group reproduces Linux's 128+SIGTERM result.
+        proc=subprocess.Popen(['bash','-c',
+                              "set -e; trap ':' TERM; \"$1\" -B -c 'import time; print(\"ready\",flush=True); time.sleep(30)'",
+                              'auxiliary',sys.executable],
+                              start_new_session=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(proc.stdout.readline().strip(),'ready')
+            # The foreground child published ready; the trap preserves its
+            # signal exit status when set -e unwinds the shell.
+            os.killpg(proc.pid,signal.SIGTERM)
+            proc.communicate(timeout=5)
+            self.assertEqual(proc.returncode,128+signal.SIGTERM)
+            lane=object.__new__(self.r.Lane);lane.processes=[proc];lane.engines=[];lane.check_workers=lambda:None
+            with self.assertRaisesRegex(self.r.EvidenceError,'auxiliary failed: 143'):lane.close()
+            proc.expected_exits=frozenset({143,-signal.SIGKILL})
+            lane.close()
+            for code in (0,1,-signal.SIGTERM):
+                lane.processes=[types.SimpleNamespace(returncode=code,poll=lambda:code,wait=lambda timeout:code,
+                    stdout=None,stderr=None,expected_exits=proc.expected_exits)]
+                with self.subTest(code=code),self.assertRaises(self.r.EvidenceError):lane.close()
+            other=subprocess.Popen([sys.executable,'-B','-c','raise SystemExit(143)'])
+            other.wait(timeout=5);lane.processes=[other]
+            with self.assertRaisesRegex(self.r.EvidenceError,'auxiliary failed: 143'):lane.close()
+            cleanup=subprocess.Popen([sys.executable,'-B','-c',
+                                      'import time; print("ready",flush=True); time.sleep(30)'],
+                                     start_new_session=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            cleanup.owned_group=True;cleanup.expected_exits=proc.expected_exits
+            try:
+                self.assertEqual(cleanup.stdout.readline().strip(),'ready')
+                lane.processes=[cleanup];lane.close()
+                self.assertEqual(cleanup.returncode,-signal.SIGKILL)
+            finally:
+                if cleanup.poll() is None:os.killpg(cleanup.pid,signal.SIGKILL);cleanup.communicate(timeout=5)
+        finally:
+            if proc.poll() is None:os.killpg(proc.pid,signal.SIGKILL);proc.communicate(timeout=5)
 
 
 class Isolation10StopPathTests(unittest.TestCase):

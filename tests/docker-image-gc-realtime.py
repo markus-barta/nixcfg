@@ -147,14 +147,18 @@ class EvidenceState:
 
     def validate(self, rc, summary, stop):
         # Existing summaries and ENDs are checked BEFORE the stop exception.
+        # SIGKILL may arrive after the final END was acknowledged but before
+        # the worker exits. END/summary describe the completed work; waitpid
+        # describes the later process death. Never substitute without an END.
+        result_rc = self.end["rc"] if rc == -signal.SIGKILL and self.end is not None else rc
         if summary is not None:
             if (not isinstance(summary, dict) or summary.get("identity") != self.identity
                     or summary.get("pid") != self.pid or type(summary.get("last_seq")) is not int
                     or summary["last_seq"] != len(self.records) or summary.get("violations") != []
                     or summary.get("setup_error") is not None or type(summary.get("rc")) is not int
-                    or summary["rc"] < 0 or summary["rc"] != rc):
+                    or summary["rc"] < 0 or summary["rc"] != result_rc):
                 raise EvidenceError("malformed, stale or contradictory final summary")
-        if self.end is not None and (self.end["rc"] != rc or summary is None or summary["rc"] != self.end["rc"]):
+        if self.end is not None and (self.end["rc"] != result_rc or summary is None or summary["rc"] != self.end["rc"]):
             raise EvidenceError("END contradicts observation/summary")
         if not self.records or not self.ready or self.pending or self.fatal:
             raise EvidenceError("missing START/READY, pending transaction or sticky error")
@@ -1228,7 +1232,7 @@ class Lane:
                         # Reaping for resource ownership grants NO stop authority.
                         proc.kill()
                 proc.wait(timeout=5)
-                if not hasattr(proc, "events") and proc.returncode not in (0, -signal.SIGKILL):
+                if not hasattr(proc, "events") and proc.returncode not in getattr(proc, "expected_exits", (0, -signal.SIGKILL)):
                     raise EvidenceError(f"auxiliary failed: {proc.returncode}")
             except Exception as exc:
                 errors.append(str(exc))
@@ -1439,7 +1443,9 @@ def never_switch_lock(lane):
     Path(lane.paths['SWITCH_LOCK']).touch()
     engine = lane.engine(delay=5)
     proc = lane.start({'RUN_BUDGET_S': 55})
-    lane.require('RT:444', engine.sent.wait(55))
+    # Observe a missing request after the 45 s initial cooldown, with 5 s
+    # remaining before the worker's 55 s run budget starts final reporting.
+    lane.require('RT:444', engine.sent.wait(50))
     for _ in range(25):
         result = subprocess.run(['flock', '-n', lane.paths['SWITCH_LOCK'], 'true'], check=False)
         lane.require('RT:447', result.returncode == 0, 'GC locked the switch lock')
@@ -1522,6 +1528,10 @@ def four_acquisitions(lane, *, r34=False):
     (lane.root / 'count').write_text('0')
     user = subprocess.Popen(['bash', str(script), str(lane.root), lane.paths['LOCK_PATHS'][0]], start_new_session=True)
     user.owned_group = True
+    # Iteration 2 terminates the foreground flock. The trap reacquires and
+    # set -e preserves 128+SIGTERM. An earlier case failure leaves the user
+    # for close() to SIGKILL; the completed case below still requires 143.
+    user.expected_exits = frozenset({128 + signal.SIGTERM, -signal.SIGKILL})
     lane.processes.append(user)
     last_release = None
     for n in range(1, 5):
@@ -1547,7 +1557,7 @@ def four_acquisitions(lane, *, r34=False):
             lane.require('RT:581', 8.9 <= engine.destructive[1][2] - events['holds'][0][0] <= 10.1)
             lane.require('RT:582', all((end - start <= 45 for start, end in events['holds'])), events)
         last_release = events['holds'][-1][1]
-    user.wait(timeout=10)
+    lane.require('RT:585', user.wait(timeout=10) == 128 + signal.SIGTERM, 'unexpected handler exit')
     lane.require('RT:585', (lane.root / 'count').read_text().strip() == '4')
 
 
