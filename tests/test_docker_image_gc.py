@@ -1567,7 +1567,12 @@ class ActivationTests(Base):
 
         def tracking_open(path, *args, **kwargs):
             opened.append(str(path))
-            return real_open(path, *args, **kwargs)
+            fd = real_open(path, *args, **kwargs)
+            if str(path) == self.gc.SWITCH_LOCK:
+                # The lock-taking mutant deliberately retains this descriptor.
+                # Release it even when the behavioural assertion fails.
+                self.addCleanup(os.close, fd)
+            return fd
 
         with mock.patch.object(self.gc.os, "open", tracking_open):
             rc, out, err = run(self.gc, self.api())
@@ -5989,6 +5994,7 @@ class Isolation12eRegressionTests(unittest.TestCase):
         fixture.touch()
         identity = fixture.stat()
         locks = self.root / 'locks'
+        locks.write_text('')
         acquired = []
         native = fcntl.flock
         def lock(fd, flags):
@@ -6040,6 +6046,105 @@ class Isolation12eRegressionTests(unittest.TestCase):
         spawn.assert_not_called()
         self.assertEqual(output.getvalue().count('(setup: unsupported switch-lock filesystem:'), 2)
         self.assertNotIn('ok ', output.getvalue())
+
+
+class Isolation12gRegressionTests(unittest.TestCase):
+    setUp = Isolation9CasePathTests.setUp
+
+    def preflight(self, mode):
+        r = self.r
+        fixture = self.root / 'switch'; fixture.touch(exist_ok=True)
+        locks = self.root / 'locks'
+        native = fcntl.flock
+        with (self.root / 'unrelated').open('w') as holder:
+            native(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            def row(info, ordinal, *, major=None):
+                major = os.major(info.st_dev) if major is None else major
+                return f'{ordinal}: FLOCK ADVISORY WRITE {os.getpid()} {major:x}:{os.minor(info.st_dev):x}:{info.st_ino} 0 EOF\n'
+            unrelated = os.fstat(holder.fileno())
+            locks.write_text(row(unrelated, 1))
+            acquired = []
+            def lock(fd, flags):
+                native(fd, flags)
+                info = os.fstat(fd)
+                self.assertNotEqual(info.st_ino, fixture.stat().st_ino)
+                acquired.append(fd)
+                scratch = row(info, 3, major=os.major(info.st_dev) + (mode == 'device-mismatch'))
+                if mode == 'two-new': scratch += row(info, 4)
+                if mode == 'no-new': scratch = ''
+                # Kernel row ordinals can change between reads; identity cannot
+                # include them. Duplicate new rows must still count separately.
+                locks.write_text(row(unrelated, 2) + scratch)
+            with mock.patch.object(r.fcntl, 'flock', side_effect=lock):
+                try:
+                    r.preflight_switch_filesystem(fixture, locks_path=locks)
+                finally:
+                    self.assertEqual(len(acquired), 1)
+                    self.assertFalse(list(self.root.glob('.ops327-switch-preflight-*')))
+                    with self.assertRaises(OSError): os.fstat(acquired[0])
+
+    def test_unrelated_pid_flock_present_before_and_after_is_ignored(self):
+        self.preflight('match')
+
+    def test_two_new_pid_rows_still_refuse_setup(self):
+        # Each refusal control first admits a valid delta with the same holder;
+        # an unconditional refusal must not pass these fail-closed controls.
+        self.preflight('match')
+        with self.assertRaisesRegex(self.r.EvidenceError, 'missing or ambiguous scratch lock identity'):
+            self.preflight('two-new')
+
+    def test_no_new_pid_row_still_refuses_setup(self):
+        self.preflight('match')
+        with self.assertRaisesRegex(self.r.EvidenceError, 'missing or ambiguous scratch lock identity'):
+            self.preflight('no-new')
+
+    def test_new_row_device_mismatch_still_refuses_setup(self):
+        self.preflight('match')
+        with self.assertRaisesRegex(self.r.EvidenceError, 'scratch lock identity differs from fstat'):
+            self.preflight('device-mismatch')
+
+    def test_in_process_lock_mutant_leaves_no_descriptor_or_pid_flock(self):
+        case = ActivationTests('test_switch_lock_is_never_locked')
+        native_open = os.open
+        opened = []
+        def owned_rows():
+            if not sys.platform.startswith('linux'): return None
+            return sorted(tuple(fields[1:]) for line in Path('/proc/locks').read_text().splitlines()
+                          if len(fields := line.split()) == 8 and fields[1] == 'FLOCK' and fields[4] == str(os.getpid()))
+        def track(path, *args, **kwargs):
+            fd = native_open(path, *args, **kwargs)
+            if str(path) == getattr(getattr(case, 'gc', None), 'SWITCH_LOCK', None):
+                info = os.fstat(fd)
+                opened.append((fd, info.st_dev, info.st_ino))
+            return fd
+        before = owned_rows()
+        retained = []
+        try:
+            with mock.patch.dict(globals(), OVERRIDE=MUTANTS['the GC takes the lock'][0]), \
+                 mock.patch.object(os, 'open', track):
+                result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(unittest.TestSuite([case]))
+            self.assertEqual(result.testsRun, 1)
+            self.assertFalse(result.errors, result.errors)
+            self.assertFalse(result.skipped)
+            self.assertEqual(len(result.failures), 1, 'registered lock-taking mutant must still be caught')
+            self.assertTrue(opened, 'mutant must acquire an actual native descriptor')
+            after = owned_rows()
+        finally:
+            # A red replay must release its own retained descriptors, too.
+            for fd, device, inode in opened:
+                try: info = os.fstat(fd)
+                except OSError: continue
+                if (info.st_dev, info.st_ino) == (device, inode):
+                    retained.append(fd)
+                    os.close(fd)
+        self.assertFalse(retained, 'test cleanup left the mutant switch-lock descriptor open')
+        self.assertEqual(after, before, 'test cleanup left a PID-owned FLOCK')
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux-only: real preflight alongside unrelated PID-owned FLOCK')
+    def test_linux_preflight_with_unrelated_native_flock(self):
+        with (self.root / 'unrelated').open('w') as holder:
+            fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.r.preflight_switch_filesystem(self.root / 'switch')
 
 
 class Isolation12fRegressionTests(unittest.TestCase):

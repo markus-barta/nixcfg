@@ -33,6 +33,7 @@ import subprocess
 import sys
 import time
 import tempfile
+from collections import Counter
 from contextlib import contextmanager, nullcontext
 
 _MONOTONIC = time.monotonic
@@ -1531,24 +1532,31 @@ def preflight_switch_filesystem(switch_lock, *, locks_path='/proc/locks'):
 
     Some filesystems (notably btrfs subvolumes) report a different device in
     procfs than stat. Refuse that setup; it is never a behavioural mutant kill.
+    Exactly one PID-owned FLOCK row must appear after acquiring the scratch
+    lock. Pre-existing rows are unrelated; row ordinals are not identities.
     Stay in the actual fixture directory, and clean up only our scratch file.
     """
-    parent = Path(switch_lock).parent
-    parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=parent, prefix='.ops327-switch-preflight-') as scratch:
-        info = os.fstat(scratch.fileno())
-        fcntl.flock(scratch.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        # Select by our PID and lock kind, independently of expected device or
-        # inode. An extra parent-owned FLOCK makes the identity ambiguous.
+    def pid_rows():
         rows = []
         for line in Path(locks_path).read_text(encoding='ascii').splitlines():
             fields = line.split()
             if len(fields) == 8 and fields[1] == 'FLOCK' and fields[4] == str(os.getpid()):
-                rows.append(fields[5])
+                rows.append(tuple(fields[1:]))
+        return Counter(rows)
+
+    parent = Path(switch_lock).parent
+    parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=parent, prefix='.ops327-switch-preflight-') as scratch:
+        info = os.fstat(scratch.fileno())
+        before = pid_rows()
+        fcntl.flock(scratch.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Select the one newly added PID-owned FLOCK, independently of expected
+        # device or inode. Preserve multiplicity so two new rows stay ambiguous.
+        rows = list((pid_rows() - before).elements())
         expected = (os.major(info.st_dev), os.minor(info.st_dev), info.st_ino)
-        if len(rows) != 1 or re.fullmatch(r'[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9]+', rows[0]) is None:
+        if len(rows) != 1 or re.fullmatch(r'[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9]+', rows[0][4]) is None:
             raise EvidenceError('unsupported switch-lock filesystem: missing or ambiguous scratch lock identity')
-        major, minor, inode = rows[0].split(':')
+        major, minor, inode = rows[0][4].split(':')
         if (int(major, 16), int(minor, 16), int(inode)) != expected:
             raise EvidenceError('unsupported switch-lock filesystem: scratch lock identity differs from fstat')
 
