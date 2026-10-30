@@ -248,6 +248,25 @@ in
         53 # DNS (AdGuard Home)
         67 # DHCP (AdGuard Home - if enabled)
       ];
+      # OPS-506: ts-input accepts tailscale0 before nixos-fw, so block direct
+      # hausnetz HTTP and discovery in raw PREROUTING. Tailnet uses nginx :80;
+      # Docker bridge proxy traffic and discovery on enp2s0f0 remain unaffected.
+      extraCommands = ''
+        iptables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
+          iptables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        iptables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
+          iptables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        ip6tables -t raw -C PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || \
+          ip6tables -t raw -I PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ip6tables -t raw -C PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || \
+          ip6tables -t raw -I PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+      '';
+      extraStopCommands = ''
+        iptables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
+        iptables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
+        ip6tables -t raw -D PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP 2>/dev/null || true
+        ip6tables -t raw -D PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP 2>/dev/null || true
+      '';
     };
   };
 

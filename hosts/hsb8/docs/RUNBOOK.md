@@ -13,8 +13,12 @@
 Own ww87 instance at <http://192.168.1.100/> (LAN) or <http://100.64.0.3/>
 (tailnet); HostDash moves to `/hostdash/`. The site starts empty for manual
 device mapping. `hausnetz-hsb8` is a separate pin, trailing hsb0 by one accepted
-hausnetz release; hsb0 pin bumps do not change this instance. TCP 8377 is open
-only to Docker bridges; nginx permits the LAN and tailnet. AdGuard leases are
+hausnetz release; hsb0 pin bumps do not change this instance. Docker bridges
+can reach TCP 8377. Direct tailnet access to TCP 8377 and discovery UDP 5353/1901
+is dropped in raw PREROUTING, before Tailscale's early accept in `ts-input`;
+tailnet clients use <http://100.64.0.3/> through nginx. The rules cover IPv4 and
+IPv6 without affecting Docker bridges or LAN discovery on `enp2s0f0`.
+Nginx permits the LAN and tailnet. AdGuard leases are
 copied by the module's root unit; passive discovery and Starlink are off.
 The existing Hetzner restic job includes `/var/lib/hausnetz`.
 Offline declaration/proxy/backup check: `python3 -B tests/T118-hausnetz-hsb8.py`.

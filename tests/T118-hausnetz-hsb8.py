@@ -70,6 +70,30 @@ assert declared["composeAfter"] == ["hausnetz.service"]
 assert "/nix/store/hausnetz-hsb8-source-fixture" in declared["sourceDependencies"]
 assert 8377 not in declared["firewall"]["allowedTCPPorts"]
 assert not {5353, 1901}.intersection(declared["firewall"]["allowedUDPPorts"])
+# OPS-506: ts-input accepts tailnet peers before nixos-fw. Require exact,
+# interface-scoped raw rules, idempotent insertion and matching teardown.
+start_commands, stop_commands = [], []
+for binary in ("iptables", "ip6tables"):
+    for ports, comment in (
+        ("-p tcp --dport 8377", "OPS-506-hausnetz-http"),
+        ("-p udp -m multiport --dports 5353,1901", "OPS-506-hausnetz-discovery"),
+    ):
+        rule = (f'PREROUTING -i tailscale0 {ports} '
+                f'-m comment --comment "{comment}" -j DROP')
+        start_commands.append(
+            f"{binary} -t raw -C {rule} 2>/dev/null || "
+            f"{binary} -t raw -I {rule}"
+        )
+        stop_commands.append(f"{binary} -t raw -D {rule} 2>/dev/null || true")
+
+
+def firewall_commands(script):
+    return [" ".join(line.split()) for line in script.replace("\\\n", " ").splitlines()
+            if line.strip()]
+
+
+assert firewall_commands(declared["firewall"]["extraCommands"]) == start_commands
+assert firewall_commands(declared["firewall"]["extraStopCommands"]) == stop_commands
 host_source = Path("hosts/hsb8/configuration.nix").read_text()
 assert 'leasesFile = if enableAdGuard then "/var/lib/AdGuardHome/data/leases.json" else null;' in host_source
 assert "hausnetz_deploy" not in host_source and "hsb8-hausnetz-" not in host_source
@@ -196,4 +220,4 @@ with tempfile.TemporaryDirectory(prefix="ops506-backup-") as directory:
             "/backup/var/lib/hausnetz", "/backup/etc",
         ]
 
-print("OPS-506 offline host, pin, nginx access/proxy and backup contracts: OK")
+print("OPS-506 offline host, pin, tailnet firewall, nginx access/proxy and backup contracts: OK")
