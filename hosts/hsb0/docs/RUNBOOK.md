@@ -403,7 +403,7 @@ no `starlink` option).
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /api/export` (legacy `GET /ops/api/export` redirects) on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets
-(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
+(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf`, `hsb0-home-videos.conf` and `hsb0-home-pharosfleet.conf`) are compose restart
 triggers, so a normal switch recreates `hsb0-home` when any of them changes.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
@@ -506,6 +506,23 @@ dotfiles return 404. Push atomically:
 ```bash
 scp -q index.html mba@100.64.0.6:/var/lib/videos/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/videos/.index.html.tmp /var/lib/videos/index.html'
 ```
+
+### Pharos fleet overview page (OPS-508)
+
+**URL**: http://100.64.0.6/pharosfleet/ (tailnet) or http://hsb0.lan/pharosfleet/ (home). Never public: hsb0 has no port forward.
+
+The Pharos fleet overview: one self-contained `index.html`, regenerated from `fleet.json` in the ops repo.
+Same pattern as the Video overview page: `/var/lib/pharosfleet` (mba, 0755, tmpfiles), mounted
+read-only at `/srv/pharosfleet`, location from `docker/hsb0-home-pharosfleet.conf` through the
+HostDash include point, same headers, dotfiles return 404. From mbp2607, mba publishes atomically
+(scp to `.index.html.tmp`, then mv) by running this in the ops repo:
+
+```bash
+scripts/pharosfleet/publish.sh --apply
+```
+
+**Rollback**: re-run `scripts/pharosfleet/publish.sh --apply` from an earlier ops commit;
+the page is regenerated from that commit's `fleet.json`.
 
 ---
 

@@ -452,6 +452,9 @@
         # OPS-380: the video overview page, same pattern as /inflight/.
         "/var/lib/videos:/srv/videos:ro"
         "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro"
+        # OPS-508: the Pharos fleet overview page, same pattern as /videos/.
+        "/var/lib/pharosfleet:/srv/pharosfleet:ro"
+        "/etc/hsb0-home-pharosfleet.conf:/etc/nginx/hostdash-extra/pharosfleet.conf:ro"
         "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro"
       ];
       labels = [
