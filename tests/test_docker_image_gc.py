@@ -5549,11 +5549,19 @@ class Isolation10TimingTests(unittest.TestCase):
                         with self.assertRaises(r.EvidenceError): channel.validate(proc)
                     channel.persist()
                     channel.persist()
+                    if error is None:
+                        parent_totals = channel.certify_timing()
+                        self.assertEqual(parent_totals[0]['round_trips'], 274)
+                    else:
+                        with self.assertRaisesRegex(r.EvidenceError, 'exceeds 250 ms'):
+                            channel.certify_timing()
+                        parent_totals = None
                 events = json.loads(proc.events.read_text())
                 values = [window['instrumentation_s'] for window in events['timing_windows']]
                 print('OPS327_TIMING_MODEL ' + json.dumps(dict(
                     mode='baseline' if error is None else 'per-record-fsync',
-                    windows_s=values, records=len(channel.state.records), fsyncs=len(syncs))), flush=True)
+                    windows_s=values, parent_windows=parent_totals,
+                    records=len(channel.state.records), fsyncs=len(syncs))), flush=True)
                 return events, error, destructive, syncs
             finally:
                 if channel.thread.is_alive():
@@ -5622,6 +5630,293 @@ class Isolation10TimingTests(unittest.TestCase):
         self.assertIn('(setup: durability unavailable)', output.getvalue())
         self.assertIn(('persist', 'changed', 'second'), trace)
         self.assertLess(trace.index(('close', 'base')), trace.index(('persist', 'base', 'first')))
+
+
+class Isolation11FinalizationTests(unittest.TestCase):
+    setUp = Isolation9EvidenceTests.setUp
+
+    PRODUCER = r'''
+import importlib.util,json,os,sys,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("boundary_rt",sys.argv[1])
+r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
+p=r.EvidencePublisher(int(sys.argv[2]),int(sys.argv[3]),json.loads(sys.argv[4]))
+mode=sys.argv[5];barrier=Path(sys.argv[6]);block=int(sys.argv[7])
+p.send("START");p.send("READY");p.send("PHASE",label="main-entered")
+p.begin_timed_window(time.monotonic())
+p.send("PHASE",label="destructive-phase");p.send("GUARD_BEGIN",id="last")
+native_read=os.read
+def delayed_read(fd,size):
+    result=native_read(fd,size)
+    if fd==p.ack_fd:
+        if mode=="interrupted":
+            barrier.touch();native_read(block,1)
+        else:time.sleep(.300)
+    return result
+native_send=p.send
+def send(kind,**fields):
+    if kind=="RUNTIME_ERROR":
+        # Reproduce the publication race, after ALLOW cleared pending state
+        # and its complete 300 ms RTT was measured but before sticky error.
+        barrier.touch();native_read(block,1)
+    return native_send(kind,**fields)
+if mode!="clean":
+    r.os.read=delayed_read;p.send=send
+p.send("ALLOW",id="last")
+barrier.touch();native_read(block,1)
+'''
+
+    def boundary_run(self, mode):
+        r, lane_type, channels, output = self.r, self.r.Lane, [], io.StringIO()
+        with tempfile.TemporaryDirectory(prefix='ops327-boundary-', dir=REPO) as root:
+            root = Path(root)
+            def factory(args, name, source):
+                lane = object.__new__(lane_type)
+                lane.root = root/name; lane.root.mkdir()
+                lane.source, lane.case = source, 'maximal-hold-r34'
+                lane.processes, lane.engines = [], []
+                lane.stop_plan = r.STOP_PLAN[lane.case]
+                return lane
+            def case(lane):
+                channel = r.WorkerEvidence(lane.root, 'worker', 's', 'm', lane.case)
+                channels.append(channel)
+                block, release = os.pipe()
+                barrier, events = lane.root/'barrier', lane.root/'events.json'
+                process = subprocess.Popen([
+                    sys.executable, '-B', '-c', self.PRODUCER,
+                    str(REPO/'tests/docker-image-gc-realtime.py'), str(channel.send_fd),
+                    str(channel.ack_fd), json.dumps(channel.identity),
+                    'clean' if lane.source == 'base' else mode, str(barrier), str(block)],
+                    pass_fds=(channel.send_fd, channel.ack_fd, block))
+                process.events, process.evidence, process.role = events, channel, 'proc'
+                lane.processes.append(process)
+                channel.attach(process.pid)
+                os.close(block)
+                try:
+                    r.wait_for(barrier.exists, 10, 'publication boundary')
+                    self.assertEqual(channel.state.records[-1]['kind'], 'ALLOW')
+                    self.assertFalse(channel.state.pending)
+                    self.assertFalse(channel.state.fatal)
+                    self.assertFalse(events.exists())
+                    channel.open_window()
+                    if lane.source == 'base':
+                        lane.stop_at('RT:319')
+                    else:
+                        lane.wait_for('RT:319', lambda: False, .01, 'maximal hold')
+                finally:
+                    os.close(release)
+            with mock.patch.object(r, 'Lane', side_effect=factory), \
+                 mock.patch.dict(r.CASES, {'maximal-hold-r34': case}), redirect_stdout(output):
+                result = r.run_checks(None, [('maximal-hold-r34', None, 'base'),
+                                             ('maximal-hold-r34', 'candidate', 'changed')])
+            self.assertTrue(all(channel.journal_synced for channel in channels))
+            self.assertIn('ok maximal-hold-r34\n', output.getvalue())
+            return result, output.getvalue()
+
+    def test_reportless_300ms_allow_at_rt319_cannot_kill_mutant(self):
+        result, output = self.boundary_run('excessive')
+        self.assertEqual(result, 1)
+        self.assertIn('parent timed-window instrumentation exceeds 250 ms', output)
+        self.assertIn('FAIL maximal-hold-r34 [mutant: candidate] (setup:', output)
+
+    def test_reportless_interrupted_ack_cannot_kill_mutant(self):
+        result, output = self.boundary_run('interrupted')
+        self.assertEqual(result, 1)
+        self.assertIn('missing parent timing certification', output)
+
+    def test_reportless_certified_stop_can_kill_mutant(self):
+        result, output = self.boundary_run('clean')
+        self.assertEqual(result, 0)
+        self.assertIn('ok maximal-hold-r34 [mutant: candidate]', output)
+
+    def test_parent_timing_exact_boundary_and_each_window(self):
+        channel = object.__new__(self.r.WorkerEvidence)
+        channel.lock, channel.thread = threading.RLock(), mock.Mock()
+        channel.thread.is_alive.return_value = False
+        channel.errors, channel.timing_pending = [], None
+        channel.eof = threading.Event(); channel.eof.set()
+        channel.state = types.SimpleNamespace(records=[object()])
+        channel.timing_confirmed = 1
+        channel.timing_windows = {1.0: [(1.0, 1.25)]}
+        self.assertEqual(channel.certify_timing()[0]['instrumentation_s'], .250)
+        for windows in ({1.0: [(1.0, 1.250001)]},
+                        {1.0: [(1.0, 1.125)], 2.0: [(2.0, 2.250001)]}):
+            channel.timing_windows = windows
+            with self.assertRaisesRegex(self.r.EvidenceError, 'exceeds 250 ms'):
+                channel.certify_timing()
+        channel.timing_windows = {}
+        self.assertEqual(channel.certify_timing(), [])  # certified pre-hold stop
+        channel.timing_confirmed = 0
+        with self.assertRaisesRegex(self.r.EvidenceError, 'missing parent timing'):
+            channel.certify_timing()
+
+    def collector_failure(self, injection):
+        r, syncs, trace, output = self.r, [], [], io.StringIO()
+        with tempfile.TemporaryDirectory(prefix='ops327-fsync-', dir=REPO) as root:
+            root = Path(root)
+            channel = r.WorkerEvidence(root, 'worker', 's', 'm', 'r29')
+            send, ack = os.dup(channel.send_fd), os.dup(channel.ack_fd)
+            publisher = r.EvidencePublisher(send, ack, channel.identity)
+            native_open, native_write, native_fsync = Path.open, os.write, os.fsync
+            writes = 0
+            def broken_ack(fd, data):
+                nonlocal writes
+                if fd == channel.ack_write:
+                    writes += 1
+                    if writes == 2: raise BrokenPipeError('injected acknowledgement failure')
+                return native_write(fd, data)
+            class ShortJournal:
+                def __init__(self, journal): self.journal, self.writes = journal, 0
+                def __enter__(self): return self
+                def __exit__(self, *args): self.journal.close()
+                def write(self, data):
+                    self.writes += 1
+                    return self.journal.write(data if self.writes == 1 else data[:1])
+            def open_journal(path, *args, **kwargs):
+                journal = native_open(path, *args, **kwargs)
+                return ShortJournal(journal) if path == channel.journal and args == ('xb',) else journal
+            def fsync(fd):
+                self.assertFalse(channel.thread.is_alive(), 'final fsync must follow collector stop')
+                trace.append('fsync'); syncs.append(fd); native_fsync(fd)
+            lane = object.__new__(r.Lane)
+            lane.source, lane.case, lane.engines = 'changed', 'r29', []
+            process = types.SimpleNamespace(events=root/'events.json', evidence=channel, role='proc',
+                                            poll=lambda: -9, returncode=-9, wait=lambda timeout: -9)
+            lane.processes = [process]
+            def case(lane):
+                channel.attach(os.getpid())
+                publisher.send('START')  # one valid appended/acknowledged record
+                if injection == 'malformed':
+                    os.write(send, b'{malformed\n')
+                else:
+                    with self.assertRaises(r.EvidenceError): publisher.send('READY')
+                publisher.close()
+                channel.thread.join(5)
+                self.assertFalse(channel.thread.is_alive())
+                self.assertTrue(channel.errors)
+                raise r.CaseFailure('observed mutant behaviour')
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(r.os, 'fsync', fsync))
+                if injection == 'short': stack.enter_context(mock.patch.object(Path, 'open', open_journal))
+                if injection == 'ack': stack.enter_context(mock.patch.object(r.os, 'write', broken_ack))
+                stack.enter_context(mock.patch.object(r, 'Lane', return_value=lane))
+                stack.enter_context(mock.patch.dict(r.CASES, {'r29': case}))
+                stack.enter_context(redirect_stdout(output))
+                self.assertEqual(r.run_checks(None, [('r29', 'candidate', 'changed')]), 1)
+            self.assertEqual(len(syncs), 1)
+            self.assertTrue(channel.journal_synced)
+            self.assertIn('FAIL r29 [mutant: candidate] (setup:', output.getvalue())
+            self.assertIn('cannot persist an incomplete evidence journal', output.getvalue())
+
+    def test_malformed_collector_frame_still_final_fsync_before_setup_score(self):
+        self.collector_failure('malformed')
+
+    def test_short_collector_append_still_final_fsync_before_setup_score(self):
+        self.collector_failure('short')
+
+    def test_broken_collector_ack_still_final_fsync_before_setup_score(self):
+        self.collector_failure('ack')
+
+    def test_all_scoring_paths_finalize_durability_and_timing_first(self):
+        r, lane_type = self.r, self.r.Lane
+        probe = next(iter(r.REAL_PROBES))
+        # outcome, mutant, failure site, case exception, expected success
+        routes = [
+            ('baseline pass', None, None, None, True),
+            ('baseline assertion', None, None, r.CaseFailure('bound'), False),
+            ('mutant kill', 'candidate', None, r.CaseFailure('bound'), True),
+            ('mutant survives', 'candidate', None, None, False),
+            ('probe killed', probe, None, r.CaseFailure('bound'), True),
+            ('probe survives', probe, None, None, True),
+            ('runtime exception', 'candidate', None, OSError('case failed'), False),
+            ('fixture violation', 'candidate', None, r.h.FixtureViolation('open', '/fixture-outside'), False),
+            ('initial worker validation', 'candidate', 'initial', r.CaseFailure('bound'), False),
+            ('cleanup failure', 'candidate', 'close', r.CaseFailure('bound'), False),
+            ('final worker validation', 'candidate', 'final', r.CaseFailure('bound'), False),
+            ('final fsync failure', 'candidate', 'fsync', r.CaseFailure('bound'), False),
+            ('parent certification failure', 'candidate', 'timing', r.CaseFailure('bound'), False),
+            ('probe fsync failure', probe, 'fsync', r.CaseFailure('bound'), False),
+            ('probe timing failure', probe, 'timing', r.CaseFailure('bound'), False),
+        ]
+        for label, mutant, failure, case_error, success in routes:
+            with self.subTest(route=label):
+                trace, output = [], io.StringIO()
+                def factory(args, name, source):
+                    lane = object.__new__(lane_type)
+                    lane.source, lane.case, lane.processes = source, 'maximal-hold-r34', []
+                    checks = 0
+                    def step(site):
+                        trace.append((source, site))
+                        if source == 'changed' and failure == site: raise r.EvidenceError(site)
+                    def check():
+                        nonlocal checks
+                        checks += 1
+                        step('initial' if checks == 1 else 'final')
+                    lane.check_workers, lane.close = check, lambda: step('close')
+                    channel = types.SimpleNamespace(persist=lambda: step('fsync'),
+                                                    certify_timing=lambda: step('timing') or [])
+                    lane.processes = [types.SimpleNamespace(evidence=channel, role='proc',
+                                                           events=types.SimpleNamespace(exists=lambda: False))]
+                    return lane
+                def case(lane):
+                    if lane.source == 'changed' and case_error is not None: raise case_error
+                classify = r.classify_case
+                def score(*args, **kwargs):
+                    trace.append(('score', args[1]))
+                    return classify(*args, **kwargs)
+                with mock.patch.object(r, 'Lane', side_effect=factory), \
+                     mock.patch.dict(r.CASES, {'maximal-hold-r34': case}), \
+                     mock.patch.object(r, 'classify_case', side_effect=score), redirect_stdout(output):
+                    result = r.run_checks(None, [('maximal-hold-r34', None, 'base'),
+                                                 ('maximal-hold-r34', mutant, 'changed')])
+                self.assertEqual(result, int(not success), output.getvalue())
+                self.assertLess(trace.index(('changed', 'close')), trace.index(('changed', 'fsync')))
+                self.assertLess(trace.index(('changed', 'fsync')), trace.index(('changed', 'timing')))
+                self.assertLess(trace.index(('changed', 'timing')), len(trace)-1)
+                self.assertEqual(trace[-1], ('score', mutant))
+                if failure or isinstance(case_error, (OSError, r.h.FixtureViolation)):
+                    self.assertIn('(setup:', output.getvalue())
+
+    def test_constructor_failure_has_no_worker_journal_to_finalize(self):
+        output = io.StringIO()
+        with mock.patch.object(self.r, 'Lane', side_effect=OSError('fixture construction')), redirect_stdout(output):
+            self.assertEqual(self.r.run_checks(None, [('maximal-hold-r34', None, 'base')]), 1)
+        self.assertIn('(setup: fixture construction)', output.getvalue())
+
+    def test_live_collector_after_cleanup_failure_stops_before_final_fsync(self):
+        r, output, trace = self.r, io.StringIO(), []
+        with tempfile.TemporaryDirectory(prefix='ops327-drain-', dir=REPO) as root:
+            channel = r.WorkerEvidence(root, 'worker', 's', 'm', 'r29')
+            send, ack = os.dup(channel.send_fd), os.dup(channel.ack_fd)
+            publisher = r.EvidencePublisher(send, ack, channel.identity)
+            channel.attach(os.getpid())
+            publisher.send('START')
+            native_join, native_fsync = channel.thread.join, os.fsync
+            def bounded_join(timeout):
+                trace.append(('join', timeout))
+                # Model expiration of the first drain wait; the real collector
+                # must then receive abort and stop during the second join.
+                if timeout != 5: native_join(timeout)
+            def fsync(fd):
+                self.assertFalse(channel.thread.is_alive())
+                trace.append('fsync'); native_fsync(fd)
+            lane = object.__new__(r.Lane)
+            lane.case, lane.processes = 'r29', [types.SimpleNamespace(evidence=channel)]
+            lane.check_workers = lambda: None
+            lane.close = mock.Mock(side_effect=OSError('cleanup could not reap worker'))
+            try:
+                with mock.patch.object(channel.thread, 'join', side_effect=bounded_join), \
+                     mock.patch.object(r.os, 'fsync', side_effect=fsync), \
+                     mock.patch.object(r, 'Lane', return_value=lane), \
+                     mock.patch.dict(r.CASES, {'r29': lambda lane: None}), redirect_stdout(output):
+                    self.assertEqual(r.run_checks(None, [('r29', 'candidate', 'changed')]), 1)
+                self.assertTrue(channel.journal_synced)
+                self.assertTrue(channel.abort.is_set())
+                self.assertEqual(trace, [('join', 5), ('join', 1), 'fsync'])
+                self.assertIn('evidence drain timeout', output.getvalue())
+                self.assertIn('(setup:', output.getvalue())
+            finally:
+                publisher.close(); channel.abort.set(); native_join(2)
 
 
 ALLOW9 = {

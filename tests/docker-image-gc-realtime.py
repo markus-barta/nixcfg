@@ -167,6 +167,14 @@ class EvidencePublisher:
             began = time.monotonic()
             self.sequence += 1
             record = dict(identity=self.identity, pid=os.getpid(), seq=self.sequence, kind=kind, **fields)
+            timed = self.identity.get("case", "").endswith("-r34")
+            if timed:
+                # All processes share the host monotonic clock. The parent
+                # bounds this timestamp by its receipt clock, then measures
+                # through receipt of our acknowledgement confirmation. This
+                # includes send/queue/append/ack latency even without a report.
+                record["_timing"] = dict(started=began, window=(
+                    self.active_window["start"] if self.active_window is not None else None))
             payload = json.dumps(record, separators=(",", ":")).encode() + b"\n"
             if len(payload) > 4096:
                 raise EvidenceError("evidence record exceeds atomic pipe frame")
@@ -175,6 +183,10 @@ class EvidencePublisher:
             if not select.select([self.ack_fd], [], [], 5)[0] or os.read(self.ack_fd, 1) != b"+":
                 raise EvidenceError("missing appended evidence acknowledgement")
             elapsed = time.monotonic() - began
+            if timed:
+                confirmation = json.dumps({"acknowledged": self.sequence}).encode() + b"\n"
+                if os.write(self.send_fd, confirmation) != len(confirmation):
+                    raise EvidenceError("broken evidence acknowledgement confirmation")
             self.ack_count += 1
             self.ack_total_s += elapsed
             self.ack_max_s = max(self.ack_max_s, elapsed)
@@ -239,6 +251,9 @@ class WorkerEvidence:
         self.thread = None
         self.state = None
         self.journal_synced = False
+        self.timing_pending = None
+        self.timing_confirmed = 0
+        self.timing_windows = {}
 
     def attach(self, pid):
         self.state = EvidenceState(self.identity, pid)
@@ -267,6 +282,31 @@ class WorkerEvidence:
                         line, buffer = buffer.split(b"\n", 1)
                         record = json.loads(line, object_pairs_hook=unique_keys)
                         with self.lock:
+                            if self.case.endswith("-r34"):
+                                if self.timing_pending is not None:
+                                    if record != {"acknowledged": self.timing_pending["seq"]}:
+                                        raise EvidenceError("missing evidence acknowledgement confirmation")
+                                    certificate = dict(self.timing_pending, confirmed=time.monotonic())
+                                    payload = json.dumps({"timing_certificate": certificate}).encode() + b"\n"
+                                    if journal.write(payload) != len(payload):
+                                        raise EvidenceError("short timing certificate append")
+                                    window = certificate["window"]
+                                    if window is not None:
+                                        self.timing_windows.setdefault(window, []).append(
+                                            (certificate["started"], certificate["confirmed"]))
+                                    self.timing_confirmed += 1
+                                    self.timing_pending = None
+                                    continue
+                                metadata = record.pop("_timing", None) if isinstance(record, dict) else None
+                                received = time.monotonic()
+                                if (not isinstance(metadata, dict) or set(metadata) != {"started", "window"}
+                                        or type(metadata["started"]) not in (int, float)
+                                        or not 0 <= metadata["started"] <= received
+                                        or (metadata["window"] is not None and (
+                                            type(metadata["window"]) not in (int, float)
+                                            or not 0 <= metadata["window"] <= metadata["started"]))):
+                                    raise EvidenceError("missing or invalid parent timing metadata")
+                                self.timing_pending = dict(metadata, seq=record.get("seq"), received=received)
                             self.state.accept(record)
                             payload = line + b"\n"
                             if journal.write(payload) != len(payload):
@@ -323,13 +363,41 @@ class WorkerEvidence:
         # Only the worker is threatened by SIGKILL. The surviving parent has
         # already appended every acknowledged record in order. Durability is
         # required once, after ALL case windows, before any outcome is scored.
-        if self.journal_synced:
-            return
+        # Invalid streams still need the final durability attempt. Do not let
+        # schema, append, acknowledgement or EOF errors bypass that attempt.
+        # Cleanup/validation may itself have failed before draining a live
+        # collector. Stop it independently so it cannot append after fsync.
+        if self.thread.is_alive():
+            self.thread.join(5)
+            if self.thread.is_alive():
+                self.abort.set()
+                self.thread.join(1)
+        if not self.journal_synced:
+            with self.journal.open("rb") as journal:
+                os.fsync(journal.fileno())
+            self.journal_synced = not self.thread.is_alive()
         if self.thread.is_alive() or self.errors or not self.eof.is_set():
-            raise EvidenceError("cannot persist an incomplete evidence journal")
-        with self.journal.open("rb") as journal:
-            os.fsync(journal.fileno())
-        self.journal_synced = True
+            raise EvidenceError("cannot persist an incomplete evidence journal: " + "; ".join(self.errors))
+
+    def certify_timing(self):
+        """Parent-held, journalled certification is mandatory even after SIGKILL.
+
+        A completed confirmation conservatively bounds the worker's full RTT.
+        A kill before confirmation leaves it pending, never a zero-cost RTT.
+        No observed hold/admission (e.g. a startup stop) certifies zero windows.
+        """
+        with self.lock:
+            if (self.thread.is_alive() or self.errors or not self.eof.is_set()
+                    or self.timing_pending is not None or not self.state.records
+                    or self.timing_confirmed != len(self.state.records)):
+                raise EvidenceError("missing parent timing certification")
+            totals = []
+            for window, intervals in self.timing_windows.items():
+                total = sum(end - start for start, end in intervals)
+                if total > TIMING_INSTRUMENTATION_MAX_S:
+                    raise EvidenceError("parent timed-window instrumentation exceeds 250 ms")
+                totals.append(dict(start=window, instrumentation_s=total, round_trips=len(intervals)))
+            return totals
 
 
 def digest(data):
@@ -1071,14 +1139,16 @@ class Lane:
                 continue
             try:
                 process.evidence.persist()
-                if self.case.endswith('-r34') and process.events.exists():
-                    events = worker_events(process.events)
-                    check_timing_windows(events)
-                    print(f"timing {self.case} {process.role}: "
-                          + json.dumps([{key: value for key, value in window.items() if key != 'round_trips'}
-                                        for window in events['timing_windows']]), flush=True)
             except Exception as exc:
                 errors.append(str(exc))
+            if self.case.endswith('-r34'):
+                try:
+                    totals = process.evidence.certify_timing()
+                    if process.events.exists():
+                        check_timing_windows(worker_events(process.events))
+                    print(f"timing {self.case} {process.role}: " + json.dumps(totals), flush=True)
+                except Exception as exc:
+                    errors.append(str(exc))
         if errors:
             raise EvidenceError('; '.join(errors))
 
