@@ -833,8 +833,8 @@ jobs:
           paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
           require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
-      - name: Read private hsb0 input (OPS-207)
-        if: matrix.host == 'hsb0'
+      - name: Read private hausnetz inputs for hsb0 and hsb8 (OPS-207/OPS-506)
+        if: matrix.host == 'hsb0' || matrix.host == 'hsb8'
         uses: ./.github/actions/hausnetz-input
         with:
           deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}

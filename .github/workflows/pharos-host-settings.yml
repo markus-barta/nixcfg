@@ -112,6 +112,13 @@ jobs:
             git commit -m "pharos: stage $PHAROS_HOST host settings for validation"
           fi
 
+      # Every target host regenerates the hsb8 manifest, which imports the
+      # private hausnetz module; read its inputs unconditionally.
+      - name: Read private hausnetz inputs for every target's hsb8 manifest (OPS-207/OPS-506)
+        uses: ./.github/actions/hausnetz-input
+        with:
+          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
+
       - name: Regenerate and commit declared hsb8 manifest
         run: |
           set -euo pipefail
@@ -125,12 +132,6 @@ jobs:
           if ! git diff --cached --quiet --exit-code; then
             git commit -m 'pharos: regenerate declared hsb8 manifest'
           fi
-
-      - name: Read private hsb0 input (OPS-207)
-        if: inputs.host == 'hsb0'
-        uses: ./.github/actions/hausnetz-input
-        with:
-          deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
 
       - name: Validate schema and target configuration
         run: |

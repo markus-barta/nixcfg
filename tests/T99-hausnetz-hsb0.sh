@@ -238,13 +238,18 @@ for name in workflows:
     if name == 'check':
         jobs = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', text.split('jobs:', 1)[1], re.M | re.S))
         assert 'GH_TOKEN_FOR_UPDATES' not in text
-        assert "if: matrix.host == 'hsb0'\n        uses: ./.github/actions/hausnetz-input" in jobs['check']
+        assert "if: matrix.host == 'hsb0' || matrix.host == 'hsb8'\n        uses: ./.github/actions/hausnetz-input" in jobs['check']
         private_shard, = [name for name, job in jobs.items()
                           if name.startswith('pharos-contracts-') and 'uses: ./.github/actions/hausnetz-input' in job]
         assert "if: steps.pin.outputs.pin_only != 'true'\n        uses: ./.github/actions/hausnetz-input" in jobs[private_shard]
         assert all('hausnetz-input' not in job for name, job in jobs.items() if name not in ('check', private_shard))
     if name == 'pharos-host-settings':
-        assert "if: inputs.host == 'hsb0'\n        uses: ./.github/actions/hausnetz-input" in text
+        steps = re.split(r'^      - ', text, flags=re.M)[1:]
+        key_index, = [i for i, step in enumerate(steps) if 'uses: ./.github/actions/hausnetz-input' in step]
+        assert not re.search(r'^        if:', steps[key_index], re.M), name
+        manifest_index, = [i for i, step in enumerate(steps) if step.startswith('name: Regenerate and commit declared hsb8 manifest\n')]
+        validation_index, = [i for i, step in enumerate(steps) if step.startswith('name: Validate schema and target configuration\n')]
+        assert key_index < manifest_index < validation_index, name
 
 # Only T38 gets the SSH override; later hsb0 evals reuse its stored locked source.
 # The private key is cleaned up in the next step even when T38 fails.

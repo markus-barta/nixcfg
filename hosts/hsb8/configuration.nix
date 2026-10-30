@@ -105,7 +105,12 @@ in
     };
     # seed stays null; Shelly recovery stays inactive (no spare interface).
   };
+  # OPS-506: retain the seeded private source through GC; hsb8 has no deploy key.
+  system.extraDependencies = [ inputs.hausnetz-hsb8 ];
+
   systemd.services.hausnetz.serviceConfig = {
+    # exec delays After= until DynamicUser StateDirectory setup has completed.
+    Type = "exec";
     MemoryMax = "512M";
     CPUQuota = "50%";
     Nice = 10;
@@ -122,6 +127,8 @@ in
     enable = true;
     project = "docker";
     stackName = "hsb8";
+    # Let systemd create /var/lib/hausnetz before Docker's backup bind mount.
+    extraAfter = [ "hausnetz.service" ];
     # 🟢 CUT OVER 2026-08-01 (OPS-123).
     reconcile = true;
     # OPS-53: the restic-cron service builds from ./restic-cron and binds its

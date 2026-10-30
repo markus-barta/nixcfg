@@ -19,6 +19,19 @@ copied by the module's root unit; passive discovery and Starlink are off.
 The existing Hetzner restic job includes `/var/lib/hausnetz`.
 Offline declaration/proxy/backup check: `python3 -B tests/T118-hausnetz-hsb8.py`.
 
+To bump the private source (hsb8 has no deploy key):
+
+1. Bump `hausnetz-hsb8` only to a release hsb0 has already accepted, keeping
+   hsb8 one accepted release behind hsb0. Pin the tagged release merge commit.
+2. On hsb0, identify that pin's source path with `nix flake metadata` and the
+   `flake.lock` narHash, or `nix path-info`. From the workstation, seed it as
+   trusted user `mba`:
+   `nix copy --no-check-sigs --from ssh-ng://mba@hsb0.lan --to ssh-ng://mba@<hsb8 tailnet IP> <source path>`.
+3. Before building on hsb8, check `nix hash path --type sha256 --sri <path>`
+   equals the pin's `narHash` in `flake.lock`, and
+   `nix store verify --sigs-needed 0 <path>` returns 0. The system closure
+   retains this source via `system.extraDependencies` across garbage collection.
+
 ## AdGuard admin rotation (OPS-372)
 
 Desk decision `aafbeaa2` is answered (option 1). OPS runs this procedure under that decision. Keep

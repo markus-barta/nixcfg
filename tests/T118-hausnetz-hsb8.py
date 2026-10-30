@@ -30,6 +30,7 @@ declared = evaluate('''
       lib.mkForce = x: x;
       lib.optionals = condition: values: if condition then values else [];
       inputs.hausnetz-hsb8.nixosModules.default = "hausnetz-hsb8-fixture";
+      inputs.hausnetz-hsb8.outPath = "/nix/store/hausnetz-hsb8-source-fixture";
       inputs.inspr-modules.nixosModules.ssh-authorized = "ssh-fixture";
       config = {};
     };
@@ -38,6 +39,8 @@ declared = evaluate('''
     imports = map toString host.imports;
     service = host.services.hausnetz;
     limits = host.systemd.services.hausnetz.serviceConfig;
+    composeAfter = host.nixcfg.composeStack.extraAfter;
+    sourceDependencies = map toString host.system.extraDependencies;
     firewall = host.networking.firewall;
     frontPage = toString host.environment.etc."hostdash-nginx.conf".source;
     proxy = toString host.environment.etc."hsb8-home-hausnetz.conf".source;
@@ -62,7 +65,9 @@ assert service == {
         "leasesFile": "/var/lib/AdGuardHome/data/leases.json",
     },
 }
-assert declared["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
+assert declared["limits"] == {"Type": "exec", "MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
+assert declared["composeAfter"] == ["hausnetz.service"]
+assert "/nix/store/hausnetz-hsb8-source-fixture" in declared["sourceDependencies"]
 assert 8377 not in declared["firewall"]["allowedTCPPorts"]
 assert not {5353, 1901}.intersection(declared["firewall"]["allowedUDPPorts"])
 host_source = Path("hosts/hsb8/configuration.nix").read_text()
@@ -99,6 +104,34 @@ for path in (".github/workflows/update-flake-lock.yml", "scripts/prepare-pharos-
     selected = subprocess.check_output(["jq", "-r", selector], input=json.dumps(lock), text=True).split()
     assert "hausnetz" not in selected and "hausnetz-hsb8" not in selected
     assert "nixpkgs" in selected
+
+# Host checks need the key for hsb0/hsb8; settings always evaluates hsb8.
+for workflow, condition in (
+    ("check", "matrix.host == 'hsb0' || matrix.host == 'hsb8'"),
+    ("pharos-host-settings", None),
+):
+    text = Path(f".github/workflows/{workflow}.yml").read_text()
+    steps = re.split(r"^      - ", text, flags=re.M)[1:]
+    # check.yml also has a separate key step for the private contract shard.
+    key_step, = [step for step in steps
+                 if step.startswith("name: Read private hausnetz inputs ")
+                 and "uses: ./.github/actions/hausnetz-input\n" in step]
+    if condition is None:
+        assert not re.search(r"^        if:", key_step, re.M), workflow
+    else:
+        assert f"        if: {condition}\n" in key_step, workflow
+    evaluation = ("      - name: Run nix eval for" if workflow == "check" else
+                  "      - name: Regenerate and commit declared hsb8 manifest")
+    assert text.index(key_step) < text.index(evaluation), workflow
+    if workflow == "pharos-host-settings":
+        assert text.index(evaluation) < text.index("      - name: Validate schema and target configuration"), workflow
+
+# These fleet-wide evaluations already install the key unconditionally.
+for workflow in ("pharos-host-removal", "pharos-system-update"):
+    text = Path(f".github/workflows/{workflow}.yml").read_text()
+    steps = re.split(r"^      - ", text, flags=re.M)[1:]
+    key_step, = [step for step in steps if "uses: ./.github/actions/hausnetz-input" in step]
+    assert not re.search(r"^        if:", key_step, re.M), workflow
 
 front = Path(declared["frontPage"]).read_text()
 proxy = Path(declared["proxy"]).read_text()
