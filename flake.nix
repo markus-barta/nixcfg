@@ -62,6 +62,12 @@
       url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=23c5b4581a3909db1749fb66fd201665d5099645";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # OPS-506: hsb8 trails hsb0 by one accepted hausnetz release (HNET 2026-10-30).
+    # Separate pin: hsb0 pin bumps must not change hsb8 (initially HNET pin 54).
+    hausnetz-hsb8 = {
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=23c5b4581a3909db1749fb66fd201665d5099645";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     janus = {
       url = "github:inspr-at/janus/rust-engine-v0.1.17";
       inputs.nixpkgs.follows = "nixpkgs";

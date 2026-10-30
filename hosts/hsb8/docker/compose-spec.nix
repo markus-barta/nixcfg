@@ -98,13 +98,13 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
-    # hsb8-home — HostDash service landing page for this host. Static HTML/CSS/JS
-    # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
-    # read-only from /etc.
+    # OPS-506: hausnetz front page with HostDash under /hostdash/; both served
+    # by nginx on :80 using read-only configuration mounted from /etc.
     hsb8-home = {
       image = "nginx:alpine";
       container_name = "hsb8-home";
       restart = "unless-stopped";
+      extra_hosts = [ "host.docker.internal:host-gateway" ];
       ports = [
         "80:80"
       ];
@@ -113,6 +113,8 @@
       ];
       volumes = [
         "/etc/hostdash/hsb8/share/hostdash-hsb8:/usr/share/nginx/html:ro"
+        "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+        "/etc/hsb8-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=true"
@@ -160,7 +162,7 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
-    # OPS-53: off-box restic backups (HA config + mosquitto + /etc) to the
+    # OPS-53/506: off-box restic backups (HA config + mosquitto + hausnetz + /etc) to the
     # shared Hetzner storagebox, per-host subpath /hsb8. Reporting is the
     # Pharos status-file dead-man's-switch — NO mail on family servers
     # (OPS-137 architecture decision). Mirrors hsb0 (PR #213/#214 generation).
@@ -172,6 +174,7 @@
         "/etc/localtime:/etc/localtime:ro"
         "/srv/hsb8/mounts/homeassistant:/backup/srv/hsb8/mounts/homeassistant:ro"
         "/srv/hsb8/mounts/mosquitto:/backup/srv/hsb8/mounts/mosquitto:ro"
+        "/var/lib/hausnetz:/backup/var/lib/hausnetz:ro"
         "/etc:/backup/etc:ro"
         "/run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro"
         "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"

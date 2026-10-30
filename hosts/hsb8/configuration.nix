@@ -63,6 +63,7 @@ in
 {
   imports = [
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
+    inputs.hausnetz-hsb8.nixosModules.default # OPS-506 — independent ww87 instance and pin
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
@@ -81,6 +82,121 @@ in
     ../../modules/pharos-guarded-deploy
   ];
 
+  # OPS-506: own empty site; hsb8-home alone proxies TCP 8377 from Docker.
+  # Options verified at hausnetz@23c5b458 nix/module.nix. The leases default
+  # tests allowDHCP, but this host enables DHCP in AdGuard's settings instead.
+  # Explicitly select its runtime file at ww87: the module's root copy unit
+  # exposes only /run/hausnetz-leases/leases.json (0640) to hausnetz.
+  services.hausnetz = {
+    enable = true;
+    listen = "0.0.0.0:8377";
+    hostdashSources."hsb8" = "http://192.168.1.100/";
+    firewallInterfaces = [
+      "br-+"
+      "docker0"
+    ];
+    starlink = false; # ww87 uses DSL via Fritz!Box; no dish.
+    discovery = {
+      openFirewallMdns = true;
+      openFirewallSsdp = true;
+      mdnsInterfaces = [ "enp2s0f0" ];
+      leasesFile = if enableAdGuard then "/var/lib/AdGuardHome/data/leases.json" else null;
+      # passive stays off (not approved); webCheck keeps its on default.
+    };
+    # seed stays null; Shelly recovery stays inactive (no spare interface).
+  };
+  # OPS-506: retain the seeded private source through GC; hsb8 has no deploy key.
+  system.extraDependencies = [ inputs.hausnetz-hsb8 ];
+
+  # OPS-506: ts-input accepts tailscale0 before nixos-fw, so block direct
+  # hausnetz HTTP and discovery in raw PREROUTING. Tailnet uses nginx :80;
+  # Docker bridge proxy traffic and discovery on enp2s0f0 remain unaffected.
+  # Own these rules independently of firewall reloads: NixOS only manages its
+  # own chains and extraCommands, Tailscale its ts-* chains in filter/nat, and
+  # Docker its per-container rules; none flushes raw PREROUTING.
+  systemd.services.hausnetz-tailnet-guard = {
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-pre.target" ];
+    before = [ "hausnetz.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "hausnetz-tailnet-guard-start" ''
+        set -eu
+        ensure_rule() {
+          local command="$1" rc
+          shift
+          if "$command" -w 30 -t raw -C "$@"; then
+            return 0
+          else
+            rc=$?
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "hausnetz-tailnet-guard: $command -C failed (exit $rc): $*" >&2
+            exit "$rc"
+          fi
+          if "$command" -w 30 -t raw -I "$@"; then
+            return 0
+          else
+            rc=$?
+            echo "hausnetz-tailnet-guard: $command -I failed (exit $rc): $*" >&2
+            exit "$rc"
+          fi
+        }
+        ensure_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ensure_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        ensure_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        ensure_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+      '';
+      ExecStop = pkgs.writeShellScript "hausnetz-tailnet-guard-stop" ''
+        set -eu
+        remove_rule() {
+          local command="$1" rc attempt
+          shift
+          # Delete at most ten copies, then check once more for completion.
+          for attempt in {0..10}; do
+            if "$command" -w 30 -t raw -C "$@"; then
+              :
+            else
+              rc=$?
+              if [ "$rc" -eq 1 ]; then
+                return 0
+              fi
+              echo "hausnetz-tailnet-guard: $command -C failed (exit $rc): $*" >&2
+              exit "$rc"
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo "hausnetz-tailnet-guard: cleanup limit reached (10 deletions): $command $*" >&2
+              exit 1
+            fi
+            if "$command" -w 30 -t raw -D "$@"; then
+              :
+            else
+              rc=$?
+              echo "hausnetz-tailnet-guard: $command -D failed (exit $rc): $*" >&2
+              exit "$rc"
+            fi
+          done
+        }
+        remove_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        remove_rule ${pkgs.iptables}/bin/iptables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+        remove_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p tcp --dport 8377 -m comment --comment "OPS-506-hausnetz-http" -j DROP
+        remove_rule ${pkgs.iptables}/bin/ip6tables PREROUTING -i tailscale0 -p udp -m multiport --dports 5353,1901 -m comment --comment "OPS-506-hausnetz-discovery" -j DROP
+      '';
+    };
+  };
+  systemd.services.hausnetz = {
+    requires = [ "hausnetz-tailnet-guard.service" ];
+    after = [ "hausnetz-tailnet-guard.service" ];
+    serviceConfig = {
+      # exec delays After= until DynamicUser StateDirectory setup has completed.
+      Type = "exec";
+      MemoryMax = "512M";
+      CPUQuota = "50%";
+      Nice = 10;
+    };
+  };
+
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
   # 🟡 reconcile = false while this host is prepared: the spec lands in /etc and
@@ -92,6 +208,8 @@ in
     enable = true;
     project = "docker";
     stackName = "hsb8";
+    # Let systemd create /var/lib/hausnetz before Docker's backup bind mount.
+    extraAfter = [ "hausnetz.service" ];
     # 🟢 CUT OVER 2026-08-01 (OPS-123).
     reconcile = true;
     # OPS-53: the restic-cron service builds from ./restic-cron and binds its
@@ -99,7 +217,11 @@ in
     # /nix/store compose-file dir ("path /nix/store/restic-cron not found").
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb8/docker";
     postRecreate = [ "hsb8-home" ];
-    extraRestartTriggers = [ hostdashHsb8 ];
+    extraRestartTriggers = [
+      hostdashHsb8
+      ./docker/front-page-nginx.conf
+      ./docker/hsb8-home-hausnetz.conf
+    ];
     # Safe HERE: all 5 project-docker containers are declared in the spec
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
@@ -749,6 +871,9 @@ in
   # (OPS-116/123), same pattern as hsb1/hsb9/hsb0.
 
   environment.etc."hostdash/hsb8".source = hostdashHsb8;
+  # OPS-506: hausnetz at /, HostDash at /hostdash/; no runtime status producer here.
+  environment.etc."hostdash-nginx.conf".source = lib.mkForce ./docker/front-page-nginx.conf;
+  environment.etc."hsb8-home-hausnetz.conf".source = ./docker/hsb8-home-hausnetz.conf;
 
   services.hostdash.manifest = {
     enable = true;

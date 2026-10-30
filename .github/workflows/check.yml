@@ -232,6 +232,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T99-hausnetz-hsb0.sh
 
+      - name: Verify hsb8 hausnetz isolation, proxy and backup (OPS-506)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 -B tests/T118-hausnetz-hsb8.py
+
   pharos-contracts-2:
     name: Pharos contract suite — shard 2/4
     runs-on: ubuntu-latest
@@ -829,8 +833,8 @@ jobs:
           paimos-legacy-key: ${{ secrets.PAIMOS_LEGACY_DEPLOY_KEY }}
           require-keys: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
-      - name: Read private hsb0 input (OPS-207)
-        if: matrix.host == 'hsb0'
+      - name: Read private hausnetz inputs for hsb0 and hsb8 (OPS-207/OPS-506)
+        if: matrix.host == 'hsb0' || matrix.host == 'hsb8'
         uses: ./.github/actions/hausnetz-input
         with:
           deploy-key: ${{ secrets.HAUSNETZ_DEPLOY_KEY }}
