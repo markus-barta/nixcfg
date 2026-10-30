@@ -63,6 +63,7 @@ in
 {
   imports = [
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
+    inputs.hausnetz-hsb8.nixosModules.default # OPS-506 — independent ww87 instance and pin
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
@@ -80,6 +81,35 @@ in
     ../../modules/shared/ssh-authorized-nixos.nix
     ../../modules/pharos-guarded-deploy
   ];
+
+  # OPS-506: own empty site; hsb8-home alone proxies TCP 8377 from Docker.
+  # Options verified at hausnetz@23c5b458 nix/module.nix. The leases default
+  # tests allowDHCP, but this host enables DHCP in AdGuard's settings instead.
+  # Explicitly select its runtime file at ww87: the module's root copy unit
+  # exposes only /run/hausnetz-leases/leases.json (0640) to hausnetz.
+  services.hausnetz = {
+    enable = true;
+    listen = "0.0.0.0:8377";
+    hostdashSources."hsb8" = "http://192.168.1.100/";
+    firewallInterfaces = [
+      "br-+"
+      "docker0"
+    ];
+    starlink = false; # ww87 uses DSL via Fritz!Box; no dish.
+    discovery = {
+      openFirewallMdns = true;
+      openFirewallSsdp = true;
+      mdnsInterfaces = [ "enp2s0f0" ];
+      leasesFile = if enableAdGuard then "/var/lib/AdGuardHome/data/leases.json" else null;
+      # passive stays off (not approved); webCheck keeps its on default.
+    };
+    # seed stays null; Shelly recovery stays inactive (no spare interface).
+  };
+  systemd.services.hausnetz.serviceConfig = {
+    MemoryMax = "512M";
+    CPUQuota = "50%";
+    Nice = 10;
+  };
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
@@ -99,7 +129,11 @@ in
     # /nix/store compose-file dir ("path /nix/store/restic-cron not found").
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb8/docker";
     postRecreate = [ "hsb8-home" ];
-    extraRestartTriggers = [ hostdashHsb8 ];
+    extraRestartTriggers = [
+      hostdashHsb8
+      ./docker/front-page-nginx.conf
+      ./docker/hsb8-home-hausnetz.conf
+    ];
     # Safe HERE: all 5 project-docker containers are declared in the spec
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
@@ -749,6 +783,9 @@ in
   # (OPS-116/123), same pattern as hsb1/hsb9/hsb0.
 
   environment.etc."hostdash/hsb8".source = hostdashHsb8;
+  # OPS-506: hausnetz at /, HostDash at /hostdash/; no runtime status producer here.
+  environment.etc."hostdash-nginx.conf".source = lib.mkForce ./docker/front-page-nginx.conf;
+  environment.etc."hsb8-home-hausnetz.conf".source = ./docker/hsb8-home-hausnetz.conf;
 
   services.hostdash.manifest = {
     enable = true;

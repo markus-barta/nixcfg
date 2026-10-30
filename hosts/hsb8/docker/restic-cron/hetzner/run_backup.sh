@@ -104,7 +104,8 @@ trap 'rm -f "$message_file"' EXIT
 echo 'Starting hsb8 backup.'
 "$RESTIC_BIN" backup --host hsb8 \
   --exclude '*/cache/*' --exclude '*.log*' \
-  /backup/srv/hsb8/mounts/homeassistant /backup/srv/hsb8/mounts/mosquitto /backup/etc \
+  /backup/srv/hsb8/mounts/homeassistant /backup/srv/hsb8/mounts/mosquitto \
+  /backup/var/lib/hausnetz /backup/etc \
   >"$message_file" 2>&1
 restic_status="$?"
 

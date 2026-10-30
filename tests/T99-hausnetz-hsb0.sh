@@ -205,7 +205,7 @@ for location in (app, archive):
                       'proxy_cache off;', 'proxy_hide_header Cache-Control;',
                       'add_header Cache-Control "no-store" always;'):
         assert directive in location, directive
-vhost_path, = Path('hosts').glob('*/docker/front-page-nginx.conf')
+vhost_path = Path('hosts/hsb0/docker/front-page-nginx.conf')
 vhost = vhost_path.read_text()
 for route in ('/hostdash/', '/hostdash/status/', '/status/', '= /config.js', '= /manifest.json'):
     assert 'location ' + route in vhost
@@ -354,7 +354,7 @@ printf '%s\\n' "$*" >> "$WARMER_REALISED"
     assert '/nix/store/fixture-substitute' in (root / 'realised').read_text()
 
 # Run the selection expression from each real update path against a lock fixture.
-fixture = {"root": "root", "nodes": {"root": {"inputs": {"nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "home-manager": "hm", "alias": ["nixpkgs"]}}}}
+fixture = {"root": "root", "nodes": {"root": {"inputs": {"nixpkgs": "nixpkgs", "hausnetz": "hausnetz", "hausnetz-hsb8": "hausnetz-hsb8", "home-manager": "hm", "alias": ["nixpkgs"]}}}}
 for path in ('.github/workflows/update-flake-lock.yml', 'scripts/prepare-pharos-system-update.sh'):
     text = Path(path).read_text()
     expression = re.search(r"jq -r '([^']+)' flake.lock", text)[1]

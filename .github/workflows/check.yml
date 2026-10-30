@@ -232,6 +232,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T99-hausnetz-hsb0.sh
 
+      - name: Verify hsb8 hausnetz isolation, proxy and backup (OPS-506)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 -B tests/T118-hausnetz-hsb8.py
+
   pharos-contracts-2:
     name: Pharos contract suite — shard 2/4
     runs-on: ubuntu-latest

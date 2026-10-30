@@ -8,6 +8,17 @@
 
 ---
 
+## hausnetz (OPS-506)
+
+Own ww87 instance at <http://192.168.1.100/> (LAN) or <http://100.64.0.3/>
+(tailnet); HostDash moves to `/hostdash/`. The site starts empty for manual
+device mapping. `hausnetz-hsb8` is a separate pin, trailing hsb0 by one accepted
+hausnetz release; hsb0 pin bumps do not change this instance. TCP 8377 is open
+only to Docker bridges; nginx permits the LAN and tailnet. AdGuard leases are
+copied by the module's root unit; passive discovery and Starlink are off.
+The existing Hetzner restic job includes `/var/lib/hausnetz`.
+Offline declaration/proxy/backup check: `python3 -B tests/T118-hausnetz-hsb8.py`.
+
 ## AdGuard admin rotation (OPS-372)
 
 Desk decision `aafbeaa2` is answered (option 1). OPS runs this procedure under that decision. Keep

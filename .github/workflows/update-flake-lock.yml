@@ -24,12 +24,12 @@ jobs:
           require-keys: "true"
 
       - name: Select automatically updated inputs (OPS-207)
-        # No hsb0 evaluation: hausnetz needs no key. Release-pinned Paimos
+        # OPS-506: both hausnetz pins stay fixed and need no key here. Release-pinned Paimos
         # inputs stay fixed; prefetch warms their exact NARs but cannot authorize
         # resolving new private tags. GH_TOKEN_FOR_UPDATES manages only the PR.
         id: inputs
         run: |
-          inputs=$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and .key != "aeon" and .key != "paimos" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)
+          inputs=$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and .key != "hausnetz-hsb8" and .key != "aeon" and .key != "paimos" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)
           test -n "$inputs"
           echo "inputs=$inputs" >> "$GITHUB_OUTPUT"
       - name: Update flake.lock
