@@ -30,6 +30,19 @@ let
     };
   images = map mkImage (lib.range 1 8);
   entry = pkgs.writeShellScriptBin "ops327-vm" ''
+    # Backdoor shells and systemd units must resolve the same fixture tools.
+    # Include this wrapper's directory for the HausV shell's ops327-vm calls.
+    export PATH="${
+      lib.makeBinPath [
+        pkgs.bash
+        pkgs.coreutils
+        pkgs.curl
+        pkgs.docker
+        pkgs.python3
+        pkgs.systemd
+        pkgs.util-linux
+      ]
+    }:''${0%/*}:$PATH"
     exec ${pkgs.python3}/bin/python3 /etc/ops327/support.py "$@"
   '';
 in
