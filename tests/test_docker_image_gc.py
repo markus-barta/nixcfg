@@ -5391,6 +5391,103 @@ class Isolation9CasePathTests(unittest.TestCase):
 
 
 
+def validate_switch_observation_surface(source):
+    """Closed observation surface, following every reachable local helper.
+
+    Lane's declared Engine/start/require/finish controls and the runtime audit
+    boundary are explicit capabilities. They are not observation helpers.
+    Unknown calls (including aliases, computed callees and process execution)
+    fail closed. Helpers may use only the same read/parse primitives.
+    """
+    tree = ast.parse(source)
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    observer = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SwitchLockObserver')
+    methods = {n.name: n for n in observer.body if isinstance(n, ast.FunctionDef)}
+    primitive = {'Path', 'dict', 'int', 'len', 'max', 'min', 'range', 'set', 'str', 'EvidenceError',
+                 'os.stat', 'os.major', 'os.minor', 're.fullmatch', 'json.dumps', 'time.monotonic', 'time.sleep'}
+    case_calls = {'SwitchObservationGuard', 'audit.create_fixture', 'audit.worker_launch',
+                  'lane.engine', 'lane.start', 'lane.require', 'lane.finish',
+                  'SwitchLockObserver', 'observer.sample', 'engine.sent.wait'}
+    reader_calls = {'seen.add', 'holders.append', 'line.split', 'fields.pop', 'fields[5].split',
+                    'self.locks_path.read_text', "self.locks_path.read_text(encoding='ascii').splitlines",
+                    "(self.proc_path / str(pid) / 'stat').read_text",
+                    "(self.proc_path / str(pid) / 'stat').read_text().rpartition",
+                    "(self.proc_path / str(pid) / 'stat').read_text().rpartition(')')[2].split"}
+    protected = {v.split('.')[0] for v in primitive | case_calls} | set(functions)
+    imports = {'os': 'import os', 're': 'import re', 'json': 'import json', 'time': 'import time',
+               'Path': 'from pathlib import Path'}
+    builtins = {'dict', 'int', 'len', 'max', 'min', 'range', 'set', 'str'}
+    for top in tree.body:
+        # A syntactically approved call is resolved only while its module or
+        # builtin binding is canonical. Module-level aliases cannot replace it.
+        if isinstance(top, (ast.FunctionDef, ast.ClassDef)):
+            assert top.name not in imports.keys() | builtins, 'rebound observation global: ' + top.name
+            continue
+        for binding in ast.walk(top):
+            if isinstance(binding, (ast.Import, ast.ImportFrom)):
+                for alias in binding.names:
+                    name = alias.asname or alias.name.split('.')[0]
+                    if name in imports:
+                        assert ast.unparse(binding) == imports[name], 'rebound observation import: ' + name
+                    assert name not in protected or name in imports, 'rebound observation import: ' + name
+            if isinstance(binding, (ast.Name, ast.Attribute)) and isinstance(binding.ctx, ast.Store):
+                root = ast.unparse(binding).split('.')[0]
+                assert root not in protected, 'rebound observation global: ' + root
+    visited = set()
+    def visit(node, role):
+        if id(node) in visited:
+            return
+        visited.add(id(node))
+        for child in ast.walk(node):
+            if isinstance(child, (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal, ast.Lambda)):
+                raise AssertionError('unresolved observation binding: ' + ast.unparse(child))
+            if isinstance(child, ast.arg) and child.arg in protected and not (role == 'case' and child.arg == 'lane'):
+                raise AssertionError('shadowed observation capability: ' + child.arg)
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id in protected:
+                # These locals are bound only to their declared capabilities.
+                if child.id not in ('observer', 'audit', 'engine'):
+                    raise AssertionError('rebound observation capability: ' + child.id)
+            if isinstance(child, ast.Attribute) and isinstance(child.ctx, ast.Store) and ast.unparse(child).split('.')[0] in protected:
+                raise AssertionError('rebound observation attribute: ' + ast.unparse(child))
+            if not isinstance(child, ast.Call):
+                continue
+            call = ast.unparse(child.func)
+            if call in primitive or (role == 'case' and call in case_calls) or (role == 'observer' and call in reader_calls):
+                continue
+            if isinstance(child.func, ast.Name) and call in functions:
+                visit(functions[call], 'helper')
+            elif role == 'observer' and call.startswith('self.') and call[5:] in methods:
+                visit(methods[call[5:]], 'observer')
+            else:
+                raise AssertionError('unresolved or forbidden observation call: ' + call)
+    case = functions['never_switch_lock']
+    visit(case, 'case')
+    for method in methods.values():
+        visit(method, 'observer')
+    # The audit covers the whole case. Fixture creation is consumed exactly
+    # once, before the sole declared launch. No helper receives its capability.
+    assert len(case.body) == 1 and isinstance(case.body[0], ast.With), 'case escaped parent audit'
+    scope = case.body[0]
+    assert ast.unparse(scope.items[0].context_expr) == "SwitchObservationGuard(lane.paths['SWITCH_LOCK'])"
+    assert ast.unparse(scope.items[0].optional_vars) == 'audit'
+    assert ast.unparse(scope.body[0]) == 'audit.create_fixture()'
+    assert ast.unparse(scope.body[1]) == 'engine = lane.engine(delay=5)'
+    launch = scope.body[2]
+    assert isinstance(launch, ast.With) and ast.unparse(launch.items[0].context_expr) == 'audit.worker_launch()'
+    assert len(launch.body) == 1 and ast.unparse(launch.body[0]) == "proc = lane.start({'RUN_BUDGET_S': 55})"
+    assert ast.unparse(scope.body[3]) == "observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)"
+    calls = [n for n in ast.walk(case) if isinstance(n, ast.Call)]
+    for name in ('audit.create_fixture', 'audit.worker_launch', 'lane.start', 'SwitchLockObserver'):
+        assert sum(ast.unparse(n.func) == name for n in calls) == 1, 'repeated fixture/launch capability'
+    for name in ('audit', 'engine', 'observer'):
+        assert sum(isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == name
+                   for n in ast.walk(case)) == 1, 'rebound observation local: ' + name
+    for call in calls:
+        if ast.unparse(call.func) not in case_calls:
+            assert not any(isinstance(arg, ast.Name) and arg.id in ('audit', 'lane', 'observer')
+                           for arg in call.args), 'observation capability escaped to a helper'
+
+
 class Isolation12dRegressionTests(unittest.TestCase):
     setUp = Isolation9CasePathTests.setUp
 
@@ -5447,23 +5544,7 @@ class Isolation12dRegressionTests(unittest.TestCase):
 
     def test_static_observer_has_no_locking_or_production_dependencies(self):
         # Bind to the loaded code filename, including the old-source replay.
-        tree = ast.parse(Path(self.r.never_switch_lock.__code__.co_filename).read_text())
-        case = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'never_switch_lock')
-        self.assertFalse([n for n in ast.walk(case) if isinstance(n, ast.Constant)
-                          and isinstance(n.value, str) and n.value in ('flock', 'lockf')],
-                         'never-switch-lock observer launches a locking command')
-        self.assertTrue(hasattr(self.r, 'SwitchLockObserver'), 'missing passive observer')
-        observer = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SwitchLockObserver')
-        calls = [n for root in (case, observer) for n in ast.walk(root) if isinstance(n, ast.Call)]
-        self.assertFalse([n for n in calls if isinstance(n.func, ast.Attribute) and n.func.attr in ('flock', 'lockf', 'open')])
-        self.assertFalse([n for root in (case, observer) for n in ast.walk(root)
-                          if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value in ('flock', 'lockf')])
-        self.assertFalse([n for n in ast.walk(observer) if isinstance(n, (ast.Import, ast.ImportFrom))])
-        self.assertFalse([n for n in ast.walk(observer) if isinstance(n, ast.Name) and n.id in ('h', 'gc', 'fcntl', 'subprocess', 'switch_lock_used')])
-        # Fixture creation is the sole write and precedes launch; observer
-        # construction/sampling can only stat/read, never open the lock inode.
-        self.assertEqual(sum(isinstance(n.func, ast.Attribute) and n.func.attr == 'touch' for n in calls), 1)
-        self.assertIn('SwitchLockObserver', {n.name for n in tree.body if isinstance(n, ast.ClassDef)})
+        validate_switch_observation_surface(Path(self.r.never_switch_lock.__code__.co_filename).read_text())
 
     @staticmethod
     def worker(root, send, ack, identity, mutant, real_proc):
@@ -5665,6 +5746,228 @@ class Isolation12dRegressionTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux-only: baseline production activation checks and real /proc/locks')
     def test_linux_passive_baseline_real_proc_locks(self):
         self.process_case(real_proc=True)
+
+
+class Isolation12eRegressionTests(unittest.TestCase):
+    setUp = Isolation9CasePathTests.setUp
+
+    def static_guard(self, source):
+        # Exercise the actual static regression, including its old-revision
+        # implementation in the red replay. No new checker substitutes for it.
+        path = self.root / 'static-source.py'
+        path.write_text(source)
+        tree = ast.parse(source)
+        case = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'never_switch_lock')
+        namespace = {}
+        exec(compile(ast.Module([case], []), str(path), 'exec'), namespace)
+        fixture = Isolation12dRegressionTests('test_static_observer_has_no_locking_or_production_dependencies')
+        fixture.r = types.SimpleNamespace(never_switch_lock=namespace['never_switch_lock'], SwitchLockObserver=object)
+        fixture.test_static_observer_has_no_locking_or_production_dependencies()
+
+    def test_static_guard_follows_helper_to_native_lock(self):
+        source = Path(self.r.__file__).read_text()
+        self.static_guard(source)
+        helper = '\nimport fcntl\n\ndef hidden_probe(path):\n    fd = os.open(path, os.O_RDONLY)\n    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n    os.close(fd)\n'
+        for anchor, injection in (
+            ('until = time.monotonic() + 55', "hidden_probe(lane.paths['SWITCH_LOCK'])"),
+            ('        holders = []', '        hidden_probe(self.locks_path)'),
+        ):
+            with self.subTest(anchor=anchor):
+                line = next(line for line in source.splitlines() if anchor in line)
+                injected = ' ' * (len(line) - len(line.lstrip())) + injection.lstrip() + '\n' + line
+                variant = source.replace(line, injected, 1)
+                self.static_guard(variant + '\ndef hidden_probe(path):\n    return os.stat(path)\n')
+                with self.assertRaisesRegex(AssertionError, 'observation call: os.open'):
+                    self.static_guard(variant + helper)
+
+    def test_static_guard_rejects_computed_subprocess_argv(self):
+        source = Path(self.r.__file__).read_text()
+        self.static_guard(source)
+        for target, fixture in (('engine = lane.engine(delay=5)', "lane.paths['SWITCH_LOCK']"),
+                                ('holders = []', 'self.locks_path')):
+            line = next(line for line in source.splitlines() if line.lstrip().startswith(target))
+            indent = ' ' * (len(line) - len(line.lstrip()))
+            injected = f"{indent}command = ['fl' + 'ock', '-n', {fixture}, 'true']\n{indent}subprocess.run(command)\n{line}"
+            with self.subTest(target=target), self.assertRaisesRegex(AssertionError, 'observation call: subprocess.run'):
+                self.static_guard(source.replace(line, injected, 1))
+
+    def test_static_guard_rejects_unresolved_indirect_call(self):
+        source = Path(self.r.__file__).read_text()
+        self.static_guard(source)
+        source = source.replace(
+            '        holders = []\n', '        reader = os.stat\n        reader(self.locks_path)\n        holders = []\n', 1)
+        with self.assertRaisesRegex(AssertionError, 'observation call: reader'): self.static_guard(source)
+        source = Path(self.r.__file__).read_text()
+        line = next(line for line in source.splitlines() if line.lstrip() == 'until = time.monotonic() + 55')
+        indent = ' ' * (len(line) - len(line.lstrip()))
+        source = source.replace(line, indent + 'hidden_probe(adapter)\n' + line, 1)
+        with self.assertRaisesRegex(AssertionError, 'shadowed observation capability: os'):
+            self.static_guard(source + '\ndef hidden_probe(os):\n    return os.stat(7, 6)\n')
+        with self.assertRaisesRegex(AssertionError, 'rebound observation global: os'):
+            self.static_guard(source + '\nos = adapter\n\ndef hidden_probe(adapter):\n    return os.stat(7, 6)\n')
+
+    def guard(self):
+        self.assertTrue(hasattr(self.r, 'SwitchObservationGuard'), 'missing parent runtime audit')
+        return self.r.SwitchObservationGuard(self.root / 'switch')
+
+    def test_runtime_guard_blocks_helper_open_in_actual_case(self):
+        r = self.r
+        def hidden_probe():
+            fd = os.open(self.root / 'switch', os.O_RDONLY)
+            try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally: os.close(fd)
+            return []
+        lane = types.SimpleNamespace(paths={'SWITCH_LOCK': str(self.root / 'switch')},
+                                     engine=lambda **kw: types.SimpleNamespace(sent=types.SimpleNamespace(wait=lambda seconds: True)),
+                                     start=lambda constants: types.SimpleNamespace(pid=1234), require=mock.Mock(), finish=mock.Mock())
+        with mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=hidden_probe)), \
+             mock.patch.object(r.time, 'sleep'), self.assertRaises(r.EvidenceError):
+            r.never_switch_lock(lane)
+        lane.finish.assert_not_called()
+
+    def test_runtime_guard_blocks_native_process_in_actual_case(self):
+        r = self.r
+        def hidden_probe():
+            subprocess.run(['/usr/bin/' + 'true'], check=True)
+            return []
+        lane = types.SimpleNamespace(paths={'SWITCH_LOCK': str(self.root / 'switch')},
+                                     engine=lambda **kw: types.SimpleNamespace(sent=types.SimpleNamespace(wait=lambda seconds: True)),
+                                     start=lambda constants: types.SimpleNamespace(pid=1234), require=mock.Mock(), finish=mock.Mock())
+        with mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=hidden_probe)), \
+             mock.patch.object(r.time, 'sleep'), self.assertRaises(r.EvidenceError):
+            r.never_switch_lock(lane)
+        lane.finish.assert_not_called()
+
+    def test_runtime_guard_records_native_lock_calls_on_preopened_fd(self):
+        guard = self.guard()
+        with open(self.root / 'switch', 'w+') as fixture:
+            for name, invoke in (
+                ('fcntl.flock', lambda: fcntl.flock(fixture.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)),
+                ('fcntl.lockf', lambda: fcntl.lockf(fixture.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)),
+                ('fcntl.fcntl', lambda: fcntl.fcntl(fixture.fileno(), fcntl.F_GETLK, bytes(64))),
+            ):
+                with self.subTest(event=name):
+                    guard = self.guard()
+                    with self.assertRaises(self.r.EvidenceError):
+                        with guard: invoke()
+                    self.assertEqual(guard.calls[-1], dict(event=name, fixture=True, allowed=False))
+        self.assertFalse(sys._ops327_switch_audit_guards, 'audit scope leaked')
+
+    def test_runtime_guard_blocks_path_inode_and_descriptor_opens(self):
+        guard = self.guard()
+        with open(self.root / 'switch', 'w+') as fixture:
+            os.link(self.root / 'switch', self.root / 'alias')
+            for target in (self.root / 'switch', self.root / 'alias', fixture.fileno()):
+                with self.subTest(target=str(target)):
+                    guard = self.guard()
+                    with self.assertRaises(self.r.EvidenceError):
+                        with guard: open(target, 'r', closefd=False if isinstance(target, int) else True)
+                    self.assertEqual(guard.calls[-1], dict(event='open', fixture=True, allowed=False))
+        # CPython's open audit event omits dir_fd. Refuse unresolved relative
+        # opens rather than guessing the inode using the parent's cwd.
+        directory = os.open(self.root, os.O_RDONLY)
+        try:
+            guard = self.guard()
+            with self.assertRaises(self.r.EvidenceError):
+                with guard: os.open('switch', os.O_RDONLY, dir_fd=directory)
+            self.assertEqual(guard.calls[-1]['event'], 'open')
+            self.assertFalse(guard.calls[-1]['allowed'])
+        finally: os.close(directory)
+
+    def test_runtime_guard_records_all_process_events_and_sticky_attempts(self):
+        def fork():
+            pid = os.fork()
+            if pid == 0: os._exit(0)
+            os.waitpid(pid, 0)
+        def spawn():
+            pid = os.posix_spawn('/usr/bin/true', ['true'], {})
+            os.waitpid(pid, 0)
+        native = {'subprocess.Popen': lambda: subprocess.run(['/usr/bin/true'], check=True),
+                  'os.posix_spawn': spawn, 'os.fork': fork}
+        for event in ('subprocess.Popen', 'os.posix_spawn', 'os.fork', 'os.forkpty', 'os.system', 'os.exec'):
+            with self.subTest(event=event):
+                guard = self.guard()
+                with self.assertRaises(self.r.EvidenceError):
+                    with guard:
+                        # Catching a rejected attempt cannot make the case pass.
+                        try:
+                            if event in native: native[event]()
+                            else: sys.audit(event, 'computed-command')
+                        except self.r.EvidenceError: pass
+                self.assertEqual(guard.calls[-1], dict(event=event, fixture=False, allowed=False))
+
+    def test_runtime_guard_allows_only_declared_creation_and_launch(self):
+        guard = self.guard()
+        with guard:
+            guard.create_fixture()
+            with guard.worker_launch():
+                subprocess.run(['/usr/bin/true'], check=True)
+            with open(self.root / 'other', 'w') as other:
+                fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.assertTrue(any(c['event'] == 'open' and c['fixture'] and c['allowed'] for c in guard.calls))
+        self.assertTrue(any(c['event'] == 'subprocess.Popen' and c['allowed'] for c in guard.calls))
+        self.assertTrue(any(c['event'] == 'fcntl.flock' and not c['fixture'] for c in guard.calls))
+        self.assertFalse(guard.violations)
+        with self.assertRaises(self.r.EvidenceError): guard.create_fixture()
+
+    def preflight(self, mode):
+        r = self.r
+        self.assertTrue(hasattr(r, 'preflight_switch_filesystem'), 'missing filesystem lock identity preflight')
+        fixture = self.root / 'switch'
+        fixture.touch()
+        identity = fixture.stat()
+        locks = self.root / 'locks'
+        acquired = []
+        native = fcntl.flock
+        def lock(fd, flags):
+            info = os.fstat(fd)
+            self.assertNotEqual((info.st_dev, info.st_ino), (identity.st_dev, identity.st_ino), 'preflight locked the switch fixture')
+            acquired.append((info.st_dev, info.st_ino))
+            native(fd, flags)
+            major = os.major(info.st_dev) + (mode == 'device-mismatch')
+            inode = info.st_ino + (mode == 'inode-mismatch')
+            row = f'1: FLOCK ADVISORY WRITE {os.getpid()} {major:04x}:{os.minor(info.st_dev):04x}:{inode} 0 EOF\n'
+            locks.write_text('' if mode == 'missing' else row * (2 if mode == 'ambiguous' else 1))
+        with mock.patch.object(r.fcntl, 'flock', side_effect=lock):
+            try: r.preflight_switch_filesystem(fixture, locks_path=locks)
+            finally:
+                self.assertEqual(len(acquired), 1)
+                self.assertFalse(list(self.root.glob('.ops327-switch-preflight-*')), 'owned scratch file leaked')
+                self.assertEqual(fixture.stat().st_ino, identity.st_ino)
+
+    def test_filesystem_device_mismatch_refuses_setup(self):
+        self.assertTrue(hasattr(self.r, 'preflight_switch_filesystem'), 'missing preflight')
+        with self.assertRaisesRegex(self.r.EvidenceError, 'unsupported switch-lock filesystem'): self.preflight('device-mismatch')
+
+    def test_filesystem_inode_mismatch_refuses_setup(self):
+        self.assertTrue(hasattr(self.r, 'preflight_switch_filesystem'), 'missing preflight')
+        with self.assertRaisesRegex(self.r.EvidenceError, 'unsupported switch-lock filesystem'): self.preflight('inode-mismatch')
+
+    def test_filesystem_missing_or_ambiguous_row_refuses_setup(self):
+        self.assertTrue(hasattr(self.r, 'preflight_switch_filesystem'), 'missing preflight')
+        for mode in ('missing', 'ambiguous'):
+            with self.subTest(mode=mode), self.assertRaisesRegex(self.r.EvidenceError, 'unsupported switch-lock filesystem'):
+                self.preflight(mode)
+
+    def test_filesystem_match_proceeds_without_touching_fixture_inode(self):
+        self.preflight('match')
+
+    def test_filesystem_refusal_precedes_workers_and_never_kills_mutant(self):
+        r = self.r
+        self.assertTrue(hasattr(r, 'preflight_switch_filesystem'), 'missing preflight')
+        args = types.SimpleNamespace(root=str(self.root), keep_dir=str(self.root / 'keep'), store=str(self.root / 'store'),
+                                     instance_lock=str(self.root / 'instance'), switch_lock=str(self.root / 'switch'),
+                                     compose_lock_dir=str(self.root / 'compose'), engine_socket=str(self.root / 'engine.sock'))
+        error = r.EvidenceError('unsupported switch-lock filesystem: modeled mismatch')
+        output = io.StringIO()
+        with mock.patch.object(r.sys, 'platform', 'linux'), mock.patch.object(r, 'preflight_switch_filesystem', side_effect=error) as preflight, \
+             mock.patch.object(r.subprocess, 'Popen') as spawn, redirect_stdout(output):
+            self.assertEqual(r.run_checks(args, [('never-switch-lock', None, SCRIPT.read_text()),
+                                                 ('never-switch-lock', 'the GC takes the lock', SCRIPT.read_text())]), 1)
+        self.assertEqual(preflight.call_count, 2)
+        spawn.assert_not_called()
+        self.assertEqual(output.getvalue().count('(setup: unsupported switch-lock filesystem:'), 2)
+        self.assertNotIn('ok ', output.getvalue())
 
 
 class Isolation12cRegressionTests(unittest.TestCase):

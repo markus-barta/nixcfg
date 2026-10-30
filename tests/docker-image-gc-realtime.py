@@ -17,6 +17,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import importlib.util
 import json
 import hashlib
@@ -31,6 +32,7 @@ import socket
 import subprocess
 import sys
 import time
+import tempfile
 from contextlib import contextmanager, nullcontext
 
 _MONOTONIC = time.monotonic
@@ -1110,6 +1112,8 @@ class Lane:
                      "SOCKET_PATH": nested(args.engine_socket),
                      "LOCK_PATHS": tuple(str(Path(nested(args.compose_lock_dir, True)) / f"compose-{n}.lock") for n in range(3))}
         self.paths, self.images, self.containers, self.spec = h.fixture(self.root, **overrides)
+        if sys.platform == 'linux':
+            preflight_switch_filesystem(self.paths['SWITCH_LOCK'])
         self.source = self.root / "gc-source.py"
         self.source.write_text(source)
         self.processes = []
@@ -1522,6 +1526,133 @@ def fifo(lane, where):
     lane.require('RT:437', 'not a regular file' in output, output)
 
 
+def preflight_switch_filesystem(switch_lock, *, locks_path='/proc/locks'):
+    """Declared setup lock on a separate scratch inode, before any worker.
+
+    Some filesystems (notably btrfs subvolumes) report a different device in
+    procfs than stat. Refuse that setup; it is never a behavioural mutant kill.
+    Stay in the actual fixture directory, and clean up only our scratch file.
+    """
+    parent = Path(switch_lock).parent
+    parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=parent, prefix='.ops327-switch-preflight-') as scratch:
+        info = os.fstat(scratch.fileno())
+        fcntl.flock(scratch.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Select by our PID and lock kind, independently of expected device or
+        # inode. An extra parent-owned FLOCK makes the identity ambiguous.
+        rows = []
+        for line in Path(locks_path).read_text(encoding='ascii').splitlines():
+            fields = line.split()
+            if len(fields) == 8 and fields[1] == 'FLOCK' and fields[4] == str(os.getpid()):
+                rows.append(fields[5])
+        expected = (os.major(info.st_dev), os.minor(info.st_dev), info.st_ino)
+        if len(rows) != 1 or re.fullmatch(r'[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9]+', rows[0]) is None:
+            raise EvidenceError('unsupported switch-lock filesystem: missing or ambiguous scratch lock identity')
+        major, minor, inode = rows[0].split(':')
+        if (int(major, 16), int(minor, 16), int(inode)) != expected:
+            raise EvidenceError('unsupported switch-lock filesystem: scratch lock identity differs from fstat')
+
+
+def switch_audit_dispatch(event, args):
+    for guard in tuple(getattr(sys, '_ops327_switch_audit_guards', ())):
+        guard.audit(event, args)
+
+
+class SwitchObservationGuard:
+    """Parent audit, independent of the modeled kernel table and AST check.
+
+    Fixture creation and the declared Lane.start worker launch are the only
+    exemptions. Everything is recorded, including rejected/caught attempts.
+    Audit failures are setup errors, never behavioural kills of GC mutants.
+    """
+
+    def __init__(self, fixture):
+        self.fixture = os.path.realpath(fixture)
+        self.pid = os.getpid()
+        self.calls, self.violations = [], []
+        self.creating = self.launching = None
+        self.created = False
+        try:
+            info = os.stat(self.fixture)
+            self.token = (info.st_dev, info.st_ino)
+        except FileNotFoundError:
+            self.token = None
+
+    def __enter__(self):
+        if not hasattr(sys, '_ops327_switch_audit_guards'):
+            sys._ops327_switch_audit_guards = []
+            sys.addaudithook(switch_audit_dispatch)
+        sys._ops327_switch_audit_guards.append(self)
+        return self
+
+    def __exit__(self, *exc):
+        sys._ops327_switch_audit_guards.remove(self)
+        if self.violations:
+            raise EvidenceError('parent switch observation audit: ' + ', '.join(self.violations))
+
+    def is_fixture(self, target):
+        if isinstance(target, int):
+            try:
+                info = os.fstat(target)
+            except OSError:
+                return False
+        elif isinstance(target, (str, bytes, os.PathLike)):
+            if os.path.realpath(target) == self.fixture:
+                return True
+            try:
+                info = os.stat(target)
+            except OSError:
+                return False
+        else:
+            return False
+        return self.token is not None and (info.st_dev, info.st_ino) == self.token
+
+    def audit(self, event, args):
+        if os.getpid() != self.pid:
+            return
+        locking = event in ('fcntl.flock', 'fcntl.lockf', 'os.lockf')
+        if event == 'fcntl.fcntl':
+            locking = args[1] in {getattr(fcntl, name, None) for name in
+                                 ('F_GETLK', 'F_SETLK', 'F_SETLKW', 'F_GETLK64', 'F_SETLK64',
+                                  'F_SETLKW64', 'F_OFD_GETLK', 'F_OFD_SETLK', 'F_OFD_SETLKW')}
+        opening = event == 'open'
+        spawning = event in ('subprocess.Popen', 'os.posix_spawn', 'os.fork', 'os.forkpty',
+                             'os.system', 'os.exec', 'os.execve')
+        if not (locking or opening or spawning):
+            return
+        fixture = (locking or opening) and self.is_fixture(args[0])
+        # The native open audit event omits dir_fd. An unresolved relative
+        # name could therefore alias the fixture without stat revealing it.
+        relative_open = opening and isinstance(args[0], (str, bytes)) and not os.path.isabs(args[0])
+        thread = threading.get_ident()
+        allowed = not relative_open and (not fixture or (opening and self.creating == thread)) and (
+            not spawning or self.launching == thread)
+        self.calls.append(dict(event=event, fixture=bool(fixture), allowed=allowed))
+        if not allowed:
+            self.violations.append(event)
+            raise EvidenceError('parent switch observation audit: ' + event)
+
+    def create_fixture(self):
+        if self.created:
+            raise EvidenceError('switch fixture creation was already consumed')
+        self.created = True
+        self.creating = threading.get_ident()
+        try:
+            Path(self.fixture).touch()
+            info = os.stat(self.fixture)
+            self.token = (info.st_dev, info.st_ino)
+        finally:
+            self.creating = None
+
+    @contextmanager
+    def worker_launch(self):
+        self.launching = threading.get_ident()
+        try:
+            yield
+        finally:
+            self.launching = None
+
+
 class SwitchLockObserver:
     """Parent-only kernel-table reader; independent of all copied GC code.
 
@@ -1576,24 +1707,26 @@ class SwitchLockObserver:
 
 
 def never_switch_lock(lane):
-    # Declared fixture control: create the private inode before worker launch.
-    Path(lane.paths['SWITCH_LOCK']).touch()
-    engine = lane.engine(delay=5)
-    proc = lane.start({'RUN_BUDGET_S': 55})
-    observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)
-    # Retain the full request budget: stale snapshots may be discarded and
-    # retried after cooldown. Sample the switch lock while waiting so the
-    # registered lock-taking mutant is stopped before its 55 s final report.
-    until = time.monotonic() + 55
-    while not engine.sent.wait(min(.02, max(0, until - time.monotonic()))):
-        holders = observer.sample()
-        lane.require('RT:444', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
-        lane.require('RT:444', time.monotonic() < until)
-    for _ in range(25):
-        holders = observer.sample()
-        lane.require('RT:447', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
-        time.sleep(0.02)
-    lane.finish(proc, 50, site='RT:449')
+    with SwitchObservationGuard(lane.paths['SWITCH_LOCK']) as audit:
+        # Declared fixture control: the only write, before worker launch.
+        audit.create_fixture()
+        engine = lane.engine(delay=5)
+        with audit.worker_launch():
+            proc = lane.start({'RUN_BUDGET_S': 55})
+        observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)
+        # Retain the full request budget: stale snapshots may be discarded and
+        # retried after cooldown. Sample the switch lock while waiting so the
+        # registered lock-taking mutant is stopped before its 55 s final report.
+        until = time.monotonic() + 55
+        while not engine.sent.wait(min(.02, max(0, until - time.monotonic()))):
+            holders = observer.sample()
+            lane.require('RT:444', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
+            lane.require('RT:444', time.monotonic() < until)
+        for _ in range(25):
+            holders = observer.sample()
+            lane.require('RT:447', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
+            time.sleep(0.02)
+        lane.finish(proc, 50, site='RT:449')
 
 
 def instance(lane):
