@@ -72,14 +72,21 @@ def checked_paths(source, paths):
     return checked
 
 
-def prepare_worker(manifest):
+def prepare_worker(manifest, *, report=None):
     """Validate the entire closed manifest before loading or creating anything."""
     data = json.loads(Path(repo_path(manifest)).read_text(), object_pairs_hook=unique_keys)
     if not isinstance(data, dict) or set(data) != {"source", "paths", "events", "constants"}:
         raise ValueError("top-level keys must be source, paths, events, constants")
     source = Path(repo_path(data["source"])).read_text()
     events = repo_path(data["events"])
-    paths = checked_paths(source, data["paths"])
+    try:
+        paths = checked_paths(source, data["paths"])
+    except h.FixtureViolation:
+        # The inventory itself executes copied source. A guarded top-level
+        # operation must report to the already validated destination too.
+        if report is not None:
+            report["events"] = events
+        raise
     constants = data["constants"]
     if not isinstance(constants, dict) or not set(constants) <= {"RUN_BUDGET_S"}:
         raise ValueError("constants keys may only contain RUN_BUDGET_S")
@@ -88,6 +95,10 @@ def prepare_worker(manifest):
             raise ValueError("RUN_BUDGET_S must be an int, not bool")
         if not 1 <= value <= 3000:
             raise ValueError("RUN_BUDGET_S must be within 1..3000 seconds")
+    # Apart from reporting an inventory guard violation above, invalid
+    # manifests create nothing. Normal reports need complete validation.
+    if report is not None:
+        report["events"] = events
     gc = h.load(source, paths)
     for name, value in constants.items():
         setattr(gc, name, value)
@@ -99,38 +110,46 @@ def prepare_worker(manifest):
 
 
 def worker(manifest):
+    report = {"events": None, "holds": [], "attempts": [], "violations": []}
     try:
-        gc, events = prepare_worker(manifest)
-    except h.FixtureViolation as exc:
-        print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
-        return 2
-    except (ValueError, TypeError, KeyError, AttributeError, OSError, SyntaxError) as exc:
-        print("invalid worker manifest: " + str(exc).replace("\n", " "), file=sys.stderr)
-        return 2
-    holds, attempts = [], []
-    original = gc.deploy_locks
-    @contextmanager
-    def tracked(paths):
-        attempts.append(time.monotonic())
-        with original(paths):
-            started = time.monotonic()
-            try:
-                yield
-            finally:
-                holds.append((started, time.monotonic()))
-    gc.deploy_locks = tracked
-    os.environ["INVOCATION_ID"] = "ops327-offline-fixture"
-    os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
-    signal.signal(signal.SIGTERM, gc.STOP.set)
-    try:
-        rc = gc.main()
-    except h.FixtureViolation as exc:
-        print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
-        rc = 2
+        try:
+            gc, events = prepare_worker(manifest, report=report)
+        except h.FixtureViolation as exc:
+            report["violations"] = exc.recorded
+            print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
+            return 2
+        except (ValueError, TypeError, KeyError, AttributeError, OSError, SyntaxError) as exc:
+            report["setup_error"] = str(exc).replace("\n", " ")
+            print("invalid worker manifest: " + report["setup_error"], file=sys.stderr)
+            return 2
+        report["events"] = events
+        report["violations"] = gc.__ops327_fixture_guard__.violations
+        original = gc.deploy_locks
+        @contextmanager
+        def tracked(paths):
+            report["attempts"].append(time.monotonic())
+            with original(paths):
+                started = time.monotonic()
+                try:
+                    yield
+                finally:
+                    report["holds"].append((started, time.monotonic()))
+        gc.deploy_locks = tracked
+        os.environ["INVOCATION_ID"] = "ops327-offline-fixture"
+        os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
+        signal.signal(signal.SIGTERM, gc.STOP.set)
+        try:
+            return gc.main()
+        except h.FixtureViolation as exc:
+            print("fixture audit violation: " + json.dumps(exc.recorded), file=sys.stderr)
+            return 2
+    except BaseException as exc:
+        report["setup_error"] = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
-        Path(events).write_text(json.dumps({"holds": holds, "attempts": attempts,
-                                           "violations": gc.__ops327_fixture_guard__.violations}))
-    return rc
+        events = report.pop("events")
+        if events is not None:
+            publish_events(events, report)
 
 
 class CaseFailure(AssertionError):
@@ -150,6 +169,34 @@ def wait_for(predicate, seconds, label):
             return result
         time.sleep(0.01)
     raise CaseFailure(f"watchdog: {label} ({seconds:g} s)")
+
+
+def publish_events(path, report):
+    # check_workers can observe a still-running worker. Publish a complete
+    # report atomically so an empty/partial JSON write cannot look like setup.
+    path = Path(path)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(report))
+    temporary.replace(path)
+
+
+def worker_events(path):
+    """A missing/invalid report or guard violation is setup failure, never a kill."""
+    try:
+        events = json.loads(Path(path).read_text())
+        violations = events["violations"]
+        if not isinstance(violations, list) or any(
+                not isinstance(item, dict) or not all(isinstance(item.get(key), str) for key in ("event", "path"))
+                for item in violations):
+            raise ValueError("violations must be a list of event/path records")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"worker startup failed: invalid events {path}: {exc}") from exc
+    if violations:
+        raise RuntimeError("worker fixture audit violation: " + "; ".join(
+            f"{item['event']}: {item['path']}" for item in violations))
+    if events.get("setup_error") is not None:
+        raise RuntimeError(f"worker setup failed: {events['setup_error']}")
+    return events
 
 
 class Lane:
@@ -195,11 +242,11 @@ class Lane:
             out, err = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill(); out, err = process.communicate()
+            worker_events(process.events)
             raise CaseFailure(f"GC watchdog after {timeout}s: {out} {err}") from None
-        if not process.events.exists():
-            raise RuntimeError(f"worker startup failed: {process.returncode}: {err}")
+        events = worker_events(process.events)
         require(process.returncode == expected, (process.returncode, out, err))
-        return json.loads(process.events.read_text()), out + err
+        return events, out + err
 
     def contender(self, lock=0, hold=0, prefix="contender"):
         # The actual util-linux waiter is the process receiving STOP/CONT.
@@ -214,9 +261,12 @@ class Lane:
 
     def check_workers(self):
         for proc in self.processes:
-            if hasattr(proc, "events") and proc.poll() is not None and proc.returncode >= 0 and not proc.events.exists():
-                out, err = proc.communicate()
-                raise RuntimeError(f"worker startup failed: {proc.returncode}: {out} {err}")
+            if not hasattr(proc, "events"):
+                continue  # flock/bash contenders do not execute GC source.
+            exited = proc.poll() is not None
+            intentionally_killed = exited and proc.returncode < 0 and getattr(proc, "fixture_killed", False)
+            if proc.events.exists() or (exited and not intentionally_killed):
+                worker_events(proc.events)
 
     def close(self):
         for proc in self.processes:
@@ -227,6 +277,7 @@ class Lane:
                     os.killpg(proc.pid, signal.SIGKILL)
                 else:
                     proc.send_signal(signal.SIGCONT)
+                    proc.fixture_killed = True
                     proc.kill()
             proc.wait(timeout=5)
             for pipe in (getattr(proc, "stdout", None), getattr(proc, "stderr", None)):
@@ -286,6 +337,27 @@ def between(lane):
     require(float(contender.acquired.read_text()) < events["holds"][1][0])
 
 
+def backlog_worker(gc, api, root):
+    report = {"violations": gc.__ops327_fixture_guard__.violations}
+    rc = None
+    try:
+        os.environ["INVOCATION_ID"] = "ops327-backlog"
+        os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
+        signal.signal(signal.SIGTERM, gc.STOP.set)
+        rc = gc.main(api)
+        return rc
+    except h.FixtureViolation as exc:
+        report["violations"] = exc.recorded
+        return 2
+    except BaseException as exc:
+        report["setup_error"] = f"{type(exc).__name__}: {exc}"
+        return 2
+    finally:
+        publish_events(root / "backlog.events.json", report)
+        if rc is not None:
+            Path(root / "backlog.result").write_text(str(rc))
+
+
 def backlog(lane):
     # Fake listings remain in-process; the destructive connection alone meets
     # the full real AF_UNIX accept queue. No request can have been sent.
@@ -314,22 +386,13 @@ def backlog(lane):
         # A watchdog child bounds no-deadline mutants, even if connect hangs.
         pid = os.fork()
         if pid == 0:
-            try:
-                os.environ["INVOCATION_ID"] = "ops327-backlog"
-                os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
-                signal.signal(signal.SIGTERM, gc.STOP.set)
-                rc = gc.main(api)
-                Path(lane.root / "backlog.result").write_text(str(rc))
-            except Exception as exc:
-                Path(lane.root / "backlog.error").write_text(f"{type(exc).__name__}: {exc}")
-                os._exit(2)
-            os._exit(rc)
+            os._exit(backlog_worker(gc, api, lane.root))
         try:
             # Observe the actual destructive connect, rather than guessing
             # that a 46 s sleep outlasted cooldown plus worker scheduling.
             def started():
-                if (lane.root / "backlog.error").exists():
-                    raise RuntimeError((lane.root / "backlog.error").read_text())
+                if (lane.root / "backlog.events.json").exists():
+                    worker_events(lane.root / "backlog.events.json")
                 return (lane.root / "backlog.started").exists()
             wait_for(started, 55, "backlog destructive connect starts")
             contender = lane.contender()
@@ -337,6 +400,7 @@ def backlog(lane):
             wait_for(lambda: contender.acquired.exists(), 31, "full accept queue contender")
             require(float(contender.acquired.read_text()) - began <= 31)
             wait_for(lambda: (lane.root / "backlog.result").exists(), 3, "backlog GC exit")
+            worker_events(lane.root / "backlog.events.json")
             require((lane.root / "backlog.result").read_text() == "2")
             # The only queued connections were the prefill: no HTTP request.
             server.settimeout(1)
@@ -352,8 +416,7 @@ def backlog(lane):
             try: os.kill(pid, signal.SIGKILL)
             except ProcessLookupError: pass
             os.waitpid(pid, 0)
-            if (lane.root / "backlog.error").exists():
-                raise RuntimeError((lane.root / "backlog.error").read_text())
+            worker_events(lane.root / "backlog.events.json")
     finally:
         for client in clients: client.close()
         server.close()
@@ -394,6 +457,7 @@ def instance(lane):
     events, output = lane.finish(second, 5)
     require("another run is in progress" in output)
     require(not events["attempts"])
+    first.fixture_killed = True
     first.kill(); first.wait(timeout=5)
     restarted_at = time.monotonic()
     third = lane.start()
@@ -621,6 +685,8 @@ def run_checks(args, checks):
             case(lane)
         except Exception as exc:
             error = exc
+        except h.FixtureViolation as exc:
+            error, setup = RuntimeError(str(exc)), True
         finally:
             if lane:
                 try:
@@ -629,6 +695,9 @@ def run_checks(args, checks):
                     error, setup = exc, True
                 try:
                     lane.close()
+                    # Re-check after reaping: a worker can report a violation
+                    # between the first check and cleanup's signal delivery.
+                    lane.check_workers()
                 except Exception as exc:
                     error, setup = exc, True
         passed, message = classify_case(name, mutant, baselines.get(name, False), error, setup=setup)

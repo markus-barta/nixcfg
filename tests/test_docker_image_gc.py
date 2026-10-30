@@ -3493,6 +3493,7 @@ with tempfile.TemporaryDirectory(prefix="ops327-audit-", dir="/tmp") as tmp:
     root.mkdir(); outside.mkdir()
     (outside / "data").write_text("outside control")
     (root / "inside").write_text("fixture control")
+    (root / "inside-link").symlink_to(root / "inside")
     (root / "escape").symlink_to(outside, target_is_directory=True)
     fragment = request["fragment"].replace("@OUTSIDE@", repr(str(outside / "data")))
     fragment = fragment.replace("@ROOT@", repr(str(root)))
@@ -3691,6 +3692,28 @@ with tempfile.TemporaryDirectory(prefix="ops327-audit-", dir="/tmp") as tmp:
             with self.subTest(event=event, operation=operation):
                 self.violation('import shutil\ndef leak(): ' + operation, event, lambda r: r["outside"])
 
+    def test_samefile_checks_both_paths_and_keywords(self):
+        for operation in ('os.path.samefile("inside", @OUTSIDE@)',
+                          'os.path.samefile(f1="inside", f2=@OUTSIDE@)',
+                          'os.path.samefile(f1=@OUTSIDE@, f2="inside")'):
+            self.violation('def leak(): ' + operation, "metadata.samefile", lambda r: r["outside"])
+        self.control('def leak():\n    assert os.path.samefile(f1="inside", f2="inside-link")')
+
+    def test_os_path_import_spellings_keep_metadata_guard(self):
+        for imports, function in (("from os import path", "path.getsize"),
+                                  ("import os.path", "os.path.getsize"),
+                                  ("import os.path as path", "path.getsize"),
+                                  ("from os.path import getsize", "getsize"),
+                                  ('path = __import__("os.path", fromlist=["getsize"])', "path.getsize")):
+            self.violation(imports + '\ndef leak(): ' + function + '(@OUTSIDE@)',
+                           "metadata.getsize", lambda r: r["outside"])
+            self.control(imports + '\ndef leak(): assert ' + function + '("inside") == 15')
+
+    def test_sqlite_connect_is_a_guarded_write(self):
+        self.violation('import sqlite3\ndef leak(): sqlite3.connect(@OUTSIDE@)',
+                       "sqlite3.connect", lambda r: r["outside"])
+        self.control('import sqlite3\ndef leak(): sqlite3.connect("inside-db").close()')
+
     def test_each_audit_guard_mutant_is_killed_by_named_test(self):
         mutants = [
             ('            guard.audit(event, args)\n', '', 'test_guard_disabled_is_killed'),
@@ -3699,6 +3722,10 @@ with tempfile.TemporaryDirectory(prefix="ops327-audit-", dir="/tmp") as tmp:
             ('resolved = _REALPATH(path)', 'resolved = os.path.abspath(path)', 'test_symlink_escape_is_guarded'),
             ('allowed = self.inside(resolved, self.root)', 'allowed = self.inside(resolved, "/")',
              'test_guard_disabled_is_killed'),
+            ('("getsize", "getmtime", "getatime", "getctime", "realpath")',
+             '("getmtime", "getatime", "getctime", "realpath")', 'test_metadata_getsize_is_guarded'),
+            ('("getsize", "getmtime", "getatime", "getctime", "realpath")',
+             '("getsize", "getmtime", "getatime", "getctime")', 'test_metadata_realpath_is_guarded'),
         ]
         for before, after, method in mutants:
             probe = type(self)(method)
@@ -3708,6 +3735,60 @@ with tempfile.TemporaryDirectory(prefix="ops327-audit-", dir="/tmp") as tmp:
             self.assertFalse(result.errors, result.errors)
             self.assertEqual(len(result.failures), 1, f"audit mutant survived: {before}")
             print(f"ok audit mutant: {method}: {before.strip()}", file=sys.stderr)
+
+
+# Independent inventory of non-audited filesystem APIs on macOS/Linux CPython
+# 3.13/3.14. Each entry becomes its own discovered test and named mutation gate.
+# Spelling-only os.path functions and descriptor-only APIs do not access a path.
+METADATA_PROBES = {
+    "stat": ('os.stat(@PATH@)', 'os.stat("inside").st_size == 15'),
+    "lstat": ('os.lstat(@PATH@)', 'os.lstat("inside").st_size == 15'),
+    "access": ('os.access(@PATH@, os.F_OK)', 'os.access("inside", os.F_OK)'),
+    "readlink": ('os.readlink(@PATH@)', 'os.readlink("inside-link") == os.path.join(@ROOT@, "inside")'),
+    "pathconf": ('os.pathconf(@PATH@, "PC_NAME_MAX")', 'os.pathconf("inside", "PC_NAME_MAX") > 0'),
+    "statvfs": ('os.statvfs(@PATH@)', 'os.statvfs("inside").f_bsize > 0'),
+    "exists": ('os.path.exists(@PATH@)', 'os.path.exists("inside")'),
+    "lexists": ('os.path.lexists(@PATH@)', 'os.path.lexists("inside-link")'),
+    "isdir": ('os.path.isdir(@PATH@)', 'os.path.isdir(@ROOT@)'),
+    "isfile": ('os.path.isfile(@PATH@)', 'os.path.isfile("inside")'),
+    "islink": ('os.path.islink(@PATH@)', 'os.path.islink("inside-link")'),
+    "ismount": ('os.path.ismount(@PATH@)', 'not os.path.ismount(@ROOT@)'),
+    "isjunction": ('os.path.isjunction(@PATH@)', 'not os.path.isjunction("inside")'),
+    "isdevdrive": ('os.path.isdevdrive(@PATH@)', 'not os.path.isdevdrive("inside")'),
+    "getsize": ('os.path.getsize(@PATH@)', 'os.path.getsize("inside") == 15'),
+    "getmtime": ('os.path.getmtime(@PATH@)', 'os.path.getmtime("inside") > 0'),
+    "getatime": ('os.path.getatime(@PATH@)', 'os.path.getatime("inside") > 0'),
+    "getctime": ('os.path.getctime(@PATH@)', 'os.path.getctime("inside") > 0'),
+    "samefile": ('os.path.samefile(@PATH@, "inside")', 'os.path.samefile("inside", "inside-link")'),
+    "realpath": ('os.path.realpath(@PATH@, strict=True)',
+                 'os.path.realpath("inside-link", strict=True) == os.path.join(@ROOT@, "inside")'),
+    "mkfifo": ('os.mkfifo(@PATH@)', 'os.mkfifo("inside-fifo") is None'),
+    "mknod": ('os.mknod(@PATH@)', None),
+    "chroot": ('os.chroot(@PATH@)', None),
+}
+
+
+def metadata_probe(name, operation, control):
+    def test(self):
+        event = ("os." if name in {"mkfifo", "mknod", "chroot"} else "metadata.") + name
+        self.violation('def leak(): ' + operation.replace("@PATH@", "@OUTSIDE@"),
+                       event, lambda r: r["outside"])
+        if control is not None:
+            self.control('def leak():\n    assert ' + control)
+        else:
+            # Never chroot or create device nodes in a test interpreter. This
+            # positive control proves fixture admission/native delegation only.
+            with tempfile.TemporaryDirectory(prefix="ops327-metadata-") as tmp:
+                guard = HARNESS.FixtureGuard(tmp)
+                with mock.patch.object(os, name, return_value="delegated") as implementation:
+                    self.assertEqual(getattr(HARNESS.GuardedOS(guard), name)(tmp), "delegated")
+                    implementation.assert_called_once_with(tmp)
+                self.assertEqual(guard.violations, [])
+    return test
+
+
+for _name, (_operation, _control) in METADATA_PROBES.items():
+    setattr(AuditGuardTests, f"test_metadata_{_name}_is_guarded", metadata_probe(_name, _operation, _control))
 
 
 class PathInventoryTests(unittest.TestCase):
@@ -3834,7 +3915,7 @@ class WorkerContractTests(unittest.TestCase):
         self.data = {"source": str(self.source), "paths": self.paths,
                      "events": str(self.root / "events.json"), "constants": {"RUN_BUDGET_S": 300}}
 
-    def rejection(self, runner, data, reason, *, subprocess_worker=False):
+    def rejection(self, runner, data, reason, *, subprocess_worker=False, reported=False):
         self.manifest.write_text(json.dumps(data))
         before = {str(path.relative_to(self.root)) for path in self.root.rglob("*")}
         if subprocess_worker:
@@ -3851,7 +3932,16 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(rc, 2, error)
         self.assertIn(reason, error)
         self.assertEqual(len(error.splitlines()), 1, error)
-        self.assertEqual(before, {str(path.relative_to(self.root)) for path in self.root.rglob("*")})
+        after = {str(path.relative_to(self.root)) for path in self.root.rglob("*")}
+        if reported:
+            events = Path(self.data["events"])
+            self.assertEqual(json.loads(events.read_text())["violations"], [])
+            with self.assertRaisesRegex(RuntimeError, "worker setup failed"):
+                runner.worker_events(events)
+            after.discard(str(events.relative_to(self.root)))
+            before.discard(str(events.relative_to(self.root)))
+            events.unlink()
+        self.assertEqual(before, after)
 
     def invalid_manifests(self, outside):
         import copy
@@ -3932,11 +4022,8 @@ class WorkerContractTests(unittest.TestCase):
                     self.assertEqual(json.loads(error.split(": ", 1)[1]),
                                      [{"event": "open", "path": os.path.realpath("/var/lib/docker-image-gc/keep.d")}])
                     events = Path(self.data["events"])
-                    if fragment.startswith("def"):
-                        self.assertEqual(json.loads(events.read_text())["violations"],
-                                         [{"event": "open", "path": os.path.realpath("/var/lib/docker-image-gc/keep.d")}])
-                    else:
-                        self.assertFalse(events.exists())
+                    self.assertEqual(json.loads(events.read_text())["violations"],
+                                     [{"event": "open", "path": os.path.realpath("/var/lib/docker-image-gc/keep.d")}])
                     events.unlink(missing_ok=True)
 
     def test_worker_fixture_write_passes_and_records_no_violation(self):
@@ -3946,7 +4033,76 @@ class WorkerContractTests(unittest.TestCase):
         self.manifest.write_text(json.dumps(self.data))
         self.assertEqual(in_process_worker(self.runner, self.manifest), 0)
         self.assertEqual(Path(self.paths["KEEP_DIR"], "audit-control").read_text(), "ok")
-        self.assertEqual(json.loads(Path(self.data["events"]).read_text())["violations"], [])
+        events = json.loads(Path(self.data["events"]).read_text())
+        self.assertIn("violations", events)
+        self.assertEqual(events["violations"], [])
+
+    def test_captured_host_default_is_setup_failure_in_realtime(self):
+        r = self.runner
+        self.source.write_text(SCRIPT.read_text() + '\ndef main(path=SWITCH_LOCK): os.stat(path)\n')
+        self.manifest.write_text(json.dumps(self.data))
+        process = subprocess.Popen([sys.executable, "-B", str(REPO / "tests/docker-image-gc-realtime.py"),
+                                    "--worker", str(self.manifest)], stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        process.events = Path(self.data["events"])
+        out, err = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 2, (out, err))
+        records = [{"event": "metadata.stat", "path": os.path.realpath("/run/nixos/switch-to-configuration.lock")}]
+        self.assertEqual(json.loads(process.events.read_text())["violations"], records)
+        lane = types.SimpleNamespace(processes=[process])
+        for check in (lambda: r.Lane.finish(lane, process, expected=2), lambda: r.Lane.check_workers(lane)):
+            with self.assertRaisesRegex(RuntimeError, "metadata.stat") as caught:
+                check()
+            self.assertIn(records[0]["path"], str(caught.exception))
+            for mutant in (None, "captured default"):
+                passed, message = r.classify_case("r29", mutant, True, caught.exception)
+                self.assertFalse(passed, message)
+                self.assertIn("(setup:", message)
+
+    def test_worker_success_omits_violations_mutant_is_killed(self):
+        before = '            publish_events(events, report)'
+        after = '            report.pop("violations", None)\n' + before
+        probe = type(self)("test_worker_fixture_write_passes_and_records_no_violation")
+        result = unittest.TestResult()
+        # Keep setup's fresh fixture/runner, then mutate the worker under test.
+        original = probe.setUp
+        def setup():
+            original()
+            probe.runner = SocketIsolationTests.helper("docker-image-gc-realtime", [(before, after)])
+        probe.setUp = setup
+        probe.run(result)
+        self.assertFalse(result.errors, result.errors)
+        self.assertEqual(len(result.failures), 1, "worker success reporting mutant survived")
+        print("ok real-time mutant: success omits violations: test_worker_fixture_write_passes_and_records_no_violation",
+              file=sys.stderr)
+
+    def test_backlog_worker_violations_are_setup_failures(self):
+        r = self.runner
+        for fragment, violation in (('def main(api): return 2', False),
+                                    ('def main(api, path=SWITCH_LOCK): os.stat(path)', True),
+                                    ('def main(api): raise RuntimeError("worker setup")', False)):
+            self.source.write_text(SCRIPT.read_text() + '\n' + fragment + '\n')
+            self.manifest.write_text(json.dumps(self.data))
+            gc, _ = r.prepare_worker(str(self.manifest))
+            with preserved_process_state():
+                self.assertEqual(r.backlog_worker(gc, None, self.root), 2)
+            path = self.root / "backlog.events.json"
+            events = json.loads(path.read_text())
+            self.assertIn("violations", events)
+            if violation or "RuntimeError" in fragment:
+                with self.assertRaises(RuntimeError) as caught:
+                    r.worker_events(path)
+                for mutant in (None, "backlog mutant"):
+                    passed, message = r.classify_case("full-accept-queue", mutant, True, caught.exception)
+                    self.assertFalse(passed, message)
+                    self.assertIn("(setup:", message)
+                if violation:
+                    self.assertEqual(events["violations"], [{"event": "metadata.stat", "path":
+                                      os.path.realpath("/run/nixos/switch-to-configuration.lock")}])
+            else:
+                self.assertEqual(r.worker_events(path)["violations"], [])
+                self.assertEqual((self.root / "backlog.result").read_text(), "2")
 
     def test_duplicate_json_keys_rejected(self):
         self.manifest.write_text('{"source":1,"source":2}')
@@ -3963,7 +4119,7 @@ class WorkerContractTests(unittest.TestCase):
                 module = original(source, paths); setattr(module, key, value); return module
             with self.subTest(key=key), mock.patch.object(self.runner.h, "load", side_effect=tamper):
                 reason = "loaded path constants" if key == "KEEP_DIR" else ("PROC must name" if key == "PROC" else "path must stay")
-                self.rejection(self.runner, self.data, reason)
+                self.rejection(self.runner, self.data, reason, reported=True)
         # Re-run the same socket barrier after applying constants, even though
         # today's constant whitelist excludes paths.
         with mock.patch.object(self.runner.h, "check_socket") as guard:
@@ -4068,6 +4224,100 @@ class RealtimeRunnerTests(unittest.TestCase):
             result, message = r.classify_case("case", "mutant", baseline, error, setup=setup)
             self.assertEqual(result, passed, message)
             if error and not isinstance(error, r.CaseFailure): self.assertIn("(setup:", message)
+
+    def report_outcomes(self, contents, *, returncode=2, expected=2, timeout=False, killed=False):
+        """Exercise both real consumer paths, including their classifier input."""
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="ops327-report-") as tmp:
+            path = Path(tmp) / "events.json"
+            if contents is not None:
+                path.write_text(contents)
+            process = mock.Mock(events=path, returncode=returncode, fixture_killed=killed)
+            process.poll.return_value = returncode
+            process.communicate.side_effect = ([subprocess.TimeoutExpired("worker", 1), ("", "")]
+                                               if timeout else None)
+            process.communicate.return_value = ("", "")
+            lane = types.SimpleNamespace(processes=[process])
+            for consumer in (lambda: r.Lane.finish(lane, process, expected=expected),
+                             lambda: r.Lane.check_workers(lane)):
+                error = None
+                try:
+                    consumer()
+                except Exception as exc:
+                    error = exc
+                yield error
+
+    def test_worker_violations_never_kill(self):
+        records = [{"event": "metadata.stat", "path": "/outside/switch.lock"}]
+        for timeout, killed, rc in ((False, False, 2), (True, False, 2), (False, True, -9)):
+            for error in self.report_outcomes(json.dumps({"violations": records}),
+                                              timeout=timeout, killed=killed, returncode=rc):
+                self.assertIsInstance(error, RuntimeError)
+                self.assertIn("metadata.stat: /outside/switch.lock", str(error))
+                for mutant in (None, "guard-aborted worker"):
+                    passed, message = self.runner.classify_case("r29", mutant, True, error)
+                    self.assertFalse(passed, message)
+                    self.assertIn("(setup:", message)
+
+    def test_missing_or_unreadable_violations_is_setup_failure(self):
+        for contents in (None, "", "not JSON", "{}", "[]", "null", '{"violations":null}',
+                         '{"violations":{}}', '{"violations":[{}]}', '{"violations":["open"]}'):
+            with self.subTest(contents=contents):
+                for error in self.report_outcomes(contents):
+                    self.assertIsInstance(error, RuntimeError)
+                    for mutant in (None, "missing worker report"):
+                        passed, message = self.runner.classify_case("r29", mutant, True, error)
+                        self.assertFalse(passed, message)
+                        self.assertIn("(setup:", message)
+
+    def test_clean_violations_preserves_normal_classification(self):
+        r = self.runner
+        for error in self.report_outcomes('{"violations":[]}', returncode=0, expected=0):
+            self.assertIsNone(error)
+            self.assertTrue(r.classify_case("r29", None, False, error)[0])
+            self.assertFalse(r.classify_case("r29", "survives", True, error)[0])
+        finish_error, check_error = list(self.report_outcomes('{"violations":[]}', returncode=2, expected=0))
+        self.assertIsInstance(finish_error, r.CaseFailure)
+        self.assertIsNone(check_error)
+        self.assertTrue(r.classify_case("r29", "behavior changed", True, finish_error)[0])
+
+    def test_ignored_worker_violations_mutant_is_killed(self):
+        probe = type(self)("test_worker_violations_never_kill")
+        probe.runner = SocketIsolationTests.helper("docker-image-gc-realtime", [('    if violations:\n', '    if False:\n')])
+        probe.setUp = lambda: None
+        result = unittest.TestResult()
+        probe.run(result)
+        self.assertFalse(result.errors, result.errors)
+        self.assertEqual(len(result.failures), 1, "ignored real-time violations mutant survived")
+        print("ok real-time mutant: ignore violations: test_worker_violations_never_kill", file=sys.stderr)
+
+    def test_cleanup_guard_failure_overrides_case_and_diagnostic_kill(self):
+        r = self.runner
+        check_workers = r.Lane.check_workers
+        name, probe = "maximal-hold-r34", "BatchOver sleeps 5 s"
+        for mutant in ("mutant", probe):
+            with tempfile.TemporaryDirectory(prefix="ops327-report-") as tmp:
+                path = Path(tmp) / "events.json"
+                process = types.SimpleNamespace(events=path, poll=lambda: 2, returncode=2, fixture_killed=False)
+                def lane(args, directory, source):
+                    def close():
+                        # Simulate a guard failure completing during cleanup,
+                        # after run_checks' initial check of the clean report.
+                        if source == "changed":
+                            path.write_text(json.dumps({"violations": [{"event": "open", "path": "/outside"}]}))
+                    path.write_text('{"violations":[]}')
+                    result = types.SimpleNamespace(source=source, processes=[process], close=close)
+                    result.check_workers = lambda: check_workers(result)
+                    return result
+                def case(lane):
+                    if lane.source == "changed":
+                        raise r.CaseFailure("no destructive call")
+                output = io.StringIO()
+                with mock.patch.dict(r.CASES, {name: case}), mock.patch.object(r, "Lane", side_effect=lane), \
+                     redirect_stdout(output):
+                    self.assertEqual(r.run_checks(None, [(name, None, "base"), (name, mutant, "changed")]), 1)
+                self.assertIn("FAIL " + name + " [mutant: " + mutant + "] (setup:", output.getvalue())
+                self.assertNotIn("KILLED probe", output.getvalue())
 
     def test_worker_start_failure_overrides_case_watchdog(self):
         r = self.runner

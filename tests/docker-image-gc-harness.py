@@ -52,7 +52,7 @@ def _audit_dispatch(event, args):
     # helper mutants. Looking at frames covers methods, generator resumes,
     # captured defaults and callbacks without wrapping/changing their identity.
     if not (event == "open" or event.startswith(("os.", "socket.", "fcntl.", "shutil."))
-            or event in {"import", "ctypes.dlopen", "subprocess.Popen"}):
+            or event in {"import", "ctypes.dlopen", "subprocess.Popen", "sqlite3.connect"}):
         return
     frame = sys._getframe(1)
     while frame is not None:
@@ -139,6 +139,8 @@ class FixtureGuard:
             path, mode, flags = args
             write = bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND))
             self.check(event, path, write=write)
+        elif event == "sqlite3.connect":
+            self.check(event, args[0], write=True)
         elif event in {"socket.connect", "socket.bind", "socket.sendto"}:
             address = args[-1]
             if not isinstance(address, (os.PathLike, bytes, str)):
@@ -201,14 +203,27 @@ class FixtureGuard:
 
 
 class GuardedOS:
-    """os.stat/lstat and os.path predicates emit no audit events.
+    """Guard non-audited filesystem decisions in production's os import.
 
-    Production uses them on decision paths, so its own os import gets these
-    checks as well. The shared os module and test mocks are left intact.
-    realpath itself only discovers a name: its eventual metadata/read/open is
-    guarded. This lets production reject out-of-store targets without reading
-    them. Ancestor lstat/readlink by the guard's realpath is read-only metadata.
+    CPython 3.13/3.14's audit tables omit these metadata operations, including
+    realpath, whose result can itself decide activation without a later open.
+    Check every path before delegating to the shared/mocked implementation.
+    The guard's own realpath needs read-only ancestor lstat/readlink metadata.
+    Its pre-check is fail-closed for in-fixture links that point outside.
+    Pathlib metadata uses pathlib's own os reference, outside this facade.
+    Pure spelling operations (join, basename, etc.) do not access the filesystem.
     """
+
+    OS_METADATA = {name: ("path",) for name in
+                   ("access", "stat", "lstat", "readlink", "pathconf", "statvfs")}
+    PATH_METADATA = {name: ("path",) for name in
+                     ("exists", "lexists", "isdir", "isfile", "islink", "ismount", "isjunction", "isdevdrive")}
+    PATH_METADATA.update({name: ("filename",) for name in
+                          ("getsize", "getmtime", "getatime", "getctime", "realpath")})
+    PATH_METADATA["samefile"] = ("f1", "f2")
+    # These Unix path operations also have no audit event. Unlike metadata,
+    # they cannot use the interpreter, /proc or /dev/null read exceptions.
+    OS_WRITES = {name: ("path",) for name in ("mkfifo", "mknod", "chroot")}
 
     def __init__(self, guard, module=os):
         self.guard, self.module = guard, module
@@ -224,10 +239,15 @@ class GuardedOS:
                 self.guard.check("open", path, write=write, dir_fd=kwargs.get("dir_fd"))
                 return os.open(path, flags, *args, **kwargs)
             return opened
-        if name in ({"stat", "lstat"} if self.module is os else {"exists", "lexists", "isdir", "isfile", "islink"}):
-            def metadata(path, *args, **kwargs):
-                self.guard.check("metadata." + name, path, dir_fd=kwargs.get("dir_fd"))
-                return getattr(self.module, name)(path, *args, **kwargs)
+        parameters = (self.OS_METADATA | self.OS_WRITES) if self.module is os else self.PATH_METADATA
+        if name in parameters and hasattr(self.module, name):
+            write = self.module is os and name in self.OS_WRITES
+            def metadata(*args, **kwargs):
+                for index, parameter in enumerate(parameters[name]):
+                    path = args[index] if len(args) > index else kwargs[parameter]
+                    self.guard.check(("os." if write else "metadata.") + name, path,
+                                     write=write, dir_fd=kwargs.get("dir_fd"))
+                return getattr(self.module, name)(*args, **kwargs)
             return metadata
         return getattr(self.module, name)
 
@@ -251,7 +271,11 @@ def execute_source(source, root=None, *, bindings=None):
     original_import = builtins.__import__
     def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
         imported = original_import(name, globals, locals, fromlist, level)
-        return GuardedOS(guard) if name == "os" else imported
+        if name == "os" or (name == "os.path" and not fromlist):
+            return GuardedOS(guard)
+        if name == "os.path":
+            return GuardedOS(guard, os.path)
+        return imported
     module.__dict__["__builtins__"] = {**vars(builtins), "__import__": guarded_import}
     exec(compile(source.replace("@DECLARED_REFS@", "[]"), "docker-image-gc.py", "exec"), module.__dict__)
     return module
