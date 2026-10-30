@@ -32,6 +32,7 @@ import sys
 import time
 from contextlib import contextmanager, nullcontext
 
+_MONOTONIC = time.monotonic
 HERE = Path(__file__).resolve().parent
 REPO = os.path.realpath(HERE.parent)
 TIMING_INSTRUMENTATION_MAX_S = 0.250
@@ -88,6 +89,7 @@ class EvidenceState:
         self.identity, self.pid = identity, pid
         self.records, self.pending, self.phases = [], {}, set()
         self.ready, self.end, self.fatal = False, None, []
+        self.windows, self.current_window = {}, None
 
     def accept(self, record):
         common = {"identity", "pid", "seq", "kind"}
@@ -95,6 +97,7 @@ class EvidenceState:
                   "ALLOW": {"id"}, "SETUP_BEGIN": {"id"}, "SETUP_END": {"id"},
                   "DENY": {"event", "path"}, "SETUP_ERROR": {"error"},
                   "RUNTIME_ERROR": {"error"}, "PHASE": {"label"},
+                  "WINDOW_BEGIN": {"window"}, "WINDOW_END": {"window"},
                   "END": {"rc", "violations", "setup_error"}}
         if not isinstance(record, dict) or record.get("kind") not in fields:
             raise EvidenceError("malformed evidence record")
@@ -105,7 +108,19 @@ class EvidenceState:
             raise EvidenceError("wrong evidence identity, digest, pid, sequence or schema")
         if self.end is not None or (not self.records and kind != "START") or (self.records and kind == "START"):
             raise EvidenceError("missing START, duplicate START/END or records after END")
-        if kind.endswith("_BEGIN"):
+        if kind == "WINDOW_BEGIN":
+            window = record["window"]
+            if (not self.ready or self.current_window is not None or self.pending
+                    or type(window) not in (int, float) or not 0 <= window < float('inf')
+                    or window in self.windows):
+                raise EvidenceError("invalid or overlapping window BEGIN")
+            self.windows[window], self.current_window = False, window
+        elif kind == "WINDOW_END":
+            if (type(record["window"]) not in (int, float) or self.current_window is None
+                    or record["window"] != self.current_window or self.pending):
+                raise EvidenceError("unmatched window END")
+            self.windows[self.current_window], self.current_window = True, None
+        elif kind.endswith("_BEGIN"):
             if not isinstance(record["id"], str) or record["id"] in self.pending:
                 raise EvidenceError("invalid evidence transaction")
             self.pending[record["id"]] = kind
@@ -161,10 +176,16 @@ class EvidencePublisher:
         self.timing_windows = []
         self.active_window = None
         self.lock = threading.RLock()
+        self.clock_error = None
 
     def send(self, kind, **fields):
         with self.lock:
-            began = time.monotonic()
+            if self.clock_error is not None:
+                raise self.clock_error
+            if time.monotonic is not _MONOTONIC:
+                self.clock_error = EvidenceError("monotonic clock identity changed")
+                raise self.clock_error
+            began = _MONOTONIC()
             self.sequence += 1
             record = dict(identity=self.identity, pid=os.getpid(), seq=self.sequence, kind=kind, **fields)
             timed = self.identity.get("case", "").endswith("-r34")
@@ -182,7 +203,7 @@ class EvidencePublisher:
                 raise EvidenceError("broken or stalled evidence collector")
             if not select.select([self.ack_fd], [], [], 5)[0] or os.read(self.ack_fd, 1) != b"+":
                 raise EvidenceError("missing appended evidence acknowledgement")
-            elapsed = time.monotonic() - began
+            elapsed = _MONOTONIC() - began
             if timed:
                 confirmation = json.dumps({"acknowledged": self.sequence}).encode() + b"\n"
                 if os.write(self.send_fd, confirmation) != len(confirmation):
@@ -206,11 +227,14 @@ class EvidencePublisher:
         window = dict(start=started, end=None, instrumentation_s=0.0, round_trips=[])
         self.timing_windows.append(window)
         self.active_window = window
+        self.send("WINDOW_BEGIN", window=started)
 
     def end_timed_window(self):
         if self.active_window is not None:
-            self.active_window["end"] = time.monotonic()
+            window = self.active_window["start"]
+            self.active_window["end"] = _MONOTONIC()
             self.active_window = None
+            self.send("WINDOW_END", window=window)
 
     @contextmanager
     def transaction(self, kind):
@@ -307,6 +331,11 @@ class WorkerEvidence:
                                             or not 0 <= metadata["window"] <= metadata["started"]))):
                                     raise EvidenceError("missing or invalid parent timing metadata")
                                 self.timing_pending = dict(metadata, seq=record.get("seq"), received=received)
+                                kind = record.get("kind")
+                                expected = (record.get("window") if kind == "WINDOW_BEGIN" else
+                                            None if kind == "WINDOW_END" else self.state.current_window)
+                                if metadata["window"] != expected:
+                                    raise EvidenceError("timing membership contradicts window lifecycle")
                             self.state.accept(record)
                             payload = line + b"\n"
                             if journal.write(payload) != len(payload):
@@ -319,8 +348,21 @@ class WorkerEvidence:
             os.close(self.read)
             os.close(self.ack_write)
 
-    def open_window(self):
-        with self.lock:
+    @contextmanager
+    def locked(self, until=None):
+        """Parent waits share their caller's deadline; a stalled append cannot trap teardown."""
+        if until is None:
+            until = _MONOTONIC() + 1
+        remaining = until - _MONOTONIC()
+        if remaining <= 0 or not self.lock.acquire(timeout=remaining):
+            raise EvidenceError("collector state lock timeout")
+        try:
+            yield
+        finally:
+            self.lock.release()
+
+    def open_window(self, until=None):
+        with self.locked(until):
             if self.errors or not self.state.ready or "main-entered" not in self.state.phases:
                 raise EvidenceError("observation window before acknowledged READY/main-entry")
             self.window_started = time.monotonic()
@@ -330,8 +372,8 @@ class WorkerEvidence:
                 output.flush()
                 os.fsync(output.fileno())
 
-    def arm(self, site, required):
-        with self.lock:
+    def arm(self, site, required, until=None):
+        with self.locked(until):
             if self.errors or self.window_started is None or not self.state.ready or not set(required) <= self.state.phases:
                 raise EvidenceError(f"stop {site} lacks mandatory witnesses {required}")
             if self.state.pending or self.state.fatal:
@@ -353,9 +395,9 @@ class WorkerEvidence:
             self.abort.set()
             self.thread.join(1)
         summary = worker_events(process.events) if process.events.exists() else None
-        if self.errors or not self.eof.is_set():
+        if self.thread.is_alive() or self.errors or not self.eof.is_set():
             raise EvidenceError("worker evidence not drained through EOF: " + "; ".join(self.errors))
-        with self.lock:
+        with self.locked():
             self.state.validate(process.returncode, summary, self.stop)
         return summary
 
@@ -372,10 +414,14 @@ class WorkerEvidence:
             if self.thread.is_alive():
                 self.abort.set()
                 self.thread.join(1)
+        # join(timeout) returning does not prove the journal's only writer stopped.
+        if self.thread.is_alive():
+            self.journal_synced = False
+            raise EvidenceError("unsynced: collector termination unproved")
         if not self.journal_synced:
             with self.journal.open("rb") as journal:
                 os.fsync(journal.fileno())
-            self.journal_synced = not self.thread.is_alive()
+            self.journal_synced = True
         if self.thread.is_alive() or self.errors or not self.eof.is_set():
             raise EvidenceError("cannot persist an incomplete evidence journal: " + "; ".join(self.errors))
 
@@ -386,11 +432,17 @@ class WorkerEvidence:
         A kill before confirmation leaves it pending, never a zero-cost RTT.
         No observed hold/admission (e.g. a startup stop) certifies zero windows.
         """
-        with self.lock:
+        if self.thread.is_alive():
+            raise EvidenceError("missing parent timing certification: collector still alive")
+        with self.locked():
             if (self.thread.is_alive() or self.errors or not self.eof.is_set()
                     or self.timing_pending is not None or not self.state.records
                     or self.timing_confirmed != len(self.state.records)):
                 raise EvidenceError("missing parent timing certification")
+            if self.state.current_window is not None or not all(self.state.windows.values()):
+                raise EvidenceError("open window or unpublished window END")
+            if set(self.timing_windows) != set(self.state.windows):
+                raise EvidenceError("window lifecycle/timing ledger mismatch")
             totals = []
             for window, intervals in self.timing_windows.items():
                 total = sum(end - start for start, end in intervals)
@@ -1029,15 +1081,15 @@ class Lane:
 
     def await_ready(self, process):
         evidence = process.evidence
-        until = time.monotonic() + 5
-        while time.monotonic() < until:
-            if evidence.errors:
-                raise EvidenceError("worker startup failed: " + "; ".join(evidence.errors))
+        until = _MONOTONIC() + 5
+        while _MONOTONIC() < until:
             if process.events.exists():
                 worker_events(process.events)
-            with evidence.lock:
+            with evidence.locked(until):
+                if evidence.errors:
+                    raise EvidenceError("worker startup failed: " + "; ".join(evidence.errors))
                 if evidence.state.ready and "main-entered" in evidence.state.phases:
-                    evidence.open_window()
+                    evidence.open_window(until)
                     return
             if process.poll() is not None:
                 evidence.validate(process)
@@ -1050,11 +1102,19 @@ class Lane:
             raise EvidenceError(f"undeclared case observation site {site}")
         subjects = {process.role: process for process in self.processes if hasattr(process, "evidence")}
         live = [process for process in self.processes if hasattr(process, "evidence") and process.poll() is None]
+        until = _MONOTONIC() + 1
+        phases, armed = {}, {}
+        for process in self.processes:
+            if not hasattr(process, "evidence"):
+                continue
+            with process.evidence.locked(until):
+                phases[id(process)] = set(process.evidence.state.phases)
+                armed[id(process)] = process.evidence.stop is not None
         paths = STOP_PATHS[self.case][site]
         complete = [path for path in paths if all(process.role in path
-                            and set(path[process.role]) <= process.evidence.state.phases for process in live)
+                            and set(path[process.role]) <= phases[id(process)] for process in live)
                     and all(role in subjects and required
-                            and set(required) <= subjects[role].evidence.state.phases
+                            and set(required) <= phases[id(subjects[role])]
                             for role, required in path.items())]
         if not complete:
             raise EvidenceError(f"stop {site} has no complete predeclared evidence path")
@@ -1063,8 +1123,8 @@ class Lane:
         # still checks READY, pending transactions, sticky errors and identity.
         for process in live:
             required = path[process.role]
-            if process.evidence.stop is None:
-                process.evidence.arm(site, required)
+            if not armed[id(process)]:
+                process.evidence.arm(site, required, until)
         for process in live:
             process.kill()
 
@@ -1141,6 +1201,9 @@ class Lane:
                 process.evidence.persist()
             except Exception as exc:
                 errors.append(str(exc))
+                # An unsynced/live writer may still own its state lock. Never
+                # certify it, and never let it prevent later workers' fsyncs.
+                continue
             if self.case.endswith('-r34'):
                 try:
                     totals = process.evidence.certify_timing()
@@ -1326,12 +1389,13 @@ def backlog(lane):
         lane.processes.append(process)
         evidence.attach(pid)
         lane.await_ready(process)
+        until = _MONOTONIC() + 55
         def started():
             if events.exists():
                 worker_events(events)
-            if evidence.errors:
-                raise EvidenceError("; ".join(evidence.errors))
-            with evidence.lock:
+            with evidence.locked(until):
+                if evidence.errors:
+                    raise EvidenceError("; ".join(evidence.errors))
                 return "connect-start" in evidence.state.phases
         lane.wait_for("RT:397", started, 55, "backlog destructive connect starts")
         contender = lane.contender()

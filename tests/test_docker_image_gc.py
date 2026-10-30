@@ -5451,19 +5451,19 @@ class Isolation10StopPathTests(unittest.TestCase):
 
     def test_mutant_incomplete_path_intersection_is_killed(self):
         runner = SocketIsolationTests.helper('docker-image-gc-realtime', [
-            ('set(required) <= subjects[role].evidence.state.phases',
-             'bool(set(required) & subjects[role].evidence.state.phases)'),
-            ('set(path[process.role]) <= process.evidence.state.phases',
-             'bool(set(path[process.role]) & process.evidence.state.phases)')])
+            ('set(required) <= phases[id(subjects[role])]',
+             'bool(set(required) & phases[id(subjects[role])])'),
+            ('set(path[process.role]) <= phases[id(process)]',
+             'bool(set(path[process.role]) & phases[id(process)])')])
         probe = type(self)('test_instance_bypass_requires_first_destructive_and_second_cooldown')
         probe.setUp = lambda: None
         probe.r, probe.identity = runner, self.identity
         # Mutate arm too: path selection must independently reject an
         # incomplete path rather than relying on that later mandatory check.
         original = runner.WorkerEvidence.arm
-        def weak_arm(channel, site, required):
+        def weak_arm(channel, site, required, until=None):
             remaining = tuple(set(required) & channel.state.phases)
-            return original(channel, site, remaining)
+            return original(channel, site, remaining, until)
         with mock.patch.object(runner.WorkerEvidence, 'arm', weak_arm):
             result = unittest.TestResult()
             probe.run(result)
@@ -5477,7 +5477,8 @@ class Isolation10StopPathTests(unittest.TestCase):
         lane.processes, trace = [], []
         for index in range(2):
             channel = types.SimpleNamespace(state=types.SimpleNamespace(phases={'main-entered'}), stop=None)
-            channel.arm = lambda site, required, index=index: trace.append(('arm', index))
+            channel.locked = lambda until: nullcontext()
+            channel.arm = lambda site, required, until, index=index: trace.append(('arm', index))
             proc = types.SimpleNamespace(role='proc', evidence=channel, poll=lambda: None)
             proc.kill = lambda index=index: trace.append(('kill', index))
             lane.processes.append(proc)
@@ -5534,12 +5535,15 @@ class Isolation10TimingTests(unittest.TestCase):
                         rc = r.run_worker_main(gc, publisher)
                     except r.EvidenceError as exc:
                         error, rc = exc, 2
-                        # The publisher already acknowledged a sticky runtime
-                        # error (and the interrupted admission stays pending).
-                        # Retain a well-formed END here to isolate the timing
-                        # rejection from the independent invalid-END checks.
+                        # Budget exhaustion can interrupt a guard transaction;
+                        # lifecycle END then fails closed too. Keep diagnostic
+                        # timing separately, without inventing a clean stream.
                         report['model_instrumentation_error'] = str(exc)
-                    r.finish_worker_report(root/'events.json', report, publisher, rc)
+                    if error is None:
+                        r.finish_worker_report(root/'events.json', report, publisher, rc)
+                    else:
+                        report['timing_windows'] = publisher.timing_windows
+                        (root/'events.json').write_text(json.dumps(report))
                     publisher.close()
                     channel.thread.join(5)
                     proc = types.SimpleNamespace(events=root/'events.json', poll=lambda: rc, returncode=rc)
@@ -5547,13 +5551,18 @@ class Isolation10TimingTests(unittest.TestCase):
                         channel.validate(proc)
                     else:
                         with self.assertRaises(r.EvidenceError): channel.validate(proc)
-                    channel.persist()
-                    channel.persist()
+                    for _ in range(2):
+                        if error is None:
+                            channel.persist()
+                        else:
+                            try: channel.persist()
+                            except r.EvidenceError: pass
+                            self.assertTrue(channel.journal_synced)
                     if error is None:
                         parent_totals = channel.certify_timing()
-                        self.assertEqual(parent_totals[0]['round_trips'], 274)
+                        self.assertEqual(parent_totals[0]['round_trips'], 275)
                     else:
-                        with self.assertRaisesRegex(r.EvidenceError, 'exceeds 250 ms'):
+                        with self.assertRaises(r.EvidenceError):
                             channel.certify_timing()
                         parent_totals = None
                 events = json.loads(proc.events.read_text())
@@ -5575,7 +5584,7 @@ class Isolation10TimingTests(unittest.TestCase):
         self.r.check_timing_windows(events)
         self.assertEqual(len(events['timing_windows']), 1)
         window = events['timing_windows'][0]
-        self.assertEqual(len(window['round_trips']), 274)
+        self.assertEqual(len(window['round_trips']), 275)
         self.assertLessEqual(window['instrumentation_s'], .250)
         self.assertTrue(8.9 <= destructive[1] - events['holds'][0][0] <= 10.1)
         self.assertEqual(len(syncs), 1, 'journal must fsync once, after the window')
@@ -5644,6 +5653,8 @@ p=r.EvidencePublisher(int(sys.argv[2]),int(sys.argv[3]),json.loads(sys.argv[4]))
 mode=sys.argv[5];barrier=Path(sys.argv[6]);block=int(sys.argv[7])
 p.send("START");p.send("READY");p.send("PHASE",label="main-entered")
 p.begin_timed_window(time.monotonic())
+if mode=="first":
+    time.sleep(.310);barrier.touch();os.read(block,1)
 p.send("PHASE",label="destructive-phase");p.send("GUARD_BEGIN",id="last")
 native_read=os.read
 def delayed_read(fd,size):
@@ -5660,13 +5671,17 @@ def send(kind,**fields):
         # and its complete 300 ms RTT was measured but before sticky error.
         barrier.touch();native_read(block,1)
     return native_send(kind,**fields)
-if mode!="clean":
+if mode in ("excessive","interrupted"):
     r.os.read=delayed_read;p.send=send
 p.send("ALLOW",id="last")
+if mode=="clean":p.end_timed_window()
+if mode=="unpublished":
+    # Local closure alone is insufficient; prevent the dedicated END send.
+    p.active_window["end"]=time.monotonic();p.active_window=None
 barrier.touch();native_read(block,1)
 '''
 
-    def boundary_run(self, mode):
+    def boundary_run(self, mode, mutant='candidate'):
         r, lane_type, channels, output = self.r, self.r.Lane, [], io.StringIO()
         with tempfile.TemporaryDirectory(prefix='ops327-boundary-', dir=REPO) as root:
             root = Path(root)
@@ -5694,7 +5709,9 @@ barrier.touch();native_read(block,1)
                 os.close(block)
                 try:
                     r.wait_for(barrier.exists, 10, 'publication boundary')
-                    self.assertEqual(channel.state.records[-1]['kind'], 'ALLOW')
+                    self.assertEqual(channel.state.records[-1]['kind'],
+                                     'WINDOW_END' if lane.source == 'base' or mode == 'clean' else
+                                     'WINDOW_BEGIN' if mode == 'first' else 'ALLOW')
                     self.assertFalse(channel.state.pending)
                     self.assertFalse(channel.state.fatal)
                     self.assertFalse(events.exists())
@@ -5702,13 +5719,14 @@ barrier.touch();native_read(block,1)
                     if lane.source == 'base':
                         lane.stop_at('RT:319')
                     else:
-                        lane.wait_for('RT:319', lambda: False, .01, 'maximal hold')
+                        lane.wait_for('RT:317' if mode == 'first' else 'RT:319',
+                                      lambda: False, .01, 'maximal hold')
                 finally:
                     os.close(release)
             with mock.patch.object(r, 'Lane', side_effect=factory), \
                  mock.patch.dict(r.CASES, {'maximal-hold-r34': case}), redirect_stdout(output):
                 result = r.run_checks(None, [('maximal-hold-r34', None, 'base'),
-                                             ('maximal-hold-r34', 'candidate', 'changed')])
+                                             ('maximal-hold-r34', mutant, 'changed')])
             self.assertTrue(all(channel.journal_synced for channel in channels))
             self.assertIn('ok maximal-hold-r34\n', output.getvalue())
             return result, output.getvalue()
@@ -5716,7 +5734,7 @@ barrier.touch();native_read(block,1)
     def test_reportless_300ms_allow_at_rt319_cannot_kill_mutant(self):
         result, output = self.boundary_run('excessive')
         self.assertEqual(result, 1)
-        self.assertIn('parent timed-window instrumentation exceeds 250 ms', output)
+        self.assertIn('open window or unpublished window END', output)
         self.assertIn('FAIL maximal-hold-r34 [mutant: candidate] (setup:', output)
 
     def test_reportless_interrupted_ack_cannot_kill_mutant(self):
@@ -5735,16 +5753,18 @@ barrier.touch();native_read(block,1)
         channel.thread.is_alive.return_value = False
         channel.errors, channel.timing_pending = [], None
         channel.eof = threading.Event(); channel.eof.set()
-        channel.state = types.SimpleNamespace(records=[object()])
+        channel.state = types.SimpleNamespace(records=[object()], current_window=None, windows={1.0: True})
         channel.timing_confirmed = 1
         channel.timing_windows = {1.0: [(1.0, 1.25)]}
         self.assertEqual(channel.certify_timing()[0]['instrumentation_s'], .250)
         for windows in ({1.0: [(1.0, 1.250001)]},
                         {1.0: [(1.0, 1.125)], 2.0: [(2.0, 2.250001)]}):
             channel.timing_windows = windows
+            channel.state.windows = dict.fromkeys(windows, True)
             with self.assertRaisesRegex(self.r.EvidenceError, 'exceeds 250 ms'):
                 channel.certify_timing()
         channel.timing_windows = {}
+        channel.state.windows = {}
         self.assertEqual(channel.certify_timing(), [])  # certified pre-hold stop
         channel.timing_confirmed = 0
         with self.assertRaisesRegex(self.r.EvidenceError, 'missing parent timing'):
@@ -5871,8 +5891,11 @@ barrier.touch();native_read(block,1)
                                                  ('maximal-hold-r34', mutant, 'changed')])
                 self.assertEqual(result, int(not success), output.getvalue())
                 self.assertLess(trace.index(('changed', 'close')), trace.index(('changed', 'fsync')))
-                self.assertLess(trace.index(('changed', 'fsync')), trace.index(('changed', 'timing')))
-                self.assertLess(trace.index(('changed', 'timing')), len(trace)-1)
+                if failure == 'fsync':
+                    self.assertNotIn(('changed', 'timing'), trace)
+                else:
+                    self.assertLess(trace.index(('changed', 'fsync')), trace.index(('changed', 'timing')))
+                    self.assertLess(trace.index(('changed', 'timing')), len(trace)-1)
                 self.assertEqual(trace[-1], ('score', mutant))
                 if failure or isinstance(case_error, (OSError, r.h.FixtureViolation)):
                     self.assertIn('(setup:', output.getvalue())
@@ -5917,6 +5940,307 @@ barrier.touch();native_read(block,1)
                 self.assertIn('(setup:', output.getvalue())
             finally:
                 publisher.close(); channel.abort.set(); native_join(2)
+
+
+class Isolation12LifecycleTests(unittest.TestCase):
+    setUp = Isolation9EvidenceTests.setUp
+
+    def test_first_in_window_stop_is_infrastructure(self):
+        result, output = Isolation11FinalizationTests.boundary_run(self, 'first')
+        self.assertEqual(result, 1)
+        self.assertIn('open window or unpublished window END', output)
+
+    def test_between_records_stop_is_infrastructure(self):
+        result, output = Isolation11FinalizationTests.boundary_run(self, 'between')
+        self.assertEqual(result, 1)
+        self.assertIn('open window or unpublished window END', output)
+
+    def test_unpublished_window_end_cannot_score(self):
+        result, output = Isolation11FinalizationTests.boundary_run(self, 'unpublished', 'BatchOver sleeps 5 s')
+        self.assertEqual(result, 1)
+        self.assertIn('open window or unpublished window END', output)
+        self.assertNotIn('KILLED probe', output)
+        self.assertNotIn('SURVIVED probe', output)
+
+    PRODUCER = Isolation11FinalizationTests.PRODUCER
+
+    def test_lifecycle_ordering_and_phase_cannot_close_window(self):
+        for mode in ('phase', 'duplicate', 'overlap', 'wrong-end', 'pending', 'nan', 'infinite'):
+            with self.subTest(mode=mode):
+                state, send = Isolation9EvidenceTests.state(self)
+                if mode in ('nan', 'infinite'):
+                    with self.assertRaises(self.r.EvidenceError):
+                        send('WINDOW_BEGIN', window=float(mode if mode == 'nan' else 'inf'))
+                    continue
+                send('WINDOW_BEGIN', window=1.0)
+                if mode == 'phase':
+                    send('PHASE', label='WINDOW_END')
+                    self.assertEqual(state.current_window, 1.0)
+                    self.assertFalse(state.windows[1.0])
+                elif mode == 'duplicate':
+                    send('WINDOW_END', window=1.0)
+                    with self.assertRaises(self.r.EvidenceError): send('WINDOW_BEGIN', window=1.0)
+                elif mode == 'overlap':
+                    with self.assertRaises(self.r.EvidenceError): send('WINDOW_BEGIN', window=2.0)
+                elif mode == 'wrong-end':
+                    with self.assertRaises(self.r.EvidenceError): send('WINDOW_END', window=2.0)
+                else:
+                    send('GUARD_BEGIN', id='pending')
+                    with self.assertRaises(self.r.EvidenceError): send('WINDOW_END', window=1.0)
+
+    def test_clock_identity_guard_is_sticky_without_io(self):
+        r = self.r
+        publisher = r.EvidencePublisher(-1, -1, {'case': 'maximal-hold-r34'})
+        publisher.active_window = dict(start=1.0, end=None, instrumentation_s=0.0, round_trips=[])
+        with mock.patch.object(r.os, 'write') as write, mock.patch.object(r.os, 'read') as read, \
+             mock.patch.object(r.os, 'fsync') as fsync, mock.patch.object(r.select, 'select') as select_call:
+            with mock.patch.object(r.time, 'monotonic', lambda: 0):
+                with self.assertRaisesRegex(r.EvidenceError, 'clock identity') as first:
+                    publisher.send('PHASE', label='destructive-phase')
+            with self.assertRaises(r.EvidenceError) as restored:
+                publisher.send('PHASE', label='destructive-phase')
+            self.assertIs(first.exception, restored.exception)
+            self.assertEqual(publisher.sequence, 0)
+            self.assertEqual(publisher.active_window['round_trips'], [])
+            for operation in (write, read, fsync, select_call): operation.assert_not_called()
+
+    def test_post_end_12s_shape_and_four_window_budget(self):
+        r = self.r
+        for count in (1, 4):
+            with self.subTest(windows=count), tempfile.TemporaryDirectory(dir=REPO) as root:
+                channel = r.WorkerEvidence(root, 'worker', 's', 'm', 'maximal-hold-r34')
+                publisher = r.EvidencePublisher(os.dup(channel.send_fd), os.dup(channel.ack_fd), channel.identity)
+                channel.attach(os.getpid())
+                clock, calls, syncs = [0.0], [], []
+                read_clock = lambda: clock[0]
+                def confirmed():
+                    until = time.monotonic()+2
+                    while time.monotonic() < until:
+                        with channel.locked():
+                            if channel.timing_pending is None and channel.timing_confirmed == len(channel.state.records): return
+                        time.sleep(.001)
+                    self.fail('confirmation did not drain')
+                @contextmanager
+                def held(*args): yield
+                def destructive():
+                    confirmed()
+                    clock[0] += 9 if len(calls) % 2 == 0 else 29
+                    calls.append(clock[0])
+                gc = types.SimpleNamespace(deploy_locks=held, instance_lock=held, destructive_call=destructive,
+                                           STOP=types.SimpleNamespace(set=lambda: None))
+                report = dict(holds=[], attempts=[])
+                native_fsync = os.fsync
+                def fsync(fd):
+                    self.assertFalse(channel.thread.is_alive())
+                    self.assertIsNone(publisher.active_window)
+                    syncs.append(fd); native_fsync(fd)
+                try:
+                    with mock.patch.object(r, 'time', types.SimpleNamespace(monotonic=read_clock)), \
+                         mock.patch.object(r, '_MONOTONIC', read_clock), \
+                         mock.patch.dict(os.environ, {}), mock.patch.object(r.signal, 'signal'), \
+                         mock.patch.object(r.os, 'fsync', fsync):
+                        publisher.send('START'); publisher.send('READY'); publisher.send('PHASE', label='main-entered')
+                        r.instrument_worker(gc, report, publisher)
+                        for _ in range(count):
+                            with gc.deploy_locks([]):
+                                gc.destructive_call(); gc.destructive_call()
+                                confirmed()
+                                self.assertIsNone(channel.state.current_window)
+                            clock[0] += 7  # original 45s watchdog, while a 12s handler wakes at 50
+                        publisher.close(); channel.thread.join(2)
+                        channel.persist()
+                        totals = channel.certify_timing()
+                    self.assertEqual(calls[:2], [9, 38])
+                    self.assertEqual(len(totals), count)
+                    self.assertTrue(all(item['round_trips'] == 3 for item in totals))
+                    boundaries = [record['kind'] for record in channel.state.records if record['kind'].startswith('WINDOW_')]
+                    self.assertEqual(boundaries, ['WINDOW_BEGIN', 'WINDOW_END']*count)
+                    self.assertEqual(len(syncs), 1)
+                    stop = dict(identity=channel.identity, case=channel.case, site='RT:319',
+                                required=['main-entered', 'destructive-phase'])
+                    channel.state.validate(-signal.SIGKILL, None, stop)
+                    self.assertTrue(r.classify_case(channel.case, 'BatchOver sleeps 12 s', True,
+                                                  r.CaseFailure('45s watchdog'))[0])
+                    print(f'OPS327_POST_END windows={count} calls=9,38 end=38 stop=45 wake=50 scoreable=True fsyncs=1')
+                finally:
+                    if channel.thread.is_alive():
+                        publisher.close(); channel.abort.set(); channel.thread.join(2)
+
+    @contextmanager
+    def stalled_pair(self):
+        """Real collectors; the first stalls in write while owning its real lock."""
+        r = self.r
+        with tempfile.TemporaryDirectory(prefix='ops327-stalled-', dir=REPO) as root:
+            root = Path(root)
+            first = r.WorkerEvidence(root, 'first', 's', 'm', 'maximal-hold-r34')
+            second = r.WorkerEvidence(root, 'second', 's', 'm', 'maximal-hold-r34')
+            blocked, release, stall = threading.Event(), threading.Event(), threading.Event()
+            native_open, native_fsync = Path.open, os.fsync
+            events, publishers = [], []
+            class Journal:
+                def __init__(self, journal): self.journal = journal
+                def __enter__(self): return self
+                def __exit__(self, *args): self.journal.close()
+                def write(self, data):
+                    if stall.is_set():
+                        blocked.set()
+                        if not release.wait(60): raise TimeoutError('probe release missing')
+                        events.append('first:append')
+                    return self.journal.write(data)
+            def opened(path, *args, **kwargs):
+                journal = native_open(path, *args, **kwargs)
+                return Journal(journal) if path == first.journal and args == ('xb',) else journal
+            def synced(fd):
+                events.append('fsync')
+                return native_fsync(fd)
+            lane = object.__new__(r.Lane)
+            lane.case, lane.engines, lane.stop_plan = 'maximal-hold-r34', [], r.STOP_PLAN['maximal-hold-r34']
+            processes = []
+            for index, channel in enumerate((first, second)):
+                process = types.SimpleNamespace(evidence=channel, events=root/(str(index)+'.events'),
+                    role='proc' if index == 0 else 'later', returncode=None if index == 0 else -9)
+                process.poll = lambda p=process: p.returncode
+                process.kill = lambda p=process: setattr(p, 'returncode', -9)
+                process.send_signal = lambda sig: None
+                process.wait = lambda timeout, p=process: p.returncode
+                processes.append(process)
+            lane.processes = processes
+            def timed_out(signum, frame): raise TimeoutError('bounded collector probe expired')
+            previous = signal.signal(signal.SIGALRM, timed_out)
+            try:
+                with mock.patch.object(Path, 'open', opened):
+                    for channel in (first, second):
+                        publisher = r.EvidencePublisher(os.dup(channel.send_fd), os.dup(channel.ack_fd), channel.identity)
+                        publishers.append(publisher)
+                        channel.attach(os.getpid())
+                        publisher.send('START'); publisher.send('READY'); publisher.send('PHASE', label='main-entered')
+                    publishers[1].close(); publishers[1] = None
+                    second.thread.join(2)
+                    self.assertFalse(second.thread.is_alive())
+                    stall.set()
+                    record = dict(identity=first.identity, pid=os.getpid(), seq=4, kind='PHASE',
+                                  label='destructive-phase', _timing=dict(started=r._MONOTONIC(), window=None))
+                    os.write(publishers[0].send_fd, json.dumps(record).encode()+b'\n')
+                    self.assertTrue(blocked.wait(2))
+                    signal.setitimer(signal.ITIMER_REAL, 38)
+                    with mock.patch.object(first, 'certify_timing', wraps=first.certify_timing) as certify, \
+                         mock.patch.object(second, 'persist', wraps=second.persist) as later, \
+                         mock.patch.object(r.os, 'fsync', synced):
+                        yield lane, first, second, events, certify, later, release
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+                release.set()
+                for channel, publisher in zip((first, second), publishers):
+                    if publisher is not None: publisher.close()
+                    channel.abort.set(); channel.thread.join(2)
+
+    def test_real_two_worker_finalizer_skips_unsynced_certification(self):
+        with self.stalled_pair() as (lane, first, second, events, certify, later, release):
+            began = time.monotonic()
+            with self.assertRaisesRegex(self.r.EvidenceError, 'unsynced'):
+                lane.finalize_evidence()
+            self.assertLess(time.monotonic()-began, 8)
+            self.assertTrue(first.thread.is_alive())
+            self.assertFalse(first.journal_synced)
+            certify.assert_not_called(); later.assert_called_once()
+            self.assertTrue(second.journal_synced)
+            self.assertEqual(events, ['fsync'])  # second only; no live-writer fsync
+            print('OPS327_REAL_FINALIZER later_worker_finalized=True first_synced=False fsyncs=1 bounded=True')
+            release.set(); first.thread.join(2)
+            self.assertIn('first:append', events)
+            self.assertFalse(first.journal_synced)
+
+    def test_direct_parent_lock_paths_fail_closed(self):
+        channel = object.__new__(self.r.WorkerEvidence)
+        channel.lock = threading.RLock()
+        with self.assertRaisesRegex(self.r.EvidenceError, 'collector state lock timeout'):
+            with channel.locked(self.r._MONOTONIC()-1):
+                self.fail('expired deadline granted state access')
+        with self.stalled_pair() as (lane, first, second, events, certify, later, release):
+            for operation in (first.open_window, lambda: first.arm('RT:319', ['main-entered'])):
+                began = time.monotonic()
+                with self.assertRaisesRegex(self.r.EvidenceError, 'collector state lock timeout'):
+                    operation()
+                self.assertLess(time.monotonic()-began, 2)
+            with self.assertRaisesRegex(self.r.EvidenceError, 'collector still alive'):
+                first.certify_timing()
+            self.assertIsNone(first.stop)
+            self.assertFalse(first.journal.with_suffix('.stop.json').exists())
+            self.assertFalse(first.journal.with_suffix('.window.json').exists())
+
+    def test_unsynced_handoff_cannot_claim_a_late_append_was_synced(self):
+        with self.stalled_pair() as (lane, first, second, events, certify, later, release):
+            native_fsync = self.r.os.fsync
+            def handoff(fd):
+                native_fsync(fd)
+                release.set(); first.thread.join(2)
+            with mock.patch.object(self.r.os, 'fsync', handoff):
+                with self.assertRaisesRegex(self.r.EvidenceError, 'unsynced'):
+                    lane.finalize_evidence()
+            self.assertFalse(first.thread.is_alive())
+            self.assertFalse(first.journal_synced)
+            self.assertTrue(second.journal_synced)
+            certify.assert_not_called(); later.assert_called_once()
+            self.assertEqual(events, ['fsync', 'first:append'])
+
+    def test_contradictory_window_membership_is_sticky_infrastructure(self):
+        r = self.r
+        with tempfile.TemporaryDirectory(dir=REPO) as root:
+            channel = r.WorkerEvidence(root, 'worker', 's', 'm', 'maximal-hold-r34')
+            publisher = r.EvidencePublisher(os.dup(channel.send_fd), os.dup(channel.ack_fd), channel.identity)
+            channel.attach(os.getpid())
+            try:
+                publisher.send('START'); publisher.send('READY')
+                publisher.begin_timed_window(r._MONOTONIC())
+                record = dict(identity=channel.identity, pid=os.getpid(), seq=publisher.sequence+1,
+                              kind='PHASE', label='destructive-phase',
+                              _timing=dict(started=r._MONOTONIC(), window=None))
+                os.write(publisher.send_fd, json.dumps(record).encode()+b'\n')
+                publisher.close(); channel.thread.join(2)
+                self.assertFalse(channel.thread.is_alive())
+                self.assertIn('timing membership contradicts', ';'.join(channel.errors))
+                with self.assertRaises(r.EvidenceError): channel.persist()
+                self.assertTrue(channel.journal_synced)
+                with self.assertRaises(r.EvidenceError): channel.certify_timing()
+            finally:
+                if channel.thread.is_alive():
+                    publisher.close(); channel.abort.set(); channel.thread.join(2)
+
+    def stalled_parent_path(self, startup):
+        r, output, path_errors = self.r, io.StringIO(), []
+        with self.stalled_pair() as (lane, first, second, events, certify, later, release):
+            # Use the real runner, teardown, joins and finalizer; neither a fake
+            # finalizer nor shortened joins can hide a lock wait here.
+            def case(current):
+                try:
+                    if startup: current.await_ready(current.processes[0])
+                    else: current.wait_for('RT:319', lambda: False, .01, 'watchdog')
+                except r.EvidenceError as exc:
+                    path_errors.append(str(exc))
+                    raise
+            began = time.monotonic()
+            with mock.patch.object(r, 'Lane', return_value=lane), \
+                 mock.patch.dict(r.CASES, {'maximal-hold-r34': case}), redirect_stdout(output):
+                result = r.run_checks(None, [('maximal-hold-r34', 'candidate', 'changed')])
+            self.assertLess(time.monotonic()-began, 36)
+            self.assertEqual(result, 1)
+            self.assertIn('(setup:', output.getvalue())
+            self.assertEqual(path_errors, ['collector state lock timeout'])
+            self.assertIn('unsynced', output.getvalue())
+            self.assertIsNone(first.stop)
+            self.assertFalse(first.journal_synced)
+            certify.assert_not_called(); later.assert_called_once()
+            self.assertTrue(second.journal_synced)
+            self.assertEqual(events, ['fsync'])
+            print('OPS327_PARENT_PATH '+('startup' if startup else 'watchdog')+
+                  ' finalization_reached=True later_worker_finalized=True bounded=True')
+
+    def test_watchdog_stop_with_stalled_collector_reaches_finalization(self):
+        self.stalled_parent_path(False)
+
+    def test_startup_wait_with_stalled_collector_reaches_finalization(self):
+        self.stalled_parent_path(True)
 
 
 ALLOW9 = {
