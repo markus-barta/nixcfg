@@ -42,6 +42,12 @@ pkgs.testers.runNixOSTest {
       imports = [ ../hosts/csb1/docker-image-gc.nix ];
       options.nixcfg.composeStack.renderedSpec = lib.mkOption { type = lib.types.attrs; };
       config = {
+        # The rollback's real switch must not run grub-install in this direct-boot
+        # VM, as in nixpkgs' switch-test.nix.
+        boot.loader.grub.enable = false;
+        # The store is read-only and its DB is unused; switch-to-configuration
+        # re-starts sysinit.target, which would retry store registration.
+        systemd.services.register-nix-paths.enable = false;
         virtualisation.memorySize = 3072;
         virtualisation.cores = 2;
         virtualisation.diskSize = 8192;

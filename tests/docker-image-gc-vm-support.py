@@ -72,6 +72,56 @@ def command(*argv, check=True, timeout=None, pass_fds=()):
     return result
 
 
+def set_system_profile(target, profiles="/nix/var/nix/profiles"):
+    """Mirror nix-env generation links without opening the read-only store."""
+    target = os.path.realpath(target)
+    assert target.startswith("/nix/store/"), ("system target outside store", target)
+    assert (Path(target) / "bin/switch-to-configuration").is_file(), target
+    profiles = Path(profiles)
+    profiles.mkdir(parents=True, exist_ok=True)
+    generations = {int(match[1]): path for path in profiles.iterdir()
+                   if (match := re.fullmatch(r"system-(\d+)-link", path.name))}
+    number = max(generations, default=0)
+    updates = []
+    if not generations or os.path.realpath(generations[number]) != target:
+        number += 1
+        generation = profiles / f"system-{number}-link"
+        updates.append((generation, target))
+    else:
+        generation = generations[number]
+    updates.append((profiles / "system", generation.name))
+    for link, destination in updates:
+        temporary = profiles / f".{link.name}-{os.getpid()}-{time.monotonic_ns()}"
+        temporary.symlink_to(destination)
+        try:
+            os.replace(temporary, link)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return generation
+
+
+def rollback_system_profile(profiles="/nix/var/nix/profiles"):
+    """Select the preceding generation, then run its real switch activation."""
+    profiles = Path(profiles)
+    current = os.readlink(profiles / "system")
+    match = re.fullmatch(r"system-(\d+)-link", Path(current).name)
+    assert match is not None, ("invalid system profile generation", current)
+    number = int(match[1])
+    generations = {int(match[1]): path for path in profiles.iterdir()
+                   if (match := re.fullmatch(r"system-(\d+)-link", path.name))
+                   and int(match[1]) < number}
+    assert generations, ("no lower system generation", number)
+    generation = generations[max(generations)]
+    temporary = profiles / f".system-{os.getpid()}-{time.monotonic_ns()}"
+    temporary.symlink_to(generation.name)
+    try:
+        os.replace(temporary, profiles / "system")
+    finally:
+        temporary.unlink(missing_ok=True)
+    command(str(profiles / "system/bin/switch-to-configuration"), "switch", timeout=650)
+    return generation
+
+
 def wait_for(predicate, seconds=60, name="condition"):
     until = time.monotonic() + seconds
     while time.monotonic() < until:
@@ -390,7 +440,7 @@ def prepare():
     Path("/run/ops327-ready").touch()
     configure(epoch="init")
     start_unit("ops327-proxy")
-    command("nix-env", "-p", "/nix/var/nix/profiles/system", "--set", os.path.realpath("/run/current-system"))
+    set_system_profile(os.path.realpath("/run/current-system"))
 
 
 def restore(reset_compose=True):
@@ -631,11 +681,12 @@ def checks():
     require_outcome("compose-csb1")
     results.append({"case": "switch-held-delete-and-real-proc-token", "switch": proc.returncode})
     start_unit("ops327-proxy", verb="restart")  # cancel the never-forwarded 600 s request
-    # Actual nixos-rebuild rollback uses prebuilt generations, entirely offline.
-    command('nix-env', '-p', '/nix/var/nix/profiles/system', '--set', base)
-    command('nix-env', '-p', '/nix/var/nix/profiles/system', '--set', os.path.realpath(changed))
+    # Drive profiles with symlinks: Nix commands open the store DB, which cannot
+    # be initialized on this VM's read-only store. Activation still switches.
+    set_system_profile(base)
+    set_system_profile(os.path.realpath(changed))
     run_gc("snapshot-switch", [1], slow_snapshot=True, wait_event="snapshot-first")
-    command('nixos-rebuild', 'switch', '--rollback', timeout=650)
+    rollback_system_profile()
     gc_done(0, 100)
     results.append({"case": "switch-never-blocked-by-gc-switch-lock"})
     # The accepted post-snapshot race: a tag appears only after the fence.
