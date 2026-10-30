@@ -24,6 +24,7 @@ import select
 import threading
 import uuid
 import os
+import re
 from pathlib import Path
 import signal
 import socket
@@ -1092,6 +1093,9 @@ for _case in ('across-runs', 'across-runs-r34'):
 
 
 class Lane:
+    # Declared controls for every group: private source/manifest/path fixtures,
+    # worker launch/run budget, and the Engine's replies/delays. Journal,
+    # sidecars and result files are evidence, never production inputs.
     def __init__(self, args, name, source):
         self.root = Path(repo_path(os.path.join(args.root, name)))
         if self.root.exists():
@@ -1239,6 +1243,7 @@ class Lane:
         return events, out + err
 
     def contender(self, lock=0, hold=0, prefix="contender"):
+        # Declared fixture control: compose-lock contention, not observation.
         # The actual util-linux waiter is the process receiving STOP/CONT.
         acquired = self.root / (prefix + ".acquired")
         proc = subprocess.Popen(["flock", "-x", "-w", "570", self.paths["LOCK_PATHS"][lock],
@@ -1324,6 +1329,8 @@ class Lane:
 
 
 def deadline(lane, *, method='DELETE', phase=None, delay=600):
+    # Declared controls: image inventory selects DELETE/prune; Engine response
+    # withholding/trickling and a compose contender exercise the deadline.
     if method == 'POST':
         lane.images[:] = lane.images[:2]
     engine = lane.engine(delay=delay, phase=phase)
@@ -1424,6 +1431,8 @@ class ForkProcess:
 
 
 def backlog(lane):
+    # Declared fixture control: a private full AF_UNIX accept queue, prefilled
+    # before launch, makes the destructive connect wait for its deadline.
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     clients = []
     server.bind(lane.paths["SOCKET_PATH"])
@@ -1496,6 +1505,8 @@ def backlog(lane):
 
 
 def fifo(lane, where):
+    # Declared fixture control: replace the selected input with a FIFO before
+    # launch to exercise nonblocking rejection of nonregular input.
     path = lane.spec if where == 'spec' else Path(lane.paths['KEEP_DIR']) / ('aeon-live.refs' if where == 'role' else 'stuck.refs')
     if path.exists():
         path.unlink()
@@ -1511,21 +1522,76 @@ def fifo(lane, where):
     lane.require('RT:437', 'not a regular file' in output, output)
 
 
+class SwitchLockObserver:
+    """Parent-only kernel-table reader; independent of all copied GC code.
+
+    The lane owns this inode, so every matching row is a violation, including
+    unrelated holders and waiters. An ancestry lookup is diagnostic only: a
+    vanished process or an OFD owner of -1 cannot hide a matching row.
+    Injected paths are for portable tests; the Linux lane uses real procfs.
+    """
+
+    def __init__(self, switch_lock, worker_pid, *, locks_path='/proc/locks', proc_path='/proc'):
+        info = os.stat(switch_lock)
+        self.token = (os.major(info.st_dev), os.minor(info.st_dev), info.st_ino)
+        self.worker_pid, self.locks_path, self.proc_path = worker_pid, Path(locks_path), Path(proc_path)
+
+    def relation(self, pid):
+        if pid == self.worker_pid:
+            return 'worker'
+        seen = set()
+        while pid > 0 and pid not in seen:
+            seen.add(pid)
+            try:
+                # comm may contain spaces and closing parentheses.
+                tail = (self.proc_path / str(pid) / 'stat').read_text().rpartition(')')[2].split()
+                pid = int(tail[1])
+            except (OSError, ValueError, IndexError):
+                return 'unknown'
+            if pid == self.worker_pid:
+                return 'descendant'
+        return 'other'
+
+    def sample(self):
+        holders = []
+        for line in self.locks_path.read_text(encoding='ascii').splitlines():
+            fields = line.split()
+            if not fields:
+                continue
+            if len(fields) > 1 and fields[1] == '->':
+                fields.pop(1)
+            # Kernel columns: id, kind, advisory/mandatory, mode, pid,
+            # hex-major:hex-minor:decimal-inode, start, end.
+            if (len(fields) != 8 or re.fullmatch(r'-?[0-9]+', fields[4]) is None
+                    or re.fullmatch(r'[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9]+', fields[5]) is None):
+                raise EvidenceError('malformed /proc/locks row in passive switch observer')
+            major, minor, inode = fields[5].split(':')
+            if (int(major, 16), int(minor, 16), int(inode, 10)) != self.token:
+                continue
+            pid = int(fields[4])
+            relation = self.relation(pid)
+            holders.append(dict(pid=pid, relation=relation,
+                                worker_or_descendant=None if relation == 'unknown' else relation in ('worker', 'descendant')))
+        return holders
+
+
 def never_switch_lock(lane):
+    # Declared fixture control: create the private inode before worker launch.
     Path(lane.paths['SWITCH_LOCK']).touch()
     engine = lane.engine(delay=5)
     proc = lane.start({'RUN_BUDGET_S': 55})
+    observer = SwitchLockObserver(lane.paths['SWITCH_LOCK'], proc.pid)
     # Retain the full request budget: stale snapshots may be discarded and
     # retried after cooldown. Sample the switch lock while waiting so the
     # registered lock-taking mutant is stopped before its 55 s final report.
     until = time.monotonic() + 55
     while not engine.sent.wait(min(.02, max(0, until - time.monotonic()))):
-        result = subprocess.run(['flock', '-n', lane.paths['SWITCH_LOCK'], 'true'], check=False)
-        lane.require('RT:444', result.returncode == 0, 'GC locked the switch lock')
+        holders = observer.sample()
+        lane.require('RT:444', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
         lane.require('RT:444', time.monotonic() < until)
     for _ in range(25):
-        result = subprocess.run(['flock', '-n', lane.paths['SWITCH_LOCK'], 'true'], check=False)
-        lane.require('RT:447', result.returncode == 0, 'GC locked the switch lock')
+        holders = observer.sample()
+        lane.require('RT:447', not holders, 'GC locked the switch lock: ' + json.dumps(holders))
         time.sleep(0.02)
     lane.finish(proc, 50, site='RT:449')
 
@@ -1550,6 +1616,8 @@ def instance(lane):
 
 
 def schedules(lane, *, extra=False, across=False, adversarial=False, r34=False):
+    # Declared controls: compose-lock holders B/C, paused/resumed waiter A,
+    # worker restart, and SIGTERM shape the contention schedule under test.
     engine = lane.engine(delay=[9, 29, 9, 29] if r34 else [5, 24, 5, 24])
     first = lane.start({'RUN_BUDGET_S': 55 if across else 300 if adversarial else 180})
     lane.require('RT:480', engine.sent.wait(55))
@@ -1600,6 +1668,8 @@ def schedules(lane, *, extra=False, across=False, adversarial=False, r34=False):
 
 
 def four_acquisitions(lane, *, r34=False):
+    # Declared controls: handler/trap script, count/ready/go/got handshakes,
+    # per-run Engine socket and process-group SIGTERM exercise reacquisition.
     script = lane.root / 'hausv-user.sh'
     script.write_text('#!/usr/bin/env bash\nset -eu\nstopped=1\nacquire() {\n  n=$(cat "$1/count"); n=$((n+1)); echo "$n" > "$1/count"\n  echo "$n" > "$1/ready"\n  while [ ! -f "$1/go-$n" ]; do sleep 0.02; done\n  flock -w 570 "$2" python3 -c \'import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(time.monotonic()))\' "$1/got-$n"\n}\nrestart() { if [ "$stopped" = 1 ]; then acquire "$1" "$2"; fi; }\ntrap \'restart "$1" "$2"\' EXIT HUP INT TERM\nacquire "$1" "$2"\nacquire "$1" "$2"\nstopped=0\n')
     (lane.root / 'count').write_text('0')

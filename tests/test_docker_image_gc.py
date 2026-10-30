@@ -5304,7 +5304,7 @@ class Isolation9CasePathTests(unittest.TestCase):
         class Process:
             stdout=stderr=None
             def __init__(p,role):
-                p.role=role;p.started=clock.now;p.returncode=None;p.sent=False
+                p.pid=1234;p.role=role;p.started=clock.now;p.returncode=None;p.sent=False
                 identity=dict(worker=role,token=role,source="s",manifest="m")
                 channel=object.__new__(r.WorkerEvidence)
                 channel.state=r.EvidenceState(identity,1234);channel.identity=identity;channel.errors=[];channel.stop=None;channel.window_started=clock.now;channel.case=case;channel.lock=threading.RLock();channel.journal=root/(role+str(len(lane.processes))+".journal")
@@ -5356,7 +5356,7 @@ class Isolation9CasePathTests(unittest.TestCase):
         lane=Lane();aux=types.SimpleNamespace(pid=123,returncode=aux_rc,poll=lambda:aux_rc,
                                             wait=lambda timeout:aux_rc,stdout=None,stderr=None)
         failure=None
-        with mock.patch.object(r,"time",clock),mock.patch.object(r,"subprocess",types.SimpleNamespace(Popen=lambda *a,**k:aux,run=lambda *a,**k:types.SimpleNamespace(returncode=0))),mock.patch.object(r.os,"killpg",lambda *a:None):
+        with mock.patch.object(r,"time",clock),mock.patch.object(r,"subprocess",types.SimpleNamespace(Popen=lambda *a,**k:aux,run=lambda *a,**k:types.SimpleNamespace(returncode=0))),mock.patch.object(r.os,"killpg",lambda *a:None),mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=lambda: [])):
             try:r.CASES[case](lane)
             except r.CaseFailure as exc:failure=exc
         for p in lane.processes:
@@ -5391,12 +5391,288 @@ class Isolation9CasePathTests(unittest.TestCase):
 
 
 
+class Isolation12dRegressionTests(unittest.TestCase):
+    setUp = Isolation9CasePathTests.setUp
+
+    def observer(self, *, pid=1234):
+        self.assertTrue(hasattr(self.r, 'SwitchLockObserver'), 'missing passive switch-lock observer')
+        path = self.root / 'switch'; path.touch(exist_ok=True)
+        table = self.root / 'locks'; table.touch(exist_ok=True)
+        proc = self.root / 'proc'; proc.mkdir(exist_ok=True)
+        return self.r.SwitchLockObserver(path, pid, locks_path=table, proc_path=proc)
+
+    def row(self, pid, *, major=None, minor=None, inode=None, blocked=False):
+        info = (self.root / 'switch').stat()
+        major = os.major(info.st_dev) if major is None else major
+        minor = os.minor(info.st_dev) if minor is None else minor
+        inode = info.st_ino if inode is None else inode
+        return f'1: {"-> " if blocked else ""}FLOCK ADVISORY WRITE {pid} {major:04X}:{minor:04x}:{inode:012d} 0 EOF\n'
+
+    def test_passive_table_records_worker_descendant_and_other_holders(self):
+        observer = self.observer()
+        for pid, ppid in ((4321, 2222), (2222, 1234), (9876, 0)):
+            path = self.root / 'proc' / str(pid); path.mkdir()
+            (path / 'stat').write_text(f'{pid} (name with ) spaces) S {ppid} 0 0\n')
+        (self.root / 'locks').write_text(self.row(1234) + self.row(4321, blocked=True) + self.row(9876) + self.row(-1))
+        holders = observer.sample()
+        self.assertEqual([h['pid'] for h in holders], [1234, 4321, 9876, -1])
+        self.assertEqual([h['relation'] for h in holders], ['worker', 'descendant', 'other', 'other'])
+        self.assertEqual([h['worker_or_descendant'] for h in holders], [True, True, False, False])
+        (self.root / 'locks').write_text(self.row(9999))
+        self.assertIsNone(observer.sample()[0]['worker_or_descendant'], 'vanished owner must still be reported')
+
+    def test_passive_table_matches_whole_device_and_decimal_inode(self):
+        observer = self.observer(); major, minor, inode = observer.token
+        for row in (self.row(1234, major=major + 1), self.row(1234, minor=minor + 1), self.row(1234, inode=inode + 1)):
+            (self.root / 'locks').write_text(row)
+            self.assertEqual(observer.sample(), [])
+        (self.root / 'locks').write_text(self.row(1234))
+        self.assertEqual(observer.sample()[0]['pid'], 1234)
+        for bad in ('1: FLOCK ADVISORY WRITE 1234 01:02:abcd 0 EOF\n', 'broken row\n'):
+            (self.root / 'locks').write_text(bad)
+            with self.assertRaises(self.r.EvidenceError): observer.sample()
+        (self.root / 'locks').unlink()
+        with self.assertRaises(FileNotFoundError): observer.sample()
+
+    def test_production_parser_mutant_cannot_change_observer(self):
+        observer = self.observer()
+        with mock.patch.dict(globals(), OVERRIDE=('text', MUTANTS['match the inode only'][0][1])):
+            gc = load(tmp=self.root)
+        (self.root / 'locks').write_text(self.row(1234, major=observer.token[0] + 1))
+        gc.SWITCH_LOCK = str(self.root / 'switch'); gc.PROC_LOCKS = str(self.root / 'locks')
+        self.assertTrue(gc.switch_lock_used(gc.Budget(10)), 'registered production parser mutant must be active')
+        self.assertEqual(observer.sample(), [], 'parent inherited the production parser mutant')
+        (self.root / 'locks').write_text(self.row(1234))
+        self.assertEqual(observer.sample()[0]['pid'], 1234)
+
+    def test_static_observer_has_no_locking_or_production_dependencies(self):
+        # Bind to the loaded code filename, including the old-source replay.
+        tree = ast.parse(Path(self.r.never_switch_lock.__code__.co_filename).read_text())
+        case = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'never_switch_lock')
+        self.assertFalse([n for n in ast.walk(case) if isinstance(n, ast.Constant)
+                          and isinstance(n.value, str) and n.value in ('flock', 'lockf')],
+                         'never-switch-lock observer launches a locking command')
+        self.assertTrue(hasattr(self.r, 'SwitchLockObserver'), 'missing passive observer')
+        observer = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'SwitchLockObserver')
+        calls = [n for root in (case, observer) for n in ast.walk(root) if isinstance(n, ast.Call)]
+        self.assertFalse([n for n in calls if isinstance(n.func, ast.Attribute) and n.func.attr in ('flock', 'lockf', 'open')])
+        self.assertFalse([n for root in (case, observer) for n in ast.walk(root)
+                          if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value in ('flock', 'lockf')])
+        self.assertFalse([n for n in ast.walk(observer) if isinstance(n, (ast.Import, ast.ImportFrom))])
+        self.assertFalse([n for n in ast.walk(observer) if isinstance(n, ast.Name) and n.id in ('h', 'gc', 'fcntl', 'subprocess', 'switch_lock_used')])
+        # Fixture creation is the sole write and precedes launch; observer
+        # construction/sampling can only stat/read, never open the lock inode.
+        self.assertEqual(sum(isinstance(n.func, ast.Attribute) and n.func.attr == 'touch' for n in calls), 1)
+        self.assertIn('SwitchLockObserver', {n.name for n in tree.body if isinstance(n, ast.ClassDef)})
+
+    @staticmethod
+    def worker(root, send, ack, identity, mutant, real_proc):
+        """Real main/batch in a separate process; only clocks/Engine are injected.
+
+        Darwin has no /proc/locks. The modeled table reflects native successful
+        acquisitions of the private inode; Linux's extra test uses real procfs.
+        """
+        r = SocketIsolationTests.helper('docker-image-gc-realtime')
+        publisher = r.EvidencePublisher(send, ack, identity)
+        fixture = Base(); fixture.tmp = Path(root)
+        transform = MUTANTS['the GC takes the lock'][0][1] if mutant else lambda source: source
+        global OVERRIDE
+        OVERRIDE = ('text', transform)
+        fixture.gc = load(tmp=fixture.tmp); fixture.world(); gc = fixture.gc
+        gc.SWITCH_LOCK = str(fixture.tmp / 'switch')
+        gc.PROC_LOCKS = '/proc/locks' if real_proc else str(fixture.tmp / 'locks')
+        gc.PROC = '/proc' if real_proc else str(fixture.tmp / 'proc')
+        clock = Clock(); started = clock.t
+        gc.time = types.SimpleNamespace(**(vars(time) | {'monotonic': clock}))
+        gc.RUN_BUDGET_S = 55
+        durations = iter((2.6, 2.6, 0.2)); snapshot = gc.snapshot
+        def delayed_snapshot(api, budget):
+            snap = snapshot(api, budget)
+            time.sleep(.06)  # allow real 20 ms parent samples during each retry
+            clock.advance(next(durations, 0))
+            return snap
+        gc.snapshot = delayed_snapshot
+        original_switch = gc.switch_lock_used
+        checks = []
+        def checked(budget):
+            result = original_switch(budget)
+            checks.append(result)
+            (fixture.tmp / 'checked').touch()
+            return result
+        gc.switch_lock_used = checked
+        native_flock = fcntl.flock
+        switch_info = os.stat(gc.SWITCH_LOCK)
+        def tracked_flock(fd, operation):
+            native_flock(fd, operation)
+            info = os.fstat(fd)
+            if (info.st_dev, info.st_ino) == (switch_info.st_dev, switch_info.st_ino):
+                r.publish_events(fixture.tmp / 'retained', dict(at=time.monotonic(), virtual_s=clock.t - started))
+                if not real_proc:
+                    (fixture.tmp / 'locks').write_text(f'1: FLOCK ADVISORY WRITE {os.getpid()} {os.major(info.st_dev):x}:{os.minor(info.st_dev):x}:{info.st_ino} 0 EOF\n')
+        gc.fcntl = types.SimpleNamespace(flock=tracked_flock, LOCK_EX=fcntl.LOCK_EX, LOCK_NB=fcntl.LOCK_NB, LOCK_UN=fcntl.LOCK_UN)
+        api = fixture.api(); requests = []
+        def engine(method, path, **kw):
+            if method != 'GET':
+                publisher.send('PHASE', label='destructive-phase')
+                requests.append((method, clock.t - started))
+                (fixture.tmp / 'request').write_text(json.dumps(requests))
+                time.sleep(5)  # real post-request observation overlaps this delay
+                clock.advance(5)
+            return api(method, path, **kw)
+        original_main = gc.main
+        def main(api, sleep):
+            def pause(seconds):
+                sleep(0)  # keep the real cooldown witness without a 45 s wall wait
+                time.sleep(.06)
+                clock.advance(seconds)
+            return original_main(api, now=NOW, sleep=pause)
+        gc.main = main
+        output = io.StringIO()
+        publisher.send('START')
+        with mock.patch.dict(os.environ, {'INVOCATION_ID': 'ops327-12d', 'DOCKER_IMAGE_GC_DRY_RUN': '0'}), redirect_stdout(output), redirect_stderr(output):
+            rc = r.run_worker_main(gc, publisher, engine)
+        (fixture.tmp / 'result').write_text(json.dumps(dict(rc=rc, checks=checks, requests=requests, output=output.getvalue())))
+        r.finish_worker_report(fixture.tmp / 'events.json', {'violations': gc.__ops327_fixture_guard__.violations}, publisher, rc)
+        publisher.close()
+        raise SystemExit(rc)
+
+    def process_case(self, *, mutant=False, real_proc=False, post_holder=False):
+        r = self.r; root = self.root
+        switch = root / 'switch'; switch.touch()
+        (root / 'locks').write_text('')
+        (root / 'proc' / '9876').mkdir(parents=True)
+        (root / 'proc' / '9876' / 'stat').write_text('9876 (unrelated holder) S 0 0 0\n')
+        lane = object.__new__(r.Lane)
+        lane.root = root; lane.paths = {'SWITCH_LOCK': str(switch)}
+        lane.case = 'never-switch-lock'; lane.stop_plan = r.STOP_PLAN[lane.case]
+        lane.processes = []; lane.engines = []
+        samples, sampler_locks = [], []
+        observer_type = getattr(r, 'SwitchLockObserver', None)
+        def observer(path, pid):
+            item = observer_type(path, pid, locks_path='/proc/locks' if real_proc else root / 'locks',
+                                 proc_path='/proc' if real_proc else root / 'proc')
+            sample = item.sample
+            def record():
+                result = sample(); samples.append((time.monotonic(), result)); return result
+            item.sample = record
+            return item
+        def start(constants):
+            self.assertEqual(constants, {'RUN_BUDGET_S': 55})
+            channel = r.WorkerEvidence(root, 'worker', 's', 'm', lane.case)
+            code = 'import sys,json; sys.path.insert(0,sys.argv[1]); import test_docker_image_gc as t; t.Isolation12dRegressionTests.worker(sys.argv[2],int(sys.argv[3]),int(sys.argv[4]),json.loads(sys.argv[5]),sys.argv[6]=="True",sys.argv[7]=="True")'
+            proc = subprocess.Popen([sys.executable, '-B', '-c', code, str(REPO / 'tests'), str(root), str(channel.send_fd), str(channel.ack_fd), json.dumps(channel.identity), str(mutant), str(real_proc)], pass_fds=(channel.send_fd, channel.ack_fd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            proc.events = root / 'events.json'; proc.evidence = channel; proc.role = 'proc'
+            lane.processes.append(proc); channel.attach(proc.pid); lane.await_ready(proc)
+            return proc
+        lane.start = start
+        def finish(proc, *args, **kwargs):
+            try:
+                return r.Lane.finish(lane, proc, *args, **kwargs)
+            except r.EvidenceError as exc:
+                out, err = proc.communicate(timeout=5)
+                raise AssertionError(f'{exc}; rc={proc.returncode}; stdout={out}; stderr={err}') from exc
+        lane.finish = finish
+        class Sent:
+            def wait(_, seconds):
+                until = time.monotonic() + seconds
+                while time.monotonic() < until:
+                    if (root / 'request').exists():
+                        if post_holder:
+                            # Declared modeled-kernel control: introduce an
+                            # unrelated holder exactly at request receipt.
+                            (root / 'locks').write_text(self.row(9876))
+                        return True
+                    if lane.processes and lane.processes[0].poll() is not None:
+                        raise AssertionError('production worker ended without DELETE: ' + (root / 'result').read_text())
+                    time.sleep(min(.001, max(0, until - time.monotonic())))
+                return (root / 'request').exists()
+        lane.engine = lambda **kw: types.SimpleNamespace(sent=Sent())
+        # Reproduce the old util-linux sampler using a native lock on Darwin,
+        # and expose its held inode through the modeled kernel table. The
+        # child acknowledges an actual production activation check before
+        # this sampler releases; no clock-predicate flock result is substituted.
+        def old_probe(command, **kwargs):
+            self.assertEqual(command, ['flock', '-n', str(switch), 'true'])
+            fd = os.open(switch, os.O_RDONLY)
+            try:
+                try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError: return types.SimpleNamespace(returncode=1)
+                sampler_locks.append(time.monotonic())
+                (root / 'locks').write_text(self.row(os.getpid()))
+                until = time.monotonic() + 1
+                while not (root / 'checked').exists() and time.monotonic() < until: time.sleep(.001)
+                (root / 'locks').write_text('')
+                return types.SimpleNamespace(returncode=0)
+            finally: os.close(fd)
+        failure = None; began = time.monotonic()
+        try:
+            with mock.patch.object(r, 'SwitchLockObserver', observer, create=True), mock.patch.object(r.subprocess, 'run', old_probe):
+                try: r.never_switch_lock(lane)
+                except r.CaseFailure as exc: failure = exc
+            elapsed = time.monotonic() - began
+            if mutant or post_holder:
+                self.assertIsInstance(failure, r.CaseFailure, 'lock holder was not stopped behaviourally')
+                self.assertLess(elapsed, 5, 'next-sample kill missed the 55 s final-report boundary')
+                self.assertFalse((root / 'events.json').exists(), 'mutant reached its final report before the behavioural stop')
+                if mutant and not real_proc:
+                    held = json.loads((root / 'retained').read_text())
+                    self.assertEqual(held['virtual_s'], 45)
+                    following = [rows for at, rows in samples if at >= held['at']]
+                    self.assertTrue(following and following[0], 'holder was not detected on the next sample')
+                self.assertEqual(sum(bool(rows) for _, rows in samples), 1)
+                self.assertIn(str(9876 if post_holder else lane.processes[0].pid), str(failure))
+                self.assertIn('"worker_or_descendant": ' + ('false' if post_holder else 'true'), str(failure))
+                lane.processes[0].communicate(timeout=5)
+                lane.processes[0].evidence.validate(lane.processes[0])
+                if mutant:
+                    passed, message = r.classify_case(lane.case, 'the GC takes the lock', True, failure)
+                    self.assertTrue(passed, message)
+                else:
+                    self.assertEqual(lane.processes[0].evidence.stop['site'], 'RT:447')
+            else:
+                self.assertIsNone(failure, str(failure))
+                result = json.loads((root / 'result').read_text())
+                self.assertEqual(result['rc'], 0, result)
+                self.assertEqual(result['checks'], [False] * 6, result)
+                self.assertAlmostEqual(result['requests'][0][1], 50.4)
+                self.assertEqual(result['output'].count('snapshot too slow'), 2, result)
+                self.assertGreaterEqual(len(samples), 25)
+                self.assertTrue(all(not rows for _, rows in samples))
+            self.assertFalse(sampler_locks, 'observer acquired the inode it observes')
+            print(f'OPS327_PASSIVE {"Linux real /proc/locks" if real_proc else "modeled /proc/locks"} mutant={mutant} post_holder={post_holder} samples={len(samples)} elapsed={elapsed:.3f}s')
+        finally:
+            try:
+                lane.close()
+            except r.EvidenceError as exc:
+                details = [(p.returncode, p.communicate(timeout=5)) for p in lane.processes]
+                raise AssertionError(f'{exc}; child diagnostics: {details}') from exc
+            finally:
+                lane.finalize_evidence()
+
+    def test_passive_observer_correct_baseline_real_sampling_with_snapshot_retries(self):
+        self.process_case()
+
+    def test_retained_native_mutant_fd_is_killed_on_next_sample(self):
+        self.process_case(mutant=True)
+
+    def test_post_request_passive_sample_rejects_unrelated_holder(self):
+        self.process_case(post_holder=True)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux-only: separate-process flock holder and real /proc/locks')
+    def test_linux_real_proc_locks_holder_is_killed_on_next_sample(self):
+        self.process_case(mutant=True, real_proc=True)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux-only: baseline production activation checks and real /proc/locks')
+    def test_linux_passive_baseline_real_proc_locks(self):
+        self.process_case(real_proc=True)
+
+
 class Isolation12cRegressionTests(unittest.TestCase):
     setUp = Isolation9CasePathTests.setUp
 
     def observe_switch(self, first_delete=None, locked_at=None):
         # Replay production's request time through the actual parent case.
-        # Only scheduling, Engine delivery and the external flock probe are
+        # Only scheduling, Engine delivery and the passive table samples are
         # modeled; require/stop_at and the persisted stop certificate are real.
         r = self.r
         clock = types.SimpleNamespace(now=0.0)
@@ -5411,7 +5687,7 @@ class Isolation12cRegressionTests(unittest.TestCase):
             channel.state.accept(dict(identity=channel.identity, pid=1234,
                                      seq=len(channel.state.records) + 1, kind=kind, **fields))
         channel.window_started = 0.0
-        proc = types.SimpleNamespace(evidence=channel, role='proc', returncode=None)
+        proc = types.SimpleNamespace(pid=1234, evidence=channel, role='proc', returncode=None)
         proc.poll = lambda: proc.returncode
         kills, waits, probes = [], [], []
         def kill():
@@ -5423,9 +5699,9 @@ class Isolation12cRegressionTests(unittest.TestCase):
             target = clock.now + seconds
             clock.now = min(target, first_delete) if first_delete is not None and clock.now < first_delete else target
             return first_delete is not None and clock.now >= first_delete
-        def probe(*args, **kwargs):
+        def probe():
             probes.append(clock.now)
-            return types.SimpleNamespace(returncode=int(locked_at is not None and clock.now >= locked_at))
+            return [dict(pid=1234, worker_or_descendant=True)] if locked_at is not None and clock.now >= locked_at else []
         lane = object.__new__(r.Lane)
         lane.case = 'never-switch-lock'; lane.stop_plan = r.STOP_PLAN[lane.case]
         lane.processes = [proc]; lane.paths = {'SWITCH_LOCK': str(self.root / 'switch')}
@@ -5433,7 +5709,7 @@ class Isolation12cRegressionTests(unittest.TestCase):
         lane.engine = lambda **kw: types.SimpleNamespace(sent=types.SimpleNamespace(wait=wait))
         lane.finish = mock.Mock()
         error = None
-        with mock.patch.object(r, 'time', clock), mock.patch.object(r.subprocess, 'run', probe):
+        with mock.patch.object(r, 'time', clock), mock.patch.object(r, 'SwitchLockObserver', return_value=types.SimpleNamespace(sample=probe)):
             try:
                 r.never_switch_lock(lane)
             except r.CaseFailure as exc:
