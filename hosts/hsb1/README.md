@@ -46,12 +46,35 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 | F09 | Aqara nightlight        | Local gateway light and quiet built-in sounds | T117 |
 
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
-`100.64.0.7:8765` for tailnet clients. It preserves the prototype's HTTP API
-with neutral hub handles `plug` and `round`. Its shared message-ID counter is
-`/var/lib/aqara-nightlight/msgid`; restart with
-`sudo systemctl restart aqara-nightlight.service`. Because hsb1's firewall is
-disabled, the service uses explicit address binds, systemd IP filters and an
-HTTP peer allowlist. See [Smart Home](docs/SMARTHOME.md#aqara-nightlight-ops-496)
+`100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
+`192.168.1.106`, Kinderzimmer) and **WZ-594F** (`round`, `192.168.1.108`) map to
+stable API handles. The self-contained responsive page has Kind/Erwachsen
+and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
+mode and theme are remembered on the device.
+The `nacht` place defaults to **5C0701 at 44%** for both hubs. Erwachsen can
+save, rename, reset and manage up to six fixed-ID places per hub; `/presets`
+returns ordered arrays, and `/apply?hub&preset=<id>` applies any saved place.
+Old single-Nachtlicht files migrate atomically and preserve their saved values.
+KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+Without the separately owned poller feed, Desk-Signal shows **Unbekannt** at
+5%, never Aus. Per-hub use, signal rules and automatic audio persist server-side.
+Vienna quiet hours are 20:00–07:30; automatic sound starts off.
+Acting endpoints accept **GET or POST** with exactly one `X-Nightlight: 1`;
+GET-with-header remains deprecated HA compatibility. Loopback HA `/apply` needs
+no Origin or extra CSRF token; unknown/unsaved presets never call a hub. All
+Host/Origin/fetch guards, OPTIONS denial and the script-hash CSP remain in place.
+Tap controls lock immediately; drags coalesce at most once per second and skip
+an unchanged value on release. Off-state brightness and colour edits recover
+the hub's last acknowledged nonblack colour, falling back to its `nacht` colour.
+`/get` keeps raw readback and exposes this recovery colour as `last_rgb`. Every
+slider uses an 80 px row, 20 px track and 40 px thumb. Manual tones cap at **40%**
+and support an optional 200–3000 ms stop timer; automatic audio caps at 15%.
+StateDirectory contains the reserved-ID counter, named presets, settings and
+atomic per-hub `last-color-<hub>.json` recovery records.
+Preserve all state on restart and prepare a reviewed schema/ID rollback before
+release; never restore an older counter. No deployment is part of this change.
+Because hsb1's firewall is disabled, the service uses explicit address binds,
+systemd IP filters and an HTTP peer allowlist. See [Smart Home](docs/SMARTHOME.md#aqara-nightlight-ops-496)
 and the [runbook](docs/RUNBOOK.md#aqara-nightlight-ops-496) for API and activation checks.
 
 ---

@@ -1,7 +1,27 @@
 # OPS-496: local light + built-in sounds for the two LAN Aqara gateways.
 { pkgs, ... }:
 let
-  pythonEnv = pkgs.python3.withPackages (ps: [ ps.python-miio ]);
+  # The harness imports this canonical program as code. Serve the same body
+  # inline to preserve CSP hashing and offline UI behavior.
+  scriptModule = builtins.readFile ./aqara-nightlight-script.cjs;
+  scriptPrefix = "module.exports = function nightlightPage() {";
+  scriptSuffix = "};\n";
+  scriptBody =
+    assert pkgs.lib.hasPrefix scriptPrefix scriptModule;
+    assert pkgs.lib.hasSuffix scriptSuffix scriptModule;
+    pkgs.lib.removeSuffix scriptSuffix (pkgs.lib.removePrefix scriptPrefix scriptModule);
+  pageTemplate = builtins.readFile ./aqara-nightlight-page.html;
+  scriptMarker = "<!--AQARA_INLINE_SCRIPT-->";
+  page =
+    assert builtins.length (pkgs.lib.splitString scriptMarker pageTemplate) == 2;
+    pkgs.writeText "aqara-nightlight-page.html" (
+      builtins.replaceStrings [ scriptMarker ] [ ("<script>" + scriptBody + "</script>") ] pageTemplate
+    );
+  # zoneinfo must have Vienna's DST rules even in the hardened service root.
+  pythonEnv = pkgs.python3.withPackages (ps: [
+    ps.python-miio
+    ps.tzdata
+  ]);
 in
 {
   systemd.services.aqara-nightlight = {
@@ -21,6 +41,7 @@ in
       PYTHONUNBUFFERED = "1";
       AQARA_LISTEN_ADDRESSES = "127.0.0.1,192.168.1.101,100.64.0.7";
       AQARA_PORT = "8765";
+      AQARA_PAGE_FILE = "${page}";
     };
     serviceConfig = {
       Type = "simple";
