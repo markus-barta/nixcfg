@@ -2907,6 +2907,964 @@
           animation: none;
         }
       }
+
+      /* OPS-496 v3.3: approved components; responsive service adaptation below. */
+      .lamp-card .lamp-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .lamp {
+        position: relative;
+        width: 96px;
+        height: 96px;
+        flex: none;
+      }
+      .lamp .disc {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--c) var(--sw-mix), var(--surface));
+        box-shadow: 0 0 0 1px var(--dot-ring);
+      }
+      .lamp.off .disc,
+      .lamp.phase-off .disc {
+        background: transparent;
+        box-shadow: inset 0 0 0 2px var(--edge);
+      }
+      .lamp.unk .disc {
+        background: color-mix(in srgb, #8fa3b0 38%, var(--surface));
+      }
+      .lamp .lq {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 32px;
+        height: 32px;
+        margin: -16px 0 0 -16px;
+        color: var(--ink-2);
+        stroke-width: 2;
+      }
+      .lamp .lbadge {
+        position: absolute;
+        right: -2px;
+        bottom: 2px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--raised);
+        box-shadow: 0 0 0 1px var(--line-2);
+        color: var(--ink-2);
+      }
+      .lamp .lbadge svg {
+        width: 16px;
+        height: 10px;
+      }
+      /* One cycle only (on, off; under 5 s), then the disc rests and the wave badge says it blinks. Reduced motion: no animation. */
+      @keyframes lampblink {
+        50%,
+        100% {
+          background: transparent;
+          box-shadow: inset 0 0 0 2px var(--edge);
+        }
+      }
+      @keyframes lampswap {
+        50%,
+        100% {
+          background: color-mix(
+            in srgb,
+            var(--c2) var(--sw-mix),
+            var(--surface)
+          );
+        }
+      }
+      .lamp.blink:not(.phase-off) .disc {
+        animation: lampblink 4s step-end 1;
+      }
+      .lamp.swap .disc {
+        animation: lampswap 4s step-end 1;
+      }
+      .lamp-t {
+        flex: 1;
+        min-width: 0;
+      }
+      .zs {
+        margin: 0;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ink-2);
+      }
+      .zs b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        height: 22px;
+        margin-top: 6px;
+        padding: 0 8px;
+        border-radius: 11px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+        white-space: nowrap;
+      }
+      .tag.warn {
+        color: var(--warn);
+      }
+      .zs-note {
+        margin: 6px 0 0;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+      .sig31 .lc {
+        margin-top: 4px;
+        padding: 14px;
+      }
+      .sig31 .lc-now {
+        margin-top: 12px;
+      }
+      .drows {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .drows li {
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .kchip {
+        flex: none;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink);
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line-2);
+        white-space: nowrap;
+      }
+      .dr-t {
+        flex: 1;
+        min-width: 0;
+        font-size: 14px;
+        line-height: 18px;
+        color: var(--ink-2);
+      }
+      .dr-w {
+        flex: none;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .dr-w.warn {
+        color: var(--warn);
+      }
+      .drows .urg-tag {
+        margin-left: 0;
+      }
+
+      /* ===== v3.2: continuous preview with a pause button (page only, never the hub) ===== */
+      .lamp {
+        margin: 0 24px 22px 0;
+      }
+      .lamp:not(.anim) {
+        margin: 0;
+      }
+      .lamp .lamp-v {
+        position: absolute;
+        inset: 0;
+      }
+      .lamp .lbadge {
+        left: -2px;
+        right: auto;
+        bottom: 0;
+        display: none;
+      }
+      .lamp.blink .disc {
+        animation: lampblink 4s step-end infinite;
+      }
+      .lamp.swap .disc {
+        animation: lampswap 4s step-end infinite;
+      }
+      .lamp-card.paused .lamp .disc {
+        animation: none;
+      }
+      .lamp-card.paused .lamp .lbadge {
+        display: grid;
+      }
+      .lpbtn {
+        position: absolute;
+        z-index: 1;
+        left: 77px;
+        top: 77px;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        background: var(--raised);
+        box-shadow:
+          0 0 0 1px var(--line-2),
+          var(--btn-sh);
+      }
+      .lpbtn svg {
+        width: 18px;
+        height: 18px;
+      }
+      .lpbtn .lp-play {
+        display: none;
+      }
+      .lamp-card.paused .lpbtn .lp-pause {
+        display: none;
+      }
+      .lamp-card.paused .lpbtn .lp-play {
+        display: block;
+      }
+      .pnote {
+        margin: 6px 0 0;
+        min-height: 18px;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+        visibility: hidden;
+      }
+      .lamp-card.paused .pnote {
+        visibility: visible;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .lamp .disc {
+          animation: none !important;
+        }
+        .lamp-card.has-anim .lamp .lbadge {
+          display: grid;
+        }
+        .lamp-card.has-anim .lpbtn .lp-pause {
+          display: none;
+        }
+        .lamp-card.has-anim .lpbtn .lp-play {
+          display: block;
+        }
+        .lamp-card.has-anim .pnote {
+          visibility: visible;
+        }
+      }
+      .zs .zs1 {
+        display: block;
+        white-space: nowrap;
+      }
+      .zs {
+        margin-bottom: 2px;
+      }
+
+      /* ===== v3.3: Regeln as rows; colour comes from the desk ===== */
+      .rrs {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rr {
+        width: 100%;
+        min-height: 56px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 5px;
+        padding: 10px 10px 10px 14px;
+        border-radius: var(--rb);
+        background: var(--surface);
+        box-shadow:
+          0 0 0 1px var(--line),
+          var(--btn-sh);
+        text-align: left;
+      }
+      .rr-h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .rr-h b {
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .rr-m {
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 14px;
+        color: var(--ink-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rr-m .mw {
+        width: 14px;
+        height: 9px;
+        flex: none;
+        color: var(--ink-3);
+      }
+      .rr-v {
+        margin-left: auto;
+        flex: none;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .rr .opc {
+        margin-left: 2px;
+      }
+      .rr-dots {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+      }
+      .dd {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12px;
+        line-height: 18px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .dd .dot {
+        width: 10px;
+        height: 10px;
+      }
+      .mh {
+        margin-top: 8px;
+        padding: 10px 12px 12px;
+        border-radius: var(--rb);
+        background: var(--surface);
+        box-shadow:
+          0 0 0 1px var(--line),
+          var(--btn-sh);
+      }
+      .mh-t {
+        margin: 0 0 8px 2px;
+        font-weight: 600;
+      }
+      .mh-seg {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .mh-p {
+        margin: 8px 0 0 2px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .mh-p .cyc {
+        width: 16px;
+        height: 16px;
+        color: var(--ink-3);
+        flex: none;
+      }
+      .mh-pks {
+        margin-top: 6px;
+      }
+      .reg33 .rls {
+        margin-top: 8px;
+      }
+      .reg33 .dk-note {
+        margin-top: 6px;
+      }
+      .fromdesk {
+        margin: 4px 0 0 2px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0 10px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .fromdesk .tbtn {
+        font-size: 13px;
+        padding: 0 4px;
+      }
+      .re .thr .urg-row {
+        margin-top: 4px;
+      }
+      .re .ed-sec {
+        margin-top: 8px;
+      }
+      .strip.ownstrip {
+        height: auto;
+        padding: 16px;
+        gap: 10px;
+      }
+      .ownstrip .fld {
+        margin-top: 0;
+      }
+      .ownr .rrs {
+        margin-top: 6px;
+      }
+      .ownstrip .sh-act {
+        margin-top: 6px;
+      }
+      /* v3.3 fit: tighter rhythm so 2+ desks fit without page scroll */
+      .reg33 .rrs {
+        gap: 5px;
+      }
+      .reg33 .rr {
+        padding: 8px 10px 8px 14px;
+        gap: 4px;
+      }
+      .reg33 .mh {
+        margin-top: 6px;
+        padding: 8px 10px 10px;
+      }
+      .reg33 .mh-t {
+        margin-bottom: 6px;
+      }
+      .reg33 .mh-p {
+        margin-top: 6px;
+      }
+      .reg33 .rls {
+        margin-top: 6px;
+        gap: 5px;
+      }
+      .reg33 .rl {
+        min-height: 50px;
+      }
+      .reg33 .rl-b {
+        min-height: 50px;
+      }
+      .reg33 .dk-note {
+        margin-top: 4px;
+      }
+      .lc-lit .dpair {
+        margin: 0 6px 0 2px;
+        vertical-align: -1px;
+      }
+      .lc-lit .dpair .dot {
+        width: 12px;
+        height: 12px;
+        display: inline-block;
+      }
+      .sig31 .lc-lit {
+        font-size: 15px;
+      }
+      .lc-lit .lwave {
+        margin-left: 3px;
+      }
+      .sig31 .lc {
+        padding: 14px 12px;
+      }
+
+      /* v3.3b (Tick): the empty "Eigene Farbe" pick sits centred like its siblings, palette icon centred inside. */
+      .pk {
+        display: grid !important;
+        place-items: center;
+        align-content: center;
+      }
+      .pkc.empty {
+        display: grid !important;
+        place-items: center;
+        margin: 0 !important;
+      } /* a generic .empty rule added an 18 px top margin */
+      .pkc.empty svg {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+      }
+
+      .rrs,
+      .drows,
+      .dl-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rr {
+        width: 100%;
+        min-height: 56px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        padding: 8px 10px 8px 14px !important;
+        border-radius: var(--rb);
+        background: var(--surface) !important;
+        box-shadow:
+          0 0 0 1px var(--line),
+          var(--btn-sh);
+        text-align: left;
+      }
+      .rr-h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+      }
+      .rr-h b {
+        font-weight: 600;
+      }
+      .rr .cv {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+      .rr .rule-motion {
+        font-size: 13px;
+        color: var(--ink-2);
+      }
+      .rr-dots {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+      }
+      .dd {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font:
+          600 12px ui-monospace,
+          monospace;
+      }
+      .dd .dot {
+        width: 10px;
+        height: 10px;
+      }
+      .lamp .disc {
+        background: var(--c, #8fa3b0);
+      }
+      .lamp.swap .disc {
+        animation: lampswap var(--period, 4s) step-end infinite;
+      }
+      .lamp.blink .disc {
+        animation: lampblink var(--period, 4s) step-end infinite;
+      }
+      .lamp-card.paused .disc {
+        animation: none;
+      }
+      .lamp-card .lpbtn {
+        background: var(--raised);
+        font-size: 18px;
+      }
+      .lamp.off .disc {
+        background: transparent;
+      }
+      .lamp .lpbtn {
+        display: grid;
+      }
+      .lamp-t {
+        flex: 1;
+        min-width: 0;
+      }
+      .drows {
+        margin-top: 10px;
+      }
+      .drows li {
+        min-height: 40px;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 4px 0;
+      }
+      .dr-m {
+        flex: 1;
+        min-width: 0;
+        font-size: 14px;
+      }
+      .dr-w {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .kchip {
+        font:
+          600 12px ui-monospace,
+          monospace;
+        padding: 2px 6px;
+        border-radius: 6px;
+        background: var(--well);
+        white-space: nowrap;
+      }
+      .dl-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px !important;
+        border-radius: var(--rb);
+        background: var(--surface) !important;
+        box-shadow: 0 0 0 1px var(--line);
+        text-align: left;
+      }
+      .dl-m {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .dl-st {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .widebtn {
+        margin-top: 10px !important;
+        width: 100%;
+        min-height: 52px;
+        background: var(--surface) !important;
+        border-radius: var(--rb);
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .tbtn {
+        min-height: 44px;
+        padding: 0 6px !important;
+        text-decoration: underline;
+        color: var(--ink-2);
+      }
+      .fld {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 10px;
+      }
+      .fldrow {
+        display: grid;
+        grid-template-columns: 116px minmax(0, 1fr);
+        gap: 10px;
+      }
+      .inp {
+        height: 44px;
+        min-width: 0;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1.5px solid var(--edge);
+        background: var(--well);
+        color: var(--ink);
+        font: inherit;
+        user-select: text !important;
+      }
+      .kerr {
+        color: var(--danger);
+        font-size: 13px;
+      }
+      .empty {
+        text-align: center;
+        margin: 18px 0;
+      }
+      .pkc.empty {
+        display: grid !important;
+        place-items: center;
+        margin: 0 !important;
+      }
+      .fromdesk {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .threshold-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+      }
+      .threshold-row input {
+        width: 64px;
+      }
+      .tabbar,
+      .panel-more {
+        display: none;
+      }
+      .ibi {
+        width: 44px;
+        height: 44px;
+        float: right;
+      }
+      .sheet [data-panel] {
+        display: block !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+      .sheet .hubsays {
+        display: flex;
+      }
+      .sheet .toene {
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+      .sheet .vs {
+        position: static;
+      }
+      @media (min-width: 980px) {
+        .desk-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .desk-grid > [data-panel] {
+          display: block;
+        }
+        .cols > [data-panel] {
+          display: block;
+        }
+        #sound-options {
+          display: none;
+        }
+      }
+      @media (max-width: 979px) {
+        html,
+        body {
+          height: 100%;
+          overflow: hidden;
+          overscroll-behavior: none;
+        }
+        .ui {
+          height: 100dvh;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        .pg {
+          width: 100%;
+          max-width: 640px;
+          flex: 1;
+          min-height: 0;
+          padding: 10px 16px 0;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        .top,
+        .use,
+        .use-k {
+          flex: none;
+        }
+        .hdr {
+          display: none;
+        }
+        .mhint {
+          position: absolute;
+          top: 64px;
+          z-index: 5;
+        }
+        .use {
+          margin: 6px 0;
+        }
+        .use-k {
+          margin: 6px 0;
+        }
+        .cols,
+        .desk,
+        .desk-grid {
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+          display: block;
+        }
+        .desk-grid.e {
+          height: 100%;
+        }
+        .desk-grid > [data-panel],
+        .cols > [data-panel] {
+          height: 100%;
+          min-height: 0;
+          overflow: hidden;
+        }
+        .desk-grid > [data-panel]:not(.active-panel),
+        .cols > [data-panel]:not(.active-panel) {
+          display: none;
+        }
+        .toene {
+          padding: 0;
+          margin: 0;
+          border: 0;
+        }
+        .hero {
+          margin-top: 4px;
+        }
+        .hero .b {
+          height: 80px;
+        }
+        .pre {
+          height: 60px;
+        }
+        .sw {
+          height: 56px;
+        }
+        .field {
+          margin-top: 4px;
+        }
+        .ui h2 {
+          margin: 0 0 6px;
+        }
+        .vs {
+          position: static;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .vs .field {
+          flex: 1;
+          min-width: 0;
+        }
+        .vs .stop {
+          width: 112px;
+          flex: none;
+          height: 52px;
+          margin: 0;
+        }
+        .tg {
+          margin-top: 4px;
+          gap: 4px 6px;
+        }
+        .tone {
+          height: 44px;
+        }
+        .grp {
+          margin-top: 6px;
+        }
+        .grp h3 {
+          margin: 0;
+        }
+        .gh {
+          min-height: 32px;
+        }
+        .gn {
+          margin-top: 6px;
+        }
+        .saveline {
+          margin-top: 0;
+        }
+        .slrow {
+          min-height: 80px;
+        }
+        .lc {
+          margin-top: 4px;
+          padding: 14px 12px;
+        }
+        .rrs {
+          gap: 5px;
+        }
+        .rrs.rls {
+          margin-top: 6px;
+        }
+        .rr {
+          min-height: 50px;
+        }
+        .rules .dk-note {
+          font-size: 12px;
+          margin: 4px 0;
+        }
+        .panel-more {
+          display: block;
+          flex: none;
+          align-self: center;
+          height: 32px;
+          min-height: 32px;
+          font-size: 13px !important;
+          text-decoration: underline;
+        }
+        .tabbar {
+          display: block;
+          flex: none;
+          background: var(--chrome);
+          padding: 0 10px env(safe-area-inset-bottom);
+        }
+        .tabs {
+          height: 64px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .tab {
+          flex: 1;
+          height: 56px;
+          border-radius: 14px;
+          font-size: 13px !important;
+          font-weight: 600 !important;
+        }
+        .tab[aria-selected="true"] {
+          background: var(--act-bg);
+          box-shadow: 0 0 0 1.5px var(--act-line);
+        }
+        .st {
+          position: static;
+          flex: none;
+          height: 57px;
+          padding: 0;
+          min-height: 57px;
+        }
+        .st-i {
+          height: 57px;
+          padding: 0 16px;
+        }
+        .st-t {
+          font-size: 13px;
+        }
+        .st-ic {
+          width: 18px;
+          height: 18px;
+        }
+        #panel-light #light-hl,
+        #panel-sounds #tones-ht {
+          display: none;
+        }
+        #sound-duration {
+          display: none;
+        }
+        .sheet #sound-duration {
+          display: block;
+        }
+        html[data-mode="kind"] .tone {
+          height: 56px;
+        }
+        html[data-mode="kind"] .kcard {
+          height: 100%;
+          justify-content: center;
+        }
+        html[data-mode="erwachsen"] .gn {
+          display: none;
+        }
+        .sheet {
+          max-height: calc(100dvh - 24px);
+          overflow: auto;
+        }
+        .sheet #panel-light #light-hl,
+        .sheet #panel-sounds #tones-ht {
+          display: block;
+        }
+      }
+
+      /* Reduced motion starts paused. An explicit Play permits just this preview. */
+      .lamp {
+        margin: 0 24px 22px 0 !important;
+      }
+      .lamp-card:not(.paused) .lamp.blink .disc {
+        animation: lampblink var(--period, 4s) step-end infinite !important;
+      }
+      .lamp-card:not(.paused) .lamp.swap .disc {
+        animation: lampswap var(--period, 4s) step-end infinite !important;
+      }
+      .lamp.blink .disc {
+        animation-delay: var(--phase-offset, 0s) !important;
+      }
     </style>
   </head>
   <body>
@@ -3633,7 +4591,12 @@
           <h1 class="ttl">Nachtlicht</h1>
         </div>
         <div class="cols" id="nightlight-controls">
-          <section class="licht" aria-labelledby="light-hl">
+          <section
+            class="licht"
+            aria-labelledby="light-hl"
+            data-panel="light"
+            id="panel-light"
+          >
             <h2 id="light-hl">Licht</h2>
             <div class="hero" style="--nl-c: #5c0701">
               <button
@@ -3987,22 +4950,14 @@
                 </button>
               </div>
             </div>
-            <div class="hubsays" role="status" aria-live="polite">
-              <span class="k"
-                ><svg class="ic pic hspic" aria-hidden="true">
-                  <use href="#p-teddy" /></svg></span
-              ><span class="e"
-                ><svg class="ic" aria-hidden="true"><use href="#i-round" /></svg
-              ></span>
-              <div>
-                <p id="last-light" class="hs-last">Zuletzt: noch kein Befehl</p>
-                <p class="hs-rb">
-                  <button type="button" id="readback" class="readback-btn">
-                    Hub meldet ≈ — · Raum: — lx
-                  </button>
-                </p>
-              </div>
-            </div>
+            <button
+              type="button"
+              class="ibi"
+              id="light-info"
+              aria-label="Zuletzt gesendet und Hub-Status"
+            >
+              ⓘ
+            </button>
             <div class="saveline">
               <span class="e"
                 ><button
@@ -4024,7 +4979,12 @@
             value="#5c0701"
             aria-label="Eigene Farbe"
           />
-          <section class="toene" aria-labelledby="tones-ht">
+          <section
+            class="toene"
+            aria-labelledby="tones-ht"
+            data-panel="sounds"
+            id="panel-sounds"
+          >
             <h2 id="tones-ht">Töne</h2>
             <div class="vs">
               <div class="field">
@@ -4080,6 +5040,9 @@
                 >Stopp
               </button>
             </div>
+            <button type="button" class="tbtn" id="sound-options">
+              Dauer · Testen
+            </button>
             <div id="sound-duration">
               <div class="kv dur">
                 <span class="lab">Dauer</span>
@@ -4377,6 +5340,7 @@
                 <button
                   type="button"
                   class="gh"
+                  id="doorbell-toggle"
                   data-disclosure="tones-group-2"
                   aria-controls="tones-group-2"
                   aria-expanded="true"
@@ -4574,197 +5538,6 @@
                   >
                 </button>
               </h3>
-              <ul class="tg" id="alarm-list" hidden>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="0"
-                    title="Polizei 1"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Polizei 1</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="1"
-                    title="Polizei 2"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Polizei 2</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="2"
-                    title="Unfall"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Unfall</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="3"
-                    title="Countdown"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Countdown</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="4"
-                    title="Geist"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Geist</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="5"
-                    title="Scharfschütze"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Scharfschütze</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="6"
-                    title="Gefecht"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Gefecht</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="7"
-                    title="Fliegeralarm"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Fliegeralarm</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    class="b tone two"
-                    aria-pressed="false"
-                    data-t="8"
-                    title="Hundebellen"
-                  >
-                    <span class="ti"
-                      ><svg class="ic" aria-hidden="true">
-                        <use href="#i-play" /></svg></span
-                    ><span class="tl"
-                      ><span class="tn">Hundebellen</span
-                      ><span class="laut"
-                        ><svg class="ic" aria-hidden="true">
-                          <use href="#i-loud" /></svg
-                        >laut</span
-                      ></span
-                    >
-                  </button>
-                </li>
-              </ul>
             </div>
             <button
               type="button"
@@ -4813,28 +5586,33 @@
             <p>Der Dienst hält das Signal aktuell.</p>
           </div>
           <div class="desk-grid e">
-            <section>
+            <section data-panel="signal" id="panel-signal">
               <h2>Desk-Signal</h2>
-              <div class="lc">
-                <ul class="lc-desks">
-                  <li>
-                    <span class="dot" style="--c: #18c2b0"></span
-                    ><span class="lc-tx" id="desk-ppm"
-                      >PPM · nicht verbunden</span
+              <div class="lc lamp-card" id="lamp-card">
+                <div class="lamp-row">
+                  <div class="lamp" id="lamp-preview">
+                    <span class="disc"></span
+                    ><button
+                      type="button"
+                      class="lpbtn"
+                      id="preview-pause"
+                      aria-label="Vorschau anhalten"
+                      aria-pressed="false"
                     >
-                  </li>
-                  <li>
-                    <span class="dot" style="--c: #ffa020"></span
-                    ><span class="lc-tx" id="desk-pma"
-                      >PMA · nicht verbunden</span
-                    >
-                  </li>
-                </ul>
+                      Ⅱ
+                    </button>
+                  </div>
+                  <div class="lamp-t">
+                    <p class="zs" id="desk-applied">
+                      Zuletzt gesendet: noch kein Befehl · nicht bestätigt
+                    </p>
+                    <p class="pnote" id="preview-note" hidden>
+                      · Vorschau angehalten
+                    </p>
+                  </div>
+                </div>
                 <div class="lc-now">
                   <p class="lc-lit" id="desk-lit">Leuchtet: Unbekannt · 5 %</p>
-                  <p class="dk-note" id="desk-applied">
-                    Hub-Bestätigung steht aus
-                  </p>
                   <div class="lc-foot">
                     <p class="lc-stand" id="desk-time">
                       Stand — · keine aktuellen Daten
@@ -4845,126 +5623,158 @@
                   </div>
                 </div>
               </div>
+              <ul class="drows" id="desk-signal-rows"></ul>
+              <p class="empty" id="no-desks">
+                Noch kein Desk verbunden · Ohne Desk gibt es kein Signal.
+              </p>
+              <button type="button" class="widebtn" id="signal-add-desk">
+                Desk hinzufügen
+              </button>
             </section>
-            <section class="rules">
+            <section class="rules reg33" data-panel="rules" id="panel-rules">
               <h2>Signal-Regeln</h2>
-              <div class="mx" role="group" aria-label="Signal-Regeln">
-                <span></span><span class="mx-h">PPM</span
-                ><span class="mx-h">PMA</span><span class="mx-h">Beide</span
-                ><span class="mx-r">Dringend</span
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="urgent:ppm"
-                  aria-label="Dringend · PPM"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="urgent:pma"
-                  aria-label="Dringend · PMA"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="urgent:both"
-                  aria-label="Dringend · Beide"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><span class="mx-r">Regulär</span
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="regular:ppm"
-                  aria-label="Regulär · PPM"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="regular:pma"
-                  aria-label="Regulär · PMA"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="regular:both"
-                  aria-label="Regulär · Beide"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><span class="mx-r">Ohne Eile</span
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="open:ppm"
-                  aria-label="Ohne Eile · PPM"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="open:pma"
-                  aria-label="Ohne Eile · PMA"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span></button
-                ><button
-                  type="button"
-                  class="cell"
-                  data-rule="open:both"
-                  aria-label="Ohne Eile · Beide"
-                >
-                  <span class="dot"></span><span class="cv">—</span
-                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                    <use href="#i-wave" /></svg
-                  ><span class="sr rule-motion"></span>
-                </button>
-              </div>
-              <ul class="rls">
-                <li class="rl">
-                  <button type="button" class="rl-b" data-rule="idle">
-                    <span class="dot"></span
-                    ><span class="rl-n">Ruhe (nichts offen)</span
-                    ><span class="cv">Aus</span
-                    ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                      <use href="#i-wave" /></svg
-                    ><span class="sr rule-motion"></span>
+              <ul class="rrs">
+                <li>
+                  <button type="button" class="rr" data-rule="urgent">
+                    <span class="rr-h"
+                      ><span class="dot"></span><b>Dringend</b
+                      ><span class="rule-motion"></span><span class="cv">—</span
+                      ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                        <use href="#i-wave" /></svg></span
+                    ><span class="rr-dots"></span>
                   </button>
                 </li>
-                <li class="rl">
-                  <button type="button" class="rl-b" data-rule="unknown">
-                    <span class="dot" style="--c: #8fa3b0"></span
-                    ><span class="rl-n">Unbekannt (keine Daten)</span
-                    ><span class="cv">5 %</span
-                    ><svg class="ic cwave motion-hidden" aria-hidden="true">
-                      <use href="#i-wave" /></svg
-                    ><span class="sr rule-motion"></span>
+                <li>
+                  <button type="button" class="rr" data-rule="regular">
+                    <span class="rr-h"
+                      ><span class="dot"></span><b>Regulär</b
+                      ><span class="rule-motion"></span><span class="cv">—</span
+                      ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                        <use href="#i-wave" /></svg></span
+                    ><span class="rr-dots"></span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" class="rr" data-rule="open">
+                    <span class="rr-h"
+                      ><span class="dot"></span><b>Ohne Eile</b
+                      ><span class="rule-motion"></span><span class="cv">—</span
+                      ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                        <use href="#i-wave" /></svg></span
+                    ><span class="rr-dots"></span>
+                  </button>
+                </li>
+              </ul>
+              <div class="mh" id="multiple-settings" hidden>
+                <p class="mh-t">Mehrere Desks gleichzeitig</p>
+                <div class="seg mh-seg" role="group" aria-label="Mehrere Desks">
+                  <button
+                    type="button"
+                    data-multiple="cycle"
+                    aria-pressed="true"
+                  >
+                    Farben abwechseln</button
+                  ><button
+                    type="button"
+                    data-multiple="own"
+                    aria-pressed="false"
+                  >
+                    Eigene Farbe
+                  </button>
+                </div>
+                <div id="multiple-colors" class="rr-dots"></div>
+                <div class="fld" id="multiple-own" hidden>
+                  <span>Eigene Farbe</span>
+                  <div class="pks">
+                    <button
+                      type="button"
+                      class="pk"
+                      data-multiple-color="18C2B0"
+                      aria-label="Farbe #18C2B0"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc" style="--c: #18c2b0"></span></button
+                    ><button
+                      type="button"
+                      class="pk"
+                      data-multiple-color="FFA020"
+                      aria-label="Farbe #FFA020"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc" style="--c: #ffa020"></span></button
+                    ><button
+                      type="button"
+                      class="pk"
+                      data-multiple-color="9B6BFF"
+                      aria-label="Farbe #9B6BFF"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc" style="--c: #9b6bff"></span></button
+                    ><button
+                      type="button"
+                      class="pk"
+                      data-multiple-color="8FA3B0"
+                      aria-label="Farbe #8FA3B0"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc" style="--c: #8fa3b0"></span></button
+                    ><button
+                      type="button"
+                      class="pk"
+                      data-multiple-color="FF2A00"
+                      aria-label="Farbe #FF2A00"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc" style="--c: #ff2a00"></span></button
+                    ><button
+                      type="button"
+                      class="pk"
+                      data-multiple-color="FFFFFF"
+                      aria-label="Farbe #FFFFFF"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc" style="--c: #ffffff"></span></button
+                    ><button
+                      type="button"
+                      class="pk"
+                      id="multiple-own-color"
+                      aria-label="Eigene Farbe"
+                      aria-pressed="false"
+                    >
+                      <span class="pkc empty" id="multiple-own-dot"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-palette" /></svg
+                      ></span>
+                    </button>
+                  </div>
+                  <input
+                    type="color"
+                    class="sr"
+                    id="multiple-color"
+                    value="#9b6bff"
+                    aria-label="Eigene Farbe"
+                  />
+                </div>
+              </div>
+              <ul class="rrs rls">
+                <li>
+                  <button type="button" class="rr" data-rule="idle">
+                    <span class="rr-h"
+                      ><span class="dot"></span><b>Ruhe (nichts offen)</b
+                      ><span class="rule-motion"></span><span class="cv">—</span
+                      ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                        <use href="#i-wave" /></svg></span
+                    ><span class="rr-dots"></span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" class="rr" data-rule="unknown">
+                    <span class="rr-h"
+                      ><span class="dot"></span><b>Unbekannt (keine Daten)</b
+                      ><span class="rule-motion"></span><span class="cv">—</span
+                      ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                        <use href="#i-wave" /></svg></span
+                    ><span class="rr-dots"></span>
                   </button>
                 </li>
               </ul>
@@ -4976,39 +5786,7 @@
                 Nachtlicht-Dienst läuft).
               </p>
             </section>
-            <section>
-              <h2>Dringend nach</h2>
-              <div class="stps">
-                <label class="stp"
-                  >PPM
-                  <input
-                    type="number"
-                    id="threshold-ppm"
-                    min="1"
-                    max="48"
-                    value="4"
-                    aria-label="PPM dringend nach Stunden"
-                  />
-                  h</label
-                ><label class="stp"
-                  >PMA
-                  <input
-                    type="number"
-                    id="threshold-pma"
-                    min="1"
-                    max="48"
-                    value="4"
-                    aria-label="PMA dringend nach Stunden"
-                  />
-                  h</label
-                >
-              </div>
-              <p class="dk-note">
-                Oder wenn eine Freigabe innerhalb 1 h abläuft.
-              </p>
-              <button type="button" class="tlink" id="save-thresholds">
-                Schwellen speichern
-              </button>
+            <section data-panel="auto-tone" id="panel-auto-tone">
               <h2>Ton bei neuer Entscheidung</h2>
               <div class="tgl-row">
                 <span class="tgl-l">Automatischer Ton</span
@@ -5119,8 +5897,25 @@
                 5 %
               </p>
             </section>
+            <section data-panel="desks" id="panel-desks">
+              <h2>Desks</h2>
+              <ul class="dl-list" id="desk-list"></ul>
+              <p id="desk-empty" class="empty">Noch kein Desk verbunden</p>
+              <button type="button" class="widebtn" id="add-desk">
+                Desk hinzufügen</button
+              ><button type="button" class="tbtn hist" id="desk-history">
+                Verlauf
+              </button>
+              <p id="revoke-reminder" role="status" hidden>
+                Alten Schlüssel im Desk widerrufen.
+                <button type="button" class="tbtn" id="revoke-how">Wie?</button>
+              </p>
+            </section>
           </div>
         </section>
+        <button type="button" class="panel-more" id="panel-more">
+          Mehr anzeigen
+        </button>
         <noscript
           >Bitte JavaScript aktivieren, um das Nachtlicht zu bedienen.</noscript
         >
@@ -5146,6 +5941,502 @@
           </button>
         </div>
       </div>
+      <nav class="tabbar" id="tabbar" aria-label="Bereiche">
+        <div class="tabs" role="tablist">
+          <button
+            type="button"
+            class="tab"
+            role="tab"
+            data-tab="light"
+            id="tab-light"
+            aria-controls="panel-light"
+            aria-selected="false"
+          >
+            Licht</button
+          ><button
+            type="button"
+            class="tab"
+            role="tab"
+            data-tab="sounds"
+            id="tab-sounds"
+            aria-controls="panel-sounds"
+            aria-selected="false"
+          >
+            Töne</button
+          ><button
+            type="button"
+            class="tab"
+            role="tab"
+            data-tab="signal"
+            id="tab-signal"
+            aria-controls="panel-signal"
+            aria-selected="false"
+          >
+            Signal</button
+          ><button
+            type="button"
+            class="tab"
+            role="tab"
+            data-tab="rules"
+            id="tab-rules"
+            aria-controls="panel-rules"
+            aria-selected="false"
+          >
+            Regeln</button
+          ><button
+            type="button"
+            class="tab"
+            role="tab"
+            data-tab="auto-tone"
+            id="tab-auto-tone"
+            aria-controls="panel-auto-tone"
+            aria-selected="false"
+          >
+            Ton</button
+          ><button
+            type="button"
+            class="tab"
+            role="tab"
+            data-tab="desks"
+            id="tab-desks"
+            aria-controls="panel-desks"
+            aria-selected="false"
+          >
+            Desks
+          </button>
+        </div>
+      </nav>
+      <dialog id="info-sheet" class="sheet" aria-labelledby="info-title">
+        <div class="sheet-inner">
+          <h2 id="info-title">Zuletzt gesendet</h2>
+          <div class="hubsays" role="status" aria-live="polite">
+            <span class="k"
+              ><svg class="ic pic hspic" aria-hidden="true">
+                <use href="#p-teddy" /></svg></span
+            ><span class="e"
+              ><svg class="ic" aria-hidden="true"><use href="#i-round" /></svg
+            ></span>
+            <div>
+              <p id="last-light" class="hs-last">Zuletzt: noch kein Befehl</p>
+              <p class="hs-rb">
+                <button type="button" id="readback" class="readback-btn">
+                  Hub meldet ≈ — · Raum: — lx
+                </button>
+              </p>
+            </div>
+          </div>
+          <button type="button" class="btn2" data-close="info-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog id="loud-sheet" class="sheet" aria-labelledby="loud-title">
+        <div class="sheet-inner">
+          <h2 id="loud-title">Alarmtöne · laut</h2>
+          <ul class="tg" id="alarm-list" hidden>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="0"
+                title="Polizei 1"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Polizei 1</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="1"
+                title="Polizei 2"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Polizei 2</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="2"
+                title="Unfall"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Unfall</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="3"
+                title="Countdown"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Countdown</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="4"
+                title="Geist"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Geist</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="5"
+                title="Scharfschütze"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Scharfschütze</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="6"
+                title="Gefecht"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Gefecht</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="7"
+                title="Fliegeralarm"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Fliegeralarm</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="b tone two"
+                aria-pressed="false"
+                data-t="8"
+                title="Hundebellen"
+              >
+                <span class="ti"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-play" /></svg></span
+                ><span class="tl"
+                  ><span class="tn">Hundebellen</span
+                  ><span class="laut"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    >laut</span
+                  ></span
+                >
+              </button>
+            </li>
+          </ul>
+          <button type="button" class="stop" id="loud-stop">Stopp</button
+          ><button type="button" class="btn2" data-close="loud-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog
+        id="doorbell-sheet"
+        class="sheet"
+        aria-labelledby="doorbell-title"
+      >
+        <div class="sheet-inner">
+          <h2 id="doorbell-title">Türklingel</h2>
+          <div id="doorbell-sheet-body"></div>
+          <button type="button" class="btn2" data-close="doorbell-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog id="sound-sheet" class="sheet" aria-labelledby="sound-title">
+        <div class="sheet-inner">
+          <h2 id="sound-title">Dauer · Testen</h2>
+          <div id="sound-sheet-body"></div>
+          <button type="button" class="btn2" data-close="sound-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog
+        id="overflow-sheet"
+        class="sheet"
+        aria-labelledby="overflow-title"
+      >
+        <div class="sheet-inner">
+          <h2 id="overflow-title">Mehr anzeigen</h2>
+          <div id="overflow-body"></div>
+          <button type="button" class="btn2" data-close="overflow-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog id="history-sheet" class="sheet" aria-labelledby="history-title">
+        <div class="sheet-inner">
+          <h2 id="history-title">Verlauf</h2>
+          <ul class="drows" id="history-list"></ul>
+          <button type="button" class="btn2" data-close="history-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog id="revoke-sheet" class="sheet" aria-labelledby="revoke-title">
+        <div class="sheet-inner">
+          <h2 id="revoke-title">Schlüssel im Desk widerrufen</h2>
+          <p>
+            Im betreffenden Desk: Einstellungen › Persönlich › Desk signal for a
+            lamp. Den alten Schlüssel widerrufen. Entfernen oder Ersetzen hier
+            widerruft ihn im Desk noch nicht.
+          </p>
+          <button type="button" class="btn2" data-close="revoke-sheet">
+            Fertig
+          </button>
+        </div>
+      </dialog>
+      <dialog id="desk-sheet" class="sheet dsk" aria-labelledby="desk-title">
+        <div class="sheet-inner">
+          <h2 id="desk-title">Desk hinzufügen</h2>
+          <div class="fldrow">
+            <label class="fld"
+              >Kurzname<input
+                class="inp"
+                id="desk-short"
+                type="text"
+                maxlength="4"
+                value="" /></label
+            ><label class="fld"
+              >Name<input
+                class="inp"
+                id="desk-name"
+                type="text"
+                maxlength="16"
+                value=""
+            /></label>
+          </div>
+          <label class="fld"
+            >Instanz (URL)<input class="inp" type="url" id="desk-url" value=""
+          /></label>
+          <div class="fld">
+            <span>Farbe</span>
+            <div class="pks">
+              <button
+                type="button"
+                class="pk"
+                data-desk-color="18C2B0"
+                aria-label="Farbe #18C2B0"
+                aria-pressed="false"
+              >
+                <span class="pkc" style="--c: #18c2b0"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-desk-color="FFA020"
+                aria-label="Farbe #FFA020"
+                aria-pressed="false"
+              >
+                <span class="pkc" style="--c: #ffa020"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-desk-color="9B6BFF"
+                aria-label="Farbe #9B6BFF"
+                aria-pressed="false"
+              >
+                <span class="pkc" style="--c: #9b6bff"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-desk-color="8FA3B0"
+                aria-label="Farbe #8FA3B0"
+                aria-pressed="false"
+              >
+                <span class="pkc" style="--c: #8fa3b0"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-desk-color="FF2A00"
+                aria-label="Farbe #FF2A00"
+                aria-pressed="false"
+              >
+                <span class="pkc" style="--c: #ff2a00"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-desk-color="FFFFFF"
+                aria-label="Farbe #FFFFFF"
+                aria-pressed="false"
+              >
+                <span class="pkc" style="--c: #ffffff"></span></button
+              ><button
+                type="button"
+                class="pk"
+                id="desk-own-color"
+                aria-label="Eigene Farbe"
+                aria-pressed="false"
+              >
+                <span class="pkc empty" id="desk-own-dot"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-palette" /></svg
+                ></span>
+              </button>
+            </div>
+            <input
+              type="color"
+              class="sr"
+              id="desk-color"
+              value="#18c2b0"
+              aria-label="Eigene Farbe"
+            />
+          </div>
+          <div class="fld">
+            <span>Schlüssel</span
+            ><span class="keyset" id="desk-key-state"
+              >Schlüssel fehlt · neu eintragen</span
+            ><button type="button" class="tbtn" id="desk-replace" hidden>
+              Ersetzen</button
+            ><input
+              class="inp"
+              id="desk-key"
+              type="password"
+              autocomplete="new-password"
+              aria-label="Desk-Schlüssel"
+              value=""
+            />
+          </div>
+          <p class="dk-note">
+            Den Schlüssel erstellt man im Desk unter Einstellungen › Persönlich
+            › Desk signal for a lamp.
+          </p>
+          <div class="tgl-row">
+            <span>Eigene Regeln für diesen Desk</span
+            ><button
+              type="button"
+              class="tgl"
+              id="desk-override"
+              role="switch"
+              aria-checked="false"
+            >
+              <span class="trk"><span class="knob"></span></span>
+            </button>
+          </div>
+          <div id="desk-own-rules" hidden></div>
+          <p class="kerr" id="desk-error" role="status"></p>
+          <div class="sh-act">
+            <button type="button" class="btn2" id="desk-test">
+              Verbindung testen</button
+            ><button type="button" class="btn1" id="desk-save">Speichern</button
+            ><button type="button" class="btn2" id="desk-remove" hidden>
+              Entfernen</button
+            ><button type="button" class="btn2" data-close="desk-sheet">
+              Abbrechen
+            </button>
+          </div>
+          <div id="desk-confirm" hidden>
+            <p id="desk-confirm-text"></p>
+            <div class="sh-act">
+              <button type="button" class="btn2" id="desk-confirm-cancel">
+                Abbrechen</button
+              ><button type="button" class="btn1" id="desk-confirm-ok">
+                Bestätigen
+              </button>
+            </div>
+          </div>
+        </div>
+      </dialog>
       <dialog id="save-sheet" class="sheet" aria-labelledby="sheet-title">
         <div class="sheet-inner">
           <span class="grab"></span>
@@ -5392,77 +6683,85 @@
         <div class="sheet-inner">
           <span class="grab"></span>
           <h2 id="rule-title">Signal-Regel</h2>
-          <div class="slot-seg seg" role="group" aria-label="Farbplatz">
-            <button type="button" data-rule-slot="rgb" aria-pressed="true">
-              Farbe 1</button
-            ><button type="button" data-rule-slot="rgb2" aria-pressed="false">
-              Farbe 2
+          <p class="fromdesk" id="rule-from-desk">
+            Farbe kommt vom Desk
+            <button type="button" class="tbtn" id="rule-edit-desks">
+              Farben ändern
             </button>
-          </div>
-          <div class="pks">
-            <button
-              type="button"
-              class="pk"
-              data-rule-color="18C2B0"
-              aria-label="Farbe #18C2B0"
-            >
-              <span class="pkc" style="--c: #18c2b0"></span></button
-            ><button
-              type="button"
-              class="pk"
-              data-rule-color="FFA020"
-              aria-label="Farbe #FFA020"
-            >
-              <span class="pkc" style="--c: #ffa020"></span></button
-            ><button
-              type="button"
-              class="pk"
-              data-rule-color="9B6BFF"
-              aria-label="Farbe #9B6BFF"
-            >
-              <span class="pkc" style="--c: #9b6bff"></span></button
-            ><button
-              type="button"
-              class="pk"
-              data-rule-color="8FA3B0"
-              aria-label="Farbe #8FA3B0"
-            >
-              <span class="pkc" style="--c: #8fa3b0"></span></button
-            ><button
-              type="button"
-              class="pk"
-              data-rule-color="FF2A00"
-              aria-label="Farbe #FF2A00"
-            >
-              <span class="pkc" style="--c: #ff2a00"></span></button
-            ><button
-              type="button"
-              class="pk"
-              data-rule-color="FFFFFF"
-              aria-label="Farbe #FFFFFF"
-            >
-              <span class="pkc" style="--c: #ffffff"></span></button
-            ><input
-              type="color"
-              id="rule-color"
-              value="#18c2b0"
-              aria-label="Eigene Signalfarbe"
-            />
-          </div>
-          <div class="plcs">
-            <button type="button" class="plc" data-rule-place="nacht">
-              Platz</button
-            ><button type="button" class="plc" data-rule-place="p2">
-              Platz</button
-            ><button type="button" class="plc" data-rule-place="p3">
-              Platz</button
-            ><button type="button" class="plc" data-rule-place="p4">
-              Platz</button
-            ><button type="button" class="plc" data-rule-place="p5">
-              Platz</button
-            ><button type="button" class="plc" data-rule-place="p6">
-              Platz
-            </button>
+          </p>
+          <div id="rule-color-controls">
+            <div class="slot-seg seg" role="group" aria-label="Farbplatz">
+              <button type="button" data-rule-slot="rgb" aria-pressed="true">
+                Farbe 1</button
+              ><button type="button" data-rule-slot="rgb2" aria-pressed="false">
+                Farbe 2
+              </button>
+            </div>
+            <div class="pks">
+              <button
+                type="button"
+                class="pk"
+                data-rule-color="18C2B0"
+                aria-label="Farbe #18C2B0"
+              >
+                <span class="pkc" style="--c: #18c2b0"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-rule-color="FFA020"
+                aria-label="Farbe #FFA020"
+              >
+                <span class="pkc" style="--c: #ffa020"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-rule-color="9B6BFF"
+                aria-label="Farbe #9B6BFF"
+              >
+                <span class="pkc" style="--c: #9b6bff"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-rule-color="8FA3B0"
+                aria-label="Farbe #8FA3B0"
+              >
+                <span class="pkc" style="--c: #8fa3b0"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-rule-color="FF2A00"
+                aria-label="Farbe #FF2A00"
+              >
+                <span class="pkc" style="--c: #ff2a00"></span></button
+              ><button
+                type="button"
+                class="pk"
+                data-rule-color="FFFFFF"
+                aria-label="Farbe #FFFFFF"
+              >
+                <span class="pkc" style="--c: #ffffff"></span></button
+              ><input
+                type="color"
+                id="rule-color"
+                value="#18c2b0"
+                aria-label="Eigene Signalfarbe"
+              />
+            </div>
+            <div class="plcs">
+              <button type="button" class="plc" data-rule-place="nacht">
+                Platz</button
+              ><button type="button" class="plc" data-rule-place="p2">
+                Platz</button
+              ><button type="button" class="plc" data-rule-place="p3">
+                Platz</button
+              ><button type="button" class="plc" data-rule-place="p4">
+                Platz</button
+              ><button type="button" class="plc" data-rule-place="p5">
+                Platz</button
+              ><button type="button" class="plc" data-rule-place="p6">
+                Platz
+              </button>
+            </div>
           </div>
           <div class="ed-sec">
             <span class="lab">Helligkeit</span>
@@ -5530,10 +6829,11 @@
           <p class="dk-note">
             Testen zeigt diese Regel 10 s. Danach kehrt das Live-Signal zurück.
           </p>
-          <label class="tgl-row"
-            ><input type="checkbox" id="rule-all" />Auf alle Desks
-            übernehmen</label
-          >
+          <div id="rule-thresholds" hidden>
+            <h3>Wann ist es dringend?</h3>
+            <div id="threshold-list"></div>
+            <p class="dk-note">oder wenn eine Freigabe in 1 h abläuft</p>
+          </div>
           <div class="sh-act">
             <button type="button" class="btn2" id="rule-cancel">
               Abbrechen</button
