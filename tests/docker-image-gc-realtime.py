@@ -34,6 +34,7 @@ from contextlib import contextmanager, nullcontext
 
 HERE = Path(__file__).resolve().parent
 REPO = os.path.realpath(HERE.parent)
+TIMING_INSTRUMENTATION_MAX_S = 0.250
 spec = importlib.util.spec_from_file_location("harness", HERE / "docker-image-gc-harness.py")
 h = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
@@ -157,6 +158,8 @@ class EvidencePublisher:
         self.send_fd, self.ack_fd, self.identity = send, ack, identity
         self.sequence, self.transaction_id = 0, 0
         self.ack_count, self.ack_total_s, self.ack_max_s = 0, 0.0, 0.0
+        self.timing_windows = []
+        self.active_window = None
         self.lock = threading.RLock()
 
     def send(self, kind, **fields):
@@ -170,11 +173,32 @@ class EvidencePublisher:
             if not select.select([], [self.send_fd], [], 5)[1] or os.write(self.send_fd, payload) != len(payload):
                 raise EvidenceError("broken or stalled evidence collector")
             if not select.select([self.ack_fd], [], [], 5)[0] or os.read(self.ack_fd, 1) != b"+":
-                raise EvidenceError("missing persisted evidence acknowledgement")
+                raise EvidenceError("missing appended evidence acknowledgement")
             elapsed = time.monotonic() - began
             self.ack_count += 1
             self.ack_total_s += elapsed
             self.ack_max_s = max(self.ack_max_s, elapsed)
+            if self.active_window is not None:
+                window = self.active_window
+                window["round_trips"].append((began, began + elapsed))
+                window["instrumentation_s"] += elapsed
+                if (self.identity.get("case", "").endswith("-r34")
+                        and window["instrumentation_s"] > TIMING_INSTRUMENTATION_MAX_S
+                        and kind != "RUNTIME_ERROR"):
+                    self.send("RUNTIME_ERROR", error="timed-window instrumentation exceeds 250 ms")
+                    raise EvidenceError("timed-window instrumentation exceeds 250 ms")
+
+    def begin_timed_window(self, started):
+        if self.active_window is not None:
+            raise EvidenceError("overlapping timed windows")
+        window = dict(start=started, end=None, instrumentation_s=0.0, round_trips=[])
+        self.timing_windows.append(window)
+        self.active_window = window
+
+    def end_timed_window(self):
+        if self.active_window is not None:
+            self.active_window["end"] = time.monotonic()
+            self.active_window = None
 
     @contextmanager
     def transaction(self, kind):
@@ -201,7 +225,7 @@ class WorkerEvidence:
     """Parent owns the journal, collector, launch identity and stop certificate."""
 
     def __init__(self, root, worker, source_digest, manifest_digest, case):
-        self.identity = dict(worker=worker, token=uuid.uuid4().hex, source=source_digest, manifest=manifest_digest)
+        self.identity = dict(worker=worker, token=uuid.uuid4().hex, source=source_digest, manifest=manifest_digest, case=case)
         self.case = case
         self.journal = Path(root) / (worker + ".journal.jsonl")
         self.read, self.send_fd = os.pipe()
@@ -214,6 +238,7 @@ class WorkerEvidence:
         self.lock = threading.RLock()
         self.thread = None
         self.state = None
+        self.journal_synced = False
 
     def attach(self, pid):
         self.state = EvidenceState(self.identity, pid)
@@ -225,7 +250,7 @@ class WorkerEvidence:
     def collect(self):
         buffer = b""
         try:
-            with self.journal.open("xb") as journal:
+            with self.journal.open("xb", buffering=0) as journal:
                 while not self.abort.is_set():
                     if not select.select([self.read], [], [], .1)[0]:
                         continue
@@ -243,9 +268,9 @@ class WorkerEvidence:
                         record = json.loads(line, object_pairs_hook=unique_keys)
                         with self.lock:
                             self.state.accept(record)
-                            journal.write(line + b"\n")
-                            journal.flush()
-                            os.fsync(journal.fileno())
+                            payload = line + b"\n"
+                            if journal.write(payload) != len(payload):
+                                raise EvidenceError("short evidence journal append")
                             os.write(self.ack_write, b"+")
                 raise EvidenceError("evidence drain timeout")
         except BaseException as exc:
@@ -293,6 +318,18 @@ class WorkerEvidence:
         with self.lock:
             self.state.validate(process.returncode, summary, self.stop)
         return summary
+
+    def persist(self):
+        # Only the worker is threatened by SIGKILL. The surviving parent has
+        # already appended every acknowledged record in order. Durability is
+        # required once, after ALL case windows, before any outcome is scored.
+        if self.journal_synced:
+            return
+        if self.thread.is_alive() or self.errors or not self.eof.is_set():
+            raise EvidenceError("cannot persist an incomplete evidence journal")
+        with self.journal.open("rb") as journal:
+            os.fsync(journal.fileno())
+        self.journal_synced = True
 
 
 def digest(data):
@@ -344,14 +381,21 @@ def prepare_worker(manifest, *, report=None):
 
 def instrument_worker(gc, report, publisher):
     original = gc.deploy_locks
+    calls_in_hold = 0
     @contextmanager
     def tracked(paths):
+        nonlocal calls_in_hold
         report["attempts"].append(time.monotonic())
         with original(paths):
             started = time.monotonic()
+            calls_in_hold = 0
+            if publisher is not None:
+                publisher.begin_timed_window(started)
             try:
                 yield
             finally:
+                if publisher is not None:
+                    publisher.end_timed_window()
                 report["holds"].append((started, time.monotonic()))
     gc.deploy_locks = tracked
     if publisher is not None:
@@ -364,8 +408,17 @@ def instrument_worker(gc, report, publisher):
         gc.instance_lock = instance_attempt
         destructive = gc.destructive_call
         def destructive_phase(*args, **kwargs):
+            nonlocal calls_in_hold
             publisher.send("PHASE", label="destructive-phase")
-            return destructive(*args, **kwargs)
+            calls_in_hold += 1
+            try:
+                return destructive(*args, **kwargs)
+            finally:
+                # Through completion of call two is a conservative envelope
+                # of hold-entry -> engine receipt of DELETE two. No production
+                # clock or deadline is changed; socket waiting adds no RTTs.
+                if calls_in_hold == 2:
+                    publisher.end_timed_window()
         gc.destructive_call = destructive_phase
     os.environ["INVOCATION_ID"] = "ops327-offline-fixture"
     os.environ["DOCKER_IMAGE_GC_DRY_RUN"] = "0"
@@ -387,7 +440,8 @@ def finish_worker_report(events, report, publisher, rc):
     if publisher is not None:
         with publisher.transaction("SETUP"):
             report.update(identity=publisher.identity, pid=os.getpid(), last_seq=publisher.sequence + 2, rc=rc,
-                          evidence_transport=dict(count=publisher.ack_count, total_s=publisher.ack_total_s, max_s=publisher.ack_max_s))
+                          evidence_transport=dict(count=publisher.ack_count, total_s=publisher.ack_total_s, max_s=publisher.ack_max_s),
+                          timing_windows=publisher.timing_windows)
             publish_events(events, report)
         publisher.send("END", rc=rc, violations=report["violations"], setup_error=report.get("setup_error"))
     else:
@@ -482,6 +536,39 @@ def worker_events(path):
     if events.get("setup_error") is not None:
         raise RuntimeError(f"worker setup failed: {events['setup_error']}")
     return events
+
+
+def check_timing_windows(events):
+    """Validate worker-monotonic RTT sums, including incomplete decisions.
+
+    Each measured envelope starts at hold entry and ends at completion of the
+    second destructive call (or release if fewer). It contains the entire r34
+    decision window, including both snapshots and all socket admissions.
+    """
+    windows = events.get('timing_windows')
+    holds = events.get('holds')
+    if not isinstance(windows, list) or not isinstance(holds, list) or len(windows) != len(holds):
+        raise EvidenceError('missing timed-window instrumentation')
+    for window, hold in zip(windows, holds):
+        if (not isinstance(window, dict) or set(window) != {'start', 'end', 'instrumentation_s', 'round_trips'}
+                or not isinstance(window['round_trips'], list)):
+            raise EvidenceError('malformed timed-window instrumentation')
+        numbers = [window['start'], window['end'], window['instrumentation_s'], *hold]
+        if (len(hold) != 2 or any(type(value) not in (int, float) or not 0 <= value < float('inf') for value in numbers)
+                or window['start'] != hold[0] or not hold[0] <= window['end'] <= hold[1]):
+            raise EvidenceError('invalid timed-window bounds')
+        total, previous = 0.0, window['start']
+        for interval in window['round_trips']:
+            if (not isinstance(interval, (list, tuple)) or len(interval) != 2
+                    or any(type(value) not in (int, float) or not 0 <= value < float('inf') for value in interval)
+                    or not previous <= interval[0] <= interval[1] <= window['end']):
+                raise EvidenceError('invalid timed-window round trip')
+            total += interval[1] - interval[0]
+            previous = interval[1]
+        if abs(total - window['instrumentation_s']) > 1e-6:
+            raise EvidenceError('contradictory timed-window instrumentation sum')
+        if total > TIMING_INSTRUMENTATION_MAX_S:
+            raise EvidenceError('timed-window instrumentation exceeds 250 ms')
 
 
 # Revision 9b site IDs are stable original-source locations, not current lines.
@@ -796,6 +883,21 @@ CASE_ENDPOINTS = {'delete-hold-bound': 'RT:304',
  'trickle-post-stream': 'RT:304'}
 
 
+# Each alternative is a COMPLETE case/site path, including other workers.
+# Choose only by satisfaction of every declared witness, never mutant identity
+# or the intersection of witnesses left after a behaviour has been bypassed.
+STOP_PATHS = {case: {site: (workers,) for site, workers in sites.items()}
+              for case, sites in STOP_PLAN.items()}
+STOP_PATHS['instance-and-sigkill']['RT:457'] += ({
+    'first': ('main-entered', 'destructive-phase'),
+    'second': ('main-entered', 'cooldown')},)
+for _site in ('RT:466', 'RT:467'):
+    STOP_PATHS['instance-and-sigkill'][_site] += ({'third': ('main-entered', 'destructive-phase')},)
+for _case in ('across-runs', 'across-runs-r34'):
+    for _site in ('RT:504', 'RT:508'):
+        STOP_PATHS[_case][_site] += ({'next_run': ('main-entered', 'destructive-phase')},)
+
+
 class Lane:
     def __init__(self, args, name, source):
         self.root = Path(repo_path(os.path.join(args.root, name)))
@@ -878,15 +980,24 @@ class Lane:
     def stop_at(self, site):
         if site not in self.stop_plan:
             raise EvidenceError(f"undeclared case observation site {site}")
-        # Arm ALL live workers at this observation, including unrelated subjects.
-        for process in self.processes:
-            if not hasattr(process, "evidence") or process.poll() is not None:
-                continue
-            required = self.stop_plan[site].get(process.role)
-            if required is None:
-                raise EvidenceError(f"undeclared worker {process.role} at {site}")
+        subjects = {process.role: process for process in self.processes if hasattr(process, "evidence")}
+        live = [process for process in self.processes if hasattr(process, "evidence") and process.poll() is None]
+        paths = STOP_PATHS[self.case][site]
+        complete = [path for path in paths if all(process.role in path
+                            and set(path[process.role]) <= process.evidence.state.phases for process in live)
+                    and all(role in subjects and required
+                            and set(required) <= subjects[role].evidence.state.phases
+                            for role, required in path.items())]
+        if not complete:
+            raise EvidenceError(f"stop {site} has no complete predeclared evidence path")
+        path = complete[0]
+        # Arm ALL live workers before signalling any of them. A certificate
+        # still checks READY, pending transactions, sticky errors and identity.
+        for process in live:
+            required = path[process.role]
             if process.evidence.stop is None:
                 process.evidence.arm(site, required)
+        for process in live:
             process.kill()
 
     def require(self, site, condition, message="case assertion failed"):
@@ -951,6 +1062,25 @@ class Lane:
                 errors.append(str(exc))
         if errors:
             raise EvidenceError("; ".join(errors))
+
+    def finalize_evidence(self):
+        # Called only after teardown/reap/drain, outside every case window.
+        errors = []
+        for process in self.processes:
+            if not hasattr(process, "evidence"):
+                continue
+            try:
+                process.evidence.persist()
+                if self.case.endswith('-r34') and process.events.exists():
+                    events = worker_events(process.events)
+                    check_timing_windows(events)
+                    print(f"timing {self.case} {process.role}: "
+                          + json.dumps([{key: value for key, value in window.items() if key != 'round_trips'}
+                                        for window in events['timing_windows']]), flush=True)
+            except Exception as exc:
+                errors.append(str(exc))
+        if errors:
+            raise EvidenceError('; '.join(errors))
 
     def close(self):
         errors = []
@@ -1403,6 +1533,10 @@ def run_checks(args, checks):
                     # Re-check after reaping: a worker can report a violation
                     # between the first check and cleanup's signal delivery.
                     lane.check_workers()
+                except Exception as exc:
+                    error, setup = exc, True
+                try:
+                    lane.finalize_evidence()
                 except Exception as exc:
                     error, setup = exc, True
         passed, message = classify_case(name, mutant, baselines.get(name, False), error, setup=setup)

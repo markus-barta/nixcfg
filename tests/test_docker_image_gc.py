@@ -4325,7 +4325,7 @@ class RealtimeRunnerTests(unittest.TestCase):
                         if source == "changed":
                             path.write_text(json.dumps({"violations": [{"event": "open", "path": "/outside"}]}))
                     path.write_text('{"violations":[]}')
-                    result = types.SimpleNamespace(source=source, processes=[process], close=close)
+                    result = types.SimpleNamespace(source=source, processes=[process], close=close, finalize_evidence=lambda: None)
                     result.check_workers = lambda: check_workers(result)
                     return result
                 def case(lane):
@@ -4348,6 +4348,7 @@ class RealtimeRunnerTests(unittest.TestCase):
             check_workers(lane)
         lane.check_workers = lambda: check_workers(lane)
         lane.close = lambda: None
+        lane.finalize_evidence = lambda: None
         def case(_): raise r.CaseFailure("watchdog")
         checks = [("r29", None, "baseline"), ("r29", "mutant", "changed")]
         output = io.StringIO()
@@ -4377,7 +4378,7 @@ class RealtimeRunnerTests(unittest.TestCase):
                 if lane.source == "changed" or baseline_fails: raise r.CaseFailure("bound")
             def lane(args, name, source):
                 if setup_fails and source == "changed": raise AssertionError("existing directory")
-                return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None)
+                return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None, finalize_evidence=lambda: None)
             with mock.patch.dict(r.CASES, {"r29": case}), mock.patch.object(r, "Lane", side_effect=lane), redirect_stdout(io.StringIO()):
                 self.assertEqual(r.run_checks(None, checks), rc)
 
@@ -4390,7 +4391,7 @@ class RealtimeRunnerTests(unittest.TestCase):
             def case(lane):
                 if lane.source == "changed" and error: raise error
             def lane(args, name, source):
-                return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None)
+                return types.SimpleNamespace(source=source, close=lambda: None, check_workers=lambda: None, finalize_evidence=lambda: None)
             output = io.StringIO()
             with mock.patch.dict(r.CASES, {"maximal-hold-r34": case}), \
                  mock.patch.object(r, "Lane", side_effect=lane), redirect_stdout(output):
@@ -4778,7 +4779,13 @@ class Isolation9PathTests(unittest.TestCase):
         for event in ("os.listdir", "os.scandir", "os.listxattr"):
             with mock.patch.object(os, "getcwd", return_value=str(self.root)):
                 self.guard.audit(event, (None,))
-        self.guard.audit("import", ("unresolved_name", None))
+                self.guard.audit(event, ())
+            with mock.patch.object(os, "getcwd", return_value=str(self.outside)):
+                with self.assertRaises(HARNESS.FixtureViolation): self.guard.audit(event, (None,))
+                with self.assertRaises(HARNESS.FixtureViolation): self.guard.audit(event, ())
+        # None is a non-path for these two events, even at an unadmitted cwd.
+        with mock.patch.object(os, "getcwd", return_value=str(self.outside)):
+            self.guard.audit("import", ("unresolved_name", None))
         self.guard.audit("ctypes.dlopen", (None,))
         fd = os.open(self.outside, os.O_RDONLY)
         try:
@@ -5132,15 +5139,6 @@ class Isolation9EvidenceTests(unittest.TestCase):
         for mutant in (None,"probe"):
             self.assertFalse(self.r.classify_case("case",mutant,True,self.r.EvidenceError("pending"))[0])
 
-    @unittest.skipUnless(sys.platform == "linux", "Linux real-time transport/deadline measurement belongs to coordinator")
-    def test_evidence_preserves_real_deadlines(self):
-        source=SCRIPT.read_text()
-        self.assertIn("BATCH_S = 10",source)
-        self.assertIn("CALL_DEADLINE_S = 30",source)
-        self.assertIn("COOLDOWN_S = 45",source)
-
-
-
 class Isolation9TransportTests(unittest.TestCase):
     setUp = Isolation9EvidenceTests.setUp
     # Actual anonymous-pipe/SIGKILL probes use the implementation's collector.
@@ -5286,11 +5284,11 @@ class Isolation9CasePathTests(unittest.TestCase):
             try:
                 with make():blocked=False
             except Busy:blocked=True
-        return blocked
+        return blocked, uses
 
     def case_path(self,case,mode="baseline",fault=None):
         r=self.r;root=self.root
-        busy=self.instance_exclusion(mode) if case=="instance-and-sigkill" else True
+        busy, uses_instance = self.instance_exclusion(mode) if case=="instance-and-sigkill" else (True, False)
         class Clock:
             now=0
             def monotonic(self):return self.now
@@ -5309,7 +5307,14 @@ class Isolation9CasePathTests(unittest.TestCase):
                 channel=object.__new__(r.WorkerEvidence)
                 channel.state=r.EvidenceState(identity,1234);channel.identity=identity;channel.errors=[];channel.stop=None;channel.window_started=clock.now;channel.case=case;channel.lock=threading.RLock();channel.journal=root/(role+str(len(lane.processes))+".journal")
                 p.evidence=channel
-                p.send("START");p.send("READY");p.send("PHASE",label="main-entered");p.send("PHASE",label="instance-attempt");p.send("PHASE",label="cooldown")
+                p.send("START");p.send("READY");p.send("PHASE",label="main-entered")
+                # The source model actually executes instance_lock only when
+                # main retains its with-statement. A Busy second worker exits
+                # before reaching cooldown; bypassing the lock emits no attempt.
+                if uses_instance:
+                    p.send("PHASE",label="instance-attempt")
+                if role != "second" or not busy:
+                    p.send("PHASE",label="cooldown")
             def send(p,kind,**kw):p.evidence.state.accept(dict(identity=p.evidence.identity,pid=1234,seq=len(p.evidence.state.records)+1,kind=kind,**kw))
             def poll(p):return p.returncode
             def kill(p):p.returncode=-9
@@ -5382,6 +5387,243 @@ class Isolation9CasePathTests(unittest.TestCase):
 
 
 
+class Isolation10StopPathTests(unittest.TestCase):
+    setUp = Isolation9EvidenceTests.setUp
+
+    def stop_model(self, case, site, phases, *, pending=False):
+        r = self.r
+        with tempfile.TemporaryDirectory(prefix="ops327-path-", dir=REPO) as root:
+            lane = object.__new__(r.Lane)
+            lane.case, lane.stop_plan, lane.processes = case, r.STOP_PLAN[case], []
+            for role, witnesses in phases.items():
+                state, send = Isolation9EvidenceTests.state(self, witnesses)
+                if pending:
+                    send("GUARD_BEGIN", id="unfinished")
+                channel = object.__new__(r.WorkerEvidence)
+                channel.state, channel.identity = state, self.identity
+                channel.errors, channel.stop, channel.window_started = [], None, 0.0
+                channel.lock, channel.case = threading.RLock(), case
+                channel.journal = Path(root) / (role + ".journal")
+                proc = types.SimpleNamespace(role=role, evidence=channel, returncode=None)
+                proc.poll = lambda proc=proc: proc.returncode
+                proc.kill = lambda proc=proc: setattr(proc, "returncode", -9)
+                lane.processes.append(proc)
+            lane.stop_at(site)
+            for proc in lane.processes:
+                self.assertEqual(proc.returncode, -9)
+                proc.evidence.state.validate(-9, None, proc.evidence.stop)
+            return [proc.evidence.stop for proc in lane.processes]
+
+    def test_complete_predeclared_paths_all_35_cases(self):
+        r = self.r
+        self.assertEqual(set(r.STOP_PATHS), set(r.CASES))
+        self.assertEqual(len(r.STOP_PATHS), 35)
+        for case, sites in r.STOP_PATHS.items():
+            self.assertEqual(set(sites), set(r.STOP_PLAN[case]))
+            for site, paths in sites.items():
+                self.assertEqual(paths[0], r.STOP_PLAN[case][site])
+                for path in paths:
+                    if not path:
+                        continue
+                    with self.subTest(case=case, site=site, path=path):
+                        self.stop_model(case, site, path)
+                        for role, required in path.items():
+                            for removed in required:
+                                incomplete = {**path, role: tuple(p for p in required if p != removed)}
+                                with self.assertRaises(r.EvidenceError):
+                                    self.stop_model(case, site, incomplete)
+
+    def test_instance_bypass_requires_first_destructive_and_second_cooldown(self):
+        primary, bypass = self.r.STOP_PATHS['instance-and-sigkill']['RT:457']
+        self.assertEqual(bypass, {'first': ('main-entered', 'destructive-phase'),
+                                  'second': ('main-entered', 'cooldown')})
+        self.stop_model('instance-and-sigkill', 'RT:457', primary)
+        stops = self.stop_model('instance-and-sigkill', 'RT:457', bypass)
+        self.assertEqual(stops[1]['required'], ['main-entered', 'cooldown'])
+        for incomplete in (
+                {**bypass, 'first': ('main-entered',)},
+                {**bypass, 'second': ('main-entered',)},
+                {**bypass, 'second': ('cooldown', 'instance-attempt')}):
+            with self.assertRaises(self.r.EvidenceError):
+                self.stop_model('instance-and-sigkill', 'RT:457', incomplete)
+        with self.assertRaises(self.r.EvidenceError):
+            self.stop_model('instance-and-sigkill', 'RT:457', bypass, pending=True)
+
+    def test_mutant_incomplete_path_intersection_is_killed(self):
+        runner = SocketIsolationTests.helper('docker-image-gc-realtime', [
+            ('set(required) <= subjects[role].evidence.state.phases',
+             'bool(set(required) & subjects[role].evidence.state.phases)'),
+            ('set(path[process.role]) <= process.evidence.state.phases',
+             'bool(set(path[process.role]) & process.evidence.state.phases)')])
+        probe = type(self)('test_instance_bypass_requires_first_destructive_and_second_cooldown')
+        probe.setUp = lambda: None
+        probe.r, probe.identity = runner, self.identity
+        # Mutate arm too: path selection must independently reject an
+        # incomplete path rather than relying on that later mandatory check.
+        original = runner.WorkerEvidence.arm
+        def weak_arm(channel, site, required):
+            remaining = tuple(set(required) & channel.state.phases)
+            return original(channel, site, remaining)
+        with mock.patch.object(runner.WorkerEvidence, 'arm', weak_arm):
+            result = unittest.TestResult()
+            probe.run(result)
+        self.assertFalse(result.errors, result.errors)
+        self.assertTrue(result.failures, 'incomplete evidence path mutant survived')
+
+    def test_stop_covers_every_live_worker_with_reused_role(self):
+        lane = object.__new__(self.r.Lane)
+        lane.case = 'fifo-keep'
+        lane.stop_plan = self.r.STOP_PLAN[lane.case]
+        lane.processes, trace = [], []
+        for index in range(2):
+            channel = types.SimpleNamespace(state=types.SimpleNamespace(phases={'main-entered'}), stop=None)
+            channel.arm = lambda site, required, index=index: trace.append(('arm', index))
+            proc = types.SimpleNamespace(role='proc', evidence=channel, poll=lambda: None)
+            proc.kill = lambda index=index: trace.append(('kill', index))
+            lane.processes.append(proc)
+        lane.stop_at('RT:431')
+        self.assertEqual(trace, [('arm', 0), ('arm', 1), ('kill', 0), ('kill', 1)])
+
+
+class Isolation10TimingTests(unittest.TestCase):
+    setUp = Isolation9EvidenceTests.setUp
+
+    def timed_window_model(self, runner=None):
+        r = runner or self.r
+        with tempfile.TemporaryDirectory(prefix='ops327-window-', dir=REPO) as root:
+            root = Path(root)
+            channel = r.WorkerEvidence(root, 'worker-1', 's'*64, 'm'*64, 'maximal-hold-r34')
+            send, ack = os.dup(channel.send_fd), os.dup(channel.ack_fd)
+            publisher = r.EvidencePublisher(send, ack, channel.identity)
+            channel.attach(os.getpid())
+            guard = HARNESS.FixtureGuard(root, evidence=publisher)
+            report = dict(holds=[], attempts=[], violations=guard.violations)
+            destructive = []
+            @contextmanager
+            def lock(*args):
+                yield
+            def call():
+                destructive.append(time.monotonic())
+                if len(destructive) == 1:
+                    time.sleep(9)
+            gc = types.SimpleNamespace(deploy_locks=lock, instance_lock=lock,
+                                       destructive_call=call, STOP=types.SimpleNamespace(set=lambda: None))
+            def main(sleep=None):
+                with gc.instance_lock(), gc.deploy_locks(()):
+                    # The review's 68 admissions: two snapshots, four records
+                    # per admission, plus the two destructive phase records.
+                    for _ in range(2):
+                        for _ in range(34):
+                            guard.audit('os.listdir', (str(root),))
+                        gc.destructive_call()
+                return 0
+            gc.main = main
+            original_fsync, syncs = os.fsync, []
+            def slow_disk(fd):
+                # A deterministic 4 ms durability latency exposes the previous
+                # per-record fsync design. Baseline never pays it in a window.
+                original_fsync(fd)
+                time.sleep(.004)
+                syncs.append(time.monotonic())
+            error, rc = None, 0
+            try:
+                with mock.patch.dict(os.environ, {}), mock.patch.object(r.signal, 'signal'), mock.patch.object(r.os, 'fsync', slow_disk):
+                    publisher.send('START')
+                    r.instrument_worker(gc, report, publisher)
+                    try:
+                        rc = r.run_worker_main(gc, publisher)
+                    except r.EvidenceError as exc:
+                        error, rc = exc, 2
+                        # The publisher already acknowledged a sticky runtime
+                        # error (and the interrupted admission stays pending).
+                        # Retain a well-formed END here to isolate the timing
+                        # rejection from the independent invalid-END checks.
+                        report['model_instrumentation_error'] = str(exc)
+                    r.finish_worker_report(root/'events.json', report, publisher, rc)
+                    publisher.close()
+                    channel.thread.join(5)
+                    proc = types.SimpleNamespace(events=root/'events.json', poll=lambda: rc, returncode=rc)
+                    if error is None:
+                        channel.validate(proc)
+                    else:
+                        with self.assertRaises(r.EvidenceError): channel.validate(proc)
+                    channel.persist()
+                    channel.persist()
+                events = json.loads(proc.events.read_text())
+                values = [window['instrumentation_s'] for window in events['timing_windows']]
+                print('OPS327_TIMING_MODEL ' + json.dumps(dict(
+                    mode='baseline' if error is None else 'per-record-fsync',
+                    windows_s=values, records=len(channel.state.records), fsyncs=len(syncs))), flush=True)
+                return events, error, destructive, syncs
+            finally:
+                if channel.thread.is_alive():
+                    publisher.close()
+                    channel.abort.set()
+                    channel.thread.join(2)
+
+    def test_evidence_preserves_real_deadlines(self):
+        events, error, destructive, syncs = self.timed_window_model()
+        self.assertIsNone(error)
+        self.r.check_timing_windows(events)
+        self.assertEqual(len(events['timing_windows']), 1)
+        window = events['timing_windows'][0]
+        self.assertEqual(len(window['round_trips']), 274)
+        self.assertLessEqual(window['instrumentation_s'], .250)
+        self.assertTrue(8.9 <= destructive[1] - events['holds'][0][0] <= 10.1)
+        self.assertEqual(len(syncs), 1, 'journal must fsync once, after the window')
+        self.assertGreater(syncs[0], window['end'])
+
+    def test_per_record_fsync_mutant_invalidates_timing_lane(self):
+        runner = SocketIsolationTests.helper('docker-image-gc-realtime', [
+            ('                            os.write(self.ack_write, b"+")',
+             '                            os.fsync(journal.fileno())\n                            os.write(self.ack_write, b"+")')])
+        events, error, _, _ = self.timed_window_model(runner)
+        self.assertIsInstance(error, runner.EvidenceError)
+        with self.assertRaises(runner.EvidenceError): runner.check_timing_windows(events)
+        for mutant in (None, 'per-record fsync'):
+            passed, message = runner.classify_case('maximal-hold-r34', mutant, True, error)
+            self.assertFalse(passed)
+            self.assertIn('setup:', message)
+
+    def test_timing_summary_rejects_missing_contradictory_and_excessive_values(self):
+        window = dict(start=1.0, end=2.0, instrumentation_s=.125, round_trips=[[1.0, 1.125]])
+        events = dict(holds=[[1.0, 2.0]], timing_windows=[window])
+        self.r.check_timing_windows(events)
+        for values in ({}, {**events, 'timing_windows': []},
+                       {**events, 'timing_windows': [{**window, 'instrumentation_s': 0}]},
+                       {**events, 'timing_windows': [{**window, 'instrumentation_s': .5, 'round_trips': [[1.0, 1.5]]}]},
+                       dict(holds=[[1.0, 2.0], [3.0, 4.0]], timing_windows=[window, dict(
+                           start=3.0, end=4.0, instrumentation_s=.5, round_trips=[[3.0, 3.5]])])):
+            with self.subTest(values=values), self.assertRaises(self.r.EvidenceError):
+                self.r.check_timing_windows(values)
+
+    def test_final_durability_failure_is_setup_and_drains_every_worker(self):
+        r, trace = self.r, []
+        lane_type = r.Lane
+        def case(lane):
+            trace.append(('case', lane.source))
+            if lane.source == 'changed': raise r.CaseFailure('behaviour regressed')
+        def lane_factory(args, name, source):
+            lane = object.__new__(lane_type)
+            lane.source, lane.case = source, 'r29'
+            lane.processes = []
+            lane.check_workers = lambda: trace.append(('check', source))
+            lane.close = lambda: trace.append(('close', source))
+            for role in ('first', 'second'):
+                def persist(role=role):
+                    trace.append(('persist', source, role))
+                    if source == 'changed' and role == 'first': raise OSError('durability unavailable')
+                lane.processes.append(types.SimpleNamespace(evidence=types.SimpleNamespace(persist=persist)))
+            return lane
+        output = io.StringIO()
+        with mock.patch.dict(r.CASES, {'r29': case}), mock.patch.object(r, 'Lane', side_effect=lane_factory), redirect_stdout(output):
+            self.assertEqual(r.run_checks(None, [('r29', None, 'base'), ('r29', 'mutant', 'changed')]), 1)
+        self.assertIn('ok r29\n', output.getvalue())
+        self.assertIn('(setup: durability unavailable)', output.getvalue())
+        self.assertIn(('persist', 'changed', 'second'), trace)
+        self.assertLess(trace.index(('close', 'base')), trace.index(('persist', 'base', 'first')))
+
+
 ALLOW9 = {
     "root": lambda self: str(self.root),
     "sys_prefix": lambda self: sys.prefix,
@@ -5433,6 +5675,41 @@ class Isolation9MutationTests(unittest.TestCase):
             try:getattr(probe,method)()
             except helper.FixtureViolation as exc:raise AssertionError("mutant rejected a required positive control") from exc
 
+    def assert_path_mutant_killed(self, pairs, method):
+        result = unittest.TestResult()
+        unittest.FunctionTestCase(lambda: self.guard_mutant(pairs, method)).run(result)
+        self.assertFalse(result.errors, f"path mutant produced setup error: {result.errors}")
+        self.assertTrue(result.failures, "surviving path mutant: " + repr(pairs))
+
+    def test_mutant_defaults_fwalk_drops_argument_4(self):
+        self.assert_path_mutant_killed([
+            ('dir_fd=args[4] if event == "os.fwalk" and len(args) > 4 else None', 'dir_fd=None')
+        ], 'test_audit_event_defaults_and_nonpath_none')
+
+    def test_mutant_defaults_import_none_is_cwd(self):
+        self.assert_path_mutant_killed([
+            ('elif event == "import" and args[1] is not None:\n            self.check(event, args[1])',
+             'elif event == "import":\n            self.check(event, args[1] if args[1] is not None else ".")')
+        ], 'test_audit_event_defaults_and_nonpath_none')
+
+    def test_mutant_defaults_listdir_scandir_none_omitted(self):
+        # Each individual branch must kill too; a shared mutation alone could
+        # conceal a missing negative control for the other event.
+        for event in ('os.listdir', 'os.scandir', None):
+            condition = 'args and args[0] is not None'
+            if event is not None:
+                condition = f'event != {event!r} or ({condition})'
+            with self.subTest(event=event):
+                self.assert_path_mutant_killed([
+                    ('            self.check(event, args[0] if args and args[0] is not None else ".")',
+                     f'            if {condition}:\n                self.check(event, args[0] if args and args[0] is not None else ".")')
+                ], 'test_audit_event_defaults_and_nonpath_none')
+
+    def test_mutant_defaults_dlopen_none_is_path(self):
+        self.assert_path_mutant_killed([
+            ('and args[0] is not None:', 'and True:')
+        ], 'test_audit_event_defaults_and_nonpath_none')
+
     def test_named_path_mutants(self):
         mutations=[
             ([("resolved = _REALPATH(path)","resolved = _REALPATH(lexical)")],"test_raw_symlink_dotdot_resolution"),
@@ -5440,7 +5717,6 @@ class Isolation9MutationTests(unittest.TestCase):
             ([("return path == root or path.startswith(root.rstrip(os.sep) + os.sep)","return path.startswith(root)")],"test_fixture_sibling"),
             ([("os.fsdecode(os.fspath(path))","os.fspath(path)")],"test_bytes_pathlike"),
             ([("if event == \"os.listxattr\" and path is None:","if False:")],"test_audit_event_os_listxattr_none_cwd"),
-            ([("and args[0] is not None:","and True:")],"test_audit_event_defaults_and_nonpath_none"),
             ([("self.inside(lexical, left) and self.inside(resolved, right)","self.inside(resolved, right)")],"test_nixos_etc_hosts_store_chain"),
         ]
         for pairs,method in mutations:
