@@ -344,7 +344,8 @@ def compose():
                 if cfg.get("race"):
                     record("pull-attached")
                     wait_for(lambda: any(e["event"] == "executed" and e.get("epoch") == cfg["epoch"] for e in events()), 60, "delayed DELETE effect")
-                result = command("docker", "create", "--name", f"compose-fixture-{time.monotonic_ns()}", "-v", "ops327-data:/data", ref, check=False)
+                # Mirror docker-compose's pull-then-API-create sequence: create never pulls.
+                result = command("docker", "create", "--pull=never", "--name", f"compose-fixture-{time.monotonic_ns()}", "-v", "ops327-data:/data", ref, check=False)
                 if result.returncode:
                     record("creation-failed", epoch=cfg.get("epoch")); return 1
             # Extra acquisitions mirror the two postRecreate operations.
