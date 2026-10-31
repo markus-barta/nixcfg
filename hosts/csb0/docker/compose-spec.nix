@@ -170,6 +170,9 @@
         "--http-address=0.0.0.0:4180"
         "--provider=oidc"
         "--oidc-issuer-url=https://auth.inspr.at"
+        # OPS-512: Zitadel issues a refresh token only for offline_access; without it
+        # the session dies when the 12 h token expires, despite --cookie-expire.
+        "--scope=openid email profile offline_access"
         "--redirect-url=https://cs0.barta.cm/oauth2/callback"
         "--email-domain=barta.com"
         "--cookie-domain=.barta.cm"
