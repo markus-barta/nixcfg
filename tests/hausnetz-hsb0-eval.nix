@@ -81,6 +81,8 @@ in
   noWebCheckFlag = !(lib.hasInfix "\"--web-check=false\"" unit.ExecStart);
   starlinkAllowed = cfg.starlink;
   noStarlinkFlag = !(lib.hasInfix "\"--starlink=false\"" unit.ExecStart);
+  # HNET-44 (pin 56, Markus on Desk b12218e9): the approved read-only MQTT presence reaches the unit.
+  mqttPresenceArgument = lib.hasInfix "\"--shelly-heal-mqtt-presence=true\"" unit.ExecStart;
   packetAllowed = has "AF_PACKET" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
