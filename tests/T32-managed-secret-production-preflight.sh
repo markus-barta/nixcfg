@@ -494,9 +494,9 @@ jq -e \
   and ($janus | closed_bind("/var/lib/janus-managed-central/outbox"; true))
   and $pharos.user == "10001:992"
   and ($pharos | has("group_add") | not)
-  and $pharos.environment.PHAROS_BEACON_TOKEN_MODE == "local"
-  and $pharos.environment.PHAROS_ALLOW_LOCAL_REGISTER == "false"
-  and $pharos.environment.PHAROS_REQUIRE_BEACON_TOKEN == "1"
+  and ($pharos.environment | index("PHAROS_BEACON_TOKEN_MODE=local") != null)
+  and ($pharos.environment | index("PHAROS_ALLOW_LOCAL_REGISTER=false") != null)
+  and ($pharos.environment | index("PHAROS_REQUIRE_BEACON_TOKEN=1") != null)
   and all($pharos.volumes[];
     ((.target // "") | startswith("/run/pharos/managed-setup-") | not)
     and .target != "/managed-services"

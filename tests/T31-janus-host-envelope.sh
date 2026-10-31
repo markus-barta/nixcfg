@@ -55,7 +55,7 @@ nix eval --json "${flake_ref}#nixosConfigurations.csb1.config" --apply '
     timersAbsent = !(c.systemd.timers ? pharos-provisioning-executor)
       && !(c.systemd.timers ? pharos-retirement-executor);
     manifestDisabled = !c.services.janus.managedServiceManifest.enable;
-    guardedDeployDisabled = !c.inspr.pharosGuardedDeploy.enable;
+    guardedDeployDisabled = !(c.inspr.pharosGuardedDeploy.enable or false);
   }
 ' | jq -e '
   .timersAbsent and .manifestDisabled and .guardedDeployDisabled
