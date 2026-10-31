@@ -240,17 +240,18 @@ def proxy():
         server.serve_forever()
 
 
-def load_gc():
+def load_gc(*, mutants=True):
     require_test_vm()
     source = Path("/etc/ops327/gc.py").read_text()
-    if settings().get("mutant_hold"):
+    cfg = settings() if mutants else {}
+    if cfg.get("mutant_hold"):
         assert source.count("BATCH_S = 10\n") == 1
         source = source.replace("BATCH_S = 10\n", "BATCH_S = 60\n")
     for flag, anchor in (
         ('mutant_device', '            if info.st_dev != expected:\n'),
         ('mutant_regular', '            if not stat.S_ISREG(info.st_mode):\n'),
     ):
-        if settings().get(flag):
+        if cfg.get(flag):
             assert source.count(anchor) == 1, (flag, 'missing mutation anchor')
             source = source.replace(anchor, '            if False:\n')
     spec = importlib.util.spec_from_file_location("vm_gc_harness", Path(__file__).with_name("harness.py"))
@@ -414,10 +415,58 @@ def dangling(ref, name):
                 manifests = json.load(stream)
                 for entry in manifests: entry["RepoTags"] = None
                 data = json.dumps(manifests).encode(); member.size = len(data); stream = io.BytesIO(data)
+            elif member.name == "index.json":
+                index = json.load(stream)
+                for entry in index["manifests"]:
+                    annotations = entry.get("annotations", {})
+                    for key in ("io.containerd.image.name", "org.opencontainers.image.ref.name"):
+                        annotations.pop(key, None)
+                # distribution.source.* describes blob provenance, not an image
+                # name. Keep it and all content-addressed blobs unchanged.
+                data = json.dumps(index).encode(); member.size = len(data); stream = io.BytesIO(data)
             target.addfile(member, stream)
     command("docker", "image", "rm", ref)
     command("docker", "load", "-i", str(clean))
     return clean
+
+
+def require_candidates(phase):
+    """Check the real Engine view and GC plan without locks or mutation."""
+    candidates = json.loads((ROOT / "candidate-refs.json").read_text())
+    expected = set(candidates)
+    required_refs = {f"localhost:5000/fixture:r{n}" for n in (2, 3)}
+    images = listing("/images/json")
+    by_id = {image["Id"]: image for image in images}
+    # A previous scenario may have left mutant flags in settings. Preconditions
+    # always use the unmodified production reader, planner and budget.
+    gc = load_gc(mutants=False)
+    def read_only_api(method, path, timeout, limit):
+        assert method == "GET", (phase, "fixture precondition attempted mutation", method, path)
+        return gc.docker_api(method, path, timeout=timeout, limit=limit)
+    budget = gc.Budget(gc.BATCH_S)
+    snap = gc.snapshot(read_only_api, budget)
+    planned = gc.plan(snap, time.time(), budget)
+    index = gc.Index(images, gc.validate(snap.containers, images))
+    declared = set(gc.DECLARED_REFS) | {ref for _, spec in snap.systems for ref in spec.values()}
+    resolved = {ref: sorted(index.resolve(ref) & expected) for ref in declared}
+    resolved = {ref: ids for ref, ids in resolved.items() if ids}
+    actual = {image["Id"] for image in planned.candidates}
+    deletable = {image["Id"] for image in planned.deletable}
+    details = {"phase": phase, "expected": sorted(expected), "candidates": sorted(actual),
+               "deletable": sorted(deletable), "baseline": planned.baseline, "reasons": planned.reasons,
+               "declared_candidate_refs": sorted(declared & required_refs), "resolved": resolved,
+               "images": {image_id: {key: by_id[image_id].get(key) for key in ("RepoTags", "RepoDigests")}
+                          for image_id in expected if image_id in by_id}}
+    diagnostic = json.dumps(details, sort_keys=True)
+    assert len(expected) == 2 and set(candidates.values()) == required_refs, ("invalid fixture candidate mapping", diagnostic)
+    assert expected <= by_id.keys(), ("fixture candidate ID missing after load", diagnostic)
+    assert all(tag.startswith("<none>") for image_id in expected
+               for tag in by_id[image_id].get("RepoTags") or []), ("fixture candidate is still tagged", diagnostic)
+    assert required_refs <= declared, ("fixture candidate system declarations missing", diagnostic)
+    assert not resolved, ("declared system ref resolves to a fixture candidate", diagnostic)
+    assert actual == deletable == expected and planned.baseline is None, ("unexpected real GC fixture plan", diagnostic)
+    record("candidate-preconditions", **details)
+    print("fixture candidate preconditions:", diagnostic, flush=True)
 
 
 def prepare():
@@ -447,6 +496,7 @@ def prepare():
     configure(epoch="init")
     start_unit("ops327-proxy")
     set_system_profile(os.path.realpath("/run/current-system"))
+    require_candidates("prepare")
 
 
 def restore(reset_compose=True):
@@ -464,6 +514,7 @@ def restore(reset_compose=True):
             for tag in image['RepoTags'] or []:
                 if not tag.startswith('<none>'): command('docker', 'image', 'rm', tag)
     for archive in json.loads((ROOT / "candidates.json").read_text()): command("docker", "load", "-i", archive)
+    require_candidates("restore")
     for pattern in ("compose-ready-*", "compose-go-*", "send-go", "hausv-working", "between-renames", "published"):
         for path in ROOT.glob(pattern): path.unlink()
 
@@ -569,9 +620,12 @@ def full_unit_outcomes(results):
     for work in (540, 580):
         for with_gc in (False, True):
             epoch = f"compose-{work}-{with_gc}"
-            if with_gc: run_gc(epoch, [29], pull_delay=work, acquisitions=1, late_decision=True, wait_held=True)
-            else: restore(); configure(epoch=epoch, delays=[0], pull_delay=work, acquisitions=1)
+            actual_work = 595 if with_gc and work == 580 else work
+            if with_gc: run_gc(epoch, [29], pull_delay=actual_work, acquisitions=1, late_decision=True, wait_held=True)
+            else: restore(); configure(epoch=epoch, delays=[0], pull_delay=actual_work, acquisitions=1)
             stop_unit("compose-csb1")
+            begin_events = len(events())
+            record("compose-work", epoch=epoch, work=actual_work)
             started = time.monotonic()
             base = (ROOT / 'base-system').read_text()
             target = base + '/specialisation/changed' if os.path.realpath('/run/current-system') == base else base
@@ -580,6 +634,9 @@ def full_unit_outcomes(results):
             out, err = switch.communicate(timeout=650)
             result = types.SimpleNamespace(returncode=switch.returncode, stdout=out, stderr=err)
             expected = not (with_gc and work == 580)
+            acquisitions = [e for e in events()[begin_events:] if e["event"] == "acquisition" and e["lock"] == COMPOSE]
+            if not expected:
+                assert acquisitions and acquisitions[0]["waited"] >= 20, (epoch, "insufficient fixture overlap", actual_work, acquisitions)
             # main.rs:2578-2588: the compose start job's timeout forces exit 4.
             assert result.returncode == (0 if expected else 4), (epoch, result)
             if expected:
@@ -594,7 +651,8 @@ def full_unit_outcomes(results):
                 # original job's timeout evidence independently of current Result.
                 log = journal_since("compose-csb1", since)
                 assert "start operation timed out" in log, (epoch, "expected original start timeout", log)
-            results.append({"case": epoch, "exit": result.returncode, "elapsed": time.monotonic() - started})
+            results.append({"case": epoch, "work": actual_work, "acquisitions": acquisitions,
+                            "exit": result.returncode, "elapsed": time.monotonic() - started})
             stop_unit("compose-csb1")
             if with_gc: gc_done(0, 5)
     # The hold mutant must push 540 s past the 600 s unit budget.
@@ -737,8 +795,8 @@ def checks():
     assert removal['status'] == 200 and removal['removed'], removal
     gc_done(0, 110)
     results.append({'case': 'old-system-after-snapshot-accepted-race', 'switch': switch.returncode, 'delete': removal})
-    # Real delayed effect: r2 is absent by tag, its ID exists dangling. The
-    # registry pull attaches r2 to that ID while DELETE is delayed to 40 s.
+    # Real delayed effect: the victim's tag is absent, its manifest ID exists
+    # dangling. The registry pull reattaches its tag while DELETE waits 40 s.
     request = run_gc("delayed-effect", [40], race=True, pull_ref="localhost:5000/fixture:r2", acquisitions=1)
     victim = request['path'].split('/images/', 1)[1].split('?', 1)[0]
     pull_ref = json.loads((ROOT / 'candidate-refs.json').read_text())[victim]
