@@ -160,7 +160,7 @@ jq -e '
       .release_sequence >= 1
       and (.migration_anchor.first_calendar_version | type == "string")
     else
-      .version_scheme == "inspr-calendar-v2"
+      (.version_scheme == "inspr-calendar-v2" or .version_scheme == "inspr-calver-3")
       and .release_sequence >= 6
       and (.migration_anchor.first_calendar_version | type == "string")
       and (.migration_anchor.last_calendar_v1_version | type == "string")

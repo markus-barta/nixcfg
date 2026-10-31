@@ -51,7 +51,7 @@ if [[ "$active_scheme" == legacy ]]; then
   fi
   new_sequence=1
   first_version=$new_version
-elif [[ "$active_scheme" == inspr-calendar-v2 ]]; then
+elif [[ "$active_scheme" == inspr-calendar-v2 || "$active_scheme" == inspr-calver-3 ]]; then
   new_version=$(
     python3 - "$(jq -r .version "$fixture/pharos-release.json")" <<'PY2'
 import datetime as dt
@@ -80,11 +80,11 @@ PY
   first_version=$(jq -r .migration_anchor.first_calendar_version "$fixture/pharos-release.json")
 fi
 expected="ghcr.io/inspr-at/pharos/pharosd:${new_version}@${new_digest}"
-if [[ "$active_scheme" == inspr-calendar-v2 ]]; then
+if [[ "$active_scheme" == inspr-calendar-v2 || "$active_scheme" == inspr-calver-3 ]]; then
   # PHAROS-259: a v2 coordinate is itself SemVer; the Cargo mapping is the identity
   # and the release set carries the two-step anchor from the active record.
   cargo_version=$new_version
-  candidate_scheme=inspr-calendar-v2
+  candidate_scheme=$active_scheme
   anchor_extra=$(jq -c '.migration_anchor | {last_calendar_v1_version, last_calendar_v1_release_sequence, first_calendar_v2_version, first_calendar_v2_release_sequence}' "$fixture/pharos-release.json")
 else
   IFS=. read -r y_ m_ d_ h_ mi_ s_ <<<"$new_version"
