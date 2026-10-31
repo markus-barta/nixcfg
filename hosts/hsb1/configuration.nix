@@ -288,8 +288,8 @@ in
     removeOrphans = true;
     autoUpdate.enable = true;
     # OPS-430 (eMudhra): these images carry their own certifi bundle, which still trusts
-    # "emSign ECC Root CA - G3" (certifi < 2026.10.19). Mount the system bundle, which carries the
-    # OPS-424 blacklist, read-only over each one. The source is the bundle's immutable store path:
+    # "emSign ECC Root CA - G3" (certifi < 2026.10.19). Mount the system bundle, which no longer
+    # trusts the OPS-424 eMudhra roots, read-only over each one. The source is the bundle's immutable store path:
     # a bundle change re-renders the compose file and recreates the containers instead of pinning a
     # stale inode. Targets are each image's certifi.where() on 2026-10-22; they follow the image's
     # Python version. Drop each entry once its image ships certifi >= 2026.10.19

@@ -281,6 +281,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       ./docker/hsb0-home-hausnetz.conf
       ./docker/hsb0-home-inflight.conf
       ./docker/hsb0-home-videos.conf
+      ./docker/hsb0-home-pharosfleet.conf
     ];
     # ncps must not start on an empty /var/lib/ncps — the old docker-ncps
     # ordering unit was a phantom (QA-2). Wants+After, not Requires: the stack
@@ -1103,7 +1104,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ];
     serviceConfig.EnvironmentFile = [ config.age.secrets.uptime-kuma-env.path ];
     # OPS-430: apprise (nixpkgs certifi) sends the notifications over HTTPS; use the system bundle
-    # with the OPS-424 eMudhra blacklist instead of certifi's own copy.
+    # (no OPS-424 eMudhra roots) instead of certifi's own copy.
     environment.NIX_SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
   };
 
@@ -1384,6 +1385,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
   environment.etc."hsb0-home-inflight.conf".source = ./docker/hsb0-home-inflight.conf;
   # OPS-380: /videos/ location (VID's video overview, AEON-1480), same pattern as /inflight/.
   environment.etc."hsb0-home-videos.conf".source = ./docker/hsb0-home-videos.conf;
+  # OPS-508: /pharosfleet/ location (Pharos fleet overview), same pattern as /videos/.
+  environment.etc."hsb0-home-pharosfleet.conf".source = ./docker/hsb0-home-pharosfleet.conf;
   # HNET-237: only this host moves the front page; other HostDash boards keep /.
   environment.etc."hostdash-nginx.conf".source = lib.mkForce ./docker/front-page-nginx.conf;
   environment.etc."hsb0-home-hausnetz.conf".source = ./docker/hsb0-home-hausnetz.conf;
@@ -1424,6 +1427,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     "d /var/lib/inflight 0755 mba users - -"
     # OPS-380: video overview page content; mba pushes index.html, hsb0-home reads it (ro mount).
     "d /var/lib/videos 0755 mba users - -"
+    # OPS-508: Pharos fleet overview page content; mba pushes index.html, hsb0-home reads it (ro mount).
+    "d /var/lib/pharosfleet 0755 mba users - -"
   ];
 
   # Fix: P6400 / P5012 - Remove evaluation warning by forcing null on initialHashedPassword

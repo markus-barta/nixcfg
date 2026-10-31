@@ -403,7 +403,7 @@ no `starlink` option).
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /api/export` (legacy `GET /ops/api/export` redirects) on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets
-(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf` and `hsb0-home-videos.conf`) are compose restart
+(`hsb0-home-hausnetz.conf`, `hsb0-home-inflight.conf`, `hsb0-home-videos.conf` and `hsb0-home-pharosfleet.conf`) are compose restart
 triggers, so a normal switch recreates `hsb0-home` when any of them changes.
 
 For OPS's first attended switch, start from the reviewed, merged clean `main`
@@ -506,6 +506,23 @@ dotfiles return 404. Push atomically:
 ```bash
 scp -q index.html mba@100.64.0.6:/var/lib/videos/.index.html.tmp && ssh mba@100.64.0.6 'mv -f /var/lib/videos/.index.html.tmp /var/lib/videos/index.html'
 ```
+
+### Pharos fleet overview page (OPS-508)
+
+**URL**: http://100.64.0.6/pharosfleet/ (tailnet) or http://hsb0.lan/pharosfleet/ (home). Never public: hsb0 has no port forward.
+
+The Pharos fleet overview: one self-contained `index.html`, regenerated from `fleet.json` in the ops repo.
+Same pattern as the Video overview page: `/var/lib/pharosfleet` (mba, 0755, tmpfiles), mounted
+read-only at `/srv/pharosfleet`, location from `docker/hsb0-home-pharosfleet.conf` through the
+HostDash include point, same headers, dotfiles return 404. From mbp2607, mba publishes atomically
+(scp to `.index.html.tmp`, then mv) by running this in the ops repo:
+
+```bash
+scripts/pharosfleet/publish.sh --apply
+```
+
+**Rollback**: re-run `scripts/pharosfleet/publish.sh --apply` from an earlier ops commit;
+the page is regenerated from that commit's `fleet.json`.
 
 ---
 
@@ -1256,8 +1273,8 @@ environment/mounts; the source build context/restart trigger still changes with
 production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
 `joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
 r17 images in the release set and moved the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
-Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), since JOED-87 it was 8be38581 (sequence 32), since JOED-90 it was e96ff9a5 (sequence 33), since JOED-97 a3a3683d (sequence 34), since JOED-99 2d36c7b4 (sequence 35), since JOED-106 b1863082 (sequence 36), and since JOED-122 it is aedc6664 (sequence 37).
-Release 37's board keeps contract revision 10 and accepts existing revision-9 payloads.
+Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), since JOED-87 it was 8be38581 (sequence 32), since JOED-90 it was e96ff9a5 (sequence 33), since JOED-97 a3a3683d (sequence 34), since JOED-99 2d36c7b4 (sequence 35), since JOED-106 b1863082 (sequence 36), since JOED-122 aedc6664 (sequence 37), since JOED-159 95aa9342 (sequence 39; sequence 38, 9ec65b46, was published but never deployed), since JOED-171 2ad81321 (sequence 40), and since JOED-172 it is daa49125 (sequence 41).
+Release 41's board keeps contract revision 10 and accepts existing revision-9 payloads.
 JOED-100 prepares `household-v2-switch-set-r20c-202610271530`: r20b's JOED-86
 pusher code plus the bounded ownership history (JOED-100, #1159). r20a and r20b
 carried the JOED-86 code (r20a was its first prestage: its build context had

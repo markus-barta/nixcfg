@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/aedc666492a6379bf946900ce8521d105a70ede5";
+      url = "github:markus-barta/joedesk/daa49125c26af7fd4e19855327fd01f5eabf23d5";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 54: v261029071333.0.0 (#315 merge, sequence 124). Contents since 53: HNET-411 (HNET-390 slice 4) lighter live updates; client bundle (web/src) + release metadata only; no Go/nix/module/flake/workflow changes (HNET confirmed 2026-10-29: no capability change).
+    # HNET pin 55: v261030181501.0.0 (#321 merge, sequence 125). Contents since 54: HNET-415 slice 5 + blocker fix, HNET-414 fixes; client bundle (web/src), discovery name-tier matching (internal/discovery/match.go), CI job order and release metadata; no nix/module/flake/cmd/go.mod changes, no new option, listener or capability.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=23c5b4581a3909db1749fb66fd201665d5099645";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=f7af77884cebba3fe95d4d1e193c12bc3fbe0401";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

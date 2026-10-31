@@ -62,9 +62,11 @@ assert home["extra_hosts"] == ["host.docker.internal:host-gateway"]
 assert "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro" in home["volumes"]
 assert "/var/lib/videos:/srv/videos:ro" in home["volumes"]  # OPS-380
 assert "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro" in home["volumes"]
+assert "/var/lib/pharosfleet:/srv/pharosfleet:ro" in home["volumes"]  # OPS-508
+assert "/etc/hsb0-home-pharosfleet.conf:/etc/nginx/hostdash-extra/pharosfleet.conf:ro" in home["volumes"]
 assert c["proxySource"].endswith("/hosts/hsb0/docker/hsb0-home-hausnetz.conf")
 assert c["frontPageSource"].endswith("/docker/front-page-nginx.conf")
-for snippet in ("front-page-nginx.conf", "hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf", "hsb0-home-videos.conf"):
+for snippet in ("front-page-nginx.conf", "hsb0-home-hausnetz.conf", "hsb0-home-inflight.conf", "hsb0-home-videos.conf", "hsb0-home-pharosfleet.conf"):
     assert any(t.endswith("/hosts/hsb0/docker/" + snippet) for t in c["restartTriggers"]), snippet
 ssh = c["ssh"]
 assert "Match host github.com localuser root" in ssh["extraConfig"]
@@ -128,7 +130,7 @@ fixture = {
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
     'nixcfg': {'composeStack': {'extraRestartTriggers': [
         '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf',
-        '/hosts/hsb0/docker/hsb0-home-videos.conf']}},
+        '/hosts/hsb0/docker/hsb0-home-videos.conf', '/hosts/hsb0/docker/hsb0-home-pharosfleet.conf']}},
 }
 
 def check_fixture(config):
@@ -169,6 +171,7 @@ for path, value, failed_check in (
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf'], 'proxyRestartTriggers'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
+    (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf', '/hosts/hsb0/docker/hsb0-home-videos.conf'], 'proxyRestartTriggers'),
 ):
     changed = copy.deepcopy(fixture)
     node = changed
@@ -213,7 +216,7 @@ assert 'location / {' not in vhost  # only the included app snippet owns the roo
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in vhost
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = '23c5b4581a3909db1749fb66fd201665d5099645'  # HNET pin 54 (v261029071333.0.0); repo in inspr-at
+pin = 'f7af77884cebba3fe95d4d1e193c12bc3fbe0401'  # HNET pin 55 (v261030181501.0.0); repo in inspr-at
 assert f'git+ssh://git@github.com/inspr-at/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -222,8 +225,8 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
-assert node['locked']['narHash'] == 'sha256-RKue1NxotTIJB1WZ3h+aX1gvCctysst9rRiDShXmUNI='
-assert node['locked']['lastModified'] == 1793263040
+assert node['locked']['narHash'] == 'sha256-Lj28Mvkj+uT4I0JdW8Re+y9XvT8tLBDLafY+XQn4C+c='
+assert node['locked']['lastModified'] == 1793389253
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
