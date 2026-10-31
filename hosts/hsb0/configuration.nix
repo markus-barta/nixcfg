@@ -1104,7 +1104,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ];
     serviceConfig.EnvironmentFile = [ config.age.secrets.uptime-kuma-env.path ];
     # OPS-430: apprise (nixpkgs certifi) sends the notifications over HTTPS; use the system bundle
-    # with the OPS-424 eMudhra blacklist instead of certifi's own copy.
+    # (no OPS-424 eMudhra roots) instead of certifi's own copy.
     environment.NIX_SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
   };
 
