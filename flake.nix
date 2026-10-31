@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/2d36c7b439c679fc37b05940890652aa9414e200";
+      url = "github:markus-barta/joedesk/daa49125c26af7fd4e19855327fd01f5eabf23d5";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 51: v261027214332.0.0 (#309 merge, sequence 121). Contents since 50: HNET-408 slow Shelly Gen1 recovery (AP GETs get 20 s plus one retry, identify keeps a paced 30 s window, a budget check runs before the STA write, the Gen1 actions count is read over the LAN); Go only, same module/units/credentials/firewall/outbound as pin 50; explicitly reviewed revision; automated updates skip this input.
+    # HNET pin 55: v261030181501.0.0 (#321 merge, sequence 125). Contents since 54: HNET-415 slice 5 + blocker fix, HNET-414 fixes; client bundle (web/src), discovery name-tier matching (internal/discovery/match.go), CI job order and release metadata; no nix/module/flake/cmd/go.mod changes, no new option, listener or capability.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=75093a3737b87b3f8e126de786711cc31acaf2c3";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=f7af77884cebba3fe95d4d1e193c12bc3fbe0401";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

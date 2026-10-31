@@ -10,6 +10,8 @@ import { labCompose, requireWorkstation, requireLocalEndpoint, assertCadence } f
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(root, "../../../..");
+const contractRevision = 10;
+const checkpointDir = "/var/lib/joe-household-v2-stage-checkpoint";
 const run = (cmd, args, options = {}) => execFileSync(cmd, args, { encoding: "utf8", ...options });
 function temp(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ops392-contract-"));
@@ -33,7 +35,7 @@ test("independently pinned reviewed 17-file closure verifies, at rev 10", async 
   const directory = temp(t); copyClosure(directory);
   for (const check of await verifiers(directory)) assert.equal(check(), true);
   assert.equal(lock.revision, "7c1616325c0007608425e4ad31a0a8256be4aeb7");
-  assert.equal(lock.manifest_revision, 10);
+  assert.equal(lock.manifest_revision, contractRevision);
   assert.equal(lock.contract_set_sha256, "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350");
 });
 for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-drift", "set-drift", "size-drift", "hash-drift", "manifest-drift"]) test(`fixed-path pusher verifier reject ${fault}`, async t => {
@@ -110,6 +112,21 @@ function hostEval(t, source, enabled, filtered = false, active = "current") {
   return JSON.parse(run("nix-instantiate", ["--eval", "--strict", "--json", "--expr", expr]));
 }
 
+function assertCheckpointIsolated(services) {
+  for (const [name, other] of Object.entries(services)) {
+    if (name === "joe-household-v2-stage") continue;
+    for (const volume of other.volumes ?? []) {
+      const rawSource = typeof volume === "string" ? volume.split(":")[0] : volume.source;
+      if (!rawSource || !path.posix.isAbsolute(rawSource)) continue;
+      const mountSource = path.posix.resolve(rawSource);
+      assert.ok(mountSource !== checkpointDir
+        && !mountSource.startsWith(`${checkpointDir}/`)
+        && !checkpointDir.startsWith(mountSource === "/" ? "/" : `${mountSource}/`),
+      `${name} volume source overlaps the stager-only checkpoint directory`);
+    }
+  }
+}
+
 test("Nix flag-off preserves baseline runtime with read-only executor evidence; enabled overlay isolates staging", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const old = run("git", ["show", "ae2caf7d:hosts/hsb0/configuration.nix"], { cwd: repo });
@@ -125,6 +142,8 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   const enabled = hostEval(t, source, true);
   const service = enabled.spec.services["joe-household-v2-stage"];
   const pusher = enabled.spec.services["joe-board-pusher"];
+  assert.ok(!pusher.environment.some(entry => entry.split("=")[0] === "JOE_V2_STAGE_CHECKPOINT_DIR"));
+  assertCheckpointIsolated(enabled.spec.services);
   assert.deepEqual(pusher.environment, [...baselinePusher.environment, executorEnvironment, "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"]);
   assert.deepEqual(pusher.volumes, [...baselinePusher.volumes, "/run/joe-household-v2:/run/joe-household-v2:rw"]);
   assert.equal(service.image, pusher.image);
@@ -135,8 +154,9 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.equal(service.read_only, true); assert.deepEqual(service.cap_drop, ["ALL"]); assert.deepEqual(service.security_opt, ["no-new-privileges:true"]);
   assert.equal(service.restart, "unless-stopped"); assert.equal(service.pull_policy, "never");
   assert.deepEqual(service.command, ["node", "v2-stage-supervisor.mjs"]);
-  assert.deepEqual(service.volumes, ["/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw", "/run/joe-household-v2:/run/joe-household-v2:rw"]);
-  for (const key of ["env_file", "environment", "depends_on", "ports", "privileged"]) assert.equal(Object.hasOwn(service, key), false);
+  assert.deepEqual(service.environment, [`JOE_V2_STAGE_CHECKPOINT_DIR=${checkpointDir}`]);
+  assert.deepEqual(service.volumes, ["/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw", "/run/joe-household-v2:/run/joe-household-v2:rw", `${checkpointDir}:${checkpointDir}:rw`]);
+  for (const key of ["env_file", "depends_on", "ports", "privileged"]) assert.equal(Object.hasOwn(service, key), false);
   assert.equal(Object.hasOwn(pusher, "depends_on"), false);
   assert.ok(enabled.exclusions.includes("joe-household-v2-stage"));
   assert.equal(enabled.spec.services["agent-mailbox"].image, "mailbox-fixture");
@@ -151,11 +171,11 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.ok(!JSON.stringify(lab).includes("/run/agenix"));
 });
 
-test("active v2 set (JOED-86): shared r20b image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
+test("active v2 set (JOED-86): shared r20e image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
   const r17 = release.sets.v2.pusher.image;
-  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r20b-202610260915");
+  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640");
   assert.equal(release.sets.v2.executor.image, r17);
   for (const enabled of [true, false]) {
     const v2 = hostEval(t, source, enabled, false, "v2");
@@ -165,7 +185,17 @@ test("active v2 set (JOED-86): shared r20b image, v2 POST schema and read-only v
     assert.ok(pusher.environment.includes("JOE_PUSH_SCHEMA=inspr.joe.household.v2"));
     assert.ok(pusher.volumes.includes("/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro"));
     assert.equal(Object.hasOwn(v2.spec.services, "joe-household-v2-stage"), enabled);
-    if (enabled) assert.equal(v2.spec.services["joe-household-v2-stage"].image, r17);
+    if (enabled) {
+      const service = v2.spec.services["joe-household-v2-stage"];
+      assert.equal(service.image, r17);
+      assert.ok(!pusher.environment.some(entry => entry.split("=")[0] === "JOE_V2_STAGE_CHECKPOINT_DIR"));
+      assertCheckpointIsolated(v2.spec.services);
+      assert.deepEqual([...(service.environment ?? [])].sort(), [
+        `JOE_V2_CONTRACT_REV=${contractRevision}`,
+        `JOE_V2_STAGE_CHECKPOINT_DIR=${checkpointDir}`,
+      ].sort());
+      assert.deepEqual(service.volumes, ["/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw", "/run/joe-household-v2:/run/joe-household-v2:rw", `${checkpointDir}:${checkpointDir}:rw`]);
+    }
   }
   const v1 = hostEval(t, source, true, false, "current").spec.services["joe-board-pusher"];
   assert.ok(!v1.environment.some(e => e.startsWith("JOE_PUSH_SCHEMA=")));

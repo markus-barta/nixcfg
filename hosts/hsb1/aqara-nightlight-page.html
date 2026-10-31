@@ -1,0 +1,5565 @@
+<!doctype html>
+<html lang="de" data-mode="kind" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Nachtlicht</title>
+    <style>
+      /* OPS-496: approved v2 tokens and inline illustrations; responsive service page. */
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #0c1b1e;
+        --surface: #132a2e;
+        --raised: #1a3337;
+        --chrome: #11262a;
+        --well: #091619;
+        --line: rgba(237, 244, 240, 0.09);
+        --line-2: rgba(237, 244, 240, 0.18);
+        --edge: #728f8e;
+        --ink: #e4ede9;
+        --ink-2: #acc3c2;
+        --ink-3: #94aead;
+        --muted: #94aead;
+        --act-bg: #2e2720;
+        --act-line: #cf9460;
+        --track: rgba(237, 244, 240, 0.08);
+        --fill: #b9824f;
+        --thumb: #cdd8d4;
+        --thumb-sh:
+          0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.45);
+        --stop-bg: #d59c66;
+        --stop-ink: #1d1208;
+        --ok: #7fd1a8;
+        --warn: #e2b45a;
+        --danger: #ef9d95;
+        --danger-bg: #2a2628;
+        --focus: #a4e5df;
+        --sw-mix: 70%;
+        --dot-ring: rgba(237, 244, 240, 0.24);
+        --btn-sh: 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+      [data-theme="light"] {
+        color-scheme: light;
+        --bg: #f7f6f2;
+        --surface: #fffefa;
+        --raised: #ffffff;
+        --chrome: #fffefa;
+        --well: rgba(32, 60, 61, 0.045);
+        --line: rgba(32, 60, 61, 0.11);
+        --line-2: rgba(32, 60, 61, 0.2);
+        --edge: #7a8c8d;
+        --ink: #203c3d;
+        --ink-2: #4c6163;
+        --ink-3: #5f7274;
+        --muted: #526567;
+        --act-bg: #fcefe1;
+        --act-line: #b3672a;
+        --track: rgba(32, 60, 61, 0.09);
+        --fill: #b56a2e;
+        --thumb: #ffffff;
+        --thumb-sh: 0 0 0 1.5px #7a8c8d, 0 2px 5px rgba(32, 60, 61, 0.2);
+        --stop-bg: #a65a22;
+        --stop-ink: #ffffff;
+        --ok: #2f7a5a;
+        --warn: #8a5c0c;
+        --danger: #b24a44;
+        --danger-bg: #f8eeea;
+        --focus: #0e6f6c;
+        --sw-mix: 94%;
+        --dot-ring: rgba(32, 60, 61, 0.32);
+        --btn-sh: 0 1px 2px rgba(32, 60, 61, 0.06);
+      }
+      html[data-theme="dark"] {
+        --cv: #161819;
+        --cv-ink: #9aa1a3;
+        --cv-frame: rgba(255, 255, 255, 0.09);
+        --cv-shadow: 0 32px 64px -32px rgba(0, 0, 0, 0.85);
+      }
+      html[data-theme="light"] {
+        --cv: #e6e5e1;
+        --cv-ink: #5a6062;
+        --cv-frame: rgba(20, 30, 32, 0.1);
+        --cv-shadow: 0 32px 64px -34px rgba(32, 40, 42, 0.4);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--cv);
+        color: var(--cv-ink);
+        font-family: system-ui, sans-serif;
+        font-optical-sizing: auto;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+      .sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      .ic {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+
+      /* The page */
+      .ui {
+        font-size: 15px;
+        line-height: 20px;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+      :where(.ui) button {
+        font: inherit;
+        color: inherit;
+        border: 0;
+        background: none;
+        margin: 0;
+        padding: 0;
+        cursor: pointer;
+        text-align: inherit;
+      }
+      .ui :focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .ui h2 {
+        margin: 0;
+        font-size: 17px;
+        line-height: 24px;
+        font-weight: 600;
+        letter-spacing: -0.005em;
+      }
+      .ui h3 {
+        margin: 0;
+        font: inherit;
+      }
+      .pg {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 47px;
+        padding: 6px 16px 140px;
+      }
+      .pg.end {
+        top: auto;
+        bottom: 90px;
+        padding-bottom: 24px;
+      }
+
+      .top {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .seg {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        padding: 3px;
+        border-radius: 14px;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .seg button {
+        height: 44px;
+        border-radius: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        color: var(--ink-2);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .seg button svg {
+        width: 18px;
+        height: 18px;
+      }
+      .seg button[aria-checked="true"] {
+        background: var(--raised);
+        color: var(--ink);
+        font-weight: 600;
+        box-shadow:
+          0 0 0 1px var(--line-2),
+          var(--btn-sh);
+      }
+      .ib {
+        flex: none;
+        width: 50px;
+        height: 50px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-2);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .ib svg {
+        width: 20px;
+        height: 20px;
+      }
+
+      .b {
+        background: var(--surface);
+        border-radius: var(--rb);
+        box-shadow:
+          0 0 0 1px var(--line),
+          var(--btn-sh);
+      }
+      .b[aria-pressed="true"] {
+        background: var(--act-bg);
+        box-shadow: 0 0 0 1.5px var(--act-line);
+      }
+      .dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--c);
+        box-shadow: 0 0 0 1px var(--dot-ring);
+        flex: none;
+      }
+
+      .licht h2 {
+        margin-top: 18px;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.55fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .hero .b {
+        height: 84px;
+        border-radius: var(--rh);
+      }
+      .nl {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 0 18px;
+      }
+      .nl-l {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 19px;
+        line-height: 24px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+      }
+      .nl-v {
+        padding-left: 24px;
+        font-size: 15px;
+        line-height: 20px;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .off {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 17px;
+        line-height: 22px;
+        font-weight: 600;
+      }
+      .off svg {
+        width: 22px;
+        height: 22px;
+        color: var(--ink-2);
+      }
+
+      .presets {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .pre {
+        height: 64px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 2px;
+        padding: 0 12px;
+      }
+      .pre-l {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .pre .dot {
+        width: 10px;
+        height: 10px;
+      }
+      .pre-v {
+        padding-left: 18px;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+
+      .field {
+        margin-top: 22px;
+      }
+      .lab {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 13px;
+        line-height: 18px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .lab .hint {
+        font-weight: 400;
+        color: var(--ink-3);
+      }
+      .slrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .sl {
+        position: relative;
+        flex: 1;
+        height: 44px;
+      }
+      .sl .tr,
+      .sl .fi {
+        position: absolute;
+        left: 0;
+        top: 15px;
+        height: 14px;
+        border-radius: 7px;
+      }
+      .sl .tr {
+        right: 0;
+        background: var(--track);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .sl .fi {
+        width: calc(14px + (100% - 28px) * var(--f));
+        background: var(--fill);
+      }
+      .sl .th {
+        position: absolute;
+        top: 8px;
+        left: calc((100% - 28px) * var(--f));
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--thumb);
+        box-shadow: var(--thumb-sh);
+      }
+      .val {
+        flex: none;
+        width: 52px;
+        font-size: 15px;
+        line-height: 20px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .swg {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .sw {
+        height: 62px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 13px;
+        line-height: 16px;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .sw[aria-pressed="true"] {
+        color: var(--ink);
+      }
+      .sw .c {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        flex: none;
+        background: color-mix(in srgb, var(--c) var(--sw-mix), var(--surface));
+        box-shadow: 0 0 0 1px var(--dot-ring);
+      }
+      .sw.own {
+        grid-column: span 2;
+        flex-direction: row;
+        justify-content: flex-start;
+        gap: 10px;
+        padding: 0 14px;
+      }
+      .sw.own .c.empty {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--edge);
+      }
+      .sw.own .pick {
+        width: 18px;
+        height: 18px;
+        margin-left: auto;
+        color: var(--ink-3);
+      }
+
+      .hubsays {
+        margin-top: 20px;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .hubsays svg.ic {
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
+        color: var(--ink-3);
+        flex: none;
+      }
+      .hubsays p {
+        margin: 0;
+      }
+      .hs-last {
+        font-size: 15px;
+        line-height: 20px;
+        color: var(--ink-2);
+      }
+      .hs-last b {
+        font-weight: 600;
+        color: var(--ink);
+      }
+      .hs-last .dot {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin: 0 6px 0 2px;
+        vertical-align: 0;
+      }
+      .hs-rb {
+        margin-top: 2px !important;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+
+      .toene {
+        margin-top: 28px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+      .toene.first {
+        margin-top: 0;
+        padding-top: 6px;
+        border-top: 0;
+      }
+      .vs .field {
+        margin-top: 12px;
+      }
+      .stop {
+        margin-top: 10px;
+        width: 100%;
+        height: 52px;
+        border-radius: var(--rs);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-size: 17px;
+        line-height: 22px;
+        font-weight: 600;
+        color: var(--ink-2);
+        background: var(--surface);
+        box-shadow:
+          0 0 0 1px var(--line-2),
+          var(--btn-sh);
+      }
+      .stop svg {
+        width: 18px;
+        height: 18px;
+      }
+      .stop.on {
+        background: var(--stop-bg);
+        color: var(--stop-ink);
+        box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.35);
+      }
+      .stuck {
+        position: absolute;
+        z-index: 2;
+        top: 47px;
+        left: 0;
+        right: 0;
+        padding: 4px 16px 10px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
+      }
+      .stuck .stop {
+        margin-top: 0;
+      }
+
+      .grp {
+        margin-top: 6px;
+      }
+      .vs + .grp {
+        margin-top: 8px;
+      }
+      .gh {
+        width: 100%;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 2px;
+        font-weight: 600;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .gh svg {
+        width: 16px;
+        height: 16px;
+        color: var(--ink-3);
+      }
+      .gh[aria-expanded="true"] svg.chv {
+        transform: rotate(90deg);
+      }
+      .gh .loud {
+        font-weight: 500;
+        color: var(--warn);
+      }
+      .tg {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px 6px;
+      }
+      .tone {
+        width: 100%;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 12px 0 8px;
+      }
+      .tone .ti {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        flex: none;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+        color: var(--ink-2);
+      }
+      .tone .ti svg {
+        width: 12px;
+        height: 12px;
+      }
+      .tone .tn {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tone[aria-pressed="true"] .ti {
+        background: transparent;
+        box-shadow: none;
+        color: var(--act-line);
+      }
+      .tone[aria-pressed="true"] .ti svg {
+        width: 18px;
+        height: 18px;
+      }
+      .tone.two {
+        height: 54px;
+      }
+      .tone .tl {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .laut {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        line-height: 16px;
+        font-weight: 500;
+        color: var(--warn);
+      }
+      .laut svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      /* Status line: one fixed slot above the home indicator */
+      .st {
+        position: absolute;
+        z-index: 3;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 90px;
+        background: var(--chrome);
+        border-top: 1px solid var(--line);
+      }
+      .st-i {
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 16px;
+      }
+      .st-ic {
+        width: 20px;
+        height: 20px;
+      }
+      .st-t {
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+        font-size: 15px;
+        line-height: 19px;
+        color: var(--ink);
+      }
+      .st-t .arr {
+        width: 15px;
+        height: 15px;
+        vertical-align: -2px;
+        color: var(--ink-3);
+      }
+      .st-t .res {
+        color: var(--ink-2);
+      }
+      .st.ok .st-ic {
+        color: var(--ok);
+      }
+      .st.retry .st-ic {
+        color: var(--warn);
+      }
+      .st.pend .st-ic {
+        color: var(--ink-3);
+      }
+      .st.pend .st-t {
+        color: var(--ink-2);
+      }
+      .st.bad {
+        background: var(--danger-bg);
+      }
+      .st.bad .st-ic,
+      .st.bad .st-t {
+        color: var(--danger);
+      }
+      .again {
+        flex: none;
+        height: 44px;
+        padding: 0 14px 0 12px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        color: var(--ink);
+        background: var(--raised);
+        box-shadow:
+          0 0 0 1px var(--line-2),
+          var(--btn-sh);
+        white-space: nowrap;
+      }
+      .again svg {
+        width: 18px;
+        height: 18px;
+        color: var(--ink-2);
+      }
+
+      /* v1.2: technical labels never break; the reserved one-line colour hint under the brightness slider */
+      .nw {
+        white-space: nowrap;
+        font-variant-numeric: normal;
+      }
+      .quirk {
+        height: 18px;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        overflow: hidden;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .quirk .dot {
+        width: 8px;
+        height: 8px;
+      }
+
+      /* ===== v2: one page, two looks. Erwachsen = the v1.2 tokens above; Kind = the love pass below. ===== */
+      .ui {
+        --rb: 12px;
+        --rh: 16px;
+        --rs: 14px;
+      }
+      [data-theme="dark"] {
+        --od: block;
+        --ol: none;
+        --scatter: rgba(178, 196, 210, 0.22);
+        --hl: rgba(255, 255, 255, 0.45);
+        --nl-mix: 88%;
+        --f-cream: #e6d6ad;
+        --f-sun: #d6b264;
+        --f-rose: #b9838e;
+        --f-heart: #cf8a83;
+        --f-sky: #4f7f96;
+        --f-sage: #6a9480;
+        --f-orange: #c98a52;
+        --f-flame: #dfa45c;
+        --f-teddy: #ad8869;
+        --f-face: #2c4352;
+        --thumb-star: #8a6a2c;
+        --a-line: #d9cba6;
+        --a-moon: #e6d6ad;
+        --a-cap: #4f7f96;
+        --a-cloud: #213b4a;
+        --a-star: #b9ac86;
+        --a-blush: rgba(207, 138, 131, 0.55);
+        --a-sun: #d6b264;
+        --a-cloud2: #213b4a;
+      }
+      [data-theme="light"] {
+        --od: none;
+        --ol: block;
+        --scatter: transparent;
+        --hl: rgba(255, 255, 255, 0.8);
+        --nl-mix: 100%;
+        --f-cream: #f6e6c2;
+        --f-sun: #f4cd72;
+        --f-rose: #f0bfc7;
+        --f-heart: #ec9a92;
+        --f-sky: #c6dfec;
+        --f-sage: #c9e2d1;
+        --f-orange: #f3b277;
+        --f-flame: #f1aa58;
+        --f-teddy: #e0bd9a;
+        --f-face: #e6ecee;
+        --thumb-star: #a8742a;
+        --a-line: #6a5836;
+        --a-moon: #f6e6c2;
+        --a-cap: #c6dfec;
+        --a-cloud: #ffffff;
+        --a-star: #d9c08f;
+        --a-blush: rgba(236, 154, 146, 0.6);
+        --a-sun: #f4cd72;
+        --a-cloud2: #f3f6f7;
+      }
+      /* Kind palette: deep night teal-blue, moonlight cream, muted stars (dark); warm paper day (light) */
+      html[data-mode="kind"][data-theme="dark"] .ui {
+        --bg: #0b1923;
+        --surface: #122735;
+        --raised: #18303f;
+        --chrome: #0f2230;
+        --well: #08131b;
+        --line: rgba(225, 236, 242, 0.09);
+        --line-2: rgba(225, 236, 242, 0.18);
+        --edge: #6f8c99;
+        --ink: #e6edf0;
+        --ink-2: #adc0c8;
+        --ink-3: #93a9b3;
+        --muted: #93a9b3;
+        --act-bg: #302f2a;
+        --act-line: #dcc48e;
+        --track: rgba(225, 236, 242, 0.08);
+        --fill: #a99569;
+        --thumb: #efe2c3;
+        --stop-bg: #e5d1a3;
+        --stop-ink: #1b1a12;
+        --danger-bg: #2a2630;
+        --sw-mix: 76%;
+        --dot-ring: rgba(225, 236, 242, 0.26);
+        --rb: 16px;
+        --rh: 22px;
+        --rs: 18px;
+      }
+      html[data-mode="kind"][data-theme="light"] .ui {
+        --bg: #f8f5ee;
+        --surface: #fffdf8;
+        --raised: #ffffff;
+        --chrome: #fffdf8;
+        --act-bg: #fbefd7;
+        --act-line: #a8742a;
+        --fill: #9c6e2a;
+        --thumb: #ffffff;
+        --stop-bg: #8f6020;
+        --stop-ink: #ffffff;
+        --rb: 16px;
+        --rh: 22px;
+        --rs: 18px;
+      }
+      .k,
+      .e {
+        display: contents;
+      }
+      html[data-mode="erwachsen"] .k {
+        display: none !important;
+      }
+      html[data-mode="kind"] .e {
+        display: none !important;
+      }
+      html[data-mode="kind"] .mw .me,
+      html[data-mode="erwachsen"] .mw .mk {
+        display: none;
+      }
+      .od {
+        display: var(--od);
+      }
+      .ol {
+        display: var(--ol);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        html[data-mode="kind"] .ui button:active {
+          transform: scale(0.97);
+        }
+      }
+
+      /* Header: about 72 px, after the controls */
+      .hdr {
+        position: relative;
+        height: 72px;
+        margin: 6px 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .hdr .art {
+        width: 96px;
+        height: 72px;
+        flex: none;
+      }
+      .hdr .hmoon {
+        width: 22px;
+        height: 22px;
+        margin-left: 2px;
+        color: var(--ink-3);
+      }
+      .ttl {
+        margin: 0;
+        font-size: 24px;
+        line-height: 30px;
+        font-weight: 640;
+        letter-spacing: -0.015em;
+        color: var(--ink);
+      }
+      .hdr .scatter {
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 120px;
+        height: 72px;
+      }
+      .scatter {
+        fill: var(--scatter);
+      }
+      .art .a-moon {
+        fill: var(--a-moon);
+        stroke: var(--a-line);
+        stroke-width: 1.6;
+        stroke-linejoin: round;
+      }
+      .art .a-ln,
+      .art .a-ray {
+        fill: none;
+        stroke: var(--a-line);
+        stroke-width: 1.6;
+        stroke-linecap: round;
+      }
+      .art .a-blush {
+        fill: var(--a-blush);
+      }
+      .art .a-cap {
+        fill: var(--a-cap);
+        stroke: var(--a-line);
+        stroke-width: 1.6;
+        stroke-linejoin: round;
+      }
+      .art .a-band {
+        fill: none;
+        stroke: var(--a-moon);
+        stroke-width: 4;
+        stroke-linecap: round;
+      }
+      .art .a-pom {
+        fill: var(--a-moon);
+        stroke: var(--a-line);
+        stroke-width: 1.4;
+      }
+      .art .a-star {
+        fill: var(--a-star);
+        stroke: var(--a-star);
+        stroke-width: 1;
+        stroke-linejoin: round;
+      }
+      .art .a-cloud {
+        fill: var(--a-cloud);
+        stroke: var(--a-line);
+        stroke-width: 1.6;
+        stroke-linejoin: round;
+      }
+      .art .a-cloud2 {
+        fill: var(--a-cloud2);
+        stroke: var(--a-line);
+        stroke-width: 1.3;
+        stroke-linejoin: round;
+        opacity: 0.9;
+      }
+      .art .a-sun {
+        fill: var(--a-sun);
+        stroke: var(--a-line);
+        stroke-width: 1.6;
+      }
+      .art .a-dot {
+        fill: var(--a-line);
+      }
+      .phone .hero {
+        margin-top: 2px;
+      }
+
+      /* Pictures */
+      .pic {
+        stroke-width: 1.5;
+        color: var(--ink-2);
+      }
+      .hero {
+        --nl-fill: color-mix(
+          in srgb,
+          var(--nl-c) var(--nl-mix),
+          var(--surface)
+        );
+      }
+      .nl {
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+      }
+      .nl-k {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .nl-k .hpic {
+        width: 40px;
+        height: 40px;
+      }
+      .nl-t {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .nl-n {
+        font-size: 19px;
+        line-height: 24px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+      }
+      .nl-t .nl-v,
+      .pre-t .pre-v {
+        padding-left: 0;
+      }
+      .nl-e {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .off .opic {
+        width: 30px;
+        height: 30px;
+      }
+      .pre-k {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .pre-k .ppic {
+        width: 26px;
+        height: 26px;
+      }
+      .pre-t {
+        display: flex;
+        flex-direction: column;
+      }
+      .pre-n {
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .pre-e {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .pre {
+        padding: 0 10px;
+      }
+
+      /* Slider ends and the star thumb */
+      .se {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-3);
+      }
+      .se svg {
+        width: 18px;
+        height: 18px;
+      }
+      .se .sepic {
+        width: 20px;
+        height: 20px;
+      }
+      .val {
+        margin-left: 4px;
+      }
+      .sl .th {
+        display: grid;
+        place-items: center;
+      }
+      .tstar {
+        width: 13px;
+        height: 13px;
+        fill: var(--thumb-star);
+        stroke: var(--thumb-star);
+        stroke-width: 1.2;
+        stroke-linejoin: round;
+      }
+
+      /* Swatch drops */
+      .sw {
+        gap: 4px;
+      }
+      .drop {
+        width: 24px;
+        height: 28px;
+        flex: none;
+      }
+      .d-fill {
+        fill: color-mix(in srgb, var(--c) var(--sw-mix), var(--surface));
+        stroke: var(--dot-ring);
+        stroke-width: 1;
+      }
+      .d-hl {
+        fill: none;
+        stroke: var(--hl);
+        stroke-width: 1.6;
+        stroke-linecap: round;
+      }
+      .d-empty {
+        fill: none;
+        stroke: var(--edge);
+        stroke-width: 1.5;
+      }
+      .sw.own .drop {
+        margin: 0 -2px;
+      }
+
+      /* Hub icons */
+      .seg .pic {
+        width: 20px;
+        height: 20px;
+      }
+      .hubsays .hspic {
+        width: 20px;
+        height: 20px;
+        margin-top: 0;
+      }
+
+      /* Save as Nachtlicht: reserved line under Zuletzt (Erwachsen only) */
+      .saveline {
+        height: 44px;
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+      }
+      .savebtn {
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 6px 0 2px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .savebtn svg {
+        width: 18px;
+        height: 18px;
+        color: var(--ink-3);
+      }
+
+      /* Tones: pictures with a play badge (Kind) */
+      .tp {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        flex: none;
+        display: grid;
+        place-items: center;
+      }
+      .tp .tpic {
+        width: 26px;
+        height: 26px;
+      }
+      .pb {
+        position: absolute;
+        right: -5px;
+        bottom: -4px;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--raised);
+        box-shadow: 0 0 0 1px var(--line-2);
+        color: var(--ink-2);
+      }
+      .pb svg {
+        width: 8px;
+        height: 8px;
+      }
+      .tone[aria-pressed="true"] .pb {
+        background: var(--act-line);
+        box-shadow: none;
+        color: var(--bg);
+      }
+      .tone[aria-pressed="true"] .pb svg {
+        width: 10px;
+        height: 10px;
+        stroke-width: 2.2;
+      }
+      .stop .hand {
+        width: 22px;
+        height: 22px;
+      }
+
+      /* Loud tones (Kind): hold to open, ring around a lock */
+      .gh.lh {
+        gap: 8px;
+        padding: 0 2px 0 2px;
+        border-radius: 12px;
+      }
+      .gh.lh .lic {
+        width: 16px;
+        height: 16px;
+        color: var(--warn);
+      }
+      .lt {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .lh1 {
+        line-height: 20px;
+      }
+      .lh2 {
+        height: 16px;
+        font-size: 12px;
+        line-height: 16px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+      .lr {
+        position: relative;
+        margin-left: auto;
+        width: 36px;
+        height: 36px;
+        flex: none;
+        display: grid;
+        place-items: center;
+      }
+      .lr .lring {
+        position: absolute;
+        inset: 0;
+        width: 36px;
+        height: 36px;
+      }
+      .lr .lk {
+        width: 18px;
+        height: 18px;
+        color: var(--ink-2);
+      }
+      .rt {
+        fill: none;
+        stroke: var(--line-2);
+      }
+      .rp {
+        fill: none;
+        stroke: var(--act-line);
+        stroke-linecap: round;
+      }
+      .gh.lh.holding {
+        background: var(--act-bg);
+        box-shadow: 0 0 0 1.5px var(--act-line);
+      }
+      .mwrap {
+        position: relative;
+        display: inline-flex;
+        flex: none;
+      }
+      .mring {
+        position: absolute;
+        left: -4px;
+        top: -4px;
+        width: 58px;
+        height: 58px;
+        pointer-events: none;
+      }
+      .mhint {
+        margin: 8px 0 0;
+        text-align: right;
+        font-size: 12px;
+        line-height: 16px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+
+      /* Good night line at the very end (Kind); the slot is reserved in both looks */
+      .gn {
+        position: relative;
+        height: 20px;
+        margin: 30px 0 0;
+      }
+      .gn-in {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 13px;
+        line-height: 20px;
+        color: var(--muted);
+      }
+      .gn-in .gnh {
+        width: 15px;
+        height: 15px;
+      }
+      .gn .gns {
+        position: absolute;
+        left: 0;
+        top: -18px;
+        width: 100%;
+        height: 56px;
+      }
+
+      /* Status: Rückgängig */
+      .undo {
+        flex: none;
+        height: 44px;
+        padding: 0 8px;
+        font-weight: 600;
+        color: var(--ink);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        text-decoration-thickness: 1px;
+      }
+
+      /* Confirm sheet (phone) */
+      .phone .home {
+        z-index: 7;
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        background: rgba(3, 10, 12, 0.56);
+      }
+      .sheet {
+        position: absolute;
+        z-index: 6;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 10px 20px 38px;
+        border-radius: 24px 24px 0 0;
+        background: var(--raised);
+        box-shadow:
+          0 -1px 0 var(--line-2),
+          0 -16px 40px rgba(0, 0, 0, 0.45);
+      }
+      .grab {
+        display: block;
+        width: 36px;
+        height: 5px;
+        margin: 0 auto;
+        border-radius: 3px;
+        background: var(--ink-3);
+        opacity: 0.5;
+      }
+      .sheet h2 {
+        margin: 16px 0 14px;
+        font-size: 18px;
+        line-height: 24px;
+      }
+      .ba {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .bai {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .bal {
+        font-weight: 400;
+        color: var(--ink-2);
+      }
+      .ba .arr {
+        width: 16px;
+        height: 16px;
+        color: var(--ink-3);
+      }
+      .sh-note {
+        margin: 12px 0 0;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+      .sh-act {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .btn1,
+      .btn2 {
+        height: 48px;
+        border-radius: 14px;
+        font-weight: 600;
+        text-align: center;
+      }
+      .btn1 {
+        background: var(--stop-bg);
+        color: var(--stop-ink);
+      }
+      .btn2 {
+        background: var(--surface);
+        box-shadow: 0 0 0 1px var(--line-2);
+        color: var(--ink);
+      }
+      .tlink {
+        display: block;
+        height: 44px;
+        margin: 6px auto 0;
+        padding: 0 8px;
+        font-size: 14px;
+        color: var(--ink-2);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        text-decoration-thickness: 1px;
+      }
+
+      [data-theme="dark"] {
+        --moon-d: block;
+        --sun-d: none;
+      }
+      [data-theme="light"] {
+        --moon-d: none;
+        --sun-d: block;
+      }
+      .ib .moon {
+        display: var(--moon-d);
+      }
+      .ib .sun {
+        display: var(--sun-d);
+      }
+
+      /* Responsive page adaptations. Geometry stays the same in both looks. */
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+      }
+      .ui {
+        min-height: 100dvh;
+        background: var(--bg);
+      }
+      .pg {
+        position: static;
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 16px 16px 120px;
+      }
+      .top {
+        position: relative;
+      }
+      .seg {
+        min-width: 0;
+      }
+      .seg button {
+        font-size: 13px;
+        gap: 5px;
+      }
+      .seg button svg {
+        width: 18px;
+        height: 18px;
+      }
+      .ib {
+        width: 44px;
+        height: 50px;
+        position: relative;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .ib .ic {
+        width: 20px;
+        height: 20px;
+      }
+      .ib .mring {
+        width: 52px;
+        height: 58px;
+        left: -4px;
+        top: -4px;
+        visibility: hidden;
+      }
+      .ib.holding .mring {
+        visibility: visible;
+      }
+      .rp {
+        stroke-dasharray: 167;
+        stroke-dashoffset: 167;
+      }
+      .lring .rp {
+        stroke-dasharray: 98;
+        stroke-dashoffset: 98;
+      }
+      html[data-mode="erwachsen"] #goodnight {
+        visibility: hidden;
+      }
+      .holding .rp {
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 1s linear;
+      }
+      .mhint {
+        height: 16px;
+        margin: 2px 0 0;
+        font-size: 11px;
+        line-height: 16px;
+      }
+      .hdr .hmoon {
+        width: 96px;
+        height: 22px;
+        margin: 0;
+      }
+      .hdr .scatter {
+        pointer-events: none;
+      }
+      .licht > h2 {
+        margin: 0;
+        height: 24px;
+      }
+      .hero {
+        margin-top: 8px;
+      }
+      .hero .nl {
+        padding: 0 14px;
+      }
+      .tone {
+        font-size: 14px;
+      }
+      .sl .range-native {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        width: 100%;
+        height: 44px;
+        margin: 0;
+        cursor: pointer;
+      }
+      .sl:focus-within {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+        border-radius: 8px;
+      }
+      .st {
+        position: fixed;
+        height: calc(80px + env(safe-area-inset-bottom));
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      .st-i {
+        height: 80px;
+        max-width: 1184px;
+        margin: 0 auto;
+      }
+      .st-t {
+        font-size: 14px;
+        line-height: 20px;
+      }
+      .st.pend .st-ic {
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .vs {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--bg);
+        padding-bottom: 10px;
+      }
+      .loud-button {
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .loud-button .k {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+      }
+      .gh .e {
+        align-items: center;
+        gap: 8px;
+      }
+      .sheet {
+        position: fixed;
+        margin: auto 0 0;
+        width: 100%;
+        max-width: none;
+        max-height: 90dvh;
+        overflow: auto;
+        color: var(--ink);
+        border: 0;
+        padding-bottom: calc(28px + env(safe-area-inset-bottom));
+      }
+      .sheet::backdrop {
+        background: rgba(3, 10, 12, 0.56);
+      }
+      .sheet-inner {
+        max-width: 480px;
+        margin: 0 auto;
+      }
+      .bai {
+        flex-wrap: wrap;
+        white-space: normal;
+        font-size: 14px;
+      }
+      .bai code {
+        font-size: 12px;
+      }
+      .ba .dot {
+        display: inline-block;
+      }
+      .tlink {
+        height: auto;
+        min-height: 44px;
+        text-align: center;
+      }
+      .gn {
+        width: 100%;
+        height: 44px;
+        margin-top: 22px;
+        text-align: center;
+      }
+      .gn .gns {
+        top: -6px;
+        pointer-events: none;
+      }
+      .gn .gn-in {
+        height: 44px;
+      }
+      .hubsays .readback-btn {
+        min-height: 44px;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      @media (max-width: 359px) {
+        .pg {
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+        .top {
+          gap: 6px;
+        }
+        .seg button {
+          font-size: 12px;
+          gap: 3px;
+        }
+        .seg button svg {
+          width: 14px;
+          height: 14px;
+        }
+        .ib {
+          width: 40px;
+        }
+        .nl-k {
+          gap: 6px;
+        }
+        .nl-k .hpic {
+          width: 32px;
+          height: 32px;
+        }
+        .nl-n,
+        .nl-l {
+          font-size: 17px;
+        }
+        .pre-k {
+          gap: 4px;
+        }
+        .pre-k .ppic {
+          width: 20px;
+        }
+        .pre {
+          padding: 0 6px;
+        }
+        .st-i {
+          gap: 6px;
+          padding: 0 12px;
+        }
+        .st-t {
+          font-size: 13px;
+        }
+        .again {
+          padding: 0 8px;
+        }
+      }
+      @media (min-width: 980px) {
+        .pg {
+          max-width: 1280px;
+          padding: 22px 48px 120px;
+        }
+        .top {
+          max-width: 620px;
+          margin-left: auto;
+        }
+        .hdr {
+          margin-top: -68px;
+          margin-bottom: 28px;
+          width: 280px;
+          pointer-events: none;
+        }
+        .cols {
+          display: grid;
+          grid-template-columns: 5fr 6fr;
+          gap: 64px;
+          align-items: start;
+        }
+        .toene {
+          margin: 0;
+          padding: 0;
+          border: 0;
+        }
+        .vs {
+          display: grid;
+          grid-template-columns: 1fr 180px;
+          gap: 20px;
+          align-items: end;
+        }
+        .vs .field {
+          margin-top: 12px;
+        }
+        .vs .stop {
+          margin-top: 0;
+        }
+        .tg {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .st {
+          height: calc(64px + env(safe-area-inset-bottom));
+        }
+        .st-i {
+          height: 64px;
+          padding: 0 24px;
+        }
+        .sheet {
+          max-width: 560px;
+          margin: auto;
+          border-radius: 24px;
+        }
+      }
+      /* OPS-496: app-like touch page: no zoom, no text selection, no tap highlight or callout. */
+      html,
+      body {
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      input,
+      textarea {
+        -webkit-user-select: auto;
+        user-select: auto;
+      }
+      /* ===== v2.1: named places per hub; "Speichern als ..." sheet with inline rename ===== */
+      .sheet.sa {
+        padding: 10px 16px 30px;
+      }
+      .sh-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 0 8px 4px;
+      }
+      .sh-head h2 {
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+        font-size: 18px;
+        line-height: 24px;
+      }
+      .hbtn {
+        flex: none;
+        height: 44px;
+        padding: 0 6px;
+        font-weight: 600;
+        color: var(--ink-2);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        text-decoration-thickness: 1px;
+      }
+      .places {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .pl-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .pl-main {
+        flex: 1;
+        min-width: 0;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        border-radius: 12px;
+        background: var(--surface);
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .pl-main[aria-pressed="true"] {
+        background: var(--act-bg);
+        box-shadow: 0 0 0 1.5px var(--act-line);
+      }
+      .pl-n {
+        flex: 1;
+        min-width: 0;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pl-v {
+        flex: none;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .pl-editing {
+        background: transparent;
+        box-shadow: none;
+        padding: 0 2px 0 14px;
+      }
+      .pl-in {
+        flex: 1;
+        min-width: 0;
+        height: 44px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1.5px solid var(--edge);
+        background: var(--well);
+        color: var(--ink);
+        font: inherit;
+        font-weight: 600;
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .ibs {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-3);
+      }
+      .ibs svg {
+        width: 18px;
+        height: 18px;
+      }
+      .ibs.ok {
+        color: var(--ok);
+        box-shadow: inset 0 0 0 1px var(--line-2);
+      }
+      .ibs.rm {
+        color: var(--danger);
+      }
+      .ibs-gap {
+        flex: none;
+        width: 44px;
+      }
+      .pl-note {
+        margin: 4px 14px 0;
+        min-height: 36px;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+      .pl-reset {
+        margin: 0 0 0 6px;
+        height: 36px;
+        font-size: 13px;
+      }
+      .pl-conf {
+        margin: 8px 0 6px;
+      }
+      .pl-conf .sh-act {
+        margin-top: 10px;
+      }
+      .pl-new {
+        width: 100%;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 12px;
+        font-weight: 600;
+        color: var(--ink-2);
+        box-shadow: inset 0 0 0 1px var(--line-2);
+      }
+      .pl-new svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      /* v2.1: place names can be up to 16 characters. Kind: name on top, picture and % below; both looks clip with an ellipsis at full width (title holds the name). */
+      .pre-k {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1px;
+        width: 100%;
+        min-width: 0;
+      }
+      .pre-k .pre-n {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pre-kv {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .pre-kv .ppic {
+        width: 22px;
+        height: 22px;
+      }
+      .pre-kv .pre-v {
+        padding-left: 0;
+      }
+      .pre-e,
+      .pre-l {
+        min-width: 0;
+        max-width: 100%;
+      }
+      .pre-nm {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pre {
+        align-items: stretch;
+      }
+      .pre {
+        padding: 0 8px;
+      }
+      .pre-l {
+        gap: 6px;
+      }
+      .pre-e .pre-v {
+        padding-left: 16px;
+      }
+
+      /* ===== v2.2: Verwendung (Nachtlicht | Desk-Signal) and the Desk-Signal page ===== */
+      .use {
+        height: 50px;
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .use-l {
+        flex: none;
+        font-size: 13px;
+        line-height: 18px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .use .seg {
+        flex: 1;
+      }
+      .use-t {
+        font-weight: 600;
+        color: var(--ink);
+      }
+      .lap-top {
+        height: 132px;
+      }
+      .lap-top .hdr {
+        top: 30px;
+      }
+      .lap-r {
+        top: 20px;
+      }
+      .lap-c {
+        width: 420px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .lap-c > .seg,
+      .lap-top .lap-c .seg {
+        width: auto;
+      }
+      .lap-c .use {
+        margin-top: 0;
+      }
+      .dot.soft {
+        background: color-mix(in srgb, var(--c) var(--sw-mix), var(--surface));
+      }
+      .dot.faint {
+        background: color-mix(in srgb, var(--c) 38%, var(--surface));
+      }
+      .desk {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+      .phone .desk {
+        margin-top: 2px;
+      }
+      .desk h2 {
+        margin: 0 0 8px;
+      }
+      .lc {
+        padding: 14px 14px 12px;
+        border-radius: var(--rh);
+        background: var(--surface);
+        box-shadow:
+          0 0 0 1px var(--line),
+          var(--btn-sh);
+      }
+      .lc-desks {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .lc-desks li {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        min-height: 24px;
+        line-height: 20px;
+      }
+      .lc-desks li .dot {
+        margin-top: 3px;
+      }
+      .lc-tx {
+        min-width: 0;
+        color: var(--ink-2);
+      }
+      .lc-tx b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .urg-tag {
+        margin-left: auto;
+        flex: none;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--warn);
+        background: color-mix(in srgb, var(--warn) 14%, transparent);
+        white-space: nowrap;
+      }
+      .lc-now {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 58px;
+      }
+      .lc-nt {
+        flex: 1;
+        min-width: 0;
+      }
+      .lc-lit {
+        margin: 0;
+        font-size: 15px;
+        line-height: 20px;
+        color: var(--ink-2);
+      }
+      .lc-lit b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .lc-lit .dot {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin: 0 6px 0 2px;
+        vertical-align: -1px;
+      }
+      .lc-stand {
+        margin: 2px 0 0;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+      .warnline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--warn);
+      }
+      .warnline svg {
+        width: 14px;
+        height: 14px;
+      }
+      .seen {
+        flex: none;
+        height: 44px;
+        padding: 0 14px 0 12px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        color: var(--ink);
+        background: var(--raised);
+        box-shadow: 0 0 0 1px var(--line-2);
+      }
+      .seen svg {
+        width: 18px;
+        height: 18px;
+        color: var(--ink-2);
+      }
+      .rls {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rl {
+        min-height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 6px 0 14px;
+        border-radius: var(--rb);
+        background: var(--surface);
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .rl-n {
+        flex: 1;
+        min-width: 0;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .chip {
+        flex: none;
+        height: 44px;
+        padding: 0 10px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ink-2);
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line-2);
+        white-space: nowrap;
+      }
+      .chip svg {
+        width: 14px;
+        height: 14px;
+        color: var(--ink-3);
+      }
+      .chip.test {
+        color: var(--ink);
+      }
+      .dk-note {
+        margin: 8px 2px 0;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+      .stps {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .stp .lab {
+        margin-bottom: 4px;
+      }
+      .stpr {
+        height: 48px;
+        padding: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-radius: 12px;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .sbtn {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-2);
+        background: var(--surface);
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .sbtn svg {
+        width: 16px;
+        height: 16px;
+      }
+      .stv {
+        min-width: 5ch;
+        text-align: center;
+        font-weight: 600;
+      }
+      .urg-row {
+        margin: 10px 0 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .urg-row b {
+        font-weight: 600;
+        min-width: 36px;
+      }
+      .urg-t {
+        color: var(--ink-2);
+      }
+      .tgl-row {
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 2px;
+      }
+      .tgl-l {
+        flex: 1;
+        min-width: 0;
+        margin: 0 !important;
+        font-size: 15px;
+        line-height: 20px;
+        font-weight: 600;
+      }
+      h2.tgl-l {
+        font-size: 17px;
+        line-height: 24px;
+      }
+      .tgl {
+        flex: none;
+        width: 60px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+      }
+      .trk {
+        position: relative;
+        width: 52px;
+        height: 32px;
+        border-radius: 16px;
+        background: var(--track);
+        box-shadow: inset 0 0 0 1.5px var(--edge);
+      }
+      .knob {
+        position: absolute;
+        top: 5px;
+        left: 5px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--ink-3);
+      }
+      .tgl[aria-checked="true"] .trk {
+        background: var(--fill);
+        box-shadow: none;
+      }
+      .tgl[aria-checked="true"] .knob {
+        left: 25px;
+        background: var(--thumb);
+      }
+      .snd .field {
+        margin-top: 12px;
+      }
+      .kv {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .kv .lab {
+        margin: 0 6px 0 2px;
+        min-width: 76px;
+      }
+      .dash {
+        color: var(--ink-3);
+      }
+      .kcard {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 28px 20px 26px;
+        border-radius: var(--rh);
+        background: var(--surface);
+        box-shadow: 0 0 0 1px var(--line);
+        text-align: center;
+      }
+      .kpic {
+        width: 72px;
+        height: 72px;
+      }
+      .kc-t {
+        margin: 0;
+        font-size: 19px;
+        line-height: 24px;
+        font-weight: 600;
+      }
+      .desk-cols {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .lap .desk h2 {
+        margin-top: 0;
+      }
+
+      .lc-now {
+        display: block;
+      }
+      .lc-foot {
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 44px;
+      }
+      .lc-foot .lc-stand {
+        flex: 1;
+        margin: 0;
+      }
+      .kv-sp {
+        flex: 1;
+      }
+      .lap .desk {
+        gap: 18px;
+      }
+
+      /* v2.2: tap commands lock the page; drag controls stay live */
+      .lock {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        pointer-events: none;
+      }
+      .lock-blur {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 104px;
+        bottom: 90px;
+        background: color-mix(in srgb, var(--bg) 58%, transparent);
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+      }
+      .lock-card {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 260px;
+        margin: -96px 0 0 -130px;
+        padding: 22px 20px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        border-radius: var(--rh);
+        background: var(--raised);
+        box-shadow:
+          0 0 0 1px var(--line-2),
+          0 18px 40px -16px rgba(0, 0, 0, 0.55);
+      }
+      .lock-card .lkspin {
+        width: 32px;
+        height: 32px;
+        color: var(--ink-3);
+        margin-bottom: 12px;
+      }
+      .lock-card .lkart {
+        width: 80px;
+        height: 60px;
+        margin: -6px 0 8px;
+      }
+      .lock-card p {
+        margin: 0;
+      }
+      .lk-w {
+        font-size: 17px;
+        line-height: 22px;
+        font-weight: 600;
+      }
+      .lk-w .arr {
+        width: 15px;
+        height: 15px;
+        vertical-align: -2px;
+        color: var(--ink-3);
+      }
+      .lk-s {
+        margin-top: 4px !important;
+        color: var(--ink-2);
+      }
+      .lk-a {
+        margin-top: 6px !important;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+      .locked .top .seg {
+        opacity: 0.45;
+      }
+      .sl.drag .th {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
+      .board > figcaption {
+        width: 0;
+        min-width: 100%;
+      }
+      .board > figcaption {
+        height: 32px;
+        overflow: hidden;
+      }
+
+      /* v2.2c: sound duration (Ganz | Kurz), a 200-3000 ms slider with a ms field kept in sync, Testen */
+      .kv.dur {
+        margin-top: 12px;
+      }
+      .kv.dur .seg {
+        flex: 1;
+      }
+      .durrow {
+        margin-top: 6px;
+      }
+      .slrow.dim {
+        opacity: 0.45;
+      }
+      .numf {
+        flex: none;
+        height: 44px;
+        margin-left: 4px;
+        padding: 0 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 10px;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1.5px var(--edge);
+      }
+      .numf input {
+        width: 4.4ch;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        outline: none;
+      }
+      .numf:focus-within {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .numf .unit {
+        color: var(--ink-2);
+      }
+      .st.play .st-ic {
+        color: var(--ink-3);
+      }
+      .st.play .st-t {
+        color: var(--ink-2);
+      }
+      .desk-cols.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 40px;
+      }
+
+      /* v2.2d: rules matrix, Ruhe and Unbekannt rows, the cell editor */
+      .mx {
+        display: grid;
+        grid-template-columns: 84px repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        align-items: center;
+        padding: 10px 10px 10px 12px;
+        border-radius: var(--rh);
+        background: var(--surface);
+        box-shadow:
+          0 0 0 1px var(--line),
+          var(--btn-sh);
+      }
+      .mx-h {
+        text-align: center;
+        font-size: 13px;
+        line-height: 18px;
+        font-weight: 600;
+        color: var(--ink-2);
+      }
+      .mx-r {
+        font-size: 14px;
+        line-height: 18px;
+        font-weight: 600;
+      }
+      .cell {
+        height: 44px;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border-radius: 10px;
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .cell .dot {
+        width: 12px;
+        height: 12px;
+      }
+      .cv {
+        font-size: 12px;
+        line-height: 16px;
+        font-weight: 600;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .cwave {
+        width: 13px;
+        height: 8px;
+        color: var(--ink-3);
+        stroke-width: 1.7;
+      }
+      .cwave.motion-hidden {
+        display: none;
+      }
+      .off-dot {
+        background: transparent !important;
+        box-shadow: inset 0 0 0 1.5px var(--edge) !important;
+      }
+      .dpair {
+        display: inline-flex;
+        flex: none;
+      }
+      .dpair .dot + .dot {
+        margin-left: -4px;
+      }
+      .rules .rls {
+        margin-top: 8px;
+      }
+      .rl-b {
+        width: 100%;
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-align: left;
+      }
+      .rl-v {
+        flex: none;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .rl-c {
+        width: 16px;
+        height: 16px;
+        color: var(--ink-3);
+      }
+      .rules .rl {
+        padding: 0 10px 0 14px;
+      }
+      .lwave {
+        width: 14px;
+        height: 9px;
+        margin-left: 6px;
+        color: var(--ink-3);
+      }
+      .sheet.ed {
+        padding: 10px 16px 26px;
+      }
+      .ed .sh-head {
+        margin: 8px 0 2px 2px;
+      }
+      .ed-sec {
+        margin-top: 10px;
+      }
+      .ed-sec > .lab {
+        margin-bottom: 6px;
+      }
+      .pks {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 4px;
+      }
+      .pk {
+        height: 44px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+      }
+      .pk[aria-pressed="true"],
+      .plc[aria-pressed="true"] {
+        background: var(--act-bg);
+        box-shadow: 0 0 0 1.5px var(--act-line);
+        color: var(--ink);
+      }
+      .pkc {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--c) var(--sw-mix), var(--surface));
+        box-shadow: 0 0 0 1px var(--dot-ring);
+      }
+      .pkc.empty {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--edge);
+        color: var(--ink-3);
+      }
+      .pkc.empty svg {
+        width: 14px;
+        height: 14px;
+      }
+      .plcs {
+        margin-top: 6px;
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding: 2px;
+        margin-left: -2px;
+        margin-right: -16px;
+      }
+      .plc {
+        flex: none;
+        height: 44px;
+        padding: 0 12px 0 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ink-2);
+        background: var(--well);
+        box-shadow: inset 0 0 0 1px var(--line);
+        white-space: nowrap;
+      }
+      .slot-seg {
+        margin-bottom: 8px;
+      }
+      .slot-seg button .dot {
+        width: 12px;
+        height: 12px;
+      }
+      .mode-seg {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .cmpslot {
+        height: 24px;
+        margin-top: 6px;
+      }
+      .cmp {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        line-height: 18px;
+        color: var(--ink-2);
+      }
+      .cmp.ok > svg {
+        width: 16px;
+        height: 16px;
+        color: var(--ok);
+      }
+      .cmp .dot {
+        width: 12px;
+        height: 12px;
+      }
+      .ed .dk-note {
+        margin-top: 10px;
+      }
+      .ed .sh-act {
+        margin-top: 12px;
+      }
+      .ed .tlink {
+        margin-top: 2px;
+      }
+      .plcs {
+        flex-wrap: wrap;
+        overflow: visible;
+        margin-right: 0;
+      }
+
+      /* v2.3: sliders (Markus, family feedback 2026-10-29): a 40 px thumb on a 20 px track, inside an 80 px touch area. */
+      .sl {
+        height: 80px;
+      }
+      .sl .tr,
+      .sl .fi {
+        top: 30px;
+        height: 20px;
+        border-radius: 10px;
+      }
+      .sl .fi {
+        width: calc(20px + (100% - 40px) * var(--f));
+      }
+      .sl .th {
+        top: 20px;
+        left: calc((100% - 40px) * var(--f));
+        width: 40px;
+        height: 40px;
+      }
+      .tstar {
+        width: 16px;
+        height: 16px;
+      }
+      .se {
+        width: 24px;
+        height: 24px;
+      }
+      .se svg,
+      .se .sepic {
+        width: 22px;
+        height: 22px;
+      }
+      .val {
+        width: 56px;
+        font-size: 16px;
+        line-height: 22px;
+      }
+
+      /* Responsive adapters for the single live page. */
+      .use {
+        max-width: 520px;
+        margin: 8px 0 12px;
+      }
+      .use .seg {
+        display: flex;
+      }
+      .use .seg button {
+        flex: 1;
+      }
+      .use-k {
+        margin: 8px 0;
+        color: var(--ink-2);
+      }
+      .desk {
+        margin-top: 14px;
+      }
+      .desk-grid {
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .desk .seg {
+        display: flex;
+      }
+      .desk .seg button {
+        flex: 1;
+      }
+      .desk input[type="number"] {
+        width: 6ch;
+        min-height: 44px;
+        background: var(--well);
+        color: var(--ink);
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        padding: 4px;
+        font: inherit;
+      }
+      .desk h2 {
+        margin-top: 0;
+      }
+      .lc-lit {
+        min-height: 40px;
+      }
+      .lock {
+        position: fixed;
+        inset: 0 0 calc(80px + env(safe-area-inset-bottom));
+        z-index: 20;
+        pointer-events: auto;
+        background: color-mix(in srgb, var(--bg) 58%, transparent);
+        backdrop-filter: blur(6px);
+      }
+      .lock {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        max-width: none;
+        max-height: none;
+        width: 100%;
+        height: calc(100% - 80px - env(safe-area-inset-bottom));
+        color: var(--ink);
+      }
+      .lock::backdrop {
+        background: transparent;
+      }
+      .lock-card {
+        top: 50%;
+      }
+      .lkspin {
+        animation: spin 1s linear infinite;
+      }
+      .lock .ic {
+        width: 32px;
+        height: 32px;
+      }
+      .sl .range-native {
+        height: 80px;
+        touch-action: none;
+      }
+      .slrow {
+        touch-action: none;
+      }
+      .nl-nm,
+      .pre-n,
+      .pre-nm {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pl-row .pl-main {
+        cursor: pointer;
+      }
+      .pl-name {
+        flex: 1;
+        min-width: 0;
+      }
+      .pl-rename {
+        display: none;
+        width: 100%;
+        min-width: 0;
+      }
+      .editing .pl-name {
+        display: none;
+      }
+      .editing .pl-rename {
+        display: block;
+      }
+      .pl-row {
+        margin-bottom: 6px;
+      }
+      .pl-note {
+        min-height: 36px;
+      }
+      #save-sheet .places {
+        margin: 12px 0;
+      }
+      #rule-sheet .sheet-inner {
+        max-height: 85vh;
+        overflow: auto;
+        padding-bottom: 12px;
+      }
+      #rule-sheet .slot-seg,
+      #rule-sheet .mode-seg {
+        display: flex;
+      }
+      #rule-sheet .seg button {
+        flex: 1;
+      }
+      #rule-sheet input[type="color"] {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        background: var(--well);
+      }
+      #rule-sheet .ed-sec {
+        margin-top: 14px;
+      }
+      #rule-sheet .slrow {
+        gap: 8px;
+      }
+      #rule-sheet .sl {
+        flex: 1;
+      }
+      #rule-sheet .plcs {
+        margin-right: 0;
+      }
+      #rule-warning {
+        color: var(--warn);
+        min-height: 36px;
+      }
+      #rule-sheet .sh-act {
+        flex-wrap: wrap;
+      }
+      #nightlight-extra {
+        display: contents;
+      }
+      #sound-duration {
+        margin: 14px 0;
+      }
+      #sound-duration .seg {
+        display: flex;
+      }
+      #sound-duration .seg button {
+        flex: 1;
+      }
+      #sound-duration .sl {
+        flex: 1;
+      }
+      @media (min-width: 900px) {
+        .desk-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 32px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .lkspin {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ui">
+      <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+        <defs>
+          <symbol id="i-round" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5" />
+            <circle cx="12" cy="12" r="3" />
+          </symbol>
+          <symbol id="i-moon" viewBox="0 0 24 24">
+            <path d="M19.5 14.2A7.8 7.8 0 1 1 9.8 4.5a6.2 6.2 0 0 0 9.7 9.7z" />
+          </symbol>
+          <symbol id="i-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4" />
+            <path
+              d="M12 2.8v2M12 19.2v2M5.5 5.5l1.4 1.4M17.1 17.1l1.4 1.4M2.8 12h2M19.2 12h2M5.5 18.5l1.4-1.4M17.1 6.9l1.4-1.4"
+            />
+          </symbol>
+          <symbol id="i-sunlow" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3.2" />
+            <path
+              d="M12 5.6v.8M12 17.6v.8M7.5 7.5l.5.5M16 16l.5.5M5.6 12h.8M17.6 12h.8M7.5 16.5l.5-.5M16 8l.5-.5"
+            />
+          </symbol>
+          <symbol id="i-contrast" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5" />
+            <path
+              d="M12 3.5v17a8.5 8.5 0 0 0 0-17z"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="i-power" viewBox="0 0 24 24">
+            <path d="M12 3.5V11" />
+            <path d="M7 6.4a7.5 7.5 0 1 0 10 0" />
+          </symbol>
+          <symbol id="i-check" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m8 12.3 2.8 2.8 5.4-5.5" />
+          </symbol>
+          <symbol id="i-checkstar" viewBox="0 0 24 24">
+            <path d="M19.6 10.4A8.6 8.6 0 1 1 13.6 3.6" />
+            <path d="m7.6 12.6 2.8 2.8 5.2-5.3" />
+            <path
+              d="M19.40 1.20 L20.25 3.43 L22.63 3.55 L20.78 5.05 L21.40 7.35 L19.40 6.05 L17.40 7.35 L18.02 5.05 L16.17 3.55 L18.55 3.43Z"
+              fill="currentColor"
+              stroke-width="1"
+            />
+          </symbol>
+          <symbol id="i-warn" viewBox="0 0 24 24">
+            <path
+              d="M10.3 4.3 2.9 17.4a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"
+            />
+            <path d="M12 9.5V14" />
+            <path d="M12 17.1v.1" />
+          </symbol>
+          <symbol id="i-spin" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" opacity=".32" />
+            <path d="M12 3a9 9 0 0 1 9 9" />
+          </symbol>
+          <symbol id="i-retry" viewBox="0 0 24 24">
+            <path d="M19.6 12a7.6 7.6 0 1 1-2.4-5.5l2.4 2.2" />
+            <path d="M19.6 3.8v4.9h-4.9" />
+          </symbol>
+          <symbol id="i-reload" viewBox="0 0 24 24">
+            <path d="M4.6 11a7.5 7.5 0 0 1 13-4.3l1.9 2" />
+            <path d="M19.5 4.2v4.6h-4.6" />
+            <path d="M19.4 13a7.5 7.5 0 0 1-13 4.3l-1.9-2" />
+            <path d="M4.5 19.8v-4.6h4.6" />
+          </symbol>
+          <symbol id="i-undo" viewBox="0 0 24 24">
+            <path d="M9 7.5 4.5 12 9 16.5" />
+            <path
+              d="M4.8 12H14a5.5 5.5 0 0 1 0 11h-2"
+              transform="translate(0 -3.5)"
+            />
+          </symbol>
+          <symbol id="i-arrow" viewBox="0 0 24 24">
+            <path d="M5 12h13" />
+            <path d="m13 6.5 5.5 5.5-5.5 5.5" />
+          </symbol>
+          <symbol id="i-play" viewBox="0 0 24 24">
+            <path
+              d="M8 5.8v12.4a.8.8 0 0 0 1.2.7l10-6.2a.8.8 0 0 0 0-1.4l-10-6.2A.8.8 0 0 0 8 5.8z"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="i-bars" viewBox="0 0 24 24">
+            <path d="M5 10v4M9.5 6.5v11M14 9v6M18.5 7.5v9" />
+          </symbol>
+          <symbol id="i-stop" viewBox="0 0 24 24">
+            <rect
+              x="5.5"
+              y="5.5"
+              width="13"
+              height="13"
+              rx="2.5"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="i-chev" viewBox="0 0 24 24">
+            <path d="m9.5 6 6 6-6 6" />
+          </symbol>
+          <symbol id="i-loud" viewBox="0 0 24 24">
+            <path d="M4 9.5h3l4.5-4v13L7 14.5H4z" />
+            <path d="M15 9a4.2 4.2 0 0 1 0 6" />
+            <path d="M17.8 6.3a8 8 0 0 1 0 11.4" />
+          </symbol>
+          <symbol id="i-quiet" viewBox="0 0 24 24">
+            <path d="M6 9.5h3l4.5-4v13L9 14.5H6z" />
+          </symbol>
+          <symbol id="i-palette" viewBox="0 0 24 24">
+            <path
+              d="M12 3.5a8.5 8.5 0 0 0 0 17c1.1 0 1.8-.7 1.8-1.6 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.6 1.7-1.6h2a4 4 0 0 0 4-4c0-4.1-3.8-7.4-8.5-7.4z"
+            />
+            <circle cx="7.8" cy="11.5" r="1" />
+            <circle cx="10.2" cy="7.6" r="1" />
+            <circle cx="14.6" cy="7.6" r="1" />
+          </symbol>
+          <symbol id="i-save" viewBox="0 0 24 24">
+            <path d="M15.8 4.8A7.6 7.6 0 1 0 19.4 15a6 6 0 0 1-3.6-10.2z" />
+            <path d="M18.5 3.5v5M16 6h5" />
+          </symbol>
+          <symbol id="i-kid" viewBox="0 0 24 24">
+            <circle cx="12" cy="13.2" r="7.6" />
+            <path d="M10.6 5.7c-.2-1.7 1.1-2.9 2.9-2.5-1.1.4-1.5 1.3-1.2 2.3" />
+            <circle
+              cx="9.2"
+              cy="12.6"
+              r="1"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="14.8"
+              cy="12.6"
+              r="1"
+              fill="currentColor"
+              stroke="none"
+            />
+            <path d="M9.4 16c1.5 1.3 3.7 1.3 5.2 0" />
+          </symbol>
+          <symbol id="i-adult" viewBox="0 0 24 24">
+            <circle cx="12" cy="12.8" r="7.8" />
+            <path
+              d="M4.6 11.4C5.2 6.9 8.3 4.6 12 4.6s6.8 2.3 7.4 6.8c-3.1-.2-5.9-1.6-7.4-3.9-1.3 2.3-4.2 3.7-7.4 3.9z"
+            />
+            <path d="M9 13.6h1.3M13.7 13.6H15" />
+            <path d="M10.1 16.7c1.2.6 2.6.6 3.8 0" />
+          </symbol>
+          <symbol id="i-lock" viewBox="0 0 24 24">
+            <rect
+              x="5.5"
+              y="10.5"
+              width="13"
+              height="9.5"
+              rx="2.4"
+              style="fill: var(--f-cream)"
+            />
+            <path d="M8.6 10.5V8.2a3.4 3.4 0 0 1 6.8 0v2.3" />
+            <path d="M12 14.2v2" />
+          </symbol>
+          <symbol id="i-unlock" viewBox="0 0 24 24">
+            <rect
+              x="5.5"
+              y="10.5"
+              width="13"
+              height="9.5"
+              rx="2.4"
+              style="fill: var(--f-cream)"
+            />
+            <path d="M8.6 10.5V5.6a3.4 3.4 0 0 1 6.8 0v.8" />
+            <path d="M12 14.2v2" />
+          </symbol>
+          <symbol id="i-hand" viewBox="0 0 24 24">
+            <path
+              d="M8.2 12.6V6.4a1.45 1.45 0 0 1 2.9 0v4.8M11.1 11.2V4.9a1.45 1.45 0 0 1 2.9 0v6.3M14 11.2V6.2a1.45 1.45 0 0 1 2.9 0v5.6M16.9 12V9.2a1.45 1.45 0 0 1 2.9 0v5c0 4-3 7-6.8 7-2.4 0-4-1-5.3-2.7l-2.7-3.8a1.45 1.45 0 0 1 2.3-1.7l1.9 2.2"
+            />
+          </symbol>
+
+          <symbol id="p-teddy" viewBox="0 0 24 24">
+            <circle cx="6.6" cy="7.4" r="2.9" style="fill: var(--f-teddy)" />
+            <circle cx="17.4" cy="7.4" r="2.9" style="fill: var(--f-teddy)" />
+            <path
+              d="M12 6.4c4.1 0 6.8 2.8 6.8 6.4 0 3.8-2.9 6.6-6.8 6.6s-6.8-2.8-6.8-6.6c0-3.6 2.7-6.4 6.8-6.4z"
+              style="fill: var(--f-teddy)"
+            />
+            <ellipse
+              cx="12"
+              cy="15.2"
+              rx="2.7"
+              ry="2"
+              style="fill: var(--f-cream)"
+            />
+            <path d="M11.3 14.6h1.4" />
+            <circle
+              cx="9.5"
+              cy="11.6"
+              r=".75"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="14.5"
+              cy="11.6"
+              r=".75"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="p-cup" viewBox="0 0 24 24">
+            <path d="M3.2 18.4c2.6 1.6 15 1.6 17.6 0" />
+            <path
+              d="M6.4 9.4h10v4.2a5 5 0 0 1-10 0z"
+              style="fill: var(--f-sky)"
+            />
+            <path d="M16.4 10.6h1.2a2.1 2.1 0 0 1 0 4.2h-1.3" />
+            <path d="M9.6 4.4c-.7.8.7 1.5 0 2.6M13.2 4.4c-.7.8.7 1.5 0 2.6" />
+          </symbol>
+          <symbol id="p-moonstar" viewBox="0 0 24 24">
+            <path
+              d="M13.6 3.4A8.6 8.6 0 1 0 20.6 15.2 6.8 6.8 0 0 1 13.6 3.4z"
+              style="fill: var(--nl-fill)"
+            />
+            <path
+              d="M18.60 3.20 L19.42 5.27 L21.64 5.41 L19.93 6.83 L20.48 8.99 L18.60 7.80 L16.72 8.99 L17.27 6.83 L15.56 5.41 L17.78 5.27Z"
+              style="fill: var(--f-sun)"
+              stroke-width="1.2"
+            />
+          </symbol>
+          <symbol id="p-sleep" viewBox="0 0 24 24">
+            <circle cx="10.6" cy="13.4" r="7.4" style="fill: var(--f-face)" />
+            <path d="M6.9 12.8c.8.8 2 .8 2.8 0M11.5 12.8c.8.8 2 .8 2.8 0" />
+            <path d="M9.6 16.6c.6.4 1.4.4 2 0" />
+            <path d="M16.2 3.2h3.2l-3.2 3.4h3.2" />
+            <path d="M20 8.6h2l-2 2.2h2" />
+          </symbol>
+          <symbol id="p-candle" viewBox="0 0 24 24">
+            <path
+              d="M9 12.6h6v7.6a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z"
+              style="fill: var(--f-cream)"
+            />
+            <path d="M12 12.6v-1.4" />
+            <path
+              d="M12 3c2.2 2.4 3.2 4.1 3.2 5.6a3.2 3.2 0 0 1-6.4 0c0-1.5 1-3.2 3.2-5.6z"
+              style="fill: var(--f-flame)"
+            />
+            <path
+              d="M12 6.8c.8 1 1.2 1.6 1.2 2.2a1.2 1.2 0 0 1-2.4 0c0-.6.4-1.2 1.2-2.2z"
+              style="fill: var(--f-cream)"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="p-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4.8" style="fill: var(--f-sun)" />
+            <path
+              d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4 7 7M17 17l1.6 1.6M5.4 18.6 7 17M17 7l1.6-1.6"
+            />
+            <path d="M10.2 13c.9.8 2.7.8 3.6 0" />
+            <circle
+              cx="10.4"
+              cy="10.9"
+              r=".6"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="13.6"
+              cy="10.9"
+              r=".6"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="p-heart" viewBox="0 0 24 24">
+            <path
+              d="M12 19.6s-7.2-4.4-7.2-9.4A3.9 3.9 0 0 1 12 8.2a3.9 3.9 0 0 1 7.2 2c0 5-7.2 9.4-7.2 9.4z"
+              style="fill: var(--f-heart)"
+            />
+          </symbol>
+          <symbol id="p-crescent" viewBox="0 0 24 24">
+            <path
+              d="M14 4.2A7.8 7.8 0 1 0 20 16.4 6.2 6.2 0 0 1 14 4.2z"
+              style="fill: var(--f-cream)"
+            />
+          </symbol>
+          <symbol id="p-musicbox" viewBox="0 0 24 24">
+            <rect
+              x="3.6"
+              y="11.4"
+              width="13.6"
+              height="8.4"
+              rx="1.6"
+              style="fill: var(--f-rose)"
+            />
+            <path d="M3.8 11.2 5 7.4a1 1 0 0 1 1-.7h9.6" />
+            <path d="M17.2 14.4h2.4v2.6" />
+            <path d="M8 15.4h4.8" />
+            <path d="M14.6 6.2V2.8l3 .8" />
+            <circle
+              cx="13.7"
+              cy="6.3"
+              r="1.1"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="p-waves" viewBox="0 0 24 24">
+            <path
+              d="M3 13.2c1.5-1.4 3-1.4 4.5 0s3 1.4 4.5 0 3-1.4 4.5 0 3 1.4 4.5 0V19H3z"
+              style="fill: var(--f-sky)"
+              stroke="none"
+            />
+            <path
+              d="M3 8.6c1.5-1.4 3-1.4 4.5 0s3 1.4 4.5 0 3-1.4 4.5 0 3 1.4 4.5 0"
+            />
+            <path
+              d="M3 13.2c1.5-1.4 3-1.4 4.5 0s3 1.4 4.5 0 3-1.4 4.5 0 3 1.4 4.5 0"
+            />
+            <path d="M5 17.6c1.2-1 2.4-1 3.6 0s2.4 1 3.6 0" />
+          </symbol>
+          <symbol id="p-guitar" viewBox="0 0 24 24">
+            <g transform="rotate(38 12 12)">
+              <path
+                d="M12 8.6c1.8 0 3 1.3 3 2.9 0 1.2-.7 1.8-.7 2.5 0 .5 1.6 1.3 1.6 3.3 0 2.2-1.8 3.8-3.9 3.8s-3.9-1.6-3.9-3.8c0-2 1.6-2.8 1.6-3.3 0-.7-.7-1.3-.7-2.5 0-1.6 1.2-2.9 3-2.9z"
+                style="fill: var(--f-orange)"
+              />
+              <path d="M12 8.6V3" />
+              <path d="M10.9 1.8h2.2v1.6h-2.2z" fill="currentColor" />
+              <circle cx="12" cy="16.6" r="1.3" />
+              <path d="M10.8 19.2h2.4" />
+            </g>
+          </symbol>
+          <symbol id="p-piano" viewBox="0 0 24 24">
+            <rect
+              x="2.8"
+              y="10.6"
+              width="15"
+              height="9.6"
+              rx="1.4"
+              style="fill: var(--f-cream)"
+            />
+            <path d="M6.6 10.6v9.6M10.3 10.6v9.6M14 10.6v9.6" />
+            <path
+              d="M5.6 10.6h2v5.2h-2zM9.3 10.6h2v5.2h-2zM13 10.6h2v5.2h-2z"
+              fill="currentColor"
+              stroke="none"
+            />
+            <path
+              d="M19 2.6v6.2M16.3 4.2l5.4 3M16.3 7.2l5.4-3"
+              stroke-width="1.4"
+            />
+          </symbol>
+          <symbol id="p-kite" viewBox="0 0 24 24">
+            <path
+              d="M13.4 2.8 19.4 8.8 13.4 15.8 7.4 8.8z"
+              style="fill: var(--f-rose)"
+            />
+            <path d="M13.4 2.8v13M7.4 8.8h12" />
+            <path
+              d="M13.4 15.8c-.8 1.7-2.5 1.5-3.1 2.9-.5 1.2-1.9 1.7-3.2 1.3"
+            />
+            <path
+              d="m10.4 18.5-1.5-.6.5 1.6zM7.4 20.4l-1.4.4 1 1.1z"
+              style="fill: var(--f-sun)"
+              stroke-width="1"
+            />
+          </symbol>
+          <symbol id="p-balloon" viewBox="0 0 24 24">
+            <path
+              d="M12 2.8c3.3 0 5.8 2.6 5.8 5.8 0 3.6-3 6.8-5.8 6.8s-5.8-3.2-5.8-6.8c0-3.2 2.5-5.8 5.8-5.8z"
+              style="fill: var(--f-rose)"
+            />
+            <path d="M11.1 15.4h1.8l-.9 1.3z" />
+            <path d="M12 16.7c-1.4 1.3 1 2.3-.4 3.8" />
+            <path d="M9.2 7.2c.4-1 1.1-1.6 2-1.9" style="stroke: var(--hl)" />
+          </symbol>
+          <symbol id="p-orange" viewBox="0 0 24 24">
+            <circle cx="12" cy="13.6" r="6.8" style="fill: var(--f-orange)" />
+            <path
+              d="M12 6.8c.2-1.8 1.6-3 3.6-3-.1 1.9-1.6 3.1-3.6 3z"
+              style="fill: var(--f-sage)"
+            />
+            <circle
+              cx="9.4"
+              cy="12.4"
+              r=".55"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="14.2"
+              cy="15.6"
+              r=".55"
+              fill="currentColor"
+              stroke="none"
+            />
+            <circle
+              cx="10.8"
+              cy="16.6"
+              r=".55"
+              fill="currentColor"
+              stroke="none"
+            />
+          </symbol>
+          <symbol id="p-thought" viewBox="0 0 24 24">
+            <path
+              d="M8.6 14.6c-2.3 0-4-1.5-4-3.5 0-1.8 1.4-3.2 3.2-3.4.6-2.1 2.3-3.4 4.3-3.4 1.7 0 3.1.9 3.8 2.3 2.2 0 3.9 1.6 3.9 3.7 0 2.4-1.9 4.3-4.4 4.3z"
+              style="fill: var(--f-cream)"
+            />
+            <circle cx="8" cy="17.7" r="1.4" style="fill: var(--f-cream)" />
+            <circle cx="5.5" cy="20.4" r=".9" style="fill: var(--f-cream)" />
+          </symbol>
+          <symbol id="p-notes" viewBox="0 0 24 24">
+            <path d="M9 17.6V6.2l9-2v11.4" />
+            <path
+              d="M9 6.1 18 4v2.7L9 8.8z"
+              fill="currentColor"
+              stroke="none"
+            />
+            <ellipse
+              cx="6.9"
+              cy="17.7"
+              rx="2.3"
+              ry="1.8"
+              style="fill: var(--f-sky)"
+            />
+            <ellipse
+              cx="15.9"
+              cy="15.7"
+              rx="2.3"
+              ry="1.8"
+              style="fill: var(--f-sky)"
+            />
+          </symbol>
+          <symbol id="p-burst" viewBox="0 0 24 24">
+            <path
+              d="M12.00 6.60 L13.70 10.65 L18.09 11.02 L14.76 13.90 L15.76 18.18 L12.00 15.90 L8.24 18.18 L9.24 13.90 L5.91 11.02 L10.30 10.65Z"
+              style="fill: var(--f-sun)"
+            />
+            <path
+              d="M12 2.2v1.6M4.2 5.6l1.1 1.1M19.8 5.6l-1.1 1.1M3.2 15.4h1.5M19.3 15.4h1.5"
+            />
+          </symbol>
+          <symbol id="p-bell" viewBox="0 0 24 24">
+            <path
+              d="M6.2 16.6h11.6c-1.2-1.2-1.9-2.7-1.9-4.7v-1.6a3.9 3.9 0 0 0-7.8 0v1.6c0 2-.7 3.5-1.9 4.7z"
+              style="fill: var(--f-sun)"
+            />
+            <path d="M10.3 18.8a1.8 1.8 0 0 0 3.4 0" />
+            <path d="M12 6.4V4.8" />
+          </symbol>
+          <symbol id="p-door" viewBox="0 0 24 24">
+            <path
+              d="M6.6 20.6V5a1.5 1.5 0 0 1 1.5-1.5h6.4A1.5 1.5 0 0 1 16 5v15.6"
+              style="fill: var(--f-sage)"
+            />
+            <path d="M4.4 20.6h13.8" />
+            <rect x="8.6" y="6" width="5.4" height="4.2" rx=".8" />
+            <circle
+              cx="13.6"
+              cy="13.4"
+              r=".95"
+              fill="currentColor"
+              stroke="none"
+            />
+            <path d="M18.6 8.6l1.8-.8M19 11.6h2M18.6 14.6l1.8.8" />
+          </symbol>
+          <symbol id="p-smiley" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.4" style="fill: var(--f-sun)" />
+            <path d="M9.3 9.9v.8M14.7 9.9v.8" stroke-width="2" />
+            <path d="M8.5 13.6c1.9 2.4 5.1 2.4 7 0" />
+          </symbol>
+          <symbol id="p-clock" viewBox="0 0 24 24">
+            <circle cx="12" cy="13.4" r="6.6" style="fill: var(--f-cream)" />
+            <path d="M12 10.2v3.4l2.2 1.4" />
+            <path
+              d="M4.8 7.4a2.7 2.7 0 0 1 3.8-3.6M19.2 7.4a2.7 2.7 0 0 0-3.8-3.6"
+            />
+            <path d="M7.6 19.2 6.2 20.8M16.4 19.2l1.4 1.6" />
+          </symbol>
+          <symbol id="p-heartsm" viewBox="0 0 24 24">
+            <path
+              d="M12 19.2s-7-4.3-7-9.1A3.8 3.8 0 0 1 12 8.2a3.8 3.8 0 0 1 7 1.9c0 4.8-7 9.1-7 9.1z"
+              style="fill: var(--f-heart)"
+            />
+          </symbol>
+          <symbol id="i-pencil" viewBox="0 0 24 24">
+            <path d="M14.6 5.8l3.6 3.6" />
+            <path
+              d="M4.6 19.4l.9-4.1L15.8 5a1.7 1.7 0 0 1 2.4 0l.8.8a1.7 1.7 0 0 1 0 2.4L8.7 18.5z"
+            />
+          </symbol>
+          <symbol id="i-trash" viewBox="0 0 24 24">
+            <path d="M4.8 7h14.4" />
+            <path d="M9.4 7V5.2a1 1 0 0 1 1-1h3.2a1 1 0 0 1 1 1V7" />
+            <path
+              d="m6.8 7 .8 11.7a1.5 1.5 0 0 0 1.5 1.4h5.8a1.5 1.5 0 0 0 1.5-1.4L17.2 7"
+            />
+          </symbol>
+          <symbol id="i-plus" viewBox="0 0 24 24">
+            <path d="M12 5.5v13M5.5 12h13" />
+          </symbol>
+          <symbol id="i-eye" viewBox="0 0 24 24">
+            <path
+              d="M2.8 12s3.4-6 9.2-6 9.2 6 9.2 6-3.4 6-9.2 6-9.2-6-9.2-6z"
+            />
+            <circle cx="12" cy="12" r="2.6" />
+          </symbol>
+          <symbol id="i-test" viewBox="0 0 24 24">
+            <path d="M9 18h6M10 21h4" />
+            <path
+              d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"
+            />
+          </symbol>
+          <symbol id="i-saveas" viewBox="0 0 24 24">
+            <path
+              d="M7 3.6h10a1 1 0 0 1 1 1v15.6l-6-3.9-6 3.9V4.6a1 1 0 0 1 1-1z"
+            />
+            <path d="M12 7.4v5.2M9.4 10h5.2" />
+          </symbol>
+          <symbol id="p-sofa" viewBox="0 0 24 24">
+            <path
+              d="M5.2 11.2V8.8a2.6 2.6 0 0 1 2.6-2.6h8.4a2.6 2.6 0 0 1 2.6 2.6v2.4"
+              style="fill: var(--f-sky)"
+            />
+            <path
+              d="M3.4 11.4a1.6 1.6 0 0 1 3.2 0v2.2h10.8v-2.2a1.6 1.6 0 0 1 3.2 0v5.4a1 1 0 0 1-1 1H4.4a1 1 0 0 1-1-1z"
+              style="fill: var(--f-sky)"
+            />
+            <path d="M6 17.8v1.8M18 17.8v1.8" />
+          </symbol>
+          <symbol id="p-lampbell" viewBox="0 0 48 48">
+            <path d="M15.4 7.6h17.2l6 14.4H9.4z" style="fill: var(--f-cream)" />
+            <path d="M24 22v15" />
+            <path d="M16.6 39.6c2-1.8 12.8-1.8 14.8 0" stroke-width="2.2" />
+            <path
+              d="M19.4 27.6c1.6 1.4 7.6 1.4 9.2 0"
+              style="stroke: var(--a-star)"
+            />
+            <path
+              d="M36.2 37.6h8.2c-.8-.8-1.3-1.8-1.3-3.2v-1.2a2.8 2.8 0 0 0-5.6 0v1.2c0 1.4-.5 2.4-1.3 3.2z"
+              style="fill: var(--f-sun)"
+            />
+            <path d="M39 39.4a1.3 1.3 0 0 0 2.4 0" />
+            <path d="M40.3 30.4v-1.2" />
+          </symbol>
+          <symbol id="i-wave" viewBox="0 0 16 10">
+            <path
+              d="M1.5 5c1.6-2.6 3.2-2.6 4.4 0s2.8 2.6 4.4 0 2.8-2.6 4.2 0"
+            />
+          </symbol>
+        </defs>
+      </svg>
+      <main class="pg">
+        <div class="top">
+          <div class="seg" role="radiogroup" aria-label="Hub">
+            <button
+              type="button"
+              data-hub="KI-18FB"
+              role="radio"
+              aria-checked="true"
+            >
+              <span class="k"
+                ><svg class="ic pic" aria-hidden="true">
+                  <use href="#p-teddy" /></svg></span
+              ><span class="e"
+                ><svg class="ic" aria-hidden="true">
+                  <use href="#i-round" /></svg></span
+              ><span class="nw">KI-18FB</span></button
+            ><button
+              type="button"
+              data-hub="WZ-594F"
+              role="radio"
+              aria-checked="false"
+            >
+              <span class="k"
+                ><svg class="ic pic" aria-hidden="true">
+                  <use href="#p-sofa" /></svg></span
+              ><span class="e"
+                ><svg class="ic" aria-hidden="true">
+                  <use href="#i-round" /></svg></span
+              ><span class="nw">WZ-594F</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            id="mode"
+            class="ib"
+            aria-label="Ansicht: Kind · zum Wechseln 1 Sekunde gedrückt halten"
+            aria-describedby="mode-hint"
+          >
+            <span class="k"
+              ><svg class="ic" aria-hidden="true">
+                <use href="#i-kid" /></svg></span
+            ><span class="e"
+              ><svg class="ic" aria-hidden="true">
+                <use href="#i-adult" /></svg></span
+            ><svg class="mring" viewBox="0 0 58 58" aria-hidden="true">
+              <circle
+                cx="29.0"
+                cy="29.0"
+                r="26.5"
+                class="rt"
+                stroke-width="2.6"
+              />
+              <circle
+                cx="29.0"
+                cy="29.0"
+                r="26.5"
+                class="rp"
+                stroke-width="2.6"
+                stroke-dasharray="1.7 166.5"
+                transform="rotate(-90 29.0 29.0)"
+              />
+            </svg></button
+          ><button
+            type="button"
+            id="theme"
+            class="ib"
+            aria-label="Hell / Dunkel"
+          >
+            <svg class="ic moon" aria-hidden="true"><use href="#i-moon" /></svg
+            ><svg class="ic sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+        <p id="mode-hint" class="mhint"></p>
+        <div class="use e" aria-label="Verwendung">
+          <span class="use-l">Verwendung</span>
+          <div class="seg" role="radiogroup" aria-label="Verwendung">
+            <button
+              type="button"
+              role="radio"
+              data-usage="nightlight"
+              aria-checked="true"
+            >
+              Nachtlicht</button
+            ><button
+              type="button"
+              role="radio"
+              data-usage="desk"
+              aria-checked="false"
+            >
+              Desk-Signal
+            </button>
+          </div>
+        </div>
+        <p class="use-k k" id="usage-text">Verwendung: Nachtlicht</p>
+        <div class="hdr">
+          <span class="k"
+            ><svg class="art night od" viewBox="0 0 96 72" aria-hidden="true">
+              <path
+                d="M39.4 14 A24 24 0 1 0 59.6 48.6 A20 20 0 0 1 39.4 14 Z"
+                class="a-moon"
+              />
+              <path d="M19.6 39.6q3.4 3 6.8 0" class="a-ln" />
+              <circle cx="21.6" cy="46" r="2.6" class="a-blush" />
+              <path d="M26.4 47.6q2.4 1.5 4.6-.3" class="a-ln" />
+              <path
+                d="M28.4 21.6C29 14 35 8.8 42 8.4c6-.3 11.6 1.3 15.4 4.8-5-.3-9.6.8-13.8 3.2z"
+                class="a-cap"
+              />
+              <path d="M27.4 22.6Q35.8 17.6 44.6 16.2" class="a-band" />
+              <path d="M27.4 22.6Q35.8 17.6 44.6 16.2" class="a-ln" />
+              <circle cx="58.8" cy="13.8" r="3.4" class="a-pom" />
+              <path
+                d="M77.00 8.20 L78.23 11.30 L81.57 11.52 L79.00 13.65 L79.82 16.88 L77.00 15.10 L74.18 16.88 L75.00 13.65 L72.43 11.52 L75.77 11.30Z"
+                class="a-star"
+              />
+              <path
+                d="M88.00 27.80 L88.82 29.87 L91.04 30.01 L89.33 31.43 L89.88 33.59 L88.00 32.40 L86.12 33.59 L86.67 31.43 L84.96 30.01 L87.18 29.87Z"
+                class="a-star"
+              />
+              <path
+                d="M66.50 25.10 L67.12 26.65 L68.78 26.76 L67.50 27.82 L67.91 29.44 L66.50 28.55 L65.09 29.44 L65.50 27.82 L64.22 26.76 L65.88 26.65Z"
+                class="a-star"
+              />
+              <path
+                d="M50.5 63.4c-3.4 0-4.9-4-1.9-5.7-.5-4.4 4.5-6.9 8-4.4 1.5-4.4 8.5-4.9 10.5-.4 4-.5 6.5 3 5 6 2.5 1 2 4.5-1.5 4.5z"
+                class="a-cloud"
+              /></svg
+            ><svg class="art day ol" viewBox="0 0 96 72" aria-hidden="true">
+              <path
+                d="M38 11.5v-4M24.6 17.1l-2.8-2.8M51.4 17.1l2.8-2.8M19 30.5h-4M57 30.5h4"
+                class="a-ray"
+              />
+              <circle cx="38" cy="30.5" r="13.6" class="a-sun" />
+              <circle cx="33.4" cy="28.6" r="1.1" class="a-dot" />
+              <circle cx="42.6" cy="28.6" r="1.1" class="a-dot" />
+              <path d="M34.4 33.2q3.6 2.8 7.2 0" class="a-ln" />
+              <path
+                d="M33 60c-5.6 0-7-6.6-2.2-8.4-.4-6.6 7-9.8 12.2-6.2 2.4-6.6 13.4-7.4 16.2.2 5.6-1.2 10.6 2.6 9.4 7.6 4.6.6 5.6 6.8.2 6.8z"
+                class="a-cloud"
+              />
+              <path
+                d="M66 23.6c-2.6 0-3.4-3-1.2-3.8-.2-3 3.2-4.4 5.6-2.8 1.2-3 6.2-3.2 7.4.2 2.6-.4 4.6 1.4 4 3.6 2 .4 2.4 2.8-.2 2.8z"
+                class="a-cloud2"
+              /></svg
+            ><svg class="scatter od" viewBox="0 0 120 72" aria-hidden="true">
+              <circle cx="8" cy="10" r="1.1" />
+              <circle cx="30" cy="24" r="0.8" />
+              <circle cx="52" cy="8" r="1.3" />
+              <circle cx="74" cy="30" r="0.9" />
+              <circle cx="96" cy="14" r="1.2" />
+              <circle cx="112" cy="40" r="0.8" />
+              <circle cx="44" cy="50" r="1" />
+              <circle cx="88" cy="58" r="1.2" />
+              <circle cx="16" cy="44" r="0.8" />
+              <circle cx="64" cy="64" r="0.9" />
+              <circle cx="104" cy="66" r="0.8" />
+              <path
+                d="M70.00 9.40 L70.65 11.11 L72.47 11.20 L71.05 12.34 L71.53 14.10 L70.00 13.10 L68.47 14.10 L68.95 12.34 L67.53 11.20 L69.35 11.11Z"
+              />
+              <path
+                d="M24.00 59.80 L24.56 61.23 L26.09 61.32 L24.90 62.29 L25.29 63.78 L24.00 62.95 L22.71 63.78 L23.10 62.29 L21.91 61.32 L23.44 61.23Z"
+              /></svg></span
+          ><span class="e"
+            ><svg class="ic hmoon" aria-hidden="true">
+              <use href="#i-moon" /></svg
+          ></span>
+          <h1 class="ttl">Nachtlicht</h1>
+        </div>
+        <div class="cols" id="nightlight-controls">
+          <section class="licht" aria-labelledby="light-hl">
+            <h2 id="light-hl">Licht</h2>
+            <div class="hero" style="--nl-c: #5c0701">
+              <button
+                type="button"
+                id="nightlight"
+                class="b nl"
+                aria-pressed="false"
+              >
+                <span class="k"
+                  ><span class="nl-k"
+                    ><svg class="ic pic hpic" aria-hidden="true">
+                      <use href="#p-moonstar" /></svg
+                    ><span class="nl-t"
+                      ><span class="nl-n">Nachtlicht</span
+                      ><span class="nl-v">44 %</span></span
+                    ></span
+                  ></span
+                ><span class="e"
+                  ><span class="nl-e"
+                    ><span class="nl-l"
+                      ><span class="dot" style="--c: #5c0701"></span
+                      ><span class="nl-nm">Nachtlicht</span></span
+                    ><span class="nl-v">44 %</span></span
+                  ></span
+                ></button
+              ><button
+                type="button"
+                id="off"
+                class="b off"
+                aria-pressed="false"
+              >
+                <span class="k"
+                  ><svg class="ic pic opic" aria-hidden="true">
+                    <use href="#p-sleep" /></svg></span
+                ><span class="e"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-power" /></svg></span
+                ><span>Aus</span>
+              </button>
+            </div>
+            <div class="presets" id="place-buttons">
+              <button
+                type="button"
+                class="b pre"
+                aria-pressed="false"
+                data-preset="p2"
+              >
+                <span class="k"
+                  ><span class="pre-k"
+                    ><svg class="ic pic ppic" aria-hidden="true">
+                      <use href="#p-candle" /></svg
+                    ><span class="pre-t"
+                      ><span class="pre-n">Warm</span
+                      ><span class="pre-v">40 %</span></span
+                    ></span
+                  ></span
+                ><span class="e"
+                  ><span class="pre-e"
+                    ><span class="pre-l"
+                      ><span class="dot" style="--c: #ff8c28"></span
+                      ><span class="pre-nm">Warm</span></span
+                    ><span class="pre-v">40 %</span></span
+                  ></span
+                ></button
+              ><button
+                type="button"
+                class="b pre"
+                aria-pressed="false"
+                data-preset="p3"
+              >
+                <span class="k"
+                  ><span class="pre-k"
+                    ><svg class="ic pic ppic" aria-hidden="true">
+                      <use href="#p-sun" /></svg
+                    ><span class="pre-t"
+                      ><span class="pre-n">Hell</span
+                      ><span class="pre-v">80 %</span></span
+                    ></span
+                  ></span
+                ><span class="e"
+                  ><span class="pre-e"
+                    ><span class="pre-l"
+                      ><span class="dot" style="--c: #fff4e0"></span
+                      ><span class="pre-nm">Hell</span></span
+                    ><span class="pre-v">80 %</span></span
+                  ></span
+                ></button
+              ><button
+                type="button"
+                class="b pre"
+                aria-pressed="false"
+                data-preset="p4"
+              >
+                <span class="k"
+                  ><span class="pre-k"
+                    ><svg class="ic pic ppic" aria-hidden="true">
+                      <use href="#p-heart" /></svg
+                    ><span class="pre-t"
+                      ><span class="pre-n">Rot leise</span
+                      ><span class="pre-v">5 %</span></span
+                    ></span
+                  ></span
+                ><span class="e"
+                  ><span class="pre-e"
+                    ><span class="pre-l"
+                      ><span class="dot" style="--c: #ff2a00"></span
+                      ><span class="pre-nm">Rot leise</span></span
+                    ><span class="pre-v">5 %</span></span
+                  ></span
+                >
+              </button>
+              <button
+                type="button"
+                class="b pre"
+                data-preset="p5"
+                aria-pressed="false"
+                hidden
+              >
+                <span class="pre-n">Neuer Platz</span
+                ><span class="pre-nm e">Neuer Platz</span
+                ><span class="pre-v"></span></button
+              ><button
+                type="button"
+                class="b pre"
+                data-preset="p6"
+                aria-pressed="false"
+                hidden
+              >
+                <span class="pre-n">Neuer Platz</span
+                ><span class="pre-nm e">Neuer Platz</span
+                ><span class="pre-v"></span>
+              </button>
+            </div>
+            <div class="field">
+              <span class="lab" id="light-bri">Helligkeit</span>
+              <div class="slrow" data-slider-row="1">
+                <span class="se"
+                  ><span class="k"
+                    ><svg class="ic pic sepic" aria-hidden="true">
+                      <use href="#p-crescent" /></svg></span
+                  ><span class="e"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-sunlow" /></svg></span
+                ></span>
+                <div class="sl" id="bri-track" style="--f: 0">
+                  <span class="tr"></span><span class="fi"></span
+                  ><span class="th"
+                    ><span class="k"
+                      ><svg
+                        class="tstar"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M12.00 5.20 L13.88 10.01 L19.04 10.31 L15.04 13.59 L16.35 18.59 L12.00 15.80 L7.65 18.59 L8.96 13.59 L4.96 10.31 L10.12 10.01Z"
+                        /></svg></span></span
+                  ><input
+                    class="range-native"
+                    type="range"
+                    id="bri"
+                    min="0"
+                    max="100"
+                    value="0"
+                    disabled
+                    aria-label="Helligkeit"
+                  />
+                </div>
+                <span class="se"
+                  ><span class="k"
+                    ><svg class="ic pic sepic" aria-hidden="true">
+                      <use href="#p-sun" /></svg></span
+                  ><span class="e"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-sun" /></svg></span></span
+                ><output id="bri-value" for="bri" class="val" aria-hidden="true"
+                  >—</output
+                >
+              </div>
+              <p id="shift-hint" class="quirk" aria-live="polite"></p>
+            </div>
+            <div class="field">
+              <span class="lab" id="light-col">Farbe</span>
+              <div class="swg" role="group" aria-labelledby="light-col">
+                <button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FF8C28"
+                  data-color-name="Warmweiß"
+                >
+                  <span class="k"
+                    ><svg
+                      class="drop"
+                      viewBox="0 0 24 28"
+                      aria-hidden="true"
+                      style="--c: #ff8c28"
+                    >
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-fill"
+                      />
+                      <path
+                        d="M8.6 16.2a3.6 3.6 0 0 1 1.6-3.4"
+                        class="d-hl"
+                      /></svg></span
+                  ><span class="e"
+                    ><span class="c" style="--c: #ff8c28"></span></span
+                  >Warmweiß</button
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FFB46B"
+                  data-color-name="Hellwarm"
+                >
+                  <span class="k"
+                    ><svg
+                      class="drop"
+                      viewBox="0 0 24 28"
+                      aria-hidden="true"
+                      style="--c: #ffb46b"
+                    >
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-fill"
+                      />
+                      <path
+                        d="M8.6 16.2a3.6 3.6 0 0 1 1.6-3.4"
+                        class="d-hl"
+                      /></svg></span
+                  ><span class="e"
+                    ><span class="c" style="--c: #ffb46b"></span></span
+                  >Hellwarm</button
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FF5A00"
+                  data-color-name="Orange"
+                >
+                  <span class="k"
+                    ><svg
+                      class="drop"
+                      viewBox="0 0 24 28"
+                      aria-hidden="true"
+                      style="--c: #ff5a00"
+                    >
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-fill"
+                      />
+                      <path
+                        d="M8.6 16.2a3.6 3.6 0 0 1 1.6-3.4"
+                        class="d-hl"
+                      /></svg></span
+                  ><span class="e"
+                    ><span class="c" style="--c: #ff5a00"></span></span
+                  >Orange</button
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FF0000"
+                  data-color-name="Rot"
+                >
+                  <span class="k"
+                    ><svg
+                      class="drop"
+                      viewBox="0 0 24 28"
+                      aria-hidden="true"
+                      style="--c: #ff0000"
+                    >
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-fill"
+                      />
+                      <path
+                        d="M8.6 16.2a3.6 3.6 0 0 1 1.6-3.4"
+                        class="d-hl"
+                      /></svg></span
+                  ><span class="e"
+                    ><span class="c" style="--c: #ff0000"></span></span
+                  >Rot</button
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="0000FF"
+                  data-color-name="Blau"
+                >
+                  <span class="k"
+                    ><svg
+                      class="drop"
+                      viewBox="0 0 24 28"
+                      aria-hidden="true"
+                      style="--c: #0000ff"
+                    >
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-fill"
+                      />
+                      <path
+                        d="M8.6 16.2a3.6 3.6 0 0 1 1.6-3.4"
+                        class="d-hl"
+                      /></svg></span
+                  ><span class="e"
+                    ><span class="c" style="--c: #0000ff"></span></span
+                  >Blau</button
+                ><button
+                  type="button"
+                  class="b sw"
+                  aria-pressed="false"
+                  data-color="FFFFFF"
+                  data-color-name="Weiß"
+                >
+                  <span class="k"
+                    ><svg
+                      class="drop"
+                      viewBox="0 0 24 28"
+                      aria-hidden="true"
+                      style="--c: #ffffff"
+                    >
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-fill"
+                      />
+                      <path
+                        d="M8.6 16.2a3.6 3.6 0 0 1 1.6-3.4"
+                        class="d-hl"
+                      /></svg></span
+                  ><span class="e"
+                    ><span class="c" style="--c: #ffffff"></span></span
+                  >Weiß</button
+                ><button
+                  type="button"
+                  id="own-color"
+                  class="b sw own"
+                  aria-pressed="false"
+                >
+                  <span class="k"
+                    ><svg class="drop" viewBox="0 0 24 28" aria-hidden="true">
+                      <path
+                        d="M12 2.6C9.2 6.8 5.2 11 5.2 16.4a6.8 6.8 0 0 0 13.6 0C18.8 11 14.8 6.8 12 2.6z"
+                        class="d-empty"
+                      /></svg></span
+                  ><span class="e"><span class="c empty"></span></span
+                  ><span>Eigene Farbe</span
+                  ><svg class="ic pick" aria-hidden="true">
+                    <use href="#i-palette" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="hubsays" role="status" aria-live="polite">
+              <span class="k"
+                ><svg class="ic pic hspic" aria-hidden="true">
+                  <use href="#p-teddy" /></svg></span
+              ><span class="e"
+                ><svg class="ic" aria-hidden="true"><use href="#i-round" /></svg
+              ></span>
+              <div>
+                <p id="last-light" class="hs-last">Zuletzt: noch kein Befehl</p>
+                <p class="hs-rb">
+                  <button type="button" id="readback" class="readback-btn">
+                    Hub meldet ≈ — · Raum: — lx
+                  </button>
+                </p>
+              </div>
+            </div>
+            <div class="saveline">
+              <span class="e"
+                ><button
+                  type="button"
+                  id="save-nightlight"
+                  class="savebtn"
+                  hidden
+                >
+                  <svg class="ic" aria-hidden="true"><use href="#i-save" /></svg
+                  >Speichern als …
+                </button></span
+              >
+            </div>
+          </section>
+          <input
+            type="color"
+            id="col"
+            class="sr"
+            value="#5c0701"
+            aria-label="Eigene Farbe"
+          />
+          <section class="toene" aria-labelledby="tones-ht">
+            <h2 id="tones-ht">Töne</h2>
+            <div class="vs">
+              <div class="field">
+                <span class="lab" id="tones-vol"
+                  >Lautstärke <span class="hint">· max. 40 %</span></span
+                >
+                <div class="slrow" data-slider-row="1">
+                  <span class="se"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-quiet" /></svg
+                  ></span>
+                  <div class="sl" id="vol-track" style="--f: 0.375">
+                    <span class="tr"></span><span class="fi"></span
+                    ><span class="th"
+                      ><span class="k"
+                        ><svg
+                          class="tstar"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M12.00 5.20 L13.88 10.01 L19.04 10.31 L15.04 13.59 L16.35 18.59 L12.00 15.80 L7.65 18.59 L8.96 13.59 L4.96 10.31 L10.12 10.01Z"
+                          /></svg></span></span
+                    ><input
+                      class="range-native"
+                      type="range"
+                      id="vol"
+                      min="0"
+                      max="40"
+                      value="15"
+                      aria-label="Lautstärke"
+                    />
+                  </div>
+                  <span class="se"
+                    ><svg class="ic" aria-hidden="true">
+                      <use href="#i-loud" /></svg></span
+                  ><output
+                    id="vol-value"
+                    for="vol"
+                    class="val"
+                    aria-hidden="true"
+                    >15 %</output
+                  >
+                </div>
+              </div>
+              <button type="button" id="stop" class="stop">
+                <span class="k"
+                  ><svg class="ic hand" aria-hidden="true">
+                    <use href="#i-hand" /></svg></span
+                ><span class="e"
+                  ><svg class="ic" aria-hidden="true">
+                    <use href="#i-stop" /></svg></span
+                >Stopp
+              </button>
+            </div>
+            <div id="sound-duration">
+              <div class="kv dur">
+                <span class="lab">Dauer</span>
+                <div class="seg" role="group" aria-label="Dauer">
+                  <button
+                    type="button"
+                    data-duration="full"
+                    aria-pressed="true"
+                  >
+                    Ganz</button
+                  ><button
+                    type="button"
+                    data-duration="short"
+                    aria-pressed="false"
+                  >
+                    Kurz
+                  </button>
+                </div>
+              </div>
+              <div id="duration-controls" hidden>
+                <div class="slrow" data-slider-row="1">
+                  <span class="se"></span>
+                  <div class="sl" id="duration-track" style="--f: 0">
+                    <span class="tr"></span><span class="fi"></span
+                    ><span class="th"></span
+                    ><input
+                      class="range-native"
+                      type="range"
+                      id="duration"
+                      min="200"
+                      max="3000"
+                      value="1000"
+                      step="100"
+                      aria-label="Tondauer in Millisekunden"
+                    />
+                  </div>
+                  <output
+                    class="val"
+                    id="duration-value"
+                    for="duration"
+                  ></output>
+                </div>
+                <label class="numf"
+                  ><input
+                    type="number"
+                    id="duration-ms"
+                    min="200"
+                    max="3000"
+                    value="1000"
+                    aria-label="Dauer in Millisekunden"
+                  /><span class="unit">ms</span></label
+                >
+              </div>
+              <button type="button" class="tlink" id="tone-test">Testen</button>
+            </div>
+            <div class="grp">
+              <h3>
+                <button
+                  type="button"
+                  class="gh"
+                  data-disclosure="tones-group-1"
+                  aria-controls="tones-group-1"
+                  aria-expanded="true"
+                >
+                  <svg class="ic chv" aria-hidden="true">
+                    <use href="#i-chev" /></svg
+                  ><span class="gl">Wecker</span>
+                </button>
+              </h3>
+              <ul class="tg" id="tones-group-1">
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="26"
+                    title="Morgenbach"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-waves" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Morgenbach</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="27"
+                    title="Spieluhr"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-musicbox" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Spieluhr</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="20"
+                    title="MiMix"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-notes" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">MiMix</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="21"
+                    title="Enthusiastisch"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-burst" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Enthusiastisch</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="22"
+                    title="Gitarre klassisch"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-guitar" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Gitarre klassisch</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="23"
+                    title="Eiswelt-Klavier"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-piano" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Eiswelt-Klavier</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="24"
+                    title="Freizeit"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-balloon" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Freizeit</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="25"
+                    title="Kindheit"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-kite" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Kindheit</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="28"
+                    title="Orange"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-orange" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Orange</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="29"
+                    title="Denker"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-thought" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Denker</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <div class="grp">
+              <h3>
+                <button
+                  type="button"
+                  class="gh"
+                  data-disclosure="tones-group-2"
+                  aria-controls="tones-group-2"
+                  aria-expanded="true"
+                >
+                  <svg class="ic chv" aria-hidden="true">
+                    <use href="#i-chev" /></svg
+                  ><span class="gl">Türklingel</span>
+                </button>
+              </h3>
+              <ul class="tg" id="tones-group-2">
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="10"
+                    title="Klingel"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-bell" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Klingel</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="11"
+                    title="Klopfen"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-door" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Klopfen</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="12"
+                    title="Lustig"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-smiley" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Lustig</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="13"
+                    title="Wecker-Klingel"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-clock" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Wecker-Klingel</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="14"
+                    title="Klingel 5"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-bell" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Klingel 5</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone"
+                    aria-pressed="false"
+                    data-t="15"
+                    title="Klingel 6"
+                  >
+                    <span class="k"
+                      ><span class="tp"
+                        ><svg class="ic pic tpic" aria-hidden="true">
+                          <use href="#p-bell" /></svg
+                        ><span class="pb"
+                          ><svg class="ic" aria-hidden="true">
+                            <use href="#i-play" /></svg></span></span></span
+                    ><span class="e"
+                      ><span class="ti"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-play" /></svg></span></span
+                    ><span class="tn">Klingel 6</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <div class="grp">
+              <h3>
+                <button
+                  type="button"
+                  id="loud-toggle"
+                  class="gh loud-button"
+                  aria-expanded="false"
+                  aria-controls="alarm-list"
+                  aria-describedby="loud-hint"
+                >
+                  <span class="k"
+                    ><svg class="ic lic" aria-hidden="true">
+                      <use href="#i-loud" /></svg
+                    ><span class="lt"
+                      ><span class="lh1"
+                        >Laute Töne <span class="loud">· für Große</span></span
+                      ><span id="loud-hint" class="lh2"
+                        >Zum Öffnen gedrückt halten</span
+                      ></span
+                    ><span class="lr"
+                      ><svg
+                        class="lring"
+                        viewBox="0 0 36 36"
+                        aria-hidden="true"
+                      >
+                        <circle
+                          cx="18.0"
+                          cy="18.0"
+                          r="15.5"
+                          class="rt"
+                          stroke-width="2.4"
+                        />
+                        <circle
+                          cx="18.0"
+                          cy="18.0"
+                          r="15.5"
+                          class="rp"
+                          stroke-width="2.4"
+                          stroke-dasharray="1.0 97.4"
+                          transform="rotate(-90 18.0 18.0)"
+                        /></svg
+                      ><svg class="ic lk" aria-hidden="true">
+                        <use href="#i-lock" /></svg></span
+                  ></span>
+                  <span class="e"
+                    ><svg class="ic chv" aria-hidden="true">
+                      <use href="#i-chev" /></svg
+                    ><span class="gl"
+                      >Alarmtöne <span class="loud">· laut</span></span
+                    ></span
+                  >
+                </button>
+              </h3>
+              <ul class="tg" id="alarm-list" hidden>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="0"
+                    title="Polizei 1"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Polizei 1</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="1"
+                    title="Polizei 2"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Polizei 2</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="2"
+                    title="Unfall"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Unfall</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="3"
+                    title="Countdown"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Countdown</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="4"
+                    title="Geist"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Geist</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="5"
+                    title="Scharfschütze"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Scharfschütze</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="6"
+                    title="Gefecht"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Gefecht</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="7"
+                    title="Fliegeralarm"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Fliegeralarm</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="b tone two"
+                    aria-pressed="false"
+                    data-t="8"
+                    title="Hundebellen"
+                  >
+                    <span class="ti"
+                      ><svg class="ic" aria-hidden="true">
+                        <use href="#i-play" /></svg></span
+                    ><span class="tl"
+                      ><span class="tn">Hundebellen</span
+                      ><span class="laut"
+                        ><svg class="ic" aria-hidden="true">
+                          <use href="#i-loud" /></svg
+                        >laut</span
+                      ></span
+                    >
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <button
+              type="button"
+              id="goodnight"
+              class="gn"
+              aria-label="Gute Nacht: gespeichertes Nachtlicht anwenden"
+            >
+              <span class="k"
+                ><span class="gn-in"
+                  ><svg class="ic pic gnh" aria-hidden="true">
+                    <use href="#p-heartsm" /></svg
+                  ><span class="od">Gute Nacht</span
+                  ><span class="ol">Schönen Tag</span></span
+                ><svg
+                  class="scatter gns od"
+                  viewBox="0 0 358 56"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <circle cx="14" cy="12" r="1.1" />
+                  <circle cx="46" cy="34" r="0.8" />
+                  <circle cx="78" cy="8" r="1.2" />
+                  <circle cx="104" cy="44" r="0.9" />
+                  <circle cx="122" cy="18" r="0.8" />
+                  <circle cx="238" cy="40" r="0.9" />
+                  <circle cx="262" cy="10" r="1.2" />
+                  <circle cx="290" cy="30" r="0.8" />
+                  <circle cx="318" cy="48" r="1" />
+                  <circle cx="344" cy="16" r="1.1" />
+                  <path
+                    d="M60.00 43.60 L60.59 45.19 L62.28 45.26 L60.95 46.31 L61.41 47.94 L60.00 47.00 L58.59 47.94 L59.05 46.31 L57.72 45.26 L59.41 45.19Z"
+                  />
+                  <path
+                    d="M306.00 9.40 L306.65 11.11 L308.47 11.20 L307.05 12.34 L307.53 14.10 L306.00 13.10 L304.47 14.10 L304.95 12.34 L303.53 11.20 L305.35 11.11Z"
+                  /></svg
+              ></span>
+            </button>
+          </section>
+        </div>
+        <section class="desk" id="desk-controls" hidden>
+          <div class="kcard k">
+            <svg class="ic kpic" aria-hidden="true">
+              <use href="#p-lampbell" />
+            </svg>
+            <p class="kc-t" id="desk-kind">WZ-594F zeigt den Desk</p>
+            <p>Der Dienst hält das Signal aktuell.</p>
+          </div>
+          <div class="desk-grid e">
+            <section>
+              <h2>Desk-Signal</h2>
+              <div class="lc">
+                <ul class="lc-desks">
+                  <li>
+                    <span class="dot" style="--c: #18c2b0"></span
+                    ><span class="lc-tx" id="desk-ppm"
+                      >PPM · nicht verbunden</span
+                    >
+                  </li>
+                  <li>
+                    <span class="dot" style="--c: #ffa020"></span
+                    ><span class="lc-tx" id="desk-pma"
+                      >PMA · nicht verbunden</span
+                    >
+                  </li>
+                </ul>
+                <div class="lc-now">
+                  <p class="lc-lit" id="desk-lit">Leuchtet: Unbekannt · 5 %</p>
+                  <p class="dk-note" id="desk-applied">
+                    Hub-Bestätigung steht aus
+                  </p>
+                  <div class="lc-foot">
+                    <p class="lc-stand" id="desk-time">
+                      Stand — · keine aktuellen Daten
+                    </p>
+                    <button type="button" class="seen" id="desk-seen" hidden>
+                      Gesehen
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="rules">
+              <h2>Signal-Regeln</h2>
+              <div class="mx" role="group" aria-label="Signal-Regeln">
+                <span></span><span class="mx-h">PPM</span
+                ><span class="mx-h">PMA</span><span class="mx-h">Beide</span
+                ><span class="mx-r">Dringend</span
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="urgent:ppm"
+                  aria-label="Dringend · PPM"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="urgent:pma"
+                  aria-label="Dringend · PMA"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="urgent:both"
+                  aria-label="Dringend · Beide"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><span class="mx-r">Regulär</span
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="regular:ppm"
+                  aria-label="Regulär · PPM"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="regular:pma"
+                  aria-label="Regulär · PMA"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="regular:both"
+                  aria-label="Regulär · Beide"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><span class="mx-r">Ohne Eile</span
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="open:ppm"
+                  aria-label="Ohne Eile · PPM"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="open:pma"
+                  aria-label="Ohne Eile · PMA"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span></button
+                ><button
+                  type="button"
+                  class="cell"
+                  data-rule="open:both"
+                  aria-label="Ohne Eile · Beide"
+                >
+                  <span class="dot"></span><span class="cv">—</span
+                  ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                    <use href="#i-wave" /></svg
+                  ><span class="sr rule-motion"></span>
+                </button>
+              </div>
+              <ul class="rls">
+                <li class="rl">
+                  <button type="button" class="rl-b" data-rule="idle">
+                    <span class="dot"></span
+                    ><span class="rl-n">Ruhe (nichts offen)</span
+                    ><span class="cv">Aus</span
+                    ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                      <use href="#i-wave" /></svg
+                    ><span class="sr rule-motion"></span>
+                  </button>
+                </li>
+                <li class="rl">
+                  <button type="button" class="rl-b" data-rule="unknown">
+                    <span class="dot" style="--c: #8fa3b0"></span
+                    ><span class="rl-n">Unbekannt (keine Daten)</span
+                    ><span class="cv">5 %</span
+                    ><svg class="ic cwave motion-hidden" aria-hidden="true">
+                      <use href="#i-wave" /></svg
+                    ><span class="sr rule-motion"></span>
+                  </button>
+                </li>
+              </ul>
+              <p class="dk-note">
+                Unbekannt ist nie Aus, damit Aus nie täuscht.
+              </p>
+              <p class="dk-note">
+                Aus heißt: nichts wartet auf Antwort (solange der
+                Nachtlicht-Dienst läuft).
+              </p>
+            </section>
+            <section>
+              <h2>Dringend nach</h2>
+              <div class="stps">
+                <label class="stp"
+                  >PPM
+                  <input
+                    type="number"
+                    id="threshold-ppm"
+                    min="1"
+                    max="48"
+                    value="4"
+                    aria-label="PPM dringend nach Stunden"
+                  />
+                  h</label
+                ><label class="stp"
+                  >PMA
+                  <input
+                    type="number"
+                    id="threshold-pma"
+                    min="1"
+                    max="48"
+                    value="4"
+                    aria-label="PMA dringend nach Stunden"
+                  />
+                  h</label
+                >
+              </div>
+              <p class="dk-note">
+                Oder wenn eine Freigabe innerhalb 1 h abläuft.
+              </p>
+              <button type="button" class="tlink" id="save-thresholds">
+                Schwellen speichern
+              </button>
+              <h2>Ton bei neuer Entscheidung</h2>
+              <div class="tgl-row">
+                <span class="tgl-l">Automatischer Ton</span
+                ><button
+                  type="button"
+                  class="tgl"
+                  id="auto-sound"
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="Automatischer Ton"
+                >
+                  <span class="trk"><span class="knob"></span></span>
+                </button>
+              </div>
+              <div class="field">
+                <span class="lab">Lautstärke · max. 15 %</span>
+                <div class="slrow" data-slider-row="1">
+                  <span class="se"></span>
+                  <div class="sl" id="auto-vol-track" style="--f: 0">
+                    <span class="tr"></span><span class="fi"></span
+                    ><span class="th"></span
+                    ><input
+                      class="range-native"
+                      type="range"
+                      id="auto-vol"
+                      min="0"
+                      max="15"
+                      value="10"
+                      step="1"
+                      aria-label="Automatische Lautstärke"
+                    />
+                  </div>
+                  <output
+                    class="val"
+                    id="auto-vol-value"
+                    for="auto-vol"
+                  ></output>
+                </div>
+              </div>
+              <div class="kv dur">
+                <span class="lab">Dauer</span>
+                <div
+                  class="seg"
+                  role="group"
+                  aria-label="Automatische Tondauer"
+                >
+                  <button
+                    type="button"
+                    data-auto-duration="full"
+                    aria-pressed="false"
+                  >
+                    Ganz</button
+                  ><button
+                    type="button"
+                    data-auto-duration="short"
+                    aria-pressed="true"
+                  >
+                    Kurz
+                  </button>
+                </div>
+              </div>
+              <div id="auto-duration-controls">
+                <div class="slrow" data-slider-row="1">
+                  <span class="se"></span>
+                  <div class="sl" id="auto-duration-track" style="--f: 0">
+                    <span class="tr"></span><span class="fi"></span
+                    ><span class="th"></span
+                    ><input
+                      class="range-native"
+                      type="range"
+                      id="auto-duration"
+                      min="200"
+                      max="3000"
+                      value="1000"
+                      step="100"
+                      aria-label="Automatische Tondauer in Millisekunden"
+                    />
+                  </div>
+                  <output
+                    class="val"
+                    id="auto-duration-value"
+                    for="auto-duration"
+                  ></output>
+                </div>
+                <label class="numf"
+                  ><input
+                    type="number"
+                    id="auto-duration-ms"
+                    min="200"
+                    max="3000"
+                    value="1000"
+                    aria-label="Automatische Dauer in Millisekunden"
+                  /><span class="unit">ms</span></label
+                >
+              </div>
+              <div class="kv">
+                <button type="button" class="chip" id="auto-tone-test">
+                  Testen</button
+                ><button type="button" class="chip" id="auto-tone-save">
+                  Ton speichern
+                </button>
+              </div>
+              <p class="dk-note">
+                höchstens 1× in 10 Min · nie zweimal für denselben Eintrag
+              </p>
+              <p class="dk-note">
+                Ruhezeit 20:00–07:30 · Europe/Vienna<br />Licht dann ständig bei
+                5 %
+              </p>
+            </section>
+          </div>
+        </section>
+        <noscript
+          >Bitte JavaScript aktivieren, um das Nachtlicht zu bedienen.</noscript
+        >
+      </main>
+      <div
+        id="status"
+        class="st"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <div class="st-i">
+          <svg class="ic st-ic" aria-hidden="true"><use href="#i-moon" /></svg>
+          <p class="st-t" id="status-text">Bereit · KI-18FB</p>
+          <button type="button" id="retry" class="again" hidden>
+            <svg class="ic" aria-hidden="true"><use href="#i-retry" /></svg
+            >Nochmal</button
+          ><button type="button" id="reload" class="again" hidden>
+            <svg class="ic" aria-hidden="true"><use href="#i-reload" /></svg>Neu
+            laden</button
+          ><button type="button" id="undo" class="undo" hidden>
+            Rückgängig
+          </button>
+        </div>
+      </div>
+      <dialog id="save-sheet" class="sheet" aria-labelledby="sheet-title">
+        <div class="sheet-inner">
+          <span class="grab"></span>
+          <h2 id="sheet-title">Speichern als …</h2>
+          <div class="sh-head">
+            <button type="button" class="hbtn" id="edit-places">
+              Bearbeiten
+            </button>
+          </div>
+          <div class="places" id="save-places">
+            <div class="pl-row" id="place-row-nacht">
+              <button
+                type="button"
+                class="pl-main"
+                data-save-place="nacht"
+                aria-pressed="false"
+              >
+                <span class="dot"></span><span class="pl-name"></span
+                ><span class="pl-v"></span></button
+              ><input
+                class="pl-in pl-rename"
+                id="rename-nacht"
+                maxlength="16"
+                aria-label="Name des Platzes"
+              /><button
+                type="button"
+                class="ibs"
+                data-rename-place="nacht"
+                aria-label="Platz umbenennen"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-pencil" />
+                </svg></button
+              ><button
+                type="button"
+                class="ibs rm"
+                data-delete-place="nacht"
+                aria-label="Platz löschen"
+              >
+                <svg class="ic" aria-hidden="true"><use href="#i-trash" /></svg>
+              </button>
+            </div>
+            <div class="pl-row" id="place-row-p2">
+              <button
+                type="button"
+                class="pl-main"
+                data-save-place="p2"
+                aria-pressed="false"
+              >
+                <span class="dot"></span><span class="pl-name"></span
+                ><span class="pl-v"></span></button
+              ><input
+                class="pl-in pl-rename"
+                id="rename-p2"
+                maxlength="16"
+                aria-label="Name des Platzes"
+              /><button
+                type="button"
+                class="ibs"
+                data-rename-place="p2"
+                aria-label="Platz umbenennen"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-pencil" />
+                </svg></button
+              ><button
+                type="button"
+                class="ibs rm"
+                data-delete-place="p2"
+                aria-label="Platz löschen"
+              >
+                <svg class="ic" aria-hidden="true"><use href="#i-trash" /></svg>
+              </button>
+            </div>
+            <div class="pl-row" id="place-row-p3">
+              <button
+                type="button"
+                class="pl-main"
+                data-save-place="p3"
+                aria-pressed="false"
+              >
+                <span class="dot"></span><span class="pl-name"></span
+                ><span class="pl-v"></span></button
+              ><input
+                class="pl-in pl-rename"
+                id="rename-p3"
+                maxlength="16"
+                aria-label="Name des Platzes"
+              /><button
+                type="button"
+                class="ibs"
+                data-rename-place="p3"
+                aria-label="Platz umbenennen"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-pencil" />
+                </svg></button
+              ><button
+                type="button"
+                class="ibs rm"
+                data-delete-place="p3"
+                aria-label="Platz löschen"
+              >
+                <svg class="ic" aria-hidden="true"><use href="#i-trash" /></svg>
+              </button>
+            </div>
+            <div class="pl-row" id="place-row-p4">
+              <button
+                type="button"
+                class="pl-main"
+                data-save-place="p4"
+                aria-pressed="false"
+              >
+                <span class="dot"></span><span class="pl-name"></span
+                ><span class="pl-v"></span></button
+              ><input
+                class="pl-in pl-rename"
+                id="rename-p4"
+                maxlength="16"
+                aria-label="Name des Platzes"
+              /><button
+                type="button"
+                class="ibs"
+                data-rename-place="p4"
+                aria-label="Platz umbenennen"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-pencil" />
+                </svg></button
+              ><button
+                type="button"
+                class="ibs rm"
+                data-delete-place="p4"
+                aria-label="Platz löschen"
+              >
+                <svg class="ic" aria-hidden="true"><use href="#i-trash" /></svg>
+              </button>
+            </div>
+            <div class="pl-row" id="place-row-p5">
+              <button
+                type="button"
+                class="pl-main"
+                data-save-place="p5"
+                aria-pressed="false"
+              >
+                <span class="dot"></span><span class="pl-name"></span
+                ><span class="pl-v"></span></button
+              ><input
+                class="pl-in pl-rename"
+                id="rename-p5"
+                maxlength="16"
+                aria-label="Name des Platzes"
+              /><button
+                type="button"
+                class="ibs"
+                data-rename-place="p5"
+                aria-label="Platz umbenennen"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-pencil" />
+                </svg></button
+              ><button
+                type="button"
+                class="ibs rm"
+                data-delete-place="p5"
+                aria-label="Platz löschen"
+              >
+                <svg class="ic" aria-hidden="true"><use href="#i-trash" /></svg>
+              </button>
+            </div>
+            <div class="pl-row" id="place-row-p6">
+              <button
+                type="button"
+                class="pl-main"
+                data-save-place="p6"
+                aria-pressed="false"
+              >
+                <span class="dot"></span><span class="pl-name"></span
+                ><span class="pl-v"></span></button
+              ><input
+                class="pl-in pl-rename"
+                id="rename-p6"
+                maxlength="16"
+                aria-label="Name des Platzes"
+              /><button
+                type="button"
+                class="ibs"
+                data-rename-place="p6"
+                aria-label="Platz umbenennen"
+              >
+                <svg class="ic" aria-hidden="true">
+                  <use href="#i-pencil" />
+                </svg></button
+              ><button
+                type="button"
+                class="ibs rm"
+                data-delete-place="p6"
+                aria-label="Platz löschen"
+              >
+                <svg class="ic" aria-hidden="true"><use href="#i-trash" /></svg>
+              </button>
+            </div>
+          </div>
+          <button type="button" class="pl-new" id="new-place">
+            Neuer Platz
+          </button>
+          <div class="pl-conf" id="delete-place-confirm" hidden>
+            <p id="delete-place-label"></p>
+            <div class="sh-act">
+              <button type="button" class="btn2" id="cancel-place-delete">
+                Behalten</button
+              ><button type="button" class="btn1" id="confirm-place-delete">
+                Löschen
+              </button>
+            </div>
+          </div>
+          <div class="ba">
+            <span class="bai"
+              ><span class="bal">Bisher</span
+              ><span class="dot" id="old-dot"></span
+              ><span id="old-preset"></span></span
+            ><svg class="ic arr" aria-hidden="true"><use href="#i-arrow" /></svg
+            ><span class="bai"
+              ><span class="bal">Neu</span><span class="dot" id="new-dot"></span
+              ><span id="new-preset"></span
+            ></span>
+          </div>
+          <p class="sh-note" id="place-ha-note">
+            Gilt für die Nachtlicht-Taste hier und den Taster im Kinderzimmer.
+          </p>
+          <div class="sh-act">
+            <button type="button" id="cancel-save" class="btn2">
+              Abbrechen</button
+            ><button type="button" id="confirm-save" class="btn1">
+              Speichern
+            </button>
+          </div>
+          <button type="button" id="reset-preset" class="tlink">
+            Auf Standard zurücksetzen (#5C0701 · 44 %)
+          </button>
+        </div>
+      </dialog>
+      <dialog id="rule-sheet" class="sheet ed" aria-labelledby="rule-title">
+        <div class="sheet-inner">
+          <span class="grab"></span>
+          <h2 id="rule-title">Signal-Regel</h2>
+          <div class="slot-seg seg" role="group" aria-label="Farbplatz">
+            <button type="button" data-rule-slot="rgb" aria-pressed="true">
+              Farbe 1</button
+            ><button type="button" data-rule-slot="rgb2" aria-pressed="false">
+              Farbe 2
+            </button>
+          </div>
+          <div class="pks">
+            <button
+              type="button"
+              class="pk"
+              data-rule-color="18C2B0"
+              aria-label="Farbe #18C2B0"
+            >
+              <span class="pkc" style="--c: #18c2b0"></span></button
+            ><button
+              type="button"
+              class="pk"
+              data-rule-color="FFA020"
+              aria-label="Farbe #FFA020"
+            >
+              <span class="pkc" style="--c: #ffa020"></span></button
+            ><button
+              type="button"
+              class="pk"
+              data-rule-color="9B6BFF"
+              aria-label="Farbe #9B6BFF"
+            >
+              <span class="pkc" style="--c: #9b6bff"></span></button
+            ><button
+              type="button"
+              class="pk"
+              data-rule-color="8FA3B0"
+              aria-label="Farbe #8FA3B0"
+            >
+              <span class="pkc" style="--c: #8fa3b0"></span></button
+            ><button
+              type="button"
+              class="pk"
+              data-rule-color="FF2A00"
+              aria-label="Farbe #FF2A00"
+            >
+              <span class="pkc" style="--c: #ff2a00"></span></button
+            ><button
+              type="button"
+              class="pk"
+              data-rule-color="FFFFFF"
+              aria-label="Farbe #FFFFFF"
+            >
+              <span class="pkc" style="--c: #ffffff"></span></button
+            ><input
+              type="color"
+              id="rule-color"
+              value="#18c2b0"
+              aria-label="Eigene Signalfarbe"
+            />
+          </div>
+          <div class="plcs">
+            <button type="button" class="plc" data-rule-place="nacht">
+              Platz</button
+            ><button type="button" class="plc" data-rule-place="p2">
+              Platz</button
+            ><button type="button" class="plc" data-rule-place="p3">
+              Platz</button
+            ><button type="button" class="plc" data-rule-place="p4">
+              Platz</button
+            ><button type="button" class="plc" data-rule-place="p5">
+              Platz</button
+            ><button type="button" class="plc" data-rule-place="p6">
+              Platz
+            </button>
+          </div>
+          <div class="ed-sec">
+            <span class="lab">Helligkeit</span>
+            <div class="slrow" data-slider-row="1">
+              <span class="se"></span>
+              <div class="sl" id="rule-bri-track" style="--f: 0">
+                <span class="tr"></span><span class="fi"></span
+                ><span class="th"></span
+                ><input
+                  class="range-native"
+                  type="range"
+                  id="rule-bri"
+                  min="0"
+                  max="100"
+                  value="20"
+                  step="1"
+                  aria-label="Signalhelligkeit"
+                />
+              </div>
+              <output class="val" id="rule-bri-value" for="rule-bri"></output>
+            </div>
+          </div>
+          <div class="ed-sec">
+            <span class="lab">Art</span>
+            <div class="seg mode-seg" role="group" aria-label="Signalart">
+              <button type="button" data-rule-mode="steady" aria-pressed="true">
+                Ständig</button
+              ><button
+                type="button"
+                data-rule-mode="blink"
+                aria-pressed="false"
+              >
+                Blinken</button
+              ><button
+                type="button"
+                data-rule-mode="alternate"
+                aria-pressed="false"
+              >
+                Wechseln
+              </button>
+            </div>
+          </div>
+          <div id="rule-takt-row">
+            <span class="lab">Takt</span>
+            <div class="slrow" data-slider-row="1">
+              <span class="se"></span>
+              <div class="sl" id="rule-takt-track" style="--f: 0">
+                <span class="tr"></span><span class="fi"></span
+                ><span class="th"></span
+                ><input
+                  class="range-native"
+                  type="range"
+                  id="rule-takt"
+                  min="2"
+                  max="5"
+                  value="2"
+                  step="1"
+                  aria-label="Takt in Sekunden"
+                />
+              </div>
+              <output class="val" id="rule-takt-value" for="rule-takt"></output>
+            </div>
+          </div>
+          <p id="rule-warning" role="status"></p>
+          <p class="dk-note">
+            Testen zeigt diese Regel 10 s. Danach kehrt das Live-Signal zurück.
+          </p>
+          <label class="tgl-row"
+            ><input type="checkbox" id="rule-all" />Auf alle Desks
+            übernehmen</label
+          >
+          <div class="sh-act">
+            <button type="button" class="btn2" id="rule-cancel">
+              Abbrechen</button
+            ><button type="button" class="btn2" id="rule-test">
+              Testen 10 s</button
+            ><button type="button" class="btn1" id="rule-save">
+              Speichern
+            </button>
+          </div>
+        </div>
+      </dialog>
+      <dialog
+        class="lock"
+        id="sending-overlay"
+        hidden
+        role="status"
+        aria-live="polite"
+      >
+        <div class="lock-card">
+          <svg class="ic lkspin" aria-hidden="true"><use href="#i-spin" /></svg>
+          <p class="lk-w" id="sending-label"></p>
+          <p class="lk-s">wird gesendet …</p>
+          <p class="lk-a" id="sending-attempt">Versuch 1 von 4</p>
+        </div>
+      </dialog>
+    </div>
+    <!--AQARA_INLINE_SCRIPT-->
+  </body>
+</html>

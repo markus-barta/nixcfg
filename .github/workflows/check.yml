@@ -299,6 +299,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T89-tm-watch.sh
 
+      - name: Verify hsb1 Aqara nightlight retries and network boundary (OPS-496)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T117-aqara-nightlight.sh
+
       - name: Keep Traefik ACME bind sources boot-safe
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh
@@ -473,6 +477,10 @@ jobs:
       - name: Verify csb1 fleet backup watch contract (OPS-485)
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T114-fleet-backup-watch.sh
+
+      - name: Verify mbp2606 Trash purge contract (OPS-489)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T116-mbp2606-trash-purge.sh
 
       - name: Verify no legacy whoami in production (NIX-292)
         if: steps.pin.outputs.pin_only != 'true'

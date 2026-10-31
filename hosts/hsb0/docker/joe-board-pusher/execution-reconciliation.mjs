@@ -377,6 +377,7 @@ function sameIntervalList(left, right) {
     for (let i = 0; i < aIds.length; i += 1) {
       if (aIds[i] !== bIds[i]) return false;
     }
+    if (a.receiptCount !== b.receiptCount || a.receiptIdsSha256 !== b.receiptIdsSha256) return false;
     if (a.reason !== undefined || b.reason !== undefined) {
       if (a.reason !== b.reason) return false;
     }
@@ -393,9 +394,21 @@ function sameCoverage(left, right) {
     sameIntervalList(left?.gaps || [], right?.gaps || []);
 }
 
-function coverageFor(target, receipts) {
-  const knownIntervals = combineIntervals(coverageIntervalEntries(receipts, false));
-  const completeIntervals = combineIntervals(coverageIntervalEntries(receipts, true));
+/** Diagnostic references only; membership proofs stay on the receipts themselves. */
+export function historyReceiptReferences(receiptIds) {
+  if (receiptIds.length <= 2) return { receiptIds };
+  return {
+    receiptIds: [receiptIds[0], receiptIds.at(-1)],
+    receiptCount: receiptIds.length,
+    receiptIdsSha256: digest(receiptIds),
+  };
+}
+
+function coverageFor(target, receipts, compactReferences = false) {
+  const summarize = (entries) => combineIntervals(entries).map((entry) => compactReferences
+    ? { ...entry, ...historyReceiptReferences(entry.receiptIds) } : entry);
+  const knownIntervals = summarize(coverageIntervalEntries(receipts, false));
+  const completeIntervals = summarize(coverageIntervalEntries(receipts, true));
   const gaps = [];
   let cursor = target.fromInclusive;
   for (const complete of completeIntervals) {
@@ -485,6 +498,110 @@ function receiptFor(capture) {
   return { schema: HISTORY_RECEIPT_SCHEMA, receiptId: digest(facts), ...facts, executionIds, commissionIds };
 }
 
+function compactReceiptRun(receipts) {
+  if (receipts.length === 1) return receipts[0];
+  const ordered = [...receipts].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
+  const first = ordered[0];
+  const last = ordered.at(-1);
+  const proofDigest = digest(ordered.map((receipt) => receipt.receiptId));
+  const identityFacts = (kind) => {
+    const idsKey = `${kind}Ids`;
+    const countKey = `${kind}Count`;
+    const digestKey = `${kind}IdentityDigest`;
+    if (receipts.every((receipt) => Array.isArray(receipt[idsKey]))) {
+      const ids = [...new Set(receipts.flatMap((receipt) => receipt[idsKey]))].sort();
+      return { [idsKey]: ids, [countKey]: ids.length, [digestKey]: digest(ids) };
+    }
+    // Legacy digest-only proofs cannot acquire invented membership. Counts here
+    // describe observations; the bounded digest binds the original proofs.
+    return {
+      [countKey]: receipts.reduce((sum, receipt) => sum + receipt[countKey], 0),
+      [digestKey]: digest(ordered.map((receipt) => receipt[digestKey])),
+    };
+  };
+  const facts = {
+    source: {
+      kind: "persisted-ledger",
+      id: `history-compaction:${proofDigest}`,
+      sha256: proofDigest,
+      metadata: {
+        historyCompaction: {
+          version: 1,
+          receiptCount: receipts.reduce((sum, receipt) => sum + (receipt.source.metadata.historyCompaction?.receiptCount || 1), 0),
+        },
+      },
+    },
+    capturedAt: last.capturedAt,
+    window: {
+      fromInclusive: receipts.reduce((start, receipt) => receipt.window.fromInclusive < start ? receipt.window.fromInclusive : start, first.window.fromInclusive),
+      toExclusive: receipts.reduce((end, receipt) => receipt.window.toExclusive > end ? receipt.window.toExclusive : end, first.window.toExclusive),
+    },
+    coverageStatus: "known",
+    completenessAssertion: null,
+    ...identityFacts("execution"),
+    ...identityFacts("commission"),
+    payloadDigest: digest(ordered.map((receipt) => receipt.payloadDigest)),
+  };
+  const { executionIds, commissionIds, ...identity } = facts;
+  return { schema: HISTORY_RECEIPT_SCHEMA, receiptId: digest(identity), ...facts };
+}
+
+/**
+ * Compact KNOWN observation receipts, never ledger rows or COMPLETE proofs.
+ * COMPLETE receipt boundaries also bind desk evidence and recovery anchors.
+ */
+export function compactBestAvailableHistoryState(state) {
+  validateBestAvailableHistoryState(state);
+  const known = [];
+  const retained = [];
+  for (const receipt of state.receipts) {
+    if (receipt.coverageStatus === "complete") {
+      retained.push(receipt);
+      continue;
+    }
+    known.push(receipt);
+  }
+  known.sort((a, b) => a.window.fromInclusive.localeCompare(b.window.fromInclusive) || a.window.toExclusive.localeCompare(b.window.toExclusive));
+  let run = [];
+  let through = null;
+  const flush = () => {
+    // Keep the latest original receipt for exact replay/source-reuse checks.
+    // Prefer an original on timestamp ties so a newly hashed compacted proof
+    // cannot displace it and change compaction again on the next save.
+    const ordered = [...run].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) ||
+      Number(!a.source.metadata.historyCompaction) - Number(!b.source.metadata.historyCompaction) ||
+      a.receiptId.localeCompare(b.receiptId));
+    const latest = ordered.at(-1);
+    const older = run.filter((receipt) => receipt !== latest);
+    let connected = [];
+    let end = null;
+    for (const receipt of older) {
+      if (connected.length && receipt.window.fromInclusive > end) {
+        retained.push(compactReceiptRun(connected));
+        connected = [];
+        end = null;
+      }
+      connected.push(receipt);
+      if (end === null || receipt.window.toExclusive > end) end = receipt.window.toExclusive;
+    }
+    if (connected.length) retained.push(compactReceiptRun(connected));
+    retained.push(latest);
+  };
+  for (const receipt of known) {
+    if (run.length && receipt.window.fromInclusive > through) { flush(); run = []; through = null; }
+    run.push(receipt);
+    if (through === null || receipt.window.toExclusive > through) through = receipt.window.toExclusive;
+  }
+  if (run.length) flush();
+  retained.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
+  // Exhaustive references keep saved files readable by the previous release.
+  const coverage = coverageFor(state.target, retained);
+  if (sameValue(retained, state.receipts) && sameValue(coverage, state.coverage)) return state;
+  const compacted = { ...state, receipts: retained, coverage };
+  validateBestAvailableHistoryState(compacted);
+  return deepFreeze(compacted);
+}
+
 const newYorkDateCache = new Map();
 
 function newYorkDate(value) {
@@ -558,14 +675,13 @@ function newReceiptSubsumes(existing, incoming) {
     containsAll(incoming.commissionIds, existing.commissionIds);
 }
 
-function contradictsKnownExecutions(receipt, effective) {
+function contradictsKnownExecutions(receipt, executionTimes) {
   if (!hasIdentityMembership(receipt)) return true;
   const members = new Set(receipt.executionIds);
-  return effective.some((row) => {
-    const time = executionInstant(row.execution.time);
-    return time >= receipt.window.fromInclusive && time < receipt.window.toExclusive &&
-      !members.has(executionId(row));
-  });
+  for (const [id, time] of executionTimes) {
+    if (time >= receipt.window.fromInclusive && time < receipt.window.toExclusive && !members.has(id)) return true;
+  }
+  return false;
 }
 
 function coalesceReceipts(receipts, incoming, executions) {
@@ -575,12 +691,17 @@ function coalesceReceipts(receipts, incoming, executions) {
     existing.window.toExclusive === incoming.window.toExclusive &&
     sameReceiptFacts(existing, incoming));
   if (sameProof) return receipts;
+  // latestExecutions guards against conflicting IDs at the same correction revision, including KNOWN captures.
   const effective = latestExecutions(executions);
-  const contradicted = contradictsKnownExecutions(incoming, effective);
+  if (incoming.coverageStatus === "known") return [...receipts, incoming];
+  // Parse each effective execution time once and share it across proof checks.
+  const executionTimes = new Map(effective
+    .map((row) => [executionId(row), executionInstant(row.execution.time)]));
+  const contradicted = contradictsKnownExecutions(incoming, executionTimes);
   // A truncated broad replay may replace older truncated replies, but cannot
   // erase a valid suffix proof just because its (partial) members are a superset.
   return [...receipts.filter((existing) => !newReceiptSubsumes(existing, incoming) ||
-    (contradicted && !contradictsKnownExecutions(existing, effective))), incoming];
+    (contradicted && !contradictsKnownExecutions(existing, executionTimes))), incoming];
 }
 
 export function reconcileExecutionCapture({ prior = null, capture: rawCapture, target: rawTarget } = {}) {
@@ -702,7 +823,8 @@ export function validateBestAvailableHistoryState(value) {
     }
   }
   if (!isCanonicalReceiptOrder(state.receipts)) fail("history receipts are not canonical");
-  if (!sameCoverage(state.coverage, coverageFor(target, state.receipts))) fail("history coverage is not canonical");
+  if (!sameCoverage(state.coverage, coverageFor(target, state.receipts)) &&
+      !sameCoverage(state.coverage, coverageFor(target, state.receipts, true))) fail("history coverage is not canonical");
   if (Object.isFrozen(state)) validatedHistoryStates.add(state);
   return true;
 }

@@ -30,6 +30,7 @@ in
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ./ir-bridge-watch.nix # OPS-223: pages when the FLIRC is gone, the bridge is down or the TV's Sony API answers 404
+    ./aqara-nightlight.nix # OPS-496: LAN/tailnet Aqara light + quiet built-in sounds
     ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
     ./mailbridge-watch.nix # OPS-196: OAuth/queue health, independently watched by tailnet-watch
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -205,6 +206,7 @@ in
         443 # HTTPS
         1880 # Node-RED Web UI
         1883 # MQTT
+        8765 # Aqara nightlight UI/API (OPS-496); documentation only while firewall is disabled
         9000 # Portainer web
         32400 # Plex Media Server
         445 # Samba (Time Machine shares)
