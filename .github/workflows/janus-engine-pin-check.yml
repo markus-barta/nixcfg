@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   pin-check:
-    name: retained pins verified and Janus app declared retired
+    name: retained pins verified and all Janus runtimes declared retired
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

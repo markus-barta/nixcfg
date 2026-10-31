@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # T07-pharos-auth-bootstrap.sh
-# Description: Validate Janus-mode Pharos has no local registration credential wiring.
+# Description: Validate local-mode Pharos keeps registration closed without credentials.
 # Related PPM issues: PHAROS-37, PHAROS-40, PHAROS-164, PHAROS-170
 
 set -euo pipefail
@@ -40,7 +40,8 @@ need_line '  age.secrets.pharos-beacon-csb1-env = {' "$CSB1_CONFIG"
 need_line '    path = "/run/agenix/pharos-beacon-csb1-env";' "$CSB1_CONFIG"
 need_line '        "/run/agenix/pharos-beacon-csb1-env"' "$CSB1_COMPOSE"
 need_line '        "PHAROS_REQUIRE_BEACON_TOKEN=1"' "$CSB1_COMPOSE"
-need_line '        "PHAROS_BEACON_TOKEN_MODE=janus"' "$CSB1_COMPOSE"
+need_line '        "PHAROS_BEACON_TOKEN_MODE=local"' "$CSB1_COMPOSE"
+need_line '        "PHAROS_ALLOW_LOCAL_REGISTER=false"' "$CSB1_COMPOSE"
 operator_ref="$(sed -n 's/^[[:space:]]*"PHAROS_ALLOWED_OPERATORS=\(verified-email-ref:[0-9a-f]\{64\}\)"$/\1/p' "$CSB1_COMPOSE")"
 if [[ ! "$operator_ref" =~ ^verified-email-ref:[0-9a-f]{64}$ ]]; then
   echo "Pharos operator allowlist must use one value-free verified-email reference" >&2

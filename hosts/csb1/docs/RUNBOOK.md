@@ -348,7 +348,58 @@ All OPS-136 commands run as root under the campaign flock
 `/root/ops136-backups/`. Disaster recovery from image archives:
 `ops136/dr-image-id.override.yml` (read its STEP 0 first).
 
-### Janus v1 retirement (OPS-280)
+### Janus shutdown and local Pharos beacon auth (OPS-514)
+
+OPS-514 supersedes the OPS-280 runtime state below. Pharos uses
+`PHAROS_BEACON_TOKEN_MODE=local`, requires a bearer token, and explicitly
+disables local registration. It verifies the existing host hash in
+`pharos_data`; it no longer mounts Janus hash/provider projections, managed
+setup credentials or managed-service declarations. OIDC, alerts, ordinary
+nixcfg dispatch and the hsb8 manifest remain configured.
+
+The `janus`, `janus-placeholder`, `janus-engine-staged`,
+`janus-managed-transactiond` and `janus-managed-canary` Compose services are
+retained under `janus-retired`. Janus restore, host agent, canary, central seed
+and transaction daemon units are disabled, as are the managed declaration
+publisher and Pharos provisioning/retirement executors and their timers.
+Host removal dispatch and its workflow job are disabled to protect the only
+active copy of beacon hashes. Volumes, custody directories, encrypted files
+and agenix declarations remain available for rollback.
+
+Routing is deliberately unchanged, including the private-source assertions:
+`vault.barta.cm` and `flow.inspr.at/janus` reach an unavailable upstream (502
+after any existing redirects). `janus.inspr.at` remains the separate product
+site served by `inspr-www`. Both app Flow readers remain inactive; the shared
+Flow edge remains active for its other applications.
+
+Before an attended switch, verify there is no active provisioning, removal or
+retirement job, and record a private backup/restore path for `pharos_data`.
+Verify matching hashes exist for csb0, csb1, hsb0, hsb1, hsb8 and hsb9 without
+printing credential values. Losing this store or restoring stale hashes
+breaks beacon authentication; new enrollment and rotation need the separate
+PHAROS-336 lifecycle work.
+
+After the approved deployment, check `docker ps` and explicitly stop any
+remaining Janus containers with `docker stop` using those exact five names
+(select only containers that exist). An inactive Compose profile does not
+stop an existing container; `removeOrphans` remains false. Verify the old
+transactiond/canary units ran their stop commands, every retired unit/timer is
+inactive, and a second normal stack reconciliation leaves Janus stopped.
+Do not remove containers or volumes. Check Pharos readiness, reports from all
+six hosts, 401 for missing/wrong/unknown-host tokens, 410 for registration,
+normal OIDC/alerts, accepted Janus route failures and the working product site.
+
+hsb8 is unchanged. Its action agent authenticates through the local beacon
+hash, but Pharos's Janus action-readiness gate returns false in local mode:
+new Janus-guarded actions are unavailable. Authentication alone does not
+prove guarded delivery works; resolve queued work before cutover.
+
+Rollback is an attended reversal of OPS-514: restore the prior configuration,
+switch csb1, explicitly restart only the previously active retained Janus
+containers/units, and verify projections before returning Pharos to Janus
+mode. Keep the existing data; do not reset the store or re-enrol hosts.
+
+### Janus v1 retirement (OPS-280, historical)
 
 The `janus` service is retained under the `janus-retired` Compose profile with
 `restart = "no"`. Normal boot, switch and weekly reconciliation skip it.
@@ -379,7 +430,9 @@ No data restore is needed. The HostDash stopped-container card is a follow-up.
 
 ### Janus Staged Engine Smoke
 
-The `janus-engine-staged` compose profile stays disabled and non-Traefik. Its
+After OPS-514 the staged engine uses the `janus-retired` profile and remains
+outside normal reconciliation and Traefik. The commands below are retained
+manual smoke/rollback tools, not part of the active production pipeline. Its
 non-prod smoke uses the signed digest-pinned engine image, Docker-volume
 non-prod age material, a non-prod metadata overlay, and a permit-bound
 `janusd-use run` launched through the staged compose service; no production secret
@@ -412,9 +465,10 @@ mount shadowing the placeholder directory or its Caddyfile.
 
 The check evaluates only local Compose/Flow metadata, without a NixOS build or
 private flake fetch. It asserts the retired `janus` profile and disabled restart,
-the active read-only placeholder and its routing, and the isolated staged engine.
-Pharos's production renderers and retirement executor still use the staged pin;
-transactiond retains its separate pin, environment digest and verified admission
+the retired read-only placeholder and retained routing, and the retired isolated
+staged engine. The retained Pharos renderer/retirement tooling references the
+staged pin; its production executors are disabled. Transactiond retains its
+separate pin, environment digest and verified admission
 receipt. Neither pin must track the newest upstream release. For each retained
 pin the check requires its exact published stable release, the actual
 `rust-engine-sbom.spdx.json` release asset, the matching GHCR tag and manifest

@@ -143,13 +143,14 @@ const source = (kind, value, reason, observedAt, periodStart) => ({
   currency: "EUR", scope: "virtual-desks", observedAt: value ? observedAt : null,
   ...(kind === "day" ? { periodStart: value ? periodStart : null } : {}), ...(!value ? { reason } : {}),
 });
-const sameDayFx = (day, id, fx) => {
+const provenDayFx = (day, id, fx) => {
   const sodFx = day.sodFx?.[id];
-  // DAY subtracts two EUR snapshots. A single rate can describe it only when
-  // that rate actually produced both snapshots; legacy SOD has no FX proof.
+  // DAY subtracts two EUR snapshots, each at its own proven rate. copyDay
+  // bounds the SOD proof's clocks; applyExactValues checks current freshness.
+  // Legacy SOD without a recorded foreign-rate proof still cannot be exact.
   if (fx === null) return day.sodFx === null || sodFx === null;
   return sodFx && fx && sodFx.base === fx.base && sodFx.quote === fx.quote
-    && sodFx.rate && fx.rate && units(sodFx.rate) > 0n && units(sodFx.rate) === units(fx.rate)
+    && sodFx.rate && fx.rate && units(sodFx.rate) > 0n && units(fx.rate) > 0n
     && instant(sodFx.observedAt) && sodFx.observedAt <= day.periodStart;
 };
 
@@ -168,7 +169,7 @@ export function applyExactValues(candidate, observation, generatedAt) {
       const day = valid ? evidence.day : null;
       const fieldReason = reason || (field === "dayPnl" && (!day || !fresh(day.observedAt, generatedAt)
         || day.observedAt !== row.observedAt) ? "sod_missing"
-        : field === "dayPnl" && !sameDayFx(day, desk.id, fx) ? "not_exact_yet"
+        : field === "dayPnl" && !provenDayFx(day, desk.id, fx) ? "not_exact_yet"
           : field === "totalPnl" && row.base !== "5000" ? "not_exact_yet" : null);
       desk.money[field] = fieldReason ? null : money(field === "dayPnl" ? day.values[desk.id] : row[field], "EUR", fx);
       if (desk.money[field]) delete desk.money.reasons[field];
@@ -178,6 +179,10 @@ export function applyExactValues(candidate, observation, generatedAt) {
     desk.action = exactDeskAction(desk.money);
     desk.pnlSources = Object.fromEntries([["day", "dayPnl"], ["open", "openPnl"]].map(([kind, field]) =>
       [kind, source(kind, desk.money[field], desk.money.reasons?.[field], kind === "day" ? evidence?.day?.observedAt : row?.observedAt, evidence?.day?.periodStart)]));
+    const sodFx = evidence?.day?.sodFx?.[desk.id];
+    if (desk.money.dayPnl && fx && sodFx && units(sodFx.rate) !== units(fx.rate)) {
+      desk.pnlSources.day.detail = `New York SOD conversion: ${sodFx.source}; observedAt ${sodFx.observedAt}.`;
+    }
   }
   candidate.totals = { reasons: {} };
   for (const field of MONEY_FIELDS) {

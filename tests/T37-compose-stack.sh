@@ -181,7 +181,7 @@ targets = command[9:]
 services = contract["services"]
 assert contract["composeProfiles"] == "", "enabled Compose profiles need pull-set coverage"
 assert "minio" in services and "minio" in contract["exclusions"]
-inactive = {"janus", "janus-engine-staged", "janus-managed-canary", "janus-managed-transactiond"}
+inactive = {"janus", "janus-placeholder", "janus-engine-staged", "janus-managed-canary", "janus-managed-transactiond"}
 assert all(services[name]["profiles"] for name in inactive), "Janus profile gates disappeared"
 assert not ({"minio", "hausv-org"} | inactive).intersection(targets), "inactive/excluded service pulled"
 expected = sorted(name for name, service in services.items()

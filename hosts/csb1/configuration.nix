@@ -790,9 +790,9 @@ in
     ncps.enable = false; # Cloud server: Never sees hsb0
   };
 
-  # csb1 executes credential retirement for other hosts after their reviewed
-  # removal proposal is deployed. The executor rejects csb1 as its own target.
-  inspr.pharosRetirementExecutor.enable = true;
+  # OPS-514: Janus retirement and provider provisioning are retired. Keep their
+  # configuration and encrypted credentials intact for an attended rollback.
+  inspr.pharosRetirementExecutor.enable = false;
   # PHAROS-199: take the engine image from the same attribute that pins the
   # container, not from a parsed docker-compose.yml — OPS-122 deleted that file
   # on 2026-08-01, and every retirement since failed `missing_engine_image`,
@@ -805,7 +805,7 @@ in
   # key remains root-only in agenix. Paid creation still requires a separate
   # attended review and confirmation in Pharos.
   inspr.pharosProvisioningExecutor = {
-    enable = true;
+    enable = false;
     sshKeyRef = "pharos-csb1-executor";
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
   };
@@ -870,7 +870,7 @@ in
   # Value-free declaration consumed read-only by Pharos. The profile refs are
   # reviewed capabilities, not runtime paths or commands; Janus owns delivery.
   services.janus.managedServiceManifest = {
-    enable = true;
+    enable = false; # OPS-514: Pharos no longer consumes managed declarations.
     hostRef = "host_58f36c72a91e";
     services = [
       {
@@ -898,7 +898,7 @@ in
   # JANUS-365 activation follows the signed v0.1.17 release, closed runtime
   # authorities, immutable release pins, and production readiness review.
   inspr.janusHostSecrets = {
-    enable = true;
+    enable = false; # OPS-514: disables restore, host agent and canary units.
     hostRef = "host_58f36c72a91e";
     scopeRef = "scp_e3b09b6f7b8b2377d8c0e8b904043ef025b68d6b";
     ownerUid = 65534;
@@ -1309,6 +1309,7 @@ in
   };
 
   systemd.services.janus-managed-central-seed = {
+    enable = false; # OPS-514: preserve custody data without running Janus.
     description = "Seed and validate the Janus managed-secret custody store";
     wantedBy = [ "multi-user.target" ];
     before = [
@@ -1350,6 +1351,7 @@ in
   };
 
   systemd.services.janus-managed-transactiond = {
+    enable = false; # OPS-514: no managed-service transactions after retirement.
     description = "Run the private Janus managed-service transaction boundary";
     wantedBy = [ "multi-user.target" ];
     # The daemon loads these contracts only at startup. Content triggers ensure

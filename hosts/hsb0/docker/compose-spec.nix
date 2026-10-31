@@ -401,9 +401,14 @@
       cap_drop = [ "ALL" ];
       security_opt = [ "no-new-privileges:true" ];
       user = "1000:1000";
+      # JOED-102: the receipt-scan checkpoint (bounded cold start) lives in stager-only storage. No other
+      # service may mount it or see the variable (eval-time assertion in ../configuration.nix). Overlays
+      # must APPEND to this list: recursiveUpdate replaces lists, which would silently drop the checkpoint.
+      environment = [ "JOE_V2_STAGE_CHECKPOINT_DIR=/var/lib/joe-household-v2-stage-checkpoint" ];
       volumes = [
         "/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:rw"
         "/run/joe-household-v2:/run/joe-household-v2:rw"
+        "/var/lib/joe-household-v2-stage-checkpoint:/var/lib/joe-household-v2-stage-checkpoint:rw"
       ];
     };
 
@@ -447,6 +452,9 @@
         # OPS-380: the video overview page, same pattern as /inflight/.
         "/var/lib/videos:/srv/videos:ro"
         "/etc/hsb0-home-videos.conf:/etc/nginx/hostdash-extra/videos.conf:ro"
+        # OPS-508: the Pharos fleet overview page, same pattern as /videos/.
+        "/var/lib/pharosfleet:/srv/pharosfleet:ro"
+        "/etc/hsb0-home-pharosfleet.conf:/etc/nginx/hostdash-extra/pharosfleet.conf:ro"
         "/etc/hsb0-home-hausnetz.conf:/etc/nginx/hostdash-extra/hausnetz.conf:ro"
       ];
       labels = [

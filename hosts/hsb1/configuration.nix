@@ -30,6 +30,7 @@ in
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ./ir-bridge-watch.nix # OPS-223: pages when the FLIRC is gone, the bridge is down or the TV's Sony API answers 404
+    ./aqara-nightlight.nix # OPS-496: LAN/tailnet Aqara light + quiet built-in sounds
     ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
     ./mailbridge-watch.nix # OPS-196: OAuth/queue health, independently watched by tailnet-watch
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -205,6 +206,7 @@ in
         443 # HTTPS
         1880 # Node-RED Web UI
         1883 # MQTT
+        8765 # Aqara nightlight UI/API (OPS-496); documentation only while firewall is disabled
         9000 # Portainer web
         32400 # Plex Media Server
         445 # Samba (Time Machine shares)
@@ -286,8 +288,8 @@ in
     removeOrphans = true;
     autoUpdate.enable = true;
     # OPS-430 (eMudhra): these images carry their own certifi bundle, which still trusts
-    # "emSign ECC Root CA - G3" (certifi < 2026.10.19). Mount the system bundle, which carries the
-    # OPS-424 blacklist, read-only over each one. The source is the bundle's immutable store path:
+    # "emSign ECC Root CA - G3" (certifi < 2026.10.19). Mount the system bundle, which no longer
+    # trusts the OPS-424 eMudhra roots, read-only over each one. The source is the bundle's immutable store path:
     # a bundle change re-renders the compose file and recreates the containers instead of pinning a
     # stale inode. Targets are each image's certifi.where() on 2026-10-22; they follow the image's
     # Python version. Drop each entry once its image ships certifi >= 2026.10.19

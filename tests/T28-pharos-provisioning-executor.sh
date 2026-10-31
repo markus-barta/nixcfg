@@ -44,26 +44,12 @@ match = re.search(
 if match is None:
     raise SystemExit("csb1 provisioning executor block is missing")
 body = match.group("body")
-if not re.search(r"^\s*enable\s*=\s*true;\s*$", body, flags=re.MULTILINE):
-    raise SystemExit("csb1 provisioning executor must be enabled")
-if re.search(r"^\s*enable\s*=\s*false;\s*$", body, flags=re.MULTILINE):
-    raise SystemExit("csb1 provisioning executor retains the disabled preflight gate")
-
-required = (
-    "PHAROS_HCLOUD_EXECUTE=1",
-    "PHAROS_PROVISIONING_EXECUTOR_READY=1",
-)
-for setting in required:
-    if setting not in compose:
-        raise SystemExit(f"activated compose setting is missing: {setting}")
-for setting in (
-    "PHAROS_HCLOUD_EXECUTE=0",
-    "PHAROS_PROVISIONING_EXECUTOR_READY=0",
-):
+if not re.search(r"^\s*enable\s*=\s*false;\s*$", body, flags=re.MULTILINE):
+    raise SystemExit("csb1 provisioning executor must stay disabled after OPS-514")
+for setting in ("PHAROS_HCLOUD_", "PHAROS_PROVISIONING_"):
     if setting in compose:
-        raise SystemExit(f"disabled preflight setting remains: {setting}")
+        raise SystemExit(f"retired provisioning setting remains: {setting}")
 PY
-grep -Fq 'PHAROS_PROVISIONING_OWNER_HOST=csb1' "$compose"
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 grep -Fq -- '--copy-host-keys' "$executor_source"
 # shellcheck disable=SC2016

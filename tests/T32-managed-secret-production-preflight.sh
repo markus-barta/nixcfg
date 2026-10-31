@@ -27,8 +27,8 @@ activation="$(
   nix eval --json \
     "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
 )"
-if [ "${activation}" != "true" ]; then
-  printf 'managed-service production activation is not enabled\n' >&2
+if [ "${activation}" != "false" ]; then
+  printf 'retired managed-service production activation is still enabled\n' >&2
   exit 1
 fi
 
@@ -310,7 +310,7 @@ grep -Fq 'profiles = [' "${compose}"
 grep -Fq 'user = "100:101";' "${compose}"
 grep -Fq 'user = "100:993";' "${compose}"
 grep -Fq 'user = "65534:65534";' "${compose}"
-test "$(grep -Fc '"991"' "${compose}")" -eq 2
+test "$(grep -Fc '"991"' "${compose}")" -eq 1
 grep -Fq 'network_mode = "none";' "${compose}"
 grep -Fq 'read_only = true;' "${compose}"
 grep -Fq '"ALL"' "${compose}"
@@ -388,10 +388,7 @@ for binding in \
   'JANUS_MANAGED_SETUP_MANIFEST_PATHS=/managed-services/manifest.json' \
   'JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock' \
   'JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes' \
-  'JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox' \
-  'PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key' \
-  'PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm' \
-  'PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token'; do
+  'JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox'; do
   grep -Fq "${binding}" "${compose}"
 done
 
@@ -445,7 +442,7 @@ jq -e \
   | .services["janus-placeholder"] as $placeholder
   | .services.pharosd as $pharos
   | .services["janus-managed-canary"] as $canary
-  | $transaction.profiles == ["janus-managed-service"]
+  | $transaction.profiles == ["janus-retired"]
   and $transaction.restart == "no"
   and $transaction.init == true
   and $transaction.user == "100:993"
@@ -481,7 +478,7 @@ jq -e \
   and $janus.profiles == ["janus-retired"]
   and $janus.restart == "no"
   and $placeholder.image == "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
-  and ($placeholder | has("profiles") | not)
+  and $placeholder.profiles == ["janus-retired"]
   and $placeholder.restart == "unless-stopped"
   and $placeholder.read_only == true
   and $placeholder.networks["shared-flow"].ipv4_address == "10.253.253.6"
@@ -496,15 +493,16 @@ jq -e \
   and ($janus | closed_bind("/run/janus-managed-central"; true))
   and ($janus | closed_bind("/var/lib/janus-managed-central/outbox"; true))
   and $pharos.user == "10001:992"
-  and ($pharos.group_add | index("991") != null)
-  and any($pharos.volumes[];
-    .source == "/run/agenix/csb1-janus-managed-internal-token-pharos"
-    and .target == "/run/pharos/managed-setup-internal-token"
-    and .read_only == true
-    and .bind.create_host_path == false
-  )
-  and ($pharos | closed_bind("/run/pharos/managed-setup-signing-key"; true))
-  and ($pharos | closed_bind("/run/pharos/managed-setup-internal-token"; true))
+  and ($pharos | has("group_add") | not)
+  and ($pharos.environment | index("PHAROS_BEACON_TOKEN_MODE=local") != null)
+  and ($pharos.environment | index("PHAROS_ALLOW_LOCAL_REGISTER=false") != null)
+  and ($pharos.environment | index("PHAROS_REQUIRE_BEACON_TOKEN=1") != null)
+  and all($pharos.volumes[];
+    ((.target // "") | startswith("/run/pharos/managed-setup-") | not)
+    and .target != "/managed-services"
+    and .target != "/run/pharos/beacon-token-hashes"
+    and .target != "/run/pharos/providers")
+  and $canary.profiles == ["janus-retired"]
   and $canary.init == true
   and $canary.user == "65534:65534"
   and $canary.read_only == true

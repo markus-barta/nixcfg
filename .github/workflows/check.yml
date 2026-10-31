@@ -299,6 +299,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T89-tm-watch.sh
 
+      - name: Verify hsb1 Aqara nightlight retries and network boundary (OPS-496)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/T117-aqara-nightlight.sh
+
       - name: Keep Traefik ACME bind sources boot-safe
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh
@@ -639,7 +643,7 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T87-ir-bridge-watch.sh
 
-      - name: Verify the Pharos Janus consumer projection boundary
+      - name: Verify local Pharos auth and retained Janus projection isolation
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T29-pharos-janus-consumer-boundary.sh
 
@@ -651,7 +655,7 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 -m unittest discover -s tests -p 'test_mailbridge_consent.py' -v
 
-      - name: Verify Janus/Pharos env-file boundary
+      - name: Verify local beacon auth and retained Janus env-file fixtures
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T06-janus-pharos-env-file.sh
 

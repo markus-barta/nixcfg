@@ -9,11 +9,17 @@ compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 
 bash -n "$executor_source"
 grep -Fq '../../modules/pharos-retirement-executor' "$host_config"
-grep -Fq 'inspr.pharosRetirementExecutor.enable = true;' "$host_config"
+grep -Fq 'inspr.pharosRetirementExecutor.enable = false;' "$host_config"
 grep -Fq 'EnvironmentFile = cfg.tokenEnvironmentFile;' "$module"
 grep -Fq 'restartIfChanged = false;' "$module"
-grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$compose"
-grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$compose"
+if grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=' "$compose"; then
+  echo "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED= must stay absent from the csb1 compose spec" >&2
+  exit 1
+fi
+if grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=' "$compose"; then
+  echo "PHAROS_RETIREMENT_OWNER_HOST= must stay absent from the csb1 compose spec" >&2
+  exit 1
+fi
 pharos_images=$(sed -n \
   's|^[[:space:]]*image = \"\(ghcr.io/inspr-at/pharos/pharosd:[^\"]*\)\";$|\1|p' \
   "$compose")
@@ -21,8 +27,11 @@ pharos_images=$(sed -n \
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" -eq 1 ]
 printf '%s\n' "$pharos_images" | grep -Eq \
   '^ghcr\.io/inspr-at/pharos/pharosd:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'
-grep -Fq 'PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm' "$compose"
-# OPS-280: retirement still uses the staged engine while the v1 UI is off.
+if grep -Fq 'PHAROS_JANUS_PUBLIC_URL=' "$compose"; then
+  echo "PHAROS_JANUS_PUBLIC_URL= must stay absent from the csb1 compose spec" >&2
+  exit 1
+fi
+# OPS-514: retain rollback configuration with every Janus runtime profile-gated.
 nix --offline eval --impure --json --expr "
   let services = (import $compose).services; in {
     inherit (services) janus janus-placeholder janus-engine-staged;
@@ -30,7 +39,8 @@ nix --offline eval --impure --json --expr "
 " | jq -e '
   .janus.profiles == ["janus-retired"] and .janus.restart == "no"
   and .["janus-placeholder"].networks["shared-flow"].ipv4_address == "10.253.253.6"
-  and .["janus-engine-staged"].profiles == ["janus-engine-staged"]
+  and .["janus-engine-staged"].profiles == ["janus-retired"]
+  and .["janus-placeholder"].profiles == ["janus-retired"]
   and .["janus-engine-staged"].restart == "unless-stopped"
 ' >/dev/null
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
