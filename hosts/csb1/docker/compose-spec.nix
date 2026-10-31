@@ -367,8 +367,9 @@ in
       # AEON-2029 (2026-10-31, LEAD decision): memory.peak reached 3333/3584 MiB (93 %), backends
       # ~100 MiB each, and the 128MB shared_buffers left the hot pages of a 7.2 GB DB to a ~166 MiB
       # cgroup page cache (DataFileRead waits inside tenant-lock holders). shared_buffers=1GB plus
-      # 1.5 GiB more cap: observed peak ~3.3 GiB + 0.9 GiB more buffers = ~4.2 of 5 GiB; csb1 keeps
-      # ~7.7 GB available. Planner settings (effective_cache_size, work_mem) unchanged.
+      # 1.5 GiB more cap: observed peak ~3.3 GiB + 0.9 GiB more buffers = ~4.2 of 5 GiB (covers the observed
+      # load, not a worst-case bound for 50 backends). csb1 has 16 GB; the switch kit requires MemAvailable minus the
+      # whole new cap to leave >= 2 GiB. Planner settings (effective_cache_size, work_mem) unchanged.
       mem_limit = "5120m";
       networks = [
         "aeon"
