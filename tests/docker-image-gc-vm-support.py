@@ -440,6 +440,8 @@ def require_candidates(phase):
     # A previous scenario may have left mutant flags in settings. Preconditions
     # always use the unmodified production reader, planner and budget.
     gc = load_gc(mutants=False)
+    # Preconditions read the private daemon without proxy delays or faults.
+    gc.SOCKET_PATH = DOCKER_SOCKET
     def read_only_api(method, path, timeout, limit):
         assert method == "GET", (phase, "fixture precondition attempted mutation", method, path)
         return gc.docker_api(method, path, timeout=timeout, limit=limit)
