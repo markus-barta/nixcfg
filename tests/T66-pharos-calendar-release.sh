@@ -528,6 +528,19 @@ refused_with() {
     exit 1
   fi
 }
+rejected_with() {
+  local code=$1 candidate=$2 stderr
+  if stderr=$(python3 "$validator" validate --kind release-set "$candidate" 2>&1 >/dev/null); then
+    printf 'pharos_calendar_release_test=failed reason=invalid_candidate_accepted path=%s\n' \
+      "${candidate##*/}" >&2
+    exit 1
+  fi
+  if [[ "$stderr" != *"reason=$code"* ]]; then
+    printf 'pharos_calendar_release_test=failed reason=wrong_refusal path=%s stderr=%s\n' \
+      "${candidate##*/}" "$stderr" >&2
+    exit 1
+  fi
+}
 anchor=("$first_version" 26.09.02.04.00.00 2 "$v2_first_version")
 c3_first_version=260903050609.0.0
 c3_first="$fixture/c3-first.json"
@@ -566,8 +579,13 @@ python3 "$validator" validate --kind local "$c3_rollback"
 make_calver3 260903050608.0.0 5 "${anchor[@]}" "$fixture/c3-same.json"
 refused_with calendar_version_not_increasing c3_equal_to_last_v2_accepted \
   transition --active "$v2_later_local" --candidate "$fixture/c3-same.json"
-make_calver3 260903050606.0.0 5 "${anchor[@]}" "$fixture/c3-earlier.json"
-assert_rejected "$fixture/c3-earlier.json"
+make_calver3 260903050606.0.0 5 "${anchor[@]}" "$fixture/c3-before-anchor.json"
+rejected_with calendar_v2_before_anchor "$fixture/c3-before-anchor.json"
+# Valid as documents, so only the comparison with the active record refuses them.
+make_calver3 260903050608.0.0 6 "${anchor[@]}" "$fixture/c3-earlier.json"
+python3 "$validator" validate --kind release-set "$fixture/c3-earlier.json"
+refused_with calendar_version_not_increasing c3_earlier_than_active_c3_accepted \
+  transition --active "$c3_local" --candidate "$fixture/c3-earlier.json"
 make_calendar_v2 260903050611.0.0 6 "${anchor[@]}" "$fixture/v2-after-c3.json"
 refused_with calendar_v2_closed_after_calver3 v2_accepted_after_c3 \
   transition --active "$c3_local" --candidate "$fixture/v2-after-c3.json"
@@ -578,6 +596,10 @@ refused_with calendar_v1_closed_after_v2 v1_accepted_after_c3 \
   transition --active "$c3_local" --candidate "$fixture/v1-after-c3.json"
 make_calendar_v2 260903050615.0.0 4 "${anchor[@]}" "$fixture/v2-high.json"
 make_calver3 260903050610.0.0 5 "${anchor[@]}" "$fixture/c3-low.json"
+python3 "$validator" validate --kind release-set "$fixture/c3-low.json"
+python3 "$validator" transition --active "$v2_local" --candidate "$fixture/v2-high.json" --output "$fixture/v2-high-local.json"
+refused_with calendar_version_not_increasing c3_earlier_than_last_v2_accepted \
+  transition --active "$fixture/v2-high-local.json" --candidate "$fixture/c3-low.json"
 refused_with calendar_sequence_order_mismatch c3_below_v2_selected \
   select --active "$v2_local" "$fixture/v2-high.json" "$fixture/c3-low.json"
 refused_with historical_calendar_order_mismatch v2_history_above_c3_accepted \
@@ -589,11 +611,14 @@ make_calver3 260903050612.0.0 6 "$first_version" 26.09.02.04.00.00 2 26090305060
 refused_with calendar_v2_anchor_changed c3_anchor_change_accepted \
   transition --active "$c3_local" --candidate "$fixture/c3-anchor.json"
 jq '.migration_anchor.first_calver3_version = .version' "$c3_first" >"$fixture/c3-extra-key.json"
-assert_rejected "$fixture/c3-extra-key.json"
-for bad in 26.09.03.05.06.07 260903050607.0.1 2609030506.0.0 260903050607.0.0-rc1 260230050607.0.0; do
-  make_calver3 "$bad" 5 "$first_version" 26.09.02.04.00.00 2 "$bad" "$fixture/c3-bad.json"
-  assert_rejected "$fixture/c3-bad.json"
+rejected_with unexpected_migration_anchor_fields "$fixture/c3-extra-key.json"
+# The anchor stays valid here, so the spelling is the only thing wrong.
+for bad in 26.09.03.05.06.07 260903050609.0.1 2609030506.0.0 260903050609.0.0-rc1; do
+  make_calver3 "$bad" 5 "${anchor[@]}" "$fixture/c3-bad.json"
+  rejected_with invalid_calendar_v2_version "$fixture/c3-bad.json"
 done
+make_calver3 260230050607.0.0 5 "${anchor[@]}" "$fixture/c3-bad-date.json"
+rejected_with invalid_calendar_v2_date "$fixture/c3-bad-date.json"
 jq '.cargo_version = "2026.903.50609"' "$c3_first" >"$fixture/c3-cargo.json"
-assert_rejected "$fixture/c3-cargo.json"
+rejected_with cargo_version_mismatch "$fixture/c3-cargo.json"
 printf 'pharos_calendar_release_test=passed\n'
