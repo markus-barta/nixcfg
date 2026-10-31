@@ -14,7 +14,8 @@ if [[ "${repo}" =~ [[:space:]#?] ]]; then
   printf 'repository path is not safe for a local Git flake URL\n' >&2
   exit 1
 fi
-flake_ref="path:${repo}" # OPS-514: test the candidate worktree, not committed HEAD.
+repo_revision="$(git -C "${repo}" rev-parse HEAD)"
+flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 host="${repo}/hosts/csb1/configuration.nix"
 compose="${repo}/hosts/csb1/docker/compose-spec.nix"
 contract="${repo}/hosts/csb1/docker/janus/managed-service-production"

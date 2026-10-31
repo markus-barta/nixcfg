@@ -71,7 +71,7 @@ FLAKE_REF="git+file://${REPO_ROOT}?rev=${REPO_REVISION}&shallow=1"
 export JANUS_PINNED_FLAKE_REF="${FLAKE_REF}"
 # OPS-514: production is disabled; exercise the retained publisher explicitly
 # in a synthetic enabled configuration, using this worktree's module wiring.
-candidate="path:${REPO_ROOT}"
+candidate="${FLAKE_REF}"
 test "$(nix eval "${candidate}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.enable" --json)" = false
 eval_enabled_manifest() {
   local attribute=$1

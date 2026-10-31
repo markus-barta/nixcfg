@@ -39,12 +39,12 @@ grep -Fq 'inspr.janusHostSecrets = {' "${host}"
 grep -Fq 'ownerUid = 65534' "${host}"
 activation="$(
   nix eval --json \
-    "path:${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
+    "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
 )"
 test "${activation}" = "false"
 
 # shellcheck disable=SC2016
-nix eval --json "path:${repo}#nixosConfigurations.csb1.config" --apply '
+nix eval --json "${flake_ref}#nixosConfigurations.csb1.config" --apply '
   c: {
     units = builtins.map (name: c.systemd.services.${name}.enable or false) [
       "janus-host-secret-restore" "janus-managed-host-agent" "janus-managed-canary"
