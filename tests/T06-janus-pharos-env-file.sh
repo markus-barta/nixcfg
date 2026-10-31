@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # T06-janus-pharos-env-file.sh
-# Description: Validate Janus env-file profiles for Pharos beacon token handoff.
+# Description: Validate local Pharos auth and retained Janus env-file fixtures.
 # Related PPM issues: PHAROS-40, PHAROS-94, JANUS-261
 
 set -euo pipefail
@@ -456,32 +456,22 @@ if defaults.get("owner") != "pharos" or defaults.get("classification") != "high_
     raise SystemExit("production metadata defaults mismatch")
 
 compose_text = compose_path.read_text(encoding="utf-8")
-if "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes" not in compose_text:
-    raise SystemExit("pharosd compose hash-dir env does not match the consumer projection")
-if "PHAROS_BEACON_TOKEN_MODE=janus" not in compose_text:
-    raise SystemExit("pharosd compose must run in Janus-only token mode")
-if "PHAROS_BEACON_TOKEN_MODE=dual" in compose_text:
-    raise SystemExit("pharosd compose must not keep dual token mode after PHAROS-40 cutover")
+for setting in ("PHAROS_BEACON_TOKEN_MODE=local", "PHAROS_REQUIRE_BEACON_TOKEN=1",
+                "PHAROS_ALLOW_LOCAL_REGISTER=false"):
+    if setting not in compose_text:
+        raise SystemExit(f"local beacon auth setting missing: {setting}")
+pharos = re.search(r"^    pharosd = \{.*?^    \};$", compose_text, re.MULTILINE | re.DOTALL).group()
+if "group_add" in pharos:
+    raise SystemExit("pharosd retains the Janus projection supplementary group")
+for setting in ("PHAROS_BEACON_TOKEN_HASH_DIR=", "PHAROS_JANUS_", "PHAROS_MANAGED_SETUP_",
+                "PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=", "PHAROS_HCLOUD_",
+                "PHAROS_PROVISIONING_", "PHAROS_RETIREMENT_OWNER_HOST=",
+                "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=", "PHAROS_REGISTRATION_TOKEN",
+                "janus_pharos_production_hash_out:/", "janus_pharos_production_provider_out:/"):
+    if setting in pharos:
+        raise SystemExit(f"retired Pharos consumer setting remains: {setting}")
 if '      user = "10001:992";' not in compose_text:
-    raise SystemExit("pharosd compose must declare its exact non-root runtime identity")
-if 'group_add' not in compose_text or '"991"' not in compose_text:
-    raise SystemExit("pharosd compose must retain access to the value-free hash projection group")
-if "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro" not in compose_text:
-    raise SystemExit("pharosd compose must mount only the value-free hash projection")
-if "janus_pharos_production_out:" in compose_text:
-    raise SystemExit("pharosd compose must not mount or declare the private Janus output")
-if "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env" not in compose_text:
-    raise SystemExit("pharosd Hetzner credential must use the Janus env-file boundary")
-if "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production" not in compose_text:
-    raise SystemExit("pharosd Hetzner project label must identify the attended production scope")
-if "PHAROS_HCLOUD_EXECUTE=1" not in compose_text:
-    raise SystemExit("pharosd Hetzner execution gate must be enabled after attended activation")
-if "PHAROS_HCLOUD_EXECUTE=0" in compose_text:
-    raise SystemExit("pharosd Hetzner execution gate must not retain the preflight value")
-if "PHAROS_PROVISIONING_EXECUTOR_READY=1" not in compose_text:
-    raise SystemExit("pharosd provisioning readiness must match the activated csb1 executor")
-if "PHAROS_PROVISIONING_EXECUTOR_READY=0" in compose_text:
-    raise SystemExit("pharosd provisioning readiness must not retain the preflight value")
+    raise SystemExit("pharosd must retain its exact non-root runtime identity")
 
 provider_import_text = provider_import_path.read_text(encoding="utf-8")
 provider_render_text = provider_render_path.read_text(encoding="utf-8")
@@ -514,8 +504,8 @@ if "--network none" not in provider_render_text:
     raise SystemExit("production Hetzner renderer does not deny secret-bearing network access")
 if provider_render_text.index("env-file preflight") > provider_render_text.index("request_use"):
     raise SystemExit("production Hetzner renderer must preflight before issuing a permit")
-if "janus_pharos_production_provider_out:/run/pharos/providers:ro" not in compose_text:
-    raise SystemExit("pharosd does not mount the isolated provider output read-only")
+if "janus_pharos_production_provider_out:/run/pharos/providers:ro" in pharos:
+    raise SystemExit("pharosd retains the retired provider output mount")
 if "JANUS_PHAROS_PROVIDER_OUT_VOLUME:-janus_pharos_production_provider_out" not in compose_text:
     raise SystemExit("compose does not declare the reviewed external provider output volume")
 provider_runtime_body = prod_runtime_text.split(
@@ -580,4 +570,4 @@ expect_subset(
 )
 PY
 
-echo "ok: Pharos Janus env-file and sidecar profiles are value-free"
+echo "ok: Pharos local auth is isolated; retained Janus env-file profiles are value-free"
