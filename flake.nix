@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 55: v261030181501.0.0 (#321 merge, sequence 125). Contents since 54: HNET-415 slice 5 + blocker fix, HNET-414 fixes; client bundle (web/src), discovery name-tier matching (internal/discovery/match.go), CI job order and release metadata; no nix/module/flake/cmd/go.mod changes, no new option, listener or capability.
+    # HNET pin 56: v261031094653.0.0 (#323 merge, sequence 126). Contents since 55: HNET-44 Shelly MQTT presence; new receive-only MQTT client (internal/mqtt, internal/shellypresence) and module option shellyHeal.mqttPresence (default true, adds --shelly-heal-mqtt-presence=true with the heal radio). Capability approved by Markus on Desk b12218e9 (2026-10-30, read-only, Shellies on the heal list); LoadCredential unchanged, no new listener, port or secret.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=f7af77884cebba3fe95d4d1e193c12bc3fbe0401";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=81d133ae879846a41e19bea0ce846a29e36c1d1a";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
