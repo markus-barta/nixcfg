@@ -142,6 +142,7 @@ DETACHED_MANIFEST_JSON="$(nix eval --impure --json --expr '
     detached = base.extendModules {
       modules = [
         ({ lib, ... }: {
+          services.janus.managedServiceManifest.enable = lib.mkForce true;
           services.janus.managedServiceManifest.services = lib.mkForce [
             {
               serviceRef = "svc_0bca8d31f7e2";
@@ -185,6 +186,7 @@ if nix eval --impure --expr '
     invalid = base.extendModules {
       modules = [
         ({ lib, ... }: {
+          services.janus.managedServiceManifest.enable = lib.mkForce true;
           services.janus.managedServiceManifest.services = lib.mkForce [
             {
               serviceRef = "svc_0bca8d31f7e2";
