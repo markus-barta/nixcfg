@@ -506,4 +506,119 @@ if python3 "$validator" transition --active "$v2_local" --candidate "$fixture/v2
 fi
 jq '.cargo_version = "2026.903.50607"' "$v2_first" >"$fixture/v2-cargo.json"
 assert_rejected "$fixture/v2-cargo.json"
+
+# ── calendar v2 → CalVer3 transition (PHAROS-345) ───────────────────────────
+# inspr-calver-3 is the v2 coordinate under a new identifier: same grammar,
+# anchor keys and identity Cargo mapping, ordered against v2 and closing it.
+make_calver3() {
+  local output=${*: -1}
+  make_calendar_v2 "$@"
+  jq '.version_scheme = "inspr-calver-3"' "$output" >"$output.tmp"
+  mv "$output.tmp" "$output"
+}
+refused_with() {
+  local code=$1 reason=$2 stderr
+  shift 2
+  if stderr=$(python3 "$validator" "$@" --output "$fixture/never.json" 2>&1 >/dev/null); then
+    printf 'pharos_calendar_release_test=failed reason=%s\n' "$reason" >&2
+    exit 1
+  fi
+  if [[ "$stderr" != *"reason=$code"* ]]; then
+    printf 'pharos_calendar_release_test=failed reason=%s stderr=%s\n' "$reason" "$stderr" >&2
+    exit 1
+  fi
+}
+rejected_with() {
+  local code=$1 candidate=$2 stderr
+  if stderr=$(python3 "$validator" validate --kind release-set "$candidate" 2>&1 >/dev/null); then
+    printf 'pharos_calendar_release_test=failed reason=invalid_candidate_accepted path=%s\n' \
+      "${candidate##*/}" >&2
+    exit 1
+  fi
+  if [[ "$stderr" != *"reason=$code"* ]]; then
+    printf 'pharos_calendar_release_test=failed reason=wrong_refusal path=%s stderr=%s\n' \
+      "${candidate##*/}" "$stderr" >&2
+    exit 1
+  fi
+}
+anchor=("$first_version" 26.09.02.04.00.00 2 "$v2_first_version")
+c3_first_version=260903050609.0.0
+c3_first="$fixture/c3-first.json"
+make_calver3 "$c3_first_version" 5 "${anchor[@]}" "$c3_first"
+python3 "$validator" validate --kind release-set "$c3_first"
+c3_local="$fixture/c3-local.json"
+python3 "$validator" transition --active "$v2_later_local" --candidate "$c3_first" --output "$c3_local"
+[[ "$(jq -r .version_scheme "$c3_local")" == inspr-calver-3 ]]
+[[ "$(jq -r .version "$c3_local")" == "$c3_first_version" ]]
+[[ "$(jq -r .release_sequence "$c3_local")" == 5 ]]
+[[ "$(jq -r .migration_anchor.first_calendar_v2_version "$c3_local")" == "$v2_first_version" ]]
+python3 "$validator" validate --kind local "$c3_local"
+
+# A later CalVer3 follows; selection crosses the v2 → CalVer3 step, and v1 and
+# v2 history below an active CalVer3 record stay valid.
+c3_later="$fixture/c3-later.json"
+make_calver3 260903050610.0.0 6 "${anchor[@]}" "$c3_later"
+c3_later_local="$fixture/c3-later-local.json"
+python3 "$validator" transition --active "$c3_local" --candidate "$c3_later" --output "$c3_later_local"
+selected_c3="$fixture/selected-c3.json"
+python3 "$validator" select --active "$v2_later_local" --output "$selected_c3" "$v2_first" "$v2_later" "$c3_first" "$c3_later"
+[[ "$(jq -r .version "$selected_c3")" == 260903050610.0.0 ]]
+[[ "$(jq -r .version_scheme "$selected_c3")" == inspr-calver-3 ]]
+python3 "$validator" select --active "$c3_local" --output "$selected_c3" "$later" "$v2_first" "$v2_later" "$c3_first" "$c3_later"
+[[ "$(jq -r .version "$selected_c3")" == 260903050610.0.0 ]]
+
+# The legacy rollback path keeps working from a CalVer3 record.
+c3_rollback="$fixture/c3-rollback.json"
+python3 "$validator" rollback --active "$c3_local" --tag v0.2.0 --output "$c3_rollback"
+[[ "$(jq -r .version_scheme "$c3_rollback")" == legacy ]]
+python3 "$validator" validate --kind local "$c3_rollback"
+
+# Rejections: not strictly later than the last v2; v2 or v1 after CalVer3, both
+# in a transition and within one selection; order across v2 and CalVer3; a
+# changed anchor; a new anchor key; bad spellings; broken identity Cargo mapping.
+make_calver3 260903050608.0.0 5 "${anchor[@]}" "$fixture/c3-same.json"
+refused_with calendar_version_not_increasing c3_equal_to_last_v2_accepted \
+  transition --active "$v2_later_local" --candidate "$fixture/c3-same.json"
+make_calver3 260903050606.0.0 5 "${anchor[@]}" "$fixture/c3-before-anchor.json"
+rejected_with calendar_v2_before_anchor "$fixture/c3-before-anchor.json"
+# Valid as documents, so only the comparison with the active record refuses them.
+make_calver3 260903050608.0.0 6 "${anchor[@]}" "$fixture/c3-earlier.json"
+python3 "$validator" validate --kind release-set "$fixture/c3-earlier.json"
+refused_with calendar_version_not_increasing c3_earlier_than_active_c3_accepted \
+  transition --active "$c3_local" --candidate "$fixture/c3-earlier.json"
+make_calendar_v2 260903050611.0.0 6 "${anchor[@]}" "$fixture/v2-after-c3.json"
+refused_with calendar_v2_closed_after_calver3 v2_accepted_after_c3 \
+  transition --active "$c3_local" --candidate "$fixture/v2-after-c3.json"
+refused_with calendar_v2_closed_after_calver3 v2_selected_after_c3 \
+  select --active "$v2_later_local" "$c3_first" "$fixture/v2-after-c3.json"
+make_calendar 26.09.03.06.00.00 6 "$first_version" "$fixture/v1-after-c3.json"
+refused_with calendar_v1_closed_after_v2 v1_accepted_after_c3 \
+  transition --active "$c3_local" --candidate "$fixture/v1-after-c3.json"
+make_calendar_v2 260903050615.0.0 4 "${anchor[@]}" "$fixture/v2-high.json"
+make_calver3 260903050610.0.0 5 "${anchor[@]}" "$fixture/c3-low.json"
+python3 "$validator" validate --kind release-set "$fixture/c3-low.json"
+python3 "$validator" transition --active "$v2_local" --candidate "$fixture/v2-high.json" --output "$fixture/v2-high-local.json"
+refused_with calendar_version_not_increasing c3_earlier_than_last_v2_accepted \
+  transition --active "$fixture/v2-high-local.json" --candidate "$fixture/c3-low.json"
+refused_with calendar_sequence_order_mismatch c3_below_v2_selected \
+  select --active "$v2_local" "$fixture/v2-high.json" "$fixture/c3-low.json"
+refused_with historical_calendar_order_mismatch v2_history_above_c3_accepted \
+  select --active "$c3_local" "$fixture/v2-high.json" "$c3_later"
+make_calver3 260903050608.0.0 3 "$first_version" 26.09.02.04.00.00 2 260903050608.0.0 "$fixture/c3-below-v2.json"
+refused_with calendar_v2_closed_after_calver3 c3_history_below_v2_accepted \
+  select --active "$v2_later_local" "$fixture/c3-below-v2.json" "$v2_later"
+make_calver3 260903050612.0.0 6 "$first_version" 26.09.02.04.00.00 2 260903050600.0.0 "$fixture/c3-anchor.json"
+refused_with calendar_v2_anchor_changed c3_anchor_change_accepted \
+  transition --active "$c3_local" --candidate "$fixture/c3-anchor.json"
+jq '.migration_anchor.first_calver3_version = .version' "$c3_first" >"$fixture/c3-extra-key.json"
+rejected_with unexpected_migration_anchor_fields "$fixture/c3-extra-key.json"
+# The anchor stays valid here, so the spelling is the only thing wrong.
+for bad in 26.09.03.05.06.07 260903050609.0.1 2609030506.0.0 260903050609.0.0-rc1; do
+  make_calver3 "$bad" 5 "${anchor[@]}" "$fixture/c3-bad.json"
+  rejected_with invalid_calendar_v2_version "$fixture/c3-bad.json"
+done
+make_calver3 260230050607.0.0 5 "${anchor[@]}" "$fixture/c3-bad-date.json"
+rejected_with invalid_calendar_v2_date "$fixture/c3-bad-date.json"
+jq '.cargo_version = "2026.903.50609"' "$c3_first" >"$fixture/c3-cargo.json"
+rejected_with cargo_version_mismatch "$fixture/c3-cargo.json"
 printf 'pharos_calendar_release_test=passed\n'

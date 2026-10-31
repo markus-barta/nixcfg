@@ -341,7 +341,7 @@ legacy)
 inspr-calendar-v1)
   [[ "${pharos_tag}" =~ ^[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$ ]]
   ;;
-inspr-calendar-v2)
+inspr-calendar-v2 | inspr-calver-3)
   [[ "${pharos_tag}" =~ ^[1-9][0-9]{11}\.0\.0$ ]]
   ;;
 *)
