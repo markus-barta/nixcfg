@@ -9,11 +9,13 @@ timeouts, restart policy, trap shape and publish order; their payload is tiny.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -185,9 +187,64 @@ class EngineHandler(socketserver.StreamRequestHandler):
 
 
 class RegistryHandler(BaseHTTPRequestHandler):
+    variant_lock = threading.Lock()
+
     def do_GET(self): self.forward()
     def do_HEAD(self): self.forward()
     def log_message(self, *_): pass
+
+    def upstream(self, method, path):
+        conn = http.client.HTTPConnection("127.0.0.1", 5000, timeout=650)
+        try:
+            conn.request(method, path, headers=dict(self.headers))
+            response = conn.getresponse()
+            return response.status, response.read(), response.getheaders()
+        finally: conn.close()
+
+    def manifest_variant(self, cfg, path):
+        if not cfg.get("pull_delay") or "/manifests/" not in path:
+            return None
+        reference = path.rsplit("/", 1)[1]
+        marker = ROOT / ("registry-delay-" + str(cfg.get("epoch")) + "-" + str(cfg.get("pull_index", 0)))
+        # Persist the exact bytes announced by HEAD. A classic-store pull skips
+        # GET for cached digests, even after every tag/digest ref was removed.
+        with self.variant_lock:
+            state = json.loads(marker.read_text()) if marker.exists() else None
+            if state is None and not reference.startswith("sha256:"):
+                status, body, headers = self.upstream("GET", path)
+                if status != 200:
+                    return status, body, headers, False
+                content_type = next(value for key, value in headers if key.lower() == "content-type")
+                assert content_type.split(";", 1)[0].strip() in (
+                    "application/vnd.docker.distribution.manifest.v2+json",
+                    "application/vnd.oci.image.manifest.v1+json",
+                ), ("unsupported fixture manifest media type", content_type)
+                manifest = json.loads(body)
+                assert manifest["schemaVersion"] == 2, "unsupported fixture manifest schema"
+                manifest.setdefault("annotations", {})["ops327.work"] = json.dumps(
+                    [cfg.get("epoch"), cfg.get("pull_index", 0)], separators=(",", ":"))
+                body = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+                state = {"path": path, "body": body.decode(), "content_type": content_type,
+                         "digest": "sha256:" + hashlib.sha256(body).hexdigest(), "used": False}
+                ROOT.mkdir(parents=True, exist_ok=True)
+                temporary = marker.with_name(marker.name + ".tmp")
+                temporary.write_text(json.dumps(state)); temporary.replace(marker)
+            if state is None or path not in (state["path"], state["path"].rsplit("/", 1)[0] + "/" + state["digest"]):
+                return None
+            # Only the digest GET consumes the delay; HEAD and tag GETs must
+            # remain immediate and retries must receive these same bytes.
+            delayed = self.command == "GET" and reference == state["digest"] and not state["used"]
+            if delayed:
+                state["used"] = True
+                temporary = marker.with_name(marker.name + ".tmp")
+                temporary.write_text(json.dumps(state)); temporary.replace(marker)
+                record("registry-wait", epoch=cfg.get("epoch"), pull_index=cfg.get("pull_index", 0))
+            return 200, state["body"].encode(), [
+                ("Content-Type", state["content_type"]),
+                ("Docker-Content-Digest", state["digest"]),
+                ("Docker-Distribution-Api-Version", "registry/2.0"),
+            ], delayed
+
     def forward(self):
         path = self.path
         # A pull needs only discovery, manifests and content-addressed blobs.
@@ -201,34 +258,26 @@ class RegistryHandler(BaseHTTPRequestHandler):
             self.send_error(400, "unsupported registry request path")
             return
         cfg = settings()
-        marker = ROOT / ("registry-delay-" + str(cfg.get("epoch")))
-        # Delay exactly one manifest GET, keeping the work inside a real pull.
-        marker = marker.with_name(marker.name + '-' + str(cfg.get('pull_index', 0)))
-        delayed = self.command == "GET" and "/manifests/" in path and cfg.get("pull_delay") and not marker.exists()
-        if delayed:
-            marker.touch(); record("registry-wait", epoch=cfg.get("epoch"))
-        conn = http.client.HTTPConnection("127.0.0.1", 5000, timeout=650)
-        try:
-            conn.request(self.command, path, headers=dict(self.headers))
-            response = conn.getresponse(); body = response.read()
-            self.send_response(response.status)
-            for key, value in response.getheaders():
-                if key.lower() not in ("transfer-encoding", "connection", "content-length"):
-                    self.send_header(key, value)
-            self.send_header("Content-Length", response.getheader('Content-Length', str(len(body))) if self.command == 'HEAD' else str(len(body)))
-            self.end_headers()
-            if self.command != "HEAD":
-                if delayed:
-                    # Headers immediately; body progress at <=5 s intervals avoids
-                    # dockerd's response-header/inactivity watchdogs.
-                    slices = max(1, int(cfg['pull_delay'] / 5))
-                    for n in range(slices):
-                        a, b = n * len(body) // slices, (n + 1) * len(body) // slices
-                        time.sleep(cfg['pull_delay'] / slices)
-                        self.wfile.write(body[a:b]); self.wfile.flush()
-                else:
-                    self.wfile.write(body)
-        finally: conn.close()
+        answer = self.manifest_variant(cfg, path)
+        status, body, headers, delayed = answer if answer is not None else (*self.upstream(self.command, path), False)
+        self.send_response(status)
+        for key, value in headers:
+            if key.lower() not in ("transfer-encoding", "connection", "content-length"):
+                self.send_header(key, value)
+        length = next((value for key, value in headers if key.lower() == "content-length"), str(len(body)))
+        self.send_header("Content-Length", length if self.command == "HEAD" else str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            if delayed:
+                # Headers immediately; body progress at <=5 s intervals avoids
+                # dockerd's response-header/inactivity watchdogs.
+                slices = max(1, math.ceil(cfg["pull_delay"] / 5))
+                for n in range(slices):
+                    a, b = n * len(body) // slices, (n + 1) * len(body) // slices
+                    time.sleep(cfg["pull_delay"] / slices)
+                    self.wfile.write(body[a:b]); self.wfile.flush()
+            else:
+                self.wfile.write(body)
 
 
 def proxy():
