@@ -35,4 +35,12 @@ in
     inherit (system.config.networking.firewall) enable allowedTCPPorts;
   };
   miioVersion = pkgs.python3Packages.python-miio.version;
+  backup =
+    let
+      restic = (import ../hosts/hsb1/docker/compose-spec.nix).services.restic-cron-hetzner;
+    in
+    {
+      keyExclusion = restic.environment.RESTIC_EXCLUDE_NIGHTLIGHT_KEYS;
+      managedScript = builtins.elem "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro" restic.volumes;
+    };
 }
