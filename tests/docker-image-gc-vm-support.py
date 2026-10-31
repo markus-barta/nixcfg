@@ -464,6 +464,7 @@ def require_candidates(phase):
     assert expected <= by_id.keys(), ("fixture candidate ID missing after load", diagnostic)
     assert all(tag.startswith("<none>") for image_id in expected
                for tag in by_id[image_id].get("RepoTags") or []), ("fixture candidate is still tagged", diagnostic)
+    # RepoDigests may remain after pulls; let the real planner judge protection.
     assert required_refs <= declared, ("fixture candidate system declarations missing", diagnostic)
     assert not resolved, ("declared system ref resolves to a fixture candidate", diagnostic)
     assert actual == deletable == expected and planned.baseline is None, ("unexpected real GC fixture plan", diagnostic)
@@ -472,6 +473,12 @@ def require_candidates(phase):
 
 
 def prepare():
+    info = json.loads(command("docker", "info", "--format", "{{json .}}", timeout=10).stdout)
+    store = {key: info[key] for key in ("Driver", "DriverStatus")}
+    record("docker-store", **store)
+    print("docker store:", json.dumps(store, sort_keys=True), flush=True)
+    assert store["Driver"] == "overlay2", ("unexpected Docker storage driver", store)
+    assert ["driver-type", "io.containerd.snapshotter.v1"] not in (store["DriverStatus"] or []), ("unexpected Docker containerd image store", store)
     ROOT.mkdir(parents=True, exist_ok=True)
     wait_for(lambda: command("curl", "-fsS", "http://127.0.0.1:5000/v2/", check=False).returncode == 0)
     for image in json.loads(Path("/etc/ops327/images.json").read_text()):
@@ -484,6 +491,8 @@ def prepare():
     command("docker", "run", "-d", "--name", "hausv-org", "localhost:5000/fixture:r1")
     keep = Path("/var/lib/docker-image-gc/keep.d"); keep.mkdir(parents=True, exist_ok=True)
     images = listing("/images/json")
+    # Capture Engine IDs (classic-store config digests) independently of the
+    # registry manifest digests in RepoDigests.
     candidates = {i['Id']: tag for i in images for tag in i['RepoTags'] or [] if tag in ('localhost:5000/fixture:r2', 'localhost:5000/fixture:r3')}
     (ROOT / 'candidate-refs.json').write_text(json.dumps(candidates))
     live = next(i for i in images if "ghcr.io/inspr-at/aeon:live" in (i["RepoTags"] or []))
@@ -508,8 +517,8 @@ def restore(reset_compose=True):
     for container in fixtures: command("docker", "container", "rm", container)
     command("systemctl", "reset-failed", "ops327-gc", "hausv-backup-snapshot", "janus-managed-canary", check=False)
     if reset_compose: command("systemctl", "reset-failed", "compose-csb1", check=False)
-    # Pulls in earlier scenarios attached tags/digests to these fixture IDs.
-    # Remove those aliases before restoring their intentionally dangling form.
+    # Earlier pulls may attach tags and RepoDigests to these Engine IDs.
+    # Remove real tags before reload; require_candidates checks any digests left.
     candidate_ids = json.loads((ROOT / 'candidate-refs.json').read_text())
     for image in listing('/images/json'):
         if image['Id'] in candidate_ids:
@@ -797,7 +806,7 @@ def checks():
     assert removal['status'] == 200 and removal['removed'], removal
     gc_done(0, 110)
     results.append({'case': 'old-system-after-snapshot-accepted-race', 'switch': switch.returncode, 'delete': removal})
-    # Real delayed effect: the victim's tag is absent, its manifest ID exists
+    # Real delayed effect: the victim's tag is absent, its Engine ID exists
     # dangling. The registry pull reattaches its tag while DELETE waits 40 s.
     request = run_gc("delayed-effect", [40], race=True, pull_ref="localhost:5000/fixture:r2", acquisitions=1)
     victim = request['path'].split('/images/', 1)[1].split('?', 1)[0]

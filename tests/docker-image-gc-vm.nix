@@ -69,10 +69,15 @@ pkgs.testers.runNixOSTest {
         virtualisation.writableStore = false;
         virtualisation.docker.enable = true;
         virtualisation.docker.listenOptions = [ "/run/ops327-docker.sock" ];
-        virtualisation.docker.daemon.settings.insecure-registries = [
-          "localhost:5000"
-          "localhost:5001"
-        ];
+        virtualisation.docker.daemon.settings = {
+          # Match csb1's measured classic overlay2 image store (2026-10-31).
+          features."containerd-snapshotter" = false;
+          storage-driver = "overlay2";
+          insecure-registries = [
+            "localhost:5000"
+            "localhost:5001"
+          ];
+        };
         networking.firewall.enable = false;
         environment.systemPackages = [
           pkgs.python3
