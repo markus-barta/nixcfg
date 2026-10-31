@@ -337,7 +337,7 @@ in
       command = [
         "postgres"
         "-c"
-        "shared_buffers=128MB"
+        "shared_buffers=1GB"
         "-c"
         "max_connections=50"
         "-c"
@@ -364,7 +364,12 @@ in
       # AEON-1444: release 135 backends grow to ~60 MiB (29 backends at
       # 1985/2304 MiB on 2026-10-16), and the in-app pool of 16 starved (AEON-995).
       # 3584m covers max_connections=50 x ~64 MiB + shared_buffers; csb1 has 16 GB.
-      mem_limit = "3584m";
+      # AEON-2029 (2026-10-31, LEAD decision): memory.peak reached 3333/3584 MiB (93 %), backends
+      # ~100 MiB each, and the 128MB shared_buffers left the hot pages of a 7.2 GB DB to a ~166 MiB
+      # cgroup page cache (DataFileRead waits inside tenant-lock holders). shared_buffers=1GB plus
+      # 1.5 GiB more cap: observed peak ~3.3 GiB + 0.9 GiB more buffers = ~4.2 of 5 GiB; csb1 keeps
+      # ~7.7 GB available. Planner settings (effective_cache_size, work_mem) unchanged.
+      mem_limit = "5120m";
       networks = [
         "aeon"
       ];
