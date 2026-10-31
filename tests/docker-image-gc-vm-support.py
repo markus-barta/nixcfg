@@ -274,21 +274,27 @@ def gc_run():
             record('batch-held', epoch=cfg.get('epoch'))
             yield
     gc.deploy_locks = locks
+    batch_budget = None
     if cfg.get('late_decision'):
         original_snapshot = gc.snapshot
-        first = True
-        def snapshot(*args):
-            nonlocal first
-            if first:
-                first = False
-                time.sleep(9.9)
-            return original_snapshot(*args)
+        def snapshot(api, budget):
+            nonlocal batch_budget
+            batch_budget = budget
+            return original_snapshot(api, budget)
         gc.snapshot = snapshot
     original_api = gc.docker_api
     paused = False
+    late_paused = False
     slow = False
     def api(method, path, timeout, limit):
-        nonlocal paused, slow
+        nonlocal paused, late_paused, slow
+        if cfg.get('late_decision') and method == 'DELETE' and not late_paused:
+            late_paused = True
+            assert batch_budget is not None, 'missing late-decision batch budget'
+            # Final activation/budget/age checks have passed. The request's
+            # separate 30 s deadline starts only inside original_api below.
+            record('late-decision-held', path=path, epoch=cfg.get('epoch'))
+            time.sleep(max(0, batch_budget.left() - 0.1))
         if cfg.get('pause_after_fence') and method == 'DELETE' and not paused:
             paused = True
             record('after-fence', path=path, epoch=cfg.get('epoch'))
@@ -467,7 +473,8 @@ def run_gc(epoch, delays, *, wait_held=False, wait_event=None, preserve_start_li
     restore(reset_compose=not preserve_start_limit); configure(epoch=epoch, delays=delays, **kw)
     GC_SINCE = time.time()
     command("systemctl", "start", "--no-block", "ops327-gc")
-    event = wait_event or ('batch-held' if wait_held else 'destructive')
+    event = wait_event or ('late-decision-held' if kw.get('late_decision') else
+                           'batch-held' if wait_held else 'destructive')
     return wait_for(lambda: next((e for e in events() if e["event"] == event and e.get("epoch") == epoch), None), 60, "GC request/hold")
 
 
@@ -579,8 +586,14 @@ def full_unit_outcomes(results):
                 assert switch_failed_units(out, err) == set(), (epoch, result)
             else:
                 assert switch_failed_units(out, err) <= {"compose-csb1.service"}, (epoch, result)
-            require_outcome("compose-csb1", since, allowed=("success",) if expected else ("timeout",))
-            if expected: require_state("compose-csb1", ("active",), ("exited",))
+            if expected:
+                require_outcome("compose-csb1", since)
+                require_state("compose-csb1", ("active",), ("exited",))
+            else:
+                # A retry can recover during ng's settling loop; retain the
+                # original job's timeout evidence independently of current Result.
+                log = journal_since("compose-csb1", since)
+                assert "start operation timed out" in log, (epoch, "expected original start timeout", log)
             results.append({"case": epoch, "exit": result.returncode, "elapsed": time.monotonic() - started})
             stop_unit("compose-csb1")
             if with_gc: gc_done(0, 5)
@@ -610,7 +623,10 @@ def full_unit_outcomes(results):
     # Publish order and a killed unit's actual EXIT/TERM traps.
     for position in ("before", "after", "between"):
         for with_gc in (False, True):
-            restore(); configure(epoch=f"hausv-{position}-{with_gc}", snapshot_work=181 if position == "before" else 140,
+            # Held "between": 39 + 130 = ~169 s to first rename, then a
+            # 50 s gap (~169-219 s) around the 180 s start timeout.
+            restore(); configure(epoch=f"hausv-{position}-{with_gc}",
+                                 snapshot_work=181 if position == "before" else 130 if position == "between" and with_gc else 140,
                                  rename_pause=50 if position == "between" else 0)
             for name in ("snapshot", ".previous", ".staging"):
                 path = ROOT / name
