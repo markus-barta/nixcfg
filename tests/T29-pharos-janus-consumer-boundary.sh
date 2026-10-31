@@ -94,6 +94,7 @@ python3 - \
   "$CSB1_CONFIG" \
   "$JUSTFILE" <<'PY'
 import pathlib
+import re
 import sys
 
 runtime_path = pathlib.Path(sys.argv[1])
@@ -164,10 +165,9 @@ if "keygen_out=" in nonprod_render:
 
 compose_required = [
     '      user = "10001:992";',
-    "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes",
-    "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env",
-    "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro",
-    "janus_pharos_production_provider_out:/run/pharos/providers:ro",
+    "PHAROS_BEACON_TOKEN_MODE=local",
+    "PHAROS_REQUIRE_BEACON_TOKEN=1",
+    "PHAROS_ALLOW_LOCAL_REGISTER=false",
     "JANUS_PHAROS_HASH_OUT_VOLUME:-janus_pharos_production_hash_out",
 ]
 for fragment in compose_required:
@@ -175,11 +175,16 @@ for fragment in compose_required:
         raise SystemExit(f"compose consumer boundary missing {fragment!r}")
 
 compose_forbidden = [
+    "PHAROS_BEACON_TOKEN_HASH_DIR=",
+    "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=",
+    "janus_pharos_production_hash_out:/",
+    "janus_pharos_production_provider_out:/",
     "janus_pharos_production_out:/run/janus/env:ro",
     "janus_pharos_prepare_provider_mountpoint",
 ]
 for fragment in compose_forbidden:
-    if fragment in compose:
+    pharos = re.search(r"^    pharosd = \{.*?^    \};$", compose, re.MULTILINE | re.DOTALL).group()
+    if fragment in pharos:
         raise SystemExit(f"compose consumer boundary retains {fragment!r}")
 
 if "janus_pharos_prepare_provider_mountpoint" in runtime + provider_render:
@@ -201,4 +206,40 @@ if expected_render_recipe not in justfile:
     raise SystemExit("production render recipe does not cross the documented root custody boundary")
 PY
 
-echo "ok: Pharos reads only the validated Janus hash projection as its declared non-root identity"
+# Evaluate the actual consumer and profile gates without a flake fetch, daemon,
+# env-file resolution or production runtime. Retained Janus producers may still
+# name their rollback volumes; pharosd must have no dependency on those paths.
+# shellcheck disable=SC2016
+nix eval --offline --impure --json --expr "
+  let spec = import $COMPOSE; in {
+    inherit (spec) volumes;
+    inherit (spec.services) pharosd janus janus-placeholder janus-engine-staged
+      janus-managed-transactiond janus-managed-canary inspr-www;
+  }
+" | python3 -c '
+import json, sys
+spec = json.load(sys.stdin)
+p = spec["pharosd"]
+environment = dict(value.split("=", 1) for value in p["environment"])
+assert environment["PHAROS_BEACON_TOKEN_MODE"] == "local"
+assert environment["PHAROS_ALLOW_LOCAL_REGISTER"] == "false"
+assert environment["PHAROS_REQUIRE_BEACON_TOKEN"] == "1"
+assert environment["PHAROS_NIXCFG_DISPATCH_ENABLED"] == "1"
+assert "group_add" not in p
+for prefix in ("PHAROS_BEACON_TOKEN_HASH", "PHAROS_JANUS_", "PHAROS_MANAGED_",
+               "PHAROS_HCLOUD_", "PHAROS_PROVISIONING_", "PHAROS_RETIREMENT_",
+               "PHAROS_HOST_REMOVAL_", "PHAROS_REGISTRATION_TOKEN"):
+    assert not any(key.startswith(prefix) for key in environment), prefix
+for mount in p["volumes"]:
+    source = mount["source"] if isinstance(mount, dict) else mount.split(":", 1)[0]
+    assert "janus" not in source and "managed-service" not in source, source
+assert "pharos_data:/data" in p["volumes"]
+for name in ("janus", "janus-placeholder", "janus-engine-staged",
+             "janus-managed-transactiond", "janus-managed-canary"):
+    assert spec[name]["profiles"] == ["janus-retired"], name
+for name in ("janus_data", "janus_pharos_production_hash_out", "janus_pharos_production_provider_out"):
+    assert name in spec["volumes"], name
+assert any("Host(`janus.inspr.at`)" in label for label in spec["inspr-www"]["labels"])
+'
+
+echo "ok: Pharos uses local beacon auth; retained Janus projection tooling remains isolated"

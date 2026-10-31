@@ -1028,6 +1028,7 @@ in
     janus-placeholder = {
       image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648";
       container_name = "janus-placeholder";
+      profiles = [ "janus-retired" ]; # OPS-514: retain routes/data for rollback only.
       restart = "unless-stopped";
       user = "1000:1000";
       read_only = true;
@@ -1092,9 +1093,7 @@ in
       # project-wide compose lifecycle commands, when testing this profile.
       image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.44@sha256:bee5a2449d9d87516f57d0e2910e99d97915e12b6beb3af0a38bc6310e024487";
       container_name = "janus-engine-staged";
-      profiles = [
-        "janus-engine-staged"
-      ];
+      profiles = [ "janus-retired" ];
       restart = "unless-stopped";
       user = "65532:65532";
       read_only = true;
@@ -1189,9 +1188,7 @@ in
     janus-managed-transactiond = {
       image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
       container_name = "janus-managed-transactiond";
-      profiles = [
-        "janus-managed-service"
-      ];
+      profiles = [ "janus-retired" ];
       restart = "no";
       init = true;
       user = "100:993";
@@ -1353,9 +1350,7 @@ in
     janus-managed-canary = {
       image = "alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce";
       container_name = "janus-managed-canary";
-      profiles = [
-        "janus-managed-service"
-      ];
+      profiles = [ "janus-retired" ];
       restart = "no";
       init = true;
       user = "65534:65534";
@@ -1445,9 +1440,6 @@ in
       restart = "unless-stopped";
       init = true;
       user = "10001:992";
-      group_add = [
-        "991"
-      ];
       read_only = true;
       cap_drop = [
         "ALL"
@@ -1477,33 +1469,14 @@ in
         "RUST_LOG=info"
         "PHAROS_DB=/data/pharos.json"
         "PHAROS_MANIFEST_PATHS=/manifests/hsb8.json"
-        "PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=/managed-services/manifest.json"
-        "PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key"
-        "PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm"
-        "PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token"
         "PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json"
         "PHAROS_NIXCFG_DISPATCH_ENABLED=1"
         "PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token"
-        "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1"
-        "PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm"
-        "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env"
-        # Execution is available only through the attended plan/review/confirm
-        # flow. No provider mutation occurs from connection tests or plan review.
-        "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production"
-        "PHAROS_HCLOUD_EXECUTE=1"
-        # The dedicated root-only csb1 identity and its exact selected public key
-        # were verified before activating the managed provisioning assistant.
-        "PHAROS_PROVISIONING_EXECUTOR_READY=1"
-        "PHAROS_PROVISIONING_OWNER_HOST=csb1"
-        "PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr"
-        "PHAROS_PROVISIONING_SCOPE_PROJECT=pharos"
-        "PHAROS_PROVISIONING_SCOPE_REPOSITORY=nixcfg"
-        "PHAROS_PROVISIONING_SCOPE_ENVIRONMENT=production"
-        # csb1 is the trusted executor for other hosts; it cannot retire itself.
-        "PHAROS_RETIREMENT_OWNER_HOST=csb1"
         "PHAROS_REQUIRE_BEACON_TOKEN=1"
-        "PHAROS_BEACON_TOKEN_MODE=janus"
-        "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes"
+        # OPS-514: authenticate existing hosts against their durable store hash.
+        # Registration must stay closed: it can overwrite an existing hash.
+        "PHAROS_BEACON_TOKEN_MODE=local"
+        "PHAROS_ALLOW_LOCAL_REGISTER=false"
         "PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env"
         # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
         # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
@@ -1532,29 +1505,8 @@ in
         "pharos_data:/data"
         "./pharos/access-policy.json:/etc/pharos/access-policy.json:ro"
         "./pharos/manifests:/manifests:ro"
-        "/run/pharos/managed-service-declarations:/managed-services:ro"
         "/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro"
         "/run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro"
-        {
-          type = "bind";
-          source = "/run/agenix/csb1-janus-managed-pharos-signing-key";
-          target = "/run/pharos/managed-setup-signing-key";
-          read_only = true;
-          bind = {
-            create_host_path = false;
-          };
-        }
-        {
-          type = "bind";
-          source = "/run/agenix/csb1-janus-managed-internal-token-pharos";
-          target = "/run/pharos/managed-setup-internal-token";
-          read_only = true;
-          bind = {
-            create_host_path = false;
-          };
-        }
-        "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
-        "janus_pharos_production_provider_out:/run/pharos/providers:ro"
         "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
       ]
       ++ flowHostVolumes;

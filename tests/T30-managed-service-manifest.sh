@@ -69,13 +69,30 @@ fi
 REPO_REVISION="$(git rev-parse HEAD)"
 FLAKE_REF="git+file://${REPO_ROOT}?rev=${REPO_REVISION}&shallow=1"
 export JANUS_PINNED_FLAKE_REF="${FLAKE_REF}"
-MANIFEST_JSON="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated" --json)"
-SECOND_MANIFEST_JSON="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated" --json)"
-FINGERPRINT="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.declarationFingerprint" --raw)"
-SOURCE_PATH="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.source" --raw)"
-ETC_SOURCE="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.environment.etc.\"pharos/managed-service-declarations.json\".source" --raw)"
-PUBLISHER_BEFORE="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.before" --json)"
-PUBLISHER_EXEC="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.serviceConfig.ExecStart" --raw)"
+# OPS-514: production is disabled; exercise the retained publisher explicitly
+# in a synthetic enabled configuration, using this worktree's module wiring.
+candidate="${FLAKE_REF}"
+test "$(nix eval "${candidate}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.enable" --json)" = false
+eval_enabled_manifest() {
+  local attribute=$1
+  local format=$2
+  nix eval --impure "$format" --expr "
+    let flake = builtins.getFlake \"$candidate\";
+        enabled = flake.nixosConfigurations.csb1.extendModules {
+          modules = [ ({ lib, ... }: {
+            services.janus.managedServiceManifest.enable = lib.mkForce true;
+          }) ];
+        };
+    in enabled.config.$attribute
+  "
+}
+MANIFEST_JSON="$(eval_enabled_manifest services.janus.managedServiceManifest.generated --json)"
+SECOND_MANIFEST_JSON="$(eval_enabled_manifest services.janus.managedServiceManifest.generated --json)"
+FINGERPRINT="$(eval_enabled_manifest services.janus.managedServiceManifest.declarationFingerprint --raw)"
+SOURCE_PATH="$(eval_enabled_manifest services.janus.managedServiceManifest.source --raw)"
+ETC_SOURCE="$(eval_enabled_manifest 'environment.etc."pharos/managed-service-declarations.json".source' --raw)"
+PUBLISHER_BEFORE="$(eval_enabled_manifest systemd.services.pharos-managed-service-declarations.before --json)"
+PUBLISHER_EXEC="$(eval_enabled_manifest systemd.services.pharos-managed-service-declarations.serviceConfig.ExecStart --raw)"
 COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/compose-spec.nix"
 
 check_jq "schema and producer are exact v2 values" '
@@ -125,6 +142,7 @@ DETACHED_MANIFEST_JSON="$(nix eval --impure --json --expr '
     detached = base.extendModules {
       modules = [
         ({ lib, ... }: {
+          services.janus.managedServiceManifest.enable = lib.mkForce true;
           services.janus.managedServiceManifest.services = lib.mkForce [
             {
               serviceRef = "svc_0bca8d31f7e2";
@@ -168,6 +186,7 @@ if nix eval --impure --expr '
     invalid = base.extendModules {
       modules = [
         ({ lib, ... }: {
+          services.janus.managedServiceManifest.enable = lib.mkForce true;
           services.janus.managedServiceManifest.services = lib.mkForce [
             {
               serviceRef = "svc_0bca8d31f7e2";
@@ -239,11 +258,11 @@ else
   fail "realized store artifact exactly matches the evaluated manifest"
 fi
 
-if rg -q 'PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=/managed-services/manifest\.json' "$COMPOSE_FILE" &&
-  rg -q '/run/pharos/managed-service-declarations:/managed-services:ro' "$COMPOSE_FILE"; then
-  pass "pharosd receives the live declaration directory through a read-only mount"
+if ! rg -q 'PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=' "$COMPOSE_FILE" &&
+  ! rg -q '/run/pharos/managed-service-declarations:/managed-services:ro' "$COMPOSE_FILE"; then
+  pass "pharosd omits retired managed-service declarations"
 else
-  fail "pharosd receives the live declaration directory through a read-only mount"
+  fail "pharosd omits retired managed-service declarations"
 fi
 
 echo

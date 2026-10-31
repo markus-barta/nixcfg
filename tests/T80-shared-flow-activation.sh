@@ -273,6 +273,7 @@ nix --offline eval --impure --json --expr "
 " | jq -e '
   .janus.profiles == ["janus-retired"] and .janus.restart == "no"
   and .["janus-placeholder"].networks == {"shared-flow":{ipv4_address:"10.253.253.6"}}
+  and .["janus-placeholder"].profiles == ["janus-retired"]
   and .["janus-placeholder"].read_only == true
   and .["janus-placeholder"].cap_drop == ["ALL"]
   and .["janus-placeholder"].security_opt == ["no-new-privileges:true"]

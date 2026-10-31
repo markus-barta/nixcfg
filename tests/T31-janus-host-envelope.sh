@@ -41,12 +41,31 @@ activation="$(
   nix eval --json \
     "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
 )"
-test "${activation}" = "true"
+test "${activation}" = "false"
+
+# shellcheck disable=SC2016
+nix eval --json "${flake_ref}#nixosConfigurations.csb1.config" --apply '
+  c: {
+    units = builtins.map (name: c.systemd.services.${name}.enable or false) [
+      "janus-host-secret-restore" "janus-managed-host-agent" "janus-managed-canary"
+      "janus-managed-central-seed" "janus-managed-transactiond"
+      "pharos-managed-service-declarations" "pharos-provisioning-executor"
+      "pharos-retirement-executor"
+    ];
+    timersAbsent = !(c.systemd.timers ? pharos-provisioning-executor)
+      && !(c.systemd.timers ? pharos-retirement-executor);
+    manifestDisabled = !c.services.janus.managedServiceManifest.enable;
+    guardedDeployDisabled = !(c.inspr.pharosGuardedDeploy.enable or false);
+  }
+' | jq -e '
+  .timersAbsent and .manifestDisabled and .guardedDeployDisabled
+  and all(.units[]; . == false)
+' >/dev/null
 
 if grep -Eq '(secret_value|private_key|ciphertext)[[:space:]]*=' "${host}"; then
   printf 'janus host declaration contains a forbidden value-bearing field\n' >&2
   exit 1
 fi
 
-printf 'janus_host_envelope_module=ok enabled=%s boot_gate=canary value_returned=false\n' \
+printf 'janus_host_envelope_module=ok enabled=%s boot_gate=disabled value_returned=false\n' \
   "${activation}"

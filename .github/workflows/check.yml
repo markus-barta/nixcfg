@@ -643,7 +643,7 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T87-ir-bridge-watch.sh
 
-      - name: Verify the Pharos Janus consumer projection boundary
+      - name: Verify local Pharos auth and retained Janus projection isolation
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T29-pharos-janus-consumer-boundary.sh
 
@@ -655,7 +655,7 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 -m unittest discover -s tests -p 'test_mailbridge_consent.py' -v
 
-      - name: Verify Janus/Pharos env-file boundary
+      - name: Verify local beacon auth and retained Janus env-file fixtures
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T06-janus-pharos-env-file.sh
 
