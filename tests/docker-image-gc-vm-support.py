@@ -549,6 +549,13 @@ def switch_async(target):
     return subprocess.Popen([target + "/bin/switch-to-configuration", "test"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
+def switch_failed_units(out, err):
+    # switch-to-configuration-ng main.rs:2669-2683: summary, then systemctl status.
+    return {unit for stream in (out, err) for line in stream.splitlines()
+            if (match := re.fullmatch(r"warning: the following units failed: (.+)", line))
+            for unit in match[1].split(", ")}
+
+
 def full_unit_outcomes(results):
     # Every scenario runs with and without GC holds. A loopback registry proxy
     # keeps reconcile work inside Docker's real pull, instead of sleeping a unit.
@@ -566,7 +573,12 @@ def full_unit_outcomes(results):
             out, err = switch.communicate(timeout=650)
             result = types.SimpleNamespace(returncode=switch.returncode, stdout=out, stderr=err)
             expected = not (with_gc and work == 580)
-            assert (result.returncode == 0) == expected, (epoch, result)
+            # main.rs:2578-2588: the compose start job's timeout forces exit 4.
+            assert result.returncode == (0 if expected else 4), (epoch, result)
+            if expected:
+                assert switch_failed_units(out, err) == set(), (epoch, result)
+            else:
+                assert switch_failed_units(out, err) <= {"compose-csb1.service"}, (epoch, result)
             require_outcome("compose-csb1", since, allowed=("success",) if expected else ("timeout",))
             if expected: require_state("compose-csb1", ("active",), ("exited",))
             results.append({"case": epoch, "exit": result.returncode, "elapsed": time.monotonic() - started})
@@ -676,7 +688,8 @@ def checks():
     assert wait_for(lambda: gc.switch_lock_used(gc.Budget(5)), 10, "real switch token")
     gc_done(2)
     out, err = proc.communicate(timeout=650)
-    assert proc.returncode == 0, (out, err)
+    assert proc.returncode == 4, (out, err)
+    assert switch_failed_units(out, err) == {"ops327-gc.service"}, (out, err)
     require_state("compose-csb1", ("active",), ("exited",))
     require_outcome("compose-csb1")
     results.append({"case": "switch-held-delete-and-real-proc-token", "switch": proc.returncode})
@@ -725,6 +738,9 @@ def checks():
     require_outcome("compose-csb1")
     assert int(unit_value("compose-csb1", "NRestarts")) >= 1, "missing automatic recovery restart"
     switch_out, switch_err = switch.communicate(timeout=650)
+    assert switch.returncode in (0, 4), (switch_out, switch_err)
+    # GC failure and compose retry race with ng's failed-unit scan.
+    assert switch_failed_units(switch_out, switch_err) <= {"compose-csb1.service", "ops327-gc.service"}, (switch_out, switch_err)
     sentinel = command("docker", "run", "--name", "sentinel-check", "-v", "ops327-data:/data", "localhost:5000/fixture:r1", "/bin/cat", "/data/sentinel").stdout.strip()
     assert sentinel == "untouched"
     results.append({"case": "delayed-delete-real-effect", "switch": switch.returncode, "volume": sentinel})
