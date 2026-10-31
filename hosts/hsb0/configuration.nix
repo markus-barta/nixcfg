@@ -194,6 +194,13 @@ assert joeSet.pusher != null && joeSet.executor != null;
       mqttPasswordFile = config.age.secrets.hsb0-hausnetz-mqtt-password.path;
       telegramCredentialFile = config.age.secrets.hsb0-hausnetz-telegram.path;
       allowMacsFile = config.age.secrets.hsb0-hausnetz-shelly-allow.path;
+      # HNET-44 (pin 56; Markus on Desk b12218e9, 2026-10-30: "Yes, read-only,
+      # Shellies on the heal list"): one receive-only MQTT subscription to the
+      # broker above for the allowlisted Shellies' online topics; never
+      # publishes. Reuses the mqtt-password and shelly-allow LoadCredential
+      # entries; no new listener, port or secret. Set explicitly (module default
+      # is also true) so the approved capability is visible here; false opts out.
+      mqttPresence = true;
     };
   };
   systemd.services.hausnetz.serviceConfig = {
