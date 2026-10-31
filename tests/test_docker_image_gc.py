@@ -13,6 +13,7 @@ import atexit
 import ast
 import builtins
 import fcntl
+import hashlib
 import io
 import json
 import os
@@ -4479,33 +4480,183 @@ class RegistryPathTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.check_rejection(support, path)
 
-    def test_discovery_manifest_and_blob_get_and_head_keep_body_pacing(self):
+    def test_discovery_blob_and_undelayed_manifests_are_forwarded_unchanged(self):
         support = SocketIsolationTests.helper("docker-image-gc-vm-support")
-        paths = ("/v2/", "/v2/fixture/manifests/r8", "/v2/team/fixture/manifests/r2",
-                 "/v2/fixture/manifests/sha256:" + "0" * 64, "/v2/fixture/blobs/sha256:" + "0" * 64)
-        for path in paths:
+        cases = (("/v2/", 10), ("/v2/fixture/blobs/" + dg(0), 10),
+                 ("/v2/fixture/manifests/" + dg(0), 10),
+                 ("/v2/fixture/manifests/r8", None), ("/v2/team/fixture/manifests/r2", 0))
+        for path, delay in cases:
             for method in ("GET", "HEAD"):
-                with self.subTest(path=path, method=method):
+                with self.subTest(path=path, method=method, delay=delay), tempfile.TemporaryDirectory() as tmp:
+                    cfg = {"epoch": "unit"}
+                    if delay is not None: cfg["pull_delay"] = delay
                     handler = self.handler(support, path, method)
+                    handler.headers = {"X-Fixture": "unit"}
                     response = mock.Mock(status=200)
-                    response.read.return_value = b"0123456789"
-                    response.getheaders.return_value = [("Content-Type", "fixture")]
-                    response.getheader.return_value = "10"
-                    with mock.patch.object(support, "settings", return_value={"pull_delay": 10, "epoch": "unit"}), \
-                         mock.patch.object(Path, "exists", return_value=False), mock.patch.object(Path, "touch") as touch, \
+                    response.read.return_value = b"" if method == "HEAD" else b"0123456789"
+                    response.getheaders.return_value = [("Content-Type", "fixture"), ("Content-Length", "10")]
+                    with mock.patch.object(support, "ROOT", Path(tmp)), mock.patch.object(support, "settings", return_value=cfg), \
                          mock.patch.object(support, "record") as record, mock.patch.object(support.time, "sleep") as sleep, \
                          mock.patch.object(support.http.client, "HTTPConnection") as connection:
                         connection.return_value.getresponse.return_value = response
                         handler.forward()
                     handler.send_error.assert_not_called()
+                    handler.send_response.assert_called_once_with(200)
+                    self.assertEqual(handler.send_header.call_args_list,
+                                     [mock.call("Content-Type", "fixture"), mock.call("Content-Length", "10")])
+                    handler.end_headers.assert_called_once_with()
                     connection.assert_called_once_with("127.0.0.1", 5000, timeout=650)
-                    connection.return_value.request.assert_called_once_with(method, path, headers={})
+                    connection.return_value.request.assert_called_once_with(method, path, headers={"X-Fixture": "unit"})
                     connection.return_value.close.assert_called_once_with()
-                    delayed = method == "GET" and "/manifests/" in path
-                    self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(5)] if delayed else [])
-                    self.assertEqual(touch.call_count, int(delayed))
-                    self.assertEqual(record.call_count, int(delayed))
+                    sleep.assert_not_called()
+                    record.assert_not_called()
                     self.assertEqual(handler.wfile.getvalue(), b"" if method == "HEAD" else b"0123456789")
+                    self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_manifest_variant_is_persisted_and_only_first_digest_get_is_paced(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        media_types = ("application/vnd.docker.distribution.manifest.v2+json",
+                       "application/vnd.oci.image.manifest.v1+json; charset=utf-8")
+        tag = "/v2/team/fixture/manifests/r8"
+        manifest = {"schemaVersion": 2, "config": {"digest": dg(1), "size": 2},
+                    "layers": [], "annotations": {"fixture": "preserved"}}
+        for media_type in media_types:
+            for first_method in ("HEAD", "GET"):
+                for delay, slices in ((10, 2), (12, 3)):
+                    with self.subTest(media_type=media_type, first_method=first_method, delay=delay), \
+                         tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp) / "registry"
+                        cfg = {"pull_delay": delay, "epoch": "unit", "pull_index": 3}
+                        upstream_body = json.dumps({**manifest, "mediaType": media_type.split(";", 1)[0]}, indent=2).encode()
+                        response = mock.Mock(status=200)
+                        response.read.return_value = upstream_body
+                        response.getheaders.return_value = [("Content-Type", media_type),
+                                                            ("Content-Length", str(len(upstream_body)))]
+                        with mock.patch.object(support, "ROOT", root), mock.patch.object(support, "settings", return_value=cfg), \
+                             mock.patch.object(support, "record") as record, mock.patch.object(support.time, "sleep") as sleep, \
+                             mock.patch.object(support.http.client, "HTTPConnection") as connection:
+                            connection.return_value.getresponse.return_value = response
+                            first = self.handler(support, tag, first_method)
+                            first.forward()
+                            marker = root / "registry-delay-unit-3"
+                            state = json.loads(marker.read_text())
+                            body, digest = state["body"].encode(), state["digest"]
+                            self.assertEqual(state, {"path": tag, "body": body.decode(), "content_type": media_type,
+                                                     "digest": digest, "used": False})
+                            self.assertEqual(digest, "sha256:" + hashlib.sha256(body).hexdigest())
+                            self.assertNotEqual(body, upstream_body)
+                            self.assertEqual(json.loads(body), {**json.loads(upstream_body),
+                                             "annotations": {"fixture": "preserved", "ops327.work": '["unit",3]'}})
+                            digest_path = tag.rsplit("/", 1)[0] + "/" + digest
+                            # Tag GET/HEAD and digest HEAD share the persisted bytes;
+                            # none consumes the one delayed digest GET.
+                            immediate = [first]
+                            for path, method in ((tag, "HEAD"), (tag, "GET"), (digest_path, "HEAD")):
+                                handler = self.handler(support, path, method)
+                                handler.forward()
+                                immediate.append(handler)
+                            expected_headers = [mock.call("Content-Type", media_type),
+                                                mock.call("Docker-Content-Digest", digest),
+                                                mock.call("Docker-Distribution-Api-Version", "registry/2.0"),
+                                                mock.call("Content-Length", str(len(body)))]
+                            for handler in immediate:
+                                handler.send_error.assert_not_called()
+                                handler.send_response.assert_called_once_with(200)
+                                self.assertEqual(handler.send_header.call_args_list, expected_headers)
+                                handler.end_headers.assert_called_once_with()
+                                self.assertEqual(handler.wfile.getvalue(), b"" if handler.command == "HEAD" else body)
+                            sleep.assert_not_called()
+                            record.assert_not_called()
+                            self.assertFalse(json.loads(marker.read_text())["used"])
+
+                            delayed = self.handler(support, digest_path)
+                            delayed.wfile = mock.Mock(wraps=io.BytesIO())
+                            timeline = mock.Mock()
+                            timeline.attach_mock(sleep, "sleep")
+                            timeline.attach_mock(delayed.wfile.write, "write")
+                            timeline.attach_mock(delayed.wfile.flush, "flush")
+                            sleep.side_effect = lambda _: delayed.end_headers.assert_called_once_with()
+                            delayed.forward()
+                            self.assertEqual(delayed.wfile.getvalue(), body)
+                            self.assertEqual(delayed.send_header.call_args_list, expected_headers)
+                            delayed.send_response.assert_called_once_with(200)
+                            delayed.send_error.assert_not_called()
+                            self.assertEqual(sleep.call_args_list, [mock.call(delay / slices)] * slices)
+                            self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), delay)
+                            chunks = [call.args[0] for call in delayed.wfile.write.call_args_list]
+                            self.assertEqual(len(chunks), slices)
+                            self.assertTrue(all(chunks))
+                            self.assertEqual(b"".join(chunks), body)
+                            self.assertEqual(timeline.mock_calls, [call for chunk in chunks for call in (
+                                mock.call.sleep(delay / slices), mock.call.write(chunk), mock.call.flush())])
+                            record.assert_called_once_with("registry-wait", epoch="unit", pull_index=3)
+                            self.assertEqual(json.loads(marker.read_text()), {**state, "used": True})
+
+                            sleep.reset_mock(side_effect=True)
+                            retry = self.handler(support, digest_path)
+                            retry.forward()
+                            self.assertEqual(retry.wfile.getvalue(), body)
+                            self.assertEqual(retry.send_header.call_args_list, expected_headers)
+                            sleep.assert_not_called()
+                            record.assert_called_once_with("registry-wait", epoch="unit", pull_index=3)
+                            self.assertEqual(json.loads(marker.read_text()), {**state, "used": True})
+                            self.assertEqual(list(root.iterdir()), [marker])
+                            connection.assert_called_once_with("127.0.0.1", 5000, timeout=650)
+                            connection.return_value.request.assert_called_once_with("GET", tag, headers={})
+                            connection.return_value.close.assert_called_once_with()
+
+    def test_manifest_variant_digest_changes_with_epoch_or_pull_index(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        tag = "/v2/fixture/manifests/r8"
+        with tempfile.TemporaryDirectory() as tmp:
+            response = mock.Mock(status=200)
+            response.read.return_value = b'{"schemaVersion":2,"config":{"digest":"unchanged"},"layers":[]}'
+            response.getheaders.return_value = [("Content-Type", "application/vnd.oci.image.manifest.v1+json")]
+            with mock.patch.object(support, "ROOT", Path(tmp)), mock.patch.object(support, "settings") as settings, \
+                 mock.patch.object(support, "record") as record, mock.patch.object(support.time, "sleep") as sleep, \
+                 mock.patch.object(support.http.client, "HTTPConnection") as connection:
+                connection.return_value.getresponse.return_value = response
+                digests = []
+                for epoch, index in (("one", 0), ("two", 0), ("two", 1)):
+                    settings.return_value = {"epoch": epoch, "pull_index": index, "pull_delay": 10}
+                    handler = self.handler(support, tag, "HEAD")
+                    handler.forward()
+                    state = json.loads((Path(tmp) / f"registry-delay-{epoch}-{index}").read_text())
+                    digests.append(state["digest"])
+                    self.assertEqual(state["digest"], "sha256:" + hashlib.sha256(state["body"].encode()).hexdigest())
+                    self.assertIn(mock.call("Docker-Content-Digest", state["digest"]), handler.send_header.call_args_list)
+                    self.assertEqual(json.loads(state["body"]), {**json.loads(response.read.return_value),
+                                     "annotations": {"ops327.work": json.dumps([epoch, index], separators=(",", ":"))}})
+                self.assertEqual(len(set(digests)), 3)
+                self.assertEqual(len(list(Path(tmp).iterdir())), 3)
+                self.assertEqual(connection.call_count, 3)
+                sleep.assert_not_called()
+                record.assert_not_called()
+
+    def test_manifest_variant_rejects_unsupported_upstream_media_type(self):
+        support = SocketIsolationTests.helper("docker-image-gc-vm-support")
+        for media_type in ("fixture", "application/vnd.oci.image.index.v1+json"):
+            with self.subTest(media_type=media_type), tempfile.TemporaryDirectory() as tmp:
+                handler = self.handler(support, "/v2/fixture/manifests/r8", "HEAD")
+                response = mock.Mock(status=200)
+                response.read.return_value = b'{"schemaVersion":2}'
+                response.getheaders.return_value = [("Content-Type", media_type)]
+                with mock.patch.object(support, "ROOT", Path(tmp)), \
+                     mock.patch.object(support, "settings", return_value={"epoch": "unit", "pull_delay": 10}), \
+                     mock.patch.object(support, "record") as record, mock.patch.object(support.time, "sleep") as sleep, \
+                     mock.patch.object(support.http.client, "HTTPConnection") as connection:
+                    connection.return_value.getresponse.return_value = response
+                    with self.assertRaisesRegex(AssertionError, "unsupported fixture manifest media type"):
+                        handler.forward()
+                connection.return_value.request.assert_called_once_with("GET", handler.path, headers={})
+                connection.return_value.close.assert_called_once_with()
+                handler.send_response.assert_not_called()
+                handler.send_header.assert_not_called()
+                handler.end_headers.assert_not_called()
+                self.assertEqual(handler.wfile.getvalue(), b"")
+                sleep.assert_not_called()
+                record.assert_not_called()
+                self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_skipped_registry_allowlist_is_killed(self):
         support = SocketIsolationTests.helper("docker-image-gc-vm-support", [("        if not re.fullmatch(\n", "        if False and not re.fullmatch(\n")])
