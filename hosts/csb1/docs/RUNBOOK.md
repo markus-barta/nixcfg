@@ -355,13 +355,12 @@ offers no host actions, so `pharosd` no longer gets the watchtower webhook, the
 dispatch token, manifests or the access policy. Those two agenix declarations stay
 for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
 
-Notifications are off from csb1's switch: the `fleet-drift` and `fleet-backup-watch`
-timers are disabled in the same change, so nothing pages. Turning both back on is
-the last step of the launch. From then on `fleet-drift` pages a silent host and
-`fleet-backup-watch` a failed or stale backup, which Pharos 1 used to do. Before
-turning them on, check `sudo jq .pending /var/lib/fleet-drift/state.json` and the
-same in `/var/lib/fleet-backup-watch/`: a saved page is sent first, before any
-check, so if it isn't `null`, set only that field to `null`.
+`fleet-drift` pages a silent host and `fleet-backup-watch` a failed or stale backup,
+which Pharos 1 used to do. Both timers were off from csb1's switch on 2026-11-01
+until the hosts had passed their checks. If they are ever off again, before turning
+them on check `sudo jq .pending /var/lib/fleet-drift/state.json` and the same in
+`/var/lib/fleet-backup-watch/`: a saved page is sent first, before any check, so if
+it isn't `null`, set only that field to `null`.
 
 - **Fleet data:** `/var/lib/pharos-fleet/fleet.json`, owned by `mba`, mode 0644,
   schema 3, source in private ops. Copy it next to the target, then `mv` it over,
