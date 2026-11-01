@@ -71,7 +71,7 @@ for host in "${hosts[@]}"; do
   # PHAROS-341: the next boot's kernel lives in a later generation whose path
   # can't be known in advance, so the store itself may be mounted, read-only.
   if grep -Ev -- '^[[:space:]]+"/nix/store:/nix/store:ro"$' <<<"$beacon" |
-    grep -Eq -- '^[[:space:]]+"/(etc|run|nix/store):'; then
+    grep -E -- '^[[:space:]]+"/(etc|run|nix/store):' >/dev/null; then
     printf 'pharos_evidence=failed reason=broad_host_mount host=%s\n' "$host" >&2
     exit 1
   fi

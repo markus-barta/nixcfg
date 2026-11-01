@@ -91,6 +91,16 @@ class BackupWatchTest(unittest.TestCase):
         self.assertEqual([p.key for p in self.checks.collect()],
                          ["backup:a:restic-cron-hetzner:state", "backup:a:restic-cron-hetzner:age"])
 
+    def test_suppress_backup_silences_the_state_not_the_age(self):
+        muted = host("a", obs(state="failed"))
+        muted["preferences"] = {"alerts": {"suppress_backup": True}}
+        self.write([muted])
+        self.assertEqual(self.checks.collect(), [])
+        muted = host("a", obs(state="failed", success=NOW - 28 * HOUR))
+        muted["preferences"] = {"alerts": {"suppress_backup": True}}
+        self.write([muted])
+        self.assertEqual([p.key for p in self.checks.collect()], ["backup:a:restic-cron-hetzner:age"])
+
     def test_other_states_page_too(self):
         self.write([host("w", obs(state="warning")), host("m", obs(state="missing")), host("u", obs(state="unknown"))])
         problems = self.checks.collect()

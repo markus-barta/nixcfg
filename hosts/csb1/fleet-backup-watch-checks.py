@@ -109,7 +109,9 @@ def judge(host: dict, now: float) -> tuple[list[Problem], set[str]]:
         label = str(observation.get("label") or ident)
         summary = str(observation.get("summary") or "no summary")
 
-        if state not in QUIET_STATES:
+        # Same rule as Pharos 1's backup alert. The age check below still applies.
+        suppressed = ((host.get("preferences") or {}).get("alerts") or {}).get("suppress_backup")
+        if state not in QUIET_STATES and not suppressed:
             found.append(Problem(f"{key}:state", f"{name}: {label} reports {state} ({summary})."))
 
         limit_hours = MAX_AGE_HOURS.get(str(observation.get("schedule") or ""), DEFAULT_MAX_AGE_HOURS)
