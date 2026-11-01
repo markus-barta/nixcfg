@@ -1,0 +1,15 @@
+{
+  "schema": "inspr.pharos.host-probes.v1",
+  "version": 1,
+  "probe_interval_secs": 60,
+  "hosts": [
+    { "host": "csb0", "target": "100.64.0.8", "tcp_port": 2222 },
+    { "host": "csb1", "target": "100.64.0.4", "tcp_port": 2222 },
+    { "host": "hsb0", "target": "100.64.0.6" },
+    { "host": "hsb1", "target": "100.64.0.7" },
+    { "host": "hsb8", "target": "100.64.0.3" },
+    { "host": "hsb9", "target": "100.64.0.12" },
+    { "host": "mbp2606", "target": "100.64.0.13" },
+    { "host": "mbp2607", "target": "100.64.0.14" }
+  ]
+}

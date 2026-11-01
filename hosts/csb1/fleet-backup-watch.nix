@@ -1,12 +1,12 @@
 # Fleet backup watch — OPS-485.
 #
-# Every host's restic job writes a status file its Pharos beacon reports as-is;
-# pharosd pages `failed` at once, but nothing ages the file, so a job that stops
-# running stays "healthy" forever. hsb8/hsb9 cannot send their own failure mail
-# (no relay, OPS-137). This unit reads pharosd's persisted store on this host and
-# pages when a backup has not succeeded within its schedule's limit, or reports a
-# state pharosd does not page. Same OPS-107 engine, hardening and Telegram target
-# as fleet-drift; no new credential.
+# Every host's restic job writes a status file its Pharos beacon reports as-is,
+# and nothing ages the file, so a job that stops running stays "healthy" forever.
+# hsb8/hsb9 cannot send their own failure mail (no relay, OPS-137). This unit reads
+# pharosd's persisted store on this host and pages when a backup has not succeeded
+# within its schedule's limit, or reports any state but healthy: Pharos 2 sends no
+# alerts (PHAROS-345), so `failed` pages from here too. Same OPS-107 engine, hardening
+# and Telegram target as fleet-drift; no new credential.
 {
   config,
   pkgs,
@@ -62,6 +62,9 @@ in
   };
 
   systemd.timers.fleet-backup-watch = {
+    # PHAROS-345: notifications are off from the cutover. Turning this back on
+    # is the last step of the launch.
+    enable = false;
     description = "Recurring fleet backup watch (OPS-485)";
     wantedBy = [ "timers.target" ];
     timerConfig = {

@@ -146,7 +146,9 @@ in
   ];
 
   inspr.pharosGuardedDeploy = {
-    enable = true;
+    # PHAROS-345: Pharos 2 has no /agent/actions/claim, so the agent would only
+    # log 404s. Keep the references for an attended rollback to Pharos 1.
+    enable = false;
     applySecretRef = "sec_1dea981613b3ba82213e";
     rollbackSecretRef = "sec_cbd0bd3a2fa2d7fd4382";
     updateSecretRef = "sec_5486faf22bc4e9086253";

@@ -2,9 +2,9 @@
 """Fleet backup watch — OPS-485.
 
 The backup dead-man's switch. Every host's restic job writes a status file that
-its Pharos beacon reports as-is (PHAROS_BACKUP_MODE=status-file, OPS-53), and
-pharosd already pages a `failed` or `stale` state within minutes (alerts.rs).
-Nothing ages that file, though: if the nightly job never runs again (cron dead,
+its Pharos beacon reports as-is (PHAROS_BACKUP_MODE=status-file, OPS-53). Pharos 2
+sends no alerts (PHAROS-345), so the only page for a backup comes from here.
+Nothing ages that file: if the nightly job never runs again (cron dead,
 container stopped, image broken before the script starts), the file keeps its
 last "healthy" verdict and Pharos shows a green backup forever. On hsb8/hsb9
 the job's own failure mail cannot leave the box either (no relay there; OPS-137
@@ -16,11 +16,10 @@ backup observation, for every host that reports one:
 
   * `age`   -- no successful run within the schedule's limit (26 h for daily),
                whatever the reported state says. A failed nightly also lands
-               here ~2 h after pharosd's immediate page, as the reminder that it
-               is still not fixed.
-  * `state` -- warning / missing / unknown, which pharosd does not page.
+               here ~2 h after its `state` page, as the reminder that it is still
+               not fixed.
+  * `state` -- any reported state but healthy.
 
-`failed` and `stale` states are deliberately not paged a second time here.
 No host list: Pharos is the inventory. One rule guards recovery (collect()):
 an announced problem clears only when this run re-judged exactly its evidence.
 Missing or malformed evidence keeps it open next to a loud "unwatched" problem.
@@ -40,8 +39,6 @@ STORE_PATH = "@STORE_PATH@"
 # A nightly job plus two hours of slack for a slow run or a late cron.
 DEFAULT_MAX_AGE_HOURS = 26
 MAX_AGE_HOURS = {"daily": 26, "weekly": 8 * 24}
-# pharosd opens its own backup incident for these (alerts.rs reconcile_backup).
-PAGED_BY_PHAROS = {"failed", "stale"}
 QUIET_STATES = {"healthy"}
 # Beacon silence beyond this makes the reported status itself old news.
 STALE_SECONDS = 30 * 60
@@ -112,7 +109,9 @@ def judge(host: dict, now: float) -> tuple[list[Problem], set[str]]:
         label = str(observation.get("label") or ident)
         summary = str(observation.get("summary") or "no summary")
 
-        if state not in QUIET_STATES and state not in PAGED_BY_PHAROS:
+        # Same rule as Pharos 1's backup alert. The age check below still applies.
+        suppressed = ((host.get("preferences") or {}).get("alerts") or {}).get("suppress_backup")
+        if state not in QUIET_STATES and not suppressed:
             found.append(Problem(f"{key}:state", f"{name}: {label} reports {state} ({summary})."))
 
         limit_hours = MAX_AGE_HOURS.get(str(observation.get("schedule") or ""), DEFAULT_MAX_AGE_HOURS)

@@ -12,9 +12,10 @@ OIDC session even on localhost, so this reads pharosd's persisted store on csb1
 One problem per host (key `drift:<host>`) when the beacon says `relation=behind`
 and either the deployed commit is older than MAX_AGE_DAYS (commit date looked up
 in the local nixcfg checkout, best effort) or it is at least MAX_COMMITS behind.
-`diverged` / `ahead` are problems of their own. Hosts not seen for STALE_SECONDS
-are skipped — Pharos' own HostDown incident covers them. Hosts whose beacon
-carries no evidence are skipped (nothing to judge).
+`diverged` / `ahead` are problems of their own. A host not seen for STALE_SECONDS
+pages as `silent:<host>` instead: Pharos 2 sends no alerts (PHAROS-345). As with
+Pharos 1's down alert, a workstation or a host with `suppress_down` never pages
+for silence. Hosts whose beacon carries no evidence are skipped (nothing to judge).
 
 Depends on OPS-186 (beacons must see the CURRENT evidence; before that fix the
 numbers lag the beacon container's start time).
@@ -63,13 +64,23 @@ def commit_age_days(revision: str, now: float) -> float | None:
     return max(0.0, (now - stamp) / 86400.0)
 
 
+def suppresses_down(host: dict) -> bool:
+    """Same rule as HostPreferences::suppresses_down_alerts in pharos-core."""
+    preferences = host.get("preferences") or {}
+    return preferences.get("kind") == "workstation" or bool((preferences.get("alerts") or {}).get("suppress_down"))
+
+
 def judge(host: dict, now: float) -> list[Problem]:
     name = str(host.get("name") or "?")
-    if not host.get("is_nix"):
-        return []
     seen = float(host.get("last_seen") or 0)
     if now - seen > STALE_SECONDS:
-        return []  # Pharos HostDown owns silence
+        if suppresses_down(host):
+            return []
+        since = f"for {(now - seen) / 3600.0:.1f} h" if seen else "yet"
+        return [Problem(f"silent:{name}", f"{name}: no beacon report {since}. "
+                                          f"Check the host and its pharos-beacon container.")]
+    if not host.get("is_nix"):
+        return []
     fresh = host.get("freshness") or {}
     comparison = fresh.get("nixcfg_comparison") or {}
     relation = comparison.get("relation")
@@ -93,12 +104,21 @@ def judge(host: dict, now: float) -> list[Problem]:
     return []
 
 
+def announced() -> dict[str, str]:
+    """Problems this unit has already announced (engine state), key -> text."""
+    seen = engine.load_state(STATE_PATH).get("seen", {})
+    return {key: str(entry.get("text") or key) for key, entry in seen.items()
+            if isinstance(entry, dict) and entry.get("alerted")}
+
+
 def collect() -> list[Problem]:
     try:
         hosts = load_store(STORE_PATH)
     except Exception as error:  # noqa: BLE001
+        # Recovery can't be known, so what was announced stays open.
+        kept = [Problem(key, text) for key, text in announced().items() if key != "drift:store"]
         return [Problem("drift:store", f"pharosd store unreadable at {STORE_PATH} ({type(error).__name__}); "
-                                       f"fleet drift is currently unwatched.")]
+                                       f"fleet drift is currently unwatched."), *kept]
     now = time.time()
     found: list[Problem] = []
     for host in sorted(hosts, key=lambda h: str(h.get("name"))):

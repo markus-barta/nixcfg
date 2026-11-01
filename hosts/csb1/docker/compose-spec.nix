@@ -1438,10 +1438,10 @@ in
     # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
     # FleetCom is decommissioned; Pharos is the live fleet dashboard.
     pharosd = {
-      # PHAROS-206: guarded delivery bridge and fixed Debian security snapshot.
-      # Pin the verified release index containing the linux/amd64 image and
-      # provenance. Upgrade the control plane before starting v6 beacons.
-      image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9";
+      # PHAROS-345: Pharos 2, read-only: CVEs, updates and reachability. Pin the
+      # verified release index containing the linux/amd64 image and provenance.
+      # Rollback needs the pharos_data backup too: runbook, Pharos 2 cutover.
+      image = "ghcr.io/inspr-at/pharos/pharosd:261031180823.0.0@sha256:822fe56a34822576bd64d89ceeeae0062dfbe5b660adb50c71a434763c746b0c";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1474,16 +1474,16 @@ in
         "PHAROS_ADDR=0.0.0.0:8080"
         "RUST_LOG=info"
         "PHAROS_DB=/data/pharos.json"
-        "PHAROS_MANIFEST_PATHS=/manifests/hsb8.json"
-        "PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json"
-        "PHAROS_NIXCFG_DISPATCH_ENABLED=1"
-        "PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token"
+        # PHAROS-346: CVE and host data, one file delivered from private ops.
+        # A directory mount, so a replaced file shows without a restart.
+        "PHAROS_FLEET_DATA_FILE=/fleet-data/fleet.json"
+        # PHAROS-343: reachability for hosts, bare TCP and ICMP only.
+        "PHAROS_HOST_PROBES_PATH=/config/host-probes.json"
         "PHAROS_REQUIRE_BEACON_TOKEN=1"
         # OPS-514: authenticate existing hosts against their durable store hash.
         # Registration must stay closed: it can overwrite an existing hash.
         "PHAROS_BEACON_TOKEN_MODE=local"
         "PHAROS_ALLOW_LOCAL_REGISTER=false"
-        "PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env"
         # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
         # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
         "PHAROS_OIDC_ISSUER=https://auth.inspr.at"
@@ -1494,10 +1494,11 @@ in
           else
             "https://pharos.barta.cm/auth/callback"
         }"
-        # Authorization identifiers are explicit and value-free. This migration
-        # reference is derived only from an OIDC email_verified=true claim.
-        "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
-        "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
+        # Authorization identifiers are explicit and value-free, and this list
+        # is the only way in. The first is derived only from an OIDC
+        # email_verified=true claim; the second is the headless UX test account
+        # (OPS-217).
+        "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27,operator-ref:f168f630edf0814cc053c2988d5dee045ee9856e824e5573b439d8d53e88bc25"
       ]
       # NIX-442 / PHAROS-257 — opt-in Flow host. Projection and guarded
       # Review/Start navigation only; no delivery, provider or Janus authority.
@@ -1509,11 +1510,8 @@ in
       ];
       volumes = [
         "pharos_data:/data"
-        "./pharos/access-policy.json:/etc/pharos/access-policy.json:ro"
-        "./pharos/manifests:/manifests:ro"
-        "/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro"
-        "/run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro"
-        "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
+        "/var/lib/pharos-fleet:/fleet-data:ro"
+        "/etc/pharos/host-probes.json:/config/host-probes.json:ro"
       ]
       ++ flowHostVolumes;
       networks = flowNetwork sharedFlow.network.addresses.pharos;
@@ -1534,7 +1532,7 @@ in
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9";
+      image = "ghcr.io/inspr-at/pharos/pharosd:261031180823.0.0@sha256:822fe56a34822576bd64d89ceeeae0062dfbe5b660adb50c71a434763c746b0c";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -1585,6 +1583,9 @@ in
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/pharos-preferences:/etc/pharos:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        # PHAROS-341: the next boot's kernel. Directories at their own paths, so later generations are visible.
+        "/nix/var/nix/profiles:/nix/var/nix/profiles:ro"
+        "/nix/store:/nix/store:ro"
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [

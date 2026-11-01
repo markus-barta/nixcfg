@@ -10,7 +10,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SECRETS_NIX="$REPO_ROOT/secrets/secrets.nix"
 CSB1_CONFIG="$REPO_ROOT/hosts/csb1/configuration.nix"
 CSB1_COMPOSE="$REPO_ROOT/hosts/csb1/docker/compose-spec.nix"
-ACCESS_POLICY="$REPO_ROOT/hosts/csb1/docker/pharos/access-policy.json"
 
 need_line() {
   local expected="$1"
@@ -42,72 +41,40 @@ need_line '        "/run/agenix/pharos-beacon-csb1-env"' "$CSB1_COMPOSE"
 need_line '        "PHAROS_REQUIRE_BEACON_TOKEN=1"' "$CSB1_COMPOSE"
 need_line '        "PHAROS_BEACON_TOKEN_MODE=local"' "$CSB1_COMPOSE"
 need_line '        "PHAROS_ALLOW_LOCAL_REGISTER=false"' "$CSB1_COMPOSE"
-operator_ref="$(sed -n 's/^[[:space:]]*"PHAROS_ALLOWED_OPERATORS=\(verified-email-ref:[0-9a-f]\{64\}\)"$/\1/p' "$CSB1_COMPOSE")"
-if [[ ! "$operator_ref" =~ ^verified-email-ref:[0-9a-f]{64}$ ]]; then
-  echo "Pharos operator allowlist must use one value-free verified-email reference" >&2
+# PHAROS-345: Pharos 2 has no policy file, so this list is the only way in. It
+# keeps today's access set: the bootstrap reference plus the UX test account.
+operators="$(sed -n 's/^[[:space:]]*"PHAROS_ALLOWED_OPERATORS=\([^"]*\)"$/\1/p' "$CSB1_COMPOSE")"
+allowed_operators_ok() {
+  if [[ "$1" =~ ^verified-email-ref:[0-9a-f]{64},operator-ref:[0-9a-f]{64}$ ]]; then
+    return 0
+  fi
+  return 1
+}
+if ! allowed_operators_ok "$operators"; then
+  echo "Pharos operator allowlist must hold one verified-email reference and one operator reference" >&2
   exit 1
 fi
-access_grants_ok() {
-  jq -e --arg operator_ref "$operator_ref" '
-    def extra_operator_ref:
-      type == "string" and test("^operator-ref:[0-9a-f]{64}\\z");
-    def identifiers_ok:
-      . == [$operator_ref]
-      or (type == "array" and length == 1 and (.[0] | extra_operator_ref));
-    (.grants | type == "array" and length > 0)
-      and any(.grants[]; .identifiers == [$operator_ref])
-      and all(.grants[]; (.identifiers | identifiers_ok))
-  ' >/dev/null
-}
-
-expect_access_grants() {
-  local want="$1"
-  local doc="$2"
-  local rc=0
-  access_grants_ok <<<"$doc" || rc=$?
-  if [[ "$rc" -gt 1 ]]; then
-    echo "access grant predicate failed to evaluate" >&2
-    exit 1
-  fi
-  if [[ "$want" == pass && "$rc" -ne 0 ]]; then
-    echo "access grant predicate rejected a valid identifier set" >&2
-    exit 1
-  fi
-  if [[ "$want" == fail && "$rc" -eq 0 ]]; then
-    echo "access grant predicate accepted a malformed identifier set" >&2
-    exit 1
-  fi
-}
-
-if ! access_grants_ok <"$ACCESS_POLICY"; then
-  echo "Pharos access policy must keep the bootstrap verified-email reference and only add operator-ref:<64 lowercase hex> grants" >&2
-  exit 1
-fi
-extra_ref='operator-ref:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-other_ref='verified-email-ref:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-expect_access_grants pass "$(jq -nc --arg id "$operator_ref" '{grants:[{identifiers:[$id]}]}')"
-expect_access_grants pass "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id]},{identifiers:[$extra]}]}')"
-expect_access_grants fail "$(jq -nc --arg extra "$extra_ref" '{grants:[{identifiers:[$extra]}]}')"
-expect_access_grants fail "$(jq -nc --arg id "$other_ref" '{grants:[{identifiers:[$id]}]}')"
-expect_access_grants fail '{"grants":[]}'
-expect_access_grants fail '{"grants":[{"identifiers":[]}]}'
-expect_access_grants fail "$(jq -nc --arg id "$operator_ref" '{grants:[{identifiers:[$id]},{identifiers:[""]}]}')"
-expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id,$extra]}]}')"
+aaa='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 while IFS= read -r bad; do
-  expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg bad "$bad" '{grants:[{identifiers:[$id]},{identifiers:[$bad]}]}')"
-done <<'EOF'
-person@example.com
-email:person@example.com
-not-a-ref
-operator-ref:abc
-operator-ref:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-operator-ref:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz
+  if allowed_operators_ok "$bad"; then
+    echo "allowlist predicate accepted a malformed list: $bad" >&2
+    exit 1
+  fi
+done <<EOF
+verified-email-ref:$aaa
+operator-ref:$aaa
+person@example.com,operator-ref:$aaa
+verified-email-ref:$aaa,person@example.com
+verified-email-ref:$aaa,operator-ref:abc
+verified-email-ref:$aaa,operator-ref:${aaa}z
 EOF
-expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id]},{identifiers:[$extra + "\n"]}]}')"
-if grep -Eq '"identifiers"[[:space:]]*:[[:space:]]*\[[^]]*"(email:|[^" ]*@)' "$ACCESS_POLICY"; then
-  echo "Pharos access policy contains a mutable or unprefixed identifier" >&2
+# A second assignment would override the checked value, so it can't count as valid.
+if allowed_operators_ok "verified-email-ref:$aaa,operator-ref:$aaa"$'\n'"person@example.com"; then
+  echo "allowlist predicate accepted a second line" >&2
   exit 1
 fi
+forbid_text 'PHAROS_ACCESS_POLICY_FILE' "$CSB1_COMPOSE"
+forbid_text 'access-policy.json' "$CSB1_COMPOSE"
 forbid_text 'csb1-pharos-registration-env' "$CSB1_CONFIG"
 forbid_text 'csb1-pharos-registration-env' "$CSB1_COMPOSE"
 
@@ -117,4 +84,4 @@ if grep -Eq 'PHAROS_REGISTRATION_TOKEN=|Bearer |BEGIN |PRIVATE KEY|pharos_[0-9A-
   exit 1
 fi
 
-echo "ok: Janus-mode Pharos has strict machine auth and explicit OIDC authorization identifiers"
+echo "ok: local-mode Pharos has strict machine auth and explicit OIDC authorization identifiers"

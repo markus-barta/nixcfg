@@ -1108,6 +1108,8 @@ in
       # Create runtime directory structure
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
+      # PHAROS-346: the fleet data file, written by mba, read-only in pharosd.
+      "d /var/lib/pharos-fleet 0755 mba users -"
       # Aeon uses gcr.io/distroless/static:nonroot (UID/GID 65532).
       "d ${dockerRoot}/aeon-files 0750 65532 65532 -"
       "d ${dockerRoot}/aeon-postgres-backup-snapshot 0700 root root -"
@@ -1261,6 +1263,12 @@ in
     "janus/managed/hooks.toml".source = ./docker/janus/managed-service-production/hooks.toml;
     "janus/managed/pharos-verification-keys.json".source =
       ./docker/janus/managed-service-production/pharos-verification-keys.json;
+    # PHAROS-343: pharosd refuses a symlink, so mode makes this a real root-owned
+    # file. It reads the registry once at start.
+    "pharos/host-probes.json" = {
+      source = ./docker/pharos/host-probes.json;
+      mode = "0444";
+    };
     "janus/managed/web-transaction-catalog.json" = {
       source = ./docker/janus/managed-service-production/web-transaction-catalog.json;
       user = "janus-managed-central";

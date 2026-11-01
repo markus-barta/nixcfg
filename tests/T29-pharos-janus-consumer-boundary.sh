@@ -224,7 +224,7 @@ environment = dict(value.split("=", 1) for value in p["environment"])
 assert environment["PHAROS_BEACON_TOKEN_MODE"] == "local"
 assert environment["PHAROS_ALLOW_LOCAL_REGISTER"] == "false"
 assert environment["PHAROS_REQUIRE_BEACON_TOKEN"] == "1"
-assert environment["PHAROS_NIXCFG_DISPATCH_ENABLED"] == "1"
+assert "PHAROS_NIXCFG_DISPATCH_ENABLED" not in environment
 assert "group_add" not in p
 for prefix in ("PHAROS_BEACON_TOKEN_HASH", "PHAROS_JANUS_", "PHAROS_MANAGED_",
                "PHAROS_HCLOUD_", "PHAROS_PROVISIONING_", "PHAROS_RETIREMENT_",
