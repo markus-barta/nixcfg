@@ -37,12 +37,12 @@
     },
     "v2": {
       "board": {
-        "rev": "a76621e4c36a3ddaa106bfb48f2085333d9fddcd",
+        "rev": "36fecfeb7e56400db3076304d150e9eeb2beb05b",
         "version_scheme": "inspr-calver-3",
-        "version": "261031052151.0.0",
-        "release_sequence": 42,
+        "version": "261101023838.0.0",
+        "release_sequence": 43,
         "tag": null,
-        "image": "csb0-joe-board:source-a76621e4c36a3ddaa106bfb48f2085333d9fddcd",
+        "image": "csb0-joe-board:source-36fecfeb7e56400db3076304d150e9eeb2beb05b",
         "data_schema": "v2",
         "public_health": true
       },
@@ -60,8 +60,8 @@
       },
       "contracts": {
         "schema": "joedesk.release-contracts.v1",
-        "contract_set_sha256": "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350",
-        "manifest_revision": 10,
+        "contract_set_sha256": "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b",
+        "manifest_revision": 11,
         "compatibility": {
           "data": ["inspr.joe.household.v2"],
           "history": ["inspr.joe.household.history.v2"],
@@ -81,22 +81,22 @@
             "evidence": "test/release.mjs + test/server-contract.mjs"
           },
           "pusher": {
-            "required_contract_set_sha256": "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350",
+            "required_contract_set_sha256": "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b",
             "required_data_schema": "inspr.joe.household.v2",
             "deployment_pin": "0264b42f583641a446e90b606dc26ed7ef200f60",
-            "status": "Revision 9 proof only: Amy signed off the real producer paper proof (JOED-39, 2026-10-23); revision 10 re-vendoring and Amy sign-off pending JOED-86"
+            "status": "Revision 9 proof only: Amy signed off the real producer paper proof (JOED-39, 2026-10-23); revision 10 re-vendoring and Amy sign-off pending JOED-86; revision 11 re-vendoring/compatibility proof and structured desk DAY fx emission pending DEVOPS (JOED-149); historical pin is not rev-11 sign-off"
           },
           "executor": {
-            "required_contract_set_sha256": "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350",
+            "required_contract_set_sha256": "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b",
             "reports_via": "pusher data.safety.executor",
             "deployment_pin": "0264b42f583641a446e90b606dc26ed7ef200f60",
-            "status": "Revision 9 proof only: Amy's executor/broker reconciliation passed (JOED-39 item 4, 2026-10-21); revision 10 re-vendoring and Amy sign-off pending JOED-86"
+            "status": "Revision 9 proof only: Amy's executor/broker reconciliation passed (JOED-39 item 4, 2026-10-21); revision 10 re-vendoring and Amy sign-off pending JOED-86; revision 11 re-vendoring/compatibility proof and structured desk DAY fx emission pending DEVOPS (JOED-149); historical pin is not rev-11 sign-off"
           },
           "producer": {
-            "required_contract_set_sha256": "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350",
+            "required_contract_set_sha256": "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b",
             "required_data_schema": "inspr.joe.household.results.v2",
             "deployment_pin": "0264b42f583641a446e90b606dc26ed7ef200f60",
-            "status": "Revision 9 proof only: Amy signed off the real producer paper proof (JOED-39, 2026-10-23); revision 10 re-vendoring and Amy sign-off pending JOED-86"
+            "status": "Revision 9 proof only: Amy signed off the real producer paper proof (JOED-39, 2026-10-23); revision 10 re-vendoring and Amy sign-off pending JOED-86; revision 11 re-vendoring/compatibility proof and structured desk DAY fx emission pending DEVOPS (JOED-149); historical pin is not rev-11 sign-off"
           }
         },
         "activation": "blocked until exact downstream pins or declared compatibility proof; fixtures are not producer sign-off"

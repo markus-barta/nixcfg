@@ -695,8 +695,9 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main a76621e4c36a3ddaa106bfb48f2085333d9fddcd
-(JoeDesk publication PR #142, JOED-174 release 42: board only, contracts unchanged from release 41; JOED-173 honest signed-out board, frozen and never readable as live); supersedes
+active v2 source is main 36fecfeb7e56400db3076304d150e9eeb2beb05b
+(JoeDesk publication PR #144, release PR #143, JOED-177 release 43: changes the board only, contracts revision 11 accepted beside revision 10, pusher unchanged; JOED-173 honest signed-out board, frozen and never readable as live; JOED-175 sign-in check across a restored tab; JOED-149 desk DAY fx proof accepted, not yet emitted); supersedes
+a76621e4 / 261031052151.0.0 / sequence 42, published, never live: its only switch (2026-10-31T16:55Z) rolled back on feeds_not_ready (JoeDesk publication PR #142, release PR #141, JOED-174 release 42),
 daa49125 / 261030154842.0.0 / sequence 41, live 2026-10-31T05:04:23Z (JoeDesk publication PR #140, release PR #139, JOED-172 release 41: JOED-170 faster Results switching, legacy-identical),
 2ad81321 / 261030085000.0.0 / sequence 40, live 2026-10-30T11:34:29Z (JoeDesk publication PR #138, release PR #137, JOED-171 release 40: release-39 follow-ups JOED-158, JOED-168 and JOED-169),
 95aa9342 / 261029192345.0.0 / sequence 39, live 2026-10-30T08:44:03Z (JoeDesk publication PR #136 (first publication #133), release PRs #132 and #134, JOED-159 release 39: board only, contracts unchanged from release 37; the JOED-144 board redesign (whole-account chart, History minimap and natural zoom, session-dated Desk, Results redesign, honest reasons and a quieter board, account start in Settings, backups covering the new stores) with sweeps 2 and 3 from the never-deployed release 38 (JOED-129–134, JOED-140–142)),
@@ -709,24 +710,24 @@ e96ff9a5 / 261026070713.0.0 / sequence 33, live 2026-10-26 20:06Z,
 8be38581 / 261025221940.0.0 / sequence 32, live 2026-10-26,
 20c37cdd / 261025144826.0.0 / sequence 31, live 2026-10-25 21:22Z,
 d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28,
-040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree 3fe21d6af4b5c6a7e442af6bf94bee14103ef133,
-`inspr-calver-3` / 261031052151.0.0 / sequence 42. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-174 preparation; JOED-172 was the previous release set).
-The release set comes from JoeDesk main CI run `41215247109` (all green, reproducible identical);
+040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree e2dccfe0e162fd6d04c58e03923e9e326e10605c,
+`inspr-calver-3` / 261101023838.0.0 / sequence 43. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-177 preparation; JOED-174 was the previous release set).
+The release set comes from JoeDesk main CI run `41276169961` attempt 2 (all green, reproducible identical; attempt 1 missed a Results timing budget under host load);
 `release-set.json` SHA256 is
-`02866ef3911ff0910e6e64fea8ef49d6ca6920ec885cb1c002d27fb19c3d9679`.
-Image `csb0-joe-board:source-a76621e4c36a3ddaa106bfb48f2085333d9fddcd`
-has digest `sha256:865253911144249a70a3c9e7441a9481f16f7bfb0ef3a87b2c0bff0767b3c76a`.
-Board-only rollback of this re-pin: revert the JOED-174 PR and switch csb0; with `pull_policy = never` the
+`4ede991c4a3cd228d5cb3cb35a6f03f9f4c2a5656b1d847315a33edb287f34f3`.
+Image `csb0-joe-board:source-36fecfeb7e56400db3076304d150e9eeb2beb05b`
+has digest `sha256:8b79c4c881f4052993f89b356fb2e7d22064f735cbbdeccc698613f9218064a9`.
+Board-only rollback of this re-pin: revert the JOED-177 PR and the never-live JOED-174 PR (#1200) and switch csb0; with `pull_policy = never` the
 retained tag `csb0-joe-board:source-daa49125c26af7fd4e19855327fd01f5eabf23d5` (sequence 41, local image
 `sha256:956c977f8d9eba3b1f2948578f8888455a33492875fae1833084de5b04f7b26c`) is reused, no build.
 db621bf stays the v1 rollback.
-Contracts manifest revision 10 has set SHA256
-`3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`;
+Contracts manifest revision 11 has set SHA256
+`c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`;
 `release/contracts.json` SHA256 is
-`702b3cff10efec16048597c89f6cc05413792ec498f18190c41b5b2076c80117`.
-The board accepts revision-9 payloads. The hsb0 pusher/executor retain the r20e
-pins with revision 9 still the default; Phase B activation and producer
+`de73dcc195e3054bb0ea53882c994f7255adb3f5567e5af1adb9eb6069c19747`.
+The board accepts revision-10 and revision-9 payloads. The hsb0 pusher/executor retain the r20e
+pins with revision 9 still the default, keep their vendored revision-10 set `3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350` and emit no fx until the separate JOED-149 flip; Phase B activation and producer
 sign-off remain separately owned under JOED-86.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
