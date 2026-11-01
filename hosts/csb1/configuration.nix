@@ -1792,6 +1792,15 @@ in
 
   # Raw GitHub token consumed through pharosd's file-only dispatcher setting.
   # Numeric ownership matches the non-root pharos user in the container image.
+  # PHAROS-344: pharosd runs as 10001:992 and reads this once at start.
+  age.secrets.csb1-pharos-operator-token-hash = {
+    file = ../../secrets/csb1-pharos-operator-token-hash.age;
+    path = "/run/agenix/csb1-pharos-operator-token-hash";
+    owner = "root";
+    group = "pharos-container";
+    mode = "0440";
+  };
+
   age.secrets.csb1-pharos-nixcfg-dispatch-token = {
     file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;
     path = "/run/agenix/csb1-pharos-nixcfg-dispatch-token";
