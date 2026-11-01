@@ -83,6 +83,8 @@ in
   noStarlinkFlag = !(lib.hasInfix "\"--starlink=false\"" unit.ExecStart);
   # HNET-44 (pin 56, Markus on Desk b12218e9): the approved read-only MQTT presence reaches the unit.
   mqttPresenceArgument = lib.hasInfix "\"--shelly-heal-mqtt-presence=true\"" unit.ExecStart;
+  # HNET-417 (pin 57): loopback plus the bridge nginx dials from reach the unit, nothing wider.
+  allowFromArgument = lib.hasInfix "\"--allow-from\" \"127.0.0.1/32,::1/128,172.18.0.0/16\"" unit.ExecStart;
   packetAllowed = has "AF_PACKET" unit.RestrictAddressFamilies;
   memoryLimit = unit.MemoryMax == "512M";
   cpuLimit = unit.CPUQuota == "50%";
