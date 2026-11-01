@@ -114,6 +114,16 @@ class DriftTest(unittest.TestCase):
         self.assertIn("no beacon report for 3.0 h", problems[0].text)
         self.assertIn("no beacon report yet", problems[2].text)
 
+    def test_silence_honours_pharos_down_suppression(self):
+        laptop = host("laptop", seen=NOW - 3 * 3600)
+        laptop["preferences"] = {"kind": "workstation", "alerts": {"suppress_down": False}}
+        muted = host("muted", seen=NOW - 3 * 3600)
+        muted["preferences"] = {"kind": "server", "alerts": {"suppress_down": True}}
+        server = host("server", seen=NOW - 3 * 3600)
+        server["preferences"] = {"kind": "server", "alerts": {"suppress_down": False}}
+        self.write([laptop, muted, server])
+        self.assertEqual([p.key for p in self.checks.collect()], ["silent:server"])
+
     def test_a_short_gap_is_not_silence(self):
         self.write([host("blip", relation=None, seen=NOW - 29 * 60)])
         self.assertEqual(self.checks.collect(), [])
