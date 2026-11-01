@@ -138,8 +138,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     enable = true;
     listen = "0.0.0.0:8377";
     # HNET-417 (pin 57): the process answers 403 to any TCP peer outside this list; proxy headers are
-    # ignored. nginx in hsb0-home dials from docker_default (172.18.0.0/16). A 10-minute SYN capture on
-    # 2026-11-01 showed no other peer and no container sits on docker0. A missing bridge passes eval,
+    # ignored. nginx in hsb0-home dials from docker_default (172.18.0.0/16). SYN captures on 2026-11-01
+    # showed no other production peer and no container sits on docker0. A missing bridge passes eval,
     # then nginx gets 403. A rollback below pin 57 must remove this option as well.
     allowFrom = [
       "127.0.0.1/32"
