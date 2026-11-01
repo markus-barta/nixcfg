@@ -381,7 +381,9 @@ pages failed and stale backups now; nothing pages a host that is down.
   1. Revert the cutover commit on main and build csb1 without switching.
   2. `sudo systemctl stop compose-csb1-update.timer compose-csb1-update.service`,
      so the weekly updater can't start the new image.
-  3. `docker stop pharosd`, then copy the backup over `pharos.json`.
+  3. `docker stop pharosd`, then a plain `sudo cp` of the backup onto the existing
+     `pharos.json`. It is 0600 owned by uid 10001; `mv` or `cp -p` would leave a
+     file `pharosd` can't read.
   4. Switch csb1, which starts the old image on the restored store.
   5. `sudo systemctl start compose-csb1-update.timer`.
 
