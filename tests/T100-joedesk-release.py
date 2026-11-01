@@ -21,10 +21,10 @@ HSB0_BASELINE = "67e15fad20c946975e9ce9012ee3d103af0fd18d"
 HSB0_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800'
 CANDIDATE_IMAGE = 'hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640'
 LEGACY = 'db621bf7f00a4c609b0930ef7d5020f3c8935ee9'
-PUBLISHED = 'a76621e4c36a3ddaa106bfb48f2085333d9fddcd'
-PUBLISHED_TREE = '3fe21d6af4b5c6a7e442af6bf94bee14103ef133'
-CONTRACT_SET_SHA256 = '3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350'
-CONTRACTS_JSON_SHA256 = '702b3cff10efec16048597c89f6cc05413792ec498f18190c41b5b2076c80117'
+PUBLISHED = '36fecfeb7e56400db3076304d150e9eeb2beb05b'
+PUBLISHED_TREE = 'e2dccfe0e162fd6d04c58e03923e9e326e10605c'
+CONTRACT_SET_SHA256 = 'c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b'
+CONTRACTS_JSON_SHA256 = 'de73dcc195e3054bb0ea53882c994f7255adb3f5567e5af1adb9eb6069c19747'
 SHA = re.compile(r'[0-9a-f]{64}')
 REV = re.compile(r'[0-9a-f]{40}')
 
@@ -285,11 +285,11 @@ def check(source=None):
         else:
             require(board['data_schema'] == 'v2', 'unknown board data schema')
             require(board['rev'] == PUBLISHED, 'published v2 revision mismatch')
-            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261031052151.0.0' and board['release_sequence'] == 42, 'published canonical CalVer3 metadata mismatch')
+            require(board['version_scheme'] == 'inspr-calver-3' and board['version'] == '261101023838.0.0' and board['release_sequence'] == 43, 'published canonical CalVer3 metadata mismatch')
             contracts = item['contracts']
             digest = contracts['contract_set_sha256']
             require(SHA.fullmatch(digest) and digest == CONTRACT_SET_SHA256, 'published contract digest mismatch')
-            require(contracts['manifest_revision'] == 10, 'published contract manifest revision mismatch')
+            require(contracts['manifest_revision'] == 11, 'published contract manifest revision mismatch')
             expected = {'data': ['inspr.joe.household.v2'], 'history': ['inspr.joe.household.history.v2'], 'results': ['inspr.joe.household.results.v2'], 'fleet-config': ['inspr.joe.fleet-config.v1'], 'healthz': ['inspr.joe.healthz.v2']}
             require(contracts['compatibility'] == expected and contracts['participants']['board']['accepts'] == expected, 'exact compatibility IDs required')
             for participant in ('pusher', 'executor'):
