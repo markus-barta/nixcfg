@@ -375,11 +375,19 @@ pages failed and stale backups now; nothing pages a host that is down.
   Then copy `pharos.json` to `/root/pharos-backups/`. Pharos writes it atomically,
   so a plain copy is consistent.
 - **Rollback:** once a beacon has measured a CalVer3 container, Pharos 1 refuses
-  to start on that store, so restore first: `docker stop pharosd`, copy the backup
-  over `pharos.json`, then revert the cutover commit and switch csb1, which starts
-  the old image on the restored store. Unset `PHAROS_DEPLOYED_ARTIFACT_*` on any
-  beacon that has it by then, or Pharos 1 refuses its reports. Beacons need not
-  move back. Reports since the backup are lost until each beacon's next report.
+  to start on that store, and a Pharos 2 restart on a restored store spoils it
+  again. Nothing else may touch the stack until the switch, so tell other sessions
+  first:
+  1. Revert the cutover commit on main and build csb1 without switching.
+  2. `sudo systemctl stop compose-csb1-update.timer compose-csb1-update.service`,
+     so the weekly updater can't start the new image.
+  3. `docker stop pharosd`, then copy the backup over `pharos.json`.
+  4. Switch csb1, which starts the old image on the restored store.
+  5. `sudo systemctl start compose-csb1-update.timer`.
+
+  Unset `PHAROS_DEPLOYED_ARTIFACT_*` on any beacon that has it by then, or Pharos 1
+  refuses its reports. Beacons need not move back. Reports since the backup are
+  lost until each beacon's next report.
 
 ### Janus shutdown and local Pharos beacon auth (OPS-514)
 

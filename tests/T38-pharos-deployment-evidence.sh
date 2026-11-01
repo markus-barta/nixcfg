@@ -68,7 +68,10 @@ for host in "${hosts[@]}"; do
     printf 'pharos_evidence=failed reason=writable_source_mount host=%s\n' "$host" >&2
     exit 1
   fi
-  if grep -Eq -- '^[[:space:]]+"/(etc|run|nix/store):' <<<"$beacon"; then
+  # PHAROS-341: the next boot's kernel lives in a later generation whose path
+  # can't be known in advance, so the store itself may be mounted, read-only.
+  if grep -Ev -- '^[[:space:]]+"/nix/store:/nix/store:ro"$' <<<"$beacon" |
+    grep -Eq -- '^[[:space:]]+"/(etc|run|nix/store):'; then
     printf 'pharos_evidence=failed reason=broad_host_mount host=%s\n' "$host" >&2
     exit 1
   fi
