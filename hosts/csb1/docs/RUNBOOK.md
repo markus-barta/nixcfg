@@ -348,6 +348,36 @@ All OPS-136 commands run as root under the campaign flock
 `/root/ops136-backups/`. Disaster recovery from image archives:
 `ops136/dr-image-id.override.yml` (read its STEP 0 first).
 
+### Pharos 2 cutover (PHAROS-345)
+
+Pharos 2 is read-only: CVEs, updates and reachability. It sends no alerts and
+offers no host actions, so `/etc/compose/csb1` no longer gives it the watchtower
+webhook, the dispatch token, manifests or the access policy. The two declarations
+stay for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
+
+- **Fleet data:** `/var/lib/pharos-fleet/fleet.json`, owned by `mba`, mode 0644,
+  schema 3, source in private ops. Copy it next to the target, then `mv` it over,
+  and Pharos reloads it without a restart. A bad file keeps the last good copy on
+  the page with the problem shown; with no good copy it reads "Can't check: no
+  data file".
+- **Reachability:** `hosts/csb1/docker/pharos/host-probes.json`, read once at
+  start, so a change needs a `pharosd` restart. Bare TCP only: an auth attempt
+  from csb1 can get it banned by fail2ban on the target.
+- **Order:** csb0's beacon first, then csb1, then the other beacons. New beacons
+  report to Pharos 1 without trouble. Keep `PHAROS_DEPLOYED_ARTIFACT_*` unset on
+  every beacon until csb1 has moved, or Pharos 1 refuses the report with 422 and
+  the host goes silent.
+- **Before csb1 moves:** every host in the store needs a hash, or it gets 401
+  until rotated (value-free, prints true or false per host):
+  `sudo cat /var/lib/docker/volumes/csb1_pharos_data/_data/pharos.json | jq -r '.[] | "\(.hostname // .name // .id)\t\(((.token_hash // "") | length) > 0)"'`
+  Then copy `pharos.json` to `/root/pharos-backups/`. Pharos writes it atomically,
+  so a plain copy is consistent.
+- **Rollback:** once a beacon has measured a CalVer3 container, Pharos 1 refuses
+  to start on that store, so this takes both steps: revert the cutover commit and
+  switch, with `pharosd` stopped restore the backup over `pharos.json`, then start
+  it. Beacons need not move back. Reports since the backup are lost until each
+  beacon's next report.
+
 ### Janus shutdown and local Pharos beacon auth (OPS-514)
 
 OPS-514 supersedes the OPS-280 runtime state below. Pharos uses

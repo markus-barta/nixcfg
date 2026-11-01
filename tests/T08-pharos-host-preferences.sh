@@ -22,20 +22,40 @@ compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 [[ "$(grep -Fc 'PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules' "$compose")" == 1 ]]
 [[ "$(grep -Fc '/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro' "$compose")" == 1 ]]
-[[ "$(grep -Fc 'PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json' "$compose")" == 1 ]]
-[[ "$(grep -Fc '/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro' "$compose")" == 1 ]]
-[[ "$(grep -Fc 'PHAROS_NIXCFG_DISPATCH_ENABLED=1' "$compose")" == 1 ]]
-[[ "$(grep -Fc 'PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token' "$compose")" == 1 ]]
-[[ "$(grep -Fc '/run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro' "$compose")" == 1 ]]
-if grep -Eq 'PHAROS_NIXCFG_DISPATCH_TOKEN=' "$compose"; then
-  exit 1
-fi
-grep -Fq 'age.secrets.csb1-pharos-nixcfg-dispatch-token' "$host_config"
-grep -Fq 'file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;' "$host_config"
+# PHAROS-345: Pharos 2 reads none of these, and a rollback reverts this with the image.
+for gone in PHAROS_HOST_PREFERENCES_PATH PHAROS_NIXCFG_DISPATCH PHAROS_ALERT_WEBHOOK \
+  PHAROS_MANIFEST_PATHS PHAROS_HTTP_PROBES_PATH PHAROS_DEPLOYED_ARTIFACT; do
+  if grep -Fq "$gone" "$compose"; then
+    echo "$gone is still set for csb1" >&2
+    exit 1
+  fi
+done
+[[ "$(grep -Fc 'PHAROS_FLEET_DATA_FILE=/fleet-data/fleet.json' "$compose")" == 1 ]]
+[[ "$(grep -Fc '/var/lib/pharos-fleet:/fleet-data:ro' "$compose")" == 1 ]]
+grep -Fq '"d /var/lib/pharos-fleet 0755 mba users -"' "$host_config"
+[[ "$(grep -Fc 'PHAROS_HOST_PROBES_PATH=/config/host-probes.json' "$compose")" == 1 ]]
+[[ "$(grep -Fc '/etc/pharos/host-probes.json:/config/host-probes.json:ro' "$compose")" == 1 ]]
+grep -A2 -F '"pharos/host-probes.json" = {' "$host_config" | grep -Fq 'mode = "0444";'
+probes="$repo_root/hosts/csb1/docker/pharos/host-probes.json"
+jq -e '
+  .schema == "inspr.pharos.host-probes.v1" and .version == 1
+  and (.probe_interval_secs | . >= 10 and . <= 3600)
+  and (.hosts | length > 0 and length <= 64)
+  and ([.hosts[].host] | length == (unique | length))
+  and all(.hosts[]; (.target | type == "string")
+    and (if .host == "csb0" or .host == "csb1" then .tcp_port == 2222 else has("tcp_port") | not end))
+' "$probes" >/dev/null
 for host in csb0 csb1 hsb0 hsb1 hsb8 hsb9; do
   beacon_compose="$repo_root/hosts/$host/docker/compose-spec.nix"
   [[ "$(grep -Fc 'PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json' "$beacon_compose")" == 1 ]]
   [[ "$(grep -Fc '/run/pharos-preferences:/etc/pharos:ro' "$beacon_compose")" == 1 ]]
+  # PHAROS-341: the next boot's kernel needs both, at their own paths.
+  [[ "$(grep -Fc '/nix/var/nix/profiles:/nix/var/nix/profiles:ro' "$beacon_compose")" == 1 ]]
+  [[ "$(grep -Fc '/nix/store:/nix/store:ro' "$beacon_compose")" == 1 ]]
+  if grep -Fq 'PHAROS_DEPLOYED_ARTIFACT' "$beacon_compose"; then
+    echo "deployed-artifact evidence set for $host before the server has moved" >&2
+    exit 1
+  fi
   if grep -Fq '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json' \
     "$beacon_compose"; then
     echo "generation-pinning preferences file mount found for $host" >&2

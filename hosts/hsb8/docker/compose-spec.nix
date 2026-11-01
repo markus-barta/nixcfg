@@ -42,7 +42,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9";
+      image = "ghcr.io/inspr-at/pharos/pharosd:261031180823.0.0@sha256:822fe56a34822576bd64d89ceeeae0062dfbe5b660adb50c71a434763c746b0c";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -91,6 +91,9 @@
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/pharos-preferences:/etc/pharos:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        # PHAROS-341: the next boot's kernel. Directories at their own paths, so later generations are visible.
+        "/nix/var/nix/profiles:/nix/var/nix/profiles:ro"
+        "/nix/store:/nix/store:ro"
         "/var/lib/hsb8-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
