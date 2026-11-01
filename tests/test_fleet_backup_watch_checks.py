@@ -89,7 +89,7 @@ class BackupWatchTest(unittest.TestCase):
                          ["backup:a:restic-cron-hetzner:state", "backup:b:restic-cron-hetzner:state"])
         self.write([host("a", obs(state="failed", success=NOW - 28 * HOUR))])
         self.assertEqual([p.key for p in self.checks.collect()],
-                         ["backup:a:restic-cron-hetzner:age", "backup:a:restic-cron-hetzner:state"])
+                         ["backup:a:restic-cron-hetzner:state", "backup:a:restic-cron-hetzner:age"])
 
     def test_other_states_page_too(self):
         self.write([host("w", obs(state="warning")), host("m", obs(state="missing")), host("u", obs(state="unknown"))])
