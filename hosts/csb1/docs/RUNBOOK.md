@@ -351,9 +351,10 @@ All OPS-136 commands run as root under the campaign flock
 ### Pharos 2 cutover (PHAROS-345)
 
 Pharos 2 is read-only: CVEs, updates and reachability. It sends no alerts and
-offers no host actions, so `/etc/compose/csb1` no longer gives it the watchtower
-webhook, the dispatch token, manifests or the access policy. The two declarations
-stay for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
+offers no host actions, so `pharosd` no longer gets the watchtower webhook, the
+dispatch token, manifests or the access policy. Those two agenix declarations stay
+for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in. `fleet-backup-watch`
+pages failed and stale backups now; nothing pages a host that is down.
 
 - **Fleet data:** `/var/lib/pharos-fleet/fleet.json`, owned by `mba`, mode 0644,
   schema 3, source in private ops. Copy it next to the target, then `mv` it over,
@@ -361,8 +362,9 @@ stay for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
   the page with the problem shown; with no good copy it reads "Can't check: no
   data file".
 - **Reachability:** `hosts/csb1/docker/pharos/host-probes.json`, read once at
-  start, so a change needs a `pharosd` restart. Bare TCP only: an auth attempt
-  from csb1 can get it banned by fail2ban on the target.
+  start, so a change needs a `pharosd` restart. One ICMP check, then a bare TCP
+  connect with no auth attempt: an auth attempt from csb1 could get it banned by
+  fail2ban on the target.
 - **Order:** csb0's beacon first, then csb1, then the other beacons. New beacons
   report to Pharos 1 without trouble. Keep `PHAROS_DEPLOYED_ARTIFACT_*` unset on
   every beacon until csb1 has moved, or Pharos 1 refuses the report with 422 and
@@ -373,10 +375,11 @@ stay for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
   Then copy `pharos.json` to `/root/pharos-backups/`. Pharos writes it atomically,
   so a plain copy is consistent.
 - **Rollback:** once a beacon has measured a CalVer3 container, Pharos 1 refuses
-  to start on that store, so this takes both steps: revert the cutover commit and
-  switch, with `pharosd` stopped restore the backup over `pharos.json`, then start
-  it. Beacons need not move back. Reports since the backup are lost until each
-  beacon's next report.
+  to start on that store, so restore first: `docker stop pharosd`, copy the backup
+  over `pharos.json`, then revert the cutover commit and switch csb1, which starts
+  the old image on the restored store. Unset `PHAROS_DEPLOYED_ARTIFACT_*` on any
+  beacon that has it by then, or Pharos 1 refuses its reports. Beacons need not
+  move back. Reports since the backup are lost until each beacon's next report.
 
 ### Janus shutdown and local Pharos beacon auth (OPS-514)
 

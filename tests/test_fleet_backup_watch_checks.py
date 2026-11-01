@@ -1,9 +1,8 @@
 """Unit tests for the fleet backup watch (OPS-485) on csb1.
 
 Pins what pages and what does not: a fresh healthy backup is silent, an old
-success pages on age whatever the state says, warning/missing/unknown page as a
-state problem, failed/stale are left to pharosd (only age can page them),
-not-configured and disabled are ignored, a schedule sets the limit, a silent
+success pages on age whatever the state says, every state but healthy pages as
+a state problem (Pharos 2 sends no alerts, PHAROS-345), not-configured and disabled are ignored, a schedule sets the limit, a silent
 beacon is named in the text, and no way of losing or breaking the evidence
 reads as a recovery (gate r1/r2 sweep: one test per site, test_sweep_*).
 """
@@ -84,13 +83,15 @@ class BackupWatchTest(unittest.TestCase):
         self.assertIn("30.0 h ago (limit 26 h)", problems[0].text)
         self.assertNotIn("Pharos has not heard", problems[0].text)
 
-    def test_failed_and_stale_are_left_to_pharosd_until_age(self):
+    def test_failed_and_stale_page_at_once(self):
         self.write([host("a", obs(state="failed")), host("b", obs(state="stale"))])
-        self.assertEqual(self.checks.collect(), [])
+        self.assertEqual([p.key for p in self.checks.collect()],
+                         ["backup:a:restic-cron-hetzner:state", "backup:b:restic-cron-hetzner:state"])
         self.write([host("a", obs(state="failed", success=NOW - 28 * HOUR))])
-        self.assertEqual([p.key for p in self.checks.collect()], ["backup:a:restic-cron-hetzner:age"])
+        self.assertEqual([p.key for p in self.checks.collect()],
+                         ["backup:a:restic-cron-hetzner:age", "backup:a:restic-cron-hetzner:state"])
 
-    def test_states_pharosd_does_not_page(self):
+    def test_other_states_page_too(self):
         self.write([host("w", obs(state="warning")), host("m", obs(state="missing")), host("u", obs(state="unknown"))])
         problems = self.checks.collect()
         self.assertEqual([p.key for p in problems],

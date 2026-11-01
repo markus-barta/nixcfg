@@ -45,7 +45,10 @@ need_line '        "PHAROS_ALLOW_LOCAL_REGISTER=false"' "$CSB1_COMPOSE"
 # keeps today's access set: the bootstrap reference plus the UX test account.
 operators="$(sed -n 's/^[[:space:]]*"PHAROS_ALLOWED_OPERATORS=\([^"]*\)"$/\1/p' "$CSB1_COMPOSE")"
 allowed_operators_ok() {
-  grep -Eqx 'verified-email-ref:[0-9a-f]{64},operator-ref:[0-9a-f]{64}' <<<"$1"
+  if [[ "$1" =~ ^verified-email-ref:[0-9a-f]{64},operator-ref:[0-9a-f]{64}$ ]]; then
+    return 0
+  fi
+  return 1
 }
 if ! allowed_operators_ok "$operators"; then
   echo "Pharos operator allowlist must hold one verified-email reference and one operator reference" >&2
@@ -65,6 +68,11 @@ verified-email-ref:$aaa,person@example.com
 verified-email-ref:$aaa,operator-ref:abc
 verified-email-ref:$aaa,operator-ref:${aaa}z
 EOF
+# A second assignment would override the checked value, so it can't count as valid.
+if allowed_operators_ok "verified-email-ref:$aaa,operator-ref:$aaa"$'\n'"person@example.com"; then
+  echo "allowlist predicate accepted a second line" >&2
+  exit 1
+fi
 forbid_text 'PHAROS_ACCESS_POLICY_FILE' "$CSB1_COMPOSE"
 forbid_text 'access-policy.json' "$CSB1_COMPOSE"
 forbid_text 'csb1-pharos-registration-env' "$CSB1_CONFIG"

@@ -40,8 +40,6 @@ STORE_PATH = "@STORE_PATH@"
 # A nightly job plus two hours of slack for a slow run or a late cron.
 DEFAULT_MAX_AGE_HOURS = 26
 MAX_AGE_HOURS = {"daily": 26, "weekly": 8 * 24}
-# pharosd opens its own backup incident for these (alerts.rs reconcile_backup).
-PAGED_BY_PHAROS = {"failed", "stale"}
 QUIET_STATES = {"healthy"}
 # Beacon silence beyond this makes the reported status itself old news.
 STALE_SECONDS = 30 * 60
@@ -112,7 +110,7 @@ def judge(host: dict, now: float) -> tuple[list[Problem], set[str]]:
         label = str(observation.get("label") or ident)
         summary = str(observation.get("summary") or "no summary")
 
-        if state not in QUIET_STATES and state not in PAGED_BY_PHAROS:
+        if state not in QUIET_STATES:
             found.append(Problem(f"{key}:state", f"{name}: {label} reports {state} ({summary})."))
 
         limit_hours = MAX_AGE_HOURS.get(str(observation.get("schedule") or ""), DEFAULT_MAX_AGE_HOURS)
