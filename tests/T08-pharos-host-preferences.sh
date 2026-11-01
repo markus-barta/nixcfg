@@ -34,6 +34,8 @@ done
 [[ "$(grep -Fc '/var/lib/pharos-fleet:/fleet-data:ro' "$compose")" == 1 ]]
 grep -Fq '"d /var/lib/pharos-fleet 0755 mba users -"' "$host_config"
 [[ "$(grep -Fc 'PHAROS_HOST_PROBES_PATH=/config/host-probes.json' "$compose")" == 1 ]]
+[[ "$(grep -Fc 'PHAROS_OPERATOR_TOKEN_HASH_FILE=/run/secrets/pharos-operator-token-hash' "$compose")" == 1 ]]
+[[ "$(grep -Fc '/run/agenix/csb1-pharos-operator-token-hash:/run/secrets/pharos-operator-token-hash:ro' "$compose")" == 1 ]]
 [[ "$(grep -Fc '/etc/pharos/host-probes.json:/config/host-probes.json:ro' "$compose")" == 1 ]]
 grep -A2 -F '"pharos/host-probes.json" = {' "$host_config" | grep -Fq 'mode = "0444";'
 probes="$repo_root/hosts/csb1/docker/pharos/host-probes.json"

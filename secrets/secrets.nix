@@ -296,6 +296,8 @@ in
   # Dedicated GitHub PAT (classic) used only by pharosd to dispatch nixcfg's
   # fixed pharos-host-settings workflow. Contents: raw token, no KEY= prefix.
   "csb1-pharos-nixcfg-dispatch-token.age".publicKeys = markus ++ csb1;
+  # PHAROS-344: SHA-256 of the read-only Pharos CLI token. The token itself lives on mbp2607.
+  "csb1-pharos-operator-token-hash.age".publicKeys = markus ++ csb1;
 
   # Dedicated unencrypted-at-runtime SSH identity used only by csb1's Pharos
   # provisioning executor. Contents: an OpenSSH Ed25519 private key. The public
@@ -642,6 +644,9 @@ in
   # (DeepSeek V4.1 Flash UltraFast). Materialized to ~/.inspr/secrets/agents/OPENGATEWAY.env
   # as OPENGATEWAY_API_KEY=… Encrypted by the agent from Markus's file (no editor session).
   "agents/host/mbp2607/OPENGATEWAY.age".publicKeys = markus ++ mbp2607;
+
+  # PHAROS-344: read-only Pharos CLI token, used through PHAROS_OPERATOR_TOKEN_FILE. Raw token, not KEY=value.
+  "agents/host/mbp2607/PHAROS_OPERATOR.age".publicKeys = markus ++ mbp2607;
   # inspr-uxqa test identity for the family live-UI harnesses (NIX-579,
   # INSPR-479). Consumer: pharos scripts/family-live-ui.mjs (signed-in live
   # captures of pharos, janus, paimos, aithema) via the protected-env mode.

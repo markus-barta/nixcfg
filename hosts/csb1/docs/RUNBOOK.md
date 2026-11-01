@@ -353,7 +353,13 @@ All OPS-136 commands run as root under the campaign flock
 Pharos 2 is read-only: CVEs, updates and reachability. It sends no alerts and
 offers no host actions, so `pharosd` no longer gets the watchtower webhook, the
 dispatch token, manifests or the access policy. Those two agenix declarations stay
-for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
+for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way into the page.
+
+The read-only `pharos` CLI uses one operator token. csb1 holds only its SHA-256,
+`secrets/csb1-pharos-operator-token-hash.age`, read once at start. The token is
+`secrets/agents/host/mbp2607/PHAROS_OPERATOR.age`, a raw token rather than `KEY=value`,
+so point `PHAROS_OPERATOR_TOKEN_FILE` at the file instead of sourcing it. To rotate,
+replace both files together, so the hash matches the token, then restart `pharosd`.
 
 `fleet-drift` pages a silent host and `fleet-backup-watch` a failed or stale backup,
 which Pharos 1 used to do. Both timers were off from csb1's switch on 2026-11-01

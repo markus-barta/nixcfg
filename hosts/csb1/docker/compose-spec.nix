@@ -1479,6 +1479,8 @@ in
         "PHAROS_FLEET_DATA_FILE=/fleet-data/fleet.json"
         # PHAROS-343: reachability for hosts, bare TCP and ICMP only.
         "PHAROS_HOST_PROBES_PATH=/config/host-probes.json"
+        # PHAROS-344: read-only CLI access. The token itself stays on mbp2607.
+        "PHAROS_OPERATOR_TOKEN_HASH_FILE=/run/secrets/pharos-operator-token-hash"
         "PHAROS_REQUIRE_BEACON_TOKEN=1"
         # OPS-514: authenticate existing hosts against their durable store hash.
         # Registration must stay closed: it can overwrite an existing hash.
@@ -1512,6 +1514,7 @@ in
         "pharos_data:/data"
         "/var/lib/pharos-fleet:/fleet-data:ro"
         "/etc/pharos/host-probes.json:/config/host-probes.json:ro"
+        "/run/agenix/csb1-pharos-operator-token-hash:/run/secrets/pharos-operator-token-hash:ro"
       ]
       ++ flowHostVolumes;
       networks = flowNetwork sharedFlow.network.addresses.pharos;
