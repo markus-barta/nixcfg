@@ -45,7 +45,7 @@ need_line '        "PHAROS_ALLOW_LOCAL_REGISTER=false"' "$CSB1_COMPOSE"
 # keeps today's access set: the bootstrap reference plus the UX test account.
 operators="$(sed -n 's/^[[:space:]]*"PHAROS_ALLOWED_OPERATORS=\([^"]*\)"$/\1/p' "$CSB1_COMPOSE")"
 allowed_operators_ok() {
-  [[ "$1" =~ ^verified-email-ref:[0-9a-f]{64},operator-ref:[0-9a-f]{64}$ ]]
+  grep -Eqx 'verified-email-ref:[0-9a-f]{64},operator-ref:[0-9a-f]{64}' <<<"$1"
 }
 if ! allowed_operators_ok "$operators"; then
   echo "Pharos operator allowlist must hold one verified-email reference and one operator reference" >&2
