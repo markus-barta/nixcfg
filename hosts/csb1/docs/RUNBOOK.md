@@ -358,7 +358,10 @@ for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
 Notifications are off from csb1's switch: the `fleet-drift` and `fleet-backup-watch`
 timers are disabled in the same change, so nothing pages. Turning both back on is
 the last step of the launch. From then on `fleet-drift` pages a silent host and
-`fleet-backup-watch` a failed or stale backup, which Pharos 1 used to do.
+`fleet-backup-watch` a failed or stale backup, which Pharos 1 used to do. Before
+turning them on, check `sudo jq .pending /var/lib/fleet-drift/state.json` and the
+same in `/var/lib/fleet-backup-watch/`: a saved page is sent first, before any
+check, so if it isn't `null`, set only that field to `null`.
 
 - **Fleet data:** `/var/lib/pharos-fleet/fleet.json`, owned by `mba`, mode 0644,
   schema 3, source in private ops. Copy it next to the target, then `mv` it over,
@@ -373,6 +376,10 @@ the last step of the launch. From then on `fleet-drift` pages a silent host and
   report to Pharos 1 without trouble. Keep `PHAROS_DEPLOYED_ARTIFACT_*` unset on
   every beacon until csb1 has moved, or Pharos 1 refuses the report with 422 and
   the host goes silent.
+- **Right before csb1's switch:** `sudo systemctl stop fleet-drift.timer
+fleet-drift.service fleet-backup-watch.timer fleet-backup-watch.service`. The
+  change masks the timers, but a poller running at that moment would be restarted
+  and could page.
 - **Before csb1 moves:** every host in the store needs a hash, or it gets 401
   until rotated (value-free, prints true or false per host):
   `sudo cat /var/lib/docker/volumes/csb1_pharos_data/_data/pharos.json | jq -r '.[] | "\(.hostname // .name // .id)\t\(((.token_hash // "") | length) > 0)"'`

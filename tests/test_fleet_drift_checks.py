@@ -57,6 +57,7 @@ class DriftTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = str(Path(self.tmp.name) / "pharos.json")
         self.checks = load_checks(self.store)
+        self.checks.STATE_PATH = str(Path(self.tmp.name) / "state.json")
         self.ages: dict[str, float | None] = {}
         self.checks.commit_age_days = lambda rev, now: self.ages.get(rev)
         self.checks.time.time = lambda: NOW
@@ -132,6 +133,14 @@ class DriftTest(unittest.TestCase):
         problems = self.checks.collect()  # nothing written
         self.assertEqual([p.key for p in problems], ["drift:store"])
         self.assertIn("unwatched", problems[0].text)
+
+    def test_unreadable_store_keeps_announced_problems_open(self):
+        with open(self.checks.STATE_PATH, "w", encoding="utf-8") as handle:
+            json.dump({"seen": {"silent:a": {"first_seen": NOW - 7200, "alerted": True, "text": "a: no beacon report."}},
+                       "pending": None}, handle)
+        problems = self.checks.collect()  # nothing written to the store
+        self.assertEqual({p.key for p in problems}, {"drift:store", "silent:a"})
+        self.assertEqual([p.text for p in problems if p.key == "silent:a"], ["a: no beacon report."])
 
     def test_engine_debounce_then_page(self):
         self.write([host("hsb9", relation="behind", behind=99, rev="146da190")])

@@ -104,12 +104,21 @@ def judge(host: dict, now: float) -> list[Problem]:
     return []
 
 
+def announced() -> dict[str, str]:
+    """Problems this unit has already announced (engine state), key -> text."""
+    seen = engine.load_state(STATE_PATH).get("seen", {})
+    return {key: str(entry.get("text") or key) for key, entry in seen.items()
+            if isinstance(entry, dict) and entry.get("alerted")}
+
+
 def collect() -> list[Problem]:
     try:
         hosts = load_store(STORE_PATH)
     except Exception as error:  # noqa: BLE001
+        # Recovery can't be known, so what was announced stays open.
+        kept = [Problem(key, text) for key, text in announced().items() if key != "drift:store"]
         return [Problem("drift:store", f"pharosd store unreadable at {STORE_PATH} ({type(error).__name__}); "
-                                       f"fleet drift is currently unwatched.")]
+                                       f"fleet drift is currently unwatched."), *kept]
     now = time.time()
     found: list[Problem] = []
     for host in sorted(hosts, key=lambda h: str(h.get("name"))):
