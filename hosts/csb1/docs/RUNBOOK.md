@@ -357,9 +357,13 @@ for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way into the page.
 
 The read-only `pharos` CLI uses one operator token. csb1 holds only its SHA-256,
 `secrets/csb1-pharos-operator-token-hash.age`, read once at start. The token is
-`secrets/agents/host/mbp2607/PHAROS_OPERATOR.age`, a raw token rather than `KEY=value`,
-so point `PHAROS_OPERATOR_TOKEN_FILE` at the file instead of sourcing it. To rotate,
-replace both files together, so the hash matches the token, then restart `pharosd`.
+`secrets/agents/host/mbp2607/PHAROS_OPERATOR.age`, which Home Manager places at
+`~/.inspr/secrets/agents/PHAROS_OPERATOR.env`. It's a raw token rather than `KEY=value`,
+so point `PHAROS_OPERATOR_TOKEN_FILE` at that file instead of sourcing it. To rotate:
+re-encrypt both `.age` files together so the hash matches the token, merge, switch csb1,
+then recreate `pharosd` with the first command from `compose-csb1-start` plus
+`--force-recreate --no-deps pharosd`, because compose sees no change. Activate Home
+Manager on mbp2607 and check that the CLI authenticates and a wrong token gets 401.
 
 `fleet-drift` pages a silent host and `fleet-backup-watch` a failed or stale backup,
 which Pharos 1 used to do. Both timers were off from csb1's switch on 2026-11-01
