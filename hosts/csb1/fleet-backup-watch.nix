@@ -62,6 +62,9 @@ in
   };
 
   systemd.timers.fleet-backup-watch = {
+    # PHAROS-345: notifications are off from the cutover. Turning this back on
+    # is the last step of the launch.
+    enable = false;
     description = "Recurring fleet backup watch (OPS-485)";
     wantedBy = [ "timers.target" ];
     timerConfig = {

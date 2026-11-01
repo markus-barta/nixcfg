@@ -62,6 +62,9 @@ in
   };
 
   systemd.timers.fleet-drift = {
+    # PHAROS-345: notifications are off from the cutover. Turning this back on
+    # is the last step of the launch.
+    enable = false;
     description = "Recurring fleet drift watch (OPS-187)";
     wantedBy = [ "timers.target" ];
     timerConfig = {

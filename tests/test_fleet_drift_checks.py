@@ -1,8 +1,8 @@
 """Unit tests for the fleet drift watch (OPS-187) on csb1.
 
 Pins what pages and what does not: behind+old pages, behind+young+few does not,
-diverged/ahead pages as its own problem, current/no-evidence/non-nix/stale hosts
-are ignored, an unreadable store is one loud problem, and commit age comes from
+diverged/ahead pages as its own problem, a silent host pages as silent,
+current/no-evidence/non-nix hosts are ignored, an unreadable store is one loud problem, and commit age comes from
 a stubbed git lookup (no network).
 """
 
@@ -96,12 +96,26 @@ class DriftTest(unittest.TestCase):
         self.assertEqual([p.key for p in problems], ["drift:x:relation"])
         self.assertIn("diverged", problems[0].text)
 
-    def test_stale_nonnix_and_no_evidence_are_skipped(self):
+    def test_nonnix_and_no_evidence_are_skipped(self):
         self.write([
-            host("gone", relation="behind", behind=999, seen=NOW - 3 * 3600),
             host("mac", relation="behind", behind=999, is_nix=False),
             host("blank", relation=None, evidence=False),
         ])
+        self.assertEqual(self.checks.collect(), [])
+
+    def test_silent_host_pages_as_silent_not_as_drift(self):
+        self.write([
+            host("gone", relation="behind", behind=999, seen=NOW - 3 * 3600),
+            host("mac", relation="behind", behind=999, is_nix=False, seen=NOW - 2 * 3600),
+            host("never", relation=None, seen=0),
+        ])
+        problems = self.checks.collect()
+        self.assertEqual([p.key for p in problems], ["silent:gone", "silent:mac", "silent:never"])
+        self.assertIn("no beacon report for 3.0 h", problems[0].text)
+        self.assertIn("no beacon report yet", problems[2].text)
+
+    def test_a_short_gap_is_not_silence(self):
+        self.write([host("blip", relation=None, seen=NOW - 29 * 60)])
         self.assertEqual(self.checks.collect(), [])
 
     def test_unreadable_store_is_one_loud_problem(self):

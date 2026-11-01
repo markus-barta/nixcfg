@@ -12,9 +12,9 @@ OIDC session even on localhost, so this reads pharosd's persisted store on csb1
 One problem per host (key `drift:<host>`) when the beacon says `relation=behind`
 and either the deployed commit is older than MAX_AGE_DAYS (commit date looked up
 in the local nixcfg checkout, best effort) or it is at least MAX_COMMITS behind.
-`diverged` / `ahead` are problems of their own. Hosts not seen for STALE_SECONDS
-are skipped — Pharos' own HostDown incident covers them. Hosts whose beacon
-carries no evidence are skipped (nothing to judge).
+`diverged` / `ahead` are problems of their own. A host not seen for STALE_SECONDS
+pages as `silent:<host>` instead: Pharos 2 sends no alerts (PHAROS-345). Hosts
+whose beacon carries no evidence are skipped (nothing to judge).
 
 Depends on OPS-186 (beacons must see the CURRENT evidence; before that fix the
 numbers lag the beacon container's start time).
@@ -65,11 +65,13 @@ def commit_age_days(revision: str, now: float) -> float | None:
 
 def judge(host: dict, now: float) -> list[Problem]:
     name = str(host.get("name") or "?")
-    if not host.get("is_nix"):
-        return []
     seen = float(host.get("last_seen") or 0)
     if now - seen > STALE_SECONDS:
-        return []  # Pharos HostDown owns silence
+        since = f"for {(now - seen) / 3600.0:.1f} h" if seen else "yet"
+        return [Problem(f"silent:{name}", f"{name}: no beacon report {since}. "
+                                          f"Check the host and its pharos-beacon container.")]
+    if not host.get("is_nix"):
+        return []
     fresh = host.get("freshness") or {}
     comparison = fresh.get("nixcfg_comparison") or {}
     relation = comparison.get("relation")

@@ -353,8 +353,12 @@ All OPS-136 commands run as root under the campaign flock
 Pharos 2 is read-only: CVEs, updates and reachability. It sends no alerts and
 offers no host actions, so `pharosd` no longer gets the watchtower webhook, the
 dispatch token, manifests or the access policy. Those two agenix declarations stay
-for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in. `fleet-backup-watch`
-pages failed and stale backups now; nothing pages a host that is down.
+for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way in.
+
+Notifications are off from csb1's switch: the `fleet-drift` and `fleet-backup-watch`
+timers are disabled in the same change, so nothing pages. Turning both back on is
+the last step of the launch. From then on `fleet-drift` pages a silent host and
+`fleet-backup-watch` a failed or stale backup, which Pharos 1 used to do.
 
 - **Fleet data:** `/var/lib/pharos-fleet/fleet.json`, owned by `mba`, mode 0644,
   schema 3, source in private ops. Copy it next to the target, then `mv` it over,
