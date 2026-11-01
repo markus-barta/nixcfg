@@ -350,10 +350,10 @@ An inactive unit or HTTP failure must remain visible; presence is not health.
 The native `hausnetz.service` listens on `0.0.0.0:8377`, with TCP 8377 opened
 only on `br-+` and `docker0`, never the LAN interface. Since
 `v261101042314.0.0` (HNET-417) the process also answers 403 to any TCP peer
-outside `services.hausnetz.allowFrom`: loopback, `172.17.0.0/16` and
-`172.18.0.0/16` (`docker_default`, the bridge `hsb0-home` uses). That covers
-direct tailnet access, which the firewall does not stop. If `docker_default`
-ever comes back with another subnet, nginx gets 403 until the list is updated.
+outside `services.hausnetz.allowFrom`: loopback and `172.18.0.0/16`
+(`docker_default`, the bridge `hsb0-home` uses). That covers direct tailnet
+access, which the firewall does not stop. If `docker_default` ever comes back
+with another subnet, nginx gets 403 until the list is updated.
 mDNS discovery opens UDP 5353 only on `enp2s0f0`. SSDP uses fixed source UDP 1901 and opens
 replies only on that same interface (`ssdpInterfaces` defaults to
 `mdnsInterfaces`), never globally or on Docker bridges. UDP 1900 remains the
