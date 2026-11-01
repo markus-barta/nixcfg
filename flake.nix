@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 56: v261031094653.0.0 (#323 merge, sequence 126). Contents since 55: HNET-44 Shelly MQTT presence; new receive-only MQTT client (internal/mqtt, internal/shellypresence) and module option shellyHeal.mqttPresence (default true, adds --shelly-heal-mqtt-presence=true with the heal radio). Capability approved by Markus on Desk b12218e9 (2026-10-30, read-only, Shellies on the heal list); LoadCredential unchanged, no new listener, port or secret.
+    # HNET pin 57: v261101042314.0.0 (sequence 127). Contents since 56: HNET-367 Make main (swap the main and an extra connection), HNET-417 listener guard; new module option allowFrom, always passed as --allow-from, and the discovery interfaces are now also passed as --mdns-interfaces and --ssdp-interfaces. No new capability, listener, port or secret. A rollback to 56 must also drop services.hausnetz.allowFrom on hsb0: its module has no such option.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=81d133ae879846a41e19bea0ce846a29e36c1d1a";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=291f9932e78de5dcd6cf565c9045097c463a0975";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

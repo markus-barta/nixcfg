@@ -137,6 +137,16 @@ assert joeSet.pusher != null && joeSet.executor != null;
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";
+    # HNET-417 (pin 57): the process answers 403 to any TCP peer outside this list; proxy headers are
+    # ignored. nginx in hsb0-home dials from docker_default (172.18.0.0/16), and docker0 is the other
+    # interface firewallInterfaces opens. A missing bridge passes eval, then nginx gets 403.
+    # A rollback below pin 57 must remove this option as well.
+    allowFrom = [
+      "127.0.0.1/32"
+      "::1/128"
+      "172.17.0.0/16"
+      "172.18.0.0/16"
+    ];
     # HNET-236 (pin 23): the HostDash declaration for this host is read-only enrichment (GET only, no
     # proxies, no redirects, 4 s timeout, 1 MiB/64 KiB caps, outside the instance lock); the key is
     # the HostDash declaration name, the base keeps /config.js and /status/ at the root after OPS-413.
