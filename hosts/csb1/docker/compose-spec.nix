@@ -370,7 +370,12 @@ in
       # 1.5 GiB more cap: observed peak ~3.3 GiB + 0.9 GiB more buffers = ~4.2 of 5 GiB (covers the observed
       # load, not a worst-case bound for 50 backends). csb1 has 16 GB; the switch kit requires MemAvailable minus the
       # whole new cap to leave >= 2 GiB. Planner settings (effective_cache_size, work_mem) unchanged.
-      mem_limit = "5120m";
+      # OPS-538 (2026-11-02, Markus: "yes raise limits. why not 8GB?"): 29 aeon-main connections held about
+      # 3.5 GiB anon on top of ~1 GiB shmem, and 30 connections at the observed 199 MiB top would pass 5 GiB.
+      # Everything else on csb1 uses ~4.9 GiB with ZFS ARC capped at 1.5 GiB, so a full 8 GiB leaves ~2.7 GiB
+      # plus 10 GiB swap. A ceiling only: shared_buffers and the pool are unchanged. Changing this recreates
+      # aeon-db, so it needs its own switch; the release kit stops when aeon-db is replaced during a release.
+      mem_limit = "8192m";
       networks = [
         "aeon"
       ];
