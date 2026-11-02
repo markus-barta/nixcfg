@@ -57,7 +57,7 @@ Run: `./T05-backup-system.sh`
 ✅ /home - All Docker bind mounts
 ✅ /root - Root user data
 ✅ /etc - System configuration
-❌ Exclusions: */cache/*, *.log*
+❌ Exclusions: */cache/*, *.log*, /var/lib/joe-board/*.next
 ```
 
 ## Manual Verification
