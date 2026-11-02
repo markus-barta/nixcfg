@@ -43,6 +43,7 @@ in
     (unit.SupplementaryGroups or [ ]) == [
       "hausnetz-leases"
       "hausnetz-shelly"
+      "hausnetz-smarthome"
     ];
   noExtraArguments = cfg.extraArgs == [ ];
   noLeasesBind = (unit.BindReadOnlyPaths or [ ]) == [ ];
