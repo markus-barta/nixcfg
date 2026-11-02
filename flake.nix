@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 58: v261101213216.0.0 (sequence 128). Contents since 57: HNET-425 Follow your network scan (live scan view; timing and counts in a new local scan-history.json; same-origin GET /api/discovery/history and /last). nix/, flake.nix, flake.lock, go.mod, go.sum, cmd/hausnetz/main.go unchanged: no new capability, port, listener or discovery probe (standing go Desk 45df1430). Rollback: pin 57, rev 291f9932e78de5dcd6cf565c9045097c463a0975.
+    # HNET pin 59: v261102165603.0.0 (sequence 129). Contents since 58: HNET-431 Your automations in Smarthome (one read-only file, new module option smarthomeFile: group hausnetz-smarthome, a tmpfiles folder and the group on the unit); HNET-432 hidden. nix/module.nix, nix/module-test.nix and nix/vm-test.nix changed; no new units, ports, listeners, outbound paths or capabilities.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=c8a1aba9284590735c92013e0f30cc1e95402d12";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=429d590760b0cb8b5742a68991714111163155fb";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

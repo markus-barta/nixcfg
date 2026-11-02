@@ -213,7 +213,14 @@ assert joeSet.pusher != null && joeSet.executor != null;
       # is also true) so the approved capability is visible here; false opts out.
       mqttPresence = true;
     };
+    # HNET-431 (pin 59; Markus via LEAD, 2026-11-02 17:30: "permission granted for HNET"): one
+    # Smarthome automations file, read by hausnetz. The module adds group hausnetz-smarthome, a tmpfiles
+    # rule for this folder (root, that group, 2775) and the group on the unit; no listener, port or
+    # outbound path. mba writes the file (below), by temp file and rename, mode 0640.
+    smarthomeFile = "/var/lib/hausnetz-smarthome/automations.json";
   };
+  # HNET-431: mba writes the Smarthome automations file above; this is its only use of the group.
+  users.users.mba.extraGroups = [ "hausnetz-smarthome" ];
   systemd.services.hausnetz.serviceConfig = {
     MemoryMax = "512M";
     CPUQuota = "50%";
