@@ -52,6 +52,8 @@ Run: `./T05-backup-system.sh`
 
 ```
 ✅ /var/lib/docker/volumes - Docker volumes
+✅ /var/lib/joe-board - JoeDesk store
+✅ /var/lib/csb0-docker - Cold pre-upgrade tarballs, status files
 ✅ /home - All Docker bind mounts
 ✅ /root - Root user data
 ✅ /etc - System configuration

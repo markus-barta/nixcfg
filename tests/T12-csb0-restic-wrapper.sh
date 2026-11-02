@@ -87,6 +87,13 @@ jq -e '
 ' "$status_file" >/dev/null
 
 [[ "$(sed -n '1p' "$args_file")" == "backup" ]]
+# OPS-529: every path the script backs up must also be mounted, or restic fails on it at 01:30.
+for path in /backup/var/lib/docker/volumes /backup/var/lib/joe-board /backup/var/lib/csb0-docker /backup/home /backup/root /backup/etc; do
+  grep -Fxq -- "$path" "$args_file"
+  grep -Fq ":$path:ro\"" "$compose"
+done
+# The store's atomic-write temp files vanish mid-scan (restic exit 3). Anchored, so no other .next is skipped.
+grep -Fxq -- '/backup/var/lib/joe-board/*.next' "$args_file"
 if grep -Fxq -- '-r' "$args_file" || grep -Fxq -- 'test-repository' "$args_file"; then
   echo "repository configuration leaked into Restic positional arguments" >&2
   exit 1

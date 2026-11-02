@@ -337,6 +337,10 @@
         "/home:/backup/home:ro"
         "/root:/backup/root:ro"
         "/etc:/backup/etc:ro"
+        # OPS-529: the JoeDesk store does not fully rebuild from hsb0, and the
+        # cold pre-upgrade tarballs have no other copy.
+        "/var/lib/joe-board:/backup/var/lib/joe-board:ro"
+        "/var/lib/csb0-docker:/backup/var/lib/csb0-docker:ro"
         # Use SSH key from agenix
         "/run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro"
         # Recovered known_hosts
