@@ -40,8 +40,8 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 | F03 | MQTT Broker (Mosquitto) | Message broker for IoT devices                | T04  |
 | F04 | Home Assistant          | Main home automation hub                      | T04  |
 | F05 | Scrypted                | Camera/NVR/HomeKit bridge                     | T04  |
-| F06 | VLC Kiosk Mode          | Camera viewing on connected display           | -    |
-| F07 | APC UPS Monitoring      | UPS status via MQTT                           | -    |
+| F06 | VLC Kiosk Mode          | Camera viewing on connected display           | T118 |
+| F07 | APC UPS Monitoring      | UPS status via MQTT                           | T118 |
 | F08 | ZFS Storage             | Reliable storage with compression & snapshots | -    |
 | F09 | Aqara nightlight        | Local gateway light and quiet built-in sounds | T117 |
 
