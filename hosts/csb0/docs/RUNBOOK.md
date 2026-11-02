@@ -352,11 +352,13 @@ TOKEN=$(curl -s 'https://servercontrolpanel.de/realms/scp/protocol/openid-connec
 ### What Gets Backed Up
 
 ```
-✅ /var/lib/csb0-docker - ALL Docker volumes & data
-✅ /home/mba/Code/nixcfg - System configuration (via git)
+✅ /var/lib/docker/volumes - Docker volumes
+✅ /var/lib/joe-board - JoeDesk store (OPS-529)
+✅ /var/lib/csb0-docker - Cold pre-upgrade tarballs, status files
+✅ /home - Home directories
 ✅ /root - Root user data
 ✅ /etc - System configuration
-❌ Exclusions: */cache/*, *.log*
+❌ Exclusions: */cache/*, *.log*, /var/lib/joe-board/*.next
 ```
 
 ### Check Backup Status
@@ -618,6 +620,8 @@ the previous SSO policy; OPS owns execution and live verification.
 - URL: https://cs0.barta.cm/joe/ (oauth2-proxy)
 - Inbox: POST https://cs0.barta.cm/joe/inbox (Bearer; agenix `joe-board-push-token`)
 - Service: `joe-board` compose build `./joe-board`; data `/var/lib/joe-board`
+- Backup: nightly restic (OPS-529), so up to 24 h of history can be lost. `data-state.json`, `results-state.json` and `feed-rejections.json` come back from hsb0's next push; history, account closes and fleet config do not rebuild.
+- Restore: to a new directory with the board stopped, then `prepare-data backup --offline RESTORED NEW v2` and `verify --offline NEW`, with the same or a newer board image.
 - Security: `hosts/csb0/docker/joe-board/SECURITY.md`
 - Producer: hsb0 `joe-board-pusher` every 30s (paper 4002 only)
 
