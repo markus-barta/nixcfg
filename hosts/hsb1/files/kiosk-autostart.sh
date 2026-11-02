@@ -19,7 +19,7 @@
 # (home.file ".config/openbox/autostart"). Edit it here in nixcfg, not on the host.
 #
 # Author: Markus (maintained with AI assistance)
-# Last updated: 2026-07-03 (NIX-158: creds source repointed to agenix)
+# Last updated: 2026-11-02 (OPS-525: boot wait, no Qt interface)
 #
 
 ### --- SAFETY: CLEANUP OLD PROCESSES --------------------------------------
@@ -65,6 +65,34 @@ set +a
 # Ensure proper runtime dir for kiosk user (needed for PipeWire/PulseAudio)
 export XDG_RUNTIME_DIR=/run/user/1001
 
+### --- WAIT FOR THE CAMERA STREAM AT BOOT (OPS-525) -----------------------
+
+# The kiosk session opens before Docker has started Scrypted, whose rebroadcast
+# answers about 20s later. Starting VLC earlier only produces connection errors.
+#
+# Ask for a real RTSP answer: an open port alone does not mean the stream is
+# being served.
+#
+# Bounded by UPTIME, not by a number of tries. babycam-watchdog's first tick is
+# at 180s and it recovers by re-running this script, so:
+#   - this wait must be over before that tick, or the watchdog sees no VLC and
+#     starts a second one
+#   - a re-run later than that must not wait at all, or a heal with Scrypted down
+#     holds VLC off and runs into the watchdog's own start timeout
+RTSP_URL="rtsp://${MINISERVER24_IP}:35067/9726ad778d503184"
+RTSP_WAIT_UNTIL_UPTIME=170
+
+while :; do
+  read -r uptime_s _ </proc/uptime
+  [ "${uptime_s%%.*}" -lt "$RTSP_WAIT_UNTIL_UPTIME" ] || break
+  if printf 'OPTIONS %s RTSP/1.0\r\nCSeq: 1\r\n\r\n' "$RTSP_URL" |
+    nc -q 1 -w 2 "$MINISERVER24_IP" 35067 2>/dev/null | grep -q '^RTSP/1.0 200'; then
+    echo "[INFO] Camera stream answers (uptime ${uptime_s%%.*}s)"
+    break
+  fi
+  sleep 2
+done
+
 ### --- AUDIO CONFIGURATION ------------------------------------------------
 
 # Define sink name for internal speakers (adjust if hardware changes)
@@ -84,11 +112,14 @@ sleep 2
 ### --- VIDEO / VLC CONFIGURATION ------------------------------------------
 
 # VLC launch options explained:
+#   --intf=dummy           -> No Qt interface (OPS-525): no error dialog over the
+#                             camera, no empty main window that can sit above the
+#                             video. The video window is the only window VLC opens,
+#                             and telnet below stays the way in.
 #   --no-keyboard-events   -> Prevent accidental keypresses from controlling VLC
 #   --fullscreen           -> Start in fullscreen mode
 #   --no-osd               -> Disable on-screen display (volume, play icons, etc.)
 #   --no-video-title-show  -> Don't show stream title overlay
-#   --no-embedded-video    -> Force standalone video window
 #   --video-on-top         -> Keep VLC window always on top
 #   --loop                 -> Loop stream continuously
 #   --rtsp-tcp             -> Use TCP for RTSP (more stable behind NAT/firewalls)
@@ -96,24 +127,21 @@ sleep 2
 #   --extraintf=telnet     -> Enable telnet control interface
 #   --telnet-password=...  -> Password for telnet interface
 #
-# RTSP URL is built from environment variables:
-#   rtsp://${MINISERVER24_IP}:35067/9726ad778d503184
-#
 # Run VLC in background (&)
 
 vlc \
+  --intf=dummy \
   --no-keyboard-events \
   --fullscreen \
   --no-osd \
   --no-video-title-show \
-  --no-embedded-video \
   --video-on-top \
   --loop \
   --rtsp-tcp \
   --network-caching=500 \
   --extraintf=telnet \
   --telnet-password="${TAPO_C210_PASSWORD}" \
-  "rtsp://${MINISERVER24_IP}:35067/9726ad778d503184" &
+  "$RTSP_URL" &
 
 ### --- RESTORE THE USER'S VOLUME (NIX-151) --------------------------------
 #

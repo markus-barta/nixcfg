@@ -303,6 +303,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T117-aqara-nightlight.sh
 
+      - name: Verify hsb1 kiosk and UPS publish survive the boot race (OPS-525)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T118-hsb1-boot-race.sh
+
       - name: Keep Traefik ACME bind sources boot-safe
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh

@@ -452,13 +452,20 @@ in
 
       logger -t apc-to-mqtt "Publishing to MQTT: $json_status"
 
-      # Publish to MQTT for Back-UPS ES 550
-      ${pkgs.mosquitto}/bin/mosquitto_pub \
+      # Publish to MQTT for Back-UPS ES 550.
+      # The timer's first run at boot can beat the mosquitto container (OPS-525),
+      # so retry briefly. A broker that stays down still fails the unit.
+      attempt=1
+      until ${pkgs.mosquitto}/bin/mosquitto_pub \
         --topic home/wz/battery/ups550 \
         -u "$MOSQITTO_USER_MS24" \
         -P "$MOSQITTO_PASS_MS24" \
         -h "$MOSQITTO_HOST_MS24" \
-        -m "$json_status"
+        -m "$json_status"; do
+        [ "$attempt" -lt 3 ] || exit 1
+        attempt=$((attempt + 1))
+        sleep 10
+      done
     '';
     serviceConfig = {
       Type = "oneshot";
