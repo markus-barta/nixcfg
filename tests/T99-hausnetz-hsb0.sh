@@ -128,7 +128,7 @@ fixture = {
     'systemd': {'services': {'hausnetz': {'serviceConfig': {
         'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--allow-from" "127.0.0.1/32,::1/128,172.18.0.0/16" "--ssdp-port" "1901" "--shelly-heal-mqtt-presence=true" "--passive" "--passive-interfaces" "enp2s0f0"',
         'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_PACKET', 'AF_UNIX'],
-        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases', 'hausnetz-shelly']}}}},
+        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases', 'hausnetz-shelly', 'hausnetz-smarthome']}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
     'nixcfg': {'composeStack': {'extraRestartTriggers': [
         '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf',
@@ -166,7 +166,8 @@ for path, value, failed_check in (
     (('services', 'hausnetz', 'discovery', 'leasesFile'), None, 'leasesFromAdguard'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), [], 'leasesCopyGroupOnly'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases'], 'leasesCopyGroupOnly'),
-    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly', 'wheel'], 'leasesCopyGroupOnly'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly'], 'leasesCopyGroupOnly'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly', 'hausnetz-smarthome', 'wheel'], 'leasesCopyGroupOnly'),
     (('services', 'hausnetz', 'discovery', 'passiveInterfaces'), ['enp2s0f0', 'docker0'], 'passiveLanOnly'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901"', 'passiveArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"', 'mqttPresenceArgument'),
