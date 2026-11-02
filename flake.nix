@@ -57,9 +57,9 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 57: v261101042314.0.0 (sequence 127). Contents since 56: HNET-367 Make main (swap the main and an extra connection), HNET-417 listener guard; new module option allowFrom, always passed as --allow-from, and the discovery interfaces are now also passed as --mdns-interfaces and --ssdp-interfaces. No new capability, listener, port or secret. A rollback to 56 must also drop services.hausnetz.allowFrom on hsb0: its module has no such option.
+    # HNET pin 58: v261101213216.0.0 (sequence 128). Contents since 57: HNET-425 Follow your network scan (live scan view; timing and counts in a new local scan-history.json; same-origin GET /api/discovery/history and /last). nix/, flake.nix, flake.lock, go.mod, go.sum, cmd/hausnetz/main.go unchanged: no new capability, port, listener or discovery probe (standing go Desk 45df1430). Rollback: pin 57, rev 291f9932e78de5dcd6cf565c9045097c463a0975.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=291f9932e78de5dcd6cf565c9045097c463a0975";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=c8a1aba9284590735c92013e0f30cc1e95402d12";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
