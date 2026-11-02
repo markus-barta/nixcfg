@@ -137,6 +137,8 @@
       networks = [
         "traefik"
         "docker-sock-traefik"
+        # OPS-528: reaches the push relay by its alias paimos-push-relay.
+        "relay-ingress"
       ];
       volumes = [
         "./traefik/static.yml:/etc/traefik/traefik.yml:ro"
@@ -562,6 +564,10 @@
     bitwarden = null;
     docker-sock-traefik = {
       internal = true;
+    };
+    # OPS-528: shared by Traefik and the INSPR push relay only. Fixed name, so a later separate relay stack can join it.
+    relay-ingress = {
+      name = "relay-ingress";
     };
   };
 }
