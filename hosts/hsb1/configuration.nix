@@ -148,6 +148,17 @@ in
     ];
   };
 
+  # Accept the route-information option in router adverts, so the Thread
+  # network (Matter, IKEA) is reachable via the Apple border routers
+  # (HomePods). The kernel default 0 drops the fd8a:df4a:7ac4:1::/64 route
+  # (OPS-545, 2026-11-03). default covers the NIC appearing after
+  # systemd-sysctl; the udev rule re-applies the enp3s0f0 key on add.
+  boot.kernel.sysctl = {
+    "net.ipv6.conf.enp3s0f0.accept_ra_rt_info_max_plen" = 64;
+    "net.ipv6.conf.default.accept_ra_rt_info_max_plen" = 64;
+    "net.ipv6.conf.all.accept_ra_rt_info_max_plen" = 64;
+  };
+
   # Networking configuration
   networking = {
     nameservers = [
