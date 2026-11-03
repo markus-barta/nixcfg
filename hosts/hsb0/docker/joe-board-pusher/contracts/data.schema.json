@@ -549,7 +549,19 @@
           },
           "pnlSources": {
             "description": "Optional evidence for this desk's DAY/OPEN only. Overrides the corresponding aggregate source, allowing exact reconciled desks beside unavailable desks. Scope remains KEEP-excluded virtual desks.",
-            "$ref": "#/properties/pnlSources",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "day": {
+                "$ref": "#/$defs/deskDayPnlSource",
+                "x-owner": "pusher"
+              },
+              "open": {
+                "$ref": "#/properties/pnlSources/properties/open",
+                "x-owner": "pusher"
+              }
+            },
             "x-owner": "pusher"
           }
         }
@@ -1043,5 +1055,126 @@
       "x-owner": "pusher"
     }
   },
-  "x-owner": "pusher"
+  "x-owner": "pusher",
+  "$defs": {
+    "dayFxObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "observedAt"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "ib-account-ExchangeRate"
+          ],
+          "x-owner": "pusher"
+        },
+        "observedAt": {
+          "$ref": "urn:joedesk:common:v2#/$defs/instant",
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    },
+    "deskDayPnlSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "method",
+        "currency",
+        "scope",
+        "observedAt"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "x-owner": "pusher"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "enum": [
+                "ib-daily-pnl",
+                "sod-virtual-equity",
+                "ib-unrealized-pnl",
+                "owned-lots-current-mark-fx",
+                "session-open-estimate"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "currency": {
+          "const": "EUR",
+          "x-owner": "pusher"
+        },
+        "scope": {
+          "const": "virtual-desks",
+          "x-owner": "pusher"
+        },
+        "observedAt": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "periodStart": {
+          "anyOf": [
+            {
+              "$ref": "urn:joedesk:common:v2#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-owner": "pusher"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "x-owner": "pusher"
+        },
+        "reason": {
+          "$ref": "urn:joedesk:reason:v2",
+          "x-owner": "pusher"
+        },
+        "fx": {
+          "description": "Optional proven start-of-day and current IB conversion observations; no rate values.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "$ref": "#/$defs/dayFxObservation",
+              "x-owner": "pusher"
+            },
+            "end": {
+              "$ref": "#/$defs/dayFxObservation",
+              "x-owner": "pusher"
+            }
+          },
+          "x-owner": "pusher"
+        }
+      },
+      "x-owner": "pusher"
+    }
+  }
 }

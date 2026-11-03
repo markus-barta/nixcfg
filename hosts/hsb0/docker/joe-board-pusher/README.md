@@ -45,19 +45,16 @@ state, pair schema and source-clock semantics are unchanged. Preserve pairs,
 the current pointer, sequence high-water, lock, receipt log and v1 bodies.
 The separate R16 → R15 move-aside procedure remains required in the host runbook.
 
-## Phase B exact values (JOED-86, contracts revision 10)
+## Phase B exact values (JOED-86; revision 11 provenance in JOED-149)
 
-This local proposal does not activate Phase B. **`JOE_V2_CONTRACT_REV=10` must
-be passed to both the pusher and the isolated stager** by OPS, only after the
-rev-10 board release **32** (JOED-87) is live. An absent or any other value
-keeps the revision-9 snapshot bytes and receipts unchanged. This setting is
-independent of `JOE_PUSH_SCHEMA`; it neither selects a POST target nor enables
-publication. The lock supervisor forwards only this explicit opt-in alongside
-its existing PATH/NODE_ENV allowlist. The r20e image preparation delivers this
-code with revision 9 still the default; it does not set that opt-in. Prestage
-from the exact reviewed merge, then activate one validated host build. The
-four shared-image services and the declarative `hsb0-home` post-recreation
-are expected to recreate; the gateway and Results producer must stay running.
+The active v2 host configuration passes **`JOE_V2_CONTRACT_REV=11` to both
+the pusher and the isolated stager**. The approved rev-11 board must precede
+runtime activation. Revision 10 remains an explicit rollback; revision 9 is
+the default for an absent or unrecognized setting. This setting is independent
+of `JOE_PUSH_SCHEMA`; it neither selects a POST target nor enables publication.
+The lock supervisor forwards the selected revision alongside its existing
+environment allowlist. Changing the declarative setting prepares the next
+host activation; it is not evidence of deployment or live producer sign-off.
 
 The bounded private observation carries scalar exactness evidence after the
 existing v1 calculation/settlement. It contains no account, execution or conid
@@ -79,38 +76,56 @@ desk field is exact; sums use decimal integer units. Neither a heartbeat nor
 the retained v1 equity vector can renew an economic input. An unavailable
 callback field or rate is never rounded into apparent exactness.
 
-The new runtime reads preserved rev-9 pairs and activated rev-10 pairs without
+### Two proven Today conversions
+
+Revision **11** is active in the host configuration. Each eligible desk's
+available `sod-virtual-equity` DAY source adds `pnlSources.day.fx` with
+`start: { source, observedAt }` and `end: { source, observedAt }`. Both sources
+are `ib-account-ExchangeRate`. The start comes from durable SOD proof at or
+before `periodStart`; the current observation must be at or after the start.
+These objects contain no rates. Rates stay in the existing `money.fx` path,
+including the current rate in `money.dayPnl.fx`. Proven equal-rate conversions
+also carry the two observations. EUR-only desks, missing proof, unavailable
+DAY and invalid timestamp ordering omit the structured provenance. It is
+never reconstructed from `day.detail`; the rev-10 detail behavior is preserved.
+
+Rollback: set **`JOE_V2_CONTRACT_REV=10` in both pusher and stager**. This keeps
+revision-10 snapshot behavior and omits the new structured DAY FX objects.
+
+The new runtime reads preserved rev-9, rev-10 and rev-11 pairs without
 changing enrollment, allocator floor, sequence high-water, lock or old receipts.
 Default output retains the rev-9 receipt digest; activated output records the
-rev-10 digest. An old digest cannot validate a Phase-B pair. Turning the setting
-off changes future output; it does not erase a committed rev-10 pair or an
+vendored rev-11 digest. A rev-10 receipt cannot claim rev-11 structured FX;
+a rev-9 receipt cannot validate a Phase-B pair. Turning the setting off changes
+future output; it does not erase a committed pair or an
 uncertain pending POST. A rollback to an older binary after activation needs
 the coordinator's archive/move-aside procedure, preserving sequence state and
-lock; never reset or delete history. Keep the rev-10 board during that rollback.
+lock; never reset or delete history. Keep the compatible board during that rollback.
 
 ### Complete contract re-vendoring
 
 Vendor **all 17 files** under JoeDesk `contracts/`, exactly, from immutable
-commit `7c1616325c0007608425e4ad31a0a8256be4aeb7` (PR #89). The independent
-`release/contracts.json` pin is revision **10**, contract-set SHA256
-`3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`.
+commit `36fecfeb7e56400db3076304d150e9eeb2beb05b`. The independent
+`release/contracts.json` pin is revision **11**, contract-set SHA256
+`c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`.
 Use local `git show <commit>:<path>` bytes; no runtime fetch or partial schema
 copy. `contracts.lock.json` lists the complete sorted filename, size and SHA256
 closure. The set digest hashes compact JSON entries in sorted path order with
 property order `{path:"contracts/<name>",size,sha256}`. Check it against the
 independent release pin before writing the lock. Update the fixed verifier's
 source/revision/set constants and the worker's activated receipt digest
-together, retaining the rev-9 compatibility digest. `node verify-contracts-entry.mjs`
+together, retaining the rev-9 and rev-10 compatibility digests. `node verify-contracts-entry.mjs`
 verifies the fixed closure before imports at build time and worker startup;
 missing, extra, changed or linked files fail closed. The Docker source closure
 includes `v2-exact-values.mjs`.
 
-Validation: `node --test --test-concurrency=2` in this directory. Synthetic
+Validation: `node --test` in this directory, as in `.github/workflows/check.yml`. Synthetic
 tests cover the real FIFO/adapter evidence path, per-field callback clocks,
 reconciliation failures, SOD/proxy rejection, FX provenance, KEEP/cash, complete
-sums, rev-10 schema/acceptance and durable restart. A byte comparison loads the
+sums, rev-11 timestamp boundaries, schema/acceptance and durable restart. A byte comparison loads the
 pre-change stager from local Git and proves default rev-9 output unchanged,
-even when offered rev-10 evidence. This is local patch evidence; cross-family
+even when offered exact-value evidence; a second comparison preserves rev-10 bytes.
+This is local patch evidence; cross-family
 review, OPS promotion, live paper proof and Amy's sign-off belong to the
 coordinator.
 
@@ -379,7 +394,7 @@ The supervisor never enrolls. An absent or corrupt state fails closed; do not
 reset it to recover service. The first reserved sequence is 1. Other hosts or
 reenrollment need a separate operator floor record and reviewed procedure.
 
-The worker verifies the exact 17-file revision-10 closure before importing any
+The worker verifies the exact 17-file revision-11 closure before importing any
 contracts. Source time is calendar-validated UTC from `book.ts`; missing or
 invalid source time suppresses staging. Generation uses the worker's receipt
 clock and is clamped to the durable `lastGeneratedAt` floor. That existing field
@@ -524,10 +539,10 @@ death at persistence boundaries, contract acceptance/replay/clocks, corruption,
 ENOSPC/fsync failure, source-filter closure and flag rendering. Fixtures are
 synthetic/masked. The pinned verifier checks every closure file against its
 independent hash/size manifest; offline handoff evidence also compares the
-17 files directly against JoeDesk 7c1616325c0007608425e4ad31a0a8256be4aeb7
-(set 3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350). The pusher-local
+17 files directly against JoeDesk 36fecfeb7e56400db3076304d150e9eeb2beb05b
+(set c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b). The pusher-local
 verifier exports a fixed-path `verify()`; `node verify-contracts-entry.mjs`
-is the unconditional Docker build entry. It is tested on valid and damaged rev 10 closures. Linux
+is the unconditional Docker build entry. It is tested on valid and damaged rev 11 closures. Linux
 flock and memory-cgroup/OOM checks require Linux; the macOS offline run reports
 those separately and does not claim container isolation has been live-verified.
 
