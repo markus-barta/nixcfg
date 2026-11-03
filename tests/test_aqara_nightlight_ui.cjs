@@ -416,7 +416,11 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       if (initial[u.pathname]) return initial[u.pathname](u, options);
       if (u.pathname === "/config")
         return Promise.resolve(
-          response({ ok: true, settings: structuredClone(configDefaults) }),
+          response({
+            ok: true,
+            settings: structuredClone(configDefaults),
+            max_bri: { plug: 100, round: 50 },
+          }),
         );
       if (u.pathname === "/signal")
         return Promise.resolve(
@@ -1856,7 +1860,11 @@ test("failed config load offers manual retry and recovers the settings controls"
       offline
         ? Promise.reject(new Error("offline"))
         : Promise.resolve(
-            response({ ok: true, settings: structuredClone(configDefaults) }),
+            response({
+              ok: true,
+              settings: structuredClone(configDefaults),
+              max_bri: { plug: 100, round: 50 },
+            }),
           ),
   });
   assert.equal(a.eval("configReady"), false);
@@ -1866,6 +1874,51 @@ test("failed config load offers manual retry and recovers the settings controls"
   await flush();
   assert.equal(a.eval("configReady"), true);
   assert.equal(a.buttons("[data-usage]")[0].disabled, false);
+  a.eval('selectHub("WZ-594F")');
+  assert.equal(Number(a.el("bri").max), 50);
+});
+
+test("brightness and rule sliders follow per-hub service limits across hub switches", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" });
+  assert.equal(Number(a.el("bri").max), 100);
+  a.eval('selectHub("WZ-594F")');
+  await flush();
+  assert.equal(Number(a.el("bri").max), 50);
+  a.eval(
+    'acceptReadback({rgb:"123456",brightness:90},"WZ-594F",++sequence);render()',
+  );
+  assert.equal(a.eval("state().bri"), 50);
+  assert.equal(a.eval("state().readback.brightness"), 90);
+  assert.equal(Number(a.el("bri").value), 50);
+  assert.equal(a.el("bri-track").properties.get("--f"), 1);
+  await a
+    .buttons("[data-rule]")
+    .find((b) => b.dataset.rule === "urgent:ppm")
+    .fire("click");
+  assert.equal(Number(a.el("rule-bri").max), 50);
+  assert.equal(Number(a.el("rule-bri").value), 50);
+  assert.equal(a.eval('settings.round.rules["urgent:ppm"].bri'), 60);
+  await a.el("rule-cancel").fire("click");
+  a.eval('selectHub("KI-18FB")');
+  await flush();
+  assert.equal(Number(a.el("bri").max), 100);
+  assert.equal(a.eval("state().bri"), 40);
+});
+
+test("slider limits use configuration values rather than fixed room assumptions", async () => {
+  const a = await setup({ "nightlight-mode": "erwachsen" }, false, {
+    "/config": async () =>
+      response({
+        ok: true,
+        settings: structuredClone(configDefaults),
+        max_bri: { plug: 75, round: 30 },
+      }),
+  });
+  assert.equal(Number(a.el("bri").max), 75);
+  a.eval('selectHub("WZ-594F")');
+  await flush();
+  assert.equal(Number(a.el("bri").max), 30);
+  assert.equal(a.eval("state().bri"), 30);
 });
 
 test("brightness from raw Aus uses the server's durable colour, including unknown colour", async () => {
@@ -2136,7 +2189,7 @@ test("drag deduplication is per hub and is invalidated by intervening tap comman
       ["plug", "100"],
       ["plug", "0"],
       ["plug", "100"],
-      ["round", "100"],
+      ["round", "50"],
     ],
   );
 });

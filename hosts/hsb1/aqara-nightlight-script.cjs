@@ -20,6 +20,7 @@ module.exports = function nightlightPage() {
   };
   const DESK_NAMES = { ppm: "PPM", pma: "PMA", both: "Beide" };
   let settings = {};
+  let brightnessLimits = {};
   let configReady = false;
   let configRevision = 0;
   let signalRevision = 0;
@@ -78,6 +79,8 @@ module.exports = function nightlightPage() {
   let modeHintTimer = null;
   const state = () => states[selected];
   const hub = () => HUB_HANDLES[selected];
+  const maxBrightness = (label = selected) =>
+    brightnessLimits[HUB_HANDLES[label]] ?? 100;
   const percent = (value) => `${value} %`;
   const presetFor = (label = selected) => presets[HUB_HANDLES[label]]?.nacht;
   const sameLight = (a, b) =>
@@ -432,9 +435,15 @@ module.exports = function nightlightPage() {
   }
   function updateSliders() {
     const s = state();
+    const maximum = maxBrightness();
+    s.bri = Math.min(s.bri, maximum);
+    $("bri").max = maximum;
     $("bri").disabled = !s.lightReady;
     $("bri").value = s.lightReady ? s.bri : 0;
-    $("bri-track").style.setProperty("--f", s.lightReady ? s.bri / 100 : 0);
+    $("bri-track").style.setProperty(
+      "--f",
+      s.lightReady && maximum ? s.bri / maximum : 0,
+    );
     $("bri-value").textContent = !s.lightReady
       ? "—"
       : s.bri === 0
@@ -773,6 +782,7 @@ module.exports = function nightlightPage() {
         throw Object.assign(new Error(), { userMessage: result.error });
       if (revision !== configRevision) return;
       settings = result.settings;
+      brightnessLimits = result.max_bri || brightnessLimits;
       configReady = true;
       render();
       if (usageFor() === "desk") loadSignal();
@@ -786,6 +796,7 @@ module.exports = function nightlightPage() {
           options: {
             success: (result) => {
               settings = result.settings;
+              brightnessLimits = result.max_bri || brightnessLimits;
               configReady = true;
               if (usageFor() === "desk") loadSignal();
             },
@@ -825,6 +836,7 @@ module.exports = function nightlightPage() {
       target,
       success: (result) => {
         settings[HUB_HANDLES[target]] = result.settings[HUB_HANDLES[target]];
+        brightnessLimits = result.max_bri || brightnessLimits;
         configReady = true;
         audioDirty = false;
         if (target === selected && usageFor() === "desk") loadSignal();
@@ -994,6 +1006,8 @@ module.exports = function nightlightPage() {
     for (const slot of ["rgb", "rgb2"])
       if (!nonBlack(ruleDraft[slot])) ruleDraft[slot] = DEFAULT_NIGHTLIGHT.rgb;
     $("rule-color").value = "#" + ruleDraft[ruleSlot];
+    ruleDraft.bri = Math.min(ruleDraft.bri, maxBrightness());
+    $("rule-bri").max = maxBrightness();
     $("rule-bri").value = ruleDraft.bri;
     $("rule-bri").min = editingRule === "unknown" ? 1 : 0;
     $("rule-takt").value = ruleDraft.takt;
@@ -1430,7 +1444,7 @@ module.exports = function nightlightPage() {
   function brightnessInput() {
     if (sending) return;
     state().lightTouched = state().lightReady = true;
-    state().bri = Number($("bri").value);
+    state().bri = Math.min(Number($("bri").value), maxBrightness());
     state().rgb = lightColor(state().rgb);
     updateSliders();
     queueLight("bri");

@@ -11,9 +11,9 @@ fi
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-full}"
 case "$mode" in
-full | --module-only) ;;
+full | --module-only | --local-only) ;;
 *)
-  printf 'usage: %s [--module-only]\n' "$0" >&2
+  printf 'usage: %s [--module-only|--local-only]\n' "$0" >&2
   exit 2
   ;;
 esac
@@ -22,7 +22,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_aqara_nightlight.py' -v
 node --test "${repo}/tests/test_aqara_nightlight_ui.cjs"
 nix-instantiate --parse "${repo}/hosts/hsb1/aqara-nightlight.nix" >/dev/null
+nix-instantiate --parse "${repo}/tests/aqara-nightlight-eval.nix" >/dev/null
 grep -Fq './aqara-nightlight.nix # OPS-496:' "${repo}/hosts/hsb1/configuration.nix"
+
+if [ "$mode" = "--local-only" ]; then
+  printf 'T117: local fake-hub, UI and Nix parse checks passed; NixOS evaluation explicitly omitted (required before release)\n'
+  exit 0
+fi
 
 PYTHONDONTWRITEBYTECODE=1 python3 - "$repo" "$mode" <<'PY'
 import json

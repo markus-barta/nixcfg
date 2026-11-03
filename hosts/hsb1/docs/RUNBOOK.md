@@ -71,7 +71,17 @@ hub's `nacht` colour when no record exists. A missing/black `nacht` falls back
 to the built-in nonblack nightlight colour. `/get` preserves raw `rgb` and
 brightness and adds `last_rgb` for page brightness and Eigene Farbe controls.
 Corrupt recovery state fails closed; preserve these records across restarts.
-The `/apply` response shape remains unchanged for HA.
+Light-setting replies (`/set`, `/apply`, `/signal-test`, and `/settings` when
+finishing an animation) include effective `bri` and boolean `capped`.
+`/set` and `/apply` retain `brightness` for HA compatibility. hsb1's per-hub
+`HUB_CONFIG` in `aqara-nightlight.py` sets `round.max_bri` to 50; an absent
+override defaults to 100 (`plug`). Requests above the limit clamp successfully.
+The engine also clamps steady, blink, alternate and animation-finish sends;
+`/signal` reports effective `applied.bri` and `applied.capped`. Quiet-hour rules,
+sound limits and saved presets/settings are preserved. `/config` and `/settings`
+include a `max_bri` map for the page's brightness and signal-rule sliders.
+On a future activation, this change is expected to restart only
+`aqara-nightlight.service`; no activation is performed by the offline work.
 
 `presets.json` contains ordered arrays per hub: `[{id,name,rgb,bri}, ...]`.
 There are at most six fixed slots: `nacht`, `p2`–`p6`. Defaults also include Warm
@@ -314,6 +324,8 @@ It runs fake-hub/counter/preset and Node script tests, then evaluates the
 scoped NixOS unit plus full
 hsb1 unit/firewall without building. `--module-only` explicitly omits the full
 flake check; a scoped pass alone is not release approval.
+`--local-only` runs fake-hub/service tests (including per-hub brightness caps),
+Node slider tests and Nix parsing without evaluating NixOS or needing flake inputs.
 
 ## Tailnet Witness (tailnet-watch, OPS-185)
 

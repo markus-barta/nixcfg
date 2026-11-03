@@ -56,6 +56,12 @@ save, rename, reset and manage up to six fixed-ID places per hub; `/presets`
 returns ordered arrays, and `/apply?hub&preset=<id>` applies any saved place.
 Old single-Nachtlicht files migrate atomically and preserve their saved values.
 KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+Per-hub `HUB_CONFIG` in `aqara-nightlight.py` caps WZ (`round`) at **50%**;
+KI (`plug`) retains the default **100%** maximum. Manual commands, saved-place
+applications, signal tests and every engine/animation send clamp to that limit.
+Light-setting replies add effective `bri` and boolean `capped`, retaining
+`brightness` for compatibility. `/config` exposes per-hub `max_bri`; the page's
+brightness and signal-rule sliders use these limits. Saved values stay intact.
 Without the separately owned poller feed, Desk-Signal shows **Unbekannt** at
 5%, never Aus. Per-hub use, signal rules and automatic audio persist server-side.
 Vienna quiet hours are 20:00–07:30; automatic sound starts off.

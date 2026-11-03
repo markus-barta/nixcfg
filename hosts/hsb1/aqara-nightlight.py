@@ -43,6 +43,8 @@ _miio_log.propagate = False
 
 # Stable API handles; the page retains the operator-selected hub display labels.
 HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108"}
+# Per-hub hsb1 policy; hubs without an override retain the full 0–100% range.
+HUB_CONFIG = {"round": {"max_bri": 50}}
 TIMEOUT = 1.5
 ATTEMPTS = 4
 MAX_TONE_VOLUME = 40
@@ -212,10 +214,21 @@ def call(name, cmd, params=None, attempts=ATTEMPTS):
     raise HubUnavailableError(attempts)
 
 
-def set_light(name, rgb, bri):
-    if name not in HUBS:
+def max_brightness(hub):
+    if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
-    bri = max(0, min(100, int(bri)))
+    return HUB_CONFIG.get(hub, {}).get("max_bri", 100)
+
+
+def light_brightness(hub, requested):
+    requested = int(requested)
+    maximum = max_brightness(hub)
+    return {"bri": max(0, min(maximum, requested)), "capped": requested > maximum}
+
+
+def set_light(name, rgb, bri):
+    effective = light_brightness(name, bri)
+    bri = effective["bri"]
     rgb = rgb.lstrip("#").upper()
     if re.fullmatch(r"[0-9a-fA-F]{6}", rgb) is None:
         raise ValueError("Farbe muss RRGGBB sein")
@@ -234,7 +247,7 @@ def set_light(name, rgb, bri):
         except Exception:
             pass
     return {"ok": True, "hub": name, "cmd": "set_rgb", "sent": f"0x{val:08x}",
-            "brightness": bri, "rgb": rgb.upper(), "reply": reply, "versuche": attempts}
+            "brightness": bri, **effective, "rgb": rgb.upper(), "reply": reply, "versuche": attempts}
 
 
 def get_light(name):
@@ -591,12 +604,14 @@ def _settings_transaction():
 
 def get_settings():
     with _settings_transaction():
-        return {"ok": True, "settings": _read_settings()}
+        return {"ok": True, "settings": _read_settings(),
+                "max_bri": {hub: max_brightness(hub) for hub in HUBS}}
 
 
 def save_settings(hub, query):
     if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
+    light_result = {}
     with _settings_transaction():
         settings = _read_settings()
         value = settings[hub]
@@ -604,7 +619,7 @@ def save_settings(hub, query):
             if query["usage"] not in ("nightlight", "desk"):
                 raise ValueError("Ungültige Verwendung")
             if value["usage"] == "desk" and query["usage"] == "nightlight" and _engine is not None:
-                _engine.finish(hub)
+                light_result = _engine.finish(hub)
             value["usage"] = query["usage"]
         if "rule" in query:
             key = query["rule"]
@@ -637,7 +652,8 @@ def save_settings(hub, query):
                     raise ValueError("Ungültiger Tonwert")
                 value[field] = n
         _atomic_json(SETTINGS_FILE, settings)
-    return {"ok": True, "settings": settings}
+    return {"ok": True, "settings": settings,
+            "max_bri": {hub: max_brightness(hub) for hub in HUBS}, **light_result}
 
 
 def quiet_hours(now=None):
@@ -747,10 +763,10 @@ def test_signal(hub, query):
         raise RuleValidationError()
     if quiet_hours():
         rule.update(mode="steady", bri=5 if rule["bri"] else 0)
-    set_light(hub, rule["rgb"], rule["bri"])
+    result = set_light(hub, rule["rgb"], rule["bri"])
     with _page_lock:
         _signal_tests[hub] = (time.monotonic() + 10, key, rule)
-    return {"ok": True, "seconds": 10}
+    return {**result, "seconds": 10}
 
 
 @contextmanager
@@ -791,8 +807,12 @@ class SignalEngine:
         if old:
             if not _valid_rule(old[1], old[0]):
                 raise RuleValidationError()
-            call(hub, "set_rgb", [(old[1]["bri"] << 24) | int(old[1]["rgb"], 16)], attempts=1)
+            effective = light_brightness(hub, old[1]["bri"])
+            call(hub, "set_rgb", [(effective["bri"] << 24) | int(old[1]["rgb"], 16)], attempts=1)
             self.previous.pop(hub, None)
+            self.applied[hub] = {"key": old[0], "rgb": old[1]["rgb"], **effective, "at": time.time()}
+            return effective
+        return {}
 
     def tick(self, hub, now=None, monotonic=None):
         now = time.time() if now is None else now
@@ -840,11 +860,13 @@ class SignalEngine:
             phase = 0 if changed else 1 - self.phase.get(hub, 0)
             rgb = rule["rgb2"] if phase and rule["mode"] == "alternate" else rule["rgb"]
             bri = 0 if phase and rule["mode"] == "blink" else rule["bri"]
+            effective = light_brightness(hub, bri)
+            bri = effective["bri"]
             call(hub, "set_rgb", [(bri << 24) | int(rgb, 16)], attempts=1)
             self.previous[hub] = (key, rule)
             self.phase[hub] = phase
             self.next_tick[hub] = monotonic + (rule["takt"] if rule["mode"] != "steady" else 30)
-            self.applied[hub] = {"key": key, "rgb": rgb, "bri": bri, "at": now}
+            self.applied[hub] = {"key": key, "rgb": rgb, **effective, "at": now}
             self._auto_sound(hub, settings, feed, now)
             return True
         finally:
