@@ -728,11 +728,14 @@ in
   # OPS-541 (2026-11-03): Tasmota web UI login (user admin) of gosp00, for the
   # household Tasmota plugs. Markus asked for one shared copy every agent can
   # use. Encrypted by the agent straight from Markus's clipboard with age -R
-  # (no editor session, never displayed). Canonical cleartext: Markus's 1Password.
+  # (no editor session, never displayed). Cleartext source: Markus (via the
+  # clipboard); verified only against gosp00 so far.
   # Format inside the .age file (two lines):
   #   TASMOTA_WEB_USER=admin
   #   TASMOTA_WEB_PASS=<password>
-  # Consume: ( set -a; source ~/.inspr/secrets/agents/TASMOTA_WEB.env; set +a; curl -G --data-urlencode "user=$TASMOTA_WEB_USER" --data-urlencode "password=$TASMOTA_WEB_PASS" --data-urlencode cmnd=Status http://<plug>/cm )
+  # Consume (password via stdin, not in argv; plain HTTP on the LAN):
+  #   ( set -a; source ~/.inspr/secrets/agents/TASMOTA_WEB.env; set +a; printf %s "$TASMOTA_WEB_PASS" |
+  #     curl -G --data-urlencode "user=$TASMOTA_WEB_USER" --data-urlencode "password@-" --data-urlencode cmnd=Status http://<plug>/cm )
   "agents/shared/TASMOTA_WEB.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # ────────────────────────────────────────────────────────────────────────
