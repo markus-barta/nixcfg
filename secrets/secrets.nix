@@ -725,6 +725,16 @@ in
   # Edit: agenix -e secrets/agents/shared/HOMEWIFI.age
   "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
+  # OPS-541 (2026-11-03): Tasmota web UI login (user admin) of gosp00, for the
+  # household Tasmota plugs. Markus asked for one shared copy every agent can
+  # use. Encrypted by the agent straight from Markus's clipboard with age -R
+  # (no editor session, never displayed). Canonical cleartext: Markus's 1Password.
+  # Format inside the .age file (two lines):
+  #   TASMOTA_WEB_USER=admin
+  #   TASMOTA_WEB_PASS=<password>
+  # Consume: ( set -a; source ~/.inspr/secrets/agents/TASMOTA_WEB.env; set +a; curl -G --data-urlencode "user=$TASMOTA_WEB_USER" --data-urlencode "password=$TASMOTA_WEB_PASS" --data-urlencode cmnd=Status http://<plug>/cm )
+  "agents/shared/TASMOTA_WEB.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
+
   # ────────────────────────────────────────────────────────────────────────
   # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
   # ────────────────────────────────────────────────────────────────────────
