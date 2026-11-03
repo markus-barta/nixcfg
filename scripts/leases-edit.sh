@@ -47,7 +47,7 @@ net_params() {
   esac
 }
 
-ROOM_PREFIXES="vr wz sz ki ku ez bz tg te dt kr vk gz sh wc"
+ROOM_PREFIXES="vr wz sz ki kg ku ez bz tg te dt kr vk gz sh wc"
 # Non-room infra hostnames that are allowed without a naming warning.
 INFRA_RE='^(hsb[0-9]+|csb[0-9]+|gpc[0-9]+|raspi[0-9].*|opusshgw|mbp[0-9].*)$'
 
@@ -57,6 +57,7 @@ legend() {
  vr Vorraum   wz Wohnzimmer  sz Schlafzimmer  ki Kinderzimmer  ku Küche
  ez Esszimmer bz Badezimmer  tg Tiefgarage    te Terrasse      dt Dachterrasse
  kr Kellerraum  vk Vorküche  gz Gästezimmer  sh Stiegenhaus  wc WC
+ kg Kinderzimmer groß
  Convention:  <room>-<vendor/type>-<descr>   e.g. vr-cinnado-cam, kr-nuki-smart-keller
  Static IPs:  ${SUBNET_PREFIX}.${STATIC_MIN}–${STATIC_MAX}   (dynamic pool ${SUBNET_PREFIX}.${DYN_MIN}–${DYN_MAX} is off-limits)
 ────────────────────────────────────────────────────────────────────────────────
