@@ -285,13 +285,17 @@ class ApiTest(unittest.TestCase):
         self.module.PRESET_FILE = Path(self.tmp.name, "presets.json")
 
     def test_light_wire_encoding_clamping_and_300ms_echo(self):
-        for brightness, expected in ((10, 10), (-1, 0), (101, 100)):
-            with self.subTest(brightness=brightness), patch.object(self.module, "call", return_value=(["ok"], 1)) as send, patch.object(self.module.time, "sleep") as sleep:
-                result = self.module.set_light("plug", "#FF8C28", brightness)
-                packed = (expected << 24) | 0xFF8C28
-                self.assertEqual(send.call_args_list, [call("plug", "set_rgb", [packed]), call("plug", "set_rgb", [packed], attempts=1)])
-                sleep.assert_called_once_with(0.3)
-                self.assertEqual(result["brightness"], expected)
+        for hub, maximum in (("round", 50), ("plug", 100)):
+            for brightness in (-1, 0, 10, 50, 51, 80, 100, 101):
+                with self.subTest(hub=hub, brightness=brightness), patch.object(self.module, "call", return_value=(["ok"], 1)) as send, patch.object(self.module.time, "sleep") as sleep:
+                    result = self.module.set_light(hub, "#FF8C28", brightness)
+                    expected = max(0, min(maximum, brightness))
+                    packed = (expected << 24) | 0xFF8C28
+                    self.assertEqual(send.call_args_list, [call(hub, "set_rgb", [packed]), call(hub, "set_rgb", [packed], attempts=1)])
+                    sleep.assert_called_once_with(0.3)
+                    self.assertEqual(result["brightness"], expected)
+                    self.assertEqual(result["bri"], expected)
+                    self.assertIs(result["capped"], brightness > maximum)
 
     def test_failed_echo_does_not_erase_first_ack(self):
         with patch.object(self.module, "call", side_effect=[(["ok"], 2), RuntimeError()]), patch.object(self.module.time, "sleep"):
@@ -1192,7 +1196,7 @@ class RoundFourTest(unittest.TestCase):
         self.feed(oldest_expiry_at=self.now+60)
         engine=self.module.SignalEngine()
         self.assertTrue(engine.tick('round',self.now,0))
-        self.send.assert_called_once_with('round','set_rgb',[(60<<24)|0x18C2B0],attempts=1)
+        self.send.assert_called_once_with('round','set_rgb',[(50<<24)|0x18C2B0],attempts=1)
         self.assertFalse(engine.tick('round',self.now+1,1))
         self.assertTrue(engine.tick('round',self.now+2,2))
         self.send.assert_called_with('round','set_rgb',[0x18C2B0],attempts=1)
@@ -1299,7 +1303,7 @@ class RoundFourTest(unittest.TestCase):
         engine.tick('round',self.now,0);engine.tick('round',self.now+2,2)
         self.send.reset_mock()
         self.module.save_settings('round',{'usage':'nightlight'})
-        self.send.assert_called_once_with('round','set_rgb',[(60<<24)|0x18C2B0],attempts=1)
+        self.send.assert_called_once_with('round','set_rgb',[(50<<24)|0x18C2B0],attempts=1)
         self.assertFalse(engine.tick('round',self.now+4,4))
         self.assertEqual(self.send.call_count,1)
 
@@ -1721,7 +1725,9 @@ class Version33Test(unittest.TestCase):
         with patch.object(self.module,"call",return_value=(["ok"],1)) as send:
             for phase in range(5):
                 self.assertTrue(engine.tick("round",self.now+phase*2,phase*2))
-                self.assertEqual(send.call_args.args[2][0],(60<<24)|int(resolved["colors"][phase%2],16))
+                self.assertEqual(send.call_args.args[2][0],(50<<24)|int(resolved["colors"][phase%2],16))
+                self.assertEqual(engine.applied["round"]["bri"], 50)
+                self.assertIs(engine.applied["round"]["capped"], True)
                 self.assertEqual(send.call_args.kwargs,{"attempts":1})
                 self.assertFalse(engine.tick("round",self.now+phase*2+1,phase*2+1))
         self.assertEqual(engine.desk_applied["round"]["ppm"]["rgb"],"18C2B0")
@@ -1800,12 +1806,15 @@ class StreamingProgressTest(unittest.TestCase):
         lost.send.side_effect=TimeoutError()
         good.send.return_value=['ok']
         with patch.object(self.module,'_connect',side_effect=[lost,good]):
-            headers,body=self.parsed_request(b'POST /set?hub=plug&rgb=5C0701&bri=44 HTTP/1.1\r\nHost: hsb1:8765\r\nX-Nightlight: 1\r\nAccept: application/x-ndjson\r\nContent-Length: 0\r\n\r\n')
+            headers,body=self.parsed_request(b'POST /set?hub=round&rgb=5C0701&bri=90 HTTP/1.1\r\nHost: hsb1:8765\r\nX-Nightlight: 1\r\nAccept: application/x-ndjson\r\nContent-Length: 0\r\n\r\n')
         self.assertIn(b'application/x-ndjson',headers)
         frames=[json.loads(line) for line in body.splitlines()]
         self.assertEqual(frames[:-1],[dict(progress=1,attempts=4),dict(progress=2,attempts=4)])
         self.assertEqual(frames[-1]['versuche'],2)
         self.assertTrue(frames[-1]['ok'])
+        self.assertEqual(frames[-1]['bri'], 50)
+        self.assertEqual(frames[-1]['brightness'], 50)
+        self.assertIs(frames[-1]['capped'], True)
         self.assertIsNone(self.module._request_progress.callback)
         self.assertNotIn(b'access-control-',headers.lower())
         self.assertEqual(good.send.call_args_list[0].kwargs['extra_parameters'],{'id':102})
@@ -1855,7 +1864,8 @@ class ColorRecoveryTest(unittest.TestCase):
         before = self.module.PRESET_FILE.read_bytes()
         for hub, rgb in (("plug", "ABCDEF"), ("round", "123456")):
             result = self.result(f"/set?hub={hub}&rgb=000000&bri=65")
-            self.assertEqual((result["rgb"], result["brightness"]), (rgb, 65))
+            self.assertEqual((result["rgb"], result["brightness"]), (rgb, 50 if hub == "round" else 65))
+            self.assertIs(result["capped"], hub == "round")
         self.assertEqual(self.module.PRESET_FILE.read_bytes(), before)
 
     def test_missing_or_black_nacht_still_cannot_send_black_with_brightness(self):
@@ -1865,7 +1875,7 @@ class ColorRecoveryTest(unittest.TestCase):
 
     def test_apply_updates_recovery_color_and_preserves_ha_response_shape(self):
         result = self.result("/apply?hub=round&preset=p2")
-        self.assertEqual(set(result), {"ok", "hub", "cmd", "sent", "brightness", "rgb", "reply", "versuche"})
+        self.assertEqual(set(result), {"ok", "hub", "cmd", "sent", "brightness", "bri", "capped", "rgb", "reply", "versuche"})
         self.assertEqual(json.loads(self.color_path("round").read_text()), "FF8C28")
         self.assertFalse(self.color_path("plug").exists())
         self.assertEqual(self.module.set_light("round", "000000", 80)["rgb"], "FF8C28")
@@ -1910,6 +1920,179 @@ class ColorRecoveryTest(unittest.TestCase):
         self.assertTrue(all(r["ok"] for r in results))
         self.assertEqual(json.loads(self.color_path().read_text()), "123456")
         self.assertEqual(json.loads(self.color_path("round").read_text()), "ABCDEF")
+
+
+class BrightnessLimitTest(unittest.TestCase):
+    request = ApiTest.request
+    seed = Version33Test.seed
+    feed = Version33Test.feed
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.module = load(state_directory=self.tmp.name)
+        self.now = self.module.datetime.fromisoformat("2026-10-30T12:00:00+01:00").timestamp()
+        self.send = patch.object(self.module, "call", return_value=(["ok"], 1)).start()
+        patch.object(self.module.time, "sleep").start()
+        self.addCleanup(patch.stopall)
+
+    def result(self, path, method="POST"):
+        handler = self.request(path, method=method)
+        return json.loads(handler._reply.call_args.args[0])
+
+    def assert_effective(self, result, bri, capped):
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["bri"], bri)
+        self.assertIs(result["capped"], capped)
+
+    def configure(self):
+        settings = self.seed()
+        for cfg in settings.values():
+            cfg["usage"] = "desk"
+            for rule in cfg["rules"].values():
+                rule.update(bri=90, mode="steady")
+        self.module._atomic_json(self.module.SETTINGS_FILE, settings)
+        return settings
+
+    def test_http_and_cli_set_reply_with_each_hubs_effective_brightness(self):
+        for hub, expected, capped in (("round", 50, True), ("plug", 90, False)):
+            for method in ("GET", "POST"):
+                with self.subTest(hub=hub, method=method):
+                    result = self.result(f"/set?hub={hub}&rgb=ABCDEF&bri=90", method)
+                    self.assert_effective(result, expected, capped)
+                    self.assertEqual(result["brightness"], expected)
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(self.module.main(["set", hub, "ABCDEF", "90"]), 0)
+            self.assert_effective(json.loads(output.getvalue()), expected, capped)
+        self.assert_effective(self.result("/set?hub=round&rgb=ABCDEF&bri=50"), 50, False)
+
+    def test_default_saved_and_legacy_presets_clamp_on_apply_without_rewriting(self):
+        for hub, expected, capped in (("round", 50, True), ("plug", 90, False)):
+            self.assert_effective(self.result(f"/apply?hub={hub}&preset=p3"), min(80, expected), capped)
+            saved = self.result(f"/preset?hub={hub}&id=p3&rgb=ABCDEF&bri=90")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(next(p for p in saved["presets"][hub] if p["id"] == "p3")["bri"], 90)
+            before = self.module.PRESET_FILE.read_bytes()
+            self.assert_effective(self.result(f"/apply?hub={hub}&preset=p3"), expected, capped)
+            self.assertEqual(self.module.PRESET_FILE.read_bytes(), before)
+            self.assertTrue(self.result(f"/preset?hub={hub}&name=nacht&rgb=ABCDEF&bri=90")["ok"])
+            self.assert_effective(self.result(f"/apply?hub={hub}&preset=nacht"), expected, capped)
+
+    def test_settings_expose_limits_without_changing_other_hub_or_saved_rules(self):
+        expected = {"round": 50, "plug": 100}
+        config = self.result("/config", "GET")
+        self.assertEqual(config["max_bri"], expected)
+        other = config["settings"]["plug"]
+        saved = self.result("/settings?hub=round&rule=urgent&rgb=ABCDEF&bri=90&mode=blink&takt=2")
+        self.assertEqual(saved["max_bri"], expected)
+        self.assertEqual(saved["settings"]["round"]["rules"]["urgent"]["bri"], 90)
+        self.assertEqual(saved["settings"]["plug"], other)
+        self.assertEqual(load(state_directory=self.tmp.name).get_settings()["max_bri"], expected)
+        self.send.assert_not_called()
+
+    def test_engine_clamps_each_live_state_and_blink_or_alternate_phase(self):
+        settings = self.configure()
+        for hub, maximum in (("round", 50), ("plug", 90)):
+            for level in ("unknown", "idle", "open", "regular", "urgent"):
+                for mode in ("steady", "blink", "alternate"):
+                    if level == "unknown" and mode == "blink":
+                        continue  # unknown must stay lit
+                    with self.subTest(hub=hub, level=level, mode=mode):
+                        cfg = settings[hub]
+                        cfg["rules"][level]["mode"] = mode
+                        self.module._atomic_json(self.module.SETTINGS_FILE, settings)
+                        feed = self.feed(cfg)
+                        feed["desks"]["pma"].update(open=0, held=0, oldest_held_at=None)
+                        counts = feed["desks"]["ppm"]
+                        if level in ("open", "idle"):
+                            counts.update(open=2 if level == "open" else 0, held=0, oldest_held_at=None)
+                        if level == "urgent":
+                            counts["oldest_expiry_at"] = self.now + 60
+                        if level == "unknown":
+                            feed["updated_at"] = self.now - 300
+                        self.module.FEED_FILE.write_text(json.dumps(feed))
+                        engine = self.module.SignalEngine()
+                        self.send.reset_mock()
+                        for phase in range(3):
+                            at = phase * (30 if mode == "steady" else 2)
+                            self.assertTrue(engine.tick(hub, self.now + at, at))
+                            bri = 0 if mode == "blink" and phase % 2 else maximum
+                            applied = engine.applied[hub]
+                            self.assertEqual(applied["key"].split(":")[0], level)
+                            self.assertEqual(applied["bri"], bri)
+                            self.assertEqual(applied["rule_bri"], maximum)
+                            self.assertIs(applied["capped"], hub == "round" and bri > 0)
+                            self.assertTrue(applied["confirmed"])
+                            self.assertEqual(self.send.call_args.args[2][0] >> 24, bri)
+                            self.assertEqual(self.send.call_args.kwargs, {"attempts": 1})
+                        self.assertEqual(self.send.call_count, 3)
+
+    def test_signal_test_and_cached_animation_frames_remain_capped(self):
+        self.configure()
+        self.module._engine = engine = self.module.SignalEngine()
+        for hub, expected, capped in (("round", 50, True), ("plug", 90, False)):
+            with patch.object(self.module, "quiet_hours", return_value=False), patch.object(self.module.time, "monotonic", return_value=0):
+                result = self.result(f"/signal-test?hub={hub}&rule=regular&rgb=ABCDEF&bri=90&rgb2=FFA020&mode=alternate&takt=2")
+            self.assert_effective(result, expected, capped)
+            self.assertEqual(result["seconds"], 10)
+            for phase in range(2):
+                self.assertTrue(engine.tick(hub, self.now + phase * 2, phase * 2))
+                status = self.result(f"/signal?hub={hub}", "GET")["applied"]
+                self.assertEqual(status["bri"], expected)
+                self.assertIs(status["capped"], capped)
+                self.assertEqual(self.send.call_args.args[2][0] >> 24, expected)
+            self.assertEqual(self.module._signal_tests[hub][2]["bri"], 90)
+
+    def test_desk_override_and_multiple_own_animation_use_hub_cap(self):
+        settings = self.configure()
+        cfg = settings["round"]
+        cfg["desks"][0]["override"] = True
+        cfg["desks"][0]["rules"]["regular"].update(bri=81, mode="alternate")
+        feed = self.feed(cfg)
+        feed["desks"]["pma"].update(open=0, held=0, oldest_held_at=None)
+        for multiple in (False, True):
+            with self.subTest(multiple=multiple):
+                if multiple:
+                    feed = self.feed(cfg)
+                    cfg["multiple"] = {"mode": "own", "rgb": "ABCDEF"}
+                    cfg["rules"]["regular"]["mode"] = "alternate"
+                self.module._atomic_json(self.module.SETTINGS_FILE, settings)
+                self.module.FEED_FILE.write_text(json.dumps(feed))
+                engine = self.module.SignalEngine()
+                for phase in range(2):
+                    self.assertTrue(engine.tick("round", self.now + phase * 2, phase * 2))
+                    self.assertEqual(self.send.call_args.args[2][0] >> 24, 50)
+                    self.assertIs(engine.applied["round"]["capped"], True)
+                self.assertTrue(all(value["bri"] == 50 for value in engine.desk_applied["round"].values()))
+
+    def test_failed_engine_attempt_reports_capped_unconfirmed_brightness(self):
+        self.configure()
+        engine = self.module.SignalEngine()
+        self.send.side_effect = self.module.HubUnavailableError(1)
+        with self.assertRaises(self.module.HubUnavailableError):
+            engine.tick("round", self.now, 0)
+        self.assertEqual(engine.applied["round"]["bri"], 50)
+        self.assertIs(engine.applied["round"]["capped"], True)
+        self.assertFalse(engine.applied["round"]["confirmed"])
+        self.assertNotIn("round", engine.previous)
+        self.assertFalse(engine.tick("round", self.now + 1, 1))
+        self.assertEqual(self.send.call_count, 1)
+
+    def test_leaving_desk_clamps_static_finish_and_returns_effective_reply(self):
+        self.configure()
+        self.module._engine = engine = self.module.SignalEngine()
+        for hub, expected, capped in (("round", 50, True), ("plug", 90, False)):
+            rule = {"rgb": "ABCDEF", "rgb2": "FFA020", "bri": 90, "mode": "blink", "takt": 2}
+            engine.previous[hub] = ("urgent", rule)
+            self.send.reset_mock()
+            result = self.result(f"/settings?hub={hub}&usage=nightlight")
+            self.assert_effective(result, expected, capped)
+            self.send.assert_called_once_with(hub, "set_rgb", [(expected << 24) | 0xABCDEF], attempts=1)
+            self.assertEqual(engine.applied[hub]["bri"], expected)
+            self.assertIs(engine.applied[hub]["capped"], capped)
+            self.assertNotIn(hub, engine.previous)
+            self.assertFalse(engine.tick(hub, self.now + 2, 2))
+            self.assertEqual(engine.finish(hub), {})
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ const defaultPlaces = [
   { id: "p4", name: "Rot leise", rgb: "FF2A00", bri: 5 },
 ];
 const defaults = { plug: defaultPlaces, round: defaultPlaces };
+const maxBri = { round: 50, plug: 100 };
 const rules = Object.fromEntries(
   ["urgent", "regular", "open", "idle", "unknown"].map((level) => [
     level,
@@ -98,6 +99,17 @@ const response = (value, status = 200) => ({
   status,
   json: async () => value,
 });
+function lightReply(hub, rgb, requested) {
+  const bri = Math.max(0, Math.min(maxBri[hub], requested));
+  return {
+    ok: true,
+    rgb,
+    brightness: bri,
+    bri,
+    capped: requested > maxBri[hub],
+    versuche: 1,
+  };
+}
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => {
@@ -490,7 +502,11 @@ async function setup(
       if (initial[u.pathname]) return initial[u.pathname](u, options);
       if (u.pathname === "/config")
         return Promise.resolve(
-          response({ ok: true, settings: structuredClone(configDefaults) }),
+          response({
+            ok: true,
+            settings: structuredClone(configDefaults),
+            max_bri: maxBri,
+          }),
         );
       if (u.pathname === "/signal")
         return Promise.resolve(
@@ -523,7 +539,7 @@ async function setup(
         return Promise.resolve(
           response(
             p
-              ? { ok: true, rgb: p.rgb, brightness: p.bri, versuche: 1 }
+              ? lightReply(u.searchParams.get("hub"), p.rgb, p.bri)
               : { ok: false, error: "Preset nicht gespeichert" },
           ),
         );
@@ -531,7 +547,7 @@ async function setup(
       const rgb = u.searchParams.get("rgb") || "5C0701",
         bri = Number(u.searchParams.get("bri") ?? 44);
       return Promise.resolve(
-        response({ ok: true, rgb, brightness: bri, versuche: 1 }),
+        response(lightReply(u.searchParams.get("hub"), rgb, bri)),
       );
     },
   });
@@ -558,6 +574,153 @@ async function setup(
     buttons: (selector) => document.querySelectorAll(selector),
   };
 }
+
+test("per-hub brightness sliders clamp WZ at 50 and preserve KI at 100", async () => {
+  const a = await setup();
+  assert.equal(Number(a.el("bri").max), 100);
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("input");
+  await flush();
+  assert.equal(a.eval("state().last.bri"), 100);
+  await a.buttons("[data-hub]")[1].fire("click");
+  assert.equal(Number(a.el("bri").max), 50);
+  a.tick(1000);
+  a.el("bri").value = "90";
+  await a.el("bri").fire("input");
+  await flush();
+  const sent = a.calls.filter((c) => c.path === "/set").at(-1);
+  assert.equal(sent.params.get("hub"), "round");
+  assert.equal(sent.params.get("bri"), "50");
+  assert.equal(Number(a.el("bri").value), 50);
+  assert.equal(Number(a.el("bri-track").properties.get("--f")), 1);
+  assert.equal(a.eval("state().last.bri"), 50);
+  await a.buttons("[data-hub]")[0].fire("click");
+  assert.equal(Number(a.el("bri").max), 100);
+  assert.equal(Number(a.el("bri").value), 100);
+});
+
+test("WZ keeps its cap before config arrives and honors server max_bri on load", async () => {
+  const config = deferred();
+  const a = await setup({ "nightlight-hub": "WZ-594F" }, false, {
+    "/config": () => config.promise,
+    "/get": async () => response({ ok: true, rgb: "ABCDEF", brightness: 90 }),
+  });
+  assert.equal(Number(a.el("bri").max), 50);
+  assert.equal(Number(a.el("bri").value), 50);
+  config.resolve(
+    response({
+      ok: true,
+      settings: structuredClone(configDefaults),
+      max_bri: { round: 35, plug: 100 },
+    }),
+  );
+  await flush();
+  assert.equal(Number(a.el("bri").max), 35);
+  assert.equal(Number(a.el("bri").value), 35);
+  assert.equal(Number(a.el("bri-track").properties.get("--f")), 1);
+});
+
+test("config retry and settings replies refresh per-hub brightness limits", async () => {
+  let attempt = 0;
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/config": async () => {
+        if (++attempt === 1) throw new Error("offline fixture");
+        return response({
+          ok: true,
+          settings: structuredClone(configDefaults),
+          max_bri: { round: 45, plug: 100 },
+        });
+      },
+    },
+  );
+  assert.equal(Number(a.el("bri").max), 50);
+  await a.el("retry").fire("click");
+  await flush();
+  assert.equal(Number(a.el("bri").max), 45);
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/settings");
+    const settings = structuredClone(configDefaults);
+    settings.round.usage = "nightlight";
+    return Promise.resolve(response({ ok: true, settings, max_bri: maxBri }));
+  });
+  await a.buttons("[data-usage]")[0].fire("click");
+  await flush();
+  assert.equal(Number(a.el("bri").max), 50);
+  assert.equal(a.pending.length, 0);
+});
+
+test("applying a bright saved place displays the effective brightness for each hub", async () => {
+  for (const [label, maximum] of [
+    ["WZ-594F", 50],
+    ["KI-18FB", 100],
+  ]) {
+    const a = await setup({ "nightlight-hub": label });
+    await a
+      .buttons("[data-preset]")
+      .find((b) => b.dataset.preset === "p3")
+      .fire("click");
+    await flush();
+    assert.equal(a.calls.filter((c) => c.path === "/apply").length, 1);
+    assert.equal(a.eval("state().last.bri"), Math.min(80, maximum));
+    assert.equal(Number(a.el("bri").value), Math.min(80, maximum));
+    assert.equal(Number(a.el("bri").max), maximum);
+    assert.equal(
+      Number(a.el("bri-track").properties.get("--f")),
+      Math.min(80, maximum) / maximum,
+    );
+  }
+});
+
+test("shared and desk rule editors limit brightness without changing the other hub", async () => {
+  for (const [label, expected] of [
+    ["WZ-594F", 50],
+    ["KI-18FB", 90],
+  ]) {
+    for (const desk of [null, "ppm"]) {
+      const a = await setup({
+        "nightlight-mode": "erwachsen",
+        "nightlight-hub": label,
+      });
+      a.eval(`openRule("urgent", ${JSON.stringify(desk)});`);
+      assert.equal(
+        Number(a.el("rule-bri").max),
+        label === "WZ-594F" ? 50 : 100,
+      );
+      assert.equal(a.eval("settings.round.rules.urgent.bri"), 60);
+      a.el("rule-bri").value = "90";
+      await a.el("rule-bri").fire("input");
+      assert.equal(a.eval("ruleDraft.bri"), expected);
+      assert.equal(Number(a.el("rule-bri").value), expected);
+      a.pending.push((url) => {
+        assert.equal(url.pathname, "/signal-test");
+        assert.equal(url.searchParams.get("bri"), String(expected));
+        return Promise.resolve(
+          response({ ok: true, bri: expected, capped: false, seconds: 10 }),
+        );
+      });
+      await a.el("rule-test").fire("click");
+      await flush();
+      assert.equal(a.pending.length, 0);
+      a.pending.push((url) => {
+        assert.equal(url.pathname, "/settings");
+        assert.equal(url.searchParams.get("bri"), String(expected));
+        return Promise.resolve(
+          response({
+            ok: true,
+            settings: structuredClone(configDefaults),
+            max_bri: maxBri,
+          }),
+        );
+      });
+      await a.el("rule-save").fire("click");
+      await flush();
+      assert.equal(a.pending.length, 0);
+    }
+  }
+});
 
 test("DOM harness allowlists attribute writes and isolates map storage", () => {
   const element = new Element(
@@ -2215,7 +2378,7 @@ test("drag deduplication is per hub and is invalidated by intervening tap comman
       ["plug", "100"],
       ["plug", "0"],
       ["plug", "100"],
-      ["round", "100"],
+      ["round", "50"],
     ],
   );
 });

@@ -137,8 +137,15 @@ lock, not user authentication; the LAN/tailnet/Host/Origin boundary still applie
 `rest_command`; new callers and the built-in UI use POST. `/`, `/get` and
 `/presets`, `/config` and `/signal` remain plain GETs without the custom header (POST returns 405).
 Loopback `/apply` requires the header but no Origin or extra CSRF token. Its
-JSON includes `ok`, `rgb` (RRGGBB) and `brightness`, as `/set` does. HA callers
-should inspect `.ok`, since invalid/unknown preset requests return HTTP 200
+JSON includes `ok`, `rgb` (RRGGBB) and `brightness`, as `/set` does. Replies
+also carry effective `bri` and `capped` (boolean). WZ (`round`) clamps all
+light-setting paths to **50%**; KI (`plug`) retains **0–100%**. Above-cap
+requests succeed with the clamped brightness. Presets and rules keep their
+stored 0–100 values; the policy applies when sending, including manual/CLI
+sets, preset application, signal tests, desk colour cycles, blink/alternate
+frames and the final static frame when leaving Desk use. Engine animation
+`applied` records also expose effective `bri`, `capped` and `rule_bri`.
+HA callers should inspect `.ok`, since invalid/unknown preset requests return HTTP 200
 with `ok:false`. LOCAL-OPS owns HA's button double-press and Gute-Nacht wiring.
 Cross-origin
 scripts need a CORS preflight to add this header; **OPTIONS returns 403**
@@ -172,6 +179,11 @@ caller remains compatible; new clients use `id=nacht`.
 loopback/header/no-Origin contract. No HA configuration is changed here.
 
 `GET /config` reads per-hub settings without any credential or key-file reference.
+Settings responses (`/config`, `/settings`, successful `/desk` changes) include
+`max_bri: {"round": 50, "plug": 100}`. A `/settings` response that finishes a
+Desk animation also carries the effective `bri` and `capped` for that command.
+The page uses these limits for both brightness sliders (WZ max 50, KI max 100)
+and normalizes each track fill to its hub's maximum.
 `POST /settings?hub&usage=nightlight|desk` changes use. Other updates are
 `threshold_<desk-id>=1..48`, `auto_sound=0|1`, `sound_vol=0..15`, and
 `sound_ms=200..3000` (empty means Ganz). A shared rule update uses
@@ -405,6 +417,11 @@ It runs fake-hub/counter/preset and Node script tests, then evaluates the
 scoped NixOS unit plus full
 hsb1 unit/firewall without building. `--module-only` explicitly omits the full
 flake check; a scoped pass alone is not release approval.
+`--local-only` runs the fake-hub brightness-cap and UI slider tests plus Nix
+parse checks, omitting both NixOS evaluations. It still requires Bash 5.
+Deploying these brightness-policy and bundled-page changes is expected to
+restart **`aqara-nightlight.service` only** on hsb1; no deployment is performed
+by the offline implementation task.
 
 ## Tailnet Witness (tailnet-watch, OPS-185)
 

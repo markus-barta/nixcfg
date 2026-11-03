@@ -48,8 +48,12 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
 `100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
 `192.168.1.106`, Kinderzimmer) and **WZ-594F** (`round`, `192.168.1.108`) map to
-stable API handles. The self-contained responsive page has Kind/Erwachsen
-and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
+stable API handles. Per-hub brightness limits are **WZ/round 50%** and
+**KI/plug 100%**. Every light command, including presets, signal tests, desk colour cycles and animation
+steps, clamps to that hub's maximum. Light-setting replies expose effective
+`bri` and `capped`; settings replies expose the per-hub `max_bri` map. The page's
+brightness and rule sliders use those limits. The self-contained responsive page
+has Kind/Erwachsen and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
 mode and theme are remembered on the device. Phone tabs are remembered per hub;
 the fixed status/tab bar leaves scrolling to bottom sheets. Desktop keeps columns.
 The Signal lamp preview has a device-local pause and starts paused under reduced motion.
