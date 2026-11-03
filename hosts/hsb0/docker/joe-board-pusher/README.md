@@ -12,13 +12,21 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640` (JOED-86; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r21-202611031258` (JOED-149 revision 11; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback retains `household-v2-switch-set-r19a-202610230614` and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
 The pusher, isolated stager, executor and mailbox runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
 reviewed host promotion; keep `flat-net-reconcile-perf-202610010310` intact for
 rollback. Never rebuild over either published tag. The base image digests,
 package manifests and `npm ci` remain unchanged.
+
+Both runtime source pins name the committed rev-11 implementation
+`729ddf040951a5a0f4ee3acada8613d62255227e`. `git rev-parse REV:SOURCE_PATH`
+gives pusher tree `eda3c8d69c3b555c9136bf30195d1ffafa82f99f` and executor tree
+`92e261d0dd504b30d8ec8850641310e129f7a8fe` (the executor implementation is unchanged).
+The later tag-only README/test edits are excluded from the pusher build context;
+the executor's image-comment edit changes no copied runtime source. These Git
+pins identify source snapshots; the new tag still needs its separately approved build.
 
 R16d refreshes the read-only position subscription with `cancelPositions` then
 `reqPositions` every 120 seconds on the existing five-second tick, while the

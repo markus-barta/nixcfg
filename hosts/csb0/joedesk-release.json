@@ -47,16 +47,16 @@
         "public_health": true
       },
       "pusher": {
-        "nixcfg_rev": "beaa3270fb7e4c05d3aed1705c20e78ffb970f9b",
-        "source_tree": "768f15bcdba561e131f0b3a4c904e4b08b88a1dd",
+        "nixcfg_rev": "729ddf040951a5a0f4ee3acada8613d62255227e",
+        "source_tree": "eda3c8d69c3b555c9136bf30195d1ffafa82f99f",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
-        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r21-202611031258"
       },
       "executor": {
-        "nixcfg_rev": "beaa3270fb7e4c05d3aed1705c20e78ffb970f9b",
+        "nixcfg_rev": "729ddf040951a5a0f4ee3acada8613d62255227e",
         "source_tree": "92e261d0dd504b30d8ec8850641310e129f7a8fe",
         "source_path": "modules/paper-desk-executor",
-        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r21-202611031258"
       },
       "contracts": {
         "schema": "joedesk.release-contracts.v1",
