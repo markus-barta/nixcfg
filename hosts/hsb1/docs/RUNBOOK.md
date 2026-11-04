@@ -1033,6 +1033,9 @@ creates a fresh random control password and generated `vlcrc` in
 interruption. Until this restart, the old VLC still exposes its password and LAN
 listener; switching the units alone does not complete the cut-over.
 
+Avoid manually rerunning autostart during a watchdog heal: overlapping launches
+can overwrite the shared runtime credentials and contend for port 4212.
+
 The generated config preserves the nine former non-default VLC settings,
 including the monitor's equalizer/compressor loudness. It binds telnet to
 `127.0.0.1:4212` only. All control consumers read `telnet-password` afresh; they no

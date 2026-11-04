@@ -502,7 +502,7 @@ in
   # Features:
   # - Securely reads MQTT credentials from an environment file
   # - Validates incoming volume values (range: 0-512)
-  # - Controls VLC volume using a Tapo camera password for authentication
+  # - Controls VLC volume using its generated runtime password for authentication
   # - Comprehensive logging for easy troubleshooting
   #
   # Dependencies:
