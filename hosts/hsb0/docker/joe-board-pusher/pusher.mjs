@@ -256,6 +256,7 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
 });
 
 const deskProviderContract = deskOwnershipPolicyContract(deskOwnershipPolicy);
+const historyBasis = `desk-policy-${deskProviderContract.policyHash.slice(0, 12)}`;
 const dayPnlProducer = createDeskDayPnlProducer({
   account: ACCOUNT,
   policy: deskOwnershipPolicy,
@@ -383,7 +384,7 @@ async function pushOnce(stageObservation) {
   const requestBody = JSON.stringify(snap);
   if (v2Publisher) {
     if (stageObservation) Object.assign(stageObservation, {
-      book, family, deskEquities, dayPnl, executions: familyAdapter.activitySnapshot(), executorAttribution,
+      book, family, deskEquities, dayPnl, historyBasis, executions: familyAdapter.activitySnapshot(), executorAttribution,
       v1Cycle: startCycle(requestBody)("not_posted_v2_active"), v1Body: requestBody,
     });
     return { ok: true, status: "not_posted_v2_active" };
@@ -394,7 +395,7 @@ async function pushOnce(stageObservation) {
     return { ok: false, error: "no token" };
   }
 
-  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, dayPnl, executions: familyAdapter.activitySnapshot(), executorAttribution });
+  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, dayPnl, historyBasis, executions: familyAdapter.activitySnapshot(), executorAttribution });
 
   const settleCycle = startCycle(requestBody);
   let status = "post_failed";

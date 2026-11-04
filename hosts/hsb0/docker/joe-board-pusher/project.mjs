@@ -626,6 +626,7 @@ export function projectBook(book, opts = {}) {
   const publisherAt = opts.publisherAt || opts.now || new Date();
   const publisherMs = new Date(publisherAt).getTime();
   const providerContract = opts.deskOwnershipPolicy ? deskOwnershipPolicyContract(opts.deskOwnershipPolicy) : DESK_PROVIDER_CONTRACT;
+  const historyBasis = `desk-policy-${providerContract.policyHash.slice(0, 12)}`;
   const deskCandidate = familyAccepted ? normalizedDeskEquities(opts.deskEquities, family, providerContract) : null;
   const retainedDeskEquity = familyRuntimeEnabled ? normalizedRetainedDeskEquity(opts.retainedDeskEquity, providerContract) : null;
   const deskEquities = deskCandidate || retainedDeskEquity;
@@ -752,6 +753,7 @@ export function projectBook(book, opts = {}) {
         iteration: null,
       },
       money: { equity: jEquity, dayPnl: dayPnl.values.j, totalPnl: jPnl, openPnl: openPnl.values.j },
+      historyBasis,
       ...(moneyEvidence ? { moneyEvidence } : {}),
       ...(familyAccepted ? { accounting: family.accounting } : {}),
       ...(familyBackfill ? { backfill: familyBackfill } : {}),
@@ -790,6 +792,7 @@ export function projectBook(book, opts = {}) {
         iteration: null,
       },
       money: { equity: joeEquity, dayPnl: dayPnl.values.joe, totalPnl: joePnl, openPnl: openPnl.values.joe },
+      historyBasis,
       ...(moneyEvidence ? { moneyEvidence } : {}),
       heartbeatAt: heartbeat,
       issues: deskEvidenceUnavailable

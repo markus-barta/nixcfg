@@ -898,6 +898,20 @@ The six-fill `fixtures/ops557-nvda.json` is a small synthetic regression fixture
 not a copied live history. Counterpart execution IDs and prices absent from the
 brief are synthetic.
 
+OPS-557 also publishes `historyBasis` on J and Joe from the first snapshot:
+`desk-policy-` plus the first 12 **lowercase** hex characters of the canonical
+ownership-policy SHA-256 (currently `desk-policy-b5a60129aec4`). It is carried
+through the v1 projection and v2 observation, committed pair and publisher,
+including when money is unavailable. It stays stable across restarts, market
+updates and history revisions; only an ownership-policy change changes it.
+The board cuts those two series and labels "bookkeeping basis changed" rather
+than plotting the correction as investment performance. The field meets
+`data.schema.json`'s `^[a-z][a-z0-9.-]*$` pattern and 96-character limit.
+Joel receives no policy basis: v2 continues to omit its field, while v1 retains
+its existing `joel.stage0-keep-excluded.v1` basis. All other Joel output is
+unchanged. Recovery accepts retained pairs without the new field and preserves
+their exact bytes; new pairs keep their recorded basis across restart.
+
 The complete override set (identities, desks, basis and dates) binds both the
 ownership-policy hash and `historyRevision`. The pre-override hash is
 `c32cde7929bf505ce75e8f76fa8c81268d5aef3446927653dfe857796e86a025`.

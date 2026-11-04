@@ -11,7 +11,7 @@ import { createV2Publisher, createPostStateStore, OUTCOME_LIMIT } from "./v2-pub
 import { startCycle } from "./v1-cycle.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { createCycleStore } from "./v1-cycle-store.mjs";
-import { runPusher } from "./fixtures/pusher-harness.mjs";
+import { runPusher, withoutPolicyHistoryBasis } from "./fixtures/pusher-harness.mjs";
 
 const at = "2026-10-20T20:00:00.000Z";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -223,20 +223,25 @@ test("chmod read-only simulation rejects write-open of the v2 directory and pair
   } finally { fs.chmodSync(f.v2, 0o700); fs.chmodSync(file, 0o600); }
 });
 
-test("v1 POST, logs and stored cycle bytes match exact 67e15fad for absent and unrecognized switch values", async t => {
+test("v1 POST matches 67e15fad except J/Joe history basis; logs and stored cycle binding stay exact", async t => {
   const root = temp(t), baseline = exportBaseline(root), candidate = new URL("./pusher.mjs", import.meta.url);
   for (const variant of ["normal", "retained", "outage"]) {
     const before = await runPusher(baseline, { variant });
     for (const pushSchema of [undefined, "v1", "inspr.joe.household.v1", "inspr.joe.household.v2 ", ""]) {
       const after = await runPusher(candidate, { variant, pushSchema });
-      assert.deepEqual(after.requests, before.requests); assert.deepEqual(after.logs, before.logs);
-      assert.equal(after.v1Body, before.v1Body); assert.equal(after.v2Calls, 0);
-      const normalize = cycle => JSON.stringify({ ...cycle, observationId: "ops392.v1-cycle.00000000-0000-4000-8000-000000000000" });
+      assert.deepEqual(after.requests.map(request => ({ ...request, body: withoutPolicyHistoryBasis(request.body) })), before.requests);
+      assert.deepEqual(after.logs, before.logs);
+      assert.equal(withoutPolicyHistoryBasis(after.v1Body).toString(), before.v1Body); assert.equal(after.v2Calls, 0);
+      assert.equal(after.cycle.v1Sha256, sha(after.v1Body));
+      assert.equal(before.cycle.v1Sha256, sha(before.v1Body));
+      const normalize = ({ observationId, v1Sha256, ...cycle }) => JSON.stringify(cycle);
       assert.equal(normalize(after.cycle), normalize(before.cycle));
       const a = path.join(root, `${variant}-${pushSchema === undefined ? "absent" : Buffer.from(pushSchema).toString("hex")}-cycles`);
       const writer = createCycleStore({ root: a, emit() {} });
       assert.equal(await writer.write(1, after.v1Body, after.cycle.v1Sha256), true);
-      assert.deepEqual(fs.readFileSync(path.join(a, "1.json")), before.requests[0].body);
+      const stored = fs.readFileSync(path.join(a, "1.json"));
+      assert.deepEqual(stored, after.requests[0].body);
+      assert.deepEqual(withoutPolicyHistoryBasis(stored), before.requests[0].body);
     }
   }
 });
