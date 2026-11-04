@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -135,6 +136,150 @@ function fixture() {
   });
   return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult };
 }
+
+function nvdaFixture() {
+  const source = JSON.parse(readFileSync(new URL("./fixtures/ops557-nvda.json", import.meta.url), "utf8"));
+  const observedAt = "2026-11-04T12:00:00.000Z";
+  const executions = source.fills.map(fill => ({ contract: structuredClone(source.contract),
+    execution: { ...fill, acctNumber: source.account, pendingPriceRevision: false } }));
+  const commissions = executions.map(row => commission(row.execution.execId));
+  const executorAttribution = createExecutorAttribution({ account: ACCOUNT, executionRows: executions,
+    ledger: { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT, executions,
+      intents: { "ops557-synthetic": { action: "place", desk: "joe",
+        result: { bracket: { clientId: 705, parentOrderId: 557, stopOrderId: 558 } } } } } });
+  return {
+    account: ACCOUNT, observedAt, executorAttribution,
+    ledgerState: { account: ACCOUNT, periodStart: START, coverageThrough: observedAt,
+      coverageTradingDay: "2026-11-04", queryExecutionIdentities: [], executions, commissions },
+    verifiedHistoryState: officialHistory(executions, commissions, { toExclusive: observedAt, capturedAt: observedAt }),
+    portfolio: [],
+    positions: fixture().positions.filter(row => row.symbol !== "ACME"),
+    fx: { baseCurrency: "EUR", rates: { EUR: 1, USD: 0.9 },
+      rateObservedAt: { EUR: observedAt, USD: observedAt }, observedAt },
+  };
+}
+
+test("an exact fill override wins over the clientId rule without changing broker records", () => {
+  const input = fixture();
+  const before = structuredClone(input.ledgerState);
+  const policy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [
+    { execId: "j.open.01", desk: "joe", basis: "synthetic cross-booked close", date: "2026-11-04" },
+  ] };
+  const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, policy, jResult: null });
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(result.desks.j.positions, []);
+  assert.equal(result.desks.joe.positions[0].quantity, 1);
+  assert.deepEqual(input.ledgerState, before);
+  assert.deepEqual(policy.assignments, CURRENT_DESK_OWNERSHIP_POLICY.assignments);
+});
+
+test("absent and similar execution identities never redirect a fill", () => {
+  const input = fixture();
+  const baseline = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  for (const execId of ["absent.01", "j.open.02", "prefix-j.open.01", "j.open.01-suffix"]) {
+    const policy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [
+      { execId, desk: "joe", basis: "synthetic absent override", date: "2026-11-04" },
+    ] };
+    const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, policy });
+    assert.equal(result.ok, true, result.reason);
+    assert.deepEqual(result.desks, baseline.desks);
+    assert.deepEqual(result.equity, baseline.equity);
+  }
+});
+
+test("OPS-557 closes both NVDA desk ledgers and the account without flat-net marks", () => {
+  const input = nvdaFixture();
+  const before = structuredClone(input.ledgerState);
+  const fillAttributionOverrides = CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides;
+  const jResult = calculateFamily({ ...input, executions: input.ledgerState.executions,
+    commissions: input.ledgerState.commissions, familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, fillAttributionOverrides,
+    excludedSymbols: J_FAMILY_CLASSIFIER.excludedSymbols, periodStart: START,
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP });
+  assert.equal(jResult.ok, true, jResult.reason);
+  const result = calculateDeskEquities({ ...input, jResult });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(input.ledgerState.executions.reduce((net, row) => net +
+    (row.execution.side === "BOT" ? 1 : -1) * row.execution.shares, 0), 0);
+  for (const desk of ["j", "joe", "joel"]) {
+    assert.deepEqual(result.desks[desk].positions, [], `${desk} has no residual NVDA lots`);
+    assert.equal(result.desks[desk].unrealizedPnl, 0);
+  }
+  assert.equal(result.desks.j.realizedPnl, 13.76);
+  assert.equal(result.desks.joe.realizedPnl, 11.3);
+  assert.equal(jResult.equity, result.desks.j.equity);
+  const history = projectBestAvailableHistory({ state: input.verifiedHistoryState,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, fillAttributionOverrides,
+    executorAttribution: input.executorAttribution });
+  assert.equal(history.capturedSubtotal.executionCount, 4);
+  assert.deepEqual(history.capturedSubtotal.endingOpenQuantities, []);
+  assert.deepEqual(contractsNeedingFlatNetMarks({ ...input, executions: input.ledgerState.executions,
+    familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides }), []);
+  const legacyMarks = contractsNeedingFlatNetMarks({ ...input, executions: input.ledgerState.executions,
+    familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS });
+  assert.equal(legacyMarks.length, 1, "the fixture reproduces the pre-override virtual NVDA exposure");
+  const activity = executionActivity({ ...input.ledgerState, coverageThrough: "2026-10-12T20:00:00Z",
+    coverageTradingDay: "2026-10-12" }, input.executorAttribution);
+  assert.deepEqual(activity.latest, { j: null, joe: "2026-10-12T19:50:12.000Z", joel: null });
+  assert.deepEqual(input.ledgerState, before, "retained economic records remain unchanged");
+});
+
+test("fill override identities, desks, basis and date bind the policy hash and history revision", () => {
+  const input = fixture();
+  const priorPolicy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
+  assert.equal(deskOwnershipPolicyContract(priorPolicy).policyHash,
+    "c32cde7929bf505ce75e8f76fa8c81268d5aef3446927653dfe857796e86a025");
+  const current = deskOwnershipPolicyContract();
+  assert.notEqual(current.policyHash, deskOwnershipPolicyContract(priorPolicy).policyHash);
+  const revision = policy => deskLedgerRevisionAt({ ledgerState: input.ledgerState, account: ACCOUNT,
+    throughInclusive: CUTOFF, policy }).historyRevision;
+  assert.notEqual(revision(CURRENT_DESK_OWNERSHIP_POLICY), revision(priorPolicy));
+  const reversed = { ...CURRENT_DESK_OWNERSHIP_POLICY,
+    fillAttributionOverrides: [...CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides].reverse() };
+  assert.deepEqual(deskOwnershipPolicyContract(reversed), current);
+  assert.equal(revision(reversed), revision(CURRENT_DESK_OWNERSHIP_POLICY));
+  for (const patch of [{ execId: "different.01" }, { desk: "joe" }, { basis: "different evidence" }, { date: "2026-11-03" }]) {
+    const policy = structuredClone(CURRENT_DESK_OWNERSHIP_POLICY);
+    Object.assign(policy.fillAttributionOverrides[0], patch);
+    assert.notEqual(deskOwnershipPolicyContract(policy).policyHash, current.policyHash);
+    assert.notEqual(revision(policy), revision(CURRENT_DESK_OWNERSHIP_POLICY));
+  }
+});
+
+test("NVDA NY boundary evidence uses corrected ownership and rejects a pre-override history revision", () => {
+  const input = nvdaFixture();
+  const candidateSourceObservedAt = "2026-11-05T04:59:50.000Z";
+  const periodStart = "2026-11-05T05:00:00.000Z";
+  const revision = policy => deskLedgerRevisionAt({ ...input, policy,
+    throughInclusive: candidateSourceObservedAt });
+  const candidate = revision(CURRENT_DESK_OWNERSHIP_POLICY);
+  assert.equal(candidate.ok, true, candidate.reason);
+  const options = { ...input, candidateSourceObservedAt, periodStart,
+    proofObservedAt: "2026-11-05T05:00:10.000Z",
+    verifiedHistoryState: officialHistory(input.ledgerState.executions, input.ledgerState.commissions, {
+      toExclusive: "2026-11-05T05:00:01.000Z", capturedAt: "2026-11-05T05:00:02.000Z",
+    }) };
+  const proof = buildDeskDayBoundaryEvidence({ ...options, candidateHistoryRevision: candidate.historyRevision });
+  assert.equal(proof.ok, true, proof.reason);
+  assert.equal(proof.policyHash, deskOwnershipPolicyContract().policyHash);
+  const old = revision({ ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] });
+  assert.equal(old.ok, true, old.reason);
+  assert.match(buildDeskDayBoundaryEvidence({ ...options, candidateHistoryRevision: old.historyRevision }).reason,
+    /economic history changed/);
+});
+
+test("invalid and duplicate fill override policies fail closed", () => {
+  for (const patch of [{ execId: "" }, { execId: " padded " }, { desk: "unclaimed" },
+    { desk: "joel" }, { basis: "" }, { date: "2026-02-30" }, { date: "yesterday" }]) {
+    const policy = structuredClone(CURRENT_DESK_OWNERSHIP_POLICY);
+    Object.assign(policy.fillAttributionOverrides[0], patch);
+    assert.throws(() => deskOwnershipPolicyContract(policy), /override|explicitly empty/);
+  }
+  const duplicate = structuredClone(CURRENT_DESK_OWNERSHIP_POLICY);
+  duplicate.fillAttributionOverrides.push(duplicate.fillAttributionOverrides[0]);
+  assert.throws(() => deskOwnershipPolicyContract(duplicate), /duplicate execution/);
+});
 
 function executorFixture(desk = "j", orderRef = "j2|masked", clientId = 705) {
   const input = fixture();

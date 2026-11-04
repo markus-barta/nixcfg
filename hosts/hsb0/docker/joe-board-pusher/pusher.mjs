@@ -163,6 +163,7 @@ const familyAdapter = createFamilySessionAdapter({
   targetAccount: ACCOUNT,
   familyClientIds: FAMILY_CLIENT_IDS,
   familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+  fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
   excludedSymbols: ["SXR8", "TSLA"],
   periodStart: FAMILY_BASELINE_PERIOD_START,
   calculateFamily,
@@ -196,7 +197,8 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   normalizeExecutionRow: normalizeEconomicExecution,
   normalizeCommissionReport: normalizeEconomicCommission,
   reconcileCapture: reconcileExecutionCapture,
-  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, executorAttribution }),
+  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides, executorAttribution }),
   eventNames: EventName,
   store: createFileFamilyHistoryStore(FAMILY_HISTORY_PATH),
   loadBootstrapCapture({ targetAccount, classifier, historyStart }) {
@@ -260,6 +262,8 @@ const dayPnlProducer = createDeskDayPnlProducer({
   providerContract: deskProviderContract,
   historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
   store: createPolicyDayBaselineStore(DAY_BASELINE_PATH, deskProviderContract.policyHash),
+  // OPS-557 retires prior-policy DAY; only a newly proven NY boundary restores it.
+  allowSessionProxy: false,
   buildBoundaryEvidence: args => buildDeskDayBoundaryEvidence({ ...args, executorAttribution }),
   getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
   // Live FX observations are valid for five minutes in the family adapter, so
@@ -505,6 +509,7 @@ function syncFlatNetMarks() {
     account: ACCOUNT,
     familyClientIds: FAMILY_CLIENT_IDS,
     familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
     executorAttribution,
     excludedSymbols: ["SXR8", "TSLA"],
   })); } catch { flatNetMarks.reset(); }

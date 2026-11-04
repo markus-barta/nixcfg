@@ -24,7 +24,16 @@ export const J_DATED_CLIENT_ASSIGNMENTS = Object.freeze([
   }),
 ]);
 
-export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null) {
+export function fillAttributionOverride(execution, overrides = []) {
+  if (typeof execution?.execId !== "string" || !execution.execId) return null;
+  return overrides.find(rule => rule.execId === execution.execId) || null;
+}
+
+// Opt-in supplement: the all-desk calculator has already classified and remapped
+// its client IDs, so its per-desk FIFO must not apply raw fill overrides again.
+export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null, fillAttributionOverrides = []) {
+  const override = fillAttributionOverride(execution, fillAttributionOverrides);
+  if (override) return override.desk === "j";
   if (isExecutorClient(execution.clientId, executorAttribution)) return executorDesk(execution, executorAttribution) === "j";
   const rules = assignments.filter(rule => rule.clientId === execution.clientId);
   if (!rules.length) return familyIds.has(execution.clientId);

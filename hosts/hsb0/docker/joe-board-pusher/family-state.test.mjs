@@ -23,6 +23,7 @@ import { createOfficialHistoryRefresher } from "./family-history-session.mjs";
 import { deskState, executionActivity } from "./desk-activity.mjs";
 import { waitForExecutionCycle } from "./pusher-state.mjs";
 import { J_DATED_CLIENT_ASSIGNMENTS, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { createExecutorAttribution } from "./executor-attribution.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const FAMILY_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
@@ -133,6 +134,8 @@ function setup({
   calculate = calculator,
   familyClientIds = FAMILY_IDS,
   familyClientAssignments = [],
+  fillAttributionOverrides = [],
+  getExecutorAttribution = () => null,
   excludedSymbols = ["SXR8", "TSLA"],
   retryBaseMs = 5_000,
   retryMaxMs = 20_000,
@@ -148,6 +151,8 @@ function setup({
     summarizeActivity,
     familyClientIds,
     familyClientAssignments,
+    fillAttributionOverrides,
+    getExecutorAttribution,
     excludedSymbols,
     periodStart: FAMILY_BASELINE_PERIOD_START,
     calculateFamily: calculate,
@@ -272,6 +277,81 @@ test("dated J client 229 waits for its fee and reaches the family calculator wit
   assert.equal(result.executionCount, 1);
   assert.equal(result.positions[0].quantity, 1);
   assert.deepEqual(session.store.state.classifier, CLASSIFIER, "retained capture metadata is unchanged");
+});
+
+test("OPS-557 replays retained NVDA under the fill policy, reconciles all desks and survives restart", () => {
+  const source = JSON.parse(fs.readFileSync(new URL("./fixtures/ops557-nvda.json", import.meta.url), "utf8"));
+  const rows = source.fills.map(fill => ({ contract: structuredClone(source.contract),
+    execution: { ...fill, acctNumber: ACCOUNT } }));
+  const fees = rows.map(row => commission(row.execution.execId));
+  const executorAttribution = createExecutorAttribution({ account: ACCOUNT, executionRows: rows,
+    ledger: { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT, executions: rows,
+      intents: { "ops557-synthetic": { action: "place", desk: "joe",
+        result: { bracket: { clientId: 705, parentOrderId: 557, stopOrderId: 558 } } } } } });
+  const shared = memoryStore();
+  complete(connect(setup({ store: shared })), []);
+  const history = verifiedHistory(rows, fees, { through: "2026-11-04T05:00:00Z", capturedAt: "2026-11-04T12:00:00Z" });
+  const historyBefore = structuredClone(history);
+  const options = { store: shared, calculate: calculateFamily,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides,
+    getExecutorAttribution: () => executorAttribution, getVerifiedHistoryState: () => history };
+  const flatBook = {
+    summary: { NetLiquidation: { account: ACCOUNT, value: "10000", currency: "EUR" } },
+    portfolio: [], positionsCoverage: { status: "complete", rows: [
+      { contract: contract("SXR8", 201, "EUR"), pos: 1401 },
+      { contract: contract("TSLA", 202), pos: 1 },
+    ] },
+  };
+  for (const at of ["2026-11-04T12:00:00Z", "2026-11-04T12:01:00Z"]) {
+    const session = setup({ ...options, at });
+    const api = connect(session);
+    complete(api, []);
+    assert.equal(session.adapter.requestInFlight, false);
+    emitFx(api, "EUR", 1); emitFx(api, "USD", 0.9);
+    const result = session.adapter.project(flatBook);
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.executionCount, 4);
+    assert.deepEqual(result.positions, []);
+    const desks = session.adapter.projectDeskEquities(flatBook, { calculateDeskEquities, policy: CURRENT_DESK_OWNERSHIP_POLICY });
+    assert.equal(desks.ok, true, desks.reason);
+    assert.equal(desks.desks.j.equity, result.equity);
+    assert.deepEqual(desks.desks.joe.positions, []);
+    assert.deepEqual(shared.state.classifier, CLASSIFIER, "existing capture classifier remains usable");
+    assert.equal(shared.state.executions.length, 6);
+    assert.equal(shared.state.commissions.length, 6);
+    session.adapter.retire();
+  }
+  assert.deepEqual(history, historyBefore, "trusted historical captures are never rewritten");
+});
+
+test("an OPS-557 close routed through Joe still waits for its J commission proof", () => {
+  const source = JSON.parse(fs.readFileSync(new URL("./fixtures/ops557-nvda.json", import.meta.url), "utf8"));
+  const [open, close] = source.fills.slice(0, 2).map(fill => ({ contract: structuredClone(source.contract),
+    execution: { ...fill, acctNumber: ACCOUNT } }));
+  const store = memoryStore();
+  complete(connect(setup({ store })), []);
+  const at = "2026-09-23T13:31:00Z";
+  const history = verifiedHistory([open], [commission(open.execution.execId)],
+    { through: "2026-09-23T04:00:00Z", capturedAt: at });
+  const session = setup({ at, store, calculate: calculateFamily,
+    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides,
+    getVerifiedHistoryState: () => history });
+  const api = connect(session);
+  complete(api, [close], []);
+  assert.equal(session.adapter.requestInFlight, true, "client 119's exact J fill requires its fee");
+  api.emit(EVENTS.commissionReport, commission(close.execution.execId));
+  assert.equal(session.adapter.requestInFlight, false);
+  emitFx(api, "EUR", 1); emitFx(api, "USD", 0.9);
+  const result = session.adapter.project({
+    summary: { NetLiquidation: { account: ACCOUNT, value: "10000", currency: "EUR" } },
+    portfolio: [], positionsCoverage: { status: "complete", rows: [] },
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.executionCount, 2);
+  assert.deepEqual(result.positions, []);
+  assert.deepEqual(store.state.classifier, CLASSIFIER);
+  session.adapter.retire();
 });
 
 test("adapter uses only bounded read requests and waits for all family commissions", () => {

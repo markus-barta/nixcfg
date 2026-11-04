@@ -877,6 +877,42 @@ lowercase SHA-256 ownership-policy hash selects the file. Legacy
 `day-baseline.json` and other policies' files are preserved for rollback and
 never copied into the active policy's baseline.
 
+OPS-557 adds `fillAttributionOverrides` to the canonical ownership policy. An
+override matches only its exact `execId`, before executor/clientId assignment;
+an absent or unknown execution identity never claims another fill. Each entry
+records its desk, basis and decision date. The reviewed corrections are:
+
+| Exact execution ID        | Desk | Fill                                                  |
+| ------------------------- | ---- | ----------------------------------------------------- |
+| `0000dc8f.6bb0d852.01.01` | J    | 2026-09-23 13:30:04Z, client 119, SELL 4 NVDA @228.02 |
+| `0000dc8f.6bd3bc59.01.01` | J    | 2026-10-06 13:40:47Z, client 229, BUY 1 NVDA @241.39  |
+| `00025b45.6ace1f95.01.01` | Joe  | 2026-10-12 19:50:12Z, client 28, BUY 4 NVDA @226.81   |
+
+All three carry basis `OPS-557 cross-booked NVDA close, 2026-11-04` and date
+`2026-11-04`. ClientId assignments, KEEP exclusions, the retained family
+classifier and raw broker captures stay unchanged. The same exact-fill
+supplement feeds J FIFO, fee/FX readiness, captured history, activity and flat-net
+mark selection, so J agrees with all-desk accounting. J and Joe both finish flat
+on NVDA (`conId 4815747`), matching the account; no residual NVDA mark is needed.
+The six-fill `fixtures/ops557-nvda.json` is a small synthetic regression fixture,
+not a copied live history. Counterpart execution IDs and prices absent from the
+brief are synthetic.
+
+The complete override set (identities, desks, basis and dates) binds both the
+ownership-policy hash and `historyRevision`. The pre-override hash is
+`c32cde7929bf505ce75e8f76fa8c81268d5aef3446927653dfe857796e86a025`.
+Its day-baseline file is retired from active use and preserved byte-for-byte
+for rollback. The corrected policy selects a fresh file automatically. The
+pusher now passes `allowSessionProxy: false`: Today/DAY stays unavailable/null
+on the cutover day, including across restart, while corrected complete equity
+continues to be persisted and displayed. At the next America/New_York
+`periodStart`, a fresh pre-boundary vector plus unchanged authoritative history
+and continuous coverage may establish exact SOD. Midnight alone is insufficient;
+without those proofs Today stays unavailable. No prior-policy baseline is reused,
+no same-day zero proxy is invented, and no retained state file is deleted.
+The older R14/R15 session-proxy notes below describe the prior runtime policy;
+the adapter retains that optional mode for callers that explicitly allow it.
+
 Stage-0 desks share one paper account and may both hold one contract.
 `calculateFamily` defaults to exclusive ownership and fails with
 `ambiguous cross-family ownership on contract` when the target desk and

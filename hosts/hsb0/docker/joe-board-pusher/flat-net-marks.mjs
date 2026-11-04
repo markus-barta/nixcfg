@@ -69,6 +69,7 @@ export function contractsNeedingFlatNetMarks({
   account,
   familyClientIds = [],
   familyClientAssignments = [],
+  fillAttributionOverrides = [],
   executorAttribution = null,
   excludedSymbols = [],
 } = {}) {
@@ -96,7 +97,7 @@ export function contractsNeedingFlatNetMarks({
     const signed = signedQuantity(record.execution);
     if (!key || signed === null) continue;
     const bucket = nets.get(key) || { contract, family: 0, other: 0 };
-    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments, executorAttribution)) bucket.family += signed;
+    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments, executorAttribution, fillAttributionOverrides)) bucket.family += signed;
     else bucket.other += signed;
     bucket.contract = contract;
     nets.set(key, bucket);

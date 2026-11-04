@@ -434,6 +434,7 @@ export function calculateFamily({
   account,
   familyClientIds,
   familyClientAssignments = [],
+  fillAttributionOverrides = [],
   executorAttribution = null,
   excludedSymbols,
   periodStart,
@@ -479,7 +480,7 @@ export function calculateFamily({
       const price = positiveNumber(execution.price, "execution price");
       executionClientId(execution.clientId);
       let included;
-      try { included = isFamilyClientExecution(execution, familyIds, familyClientAssignments, executorAttribution); }
+      try { included = isFamilyClientExecution(execution, familyIds, familyClientAssignments, executorAttribution, fillAttributionOverrides); }
       catch (error) { fail(error.message); }
       if (included && execution.pendingPriceRevision === true) {
         fail("included execution has a pending price revision");
