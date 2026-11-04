@@ -655,11 +655,16 @@ ssh mba@192.168.1.101 "sudo zfs set refquota=3600G quota=3900G tm/markus && sudo
 ```
 
 `tm-watch.timer` (10 min, Telegram, two-run confirmation) pages when the live
-caps differ from `tm-caps.nix`, snapshots eat half the budget while less than 400G is left under quota, it had to prune
-on two consecutive runs, headroom stays under 150G with nothing left to prune, the
-pool passes 85 %, smbd has no process, or a Mac's last **completed** backup
+caps differ from `tm-caps.nix`, it had to prune on two consecutive runs, pruning
+fails, headroom stays under 150G with nothing left to prune, the pool passes
+85 %, smbd has no process, or a Mac's last **completed** backup
 (from `com.apple.TimeMachine.SnapshotHistory.plist` inside its bundle) is older
-than 5 days.
+than 5 days. Snapshot-held space over half the budget with less than 400G left
+under quota is journal-only (`journalctl -u tm-watch`): normal bundle churn
+needs no owner action (OPS-560, 2026-11-04). `pruned`/`prune`/`headroom` remain
+the paging signals for real capacity trouble. On upgrade, tm-watch silently
+retires old `snapshots` alert state, including queued transitions, so it sends
+no recovery message for the retired signal.
 
 **Changing caps / deploying a cap change** — order matters, or TM sees more
 space than ZFS grants:
