@@ -123,6 +123,7 @@ if ! (
   telnet_password=$(head -c 24 /dev/urandom | base64 | tr '/+' '_-' | tr -d '=\n') || exit 1
   [ "${#telnet_password}" -eq 32 ] || exit 1
   printf '%s\n' "$telnet_password" >"$VLC_TELNET_PASSWORD_FILE" || exit 1
+  # VLC 3.0.24 parses telnet-host as a URL: // makes it a host, not a path.
   cat >"$VLC_CONFIG" <<EOF || exit 1
 alsa-gain=1.953125
 compressor-rms-peak=0.512000
@@ -134,7 +135,7 @@ vout=any
 vod-server=any
 metadata-network-access=1
 telnet-password=$telnet_password
-telnet-host=127.0.0.1
+telnet-host=//127.0.0.1
 telnet-port=4212
 EOF
   chmod 0600 "$VLC_TELNET_PASSWORD_FILE" "$VLC_CONFIG"

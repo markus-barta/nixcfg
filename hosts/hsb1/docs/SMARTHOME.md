@@ -785,7 +785,7 @@ The kiosk display (babycam) may go blank after `nixos-rebuild switch`:
 sudo systemctl restart display-manager.service
 
 # Verify VLC is running
-pgrep -a vlc
+pgrep -u kiosk -f -- '--video-title=hsb1-kiosk-babycam( |$)'
 ```
 
 ### Known Non-Critical Warnings
