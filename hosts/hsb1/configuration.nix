@@ -502,14 +502,14 @@ in
   # Features:
   # - Securely reads MQTT credentials from an environment file
   # - Validates incoming volume values (range: 0-512)
-  # - Controls VLC volume using a Tapo camera password for authentication
+  # - Controls VLC volume using its generated runtime password for authentication
   # - Comprehensive logging for easy troubleshooting
   #
   # Dependencies:
-  # - Requires mosquitto_sub, sed, and netcat packages
-  # - Expects MQTT credentials in /etc/secrets/mqtt.env
-  # - Expects Tapo camera password in /etc/secrets/tapoC210-00.env
-  # - Assumes VLC is running and listening on localhost:4212 for telnet connections
+  # - Requires mosquitto_sub and netcat packages
+  # - Expects MQTT credentials in /run/agenix/hsb1-mqtt-client-env
+  # - Reads VLC's generated password from /run/user/1001/kiosk-vlc/telnet-password
+  # - Assumes VLC is running and listening on 127.0.0.1:4212 for telnet connections
   #
   # Usage:
   # 1. Ensure VLC is running with telnet interface enabled
@@ -527,11 +527,13 @@ in
 
     environment = {
       MQTT_ENV_FILE = "/run/agenix/hsb1-mqtt-client-env";
-      TAPO_ENV_FILE = "/run/agenix/hsb1-tapo-c210-env";
+      VLC_TELNET_PASSWORD_FILE = "/run/user/1001/kiosk-vlc/telnet-password";
     };
 
     serviceConfig = {
       ExecStart = pkgs.writeShellScript "mqtt-volume-control" ''
+        umask 077
+
         # Enhanced logging function with timestamps
         log() {
           echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | ${pkgs.systemd}/bin/systemd-cat -t mqtt-volume-control -p info
@@ -543,11 +545,9 @@ in
         # Source MQTT environment variables
         if [ -f "$MQTT_ENV_FILE" ]; then
           if [ -r "$MQTT_ENV_FILE" ]; then
-            set -a
+            # shellcheck source=/dev/null  # agenix-materialized, absent at lint time
             source "$MQTT_ENV_FILE"
-            set +a
             log "MQTT environment variables sourced successfully."
-            log "DEBUG: MQTT_HOST=$MQTT_HOST, MQTT_USER=$MQTT_USER"
 
             # Validate that required variables are set
             if [ -z "$MQTT_HOST" ] || [ -z "$MQTT_USER" ] || [ -z "$MQTT_PASS" ]; then
@@ -563,11 +563,32 @@ in
           exit 1
         fi
 
+        # Mosquitto 2.1 reads the rest of each options-file line verbatim.
+        # Reject line injection and values exceeding its 1024-byte line buffer.
+        # Log only the variable name on failure, never its value.
+        for name in MQTT_HOST MQTT_USER MQTT_PASS; do
+          value="''${!name}"
+          if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]] ||
+            ! (LC_ALL=C; [ "''${#value}" -le 1019 ]); then
+            log "ERROR: $name is not a supported single-line MQTT option"
+            exit 1
+          fi
+        done
+        unset value
+        mqtt_options="$RUNTIME_DIRECTORY/mosquitto.options"
+        if ! printf '%s\n' "-h $MQTT_HOST" "-u $MQTT_USER" "-P $MQTT_PASS" > "$mqtt_options"; then
+          unset MQTT_PASS
+          log "ERROR: Could not write MQTT options file"
+          exit 1
+        fi
+        unset MQTT_PASS
+        log "DEBUG: MQTT_HOST=$MQTT_HOST, MQTT_USER=$MQTT_USER"
+
         # Log MQTT connection attempt
         log "Attempting to connect to MQTT broker at $MQTT_HOST"
 
         # Main loop: Subscribe to MQTT topic and process incoming messages
-        ${pkgs.mosquitto}/bin/mosquitto_sub -v -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t 'home/hsb1/kiosk-vlc-volume' 2>&1 | while read -r topic volume; do
+        ${pkgs.mosquitto}/bin/mosquitto_sub -o "$mqtt_options" -v -t 'home/hsb1/kiosk-vlc-volume' 2>&1 | while read -r topic volume; do
           if [[ $topic == "home/hsb1/kiosk-vlc-volume" ]]; then
             log "Received message with topic: $topic"
             log "Received message with volume $volume"
@@ -592,18 +613,17 @@ in
               # watchdog sees the mismatch and re-applies it within a minute.
               echo "$volume" > /var/lib/babycam-watchdog/desired-volume
 
-              # Get Tapo camera password (used for VLC authentication)
-              if [ -f "$TAPO_ENV_FILE" ]; then
-                tapo_password=$(${pkgs.gnused}/bin/sed -n "s/TAPO_C210_PASSWORD=//p" "$TAPO_ENV_FILE")
-                log "Tapo password retrieved successfully."
-              else
-                log "ERROR: Tapo environment file not found: $TAPO_ENV_FILE"
+              # Re-read on every command: autostart rotates this on each launch.
+              if ! { [ -r "$VLC_TELNET_PASSWORD_FILE" ] &&
+                IFS= read -r vlc_password < "$VLC_TELNET_PASSWORD_FILE" &&
+                [ -n "$vlc_password" ]; }; then
+                log "WARN: VLC telnet password missing or unreadable; skipping volume push"
                 continue
               fi
 
               # Send volume command to VLC via telnet
               log "Attempting to set VLC volume to $volume"
-              if echo -e "$tapo_password\nvolume $volume\nquit\n" | ${pkgs.netcat}/bin/nc -w 5 localhost 4212; then
+              if printf '%s\nvolume %s\nquit\n' "$vlc_password" "$volume" | ${pkgs.netcat}/bin/nc -w 5 127.0.0.1 4212 >/dev/null 2>&1; then
                 log "Successfully set VLC volume to $volume"
               else
                 log "ERROR: Failed to set VLC volume. Is VLC running and listening on port 4212?"
@@ -622,6 +642,8 @@ in
       Restart = "always";
       RestartSec = "5s";
       User = "kiosk";
+      RuntimeDirectory = "mqtt-volume-control";
+      RuntimeDirectoryMode = "0700";
       # NIX-151: shared with babycam-watchdog.service (also User=kiosk), which
       # reads desired-volume from here. systemd creates it as kiosk:kiosk.
       StateDirectory = "babycam-watchdog";

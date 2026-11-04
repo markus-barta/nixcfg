@@ -915,6 +915,39 @@ ssh mba@192.168.1.101 "apcaccess status"
 **Cause:** Display manager sometimes starts before user sessions are fully configured after a rebuild.
 **Fix:** `sudo systemctl restart display-manager.service`.
 
+### Kiosk Babycam Control Cut-over (OPS-558)
+
+After the reviewed NixOS switch, re-run the Home Manager autostart in the kiosk
+session, or let `babycam-watchdog` perform its usual heal. The launcher kills both
+its marked VLC and a legacy kiosk VLC carrying the old password flag, then
+creates a fresh random control password and generated `vlcrc` in
+`/run/user/1001/kiosk-vlc/` (directory 0700, files 0600). Expect a brief playback
+interruption. Until this restart, the old VLC still exposes its password and LAN
+listener; switching the units alone does not complete the cut-over.
+
+Avoid manually rerunning autostart during a watchdog heal: overlapping launches
+can overwrite the shared runtime credentials and contend for port 4212.
+
+The generated config preserves the nine former non-default VLC settings,
+including the monitor's equalizer/compressor loudness. It binds telnet to
+`127.0.0.1:4212` only. All control consumers read `telnet-password` afresh; they no
+longer use the Tapo credential. Missing credentials cause volume commands to be
+skipped after recording intent, and the watchdog treats missing telnet access as
+unhealthy. Keep `/var/lib/babycam-watchdog/desired-volume` intact, especially an
+intentional mute, and check actual volume/audio after the restart.
+
+MQTT credentials are written with umask 077 to per-unit options files under
+`/run/mqtt-volume-control/` and `/run/babycam-watchdog-mqtt/` (directories 0700).
+The watchdog's options file exists only during its oneshot run. Never print
+these files or either VLC runtime file, and never dump process argv. Use T07's
+PID-only checks and inspect the listener without process details:
+
+```bash
+ss -H -ltn 'sport = :4212'
+# Required: 127.0.0.1:4212 only; no 0.0.0.0, *, [::] or other address.
+sudo bash ~/Code/nixcfg/hosts/hsb1/tests/T07-kiosk-services.sh
+```
+
 ---
 
 ## Emergency Recovery
@@ -1156,7 +1189,7 @@ All secrets now materialize from agenix at `/run/agenix/hsb1-*` on boot. `/etc/s
 | `hsb1-zigbee2mqtt-env`        | Z2M MQTT credentials                                        | zigbee2mqtt                    |
 | `hsb1-mqtt-client-env`        | MQTT broker/client credentials                              | mosquitto                      |
 | `hsb1-fritz-tripwire-env`     | Fritz!Box credentials                                       | fritz-tripwire                 |
-| `hsb1-tapo-c210-env`          | Camera/VLC credentials                                      | scrypted, kiosk babycam        |
+| `hsb1-tapo-c210-env`          | Camera credentials and stream host (not VLC control)        | scrypted, kiosk babycam        |
 | `hsb1-funkeykid-api-env`      | funkeykid API                                               | funkeykid                      |
 | `hsb1-opusweb-env`            | opusweb                                                     | opusweb                        |
 | `hsb1-pixdcon-env`            | Pixoo display control                                       | pixdcon                        |
