@@ -10,11 +10,13 @@ Pins the decisions that make it act, page, or stay quiet:
     notification (missing target, undelivered pending alert)
   * the declared state (tm-caps.nix values, TM sitting at its cap) is clean —
     Time Machine filling its volume is steady state, not a fault
+  * snapshot budget pressure is journal-only (OPS-560); retired alerts,
+    including pending delivery, disappear without a page or recovery message
   * freshness is completion evidence from SnapshotHistory.plist; band writes
     without a completion are reported, never treated as healthy; a damaged
     plist is "no evidence", never a crash; a crashing check is isolated
   * smbd is found through its cgroup in whatever slice NixOS puts it
-  * through the real engine: one run does not page, the second does
+  * through the real engine: pruned/prune/headroom still confirm, page and clear
 """
 
 from __future__ import annotations
@@ -164,8 +166,9 @@ class DatasetTest(unittest.TestCase):
                 elif history == "empty":
                     with open(bundle / checks.HISTORY_PLIST, "wb") as handle:
                         plistlib.dump({"Snapshots": []}, handle)
-            with patch.object(checks.subprocess, "run", zfs.run), contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(checks.subprocess, "run", zfs.run), contextlib.redirect_stdout(io.StringIO()) as log:
                 problems = checks.check_dataset("markus", cap, NOW)
+            self.log = log.getvalue()
         return {p.key: p.text for p in problems}
 
     def test_the_2026_09_22_incident_drifts_and_prunes_instead_of_failing(self):
@@ -185,11 +188,13 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(self.run_dataset(zfs), {})
         self.assertEqual(zfs.destroyed, [])
 
-    def test_snapshots_over_half_the_budget_page_when_headroom_is_tight(self):
+    def test_snapshots_over_half_the_budget_only_log_when_headroom_is_tight(self):
         # TM at its cap, 700G of the 1024G budget held: 324G left under quota —
-        # below the 400G target but above the 150G prune line, so warn, do not prune.
+        # below the 400G target but above the 150G prune line: normal churn.
         zfs = FakeZfs(2253 * G, 2253 * G, 3277 * G, snaps("tm/markus", 7, 100 * G))
-        self.assertEqual(list(self.run_dataset(zfs)), ["tm:tm/markus:snapshots"])
+        self.assertEqual(self.run_dataset(zfs), {})
+        self.assertIn("sanoid snapshots hold 700G of tm/markus's 1024G snapshot budget", self.log)
+        self.assertIn("324G is left under quota", self.log)
         self.assertEqual(zfs.destroyed, [])
 
     def test_snapshots_over_half_the_budget_are_fine_while_headroom_is_plenty(self):
@@ -197,7 +202,20 @@ class DatasetTest(unittest.TestCase):
         # data, the midnight snapshot pins 560G of it, 1.8T is still free — no page.
         zfs = FakeZfs(900 * G, 2253 * G, 3277 * G, snaps("tm/markus", 7, 80 * G))
         self.assertEqual(self.run_dataset(zfs), {})
+        self.assertNotIn("snapshot budget", self.log)
         self.assertEqual(zfs.destroyed, [])
+
+    def test_snapshot_log_keeps_the_existing_thresholds(self):
+        # Exactly half the budget and exactly the headroom target stay quiet;
+        # just below the target logs, without starting maintenance at 150G+.
+        for held, free, logged in ((512, 200, False), (700, 400, False),
+                                   (700, 399, True), (700, 150, True)):
+            with self.subTest(held=held, free=free):
+                zfs = FakeZfs((3277 - held - free) * G, 2253 * G, 3277 * G,
+                              snaps("tm/markus", 1, held * G))
+                self.assertEqual(self.run_dataset(zfs), {})
+                self.assertEqual("snapshot budget" in self.log, logged)
+                self.assertEqual(zfs.destroyed, [])
 
     def test_newest_snapshot_is_given_up_when_it_pins_the_blocks(self):
         # 950G pinned by every snapshot: pass 1 (keep newest) leaves 117G < 150G,
@@ -481,23 +499,104 @@ class PoolAndSmbdTest(unittest.TestCase):
 
 
 class EngineIntegrationTest(unittest.TestCase):
+    def run_watch(self, state, problems, sender, stamp=NOW):
+        with patch.object(checks, "STATE_PATH", state), \
+                patch.object(checks, "collect", lambda: problems), \
+                patch.object(checks.time, "time", lambda: stamp), \
+                patch.object(checks.engine, "env_file_value", lambda *_: "telegram://t@telegram?chats=1"), \
+                patch.object(checks.engine, "shoutrrr_telegram_sender", lambda _: sender), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return checks.main()
+
     def test_confirms_then_pages_then_clears(self):
-        sent: list[str] = []
+        for signal in ("pruned", "prune", "headroom"):
+            with self.subTest(signal=signal), tempfile.TemporaryDirectory() as tmp:
+                sent: list[str] = []
 
-        def sender(text, identifier):
-            sent.append(text)
-            return True
+                def sender(text, identifier):
+                    sent.append(text)
+                    return True
 
-        broken = [checks.Problem("tm:tm/markus:snapshots", "hsb1: sanoid snapshots hold 600G of tm/markus's 1024G snapshot budget")]
+                broken = [checks.Problem(f"tm:tm/markus:{signal}", f"hsb1: {signal} needs attention")]
+                state = str(Path(tmp, "state.json"))
+                self.assertEqual(self.run_watch(state, broken, sender, 1000), engine.EXIT_PROBLEMS)
+                self.assertEqual(sent, [])
+                self.assertEqual(self.run_watch(state, broken, sender, 1600), engine.EXIT_PROBLEMS)
+                self.assertEqual(sent, [checks.render([broken[0].text], [])])
+                self.assertEqual(self.run_watch(state, [], sender, 2200), engine.EXIT_CLEAN)
+                self.assertEqual(sent[1], checks.render([], [broken[0].text]))
+
+    def test_announced_snapshot_alerts_retire_without_clearing(self):
+        retired = [checks.Problem(f"tm:{cap['dataset']}:snapshots", f"{cap['dataset']} snapshot pressure")
+                   for cap in CAPS.values()]
         with tempfile.TemporaryDirectory() as tmp:
             state = str(Path(tmp, "state.json"))
-            self.assertEqual(engine.run_cycle(state, 1000, lambda: broken, checks.render, sender), engine.EXIT_PROBLEMS)
-            self.assertEqual(sent, [])
-            self.assertEqual(engine.run_cycle(state, 1600, lambda: broken, checks.render, sender), engine.EXIT_PROBLEMS)
-            self.assertEqual(len(sent), 1)
-            self.assertIn("\U0001f534 Time Machine (hsb1):", sent[0])
-            self.assertEqual(engine.run_cycle(state, 2200, lambda: [], checks.render, sender), engine.EXIT_CLEAN)
-            self.assertIn("✅ Cleared", sent[1])
+            engine.atomic_write_state(state, {"seen": {
+                p.key: {"text": p.text, "count": 10, "alerted": True} for p in retired
+            }, "pending": None})
+            sender = unittest.mock.Mock(return_value=True)
+            for _ in range(2):  # retirement is silent on the first run and thereafter
+                self.assertEqual(self.run_watch(state, [], sender), engine.EXIT_CLEAN)
+                self.assertEqual(engine.load_state(state), {"seen": {}, "pending": None})
+            sender.assert_not_called()
+
+    def test_retirement_preserves_real_fault_confirmation_and_recovery(self):
+        retired = checks.Problem("tm:tm/mailina:snapshots", "retired snapshot pressure")
+        real = checks.Problem("tm:tm/mailina:headroom", "hsb1: headroom is critical")
+        for alerted in (False, True):
+            with self.subTest(alerted=alerted), tempfile.TemporaryDirectory() as tmp:
+                state = str(Path(tmp, "state.json"))
+                engine.atomic_write_state(state, {"seen": {
+                    retired.key: {"text": retired.text, "count": 10, "alerted": True},
+                    real.key: {"text": real.text, "count": 2 if alerted else 1, "alerted": alerted},
+                }, "pending": None})
+                sender = unittest.mock.Mock(return_value=True)
+                self.assertEqual(self.run_watch(state, [real], sender), engine.EXIT_PROBLEMS)
+                self.assertEqual(sender.call_count, 0 if alerted else 1)
+                if not alerted:
+                    self.assertEqual(sender.call_args.args[0], checks.render([real.text], []))
+                self.assertEqual(set(engine.load_state(state)["seen"]), {real.key})
+                self.assertEqual(self.run_watch(state, [], sender), engine.EXIT_CLEAN)
+                self.assertEqual(sender.call_args.args[0], checks.render([], [real.text]))
+
+    def test_pending_snapshot_transitions_retire_without_losing_other_delivery(self):
+        # Make genuine write-ahead states for an undelivered alert or clear,
+        # both with and without another signal in the same Telegram message.
+        retired = checks.Problem("tm:tm/mailina:snapshots", "retired snapshot pressure")
+        real = checks.Problem("tm:tm/markus:prune", "hsb1: pruning failed")
+        for clearing in (False, True):
+            for mixed in (False, True):
+                with self.subTest(clearing=clearing, mixed=mixed), tempfile.TemporaryDirectory() as tmp:
+                    state = str(Path(tmp, "state.json"))
+                    broken = [retired, real] if mixed else [retired]
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        engine.run_cycle(state, 1000, lambda: broken, checks.render, lambda *_: True)
+                        engine.run_cycle(state, 1600, lambda: broken, checks.render, lambda *_: clearing)
+                        if clearing:
+                            engine.run_cycle(state, 2200, lambda: [], checks.render, lambda *_: False)
+                    identifier = engine.load_state(state)["pending"]["event_id"]
+                    problems = [real] if mixed and not clearing else []
+                    sender = unittest.mock.Mock(return_value=False)
+                    result = self.run_watch(state, problems, sender)
+                    if not mixed:
+                        self.assertEqual(result, engine.EXIT_CLEAN)
+                        sender.assert_not_called()
+                        self.assertEqual(engine.load_state(state), {"seen": {}, "pending": None})
+                        continue
+                    # Only the live signal may be retried; keep the same event
+                    # identity and write-ahead state until delivery succeeds.
+                    expected = checks.render([], [real.text]) if clearing else checks.render([real.text], [])
+                    self.assertEqual(result, engine.EXIT_UNDELIVERED)
+                    sender.assert_called_once_with(expected, identifier)
+                    saved = engine.load_state(state)
+                    self.assertNotIn(retired.key, saved["seen"])
+                    self.assertNotIn(retired.key, saved["pending"]["next_state"]["seen"])
+                    sender.reset_mock()
+                    sender.return_value = True
+                    self.assertEqual(self.run_watch(state, problems, sender),
+                                     engine.EXIT_CLEAN if clearing else engine.EXIT_PROBLEMS)
+                    sender.assert_called_once_with(expected, identifier)
+                    self.assertIsNone(engine.load_state(state)["pending"])
 
 
 if __name__ == "__main__":
