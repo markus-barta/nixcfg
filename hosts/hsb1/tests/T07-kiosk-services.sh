@@ -73,7 +73,7 @@ echo "Date: $(date)"
 # ────────────────────────────────────────────────────────────────────────────────
 
 print_test "T07.1 - Display Manager (LightDM)"
-check_service_active "display-manager.service"
+check_service_active "display-manager.service" || true
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T07.2 - Kiosk User
@@ -107,7 +107,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────────
 
 print_test "T07.4 - MQTT Volume Control"
-check_service_active "mqtt-volume-control.service"
+check_service_active "mqtt-volume-control.service" || true
 
 # Check secrets for volume control
 print_test "T07.5 - Media Secrets"
@@ -176,26 +176,24 @@ fi
 #                             and must NEVER be reported as a fault.
 # desired 512 / actual 0   -> the NIX-151 bug: a restarted VLC came up silently mute.
 print_test "T07.10 - VLC volume matches the user's intent"
-if ! pgrep -f -- '--telnet-password=' >/dev/null 2>&1; then
+VLC_TELNET_PASSWORD_FILE=/run/user/1001/kiosk-vlc/telnet-password
+if ! pgrep -u kiosk -f -- '--video-title=hsb1-kiosk-babycam( |$)' >/dev/null 2>&1; then
   fail "VLC is not running — babycam is down"
 elif [[ -z "$DESIRED" ]]; then
   echo -e "${YELLOW}  ⚠️ SKIP: no recorded intent to compare against${NC}"
-elif [[ ! -r /run/agenix/hsb1-tapo-c210-env ]]; then
-  echo -e "${YELLOW}  ⚠️ SKIP: cannot read telnet credentials (run as root)${NC}"
+elif [[ ! -r "$VLC_TELNET_PASSWORD_FILE" ]]; then
+  fail "VLC telnet password missing or unreadable (run as root)"
 else
-  # Sourced in a subshell and piped via printf (a bash BUILTIN) so the password
+  # Read in a subshell and piped via printf (a bash BUILTIN) so the password
   # never reaches argv or the journal. And NO trailing `quit`: VLC would close
   # the connection before flushing its reply, and `nc -q 2` is what lets the
   # answer actually arrive.
   ACTUAL=$(
-    set -a
-    # shellcheck source=/dev/null
-    . /run/agenix/hsb1-tapo-c210-env
-    set +a
-    printf '%s\nstatus\n' "$TAPO_C210_PASSWORD" |
-      timeout 10 nc -q 2 localhost 4212 2>/dev/null |
+    IFS= read -r vlc_password <"$VLC_TELNET_PASSWORD_FILE" || exit 1
+    printf '%s\nstatus\n' "$vlc_password" |
+      timeout 10 nc -q 2 127.0.0.1 4212 2>/dev/null |
       sed -n 's/.*( audio volume: \([0-9]*\) ).*/\1/p' | head -1
-  )
+  ) || ACTUAL=""
   if [[ -z "$ACTUAL" ]]; then
     fail "VLC telnet gave no volume — is it holding an input?"
   elif ((ACTUAL >= DESIRED - 5 && ACTUAL <= DESIRED + 5)); then
@@ -218,6 +216,37 @@ if sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 pactl list sink-inputs 2>/dev/nu
   pass "VLC has a live PipeWire sink-input (audio can actually reach the speakers)"
 else
   fail "VLC has NO sink-input — audio is orphaned; volume commands would be a LIE"
+fi
+
+print_test "T07.12 - Kiosk MQTT passwords stay out of argv"
+# pgrep emits PIDs only; never use -a, ps or /proc/*/cmdline in these checks.
+if pgrep -u kiosk -f -- '(^|[[:space:]])-P' >/dev/null 2>&1; then
+  fail "A kiosk process has an MQTT password option in argv"
+elif [[ $? -eq 1 ]]; then
+  pass "No kiosk process has an MQTT password option in argv"
+else
+  fail "Could not inspect kiosk processes for MQTT password options"
+fi
+
+print_test "T07.13 - No legacy VLC password in argv"
+if pgrep -f -- '--telnet-password=' >/dev/null 2>&1; then
+  fail "A process still has a VLC telnet password option in argv"
+elif [[ $? -eq 1 ]]; then
+  pass "No process has a VLC telnet password option in argv"
+else
+  fail "Could not inspect processes for legacy VLC password options"
+fi
+
+print_test "T07.14 - VLC telnet listens only on IPv4 loopback"
+if ! LISTENERS=$(ss -H -ltn 'sport = :4212' 2>/dev/null); then
+  fail "Could not inspect TCP listeners on port 4212"
+elif awk '
+  { if ($4 != "127.0.0.1:4212") bad=1; count++ }
+  END { exit (count == 0 || bad) }
+' <<<"$LISTENERS"; then
+  pass "Port 4212 listens on 127.0.0.1 only"
+else
+  fail "Port 4212 is absent or has a non-loopback/IPv6 listener"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════════

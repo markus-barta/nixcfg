@@ -261,6 +261,7 @@ Services use host or bridge networking as declared in `docker/compose-spec.nix`:
 - **APC UPS Monitoring**: USB-connected UPS with MQTT status publishing (every 1 min)
 - **VLC Kiosk Mode**: Auto-login `kiosk` user for camera viewing (fullscreen)
 - **MQTT Volume Control**: Controls VLC volume via MQTT topic `home/hsb1/kiosk-vlc-volume`
+- **VLC Control Security (OPS-558)**: Telnet binds to `127.0.0.1:4212` with a fresh runtime password on each kiosk launch. MQTT clients use private options files; passwords stay out of argv. See the [cut-over checks](./docs/RUNBOOK.md#kiosk-babycam-control-cut-over-ops-558).
 - **ZFS**: Auto-scrubbing enabled
 - **FLIRC IR-USB**: Remote control support
 - **Bluetooth**: Enabled
