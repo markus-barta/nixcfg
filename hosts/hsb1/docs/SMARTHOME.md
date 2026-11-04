@@ -688,8 +688,8 @@ The FLIRC is on **hsb1** via the native `ir-bridge` systemd service — IR → {
                                                          │
                         ┌────────────────────────────────▼─────────────────┐
                         │  VLC (kiosk user, fullscreen)                    │
-                        │  - Telnet interface on localhost:4212            │
-                        │  - Password from /run/agenix/hsb1-tapo-c210-env  │
+                        │  - Telnet interface on 127.0.0.1:4212 only        │
+                        │  - Fresh private runtime password each launch    │
                         │  - Shows RTSP camera stream                      │
                         └──────────────────────────────────────────────────┘
 ```
@@ -702,30 +702,44 @@ The FLIRC is on **hsb1** via the native `ir-bridge` systemd service — IR → {
 | **Node-RED Flow**   | `~/docker/mounts/nodered/data/flows.json` | Listens for button, publishes MQTT     |
 | **MQTT Topic**      | `home/hsb1/kiosk-vlc-volume`              | Message bus for volume commands        |
 | **systemd service** | `mqtt-volume-control.service`             | Bridge between MQTT and VLC telnet     |
-| **VLC Telnet**      | `localhost:4212`                          | Accepts `volume N` commands            |
+| **VLC Telnet**      | `127.0.0.1:4212`                          | Local-only `volume N` commands         |
 | **VLC Display**     | X11 kiosk session                         | Shows camera on attached monitor       |
 
 ### MQTT Message Format
 
 ```bash
+# On hsb1 while mqtt-volume-control is running; credentials stay in its
+# kiosk-owned options file (0600 inside a 0700 runtime directory).
 # Mute (volume 0)
-mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "0"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "0"
 
 # Full volume (512)
-mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "512"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "512"
 
 # 50% volume (256)
-mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "256"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "256"
 ```
 
 ### Files Involved
 
-| File                               | Purpose                                            |
-| ---------------------------------- | -------------------------------------------------- |
-| `/run/agenix/hsb1-mqtt-client-env` | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS) |
-| `/run/agenix/hsb1-tapo-c210-env`   | VLC telnet password                                |
-| `configuration.nix`                | systemd service definition                         |
-| `flows.json`                       | Node-RED automation                                |
+| File                                           | Purpose                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `/run/agenix/hsb1-mqtt-client-env`             | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS)                             |
+| `/run/mqtt-volume-control/mosquitto.options`   | Private MQTT options for the volume listener                                   |
+| `/run/babycam-watchdog-mqtt/mosquitto.options` | Private MQTT options recreated on each watchdog run                            |
+| `/run/user/1001/kiosk-vlc/telnet-password`     | Random VLC control password, rotated on each autostart                         |
+| `/run/user/1001/kiosk-vlc/vlcrc`               | Generated VLC settings, including loopback bind and preserved audio processing |
+| `configuration.nix`                            | systemd service definition                                                     |
+| `flows.json`                                   | Node-RED automation                                                            |
+
+The two MQTT units have separate systemd runtime directories (0700), and unset
+`MQTT_PASS` after writing their options files with umask 077. VLC's runtime
+directory is also 0700; its password and config are 0600. Never print these files
+or inspect process command lines. The launcher marks its VLC with the harmless
+window-title argument `--video-title=hsb1-kiosk-babycam`; liveness checks use that
+marker. VLC control no longer uses the Tapo camera credential. The generated
+config preserves all nine former host-only settings, including equalizer and
+compressor values; edit their source in `files/kiosk-autostart.sh`.
 
 ### Troubleshooting
 
@@ -737,10 +751,17 @@ systemctl status mqtt-volume-control
 journalctl -t mqtt-volume-control -f
 
 # Test MQTT manually
-mosquitto_pub -h hsb1 -t "home/hsb1/kiosk-vlc-volume" -m "256"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "256"
 
-# Test VLC telnet directly
-echo -e "PASSWORD\nvolume 256\nquit" | nc localhost 4212
+# Test VLC telnet status without exposing the password in argv or logs.
+# No trailing quit: VLC can close before flushing its response.
+sudo -u kiosk bash -c '
+  IFS= read -r vlc_password </run/user/1001/kiosk-vlc/telnet-password || exit 1
+  printf "%s\nstatus\n" "$vlc_password" | timeout 10 nc -q 2 127.0.0.1 4212
+'
+
+# Must show 127.0.0.1:4212 only (no wildcard or IPv6 listener).
+ss -H -ltn 'sport = :4212'
 ```
 
 ### ✅ Migration Complete (2025-11-28)
