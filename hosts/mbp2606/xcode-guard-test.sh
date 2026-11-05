@@ -334,7 +334,7 @@ selected_tools_invalid() {
 lockf_failure_logged() {
   export XG_LOCKF=/usr/bin/false
   expect_rc 1 guard --enforce
-  contains "$CASE/guard.log" 'lockf or locked guard failed with exit 1' 'lockf failure omitted log'
+  contains "$CASE/guard.log" 'locked guard exited 1, see the line above' 'lockf failure omitted log'
   equal "$(switches)" 0 'lockf failure switched'
 }
 selected_guard_invalid() {

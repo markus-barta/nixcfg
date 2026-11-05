@@ -74,45 +74,55 @@ follows the selection. Command Line Tools stays installed. If versions differ,
 mba's jobs get a different compiler, SDK and `/usr/bin/python3` interpreter;
 expect compiler-cache misses and possibly changed warnings or Python packages.
 
-Run these steps from `/Users/mba/Code/nixcfg` on this Mac, never from the
+Use the checkout `/Users/mba/Code/nixcfg` on this Mac, never the
 group-writable `/Users/Shared/nixcfg`. FLEET-OPS must first record the merged
 commit and its script and plist SHA-256 values on OPS-563. Use these recorded
 values below: `<SCRIPT_SHA256_FROM_OPS-563_MERGED_COMMIT>` and
 `<PLIST_SHA256_FROM_OPS-563_MERGED_COMMIT>`. They are placeholders to look up
 on the ticket, not values to compute from this checkout and trust.
+Check the checkout before using any source files:
+
+```sh
+/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/git -C /Users/mba/Code/nixcfg rev-parse HEAD
+```
+
+Require the exact merged commit recorded on OPS-563; stop on a mismatch.
 
 Run **one command at a time**, inspecting its result before continuing. Before step 6, stop on
 any failure except the required absent-destination result in step 3 or the
 unloaded-service bootout error explained below. Never merge into an existing
-destination bundle or staging tree. From step 6 onward, use **Abort** below
-on any failure; do not leave the daemon armed.
-
-```sh
-cd /Users/mba/Code/nixcfg
-```
+destination bundle or staging tree. For a first installation, from step 6
+onward use **Abort** below on any failure; updates use the update failure
+instructions below. Do not leave the daemon armed after a failure.
 
 0. Before anything, record this baseline as each of `mailina`, `mba` and `ci`
-   where possible, in a shell with no `DEVELOPER_DIR` and the system PATH:
+   where possible. Every command uses a clean environment and the system PATH:
 
    ```sh
-   /usr/bin/xcode-select -p
+   /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcode-select -p
+   ```
+
+   Require `/Library/Developer/CommandLineTools`. If any user's reading differs,
+   stop before step 1 and have FLEET-OPS review it.
+
+   ```sh
+   /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/clang --version
    ```
 
    ```sh
-   /usr/bin/clang --version
+   /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcrun --show-sdk-path
    ```
 
    ```sh
-   /usr/bin/xcrun --show-sdk-path
+   /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/git --version
    ```
 
    ```sh
-   /usr/bin/git --version
+   /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/python3 --version
    ```
 
-   ```sh
-   /usr/bin/python3 --version
-   ```
+   After **Abort**, if the bundle is already in place and verified, restart at
+   step 4 once FLEET-OPS has reviewed the failure; do not repeat the copy.
 
 1. FLEET-OPS confirms no ci worker and no lease, and LEAD has paused leases.
    Keep ci and mba paused through the PASS line in step 7. Confirm the
@@ -221,33 +231,42 @@ cd /Users/mba/Code/nixcfg
    /usr/bin/sudo /usr/bin/install -o root -g wheel -m 755 /Users/mba/Code/nixcfg/hosts/mbp2606/xcode-guard.sh /usr/local/sbin/xcode-guard.new
    ```
 
-   Immediately compare the installed SHA-256 with
+   Immediately check the installed SHA-256 against
    `<SCRIPT_SHA256_FROM_OPS-563_MERGED_COMMIT>` recorded by FLEET-OPS:
 
    ```sh
-   /usr/bin/shasum -a 256 /usr/local/sbin/xcode-guard.new
+   /usr/bin/printf '%s  %s\n' '<SCRIPT_SHA256_FROM_OPS-563_MERGED_COMMIT>' /usr/local/sbin/xcode-guard.new | /usr/bin/shasum -a 256 -c
    ```
 
-   On a mismatch, leave the `.new` file off the live path and stop. After a
-   match, move it into place:
+   Require `OK`. On a mismatch, leave the rejected file at
+   `/usr/local/sbin/xcode-guard.new` for review, never execute it, and stop.
+   After a match, move it into place:
 
    ```sh
    /usr/bin/sudo /bin/mv /usr/local/sbin/xcode-guard.new /usr/local/sbin/xcode-guard
    ```
 
-   Then pre-create its readable log (first installation only):
+   Then create its readable log only if absent; retries preserve the existing log:
 
    ```sh
-   /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 /dev/null /var/log/cm.barta.xcode-guard.log
+   /usr/bin/sudo /bin/sh -c 'if [ ! -e /var/log/cm.barta.xcode-guard.log ] && [ ! -L /var/log/cm.barta.xcode-guard.log ]; then /usr/bin/install -o root -g wheel -m 644 /dev/null /var/log/cm.barta.xcode-guard.log; fi'
    ```
 
-5. Run the dry run; nothing has switched yet:
+5. Run the dry run; nothing has switched yet. Note its elapsed time for the
+   bootstrap wait limit in step 7:
 
    ```sh
    /usr/bin/sudo /usr/local/sbin/xcode-guard --check
    ```
 
    Require the final `PASS enforce would preserve…` line. Stop on any FAIL.
+   Repeat without sudo to verify that an ordinary user can read the bundle:
+
+   ```sh
+   /usr/local/sbin/xcode-guard --check
+   ```
+
+   Require the same PASS results. Stop on any FAIL.
    Check 6 runs `xcodebuild -license check` and `-checkFirstLaunchStatus` with
    the pinned developer directory in a clean environment; both flags remain
    unverified on real Xcode. The guard never accepts a license or installs
@@ -274,29 +293,46 @@ cd /Users/mba/Code/nixcfg
    switch too: schedule this for a time she is not using the Mac, and keep
    her work paused through verification. A compile running across the switch
    would see two toolchains. Installing the plist may show Mailina a
-   background-item notice she can switch off. Install the daemon:
+   background-item notice she can switch off. Stage the plist outside launchd
+   first. This creates the staging directory if step 3 removed it and also
+   preserves an existing directory for inspection:
 
    ```sh
-   /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 /Users/mba/Code/nixcfg/hosts/mbp2606/cm.barta.mbp2606.xcode-guard.plist /Library/LaunchDaemons/
+   /usr/bin/sudo /bin/sh -c 'if [ ! -e /var/root/xcode-guard-install ] && [ ! -L /var/root/xcode-guard-install ]; then /usr/bin/install -d -o root -g wheel -m 700 /var/root/xcode-guard-install; fi'
    ```
 
-   Immediately compare the installed SHA-256 with
-   `<PLIST_SHA256_FROM_OPS-563_MERGED_COMMIT>` recorded by FLEET-OPS:
+   Inspect it before installing; require a real root:wheel directory, mode 700,
+   with no contents; only an empty directory may be reused. Stop otherwise:
 
    ```sh
-   /usr/bin/shasum -a 256 /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist
-   ```
-
-   On a mismatch, move the plist off the live path into a new root-only
-   staging directory, then follow **Abort**. If either command fails, go
-   straight to **Abort**:
-
-   ```sh
-   /usr/bin/sudo /bin/mkdir -m 700 /var/root/xcode-guard-install
+   /usr/bin/sudo /bin/ls -lade /var/root/xcode-guard-install
    ```
 
    ```sh
-   /usr/bin/sudo /bin/mv /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist /var/root/xcode-guard-install/cm.barta.mbp2606.xcode-guard.plist
+   /usr/bin/sudo /bin/ls -la /var/root/xcode-guard-install/
+   ```
+
+   ```sh
+   /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 /Users/mba/Code/nixcfg/hosts/mbp2606/cm.barta.mbp2606.xcode-guard.plist /var/root/xcode-guard-install/cm.barta.mbp2606.xcode-guard.plist
+   ```
+
+   Immediately check against `<PLIST_SHA256_FROM_OPS-563_MERGED_COMMIT>`
+   recorded by FLEET-OPS:
+
+   ```sh
+   /usr/bin/printf '%s  %s\n' '<PLIST_SHA256_FROM_OPS-563_MERGED_COMMIT>' /var/root/xcode-guard-install/cm.barta.mbp2606.xcode-guard.plist | /usr/bin/sudo /usr/bin/shasum -a 256 -c
+   ```
+
+   Require `OK`. On a mismatch, leave the rejected plist at that staging path
+   for review and follow **Abort** for a first install. During an update, use
+   the update failure instructions below. After a match, move it into place:
+
+   ```sh
+   /usr/bin/sudo /bin/mv /var/root/xcode-guard-install/cm.barta.mbp2606.xcode-guard.plist /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist
+   ```
+
+   ```sh
+   /usr/bin/sudo /bin/rmdir /var/root/xcode-guard-install
    ```
 
    After a match, enable directly before bootstrap. Keep the host running
@@ -313,21 +349,24 @@ cd /Users/mba/Code/nixcfg
 
 7. The run takes minutes, including the deep signature scan. Bootstrap
    returns before the guard finishes. Keep all three users' work paused.
-   Allow at most **15 minutes after bootstrap** for completion and the PASS
-   line below. Repeat this command within that limit until it shows
+   Set the wait limit to **three times the longest step-5 dry run, at least
+   15 minutes after bootstrap**, for completion and the PASS line below.
+   Repeat this command within that limit until it shows
    `state = not running` and `last exit code = 0`. On a nonzero exit, any
-   other failure, or no PASS within 15 minutes, follow **Abort**:
+   other failure, or no PASS within that limit, follow **Abort** for a first
+   installation or the update failure instructions for an update:
 
    ```sh
    /usr/bin/sudo /bin/launchctl print system/cm.barta.mbp2606.xcode-guard
    ```
 
-   Then require this fresh log line from this run:
+   Log timestamps are UTC (`Z`). Require this fresh log line from this run:
    `PASS selected pinned Xcode and verified system simctl, git and clang`.
    For an already-selected
    installation, require a fresh `valid pinned Xcode is already selected`
    line instead; it also verifies all three shims. Do not resume work before
-   that success line. Missing it at the 15-minute limit means **Abort**:
+   that success line. Missing it at the measured wait limit means **Abort**
+   for a first installation or the update failure instructions for an update:
 
    ```sh
    /usr/bin/tail -n 20 /var/log/cm.barta.xcode-guard.log
@@ -349,10 +388,11 @@ cd /Users/mba/Code/nixcfg
    Repeat every baseline command as all three users where possible, then run
    one representative mba compile job before resuming normal work.
 
-**Abort:** For any failure from step 6 onward, or no success line within
-15 minutes after bootstrap, keep work paused and run these commands one at a
-time. Disable first, then unload; an already-unloaded service's `bootout`
-error is expected and does not prevent the selection comparison:
+**Abort (first installation):** For any failure from step 6 onward, or no success
+line within step 7's measured wait limit after bootstrap, keep work paused and run
+these commands one at a time. Disable first, then unload; an already-unloaded
+service's `bootout` error is expected. Confirm the service is gone before the
+selection comparison:
 
 ```sh
 /usr/bin/sudo /bin/launchctl disable system/cm.barta.mbp2606.xcode-guard
@@ -361,6 +401,13 @@ error is expected and does not prevent the selection comparison:
 ```sh
 /usr/bin/sudo /bin/launchctl bootout system/cm.barta.mbp2606.xcode-guard
 ```
+
+```sh
+/usr/bin/sudo /bin/launchctl print system/cm.barta.mbp2606.xcode-guard
+```
+
+Require `Could not find service`; if it still exists, stop for FLEET-OPS review
+with work paused before attempting rollback.
 
 ```sh
 /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcode-select -p
@@ -384,7 +431,8 @@ closed. Stop on such a failure, leaving the protected copy for review.
 The guard refuses a broken, missing or unreadable current selection; it does
 not repair one automatically, because it needs a valid restore target. It
 also refuses setuid, setgid or ACL entries in the bundle. If already selected
-and any check fails, it logs ALERT and leaves the selection for operator repair.
+and bundle or shim validation fails, it logs ALERT and leaves the selection for
+operator repair. An unsafe state directory fails earlier with FAIL only.
 Post-switch selection, simctl, git or clang failure restores the selection read
 immediately before switching; failed restoration logs ALERT.
 
@@ -405,7 +453,7 @@ prints usage and exits 1.
 The first prior selection stays in
 `/var/db/cm.barta.xcode-guard/prior-selection` and is never overwritten.
 
-Rollback uses three separate commands, in order:
+To remove the pin on purpose, use these separate rollback commands in order:
 
 ```sh
 /usr/bin/sudo /bin/launchctl disable system/cm.barta.mbp2606.xcode-guard
@@ -416,22 +464,29 @@ Rollback uses three separate commands, in order:
 ```
 
 ```sh
+/usr/bin/sudo /bin/launchctl print system/cm.barta.mbp2606.xcode-guard
+```
+
+Require `Could not find service` before continuing.
+
+```sh
 /usr/bin/sudo /usr/local/sbin/xcode-guard --rollback
 ```
 
 If the service is already unloaded, `bootout` errors; continue with the
 selection comparison and `--rollback` only if it differs from step 0. If the
-guard cannot restore the baseline, the manual fallback is (substitute the
-recorded baseline path):
+guard cannot restore the baseline, the manual fallback must use the recorded
+path from step 0's `/usr/bin/env -i PATH=/usr/bin:/bin`
+`xcode-select -p` reading, which must be `/Library/Developer/CommandLineTools`:
 
 ```sh
-/usr/bin/sudo /usr/bin/xcode-select --switch <baseline from step 0>
+/usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcode-select --switch /Library/Developer/CommandLineTools
 ```
 
 Verify the selection equals that baseline. Rollback leaves the plist,
 installed script, state directory and prior record, log, and pinned Xcode
 bundle in place. The successful bundle move removes its empty staging
-directory; a plist quarantined after a mismatch remains staged for review.
+directory; a plist rejected before its move remains staged for review.
 These files are not deleted automatically.
 
 Bootout alone allows the daemon to reload at the next boot; disable keeps it
@@ -440,8 +495,12 @@ or missing prior record or a recorded developer directory that no longer
 exists.
 
 For a script update, pause all three users' work, then run the disable and
-bootout commands above before replacing anything. Use **Abort** for any
-failure during the update. Repeat step 4's script installation to `.new`,
+bootout commands above before replacing anything, then confirm with
+`launchctl print` that the service is gone. For any failure before re-bootstrap,
+run only disable and bootout, confirm the service is gone, and leave the system
+selection unchanged for FLEET-OPS review. Do not use first-install **Abort** or
+`--rollback` during an update; `--rollback` removes the pin on purpose.
+Repeat step 4's script installation to `.new`,
 compare that file's SHA-256 against the new merged-commit value FLEET-OPS
 records on OPS-563, then move it into place only after a match. On a mismatch,
 keep the daemon disabled and unloaded and leave `.new` off the live path.
@@ -449,6 +508,8 @@ Do not truncate the existing log. Repeat step 5, requiring the final
 `PASS enforce would keep…` line for an already-selected installation, then
 repeat steps 6 and 7 to enable, bootstrap and verify. Every plist reinstall
 requires its hash comparison before enable/bootstrap.
+If verification after re-bootstrap fails, disable and bootout, confirm the
+service is gone, and have FLEET-OPS review the selection before any repair.
 A new Xcode needs new constants and a reviewed change. The daemon
 runs at load and daily at 05:30 local time, catching up on wake if that time
 was missed during sleep.

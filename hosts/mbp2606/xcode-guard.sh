@@ -265,7 +265,7 @@ if [ "$MODE" != --check ]; then
       fi
       printf 'FAIL busy: another xcode-guard holds the lock.\n' >&2
     elif [ "$rc" -ne 0 ]; then
-      fail "lockf or locked guard failed with exit $rc"
+      fail "locked guard exited $rc, see the line above"
     fi
     exit "$rc"
   fi
