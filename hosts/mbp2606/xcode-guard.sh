@@ -11,7 +11,11 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 umask 022
 
 # Preserve the initial launch context before macOS refreshes it during a spawn.
-LAUNCHD_SERVICE=${XPC_SERVICE_NAME:-}
+if [ "${CM_XCODE_GUARD_LOCKED:-}" = 1 ]; then
+  LAUNCHD_SERVICE=${CM_XCODE_GUARD_SERVICE:-}
+else
+  LAUNCHD_SERVICE=${XPC_SERVICE_NAME:-}
+fi
 APP=/Library/Developer/Xcode-27.1.app
 DEV=$APP/Contents/Developer
 STATE=/var/db/cm.barta.xcode-guard
@@ -147,6 +151,12 @@ fail() {
 report() { [ "$MODE" != --check ] || say "PASS $*"; }
 # Read and change the system selection even from a shell that pins its own Xcode.
 select_system() { check_tool "$ENV" -i PATH=/usr/bin:/bin "$SELECT" "$@"; }
+system_tools_valid() {
+  local simctl
+  simctl=$(check_tool "$ENV" -i PATH=/usr/bin:/bin "$XCRUN" --find simctl) && [ "$simctl" = "$DEV/usr/bin/simctl" ] &&
+    check_tool "$ENV" -i PATH=/usr/bin:/bin "$GIT" --version >/dev/null &&
+    check_tool "$ENV" -i PATH=/usr/bin:/bin "$CLANG" --version >/dev/null
+}
 
 state_valid() {
   if [ -L "$STATE" ] || { [ -e "$STATE" ] && { [ ! -d "$STATE" ] || ! owned_safe "$STATE"; }; }; then
@@ -247,13 +257,15 @@ if [ "$MODE" != --check ]; then
   fi
   # Same lifetime kernel lock as mem-guard.sh. EX_TEMPFAIL (75) means busy.
   if [ "${CM_XCODE_GUARD_LOCKED:-}" != 1 ]; then
-    "$LOCKF" -s -k -t 0 "$LOCK" "$ENV" CM_XCODE_GUARD_LOCKED=1 "$BASH_TOOL" "$0" "$@" </dev/null
+    "$LOCKF" -s -k -t 0 "$LOCK" "$ENV" CM_XCODE_GUARD_LOCKED=1 "CM_XCODE_GUARD_SERVICE=$LAUNCHD_SERVICE" "$BASH_TOOL" "$0" "$@" </dev/null
     rc=$?
     if [ "$rc" -eq 75 ]; then
       if [ "$MODE" = --enforce ] && under_launchd; then
         exit 0
       fi
       printf 'FAIL busy: another xcode-guard holds the lock.\n' >&2
+    elif [ "$rc" -ne 0 ]; then
+      fail "lockf or locked guard failed with exit $rc"
     fi
     exit "$rc"
   fi
@@ -297,10 +309,18 @@ if ! current=$(select_system -p) || [[ "$current" != /* ]] || [ ! -d "$current" 
 else
   report 'current developer selection is readable and its directory exists'
 fi
-bundle_valid || failed=1
+bundle_failed=0
+bundle_valid || {
+  failed=1
+  bundle_failed=1
+}
 if [ "$failed" -ne 0 ]; then
   if [ "$current" = "$DEV" ]; then
-    fail 'ALERT selected Xcode is invalid; leaving selection unchanged for operator repair'
+    if [ "$bundle_failed" -eq 1 ]; then
+      fail 'ALERT selected Xcode is invalid; leaving selection unchanged for operator repair'
+    else
+      fail 'ALERT guard state, log or selection safety check failed; leaving selected Xcode unchanged for operator repair'
+    fi
   fi
   [ "$MODE" != --check ] || say 'FAIL enforce would refuse; no selection or state changes made'
   exit 1
@@ -308,6 +328,10 @@ fi
 
 if [ "$MODE" = --check ]; then
   if [ "$current" = "$DEV" ]; then
+    system_tools_valid || {
+      fail 'ALERT selected Xcode system simctl, git or clang verification failed; leaving selection unchanged for operator repair'
+      exit 1
+    }
     say 'PASS enforce would keep the already selected, valid Xcode'
   else
     say 'PASS enforce would preserve the first prior selection, switch to pinned Xcode and verify simctl, git and clang'
@@ -320,6 +344,10 @@ if ! current=$(select_system -p 2>/dev/null) || [[ "$current" != /* ]] || [ ! -d
   exit 1
 fi
 if [ "$current" = "$DEV" ]; then
+  system_tools_valid || {
+    fail 'ALERT selected Xcode system simctl, git or clang verification failed; leaving selection unchanged for operator repair'
+    exit 1
+  }
   say 'valid pinned Xcode is already selected' || exit 1
   exit 0
 fi
@@ -345,9 +373,7 @@ if [ ! -e "$PRIOR" ]; then
 fi
 if select_system --switch "$DEV" >/dev/null 2>&1 &&
   selected=$(select_system -p 2>/dev/null) && [ "$selected" = "$DEV" ] &&
-  simctl=$("$ENV" -i PATH=/usr/bin:/bin "$XCRUN" --find simctl </dev/null 2>/dev/null) && [ "$simctl" = "$DEV/usr/bin/simctl" ] &&
-  "$ENV" -i PATH=/usr/bin:/bin "$GIT" --version </dev/null >/dev/null 2>&1 &&
-  "$ENV" -i PATH=/usr/bin:/bin "$CLANG" --version </dev/null >/dev/null 2>&1; then
+  system_tools_valid; then
   say 'PASS selected pinned Xcode and verified system simctl, git and clang' || exit 1
   exit 0
 fi

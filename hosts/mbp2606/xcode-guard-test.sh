@@ -158,7 +158,7 @@ STUB
   export XG_BUILD="$CASE/tools/xcodebuild" XG_XCRUN="$CASE/tools/xcrun"
   export XG_GIT="$CASE/tools/git" XG_CLANG="$CASE/tools/clang"
   export XG_CODESIGN="$CASE/tools/codesign" XG_STAT="$CASE/tools/stat-safe-ancestors"
-  unset CM_XCODE_GUARD_LOCKED
+  unset CM_XCODE_GUARD_LOCKED CM_XCODE_GUARD_SERVICE
   unset XPC_SERVICE_NAME
 }
 
@@ -180,6 +180,10 @@ idempotent() {
   absent "$CASE/state/prior-selection" 'already selected guard wrote a prior'
   equal "$(/usr/bin/wc -l <"$CASE/guard.log" | /usr/bin/tr -d ' ')" 1 'idempotent guard is noisy'
   contains "$CASE/calls" codesign 'already selected guard skipped validation'
+  local tool
+  for tool in xcrun git clang; do
+    contains "$CASE/calls" "$tool" 'already selected guard skipped system tool verification'
+  done
 }
 reject_check() {
   expect_rc 1 guard --enforce
@@ -311,6 +315,38 @@ selected_invalid() {
   equal "$(selection)" "$DEV" 'invalid selected bundle was switched back'
   equal "$(switches)" 0 'invalid selected bundle caused a switch'
   contains "$CASE/guard.log" ALERT 'invalid selected bundle did not log loudly'
+}
+selected_tools_invalid() {
+  printf '%s\n' "$DEV" >"$CASE/current"
+  local tool
+  for tool in xcrun git clang; do
+    : >"$CASE/$tool-fail"
+    expect_rc 1 guard --enforce
+    equal "$(selection)" "$DEV" 'selected tool failure changed selection'
+    equal "$(switches)" 0 'selected tool failure attempted switch'
+    absent "$CASE/state/prior-selection" 'selected tool failure recorded prior'
+    contains "$CASE/guard.log" 'ALERT selected Xcode system simctl, git or clang verification failed' 'selected tool failure omitted ALERT'
+    expect_rc 1 guard --check
+    contains "$CASE/output" ALERT 'selected tool dry run omitted ALERT'
+    /bin/rm -f "$CASE/$tool-fail"
+  done
+}
+lockf_failure_logged() {
+  export XG_LOCKF=/usr/bin/false
+  expect_rc 1 guard --enforce
+  contains "$CASE/guard.log" 'lockf or locked guard failed with exit 1' 'lockf failure omitted log'
+  equal "$(switches)" 0 'lockf failure switched'
+}
+selected_guard_invalid() {
+  printf '%s\n' "$DEV" >"$CASE/current"
+  /bin/mkdir -m 777 "$CASE/state"
+  expect_rc 1 guard --check
+  contains "$CASE/output" 'ALERT guard state, log or selection safety check failed' 'unsafe state blamed selected Xcode'
+  /bin/chmod 755 "$CASE/state"
+  /bin/ln -s "$CASE/switches" "$CASE/guard.log"
+  expect_rc 1 guard --check
+  contains "$CASE/output" 'ALERT guard state, log or selection safety check failed' 'unsafe log blamed selected Xcode'
+  equal "$(switches)" 0 'guard safety failure switched'
 }
 verify_restore() {
   : >"$CASE/xcrun-fail"
@@ -641,7 +677,18 @@ STUB
   contains "$CASE/output" busy 'launchd rollback contention was silently accepted'
 }
 
-for scenario in parent_permissions ancestor_permissions parent_symlink ancestor_owner root_permissions bundle_symlink_owner safe_bundle_symlink launchd_busy_quiet switch_and_prior idempotent directory_permissions directory_symlink directory_owner \
+launchd_failure_once() {
+  printf '%s\n' "$DEV" >"$CASE/current"
+  : >"$CASE/codesign-fail"
+  # Source only the parent, preserving the script path for its real re-exec.
+  /bin/bash -c 'XPC_SERVICE_NAME=cm.barta.mbp2606.xcode-guard; . "$0" --enforce' "$GUARD" >>"$CASE/guard.log" 2>&1
+  equal "$?" 1 'launchd invalid bundle succeeded'
+  equal "$(/usr/bin/grep -c 'FAIL check 5:' "$CASE/guard.log")" 1 'launchd duplicated FAIL through stderr'
+  equal "$(/usr/bin/grep -c 'ALERT selected Xcode is invalid' "$CASE/guard.log")" 1 'launchd duplicated ALERT through stderr'
+  equal "$(switches)" 0 'launchd invalid bundle switched'
+}
+
+for scenario in parent_permissions selected_tools_invalid lockf_failure_logged selected_guard_invalid launchd_failure_once ancestor_permissions parent_symlink ancestor_owner root_permissions bundle_symlink_owner safe_bundle_symlink launchd_busy_quiet switch_and_prior idempotent directory_permissions directory_symlink directory_owner \
   bundle_permissions bundle_directory_permissions bundle_owner bundle_setuid bundle_setgid bundle_acl find_failure simctl_missing simctl_nonexec \
   simctl_symlink version_failure build_failure signature_failure license_failure first_launch_failure selected_invalid verify_restore \
   git_verify_restore clang_verify_restore restore_failure refreshed_prior refreshed_restore refreshed_missing \
