@@ -48,7 +48,7 @@
 #
 # WHAT IS ACTUALLY MEASURED (no proxies, no "a process exists")
 # ============================================================
-#   VLC alive          pgrep on --telnet-password= (NOT `pgrep -x vlc`: NixOS
+#   VLC alive          pgrep on --video-title=hsb1-kiosk-babycam (NOT `pgrep -x vlc`: NixOS
 #                      wraps the binary, the process is `.vlc-wrapped`; and NOT
 #                      `pkill -f vlc`, which would also match the
 #                      mqtt-volume-control listener's "kiosk-vlc-volume" cmdline)
@@ -126,6 +126,32 @@ let
 
       log() { logger -t babycam-watchdog "$*"; }
 
+      # Private to this unit, separate from the shared volume-intent state dir.
+      # A broker/config failure must not prevent the watchdog probing or healing.
+      mqtt_options="$RUNTIME_DIRECTORY/mosquitto.options"
+      mqtt_ready=false
+      if (
+        umask 077
+        # shellcheck source=/dev/null  # agenix-materialized, absent at lint time
+        . /run/agenix/hsb1-mqtt-client-env || exit 1
+        for name in MQTT_HOST MQTT_USER MQTT_PASS; do
+          value="''${!name:-}"
+          if [ -z "$value" ] || [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]] ||
+            ! (LC_ALL=C; [ "''${#value}" -le 1019 ]); then
+            log "WARN: $name is not a supported single-line MQTT option"
+            exit 1
+          fi
+        done
+        unset value
+        # Bash builtin: the password reaches only the file, never argv.
+        printf '%s\n' "-h $MQTT_HOST" "-u $MQTT_USER" "-P $MQTT_PASS" > "$mqtt_options" || exit 1
+        unset MQTT_PASS
+      ); then
+        mqtt_ready=true
+      else
+        log "WARN: could not prepare MQTT options; continuing health checks"
+      fi
+
       # --- VLC telnet ----------------------------------------------------------
       # Each argument is one telnet command. The password is piped in from a
       # subshell via printf — a bash BUILTIN, so it never appears in any
@@ -144,17 +170,20 @@ let
       # Instead: send only the queries, and let `nc -q 2` linger 2s after EOF so
       # VLC's reply actually arrives. `timeout` remains as a hard backstop.
       vlc_q() {
-        local cmds="" c
+        local cmds="" c vlc_password
         for c in "$@"; do
           cmds="$cmds$c"$'\n'
         done
         (
-          set -a
-          # shellcheck source=/dev/null  # agenix-materialized, absent at lint time
-          . /run/agenix/hsb1-tapo-c210-env
-          set +a
-          printf '%s\n%s' "$TAPO_C210_PASSWORD" "$cmds" \
-            | timeout 10 nc -q 2 localhost 4212 2>/dev/null
+          # Read afresh, including after a heal rotates the launcher's password.
+          if ! { [ -r "${kioskRuntimeDir}/kiosk-vlc/telnet-password" ] &&
+            IFS= read -r vlc_password < "${kioskRuntimeDir}/kiosk-vlc/telnet-password" &&
+            [ -n "$vlc_password" ]; }; then
+            log "WARN: VLC telnet password missing or unreadable"
+            exit 1
+          fi
+          printf '%s\n%s' "$vlc_password" "$cmds" \
+            | timeout 10 nc -q 2 127.0.0.1 4212 2>/dev/null
         )
       }
 
@@ -172,7 +201,7 @@ let
       # covers that. Still missing afterwards means the kiosk session is dead.
       if [ ! -d "${kioskRuntimeDir}" ]; then
         HEALTH=SESSION_DEAD
-      elif ! pgrep -f -- '--telnet-password=' >/dev/null 2>&1; then
+      elif ! pgrep -u kiosk -f -- '--video-title=hsb1-kiosk-babycam( |$)' >/dev/null 2>&1; then
         HEALTH=VLC_DEAD
       else
         HEALTH=OK
@@ -433,14 +462,11 @@ let
         "$FAILS" \
         "$NOW")"
 
-      (
-        set -a
-        # shellcheck source=/dev/null  # agenix-materialized, absent at lint time
-        . /run/agenix/hsb1-mqtt-client-env
-        set +a
-        mosquitto_pub -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" \
-          -t 'home/hsb1/babycam/health' -r -m "$PAYLOAD" 2>/dev/null
-      ) || log "WARN: could not publish health to MQTT"
+      if [ "$mqtt_ready" = true ]; then
+        mosquitto_pub -o "$mqtt_options" \
+          -t 'home/hsb1/babycam/health' -r -m "$PAYLOAD" 2>/dev/null \
+          || log "WARN: could not publish health to MQTT"
+      fi
 
       if [ "$HEALTH" != "OK" ]; then
         log "state=$HEALTH desired=$DESIRED actual=''${ACTUAL:-?} healed=$HEALED alert=$ALERT sound=$ALERT_SOUND fails=$FAILS"
@@ -460,6 +486,8 @@ in
       Type = "oneshot";
       ExecStart = lib.getExe watchdog;
       User = "kiosk";
+      RuntimeDirectory = "babycam-watchdog-mqtt";
+      RuntimeDirectoryMode = "0700";
       # Bounded so a hung telnet or a wedged launcher can never leave the unit
       # running indefinitely. Worst realistic case is ~65s: the probe (two 8s
       # telnet timeouts + a 4s sample gap) plus a heal (up to 24s polling for

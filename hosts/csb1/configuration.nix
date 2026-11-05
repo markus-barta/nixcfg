@@ -1132,6 +1132,9 @@ in
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
+      # Coordination lock for the AEON switch kit and other sessions changing
+      # this host's nixcfg-managed release state. /run/lock is empty after boot.
+      "f /run/lock/aeon-nixcfg.lock 0660 root users -"
       # Central managed-secret custody is private to the exact uid used by the
       # two isolated Janus containers. Plaintext is never stored here.
       "d /var/lib/janus-managed-central 0700 janus-managed-central janus-managed-central -"
