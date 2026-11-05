@@ -1,6 +1,6 @@
 /** Pure, deterministic J-family execution ledger. No broker or wall-clock access. */
 
-import { isFamilyClientExecution } from "./execution-history.mjs";
+import { assertFillAttributionOverrides, isFamilyClientExecution } from "./execution-history.mjs";
 
 const BASE_CURRENCY = "EUR";
 const FIXED_PERIOD_START = "2026-09-10T04:00:00Z";
@@ -460,6 +460,8 @@ export function calculateFamily({
     const configuredExcluded = configSet(excludedSymbols, "excludedSymbols", (value) => symbolCode(value, "excluded symbol"));
     const excluded = new Set([...ALWAYS_EXCLUDED, ...configuredExcluded]);
     const rates = fxTable(fx);
+    try { assertFillAttributionOverrides(executions, fillAttributionOverrides); }
+    catch (error) { fail(error.message); }
     const merged = mergeExecutionRecords([], executions);
     const registry = new Map();
     const fills = [];
@@ -496,6 +498,10 @@ export function calculateFamily({
       });
     }
 
+    // Corrections, KEEP exclusion and account/time filtering cannot turn an
+    // override into a silent no-op after the raw-source cardinality check.
+    try { assertFillAttributionOverrides(fills, fillAttributionOverrides); }
+    catch (error) { fail(error.message); }
     fills.sort((left, right) => left.time - right.time ||
       (left.execId < right.execId ? -1 : left.execId > right.execId ? 1 : 0));
 

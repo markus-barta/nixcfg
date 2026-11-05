@@ -29,6 +29,22 @@ export function fillAttributionOverride(execution, overrides = []) {
   return overrides.find(rule => rule.execId === execution.execId) || null;
 }
 
+// Validate a complete accounting source, never a single fill or day-only feed.
+// Array keys identify policy errors without logging broker/economic values.
+export function assertFillAttributionOverrides(rows, overrides = []) {
+  if (!overrides.length) return;
+  const counts = new Map();
+  for (const row of rows) {
+    const id = row?.execution?.execId;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  overrides.forEach((rule, index) => {
+    if (counts.get(rule.execId) !== 1) {
+      throw new Error(`desk fill attribution override fillAttributionOverrides[${index}] must match exactly one fill`);
+    }
+  });
+}
+
 // Opt-in supplement: the all-desk calculator has already classified and remapped
 // its client IDs, so its per-desk FIFO must not apply raw fill overrides again.
 export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null, fillAttributionOverrides = []) {

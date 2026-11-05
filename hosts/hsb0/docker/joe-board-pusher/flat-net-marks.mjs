@@ -5,7 +5,7 @@
  * a SOD baseline, or a DAY value. Exclusive-mode callers never use this path.
  */
 
-import { isFamilyClientExecution } from "./execution-history.mjs";
+import { assertFillAttributionOverrides, isFamilyClientExecution } from "./execution-history.mjs";
 
 const ALWAYS_EXCLUDED = new Set(["SXR8", "TSLA"]);
 const QUANTITY_EPSILON = 1e-9;
@@ -74,6 +74,8 @@ export function contractsNeedingFlatNetMarks({
   excludedSymbols = [],
 } = {}) {
   const excluded = new Set([...ALWAYS_EXCLUDED, ...excludedSymbols.map((value) => String(value).trim().toUpperCase())]);
+  assertFillAttributionOverrides(executions.filter(row => row?.execution?.acctNumber === account
+    && !excluded.has(symbolOf(row.contract))), fillAttributionOverrides);
   const familyIds = new Set(familyClientIds);
   const positionQty = new Map();
   for (const row of positions) {

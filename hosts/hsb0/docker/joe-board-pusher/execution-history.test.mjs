@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   J_FAMILY_CLASSIFIER,
+  assertFillAttributionOverrides,
   captureFromFamilyLedgerFile,
   captureFromOfficialProbeFile,
   capturesFromOfficialWindowEvidence,
@@ -22,6 +23,17 @@ import { calculateCapturedRealizedSubtotal } from "./family-history.mjs";
 const ACCOUNT = "SYNTHETIC-PAPER";
 const WINDOW = { fromInclusive: "2026-09-10T04:00:00Z", toExclusive: "2026-09-11T04:00:00Z" };
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "family-history-cli.mjs");
+
+for (const matches of [0, 1, 2]) test(`fill override requires exactly one match (${matches} fills)`, () => {
+  const rule = { execId: "synthetic.override.01", desk: "j" };
+  const rows = Array.from({ length: matches }, () => ({ execution: {
+    execId: rule.execId, acctNumber: "SYNTHETIC-PRIVATE-ACCOUNT", shares: 123.45, price: 678.90,
+  } }));
+  const check = () => assertFillAttributionOverrides(rows, [rule]);
+  if (matches === 1) assert.doesNotThrow(check);
+  else assert.throws(check, { message:
+    "desk fill attribution override fillAttributionOverrides[0] must match exactly one fill" });
+});
 
 test("default J classifier preserves the proven production client family", () => {
   assert.deepEqual(J_FAMILY_CLASSIFIER.familyClientIds, [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83]);

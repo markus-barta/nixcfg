@@ -335,7 +335,8 @@ test("an OPS-557 close routed through Joe still waits for its J commission proof
   const history = verifiedHistory([open], [commission(open.execution.execId)],
     { through: "2026-09-23T04:00:00Z", capturedAt: at });
   const session = setup({ at, store, calculate: calculateFamily,
-    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides,
+    // This historical fee-readiness scenario contains only this one correction.
+    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides.filter(rule => rule.execId === close.execution.execId),
     getVerifiedHistoryState: () => history });
   const api = connect(session);
   complete(api, [close], []);
@@ -1453,12 +1454,13 @@ test("healthy Gateway plus truncated replay recovers real desk equity and DAY wi
     { account: ACCOUNT, contract: contract("TSLA", 202), pos: 1 },
   ] } };
   let saved = null;
-  const day = createDeskDayPnlProducer({ account: ACCOUNT, policy: CURRENT_DESK_OWNERSHIP_POLICY,
-    providerContract: deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY),
+  const policy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
+  const day = createDeskDayPnlProducer({ account: ACCOUNT, policy,
+    providerContract: deskOwnershipPolicyContract(policy),
     historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
     store: { load: () => ({ ok: true, state: saved }), save: (value) => { saved = structuredClone(value); } },
     buildBoundaryEvidence: buildDeskDayBoundaryEvidence, getVerifiedHistoryState: () => history, now: () => clock });
-  const vector = () => session.adapter.projectDeskEquities(brokerBook, { calculateDeskEquities, policy: CURRENT_DESK_OWNERSHIP_POLICY });
+  const vector = () => session.adapter.projectDeskEquities(brokerBook, { calculateDeskEquities, policy });
   const initial = vector();
   assert.equal(initial.ok, true, initial.reason);
   assert.equal(initial.equity.j, 5000.43);
@@ -1796,7 +1798,8 @@ test("Phase B adapter can value proven siblings when a J mark is missing, withou
   brokerBook.positionsCoverage.rows.push(
     { account: ACCOUNT, contract: contract("SXR8", 201, "EUR"), pos: 1401 },
     { account: ACCOUNT, contract: contract("TSLA", 202), pos: 1 });
-  const options = { calculateDeskEquities, policy: CURRENT_DESK_OWNERSHIP_POLICY };
+  const options = { calculateDeskEquities,
+    policy: { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] } };
   const initial = session.adapter.projectDeskEquities(brokerBook, options);
   assert.equal(initial.ok, true, initial.reason);
   brokerBook.portfolio = [];

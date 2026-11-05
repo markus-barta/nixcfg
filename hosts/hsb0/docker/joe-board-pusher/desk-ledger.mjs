@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { newYorkPeriodStart } from "./day-baseline.mjs";
-import { J_DATED_CLIENT_ASSIGNMENTS, fillAttributionOverride, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { J_DATED_CLIENT_ASSIGNMENTS, assertFillAttributionOverrides, fillAttributionOverride, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
@@ -38,6 +38,8 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
   fillAttributionOverrides: Object.freeze([
     ...[
       ["0000dc8f.6bb0d852.01.01", "j"],
+      // OPS-392 already assigns this fill to J. Retain it as an exact-fill
+      // guard: missing, corrected or duplicate history must fail closed too.
       ["0000dc8f.6bd3bc59.01.01", "j"],
       ["00025b45.6ace1f95.01.01", "joe"],
     ].map(([execId, desk]) => Object.freeze({
@@ -284,7 +286,7 @@ function completeCoverage(receipts, fromInclusive, throughExclusive, proofObserv
   throw new Error("authoritative all-account execution coverage is incomplete");
 }
 
-function canonicalLedgerSource(ledgerState, account) {
+function canonicalLedgerSource(ledgerState, account, policy) {
   if (!ledgerState || ledgerState.account !== account || ledgerState.periodStart !== PERIOD_START ||
       !Array.isArray(ledgerState.executions) || !Array.isArray(ledgerState.commissions)) {
     throw new Error("all-account ledger state is invalid");
@@ -292,20 +294,25 @@ function canonicalLedgerSource(ledgerState, account) {
   if (ledgerState.executions.some((row) => row?.execution?.pendingPriceRevision === true)) {
     throw new Error("all-account ledger contains a pending execution correction");
   }
+  // Check before merge as well: deduplication must not hide an ambiguous match.
+  // Validate the complete source, not the pre-midnight economic sub-window.
+  assertFillAttributionOverrides(ledgerState.executions, policy.fillAttributionOverrides);
   const rows = effectiveRows(ledgerState.executions);
+  assertFillAttributionOverrides(rows.filter(row => !policy.excludedSymbols.includes(row.contract.symbol)), policy.fillAttributionOverrides);
   if (rows.some((row) => row.execution.acctNumber !== account)) {
     throw new Error("execution account does not match the all-desk source");
   }
   return { rows, commissions: ledgerState.commissions, account };
 }
 
-function canonicalHistorySource(state, account) {
+function canonicalHistorySource(state, account, policy) {
   validateBestAvailableHistoryState(state);
   if (state.account !== account) throw new Error("authoritative history account does not match");
   const effective = effectiveExecutionRecords(state);
   if (effective.some((row) => row?.execution?.pendingPriceRevision === true)) {
     throw new Error("authoritative history contains a pending execution correction");
   }
+  assertFillAttributionOverrides(effective.filter(row => !policy.excludedSymbols.includes(row.contract.symbol)), policy.fillAttributionOverrides);
   return { rows: effective.map(normalizeDeskExecution), commissions: state.commissions, account };
 }
 
@@ -405,8 +412,8 @@ export function calculateDeskEquities({
     const cutoff = instant(ledgerState?.coverageThrough, "ledger coverageThrough");
     const sourceAt = instant(observedAt, "source observedAt");
     if (sourceAt < cutoff) throw new Error("source observation predates execution coverage");
-    const ledger = canonicalLedgerSource(ledgerState, account);
-    const history = canonicalHistorySource(verifiedHistoryState, account);
+    const ledger = canonicalLedgerSource(ledgerState, account, canonical);
+    const history = canonicalHistorySource(verifiedHistoryState, account, canonical);
     if (ledger.rows.some((row) => row.execution.time > cutoff)) {
       throw new Error("live ledger contains an execution after its coverage boundary");
     }
@@ -525,7 +532,7 @@ export function calculateDeskEquities({
 export function deskLedgerRevisionAt({ ledgerState, account, policy = CURRENT_DESK_OWNERSHIP_POLICY, throughInclusive, executorAttribution = null } = {}) {
   try {
     const canonical = canonicalPolicy(policy);
-    const source = canonicalLedgerSource(ledgerState, account);
+    const source = canonicalLedgerSource(ledgerState, account, canonical);
     return {
       ok: true,
       historyRevisionMethod: HISTORY_REVISION_METHOD,
@@ -577,7 +584,7 @@ export function buildDeskDayBoundaryEvidence({
     const proofAt = instant(proofObservedAt, "proofObservedAt");
     if (candidateAt > boundary) throw new Error("candidate observation must not follow periodStart");
     if (proofAt < boundary) throw new Error("proofObservedAt must not precede periodStart");
-    const history = canonicalHistorySource(verifiedHistoryState, account);
+    const history = canonicalHistorySource(verifiedHistoryState, account, canonical);
     if (instant(verifiedHistoryState.updatedAt, "authoritative history updatedAt") > proofAt) {
       throw new Error("authoritative history was observed after proofObservedAt");
     }

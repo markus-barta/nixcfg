@@ -26,6 +26,8 @@ const ACCOUNT = "SYNTHETIC-PAPER";
 const START = "2026-09-10T04:00:00Z";
 const CUTOFF = "2026-09-11T15:00:00.000Z";
 const OBSERVED = "2026-09-11T15:00:02.000Z";
+// Historical synthetic ledgers predate the OPS-557 fills and use that policy.
+const PRE_OVERRIDE_POLICY = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
 
 function contract(symbol, conId, currency = "USD") {
   return { symbol, conId, currency, secType: "STK", exchange: "SMART", multiplier: 1 };
@@ -134,7 +136,7 @@ function fixture() {
     observedAt: OBSERVED,
     ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
   });
-  return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult };
+  return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult, policy: PRE_OVERRIDE_POLICY };
 }
 
 function nvdaFixture() {
@@ -173,17 +175,18 @@ test("an exact fill override wins over the clientId rule without changing broker
   assert.deepEqual(policy.assignments, CURRENT_DESK_OWNERSHIP_POLICY.assignments);
 });
 
-test("absent and similar execution identities never redirect a fill", () => {
+test("absent and similar override identities fail closed without redirecting a fill", () => {
   const input = fixture();
-  const baseline = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  const before = structuredClone(input);
   for (const execId of ["absent.01", "j.open.02", "prefix-j.open.01", "j.open.01-suffix"]) {
     const policy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [
       { execId, desk: "joe", basis: "synthetic absent override", date: "2026-11-04" },
     ] };
     const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, policy });
-    assert.equal(result.ok, true, result.reason);
-    assert.deepEqual(result.desks, baseline.desks);
-    assert.deepEqual(result.equity, baseline.equity);
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "desk fill attribution override fillAttributionOverrides[0] must match exactly one fill");
+    assert.equal(Object.hasOwn(result, "desks"), false);
+    assert.deepEqual(input, before);
   }
 });
 
@@ -226,24 +229,116 @@ test("OPS-557 closes both NVDA desk ledgers and the account without flat-net mar
 });
 
 test("fill override identities, desks, basis and date bind the policy hash and history revision", () => {
-  const input = fixture();
+  const input = nvdaFixture();
   const priorPolicy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
   assert.equal(deskOwnershipPolicyContract(priorPolicy).policyHash,
     "c32cde7929bf505ce75e8f76fa8c81268d5aef3446927653dfe857796e86a025");
   const current = deskOwnershipPolicyContract();
   assert.notEqual(current.policyHash, deskOwnershipPolicyContract(priorPolicy).policyHash);
-  const revision = policy => deskLedgerRevisionAt({ ledgerState: input.ledgerState, account: ACCOUNT,
-    throughInclusive: CUTOFF, policy }).historyRevision;
-  assert.notEqual(revision(CURRENT_DESK_OWNERSHIP_POLICY), revision(priorPolicy));
+  const revision = policy => {
+    const result = deskLedgerRevisionAt({ ...input, throughInclusive: input.observedAt, policy });
+    return result;
+  };
+  assert.equal(revision(CURRENT_DESK_OWNERSHIP_POLICY).ok, true);
+  assert.equal(revision(priorPolicy).ok, true);
+  assert.notEqual(revision(CURRENT_DESK_OWNERSHIP_POLICY).historyRevision, revision(priorPolicy).historyRevision);
   const reversed = { ...CURRENT_DESK_OWNERSHIP_POLICY,
     fillAttributionOverrides: [...CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides].reverse() };
   assert.deepEqual(deskOwnershipPolicyContract(reversed), current);
-  assert.equal(revision(reversed), revision(CURRENT_DESK_OWNERSHIP_POLICY));
+  assert.deepEqual(revision(reversed), revision(CURRENT_DESK_OWNERSHIP_POLICY));
   for (const patch of [{ execId: "different.01" }, { desk: "joe" }, { basis: "different evidence" }, { date: "2026-11-03" }]) {
     const policy = structuredClone(CURRENT_DESK_OWNERSHIP_POLICY);
     Object.assign(policy.fillAttributionOverrides[0], patch);
     assert.notEqual(deskOwnershipPolicyContract(policy).policyHash, current.policyHash);
-    assert.notEqual(revision(policy), revision(CURRENT_DESK_OWNERSHIP_POLICY));
+    const changed = revision(policy);
+    if (patch.execId) {
+      assert.equal(changed.ok, false);
+      assert.match(changed.reason, /fillAttributionOverrides\[\d\] must match exactly one fill/);
+    } else {
+      assert.equal(changed.ok, true, changed.reason);
+      assert.notEqual(changed.historyRevision, revision(CURRENT_DESK_OWNERSHIP_POLICY).historyRevision);
+    }
+  }
+});
+
+test("the redundant legacy-route override is a matched guard with unchanged economics", () => {
+  const input = nvdaFixture();
+  const result = calculateDeskEquities(input);
+  assert.equal(result.ok, true, result.reason);
+  const guard = CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides[1];
+  assert.equal(input.ledgerState.executions.filter(row => row.execution.execId === guard.execId).length, 1);
+  const policy = { ...CURRENT_DESK_OWNERSHIP_POLICY,
+    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides.filter(rule => rule !== guard) };
+  const withoutGuard = calculateDeskEquities({ ...input, policy });
+  assert.equal(withoutGuard.ok, true, withoutGuard.reason);
+  assert.deepEqual(withoutGuard.desks, result.desks);
+  assert.deepEqual(withoutGuard.equity, result.equity);
+  assert.notEqual(withoutGuard.sourceContract.policyHash, result.sourceContract.policyHash);
+  assert.notEqual(withoutGuard.historyRevision, result.historyRevision);
+});
+
+test("missing overrides withhold ledger revisions, authoritative boundary proof and mark selection", () => {
+  const input = fixture();
+  const policy = { ...PRE_OVERRIDE_POLICY, fillAttributionOverrides: [
+    { execId: "synthetic.missing.01", desk: "j", basis: "synthetic missing guard", date: "2026-11-04" },
+  ] };
+  const revision = deskLedgerRevisionAt({ ...input, account: ACCOUNT, policy, throughInclusive: CUTOFF });
+  assert.deepEqual(revision, { ok: false,
+    reason: "desk fill attribution override fillAttributionOverrides[0] must match exactly one fill" });
+  const boundary = buildDeskDayBoundaryEvidence({
+    verifiedHistoryState: input.verifiedHistoryState, account: ACCOUNT, policy,
+    candidateSourceObservedAt: "2026-09-11T03:59:00Z", periodStart: "2026-09-11T04:00:00Z",
+    proofObservedAt: OBSERVED, candidateHistoryRevision: "a".repeat(64),
+  });
+  assert.deepEqual(boundary, revision);
+  assert.throws(() => contractsNeedingFlatNetMarks({ ...input, executions: input.ledgerState.executions,
+    account: ACCOUNT, familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
+    fillAttributionOverrides: policy.fillAttributionOverrides }), { message: revision.reason });
+});
+
+test("a cross-desk close on a flat account fails loud until its exact override reconciles both desks", () => {
+  const input = fixture();
+  const executions = [execution("cross.open.01", 27, "ACME", 101),
+    execution("cross.close.01", 22, "ACME", 101, { side: "SLD", price: 11 })];
+  const commissions = executions.map(row => commission(row.execution.execId));
+  Object.assign(input.ledgerState, { executions, commissions,
+    queryExecutionIdentities: executions.map(row => row.execution.execId).sort() });
+  input.verifiedHistoryState = officialHistory(executions, commissions);
+  input.positions = input.positions.filter(row => row.symbol !== "ACME");
+  input.portfolio = [];
+  input.jResult = null;
+  assert.equal(executions.reduce((net, row) => net + (row.execution.side === "BOT" ? 1 : -1) * row.execution.shares, 0), 0);
+  const calculate = policy => calculateDeskEquities({ ...input, policy, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  const crossed = calculate(PRE_OVERRIDE_POLICY);
+  assert.equal(crossed.ok, false);
+  assert.match(crossed.reason, /J desk calculation unavailable: .*mark/);
+  assert.equal(crossed.phaseBDesks.j.reconciled, false);
+  assert.equal(crossed.phaseBDesks.joe.reconciled, false);
+  const policy = { ...PRE_OVERRIDE_POLICY, fillAttributionOverrides: [
+    { execId: "cross.close.01", desk: "j", basis: "synthetic cross-desk close", date: "2026-11-04" },
+  ] };
+  const corrected = calculate(policy);
+  assert.equal(corrected.ok, true, corrected.reason);
+  for (const desk of ["j", "joe", "joel"]) assert.deepEqual(corrected.desks[desk].positions, []);
+  const before = structuredClone(input.ledgerState);
+  for (const change of [
+    rows => { rows[1].execution.execId = "cross.near-close.01"; },
+    rows => { rows.push(structuredClone(rows[1])); },
+    rows => { const correction = structuredClone(rows[1]); correction.execution.execId = "cross.close.02"; rows.push(correction); },
+  ]) {
+    input.ledgerState = structuredClone(before);
+    change(input.ledgerState.executions);
+    const failed = calculate(policy);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.reason, "desk fill attribution override fillAttributionOverrides[0] must match exactly one fill");
+    assert.equal(Object.hasOwn(failed, "desks"), false);
+    assert.equal(Object.hasOwn(failed, "phaseBDesks"), false);
+    const j = calculateFamily({ ...input, executions: input.ledgerState.executions, commissions,
+      account: ACCOUNT, observedAt: OBSERVED, periodStart: START,
+      familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds, fillAttributionOverrides: policy.fillAttributionOverrides,
+      ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP });
+    assert.equal(j.ok, false);
+    assert.equal(j.reason, failed.reason);
   }
 });
 
@@ -288,7 +383,7 @@ function executorFixture(desk = "j", orderRef = "j2|masked", clientId = 705) {
   input.executorLedger = { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT,
     intents: { "masked-intent": record }, executions: structuredClone(input.ledgerState.executions) };
   const clientIds = [...new Set([700, 705, clientId])];
-  input.policy = { ...CURRENT_DESK_OWNERSHIP_POLICY, executorClientIds: clientIds };
+  input.policy = { ...PRE_OVERRIDE_POLICY, executorClientIds: clientIds };
   input.executorAttribution = createExecutorAttribution({ ledger: input.executorLedger, account: ACCOUNT, clientIds });
   input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
   input.jResult = executorFamily(input);
@@ -346,7 +441,8 @@ test("flat OPS tests leave valued desks, fees, history revisions, day-provider a
   const book = { ts: OBSERVED, gateway: true, gatewayLastSeenAt: OBSERVED,
     summary: {}, positions: input.positions.map(row => ({ ...row, currency: row.contract.currency })), portfolio: input.portfolio,
     positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: OBSERVED };
-  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities: result });
+  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), deskOwnershipPolicy: input.policy,
+    familyRuntimeEnabled: true, family: input.jResult, deskEquities: result });
   assert.equal(v1.totals.equity, baseline.equity.total);
   for (const desk of ["j", "joe", "joel"]) assert.equal(v1.desks.find(row => row.id === desk).money.equity, baseline.equity[desk]);
   const v2 = buildCandidate(1, OBSERVED, copyObservation({ book, family: input.jResult, deskEquities: result,
@@ -433,7 +529,8 @@ test("remembered executor proofs preserve exact all-desk equity, J history and u
   const book = { ts: OBSERVED, gateway: true, gatewayLastSeenAt: OBSERVED,
     summary: {}, positions: input.positions.map(row => ({ ...row, currency: row.contract.currency })), portfolio: input.portfolio,
     positionsCoverage: { status: "complete" }, openOrders: [], ordersObservedAt: OBSERVED };
-  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities: remembered });
+  const v1 = projectBook(book, { publisherAt: new Date(OBSERVED), deskOwnershipPolicy: input.policy,
+    familyRuntimeEnabled: true, family: input.jResult, deskEquities: remembered });
   assert.equal(v1.totals.equity, matched.equity.total);
   const v2 = buildCandidate(1, OBSERVED, copyObservation({ book, family: input.jResult, deskEquities: remembered,
     executions: executionActivity(input.ledgerState, input.executorAttribution), executorAttribution: input.executorAttribution }));
@@ -497,7 +594,7 @@ test("normalized retained 705 history and NY boundary proofs require the same ex
   const verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions, {
     toExclusive: periodStart, capturedAt: proofObservedAt,
   });
-  const options = { verifiedHistoryState, account: ACCOUNT, candidateSourceObservedAt: CUTOFF,
+  const options = { verifiedHistoryState, account: ACCOUNT, policy: input.policy, candidateSourceObservedAt: CUTOFF,
     candidateHistoryRevision: revision.historyRevision, periodStart, proofObservedAt,
     executorAttribution: input.executorAttribution };
   const proof = buildDeskDayBoundaryEvidence(options);
@@ -632,7 +729,7 @@ test("complete official all-account evidence produces real J/Joe/Joel EUR equity
   assert.equal(result.oldestSourceObservedAt, "2026-09-11T14:59:57.000Z");
   assert.equal(result.sourceContract.scope, "stage0-virtual-desks-keep-excluded");
   assert.equal(result.sourceContract.keepExcluded, true);
-  assert.deepEqual(result.sourceContract, deskOwnershipPolicyContract());
+  assert.deepEqual(result.sourceContract, deskOwnershipPolicyContract(input.policy));
   assert.match(result.historyRevision, /^[0-9a-f]{64}$/);
   assert.match(result.sourceContract.policyHash, /^[0-9a-f]{64}$/);
 });
@@ -688,6 +785,7 @@ test("an exact-midnight candidate promotes only when no execution exists at the 
   const candidate = deskLedgerRevisionAt({
     ledgerState: input.ledgerState,
     account: ACCOUNT,
+    policy: input.policy,
     throughInclusive: periodStart,
   });
   const history = officialHistory(input.ledgerState.executions, input.ledgerState.commissions, {
@@ -697,6 +795,7 @@ test("an exact-midnight candidate promotes only when no execution exists at the 
   const boundary = buildDeskDayBoundaryEvidence({
     verifiedHistoryState: history,
     account: ACCOUNT,
+    policy: input.policy,
     candidateSourceObservedAt: periodStart,
     candidateHistoryRevision: candidate.historyRevision,
     periodStart,
@@ -715,6 +814,7 @@ test("an exact-midnight candidate promotes only when no execution exists at the 
   const withMidnight = deskLedgerRevisionAt({
     ledgerState: input.ledgerState,
     account: ACCOUNT,
+    policy: input.policy,
     throughInclusive: periodStart,
   });
   const revisedHistory = officialHistory(input.ledgerState.executions, input.ledgerState.commissions, {
@@ -724,6 +824,7 @@ test("an exact-midnight candidate promotes only when no execution exists at the 
   assert.match(buildDeskDayBoundaryEvidence({
     verifiedHistoryState: revisedHistory,
     account: ACCOUNT,
+    policy: input.policy,
     candidateSourceObservedAt: periodStart,
     candidateHistoryRevision: withMidnight.historyRevision,
     periodStart,
@@ -771,6 +872,7 @@ test("candidate ledger revision promotes only when official economics remain unc
   const candidate = deskLedgerRevisionAt({
     ledgerState: input.ledgerState,
     account: ACCOUNT,
+    policy: input.policy,
     throughInclusive: candidateAt,
   });
   assert.equal(candidate.ok, true, candidate.reason);
@@ -781,6 +883,7 @@ test("candidate ledger revision promotes only when official economics remain unc
   const boundary = buildDeskDayBoundaryEvidence({
     verifiedHistoryState: history,
     account: ACCOUNT,
+    policy: input.policy,
     candidateSourceObservedAt: candidateAt,
     candidateHistoryRevision: candidate.historyRevision,
     periodStart,
@@ -800,6 +903,7 @@ test("candidate ledger revision promotes only when official economics remain unc
   assert.match(buildDeskDayBoundaryEvidence({
     verifiedHistoryState: revised,
     account: ACCOUNT,
+    policy: input.policy,
     candidateSourceObservedAt: candidateAt,
     candidateHistoryRevision: candidate.historyRevision,
     periodStart,

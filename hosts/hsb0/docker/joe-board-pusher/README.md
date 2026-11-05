@@ -879,8 +879,15 @@ never copied into the active policy's baseline.
 
 OPS-557 adds `fillAttributionOverrides` to the canonical ownership policy. An
 override matches only its exact `execId`, before executor/clientId assignment;
-an absent or unknown execution identity never claims another fill. Each entry
-records its desk, basis and decision date. The reviewed corrections are:
+an absent or unknown execution identity never claims another fill. Complete
+J/all-desk accounting, revision and day-boundary sources require **exactly one
+effective fill per override**. Missing, corrected-away or duplicate matches
+fail closed before monetary output, including independently exact desk output.
+Errors name only `fillAttributionOverrides[index]`, the rule's policy-array key;
+all-desk keys use canonical execution-ID order. They never include broker or
+economic values. Day-only activity and partial captured-history views are not
+complete accounting sources and cannot establish this cardinality proof.
+Each entry records its desk, basis and decision date. The reviewed corrections are:
 
 | Exact execution ID        | Desk | Fill                                                  |
 | ------------------------- | ---- | ----------------------------------------------------- |
@@ -897,6 +904,9 @@ on NVDA (`conId 4815747`), matching the account; no residual NVDA mark is needed
 The six-fill `fixtures/ops557-nvda.json` is a small synthetic regression fixture,
 not a copied live history. Counterpart execution IDs and prices absent from the
 brief are synthetic.
+The legacy-route entry remains an explicit exact-fill guard even though OPS-392
+already assigns that fill to J. Its cardinality must still hold; retaining the
+guard preserves the reviewed policy digest and history basis.
 
 OPS-557 also publishes `historyBasis` on J and Joe from the first snapshot:
 `desk-policy-` plus the first 12 **lowercase** hex characters of the canonical
@@ -926,6 +936,57 @@ without those proofs Today stays unavailable. No prior-policy baseline is reused
 no same-day zero proxy is invented, and no retained state file is deleted.
 The older R14/R15 session-proxy notes below describe the prior runtime policy;
 the adapter retains that optional mode for callers that explicitly allow it.
+
+#### OPS-557 rollback to the pre-change image
+
+The pre-OPS-557 worker at `b93de64056508c2d9fe228b97fe2b40dc23108ae`
+rejects `desks[].historyBasis` on both rev-9 and rev-10 pairs. Its handoff parser
+also rejects new observations carrying the basis. Keeping this required board
+metadata therefore requires an archive/move-aside for rollback; a mixed
+pusher/stager generation is not supported. Without it, recovery reports
+`stage_storage_invalid` and the old publisher cannot send the committed pair.
+
+This is a coordinator-operated rollback procedure, not automatic cleanup:
+
+1. Stop `joe-board-pusher` first, then `joe-household-v2-stage`, and verify both
+   are stopped and no writer holds the allocator lock. Keep the board and its
+   current contract revision. Prepare the approved rollback image for both
+   services together; do not run an old stager alongside the new pusher.
+2. Create a new mode-0700 sibling archive at
+   `/var/lib/joe-board-pusher/rollback-ops557-<UTC>/`, **outside**
+   `/var/lib/joe-board-pusher/v2/`. Preserve ownership and modes. Copy
+   `/var/lib/joe-board-pusher/v1-cycles/` there before reconnect pruning can
+   remove old bodies. Also copy `v2-post-state.json` and its `.tmp` sibling
+   when present, plus `v2/sequence-state.json` and `v2/receipts.jsonl` for
+   comparison. Record the `.allocator.lock` inode and saved sequence/time
+   high-water. Leave the original cursor, pending POST, baseline files, family
+   ledger/history and checkpoint directory untouched.
+3. Move `/var/lib/joe-board-pusher/v2/current.json`, when present, into the
+   archive first. Then move **every** `v2/pair-<seq>/` directory into the same
+   archive, including compatible older pairs. Moving the pointer alone fails:
+   the old worker validates retained pairs too. Leave `v2/.allocator.lock`,
+   `v2/sequence-state.json` and `v2/receipts.jsonl` in place. Never re-enroll,
+   reset the sequence, edit a pair, or delete receipts. If any other v2 entry
+   exists (including crash residue), stop this procedure for coordinated
+   recovery; do not guess at or delete it.
+4. Verify the v2 directory contains exactly those three preserved files;
+   compare allocator/log bytes and lock inode with step 2. Verify the archived
+   pointer, all snapshot/receipt bytes and copied v1 bodies match the original
+   evidence. The archive must remain outside the worker's scanned directory.
+5. Start the matched rollback stager, then rollback pusher. Verify recovery
+   succeeds with no current/retained pair and the saved high-water intact.
+   The next healthy IB cycle must commit a sequence **above** that high-water,
+   append to the existing receipt log, and publish successfully using the
+   preserved posting state. Verify the board becomes fresh; neither process
+   startup nor a missing storage error alone proves recovery. Preserve the
+   archive after pruning and do not reset the board or POST cursor.
+
+The rollback restores pre-fix ownership and removes J/Joe's policy basis,
+causing another board series cut. The old policy's own preserved baseline is
+selected again; it must never be copied into the corrected policy's file.
+`v2-rollback.test.mjs` loads the actual base-commit runtime/contract closure and
+pins rejection, pointer-only failure, evidence preservation, monotonic recovery
+and successful old-worker publication for both supported contract revisions.
 
 Stage-0 desks share one paper account and may both hold one contract.
 `calculateFamily` defaults to exclusive ownership and fails with
