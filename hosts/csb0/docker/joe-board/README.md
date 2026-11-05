@@ -41,8 +41,8 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects 36fecfeb (sequence 43, JOED-177) with the r20e
-pusher/executor pins (JOED-86 code delivery, revision 9 default; after JOED-63/HOSTD-77 r19a); `current` retains db621bf, legacy `calendar`
+executor. `active = v2` (OPS-354 activation) selects 36fecfeb (sequence 43, JOED-177) with the r21
+pusher/executor pins (JOED-149 revision 11 configured; after JOED-86 and JOED-63/HOSTD-77 r19a); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
@@ -57,11 +57,10 @@ The active `v2` set records main 36fecfeb (JOED-177 release 43; supersedes a7662
 `release/preparation.json` (JOED-177 preparation; JOED-174 was the previous release set) and the complete exact `release/contracts.json`
 record at manifest revision 11 (JOED-149: optional desk DAY fx proof, accepted beside revision 10). Release 43 changes the board only: JOED-173 honest signed-out
 board (frozen at the last good figures, labelled and inert; never
-readable as live), JOED-175 sign-in check across a restored tab, JOED-149 acceptance of revision 11. The r20e pusher keeps its vendored revision-10 set and emits no fx until the separate JOED-149 flip. The board accepts revision-9
-payloads; JOED-86 prepares the revision-10-capable shared image with revision 9
-still the default. Phase B activation and producer sign-off remain separately gated. The full
-source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
-downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-86; image `household-v2-switch-set-r20e-202610291640`, revision 9 default). Fixtures do not
+readable as live), JOED-175 sign-in check across a restored tab, JOED-149 acceptance of revision 11. JOED-149 now prepares the r21 pusher with the complete vendored revision-11 set and revision 11 configured for pusher and stager; image build, host activation and live producer sign-off remain separately gated. The board still accepts revision-9
+payloads; revision 9 remains the pusher's fallback for an absent or unrecognized setting.
+The full source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
+downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-149; image `household-v2-switch-set-r21-202611031258`, revision 11 configured). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
