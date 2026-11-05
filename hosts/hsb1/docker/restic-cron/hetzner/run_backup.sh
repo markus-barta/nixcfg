@@ -104,6 +104,7 @@ trap 'rm -f "$message_file"' EXIT
 echo 'Starting hsb1 backup.'
 "$RESTIC_BIN" backup --host hsb1 \
   --exclude '*/cache/*' --exclude '*.log*' \
+  --exclude "${RESTIC_EXCLUDE_NIGHTLIGHT_KEYS:-*/aqara-nightlight/desk-keys}" \
   /backup/home /backup/root /backup/etc \
   >"$message_file" 2>&1
 restic_status="$?"

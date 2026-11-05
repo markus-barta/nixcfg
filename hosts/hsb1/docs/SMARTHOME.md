@@ -22,8 +22,9 @@ The HTML is a separate self-contained file packaged by Nix and read once at
 service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
 no external assets.
 
-Same-origin localStorage keys `nightlight-hub`, `nightlight-mode` and
-`nightlight-theme` hold only these interface choices. The page reads them on
+Same-origin localStorage keys `nightlight-hub`, `nightlight-mode`,
+`nightlight-theme`, `nightlight-tab-plug`, `nightlight-tab-round` and
+`nightlight-preview-paused` hold only requested interface choices. The page reads them on
 load and writes them when the user changes a choice; they remain until site data
 is cleared. Storage failures retain the first-visit defaults. Requests go only
 to this service's same-origin API; saved Nachtlicht presets remain on the server.
@@ -43,9 +44,11 @@ The HTTP Host allowlist accepts `127.0.0.1`, `localhost`, `192.168.1.101`,
 match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**. These checks are defence in depth because browsers can omit
 Origin and fetch metadata on plain HTTP. Every acting endpoint (`/set`,
-`/tone`, `/stop`, `/preset`, `/apply`, `/settings`, `/seen`, `/signal-test`) requires exactly one
+`/tone`, `/stop`, `/preset`, `/apply`, `/settings`, `/seen`, `/signal-test`, `/desk`, `/desk-test`) requires exactly one
 `X-Nightlight: 1` header; absent, duplicated or invalid headers return **403**.
-Actions accept **GET or POST** for this release. **GET-with-header is deprecated**
+Existing actions accept **GET or POST**. `/desk` and `/desk-test` require POST
+with exactly one `X-Nightlight-Mode: erwachsen` and a JSON body; query strings
+are refused. **GET-with-header is deprecated**
 compatibility for Home Assistant's existing `rest_command`; new callers and
 the UI use POST. The custom header is the CSRF protection. `/`, `/get` and
 `/presets`, `/config` and `/signal` remain read-only GETs without it. POST to these read-only paths returns 405. Cross-origin scripts need a preflight to send the custom header; **OPTIONS
@@ -55,24 +58,27 @@ Hosts or ports are rejected too. Linux `IP_FREEBIND` keeps LAN/loopback
 available while the tailnet address is absent. Empty or wildcard bind
 addresses fail startup before any listener opens.
 
-| Method      | Path           | Parameters                                            | Behavior                                        |
-| ----------- | -------------- | ----------------------------------------------------- | ----------------------------------------------- |
-| GET         | `/`            | —                                                     | Responsive Nachtlicht/Desk UI                   |
-| GET or POST | `/set`         | `hub`, `rgb`, `bri`                                   | Manual light; one 300 ms echo                   |
-| GET         | `/get`         | `hub`                                                 | Approximate RGB/illumination readback           |
-| GET or POST | `/tone`        | `hub`, `id`, optional `vol`, `ms=200..3000`           | Play; optional timed stop                       |
-| GET or POST | `/stop`        | `hub`                                                 | Stop; cancel timed stop                         |
-| GET         | `/presets`     | —                                                     | Ordered `[{id,name,rgb,bri}]` per hub           |
-| GET or POST | `/preset`      | `hub`, `id` plus colour/name/reset/delete, or `new=1` | Save/manage up to six places; no light command  |
-| GET or POST | `/apply`       | `hub`, `preset=<id>`                                  | Apply any saved place; HA-compatible JSON       |
-| GET         | `/config`      | —                                                     | Per-hub Verwendung, rules, thresholds and sound |
-| GET or POST | `/settings`    | `hub`, setting fields                                 | Persist use, rules or sound                     |
-| GET         | `/signal`      | `hub`                                                 | Resolved signal, counts and last hub ACK        |
-| GET or POST | `/seen`        | `hub`                                                 | Quiet until a new held generation               |
-| GET or POST | `/signal-test` | `hub`, `rule`, optional rule fields                   | Ten-second preview, then live signal            |
+| Method      | Path           | Parameters                                            | Behavior                                           |
+| ----------- | -------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| GET         | `/`            | —                                                     | Responsive Nachtlicht/Desk UI                      |
+| GET or POST | `/set`         | `hub`, `rgb`, `bri`                                   | Manual light; one 300 ms echo                      |
+| GET         | `/get`         | `hub`                                                 | Approximate RGB/illumination readback              |
+| GET or POST | `/tone`        | `hub`, `id`, optional `vol`, `ms=200..3000`           | Play; optional timed stop                          |
+| GET or POST | `/stop`        | `hub`                                                 | Stop; cancel timed stop                            |
+| GET         | `/presets`     | —                                                     | Ordered `[{id,name,rgb,bri}]` per hub              |
+| GET or POST | `/preset`      | `hub`, `id` plus colour/name/reset/delete, or `new=1` | Save/manage up to six places; no light command     |
+| GET or POST | `/apply`       | `hub`, `preset=<id>`                                  | Apply any saved place; HA-compatible JSON          |
+| GET         | `/config`      | —                                                     | Per-hub Verwendung, rules, thresholds and sound    |
+| GET or POST | `/settings`    | `hub`, setting fields                                 | Persist use, rules or sound                        |
+| GET         | `/signal`      | `hub`                                                 | Resolved signal, counts and last hub ACK           |
+| GET or POST | `/seen`        | `hub`                                                 | Quiet until a new held generation                  |
+| GET or POST | `/signal-test` | `hub`, `rule`, optional rule fields                   | Ten-second preview, then live signal               |
+| POST        | `/desk`        | JSON desk metadata, optional write-only `key`         | Add/save/replace/remove, capability check required |
+| POST        | `/desk-test`   | JSON desk metadata, optional write-only `key`         | Counts-only capability check, no persistence       |
 
-All acting calls need `X-Nightlight: 1`; parameters remain in the query string
-for both methods. Prefer `-H 'X-Nightlight: 1' -X POST` with curl. `/apply`
+All acting calls need `X-Nightlight: 1`; existing action parameters remain in the
+query string for both methods. Desk credentials travel only in the JSON body.
+Prefer `-H 'X-Nightlight: 1' -X POST` with curl. `/apply`
 works from `127.0.0.1` with the header and no Origin or extra CSRF token,
 including HA's legacy GET caller. An unknown or missing saved preset returns
 `ok:false` without sending anything to the hub.
@@ -102,11 +108,19 @@ do not replace a newer command's status. The CSP permits only the packaged
 script's SHA-256 hash, inline styles and same-origin connections/SVG references.
 No handshake token or raw library exception is logged.
 
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Use,
-11 matrix rules, four-hour urgency thresholds and automatic audio are persisted
-in `settings.json`. Until the separately owned poller supplies the documented
-`desk-counts.json` input, the Desk hub stays **Unbekannt** at 5%, and both desk
-rows say “nicht verbunden”. This service has no Desk credentials or poller.
+KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Version 33
+settings store zero or more desks, three shared urgency rules, Ruhe/Unbekannt,
+optional per-desk overrides, multiple-colour policy, four-hour urgency thresholds
+and automatic audio. Desk colours come from the desk. The highest urgency wins;
+multiple desks at that urgency cycle their colours at one colour per Takt or use
+an explicit shared colour. Single-desk overrides set brightness/mode/Takt;
+simultaneous desks use the shared urgency behaviour. Until OPS-502 supplies the
+documented `desk-counts.json` input, the Desk hub stays **Unbekannt** at 5%, and
+each desk row says **keine Daten**. A fresh installation starts with zero desks,
+also Unbekannt. There is no poller or outbound Desk call in this revision.
+Key tests/saves fail closed until a reviewed counts-only capability verifier
+exists; connectivity alone cannot prove restricted scope. Runtime key storage
+and request boundaries are covered with obvious fake credentials offline.
 Automatic sound starts off, is capped at 15%, never repeats a consumed held
 generation, and is limited to once per ten minutes. Vienna quiet hours
 20:00–07:30 disable animation/audio and hold lit rules at 5%.

@@ -18,7 +18,6 @@ module.exports = function nightlightPage() {
     idle: "Ruhe",
     unknown: "Unbekannt",
   };
-  const DESK_NAMES = { ppm: "PPM", pma: "PMA", both: "Beide" };
   let settings = {};
   let configReady = false;
   let configRevision = 0;
@@ -30,6 +29,7 @@ module.exports = function nightlightPage() {
   let audioDirty = false;
   let editingPlaces = false;
   let editingRule = null;
+  let editingDeskRule = null;
   let ruleDraft = null;
   let ruleSlot = "rgb";
   let sending = null;
@@ -683,7 +683,29 @@ module.exports = function nightlightPage() {
   );
   function ruleName(key) {
     const [level, desk] = key.split(":");
-    return LEVEL_NAMES[level] + (desk ? ` · ${DESK_NAMES[desk]}` : "");
+    return (
+      LEVEL_NAMES[level] +
+      (desk
+        ? ` · ${desk === "both" ? "Mehrere Desks" : deskList().find((d) => d.id === desk)?.short || "Desk"}`
+        : "")
+    );
+  }
+  const deskList = () => settings[hub()]?.desks || [];
+  const make = (tag, cls = "", text = "") => {
+    const element = document.createElement(tag);
+    element.className = cls;
+    element.textContent = text;
+    return element;
+  };
+  function deskDots(container, desks) {
+    container.replaceChildren();
+    for (const desk of desks) {
+      const chip = make("span", "dd");
+      const dot = make("span", "dot");
+      dot.style.setProperty("--c", "#" + desk.rgb);
+      chip.append(dot, document.createTextNode(desk.short));
+      container.append(chip);
+    }
   }
   function renderDesk() {
     const desk = usageFor() === "desk",
@@ -698,32 +720,51 @@ module.exports = function nightlightPage() {
       b.tabIndex = b.dataset.usage === usageFor() ? 0 : -1;
       b.disabled = !configReady || serverRejected;
     });
+    renderTabs();
     if (!cfg) return;
     document.querySelectorAll("[data-rule]").forEach((b) => {
       const r = cfg.rules[b.dataset.rule];
       if (!r) return;
-      const value = r.bri
-        ? `${percent(r.bri)}${r.mode === "steady" ? "" : r.mode === "blink" ? " · blinkt" : " · wechselt"}`
-        : "Aus";
-      const cellValue = b.querySelector(".cv");
-      cellValue.textContent = r.bri ? percent(r.bri) : "Aus";
+      const value = r.bri ? percent(r.bri) : "Aus";
+      b.querySelector(".cv").textContent = value;
       b.querySelector(".cwave").classList.toggle(
         "motion-hidden",
         !r.bri || r.mode === "steady",
       );
-      b.querySelector(".rule-motion").textContent =
-        r.bri && r.mode !== "steady"
-          ? r.mode === "blink"
-            ? " · blinkt"
-            : " · wechselt"
-          : "";
+      b.querySelector(".rule-motion").textContent = r.bri
+        ? r.mode === "steady"
+          ? "ständig"
+          : `${r.mode === "blink" ? "blinkt" : "wechselt"} (${r.takt} s)`
+        : "";
       b.querySelector(".dot").style.setProperty("--c", "#" + r.rgb);
-      b.querySelector(".dot").classList.toggle("off-dot", !r.bri);
+      b.querySelector(".dot").hidden = ["urgent", "regular", "open"].includes(
+        b.dataset.rule,
+      );
       b.setAttribute(
         "aria-label",
-        `${ruleName(b.dataset.rule)}: ${value}${r.mode !== "steady" ? ` (${r.takt} s)` : ""}`,
+        `${ruleName(b.dataset.rule)}: ${value} · ${r.mode === "steady" ? "ständig" : r.mode === "blink" ? "blinkt" : "wechselt"} (${r.takt} s)`,
+      );
+      deskDots(
+        b.querySelector(".rr-dots"),
+        r.bri && ["urgent", "regular", "open"].includes(b.dataset.rule)
+          ? cfg.desks
+          : [],
       );
     });
+    $("multiple-settings").hidden = cfg.desks.length < 2;
+    $("multiple-own").hidden = cfg.multiple.mode !== "own";
+    $("multiple-colors").hidden = cfg.multiple.mode !== "cycle";
+    $("multiple-color").value = "#" + cfg.multiple.rgb;
+    renderColorPicks("multiple", cfg.multiple.rgb);
+    document
+      .querySelectorAll("[data-multiple]")
+      .forEach((b) =>
+        b.setAttribute(
+          "aria-pressed",
+          String(b.dataset.multiple === cfg.multiple.mode),
+        ),
+      );
+    deskDots($("multiple-colors"), cfg.desks);
     $("auto-sound").setAttribute("aria-checked", String(cfg.auto_sound));
     if (!audioDirty) {
       $("auto-vol").value = cfg.sound_vol ?? 10;
@@ -732,38 +773,538 @@ module.exports = function nightlightPage() {
       autoDurationMode = cfg.sound_ms === null ? "full" : "short";
     }
     renderAutoDuration();
-    $("threshold-ppm").value = cfg.thresholds.ppm;
-    $("threshold-pma").value = cfg.thresholds.pma;
-    const active = signal?.hub === hub() ? signal : null;
-    const feed = active?.feed;
-    for (const d of ["ppm", "pma"]) {
-      const c = feed?.desks[d];
-      $("desk-" + d).textContent =
-        `${DESK_NAMES[d]} · ` +
-        (!c
-          ? "nicht verbunden"
-          : c.held
-            ? `${c.held} warten auf Antwort · älteste ${Math.max(0, Math.floor((Date.now() / 1000 - c.oldest_held_at) / 3600))} h`
-            : c.open
-              ? `${c.open} ohne Eile`
-              : "nichts offen");
-    }
+    const active = signal?.hub === hub() ? signal : null,
+      feed = active?.feed;
     const key = active?.key || "unknown",
       r = active?.rule || cfg.rules.unknown;
     $("desk-lit").textContent =
       `Leuchtet: ${ruleName(key)} · ${percent(r.bri)}${r.mode !== "steady" ? ` · ${r.mode === "blink" ? "blinkt" : "wechselt"} (${r.takt} s)` : ""}`;
     $("desk-time").textContent = feed
-      ? `Stand ${new Date(feed.updated_at * 1000).toLocaleTimeString("de-AT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vienna" })}`
+      ? `Stand ${stamp(feed.updated_at)}`
       : "Stand — · keine aktuellen Daten";
-    $("desk-applied").textContent = active?.applied
-      ? `Zuletzt am Hub bestätigt: ${ruleName(active.applied.key)} · ${percent(active.applied.bri)}`
-      : "Hub-Bestätigung steht aus";
     const canSee = Boolean(
       feed && !["unknown", "idle"].includes(key) && r.bri > 0,
     );
     $("desk-seen").hidden = !canSee;
     $("desk-seen").disabled = !canSee;
+    $("no-desks").hidden = cfg.desks.length > 0;
+    $("signal-add-desk").hidden = cfg.desks.length > 0;
+    $("desk-empty").hidden = cfg.desks.length > 0;
+    $("desk-signal-rows").replaceChildren();
+    $("desk-list").replaceChildren();
+    for (const d of cfg.desks) {
+      const row = make("li"),
+        dot = make("span", "dot"),
+        text = make("span", "dr-m"),
+        age = make("span", "dr-w");
+      dot.style.setProperty("--c", "#" + d.rgb);
+      const counts = feed?.desks[d.id],
+        sent = active?.desk_applied?.[d.id];
+      const countsText = !counts
+        ? "keine Daten"
+        : `${counts.open} offen · ${counts.held} warten`;
+      text.textContent =
+        countsText +
+        (sent
+          ? ` · zuletzt #${sent.rgb} · ${percent(sent.bri)}`
+          : " · noch nichts gesendet");
+      age.textContent = sent
+        ? `vor ${Math.max(0, Math.floor(Date.now() / 1000 - sent.at))} s`
+        : "—";
+      row.append(dot, make("span", "kchip", d.short), text, age);
+      $("desk-signal-rows").append(row);
+      const item = make("li"),
+        button = make("button", "dl-row");
+      button.type = "button";
+      button.setAttribute("aria-label", `${d.short} bearbeiten`);
+      const meta = make("span", "dl-m"),
+        title = make("span", "dl-1", `${d.short} · ${d.name}`);
+      meta.append(
+        title,
+        make("span", "dl-st", d.url || "Instanz fehlt"),
+        make(
+          "span",
+          "dl-st",
+          d.key_set
+            ? "Schlüssel gesetzt · keine Daten"
+            : "Schlüssel fehlt · neu eintragen",
+        ),
+      );
+      button.append(meta);
+      button.addEventListener("click", () => openDesk(d.id));
+      item.append(button);
+      $("desk-list").append(item);
+    }
+    renderPreview(active, cfg);
+    updateOverflowButton();
   }
+  const stamp = (seconds) =>
+    new Date(seconds * 1000).toLocaleTimeString("de-AT", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/Vienna",
+    });
+  const phone =
+    typeof matchMedia === "function"
+      ? matchMedia("(max-width: 979px)")
+      : { matches: false };
+  const reducedMotion =
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const tabsByHub = {};
+  let previewPaused = reducedMotion,
+    previewTimer = null,
+    previewFrame = 0,
+    previewSignature = "";
+  let overflowRestore = null;
+  let editingDesk = null,
+    deskOwn = false,
+    deskConfirmation = null,
+    deskBusy = false;
+  try {
+    previewPaused =
+      reducedMotion ||
+      localStorage.getItem("nightlight-preview-paused") === "1";
+    for (const h of Object.values(HUB_HANDLES))
+      tabsByHub[h] = localStorage.getItem("nightlight-tab-" + h);
+  } catch (_) {
+    /* Requested interface preferences; no optional services. */
+  }
+  function allowedTabs() {
+    return usageFor() !== "desk"
+      ? ["light", "sounds"]
+      : root.dataset.mode === "kind"
+        ? []
+        : ["signal", "rules", "auto-tone", "desks"];
+  }
+  function renderTabs() {
+    const allowed = allowedTabs();
+    if (allowed.length && !allowed.includes(tabsByHub[hub()]))
+      tabsByHub[hub()] = allowed[0];
+    const current = tabsByHub[hub()];
+    $("tabbar").hidden = !phone.matches || !allowed.length;
+    $("panel-more").hidden = !phone.matches || !allowed.length;
+    document.querySelectorAll("[data-tab]").forEach((b) => {
+      b.hidden = !allowed.includes(b.dataset.tab);
+      b.setAttribute("aria-selected", String(current === b.dataset.tab));
+      b.tabIndex = current === b.dataset.tab ? 0 : -1;
+    });
+    document.querySelectorAll("[data-panel]").forEach((p) => {
+      p.classList.toggle("active-panel", current === p.dataset.panel);
+      p.setAttribute("role", phone.matches ? "tabpanel" : "region");
+      if (phone.matches)
+        p.setAttribute("aria-labelledby", "tab-" + p.dataset.panel);
+    });
+    $("panel-more").textContent =
+      current === "desks" ? "Alle Desks anzeigen" : "Mehr anzeigen";
+    updateOverflowButton();
+  }
+  function updateOverflowButton() {
+    $("panel-more").hidden = true;
+    if (!phone.matches || !allowedTabs().length) return;
+    const panel = $("panel-" + tabsByHub[hub()]);
+    if (!panel) return;
+    // Measure with the More button absent. On overflow, the sheet holds the
+    // actual panel and controls, so there is one bound action per button.
+    $("panel-more").hidden =
+      panel.clientHeight > 0 && panel.scrollHeight <= panel.clientHeight;
+  }
+  if (typeof ResizeObserver === "function") {
+    const overflowObserver = new ResizeObserver(updateOverflowButton);
+    document
+      .querySelectorAll("[data-panel]")
+      .forEach((panel) => overflowObserver.observe(panel));
+  }
+  function selectTab(tab) {
+    if (!allowedTabs().includes(tab)) return;
+    restoreOverflow();
+    tabsByHub[hub()] = tab;
+    remember("nightlight-tab-" + hub(), tab);
+    renderTabs();
+  }
+  document.querySelectorAll("[data-tab]").forEach((b) => {
+    b.addEventListener("click", () => selectTab(b.dataset.tab));
+    b.addEventListener("keydown", (event) => {
+      const allowed = allowedTabs(),
+        index = allowed.indexOf(b.dataset.tab);
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+        return;
+      event.preventDefault();
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? allowed.length - 1
+            : (index + (event.key === "ArrowRight" ? 1 : -1) + allowed.length) %
+              allowed.length;
+      selectTab(allowed[next]);
+      $("tab-" + allowed[next]).focus();
+    });
+  });
+  function restoreOverflow() {
+    if (!overflowRestore) return;
+    const { panel, parent, next } = overflowRestore;
+    parent.insertBefore(panel, next);
+    overflowRestore = null;
+    $("overflow-sheet").close();
+  }
+  $("panel-more").addEventListener("click", () => {
+    const panel = $("panel-" + tabsByHub[hub()]);
+    if (!panel || !allowedTabs().length) return;
+    overflowRestore = {
+      panel,
+      parent: panel.parentNode,
+      next: panel.nextSibling,
+    };
+    $("overflow-body").append(panel);
+    $("overflow-sheet").showModal();
+  });
+  $("overflow-sheet").addEventListener("close", restoreOverflow);
+  $("overflow-sheet").addEventListener("cancel", restoreOverflow);
+  $("light-info").addEventListener("click", () => $("info-sheet").showModal());
+  $("sound-options").addEventListener("click", () => {
+    $("sound-sheet-body").append($("sound-duration"));
+    $("sound-sheet").showModal();
+  });
+  document
+    .querySelectorAll("[data-close]")
+    .forEach((b) =>
+      b.addEventListener("click", () => $(b.dataset.close).close()),
+    );
+  phone.addEventListener?.("change", () => {
+    restoreOverflow();
+    renderTabs();
+    if (
+      !phone.matches &&
+      $("sound-duration").parentNode === $("sound-sheet-body")
+    )
+      $("panel-sounds").append($("sound-duration"));
+  });
+  $("preview-pause").addEventListener("click", () => {
+    previewPaused = !previewPaused;
+    remember("nightlight-preview-paused", previewPaused ? "1" : "0");
+    renderPreview(signal?.hub === hub() ? signal : null, settings[hub()]);
+  });
+  function renderPreview(active, cfg) {
+    clearTimeout(previewTimer);
+    if (!cfg) return;
+    const applied = active?.applied,
+      rule = applied || cfg.rules.unknown;
+    const colors = applied?.colors || [];
+    const signature = JSON.stringify([hub(), applied]);
+    if (signature !== previewSignature) {
+      previewSignature = signature;
+      previewFrame = Math.max(0, colors.indexOf(rule.rgb));
+    }
+    const effectiveBri = rule.rule_bri ?? rule.bri;
+    const animate =
+      applied &&
+      (colors.length > 1 || rule.mode !== "steady") &&
+      effectiveBri > 0;
+    $("lamp-preview").classList.toggle("off", effectiveBri === 0);
+    $("lamp-preview").classList.toggle(
+      "blink",
+      Boolean(animate && !colors.length && rule.mode === "blink"),
+    );
+    $("lamp-preview").classList.toggle(
+      "swap",
+      Boolean(animate && !colors.length && rule.mode === "alternate"),
+    );
+    $("lamp-preview").style.setProperty(
+      "--c",
+      "#" + (colors.length ? colors[previewFrame % colors.length] : rule.rgb),
+    );
+    $("lamp-preview").style.setProperty(
+      "--c2",
+      "#" +
+        (rule.rgb === rule.rgb2
+          ? rule.rgb1 || rule.rgb
+          : rule.rgb2 || rule.rgb),
+    );
+    $("lamp-preview").style.setProperty(
+      "--phase-offset",
+      rule.mode === "blink" && rule.bri === 0 && effectiveBri > 0
+        ? -Math.max(2, rule.takt) + "s"
+        : "0s",
+    );
+    $("lamp-preview").style.setProperty(
+      "--period",
+      Math.max(2, rule.takt || 2) * 2 + "s",
+    );
+    $("lamp-card").classList.toggle("paused", previewPaused);
+    $("preview-note").hidden = !previewPaused;
+    $("preview-pause").setAttribute("aria-pressed", String(previewPaused));
+    $("preview-pause").setAttribute(
+      "aria-label",
+      previewPaused ? "Vorschau fortsetzen" : "Vorschau anhalten",
+    );
+    $("preview-pause").textContent = previewPaused ? "▶" : "Ⅱ";
+    $("desk-applied").textContent = applied
+      ? `Zuletzt gesendet: ${ruleName(applied.key)} · ${percent(applied.bri)} · ${stamp(applied.at)} · ${applied.confirmed ? "bestätigt" : "nicht bestätigt"}`
+      : "Zuletzt gesendet: noch kein Befehl · nicht bestätigt";
+    if (colors.length > 1 && animate && !previewPaused)
+      previewTimer = setTimeout(
+        () => {
+          previewFrame += 1;
+          renderPreview(active, cfg);
+        },
+        Math.max(2, rule.takt) * 1000,
+      );
+  }
+  document.querySelectorAll("[data-multiple]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (root.dataset.mode === "erwachsen")
+        saveConfig(
+          { multiple_mode: b.dataset.multiple },
+          "Mehrere Desks speichern",
+        );
+    }),
+  );
+  $("multiple-color").addEventListener("change", () => {
+    const rgb = $("multiple-color").value.slice(1).toUpperCase();
+    if (root.dataset.mode === "erwachsen" && nonBlack(rgb))
+      saveConfig({ multiple_rgb: rgb }, "Eigene Farbe speichern");
+  });
+  function renderColorPicks(scope, rgb) {
+    const buttons = [...document.querySelectorAll(`[data-${scope}-color]`)];
+    for (const b of buttons)
+      b.setAttribute(
+        "aria-pressed",
+        String(b.dataset[scope + "Color"] === rgb),
+      );
+    const own = !buttons.some((b) => b.dataset[scope + "Color"] === rgb);
+    $(scope + "-own-color").setAttribute("aria-pressed", String(own));
+    $(scope + "-own-dot").classList.toggle("empty", !own);
+    $(scope + "-own-dot").style.setProperty("--c", "#" + rgb);
+  }
+  for (const scope of ["desk", "multiple"]) {
+    document.querySelectorAll(`[data-${scope}-color]`).forEach((button) =>
+      button.addEventListener("click", () => {
+        $(scope + "-color").value = "#" + button.dataset[scope + "Color"];
+        renderColorPicks(scope, button.dataset[scope + "Color"]);
+        if (scope === "multiple")
+          $("multiple-color").dispatchEvent(
+            new Event("change", { bubbles: true }),
+          );
+      }),
+    );
+    $(scope + "-own-color").addEventListener("click", () => {
+      try {
+        if ($(scope + "-color").showPicker) $(scope + "-color").showPicker();
+        else $(scope + "-color").click();
+      } catch (_) {
+        $(scope + "-color").click();
+      }
+    });
+  }
+  $("desk-color").addEventListener("input", () => {
+    const rgb = $("desk-color").value.slice(1).toUpperCase();
+    if (nonBlack(rgb)) renderColorPicks("desk", rgb);
+  });
+  function openDesk(id = null) {
+    if (root.dataset.mode !== "erwachsen" || !configReady || deskBusy) return;
+    editingDesk = id;
+    const desk = deskList().find((d) => d.id === id);
+    $("desk-title").textContent = desk
+      ? `${desk.short} bearbeiten`
+      : "Desk hinzufügen";
+    $("desk-short").value = desk?.short || "";
+    $("desk-name").value = desk?.name || "";
+    $("desk-url").value = desk?.url || "";
+    $("desk-color").value = "#" + (desk?.rgb || "18C2B0");
+    renderColorPicks("desk", desk?.rgb || "18C2B0");
+    $("desk-key").value = "";
+    $("desk-key").hidden = Boolean(desk?.key_set);
+    $("desk-replace").hidden = !desk?.key_set;
+    $("desk-key-state").textContent = desk?.key_set
+      ? `Schlüssel gesetzt seit ${new Date(desk.key_set_at * 1000).toLocaleDateString("de-AT")} · zum Ersetzen neu eintragen`
+      : "Schlüssel fehlt · neu eintragen";
+    deskOwn = desk?.override || false;
+    $("desk-remove").hidden = !desk;
+    $("desk-error").textContent = "";
+    $("desk-confirm").hidden = true;
+    deskConfirmation = null;
+    renderDeskOverride();
+    $("desk-sheet").showModal();
+    $("desk-short").focus();
+  }
+  function renderDeskOverride() {
+    $("desk-override").setAttribute("aria-checked", String(deskOwn));
+    $("desk-own-rules").hidden = !deskOwn;
+    $("desk-own-rules").replaceChildren();
+    if (editingDesk)
+      for (const level of ["urgent", "regular", "open"]) {
+        const rule = deskList().find((d) => d.id === editingDesk).rules[level];
+        const motion =
+          rule.mode === "steady"
+            ? "ständig"
+            : `${rule.mode === "blink" ? "blinkt" : "wechselt"} (${rule.takt} s)`;
+        const button = make(
+          "button",
+          "rr",
+          `${ruleName(level)} · ${rule.bri ? `${percent(rule.bri)} · ${motion}` : "Aus"}`,
+        );
+        button.type = "button";
+        button.addEventListener("click", () => openRule(level, editingDesk));
+        $("desk-own-rules").append(button);
+      }
+    else if (deskOwn)
+      $("desk-own-rules").textContent =
+        "Nach dem Speichern lassen sich die eigenen Regeln bearbeiten.";
+  }
+  $("desk-override").addEventListener("click", () => {
+    deskOwn = !deskOwn;
+    renderDeskOverride();
+  });
+  $("desk-replace").addEventListener("click", () => {
+    if (root.dataset.mode !== "erwachsen") return;
+    $("desk-key").hidden = false;
+    $("desk-replace").hidden = true;
+    $("desk-key").focus();
+  });
+  $("add-desk").addEventListener("click", () => openDesk());
+  $("signal-add-desk").addEventListener("click", () => {
+    selectTab("desks");
+    openDesk();
+  });
+  $("rule-edit-desks").addEventListener("click", () => {
+    $("rule-sheet").close();
+    selectTab("desks");
+  });
+  $("desk-sheet").addEventListener("close", () => {
+    $("desk-key").value = "";
+    deskConfirmation = null;
+  });
+  $("desk-sheet").addEventListener("cancel", () => {
+    $("desk-key").value = "";
+    deskConfirmation = null;
+  });
+  $("desk-confirm-cancel").addEventListener("click", () => {
+    $("desk-confirm").hidden = true;
+    deskConfirmation = null;
+    $("desk-key").value = "";
+  });
+  function confirmDesk(action) {
+    if (root.dataset.mode !== "erwachsen" || deskBusy) return;
+    deskConfirmation = action;
+    $("desk-confirm-text").textContent =
+      action === "remove"
+        ? "Desk entfernen? Der Schlüssel wird hier gelöscht. Im Desk bleibt er gültig, bis er dort widerrufen wird."
+        : "Schlüssel ersetzen? Der alte Schlüssel wird hier gelöscht. Bitte anschließend im Desk widerrufen.";
+    $("desk-confirm").hidden = false;
+  }
+  $("desk-remove").addEventListener("click", () => confirmDesk("remove"));
+  $("desk-save").addEventListener("click", () => {
+    if (editingDesk && $("desk-key").value) confirmDesk("replace");
+    else performDeskAction(false);
+  });
+  $("desk-test").addEventListener("click", () => performDeskAction(true));
+  $("desk-confirm-ok").addEventListener("click", () => {
+    if (deskConfirmation) performDeskAction(false, deskConfirmation);
+  });
+  async function performDeskAction(test, confirmation = "") {
+    if (root.dataset.mode !== "erwachsen" || deskBusy || serverRejected) return;
+    const target = hub(),
+      label = selected;
+    const payload =
+      confirmation === "remove"
+        ? { hub: target, id: editingDesk, action: "remove", confirm: "remove" }
+        : {
+            hub: target,
+            ...(editingDesk ? { id: editingDesk } : {}),
+            short: $("desk-short").value.trim().toUpperCase(),
+            name: $("desk-name").value.trim(),
+            url: $("desk-url").value.trim(),
+            rgb: $("desk-color").value.slice(1).toUpperCase(),
+            key: $("desk-key").value,
+            override: deskOwn ? "1" : "0",
+            confirm: confirmation,
+          };
+    // Key input stays only in this one request closure: never query strings,
+    // retry/undo state, storage, status labels or a saved rule/settings object.
+    $("desk-key").value = "";
+    deskBusy = true;
+    const controller = new AbortController(),
+      timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(test ? "/desk-test" : "/desk", {
+        method: "POST",
+        headers: {
+          "X-Nightlight": "1",
+          "X-Nightlight-Mode": "erwachsen",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        mode: "same-origin",
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (response.status === 403) {
+        rejectServer();
+        return;
+      }
+      const result = await response.json();
+      if (result.revoke && target === hub())
+        $("revoke-reminder").hidden = false;
+      if (!result.ok) {
+        $("desk-error").textContent =
+          "Dieser Schlüssel darf mehr als Zählungen lesen oder seine Berechtigung konnte nicht geprüft werden. Bitte im Desk einen „Desk signal“-Schlüssel erstellen.";
+        return;
+      }
+      if (test) {
+        $("desk-error").textContent =
+          "Verbindung geprüft · nur Zählungen. Zum Speichern den Schlüssel erneut eintragen.";
+        return;
+      }
+      ++configRevision;
+      settings[target] = result.settings[target];
+      configReady = true;
+      if (target === hub()) {
+        $("desk-sheet").close();
+        $("revoke-reminder").hidden = !result.revoke;
+        status(
+          "ok",
+          result.revoke
+            ? "Schlüssel geändert · alten Schlüssel im Desk widerrufen"
+            : `Desk gespeichert · ${label}`,
+        );
+        render();
+        loadSignal();
+      }
+    } catch (_) {
+      $("desk-error").textContent =
+        "Desk konnte nicht geprüft oder gespeichert werden. Schlüssel neu eintragen.";
+    } finally {
+      payload.key = "";
+      clearTimeout(timer);
+      deskBusy = false;
+      deskConfirmation = null;
+      $("desk-confirm").hidden = true;
+    }
+  }
+  $("desk-history").addEventListener("click", () => {
+    if (root.dataset.mode !== "erwachsen") return;
+    $("history-list").replaceChildren();
+    const actions = {
+      add: "hinzugefügt",
+      save: "gespeichert",
+      replace: "Schlüssel ersetzt",
+      remove: "entfernt",
+    };
+    for (const event of [...(settings[hub()]?.history || [])].reverse())
+      $("history-list").append(
+        make(
+          "li",
+          "",
+          `${event.short} · ${actions[event.action]} · ${new Date(event.at * 1000).toLocaleString("de-AT")}`,
+        ),
+      );
+    $("history-sheet").showModal();
+  });
+  $("revoke-how").addEventListener("click", () =>
+    $("revoke-sheet").showModal(),
+  );
   async function loadConfig() {
     const revision = configRevision,
       mine = sequence;
@@ -862,15 +1403,6 @@ module.exports = function nightlightPage() {
         signal = { ...result, hub: HUB_HANDLES[target] };
       },
     }),
-  );
-  $("save-thresholds").addEventListener("click", () =>
-    saveConfig(
-      {
-        threshold_ppm: $("threshold-ppm").value,
-        threshold_pma: $("threshold-pma").value,
-      },
-      "Schwellen speichern",
-    ),
   );
   $("auto-sound").addEventListener("click", () =>
     saveConfig(
@@ -993,6 +1525,12 @@ module.exports = function nightlightPage() {
     if (!ruleDraft) return;
     for (const slot of ["rgb", "rgb2"])
       if (!nonBlack(ruleDraft[slot])) ruleDraft[slot] = DEFAULT_NIGHTLIGHT.rgb;
+    const fromDesk = ["urgent", "regular", "open"].includes(editingRule);
+    $("rule-from-desk").hidden = !fromDesk;
+    $("rule-color-controls").hidden =
+      fromDesk && ruleDraft.mode !== "alternate";
+    if (fromDesk) ruleSlot = "rgb2";
+    $("rule-thresholds").hidden = editingRule !== "urgent";
     $("rule-color").value = "#" + ruleDraft[ruleSlot];
     $("rule-bri").value = ruleDraft.bri;
     $("rule-bri").min = editingRule === "unknown" ? 1 : 0;
@@ -1000,7 +1538,8 @@ module.exports = function nightlightPage() {
     $("rule-takt-row").hidden = ruleDraft.mode === "steady";
     document.querySelectorAll("[data-rule-slot]").forEach((b) => {
       b.hidden =
-        b.dataset.ruleSlot === "rgb2" && ruleDraft.mode !== "alternate";
+        fromDesk ||
+        (b.dataset.ruleSlot === "rgb2" && ruleDraft.mode !== "alternate");
       b.setAttribute("aria-pressed", String(b.dataset.ruleSlot === ruleSlot));
     });
     document.querySelectorAll("[data-rule-mode]").forEach((b) => {
@@ -1039,19 +1578,39 @@ module.exports = function nightlightPage() {
         ? "Ruhe und Unbekannt sind zu ähnlich. Bitte deutlicher unterscheiden."
         : "";
   }
-  document.querySelectorAll("[data-rule]").forEach((b) =>
-    b.addEventListener("click", () => {
-      if (root.dataset.mode !== "erwachsen" || !settings[hub()]) return;
-      editingRule = b.dataset.rule;
-      ruleDraft = { ...settings[hub()].rules[editingRule] };
-      ruleSlot = "rgb";
-      $("rule-title").textContent = ruleName(editingRule);
-      $("rule-all").checked = false;
-      renderRuleEditor();
-      $("rule-sheet").showModal();
-      $("rule-cancel").focus();
-    }),
-  );
+  function openRule(key, deskId = null) {
+    if (root.dataset.mode !== "erwachsen" || !settings[hub()]) return;
+    editingRule = key;
+    editingDeskRule = deskId;
+    const desk = deskList().find((d) => d.id === deskId);
+    ruleDraft = { ...(desk ? desk.rules[key] : settings[hub()].rules[key]) };
+    if (["urgent", "regular", "open"].includes(key))
+      ruleDraft.rgb = (desk || deskList()[0])?.rgb || "8FA3B0";
+    ruleSlot = "rgb";
+    $("rule-title").textContent =
+      ruleName(key) + (desk ? ` · ${desk.short}` : "");
+    $("threshold-list").replaceChildren();
+    for (const d of deskList()) {
+      const label = make("label", "threshold-row", `${d.short} Dringend nach `),
+        input = make("input");
+      input.type = "number";
+      input.min = "1";
+      input.max = "48";
+      input.value = settings[hub()].thresholds[d.id];
+      input.setAttribute("aria-label", `${d.short} Dringend nach Stunden`);
+      input.dataset.thresholdDesk = d.id;
+      label.append(input, document.createTextNode(" h Warten"));
+      $("threshold-list").append(label);
+    }
+    renderRuleEditor();
+    $("rule-sheet").showModal();
+    $("rule-cancel").focus();
+  }
+  document
+    .querySelectorAll("[data-rule]")
+    .forEach((b) =>
+      b.addEventListener("click", () => openRule(b.dataset.rule)),
+    );
   document.querySelectorAll("[data-rule-mode]").forEach((b) =>
     b.addEventListener("click", () => {
       ruleDraft.mode = b.dataset.ruleMode;
@@ -1112,7 +1671,13 @@ module.exports = function nightlightPage() {
       {
         rule: editingRule,
         ...ruleDraft,
-        all: $("rule-all").checked ? 1 : 0,
+        ...(editingDeskRule ? { desk: editingDeskRule } : {}),
+        ...Object.fromEntries(
+          [...$("threshold-list").querySelectorAll("input")].map((input) => [
+            "threshold_" + input.dataset.thresholdDesk,
+            input.value,
+          ]),
+        ),
       },
       "Signal-Regel speichern",
     );
@@ -1122,7 +1687,12 @@ module.exports = function nightlightPage() {
     $("rule-sheet").close();
     command(
       "/signal-test",
-      { hub: hub(), rule: editingRule, ...ruleDraft },
+      {
+        hub: hub(),
+        rule: editingRule,
+        ...ruleDraft,
+        ...(editingDeskRule ? { desk: editingDeskRule } : {}),
+      },
       "Signal testen (10 s)",
     );
   });
@@ -1187,6 +1757,15 @@ module.exports = function nightlightPage() {
     if (kind) {
       $("alarm-list").hidden = true;
       $("loud-toggle").setAttribute("aria-expanded", "false");
+      for (const id of [
+        "desk-sheet",
+        "history-sheet",
+        "rule-sheet",
+        "loud-sheet",
+      ])
+        $(id).close();
+      $("desk-key").value = "";
+      restoreOverflow();
     }
   }
   function render() {
@@ -1281,6 +1860,16 @@ module.exports = function nightlightPage() {
   }
   function selectHub(label) {
     if (!Object.hasOwn(HUB_HANDLES, label) || selected === label) return;
+    restoreOverflow();
+    for (const id of [
+      "desk-sheet",
+      "rule-sheet",
+      "history-sheet",
+      "loud-sheet",
+      "doorbell-sheet",
+    ])
+      $(id).close();
+    $("desk-key").value = "";
     selected = label;
     audioDirty = false;
     remember("nightlight-hub", selected);
@@ -1417,12 +2006,24 @@ module.exports = function nightlightPage() {
       $("loud-toggle")
         .querySelector(".lk use")
         .setAttribute("href", open ? "#i-unlock" : "#i-lock");
+      if (open) $("loud-sheet").showModal();
+      else $("loud-sheet").close();
     },
     () => ($("loud-hint").textContent = "Zum Öffnen 1 Sekunde gedrückt halten"),
   );
   document.querySelectorAll("[data-disclosure]").forEach((button) =>
     button.addEventListener("click", () => {
       const list = $(button.dataset.disclosure);
+      if (
+        button.dataset.disclosure === "tones-group-2" &&
+        root.dataset.mode === "kind" &&
+        phone.matches
+      ) {
+        $("doorbell-sheet-body").append(list);
+        list.hidden = false;
+        $("doorbell-sheet").showModal();
+        return;
+      }
       list.hidden = !list.hidden;
       button.setAttribute("aria-expanded", String(!list.hidden));
     }),
@@ -1510,6 +2111,15 @@ module.exports = function nightlightPage() {
       success: (_, target, mine) => acceptTone(target, null, mine),
     }),
   );
+  $("loud-stop").addEventListener("click", () => $("stop").click());
+  $("loud-sheet").addEventListener("close", () => {
+    $("alarm-list").hidden = true;
+    $("loud-toggle").setAttribute("aria-expanded", "false");
+  });
+  $("doorbell-sheet").addEventListener("close", () => {
+    $("doorbell-toggle").closest(".grp").append($("tones-group-2"));
+    $("tones-group-2").hidden = false;
+  });
   $("readback").addEventListener("click", () =>
     command("/get", { hub: hub() }, "Status lesen", {
       success: acceptReadback,
@@ -1638,6 +2248,19 @@ module.exports = function nightlightPage() {
   loadPresets();
   loadConfig();
   refreshReadback();
+  function refreshSignalLater() {
+    setTimeout(async () => {
+      if (
+        usageFor() === "desk" &&
+        !sending &&
+        !deskBusy &&
+        root.dataset.mode === "erwachsen"
+      )
+        await loadSignal();
+      refreshSignalLater();
+    }, 30000);
+  }
+  refreshSignalLater();
   // OPS-496: block pinch zoom (iOS ignores user-scalable=no).
   ["gesturestart", "gesturechange"].forEach((t) =>
     document.addEventListener(t, (event) => event.preventDefault(), {

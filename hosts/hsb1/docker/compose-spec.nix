@@ -297,6 +297,8 @@
       ];
       environment = {
         RESTIC_REPOSITORY = "sftp:u387549-sub2@u387549.your-storagebox.de:/";
+        # OPS-496: credentials stay on-host, including DynamicUser's private root.
+        RESTIC_EXCLUDE_NIGHTLIGHT_KEYS = "*/aqara-nightlight/desk-keys";
         # MAIL_SUBJECT removed (OPS-137): reporting is the status file; the
         # agenix env's MAIL_TO still triggers the (working) mail as a bonus.
         # OPS-175: Resend accepts From only on the verified barta.cm domain.

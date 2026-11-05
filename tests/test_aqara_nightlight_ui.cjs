@@ -43,38 +43,53 @@ const defaultPlaces = [
 ];
 const defaults = { plug: defaultPlaces, round: defaultPlaces };
 const rules = Object.fromEntries(
-  ["urgent", "regular", "open"]
-    .flatMap((level) =>
-      ["ppm", "pma", "both"].map((desk) => [
-        level + ":" + desk,
-        {
-          rgb: { ppm: "18C2B0", pma: "FFA020", both: "9B6BFF" }[desk],
-          bri: level === "urgent" ? 60 : level === "regular" ? 20 : 0,
-          mode: level === "urgent" ? "blink" : "steady",
-          rgb2: "FFFFFF",
-          takt: 2,
-        },
-      ]),
-    )
-    .concat([
-      [
-        "idle",
-        { rgb: "8FA3B0", bri: 0, mode: "steady", rgb2: "FFFFFF", takt: 2 },
-      ],
-      [
-        "unknown",
-        { rgb: "8FA3B0", bri: 5, mode: "steady", rgb2: "FFFFFF", takt: 2 },
-      ],
-    ]),
+  ["urgent", "regular", "open", "idle", "unknown"].map((level) => [
+    level,
+    {
+      rgb: ["idle", "unknown"].includes(level) ? "8FA3B0" : "18C2B0",
+      bri: { urgent: 60, regular: 20, open: 0, idle: 0, unknown: 5 }[level],
+      mode: level === "urgent" ? "blink" : "steady",
+      rgb2: "FFFFFF",
+      takt: 2,
+    },
+  ]),
 );
+const fakeDesks = [
+  {
+    id: "ppm",
+    short: "PPM",
+    name: "Desk A",
+    url: "https://desk-a.invalid",
+    rgb: "18C2B0",
+    key_set: false,
+    key_set_at: null,
+    override: false,
+    rules,
+  },
+  {
+    id: "pma",
+    short: "PMA",
+    name: "Desk B",
+    url: "https://desk-b.invalid",
+    rgb: "FFA020",
+    key_set: false,
+    key_set_at: null,
+    override: false,
+    rules,
+  },
+];
 const configDefaults = Object.fromEntries(
   ["plug", "round"].map((h) => [
     h,
     {
+      version: 33,
       usage: h === "round" ? "desk" : "nightlight",
       rules,
+      desks: fakeDesks,
+      multiple: { mode: "cycle", rgb: "9B6BFF" },
       thresholds: { ppm: 4, pma: 4 },
       auto_sound: false,
+      history: [],
     },
   ]),
 );
@@ -92,6 +107,13 @@ function deferred() {
   return { promise, resolve, reject };
 }
 const DATA_ATTRIBUTES = new Map([
+  ["data-desk-color", "deskColor"],
+  ["data-multiple-color", "multipleColor"],
+  ["data-panel", "panel"],
+  ["data-tab", "tab"],
+  ["data-close", "close"],
+  ["data-multiple", "multiple"],
+  ["data-threshold-desk", "thresholdDesk"],
   ["data-auto-duration", "autoDuration"],
   ["data-color", "color"],
   ["data-color-name", "colorName"],
@@ -114,6 +136,9 @@ const DATA_ATTRIBUTES = new Map([
   ["data-usage", "usage"],
 ]);
 const HTML_ATTRIBUTES = new Set([
+  "aria-selected",
+  "autocomplete",
+  ...DATA_ATTRIBUTES.keys(),
   "aria-atomic",
   "aria-checked",
   "aria-controls",
@@ -227,6 +252,22 @@ class Element {
   getAttribute(key) {
     return this.attrs[key];
   }
+  get className() {
+    return this.attrs.class || "";
+  }
+  set className(value) {
+    for (const old of (this.attrs.class || "").split(/\s+/))
+      this.classList.remove(old);
+    this.attrs.class = value;
+    for (const name of value.split(/\s+/)) this.classList.add(name);
+  }
+  get parentNode() {
+    return this.parent;
+  }
+  get nextSibling() {
+    if (!this.parent) return null;
+    return this.parent.children[this.parent.children.indexOf(this) + 1] || null;
+  }
   addEventListener(key, fn) {
     (this.listeners[key] ||= []).push(fn);
   }
@@ -235,6 +276,7 @@ class Element {
     return Promise.all((this.listeners[key] || []).map((fn) => fn(event)));
   }
   matches(selector) {
+    if (selector === "*") return true;
     if (selector.includes(" ")) {
       const parts = selector.split(/\s+/);
       if (!this.matches(parts.pop())) return false;
@@ -288,21 +330,44 @@ class Element {
     return this.disabled ? Promise.resolve([]) : this.fire(key, attrs);
   }
   replaceChildren(...children) {
-    this.children = children;
+    for (const child of this.children)
+      if (child instanceof Element) child.parent = null;
+    this.children = [];
+    this.append(...children);
   }
   append(...children) {
-    this.children.push(...children);
+    for (const child of children) this.insertBefore(child, null);
+  }
+  insertBefore(child, next) {
+    if (child instanceof Element) {
+      if (child.parent)
+        child.parent.children.splice(child.parent.children.indexOf(child), 1);
+      child.parent = this;
+    }
+    const index =
+      next === null ? this.children.length : this.children.indexOf(next);
+    this.children.splice(index, 0, child);
+  }
+  click() {
+    return this.userFire("click");
   }
   focus() {}
   setPointerCapture() {}
   close() {
+    const wasOpen = this.open;
     this.open = false;
+    if (wasOpen) this.fire("close");
   }
   showModal() {
     this.open = true;
   }
 }
-async function setup(stored = {}, storageFails = false, initial = {}) {
+async function setup(
+  stored = {},
+  storageFails = false,
+  initial = {},
+  viewport = {},
+) {
   const elements = [];
   const stack = [];
   for (const match of html.matchAll(/<(\/?)([\w-]+)\b([^>]*?)>/g)) {
@@ -352,13 +417,14 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       return byId.get(id);
     },
     querySelectorAll: (selector) => {
+      const liveElements = [root, ...root.querySelectorAll("*")];
       if (selector === "button, input, select")
-        return elements.filter((e) =>
+        return liveElements.filter((e) =>
           ["button", "input", "select"].includes(e.tagName),
         );
       const key = selector.match(/^\[([\w-]+)\]$/)?.[1];
       assert.ok(key, `unhandled DOM query ${selector}`);
-      return elements.filter((e) => Object.hasOwn(e.attrs, key));
+      return liveElements.filter((e) => Object.hasOwn(e.attrs, key));
     },
     querySelector: (selector) => {
       const hub = selector.match(/^\[data-hub="([^"]+)"\]$/)?.[1];
@@ -375,6 +441,14 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
   let time = 0,
     timerId = 0;
   const context = vm.createContext({
+    matchMedia(query) {
+      return {
+        matches: query.includes("reduced-motion")
+          ? Boolean(viewport.reducedMotion)
+          : Boolean(viewport.phone),
+        addEventListener() {},
+      };
+    },
     document,
     URLSearchParams,
     AbortController,
@@ -1425,8 +1499,9 @@ test("WZ defaults to Desk-Signal with honest disconnected and unknown copy in bo
   assert.equal(a.el("desk-controls").hidden, false);
   assert.equal(a.el("nightlight-controls").hidden, true);
   assert.match(a.el("desk-lit").textContent, /Unbekannt.*5/);
-  assert.equal(a.el("desk-pma").textContent, "PMA · nicht verbunden");
-  assert.equal(a.el("desk-ppm").textContent, "PPM · nicht verbunden");
+  assert.equal(a.el("desk-signal-rows").children.length, 2);
+  for (const row of a.el("desk-signal-rows").children)
+    assert.match(row.querySelector(".dr-m").textContent, /keine Daten/);
   assert.equal(a.el("desk-kind").textContent, "WZ-594F zeigt den Desk");
   assert.equal(a.el("usage-text").textContent, "Verwendung: Desk-Signal");
   assert.equal(a.el("desk-seen").disabled, true);
@@ -1523,12 +1598,12 @@ test("place rename is inline, deletion needs confirmation, nacht cannot be delet
   assert.equal(a.eval("placesFor().p2"), undefined);
 });
 
-test("matrix editor exposes all 11 rules, preserves takt minimum and saves all desks", async () => {
+test("urgency editor exposes five rules, desk colour, takt minimum and thresholds", async () => {
   const a = await setup({
     "nightlight-mode": "erwachsen",
     "nightlight-hub": "WZ-594F",
   });
-  assert.equal(a.buttons("[data-rule]").length, 11);
+  assert.equal(a.buttons("[data-rule]").length, 5);
   await a.buttons("[data-rule]")[0].fire("click");
   assert.equal(a.el("rule-sheet").open, true);
   assert.equal(a.el("rule-takt").getAttribute("min"), "2");
@@ -1541,9 +1616,11 @@ test("matrix editor exposes all 11 rules, preserves takt minimum and saves all d
     .buttons("[data-rule-color]")
     .find((b) => b.dataset.ruleColor === "FFA020")
     .fire("click");
-  a.el("rule-all").checked = true;
+  assert.equal(a.el("rule-from-desk").hidden, false);
+  assert.equal(a.el("rule-thresholds").hidden, false);
   a.pending.push((url) => {
-    assert.equal(url.searchParams.get("all"), "1");
+    assert.equal(url.searchParams.get("threshold_ppm"), "4");
+    assert.equal(url.searchParams.get("threshold_pma"), "4");
     assert.equal(url.searchParams.get("takt"), "2");
     assert.equal(url.searchParams.get("mode"), "alternate");
     assert.equal(url.searchParams.get("rgb2"), "FFA020");
@@ -1583,8 +1660,10 @@ test("rule color picker rejects black in both slots and sends safe save/test col
     });
     await a
       .buttons("[data-rule]")
-      .find((b) => b.dataset.rule === "regular:ppm")
+      .find((b) => b.dataset.rule === "idle")
       .fire("click");
+    a.el("rule-bri").value = "20";
+    await a.el("rule-bri").fire("input");
     await a
       .buttons("[data-rule-mode]")
       .find((b) => b.dataset.ruleMode === "alternate")
@@ -1607,7 +1686,7 @@ test("rule color picker rejects black in both slots and sends safe save/test col
         action === "rule-save" ? "/settings" : "/signal-test",
       );
       assert.equal(url.searchParams.get("bri"), "20");
-      assert.equal(url.searchParams.get("rgb"), "18C2B0");
+      assert.equal(url.searchParams.get("rgb"), "8FA3B0");
       assert.equal(url.searchParams.get("rgb2"), "FFFFFF");
       return Promise.resolve(
         response({ ok: true, settings: structuredClone(configDefaults) }),
@@ -1627,7 +1706,7 @@ test("black saved places are disabled in the rule editor for both color slots", 
   a.eval('presets.round.p2.rgb="000000";');
   await a
     .buttons("[data-rule]")
-    .find((b) => b.dataset.rule === "regular:ppm")
+    .find((b) => b.dataset.rule === "regular")
     .fire("click");
   await a
     .buttons("[data-rule-mode]")
@@ -1682,7 +1761,7 @@ test("rule save/test refuse a black lit draft in either slot without closing", a
       });
       await a
         .buttons("[data-rule]")
-        .find((b) => b.dataset.rule === "regular:ppm")
+        .find((b) => b.dataset.rule === "regular")
         .fire("click");
       a.eval(`ruleDraft.${slot}="000000";`);
       const before = a.calls.length;
@@ -1702,7 +1781,7 @@ test("HTTP 400 rule validation keeps the server's German error visible", async (
     });
     await a
       .buttons("[data-rule]")
-      .find((b) => b.dataset.rule === "regular:ppm")
+      .find((b) => b.dataset.rule === "regular")
       .fire("click");
     const message = "Bei Helligkeit über 0 % darf keine Farbe Schwarz sein.";
     a.pending.push(() =>
@@ -2009,7 +2088,7 @@ test("matrix motion uses the frozen wave icon with accessible blink and alternat
   const a = await setup({ "nightlight-hub": "WZ-594F" });
   const urgent = a
     .buttons("[data-rule]")
-    .find((b) => b.dataset.rule === "urgent:ppm");
+    .find((b) => b.dataset.rule === "urgent");
   assert.match(urgent.querySelector(".cv").textContent, /^60\s%$/);
   assert.equal(
     urgent.querySelector(".cwave").classList.contains("motion-hidden"),
@@ -2022,14 +2101,14 @@ test("matrix motion uses the frozen wave icon with accessible blink and alternat
   assert.equal(urgent.querySelector("use").getAttribute("href"), "#i-wave");
   assert.match(urgent.querySelector(".rule-motion").textContent, /blinkt/);
   assert.match(urgent.getAttribute("aria-label"), /blinkt.*2 s/);
-  a.eval('settings.round.rules["urgent:ppm"].mode="alternate";renderDesk();');
+  a.eval('settings.round.rules.urgent.mode="alternate";renderDesk();');
   assert.match(urgent.querySelector(".rule-motion").textContent, /wechselt/);
-  a.eval('settings.round.rules["urgent:ppm"].mode="steady";renderDesk();');
+  a.eval('settings.round.rules.urgent.mode="steady";renderDesk();');
   assert.equal(
     urgent.querySelector(".cwave").classList.contains("motion-hidden"),
     true,
   );
-  assert.equal(urgent.querySelector(".rule-motion").textContent, "");
+  assert.equal(urgent.querySelector(".rule-motion").textContent, "ständig");
 });
 
 test("Gesehen appears only for a lit Desk state and hides for unknown, idle and off", async () => {
@@ -2182,4 +2261,408 @@ test("Verwendung radio keyboard saves the new selection and respects the sending
     "true",
   );
   assert.equal(a.buttons("[data-usage]")[1].tabIndex, 0);
+});
+
+test("phone tabs remember each hub and keep Kind Desk read-only without a bar", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen" },
+    false,
+    {},
+    { phone: true },
+  );
+  assert.equal(a.el("tabbar").hidden, false);
+  assert.equal(a.eval("tabsByHub.plug"), "light");
+  await a.el("tab-sounds").fire("click");
+  assert.equal(a.storage.get("nightlight-tab-plug"), "sounds");
+  assert.equal(a.el("panel-sounds").classList.contains("active-panel"), true);
+  assert.equal(a.el("panel-light").classList.contains("active-panel"), false);
+  await a.buttons("[data-hub]")[1].fire("click");
+  await flush();
+  await a.el("tab-desks").fire("click");
+  assert.equal(a.storage.get("nightlight-tab-round"), "desks");
+  await a.buttons("[data-hub]")[0].fire("click");
+  assert.equal(a.eval("tabsByHub.plug"), "sounds");
+  const b = await setup(
+    Object.fromEntries(a.storage),
+    false,
+    {},
+    { phone: true },
+  );
+  assert.equal(b.el("tab-sounds").getAttribute("aria-selected"), "true");
+  await b.buttons("[data-hub]")[1].fire("click");
+  await b.el("mode").fire("click");
+  assert.equal(b.el("tabbar").hidden, true);
+  assert.equal(b.el("panel-more").hidden, true);
+  assert.equal(b.el("desk-controls").hidden, false);
+  assert.equal(b.root.dataset.mode, "kind");
+});
+
+test("tab keyboard and desktop columns preserve the selected panel without actuation", async () => {
+  const a = await setup({}, false, {}, { phone: true });
+  a.calls.length = 0;
+  await a.el("tab-light").fire("keydown", { key: "End" });
+  assert.equal(a.eval("tabsByHub.plug"), "sounds");
+  assert.equal(a.el("tab-sounds").tabIndex, 0);
+  await a.el("tab-sounds").fire("keydown", { key: "ArrowRight" });
+  assert.equal(a.eval("tabsByHub.plug"), "light");
+  assert.equal(a.calls.length, 0);
+  const b = await setup({ "nightlight-mode": "erwachsen" });
+  assert.equal(b.el("tabbar").hidden, true);
+  assert.match(html, /@media\s*\(min-width:\s*980px\)/);
+  assert.match(html, /\.cols\s*>\s*\[data-panel\]\s*\{\s*display:\s*block/);
+});
+
+test("phone overflow is contained in a sheet and restores the real panel on close", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen" },
+    false,
+    {},
+    { phone: true },
+  );
+  const panel = a.el("panel-light"),
+    parent = panel.parentNode;
+  await a.el("panel-more").fire("click");
+  assert.equal(a.el("overflow-sheet").open, true);
+  assert.equal(panel.parentNode, a.el("overflow-body"));
+  a.el("overflow-sheet").close();
+  assert.equal(panel.parentNode, parent);
+  assert.equal(a.eval("overflowRestore"), null);
+  assert.match(
+    html,
+    /html,\s*body\s*\{\s*height:\s*100%;\s*overflow:\s*hidden/,
+  );
+  assert.match(html, /height:\s*100dvh/);
+  assert.match(html, /\.tabs\s*\{\s*height:\s*64px/);
+  assert.match(html, /\.sheet\s*\{[^}]*overflow:\s*auto/s);
+});
+
+test("last sent information, loud tones and Kind doorbells open sheets", async () => {
+  const a = await setup({}, false, {}, { phone: true });
+  await a.el("light-info").fire("click");
+  assert.equal(a.el("info-sheet").open, true);
+  assert.equal(a.el("last-light").closest("dialog"), a.el("info-sheet"));
+  await a.el("doorbell-toggle").fire("click");
+  assert.equal(a.el("doorbell-sheet").open, true);
+  assert.equal(a.el("tones-group-2").parentNode, a.el("doorbell-sheet-body"));
+  a.el("doorbell-sheet").close();
+  assert.equal(
+    a.el("tones-group-2").parentNode,
+    a.el("doorbell-toggle").closest(".grp"),
+  );
+  await a.el("loud-toggle").fire("pointerdown");
+  a.tick(999);
+  assert.ok(!a.el("loud-sheet").open);
+  a.tick(1);
+  assert.equal(a.el("loud-sheet").open, true);
+  assert.equal(a.el("alarm-list").closest("dialog"), a.el("loud-sheet"));
+  a.el("loud-sheet").close();
+  assert.equal(a.el("alarm-list").hidden, true);
+  await a.el("sound-options").fire("click");
+  assert.equal(a.el("sound-duration").parentNode, a.el("sound-sheet-body"));
+});
+
+test("preview pause is device-local, persisted, reduced-motion safe and sends no command", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true, reducedMotion: true },
+  );
+  assert.equal(a.el("preview-pause").getAttribute("aria-pressed"), "true");
+  assert.equal(a.el("preview-note").hidden, false);
+  a.calls.length = 0;
+  await a.el("preview-pause").fire("click");
+  assert.equal(a.el("preview-pause").getAttribute("aria-pressed"), "false");
+  assert.equal(a.calls.length, 0);
+  await a.el("preview-pause").fire("click");
+  assert.equal(a.storage.get("nightlight-preview-paused"), "1");
+  const b = await setup(Object.fromEntries(a.storage));
+  assert.equal(b.eval("previewPaused"), true);
+  assert.match(html, /\.lpbtn\s*\{[^}]*width:\s*44px;\s*height:\s*44px/s);
+});
+
+test("preview uses last sent colour/confirmation and cycles all colours only on the page", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true },
+  );
+  a.eval(
+    'signal={hub:"round",key:"regular:both",rule:settings.round.rules.regular,applied:{key:"regular:both",rgb:"FFA020",rgb2:"FFFFFF",bri:20,takt:2,mode:"steady",colors:["18C2B0","FFA020","AABBCC"],at:0,confirmed:true}};renderDesk();',
+  );
+  assert.match(a.el("desk-applied").textContent, /bestätigt/);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), "#FFA020");
+  a.calls.length = 0;
+  a.tick(2000);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), "#AABBCC");
+  a.tick(2000);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), "#18C2B0");
+  await a.el("preview-pause").fire("click");
+  const colour = a.el("lamp-preview").properties.get("--c");
+  a.tick(2000);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), colour);
+  assert.equal(a.calls.length, 0);
+  a.eval("signal.applied.confirmed=false;renderDesk();");
+  assert.match(a.el("desk-applied").textContent, /nicht bestätigt/);
+});
+
+test("zero desks stays Unbekannt and arbitrary desk rows never invent counts", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true },
+  );
+  a.eval("settings.round.desks=[];renderDesk();");
+  assert.equal(a.el("no-desks").hidden, false);
+  assert.equal(a.el("desk-empty").hidden, false);
+  assert.equal(a.el("multiple-settings").hidden, true);
+  assert.match(a.el("desk-lit").textContent, /Unbekannt/);
+  a.eval(
+    'settings.round.desks=Array.from({length:8},(_,i)=>({id:String(i).padStart(32,"0"),short:"D"+i,name:"Example",url:"https://desk.invalid",rgb:"AABBCC",key_set:false,rules:settings.round.rules}));renderDesk();',
+  );
+  assert.equal(a.el("desk-list").children.length, 8);
+  assert.equal(a.el("desk-signal-rows").children.length, 8);
+  for (const row of a.el("desk-signal-rows").children)
+    assert.match(row.querySelector(".dr-m").textContent, /keine Daten/);
+  assert.equal(a.el("multiple-settings").hidden, false);
+});
+
+test("desk key POST is write-only, has an adult assertion and never enters retry/storage state", async () => {
+  const saved = structuredClone(configDefaults);
+  saved.round.desks = [{ ...fakeDesks[0], key_set: true, key_set_at: 1 }];
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/desk": (_url, options) => {
+        const payload = JSON.parse(options.body);
+        assert.equal(payload.key, "FAKE-UI-KEY-DO-NOT-USE");
+        assert.equal(options.headers["X-Nightlight"], "1");
+        assert.equal(options.headers["X-Nightlight-Mode"], "erwachsen");
+        assert.equal(options.headers["Content-Type"], "application/json");
+        return Promise.resolve(
+          response({ ok: true, settings: saved, revoke: false }),
+        );
+      },
+    },
+    { phone: true },
+  );
+  await a.el("add-desk").fire("click");
+  a.el("desk-short").value = "ABC";
+  a.el("desk-name").value = "Example";
+  a.el("desk-url").value = "https://desk.invalid";
+  a.el("desk-key").value = "FAKE-UI-KEY-DO-NOT-USE";
+  await a.el("desk-save").fire("click");
+  await flush();
+  const posted = a.calls.find((c) => c.path === "/desk");
+  assert.equal(posted.options.method, "POST");
+  assert.equal(posted.params.toString(), "");
+  assert.equal(a.el("desk-key").value, "");
+  assert.equal(a.eval("retryCommand"), null);
+  assert.equal(a.eval("undoCommand"), null);
+  assert.doesNotMatch(
+    JSON.stringify(Object.fromEntries(a.storage)),
+    /FAKE-UI-KEY/,
+  );
+  assert.equal(a.el("desk-sheet").open, false);
+});
+
+test("desk key tests refuse safely, clear input and cannot be triggered in Kind", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/desk-test": () =>
+        Promise.resolve(
+          response(
+            { ok: false, error: "untrusted error must not be rendered" },
+            400,
+          ),
+        ),
+    },
+    { phone: true },
+  );
+  await a.el("add-desk").fire("click");
+  a.el("desk-key").value = "FAKE-UI-KEY-DO-NOT-USE";
+  await a.el("desk-test").fire("click");
+  assert.equal(a.el("desk-key").value, "");
+  assert.match(
+    a.el("desk-error").textContent,
+    /mehr als Zählungen|nicht geprüft/,
+  );
+  assert.doesNotMatch(a.el("desk-error").textContent, /untrusted|FAKE/);
+  const before = a.calls.length;
+  await a.el("mode").fire("click");
+  await a.el("desk-test").fire("click");
+  await a.el("desk-save").fire("click");
+  await a.el("add-desk").fire("click");
+  assert.equal(a.calls.length, before);
+  assert.equal(a.el("desk-sheet").open, false);
+});
+
+test("replace/remove require a separate confirm and show revocation help", async () => {
+  const saved = structuredClone(configDefaults);
+  const bodies = [];
+  let failedCommit = false;
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/desk": (_url, options) => {
+        bodies.push(JSON.parse(options.body));
+        return Promise.resolve(
+          response({ ok: !failedCommit, settings: saved, revoke: true }),
+        );
+      },
+    },
+    { phone: true },
+  );
+  a.eval('openDesk("ppm");');
+  a.el("desk-key").value = "FAKE-UI-REPLACEMENT-DO-NOT-USE";
+  await a.el("desk-save").fire("click");
+  assert.equal(bodies.length, 0);
+  assert.equal(a.el("desk-confirm").hidden, false);
+  await a.el("desk-confirm-ok").fire("click");
+  await flush();
+  assert.equal(bodies[0].confirm, "replace");
+  assert.equal(a.el("revoke-reminder").hidden, false);
+  await a.el("revoke-how").fire("click");
+  assert.equal(a.el("revoke-sheet").open, true);
+  a.el("revoke-sheet").close();
+  a.eval('openDesk("ppm");');
+  await a.el("desk-remove").fire("click");
+  assert.equal(bodies.length, 1);
+  await a.el("desk-confirm-ok").fire("click");
+  await flush();
+  assert.equal(bodies[1].action, "remove");
+  assert.equal(bodies[1].confirm, "remove");
+  assert.equal(Object.hasOwn(bodies[1], "key"), false);
+  failedCommit = true;
+  a.el("revoke-reminder").hidden = true;
+  a.eval('openDesk("ppm");');
+  a.el("desk-key").value = "FAKE-UI-REPLACEMENT-DO-NOT-USE";
+  await a.el("desk-save").fire("click");
+  await a.el("desk-confirm-ok").fire("click");
+  await flush();
+  assert.equal(a.el("desk-sheet").open, true);
+  assert.equal(a.el("revoke-reminder").hidden, false);
+  assert.doesNotMatch(a.el("desk-error").textContent, /FAKE/);
+});
+
+test("saved keys never populate the password field and restored keys ask for re-entry", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval(
+    'settings.round.desks[0].key_set=true;settings.round.desks[0].key_set_at=1;openDesk("ppm");',
+  );
+  assert.match(a.el("desk-key-state").textContent, /gesetzt seit/);
+  assert.equal(a.el("desk-key").value, "");
+  a.el("desk-key").value = "FAKE-UNSUBMITTED-KEY-DO-NOT-USE";
+  a.el("desk-sheet").close();
+  assert.equal(a.el("desk-key").value, "");
+  a.eval('settings.round.desks[0].key_set=false;openDesk("ppm");');
+  assert.equal(
+    a.el("desk-key-state").textContent,
+    "Schlüssel fehlt · neu eintragen",
+  );
+});
+
+test("shared rules keep primary desk colour and optional overrides save the selected desk", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval('openRule("urgent");');
+  assert.equal(a.el("rule-color-controls").hidden, true);
+  assert.equal(a.el("rule-from-desk").hidden, false);
+  assert.equal(a.el("rule-thresholds").hidden, false);
+  await a
+    .buttons("[data-rule-mode]")
+    .find((b) => b.dataset.ruleMode === "alternate")
+    .fire("click");
+  assert.equal(a.el("rule-color-controls").hidden, false);
+  assert.equal(a.eval("ruleSlot"), "rgb2");
+  a.el("rule-color").value = "#abcdef";
+  await a.el("rule-color").fire("input");
+  assert.equal(a.eval("ruleDraft.rgb"), "18C2B0");
+  assert.equal(a.eval("ruleDraft.rgb2"), "ABCDEF");
+  a.el("rule-sheet").close();
+  a.eval('openDesk("pma");');
+  await a.el("desk-override").fire("click");
+  assert.equal(a.el("desk-own-rules").hidden, false);
+  await a.el("desk-own-rules").children[0].fire("click");
+  assert.equal(a.eval("editingDeskRule"), "pma");
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("desk"), "pma");
+    assert.equal(url.searchParams.get("rule"), "urgent");
+    return Promise.resolve(
+      response({ ok: true, settings: structuredClone(configDefaults) }),
+    );
+  });
+  await a.el("rule-save").fire("click");
+  await flush();
+  assert.equal(a.pending.length, 0);
+});
+
+test("overflow button uses measured panel capacity and Kind preserves the adult tab", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true },
+  );
+  await a.el("tab-desks").fire("click");
+  const panel = a.el("panel-desks");
+  panel.clientHeight = 500;
+  panel.scrollHeight = 400;
+  a.eval("updateOverflowButton();");
+  assert.equal(a.el("panel-more").hidden, true);
+  panel.scrollHeight = 700;
+  a.eval("updateOverflowButton();");
+  assert.equal(a.el("panel-more").hidden, false);
+  await a.el("mode").fire("click");
+  assert.equal(a.eval("tabsByHub.round"), "desks");
+  await a.el("mode").fire("pointerdown");
+  a.tick(1000);
+  await a.el("mode").fire("pointerup");
+  assert.equal(a.el("tab-desks").getAttribute("aria-selected"), "true");
+});
+
+test("desk and multiple palettes keep unique bindings and an explicit replace entry", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval(
+    'settings.round.desks[0].key_set=true;settings.round.desks[0].key_set_at=1;openDesk("ppm");',
+  );
+  assert.equal(a.el("desk-key").hidden, true);
+  assert.equal(a.el("desk-replace").hidden, false);
+  await a.el("desk-replace").fire("click");
+  assert.equal(a.el("desk-key").hidden, false);
+  const colors = a.buttons("[data-desk-color]");
+  assert.equal(colors.length, 6);
+  for (const button of colors) {
+    await button.fire("click");
+    assert.equal(a.el("desk-color").value, "#" + button.dataset.deskColor);
+  }
+  a.el("desk-sheet").close();
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/settings");
+    assert.equal(url.searchParams.get("multiple_rgb"), "FFA020");
+    return Promise.resolve(
+      response({ ok: true, settings: structuredClone(configDefaults) }),
+    );
+  });
+  await a
+    .buttons("[data-multiple-color]")
+    .find((b) => b.dataset.multipleColor === "FFA020")
+    .fire("click");
+  await flush();
+  assert.equal(a.pending.length, 0);
+  assert.match(html, /\.pkc\.empty\s*\{[^}]*margin:\s*0\s*!important/s);
 });

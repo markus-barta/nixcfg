@@ -7,6 +7,8 @@ import io
 import json
 import logging
 import os
+import shutil
+import stat
 import re
 import subprocess
 import sys
@@ -352,13 +354,20 @@ class ApiTest(unittest.TestCase):
         for peer in ("192.168.2.1", "100.63.255.255", "100.128.0.1", "203.0.113.1", "2001:db8::1", "invalid"):
             self.assertFalse(self.module.allowed_peer(peer), peer)
 
-    def request(self, path, peer="192.168.1.42", headers=None, method="GET"):
+    def request(self, path, peer="192.168.1.42", headers=None, method="GET", body=None):
         handler = object.__new__(self.module.H)
         handler.path, handler.client_address = path, (peer, 12345)
         handler.command = method
         handler.headers = Message()
         for name, value in headers if headers is not None else [("Host", "hsb1:8765"), ("X-Nightlight", "1")]:
             handler.headers[name] = value
+        if body is not None:
+            raw = body if isinstance(body, bytes) else json.dumps(body).encode()
+            handler.rfile = io.BytesIO(raw)
+            if "Content-Length" not in handler.headers:
+                handler.headers["Content-Length"] = str(len(raw))
+            if "Content-Type" not in handler.headers:
+                handler.headers["Content-Type"] = "application/json"
         handler._reply = Mock()
         handler.send_error = Mock()
         getattr(handler, "do_" + method)()
@@ -979,6 +988,10 @@ class RoundFourTest(unittest.TestCase):
         self.module.SETTINGS_FILE = root / 'settings.json'
         self.module.FEED_FILE = root / 'desk-counts.json'
         self.module.ID_FILE = str(root / 'msgid')
+        self.module.KEY_DIRECTORY = root / 'desk-keys'
+        # Existing round-4 installations migrate; fresh installations have 0 desks.
+        seeded = {h:self.module._migrate_hub(v) for h,v in self.module._legacy_defaults().items()}
+        self.module._atomic_json(self.module.SETTINGS_FILE, seeded)
         self.send = patch.object(self.module, 'call', return_value=(["ok"], 1)).start()
         self.addCleanup(patch.stopall)
         self.now = self.stamp('2026-10-29T12:00:00+01:00')
@@ -990,7 +1003,7 @@ class RoundFourTest(unittest.TestCase):
         counts = dict(open=2, held=1, oldest_held_at=self.now-3600,
                       oldest_expiry_at=None, generation=1)
         counts.update(overrides)
-        feed = dict(version=1, updated_at=self.now, desks={'ppm': counts})
+        feed = dict(version=1, updated_at=self.now, desks={'ppm': counts, 'pma':dict(open=0,held=0,oldest_held_at=None,oldest_expiry_at=None,generation=0)})
         self.module.FEED_FILE.write_text(json.dumps(feed))
         return feed
 
@@ -1068,21 +1081,22 @@ class RoundFourTest(unittest.TestCase):
         fresh=load(state_directory=self.tmp.name)
         self.assertEqual(fresh.get_settings()['settings']['round']['usage'],'nightlight')
         self.assertEqual(fresh.get_settings()['settings']['plug'],defaults['plug'])
-        self.assertTrue(self.result('/settings?hub=round&rule=urgent:ppm&rgb=ABCDEF&bri=42&mode=alternate&rgb2=123456&takt=3&all=1')['ok'])
+        self.assertTrue(self.result('/settings?hub=round&rule=urgent&rgb=ABCDEF&bri=42&mode=alternate&rgb2=123456&takt=3&all=1')['ok'])
         rules=fresh.get_settings()['settings']['round']['rules']
-        self.assertEqual(rules['urgent:ppm'],rules['urgent:pma'])
-        self.assertEqual(rules['urgent:ppm'],rules['urgent:both'])
+        self.assertEqual(set(rules), set(self.module.RULE_KEYS))
+        self.assertEqual(rules['urgent']['bri'],42)
+        self.assertEqual(rules['urgent']['mode'],'alternate')
         for suffix in ('usage=bad','threshold_ppm=0','threshold_pma=49','auto_sound=2','sound_vol=16','sound_ms=199'):
             self.assertFalse(self.result('/settings?hub=round&'+suffix)['ok'])
         self.send.assert_not_called()
 
     def test_rule_minimum_and_unknown_never_off_including_alternate(self):
-        for query in ('rule=urgent:ppm&bri=60&mode=blink&takt=1',
+        for query in ('rule=urgent&bri=60&mode=blink&takt=1',
                       'rule=unknown&bri=0&mode=steady&takt=2',
                       'rule=unknown&bri=5&mode=blink&takt=2',
                       'rule=unknown&bri=5&mode=steady&takt=6'):
             self.assertFalse(self.result('/settings?hub=round&rgb=8FA3B0&rgb2=000000&'+query)['ok'])
-        self.assertEqual(self.module.default_settings()['round']['rules']['urgent:ppm']['takt'],2)
+        self.assertEqual(self.module._engine_settings('round')['rules']['urgent']['takt'],2)
         self.assertTrue(self.result('/settings?hub=round&rule=unknown&rgb=8FA3B0&rgb2=18C2B0&bri=5&mode=alternate&takt=2')['ok'])
 
     def test_new_endpoints_preserve_every_http_guard(self):
@@ -1133,7 +1147,7 @@ class RoundFourTest(unittest.TestCase):
             self.assertEqual(self.module.quiet_hours(self.stamp(text)),quiet,text)
 
     def test_feed_absent_stale_invalid_or_future_is_unknown_never_idle(self):
-        cfg=self.module.default_settings()['round']
+        cfg=self.module._engine_settings('round')
         for content in (None,'bad','{}','[]'):
             if content is not None:self.module.FEED_FILE.write_text(content)
             feed=self.module.read_feed(self.now)
@@ -1151,7 +1165,7 @@ class RoundFourTest(unittest.TestCase):
         self.assertIsNotNone(self.module.read_feed(self.now+120))
 
     def test_mapping_threshold_expiry_open_minus_held_and_both(self):
-        cfg=self.module.default_settings()['round']
+        cfg=self.module._engine_settings('round')
         def key(feed):return self.module.resolve_signal(cfg,feed,self.now)['key']
         self.assertEqual(key(self.feed()),'regular:ppm')
         self.assertEqual(key(self.feed(oldest_held_at=self.now-4*3600)),'urgent:ppm')
@@ -1162,7 +1176,7 @@ class RoundFourTest(unittest.TestCase):
         feed=self.feed();feed['desks']['pma']=dict(feed['desks']['ppm'])
         self.assertEqual(key(feed),'regular:both')
         feed['desks']['pma']['oldest_expiry_at']=self.now+60
-        self.assertEqual(key(feed),'urgent:both')
+        self.assertEqual(key(feed),'urgent:pma')
 
     def test_seen_survives_restart_until_new_held_generation(self):
         feed=self.feed()
@@ -1229,11 +1243,11 @@ class RoundFourTest(unittest.TestCase):
         self.send.assert_called_with('round','set_rgb',[(5<<24)|0x8FA3B0],attempts=1)
 
     def test_alternate_and_ten_second_test_return_to_static_live_state(self):
-        self.module.save_settings('round',dict(rule='regular:ppm',rgb='18C2B0',rgb2='FFA020',bri='20',mode='alternate',takt='2'))
+        self.module.save_settings('round',dict(rule='regular',rgb='18C2B0',rgb2='FFA020',bri='20',mode='alternate',takt='2'))
         self.feed();engine=self.module.SignalEngine()
         engine.tick('round',self.now,0);engine.tick('round',self.now+2,2)
         self.send.assert_called_with('round','set_rgb',[(20<<24)|0xFFA020],attempts=1)
-        self.module._signal_tests['round']=(10,'unknown',self.module.default_settings()['round']['rules']['unknown'])
+        self.module._signal_tests['round']=(10,'unknown',self.module._engine_settings('round')['rules']['unknown'])
         engine.tick('round',self.now+4,4)
         self.send.assert_called_with('round','set_rgb',[(5<<24)|0x8FA3B0],attempts=1)
         engine.tick('round',self.now+10,10)
@@ -1332,7 +1346,7 @@ class RoundFourTest(unittest.TestCase):
         for slot in ('rgb', 'rgb2'):
             with self.subTest(slot=slot):
                 settings = self.module.default_settings()
-                settings['round']['rules']['regular:ppm'][slot] = '000000'
+                settings['round']['rules']['regular'][slot] = '000000'
                 self.module.SETTINGS_FILE.write_text(json.dumps(settings))
                 with self.assertRaises(self.module.SettingsStateError):
                     self.module.SignalEngine().tick('round', self.now, 0)
@@ -1349,7 +1363,7 @@ class RoundFourTest(unittest.TestCase):
                         signal = dict(key='regular:ppm', rule=rule, quiet=False)
                         if source == 'test':
                             self.module._signal_tests['round'] = (10, 'regular:ppm', rule)
-                            signal = dict(key='unknown', rule=self.module.default_settings()['round']['rules']['unknown'], quiet=False)
+                            signal = dict(key='unknown', rule=self.module._engine_settings('round')['rules']['unknown'], quiet=False)
                         with patch.object(self.module, 'resolve_signal', return_value=signal), self.assertRaises(self.module.RuleValidationError):
                             engine.tick('round', self.now, 0)
                         self.send.assert_not_called()
@@ -1374,17 +1388,17 @@ class RoundFourTest(unittest.TestCase):
         self.send.assert_not_called()
 
     def test_explicit_zero_brightness_black_rule_remains_off(self):
-        query = dict(rule='regular:ppm', rgb='000000', rgb2='000000', bri='0', mode='alternate', takt='2')
+        query = dict(rule='regular', rgb='000000', rgb2='000000', bri='0', mode='alternate', takt='2')
         self.assertTrue(self.module.save_settings('round', query)['ok'])
         with patch.object(self.module, 'set_light', return_value={'ok': True}) as light:
             self.assertTrue(self.module.test_signal('round', query)['ok'])
-            light.assert_called_once_with('round', '000000', 0)
+            light.assert_called_once_with('round', '18C2B0', 0)
         self.module._signal_tests.clear()
         self.feed()
         engine = self.module.SignalEngine()
         self.assertTrue(engine.tick('round', self.now, 0))
         self.assertTrue(engine.tick('round', self.now + 2, 2))
-        self.assertEqual(self.send.call_args_list, [call('round', 'set_rgb', [0], attempts=1)] * 2)
+        self.assertEqual(self.send.call_args_list, [call('round', 'set_rgb', [0x18C2B0], attempts=1),call('round', 'set_rgb', [0], attempts=1)])
 
     def test_block_reservation_reduces_fsync_and_never_reuses_after_crash(self):
         with patch.object(self.module.os,'fsync',wraps=self.module.os.fsync) as sync:
@@ -1420,6 +1434,8 @@ class RoundFourTest(unittest.TestCase):
     def test_every_new_control_attribute_has_one_value_and_expected_identity(self):
         page=PageParser(self.module.PAGE)
         expected={'data-usage':{'nightlight','desk'},'data-duration':{'full','short'},'data-auto-duration':{'full','short'},
+                  'data-tab':{'light','sounds','signal','rules','auto-tone','desks'},
+                  'data-multiple':{'cycle','own'},
                   'data-rule':set(self.module.RULE_KEYS),'data-rule-mode':{'steady','blink','alternate'},
                   'data-rule-slot':{'rgb','rgb2'}, 'data-rule-color':{'18C2B0','FFA020','9B6BFF','8FA3B0','FF2A00','FFFFFF'},
                   'data-save-place':set(self.module.PRESET_IDS),'data-rename-place':set(self.module.PRESET_IDS),
@@ -1433,6 +1449,338 @@ class RoundFourTest(unittest.TestCase):
                 found.extend(v for k,v in pairs if k==attribute)
             self.assertEqual(set(found),values,attribute)
             self.assertEqual(len(found),len(values),attribute)
+
+
+class Version33Test(unittest.TestCase):
+    request = ApiTest.request
+    FAKE_KEY = "FAKE-DESK-SIGNAL-KEY-DO-NOT-USE"
+    FAKE_REPLACEMENT = "FAKE-REPLACEMENT-KEY-DO-NOT-USE"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.module = load(state_directory=self.tmp.name)
+        self.now = self.module.datetime.fromisoformat("2026-10-30T12:00:00+01:00").timestamp()
+        self.payload = dict(hub="round", short="ABC", name="Example", url="https://desk.invalid", rgb="18C2B0", key=self.FAKE_KEY)
+        self.guard = [("Host", "hsb1:8765"), ("X-Nightlight", "1"), ("X-Nightlight-Mode", "erwachsen")]
+
+    def save_fake(self, **changes):
+        with patch.object(self.module, "check_desk_key", return_value=True), patch("sys.stderr", new_callable=io.StringIO):
+            return self.module.desk_action("round", {**self.payload, **changes})
+
+    def seed(self, n=2):
+        settings = {h:self.module._migrate_hub(v) for h,v in self.module._legacy_defaults().items()}
+        for cfg in settings.values():
+            for i in range(2, n):
+                desk = json.loads(json.dumps(cfg["desks"][0]))
+                desk.update(id=f"{i:032x}", short=f"D{i:03}", name="Example", rgb="AABBCC")
+                cfg["desks"].append(desk)
+                cfg["thresholds"][desk["id"]] = 4
+                cfg["sound_generation"][desk["id"]] = 0
+            cfg["desks"] = cfg["desks"][:n]
+            for field in ("thresholds", "sound_generation"):
+                cfg[field] = {d["id"]:cfg[field][d["id"]] for d in cfg["desks"]}
+        self.module._atomic_json(self.module.SETTINGS_FILE, settings)
+        return settings
+
+    def feed(self, settings):
+        return dict(version=1, updated_at=self.now, desks={d["id"]:dict(open=2, held=1, oldest_held_at=self.now-3600, oldest_expiry_at=None, generation=1) for d in settings["desks"]})
+
+    def test_fresh_install_has_zero_desks_and_never_false_idle(self):
+        cfg = self.module.get_settings()["settings"]["round"]
+        self.assertEqual(cfg["desks"], [])
+        for feed in (None, dict(desks={})):
+            resolved = self.module.resolve_signal(cfg, feed, self.now)
+            self.assertEqual(resolved["key"], "unknown")
+            self.assertGreater(resolved["rule"]["bri"], 0)
+
+    def test_settings_matrix_migration_is_lossless_atomic_and_idempotent(self):
+        old = self.module._legacy_defaults()
+        old["round"]["rules"]["regular:ppm"]["rgb"] = "123456"
+        old["round"]["rules"]["urgent:pma"]["bri"] = 81
+        old["round"]["rules"]["urgent:pma"]["rgb2"] = "ABCDEF"
+        old["round"]["rules"]["open:both"]["rgb"] = "000000"
+        old["round"]["seen"] = dict(ppm=4,pma=8)
+        self.module.SETTINGS_FILE.write_text(json.dumps(old))
+        with patch.object(self.module.os, "replace", wraps=self.module.os.replace) as replace:
+            migrated = self.module._engine_settings("round")
+            self.assertEqual(replace.call_count, 1)
+            inode = self.module.SETTINGS_FILE.stat().st_ino
+            raw = self.module.SETTINGS_FILE.read_bytes()
+            self.assertEqual(self.module._engine_settings("round"), migrated)
+            self.assertEqual(replace.call_count, 1)
+            self.assertEqual(self.module.SETTINGS_FILE.stat().st_ino, inode)
+            self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), raw)
+        self.assertEqual(migrated["legacy_rules"], old["round"]["rules"])
+        self.assertEqual(migrated["desks"][0]["rgb"], "123456")
+        self.assertEqual(migrated["rules"]["urgent"], old["round"]["rules"]["urgent:ppm"])
+        self.assertTrue(migrated["desks"][1]["override"])
+        self.assertEqual(migrated["desks"][1]["rules"]["urgent"]["bri"], 81)
+        self.assertEqual(migrated["seen"], old["round"]["seen"])
+        self.assertEqual(stat.S_IMODE(self.module.SETTINGS_FILE.stat().st_mode), 0o600)
+
+    def test_invalid_matrix_and_failed_migration_preserve_original_bytes(self):
+        old = self.module._legacy_defaults()
+        old["round"]["rules"]["urgent:pma"]["takt"] = 1
+        self.module.SETTINGS_FILE.write_text(json.dumps(old))
+        before = self.module.SETTINGS_FILE.read_bytes()
+        with self.assertRaises(self.module.SettingsStateError): self.module.get_settings()
+        self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), before)
+        self.module.SETTINGS_FILE.write_text(json.dumps(self.module._legacy_defaults()))
+        before = self.module.SETTINGS_FILE.read_bytes()
+        with patch.object(self.module.os, "replace", side_effect=OSError()), self.assertRaises(OSError): self.module.get_settings()
+        self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), before)
+        self.assertEqual(list(Path(self.tmp.name).glob(".settings-*")), [])
+
+    def test_corrupt_new_schema_fails_closed_without_overwriting(self):
+        settings = self.seed()
+        for modify in (
+            lambda s:s["round"].update(version=True),
+            lambda s:s["round"]["desks"][0].update(id="../../outside"),
+            lambda s:s["round"]["desks"][0].update(rgb="000000"),
+            lambda s:s["round"]["multiple"].update(rgb="000000"),
+            lambda s:s["round"]["desks"].append(s["round"]["desks"][0]),
+        ):
+            value = json.loads(json.dumps(settings)); modify(value)
+            self.module.SETTINGS_FILE.write_text(json.dumps(value)); before = self.module.SETTINGS_FILE.read_bytes()
+            with self.assertRaises(self.module.SettingsStateError): self.module.get_settings()
+            self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), before)
+
+    def test_counts_capability_must_be_verified_on_test_and_every_save(self):
+        for test in (False, True):
+            with self.assertRaises(self.module.DeskKeyError): self.module.desk_action("round", self.payload, test=test)
+            for verdict in (False, None, "true", {"counts_only":True}):
+                with patch.object(self.module, "check_desk_key", return_value=verdict), self.assertRaises(self.module.DeskKeyError): self.module.desk_action("round", self.payload, test=test)
+        self.assertFalse(self.module.KEY_DIRECTORY.exists())
+        self.assertFalse(self.module.SETTINGS_FILE.exists())
+        with patch.object(self.module, "check_desk_key", side_effect=RuntimeError(self.FAKE_KEY)), self.assertRaises(self.module.DeskKeyError) as caught:
+            self.module.desk_action("round", self.payload)
+        self.assertNotIn(self.FAKE_KEY, str(caught.exception))
+        saved = self.save_fake()["settings"]["round"]["desks"][0]
+        before = self.module.SETTINGS_FILE.read_bytes()
+        with self.assertRaises(self.module.DeskKeyError): self.module.desk_action("round", dict(hub="round",id=saved["id"]))
+        self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), before)
+
+    def test_key_modes_write_only_output_and_audit_never_contain_material(self):
+        with patch.object(self.module, "check_desk_key", return_value=True), patch("sys.stderr", new_callable=io.StringIO) as log:
+            result = self.module.desk_action("round", self.payload)
+        cfg = self.module._engine_settings("round"); desk = cfg["desks"][0]
+        path = self.module.KEY_DIRECTORY / desk["key_ref"]
+        self.assertEqual(stat.S_IMODE(self.module.KEY_DIRECTORY.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(self.module._read_key(desk["key_ref"]), self.FAKE_KEY)
+        public = json.dumps([result, self.module.get_settings(), self.module.signal_status("round")])
+        self.assertNotIn(self.FAKE_KEY, public)
+        self.assertNotIn("key_ref", public)
+        self.assertNotIn(self.FAKE_KEY, log.getvalue())
+        self.assertEqual(log.getvalue(), "aqara-nightlight: desk add\n")
+        self.assertNotIn(self.FAKE_KEY, self.module.SETTINGS_FILE.read_text())
+        self.assertEqual(cfg["history"][0]["action"], "add")
+        self.assertEqual(set(cfg["history"][0]), {"action","short","at"})
+
+    def test_test_only_never_persists_a_key_or_settings(self):
+        with patch.object(self.module, "check_desk_key", return_value=True):
+            self.assertEqual(self.module.desk_action("round",self.payload,test=True), {"ok":True,"counts_only":True})
+        self.assertFalse(self.module.KEY_DIRECTORY.exists())
+        self.assertFalse(self.module.SETTINGS_FILE.exists())
+
+    def test_replace_and_remove_require_confirmation_and_leave_revoke_reminder(self):
+        first = self.save_fake(); desk = first["settings"]["round"]["desks"][0]
+        ref = self.module._engine_settings("round")["desks"][0]["key_ref"]
+        with patch.object(self.module, "check_desk_key", return_value=True):
+            with self.assertRaises(self.module.DeskKeyError): self.module.desk_action("round",{**self.payload,"id":desk["id"],"key":self.FAKE_REPLACEMENT})
+            with self.assertRaises(self.module.DeskKeyError): self.module.desk_action("round",dict(id=desk["id"],action="remove"))
+        replaced = self.save_fake(id=desk["id"],key=self.FAKE_REPLACEMENT,confirm="replace")
+        self.assertTrue(replaced["revoke"])
+        self.assertFalse((self.module.KEY_DIRECTORY / ref).exists())
+        current = self.module._engine_settings("round")["desks"][0]
+        self.assertEqual(self.module._read_key(current["key_ref"]),self.FAKE_REPLACEMENT)
+        with patch("sys.stderr",new_callable=io.StringIO):
+            removed = self.module.desk_action("round",dict(id=desk["id"],action="remove",confirm="remove"))
+        self.assertTrue(removed["revoke"])
+        self.assertEqual(removed["settings"]["round"]["desks"],[])
+        self.assertEqual(list(self.module.KEY_DIRECTORY.iterdir()),[])
+        self.assertEqual([e["action"] for e in removed["settings"]["round"]["history"]],["add","replace","remove"])
+
+    def test_failed_key_or_settings_commit_preserves_previous_key_and_metadata(self):
+        desk = self.save_fake()["settings"]["round"]["desks"][0]
+        before = self.module.SETTINGS_FILE.read_bytes(); files = list(self.module.KEY_DIRECTORY.iterdir())
+        replace = self.module.os.replace
+        def fail_settings(source,target):
+            if target == self.module.SETTINGS_FILE: raise OSError(self.FAKE_REPLACEMENT)
+            return replace(source,target)
+        for operation in ("settings","key"):
+            with patch.object(self.module.os,"replace",side_effect=fail_settings if operation == "settings" else OSError(self.FAKE_REPLACEMENT)):
+                with self.assertRaises(self.module.DeskKeyError): self.save_fake(id=desk["id"],key=self.FAKE_REPLACEMENT,confirm="replace")
+            self.assertEqual(self.module.SETTINGS_FILE.read_bytes(),before)
+            self.assertEqual(list(self.module.KEY_DIRECTORY.iterdir()),files)
+            self.assertEqual(self.module._read_key(files[0].name),self.FAKE_KEY)
+
+    def test_post_rename_sync_failure_never_deletes_a_committed_generation(self):
+        desk = self.save_fake()["settings"]["round"]["desks"][0]
+        atomic = self.module._atomic_json
+        def fail_after_settings(path,value):
+            atomic(path,value)
+            if path == self.module.SETTINGS_FILE: raise OSError("FAKE-FSYNC-FAILURE")
+        with patch.object(self.module,"_atomic_json",side_effect=fail_after_settings), self.assertRaises(self.module.DeskKeyError) as caught:
+            self.save_fake(id=desk["id"],key=self.FAKE_REPLACEMENT,confirm="replace")
+        committed = self.module._engine_settings("round")["desks"][0]
+        self.assertEqual(self.module._read_key(committed["key_ref"]),self.FAKE_REPLACEMENT)
+        self.assertEqual(len(list(self.module.KEY_DIRECTORY.iterdir())),2)
+        self.assertTrue(self.module.error_response(caught.exception)["revoke"])
+
+    def test_corrupt_key_directory_cannot_redirect_removal_outside_state(self):
+        desk = self.save_fake()["settings"]["round"]["desks"][0]
+        original = self.module.KEY_DIRECTORY
+        retained = original.with_name("retained-private-keys")
+        original.rename(retained)
+        original.symlink_to(retained,target_is_directory=True)
+        before = self.module.SETTINGS_FILE.read_bytes()
+        with self.assertRaises(self.module.DeskKeyError):
+            self.module.desk_action("round",dict(id=desk["id"],action="remove",confirm="remove"))
+        self.assertEqual(len(list(retained.iterdir())),1)
+        self.assertEqual(self.module.SETTINGS_FILE.read_bytes(),before)
+
+    def test_hardlinked_and_oversized_key_files_are_not_read(self):
+        desk = self.save_fake()["settings"]["round"]["desks"][0]
+        path = next(self.module.KEY_DIRECTORY.iterdir())
+        sibling = path.with_name("fake-hardlink")
+        os.link(path,sibling)
+        with self.assertRaises(self.module.DeskKeyError): self.module._read_key(path.name)
+        sibling.unlink()
+        path.write_text("FAKE"*1024)
+        with self.assertRaises(self.module.DeskKeyError): self.module._read_key(path.name)
+
+    def test_restore_and_wrong_key_permissions_report_missing_without_reading(self):
+        desk = self.save_fake()["settings"]["round"]["desks"][0]
+        path = next(self.module.KEY_DIRECTORY.iterdir())
+        path.chmod(0o644)
+        self.assertFalse(self.module.get_settings()["settings"]["round"]["desks"][0]["key_set"])
+        with self.assertRaises(self.module.DeskKeyError): self.module._read_key(path.name)
+        path.unlink()
+        restored = load(state_directory=self.tmp.name).get_settings()["settings"]["round"]["desks"][0]
+        self.assertEqual(restored["id"],desk["id"])
+        self.assertFalse(restored["key_set"])
+
+    def test_symlinked_key_directory_and_files_are_refused(self):
+        elsewhere = Path(self.tmp.name)/"elsewhere"; elsewhere.mkdir()
+        self.module.KEY_DIRECTORY.symlink_to(elsewhere, target_is_directory=True)
+        with self.assertRaises(self.module.DeskKeyError): self.save_fake()
+        self.assertEqual(list(elsewhere.iterdir()),[])
+        self.assertFalse(self.module.SETTINGS_FILE.exists())
+
+    def test_key_destinations_and_untrusted_scope_assertions_are_refused(self):
+        for changes in (dict(url="http://desk.invalid"),dict(url="https://user:pass@desk.invalid"),dict(url="https://desk.invalid/other"),dict(url="https://desk.invalid?key=FAKE"),dict(counts_only="1"),dict(key="tiny"),dict(short="X"),dict(name=""),dict(rgb="000000")):
+            with patch.object(self.module,"check_desk_key",return_value=True), self.assertRaises((self.module.DeskKeyError,self.module.SettingsStateError)):
+                self.module.desk_action("round",{**self.payload,**changes})
+        desk = self.save_fake()["settings"]["round"]["desks"][0]
+        with patch.object(self.module,"check_desk_key",return_value=True) as verifier, self.assertRaises(self.module.DeskKeyError):
+            self.module.desk_action("round",dict(id=desk["id"],url="https://other.invalid"))
+        verifier.assert_not_called()
+
+    def test_desk_http_requires_one_marker_adult_post_and_network_guards(self):
+        denied = [[],[("X-Nightlight","1"),("X-Nightlight","1"),("X-Nightlight-Mode","erwachsen")],[("X-Nightlight","1"),("X-Nightlight-Mode","kind")],[("X-Nightlight","1"),("X-Nightlight-Mode","erwachsen"),("X-Nightlight-Mode","erwachsen")]]
+        for endpoint in ("/desk","/desk-test"):
+            for headers in denied:
+                request = self.request(endpoint,headers=[("Host","hsb1:8765"),*headers],method="POST",body=self.payload)
+                request.send_error.assert_called_once_with(403)
+            for method in ("GET","OPTIONS"):
+                self.request(endpoint,headers=self.guard,method=method).send_error.assert_called_once_with(403)
+            for bad in (dict(peer="203.0.113.8"),dict(headers=[*self.guard,("Origin","https://foreign.invalid")]),dict(headers=[*self.guard,("Sec-Fetch-Site","cross-site")])):
+                self.request(endpoint,method="POST",body=self.payload,**bad).send_error.assert_called_once_with(403)
+            self.request(endpoint+"?key=FAKE-DO-NOT-USE",headers=self.guard,method="POST",body=self.payload).send_error.assert_called_once_with(403)
+        self.assertFalse(self.module.KEY_DIRECTORY.exists())
+
+    def test_desk_http_body_only_write_only_safe_refusal_and_success(self):
+        refused = self.request("/desk",headers=self.guard,method="POST",body=self.payload)
+        self.assertEqual(refused._reply.call_args.kwargs["status"],400)
+        self.assertNotIn(self.FAKE_KEY,refused._reply.call_args.args[0].decode())
+        with patch.object(self.module,"check_desk_key",return_value=True), patch("sys.stderr",new_callable=io.StringIO):
+            accepted = self.request("/desk",headers=self.guard,method="POST",body=self.payload)
+        self.assertTrue(json.loads(accepted._reply.call_args.args[0])["ok"])
+        self.assertNotIn(self.FAKE_KEY,accepted._reply.call_args.args[0].decode())
+        self.assertNotIn(self.FAKE_KEY,json.dumps(self.module.get_settings()))
+        for body,extra in ((b"{",[]),(b"[]",[]),(b"{}",[("Content-Length","1"),("Content-Length","1")]),(b"{}",[("Transfer-Encoding","chunked")]),(b"{}",[("Content-Type","text/plain")])):
+            handler = self.request("/desk",headers=[*self.guard,*extra],method="POST",body=body)
+            self.assertEqual(handler._reply.call_args.kwargs["status"],400)
+
+    def test_arbitrary_desks_only_highest_urgency_colours_cycle_each_takt(self):
+        settings = self.seed(5); cfg = settings["round"]; feed = self.feed(cfg)
+        resolved = self.module.resolve_signal(cfg,feed,self.now)
+        self.assertEqual(resolved["colors"],[d["rgb"] for d in cfg["desks"]])
+        feed["desks"]["pma"]["oldest_expiry_at"] = self.now+60
+        resolved = self.module.resolve_signal(cfg,feed,self.now)
+        self.assertEqual(resolved["key"],"urgent:pma")
+        self.assertEqual(resolved["rule"]["rgb"],cfg["desks"][1]["rgb"])
+        self.assertEqual(resolved["colors"],[])
+        feed["desks"]["ppm"]["oldest_expiry_at"] = self.now+60
+        resolved = self.module.resolve_signal(cfg,feed,self.now)
+        self.assertEqual(resolved["colors"],["18C2B0","FFA020"])
+        self.module.FEED_FILE.write_text(json.dumps(feed))
+        engine = self.module.SignalEngine()
+        with patch.object(self.module,"call",return_value=(["ok"],1)) as send:
+            for phase in range(5):
+                self.assertTrue(engine.tick("round",self.now+phase*2,phase*2))
+                self.assertEqual(send.call_args.args[2][0],(60<<24)|int(resolved["colors"][phase%2],16))
+                self.assertEqual(send.call_args.kwargs,{"attempts":1})
+                self.assertFalse(engine.tick("round",self.now+phase*2+1,phase*2+1))
+        self.assertEqual(engine.desk_applied["round"]["ppm"]["rgb"],"18C2B0")
+        self.assertEqual(engine.desk_applied["round"]["pma"]["rgb"],"FFA020")
+
+    def test_multiple_own_colour_override_and_incomplete_feed(self):
+        cfg = self.seed()["round"]; feed = self.feed(cfg)
+        before = self.module.SETTINGS_FILE.read_bytes()
+        for query in (dict(multiple_mode="bad"),dict(multiple_rgb="000000"),dict(multiple_rgb="BAD")):
+            with self.assertRaises(ValueError): self.module.save_settings("round",query)
+            self.assertEqual(self.module.SETTINGS_FILE.read_bytes(),before)
+        cfg["multiple"] = dict(mode="own",rgb="ABCDEF")
+        resolved = self.module.resolve_signal(cfg,feed,self.now)
+        self.assertEqual(resolved["rule"]["rgb"],"ABCDEF")
+        self.assertEqual(resolved["colors"],[])
+        cfg["desks"][0]["override"] = True
+        cfg["desks"][0]["rules"]["regular"].update(bri=81,mode="alternate",rgb2="FF2A00",takt=5)
+        feed["desks"]["pma"].update(open=0,held=0,oldest_held_at=None)
+        resolved = self.module.resolve_signal(cfg,feed,self.now)
+        self.assertEqual((resolved["rule"]["rgb"],resolved["rule"]["bri"],resolved["rule"]["takt"]),("18C2B0",81,5))
+        del feed["desks"]["pma"]
+        self.assertEqual(self.module.resolve_signal(cfg,feed,self.now)["key"],"unknown")
+
+    @unittest.skipUnless(shutil.which("nix-instantiate"),"Nix is required for pure backup config evaluation")
+    def test_restic_exclusion_is_in_actual_evaluated_compose_and_script(self):
+        expression = 'let c = import ./hosts/hsb1/docker/compose-spec.nix; in { exclude = c.services.restic-cron-hetzner.environment.RESTIC_EXCLUDE_NIGHTLIGHT_KEYS; mounts = c.services.restic-cron-hetzner.volumes; }'
+        result = subprocess.run(["nix-instantiate","--eval","--strict","--json","--expr",expression],cwd=ROOT,capture_output=True,text=True,check=True)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["exclude"],"*/aqara-nightlight/desk-keys")
+        self.assertIn("./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro",value["mounts"])
+        script = (ROOT/"hosts/hsb1/docker/restic-cron/hetzner/run_backup.sh").read_text()
+        self.assertIn('--exclude "${RESTIC_EXCLUDE_NIGHTLIGHT_KEYS:-*/aqara-nightlight/desk-keys}"',script)
+        import fnmatch
+        for root in ("/var/lib","/var/lib/private","/backup/var/lib/private"):
+            self.assertTrue(fnmatch.fnmatch(root+"/aqara-nightlight/desk-keys",value["exclude"]))
+
+
+    @unittest.skipUnless(shutil.which("restic"),"Restic is required to exercise its real exclusion matcher")
+    def test_real_restic_snapshot_excludes_keys_at_both_state_roots(self):
+        root = Path(self.tmp.name)
+        source = root/"FAKE-BACKUP-SOURCE"
+        for parent in (source/"var/lib",source/"var/lib/private",source/"backup/var/lib/private"):
+            state = parent/"aqara-nightlight"
+            keys = state/"desk-keys"
+            keys.mkdir(parents=True)
+            (keys/"FAKE-KEY-DO-NOT-USE").write_text(self.FAKE_KEY)
+            (state/"settings.json").write_text('{"fixture":"FAKE-METADATA"}')
+        password = root/"FAKE-RESTIC-PASSWORD-DO-NOT-USE"
+        password.write_text("FAKE-LOCAL-TEST-PASSWORD-DO-NOT-USE")
+        repository = root/"FAKE-LOCAL-RESTIC-REPOSITORY"
+        args = [shutil.which("restic"),"--no-cache","--repo",str(repository),"--password-file",str(password)]
+        def local(*arguments):
+            return subprocess.run([*args,*arguments],check=True,text=True,capture_output=True,timeout=30).stdout
+        local("init")
+        local("backup","--exclude","*/aqara-nightlight/desk-keys",str(source))
+        entries = [json.loads(line) for line in local("ls","--json","latest").splitlines()]
+        paths = [e["path"] for e in entries if e.get("type") == "file"]
+        self.assertEqual(len([p for p in paths if p.endswith("/settings.json")]),3)
+        self.assertFalse(any("desk-keys" in p for p in paths))
 
 
 class StreamingProgressTest(unittest.TestCase):

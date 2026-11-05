@@ -5,6 +5,8 @@ GET /get?hub=plug, /presets, /config, /signal?hub=round and / for the UI.
 Acting endpoints /set, /tone, /stop, /preset, /apply, /settings, /seen and
 /signal-test require X-Nightlight: 1 and accept GET or POST.
 GET actions are deprecated compatibility for Home Assistant; the UI uses POST.
+/desk and /desk-test are adult-view, JSON-body POSTs only. Credentials are
+write-only and refused until their counts-only capability can be verified.
 KI-18FB is plug; WZ-594F is round. Default nacht: 5C0701 at 44%.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
 Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
@@ -12,6 +14,7 @@ The handshake token stays in memory; no library payloads or exceptions are logge
 """
 
 import base64
+import copy
 import fcntl
 import hashlib
 import ipaddress
@@ -20,10 +23,12 @@ import logging
 import os
 import re
 import socket
+import stat
 import sys
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from contextlib import ExitStack, contextmanager
@@ -80,12 +85,13 @@ ID_FILE = str(STATE_DIRECTORY / "msgid")
 PRESET_FILE = STATE_DIRECTORY / "presets.json"
 SETTINGS_FILE = STATE_DIRECTORY / "settings.json"
 FEED_FILE = STATE_DIRECTORY / "desk-counts.json"
+KEY_DIRECTORY = STATE_DIRECTORY / "desk-keys"
 FEED_MAX_AGE = 120
 ID_BLOCK = 256
 ID_LIMIT = 2147483000
 DEFAULT_NIGHTLIGHT = {"rgb": "5C0701", "bri": 44}
 ACTING_ENDPOINTS = frozenset(("/set", "/tone", "/stop", "/preset", "/apply",
-                              "/settings", "/seen", "/signal-test"))
+                              "/settings", "/seen", "/signal-test", "/desk", "/desk-test"))
 ALLOWED_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
 ))
@@ -510,15 +516,17 @@ def apply_preset(hub, name):
     return set_light(hub, preset["rgb"], preset["bri"])
 
 
-DESKS = ("ppm", "pma")
-RULE_KEYS = tuple(f"{level}:{desk}" for level in ("urgent", "regular", "open")
-                  for desk in (*DESKS, "both")) + ("idle", "unknown")
+DESKS = ("ppm", "pma")  # legacy migration identities only
+LEVELS = ("urgent", "regular", "open")
+LEGACY_RULE_KEYS = tuple(f"{level}:{desk}" for level in LEVELS
+                         for desk in (*DESKS, "both")) + ("idle", "unknown")
+RULE_KEYS = (*LEVELS, "idle", "unknown")
 
 
-def default_settings():
+def _legacy_defaults():
     def hub_settings(hub):
         rules = {}
-        for key in RULE_KEYS:
+        for key in LEGACY_RULE_KEYS:
             level, _, desk = key.partition(":")
             rules[key] = {"rgb": {"ppm": "18C2B0", "pma": "FFA020", "both": "9B6BFF"}.get(desk, "8FA3B0"),
                           "bri": {"urgent": 60, "regular": 20, "open": 0, "idle": 0, "unknown": 5}[level],
@@ -528,6 +536,41 @@ def default_settings():
                 "sound_ms": 1000, "sound_vol": 10, "sound_id": 10,
                 "seen": None, "sound_generation": {desk: 0 for desk in DESKS}, "last_sound": 0}
     return {hub: hub_settings(hub) for hub in HUBS}
+
+
+def _migrate_hub(value):
+    """Keep the entire validated matrix as evidence, including unmappable colours.
+
+    Shared urgency behaviour comes from PPM; PMA differences become enabled
+    overrides. New desk colours come from Regulär, as approved in v3.3.
+    """
+    result = copy.deepcopy(value)
+    result["version"] = 33
+    result["legacy_rules"] = copy.deepcopy(value["rules"])
+    result["rules"] = {level: dict(value["rules"][level + ":ppm"]) for level in LEVELS}
+    result["rules"].update({k: dict(value["rules"][k]) for k in ("idle", "unknown")})
+    multiple_rgb = value["rules"]["regular:both"]["rgb"]
+    result["multiple"] = {"mode": "cycle", "rgb": multiple_rgb if multiple_rgb != "000000" else "9B6BFF"}
+    result["desks"] = []
+    for desk in DESKS:
+        rules = {level: dict(value["rules"][level + ":" + desk]) for level in LEVELS}
+        own = any(any(rules[level][k] != result["rules"][level][k]
+                      for k in ("bri", "mode", "rgb2", "takt")) for level in LEVELS)
+        rgb = value["rules"]["regular:" + desk]["rgb"]
+        # An old off/black cell is valid history, but cannot become a lit desk colour.
+        result["desks"].append({"id": desk, "short": desk.upper(), "name": desk.upper(),
+                               "url": "", "rgb": rgb if rgb != "000000" else "8FA3B0",
+                               "key_ref": None, "key_set_at": None,
+                               "override": own, "rules": rules})
+    result["history"] = []
+    return result
+
+
+def default_settings():
+    settings = {hub: _migrate_hub(value) for hub, value in _legacy_defaults().items()}
+    for value in settings.values():
+        value.update(desks=[], thresholds={}, sound_generation={}, legacy_rules=None)
+    return settings
 
 
 class SettingsStateError(ValueError):
@@ -552,6 +595,81 @@ def _require_settings(condition):
         raise SettingsStateError()
 
 
+def _validate_legacy(settings):
+    defaults = _legacy_defaults()
+    _require_settings(isinstance(settings, dict) and set(settings) == set(HUBS))
+    for hub, value in settings.items():
+        _require_settings(set(value) == set(defaults[hub]))
+        _validate_common(value, DESKS, LEGACY_RULE_KEYS)
+        _require_settings(value["seen"] is None or set(value["seen"]) == set(DESKS))
+
+
+def _validate_common(value, desks, keys):
+    _require_settings(value["usage"] in ("nightlight", "desk") and type(value["auto_sound"]) is bool)
+    _require_settings(set(value["rules"]) == set(keys))
+    _require_settings(all(_valid_rule(r, k) for k, r in value["rules"].items()))
+    _require_settings(set(value["thresholds"]) == set(desks))
+    _require_settings(all(type(n) is int and 1 <= n <= 48 for n in value["thresholds"].values()))
+    _require_settings(value["sound_ms"] is None or type(value["sound_ms"]) is int and 200 <= value["sound_ms"] <= 3000)
+    _require_settings(type(value["sound_vol"]) is int and 0 <= value["sound_vol"] <= 15)
+    _require_settings(type(value["sound_id"]) is int and value["sound_id"] in {i for _, tones in TONES for i, _ in tones})
+    _require_settings(value["seen"] is None or (set(value["seen"]) <= set(desks)
+            and all(type(n) is int and n >= 0 for n in value["seen"].values())))
+    _require_settings(set(value["sound_generation"]) == set(desks))
+    _require_settings(all(type(n) is int and n >= 0 for n in value["sound_generation"].values()))
+    _require_settings(type(value["last_sound"]) in (int, float) and 0 <= value["last_sound"] <= 2**53 - 1)
+
+
+def _valid_url(value, *, missing=False):
+    if missing and value == "":
+        return True  # legacy/restored desk needs an instance and a new key
+    if not isinstance(value, str) or len(value) > 250:
+        return False
+    try:
+        parsed = urlparse(value)
+        return (parsed.scheme == "https" and parsed.hostname is not None and parsed.username is None
+                and parsed.password is None and parsed.port in (None, 443)
+                and parsed.path in ("", "/") and not parsed.query and not parsed.fragment
+                and re.fullmatch(r"[A-Za-z0-9.-]+", parsed.hostname) is not None)
+    except ValueError:
+        return False
+
+
+def _validate_v33(settings):
+    _require_settings(isinstance(settings, dict) and set(settings) == set(HUBS))
+    fields = set(default_settings()["round"])
+    for value in settings.values():
+        _require_settings(isinstance(value, dict) and set(value) == fields and type(value["version"]) is int and value["version"] == 33)
+        _require_settings(isinstance(value["desks"], list))
+        ids = []
+        shorts = []
+        for desk in value["desks"]:
+            _require_settings(set(desk) == {"id", "short", "name", "url", "rgb", "key_ref", "key_set_at", "override", "rules"})
+            _require_settings(isinstance(desk["id"], str) and re.fullmatch(r"(?:ppm|pma|[0-9a-f]{32})", desk["id"]) is not None)
+            _require_settings(desk["id"] not in ids and desk["short"] not in shorts)
+            ids.append(desk["id"])
+            shorts.append(desk["short"])
+            _require_settings(isinstance(desk["short"], str) and re.fullmatch(r"[A-Z0-9]{2,4}", desk["short"]) is not None)
+            _require_settings(_valid_name(desk["name"]) and _valid_url(desk["url"], missing=desk["key_ref"] is None))
+            _require_settings(isinstance(desk["rgb"], str) and re.fullmatch(r"[0-9A-F]{6}", desk["rgb"]) is not None and desk["rgb"] != "000000")
+            _require_settings(desk["key_ref"] is None or isinstance(desk["key_ref"], str) and re.fullmatch(r"[0-9a-f]{32}", desk["key_ref"]) is not None)
+            _require_settings((desk["key_ref"] is None and desk["key_set_at"] is None)
+                              or desk["key_ref"] is not None and type(desk["key_set_at"]) in (int, float) and 0 <= desk["key_set_at"] <= 2**53 - 1)
+            _require_settings(type(desk["override"]) is bool and set(desk["rules"]) == set(LEVELS))
+            _require_settings(all(_valid_rule(r, k) for k, r in desk["rules"].items()))
+        _validate_common(value, ids, RULE_KEYS)
+        multiple = value["multiple"]
+        _require_settings(set(multiple) == {"mode", "rgb"} and multiple["mode"] in ("cycle", "own"))
+        _require_settings(isinstance(multiple["rgb"], str) and re.fullmatch(r"[0-9A-F]{6}", multiple["rgb"]) is not None and multiple["rgb"] != "000000")
+        legacy = value["legacy_rules"]
+        _require_settings(legacy is None or set(legacy) == set(LEGACY_RULE_KEYS) and all(_valid_rule(r, k) for k, r in legacy.items()))
+        _require_settings(isinstance(value["history"], list) and len(value["history"]) <= 100)
+        for event in value["history"]:
+            _require_settings(set(event) == {"action", "short", "at"} and event["action"] in ("add", "save", "replace", "remove"))
+            _require_settings(isinstance(event["short"], str) and re.fullmatch(r"[A-Z0-9]{2,4}", event["short"]) is not None)
+            _require_settings(type(event["at"]) in (int, float) and 0 <= event["at"] <= 2**53 - 1)
+
+
 def _read_settings():
     try:
         settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -560,25 +678,15 @@ def _read_settings():
     except (UnicodeError, ValueError):
         raise SettingsStateError() from None
     try:
-        defaults = default_settings()
-        _require_settings(isinstance(settings, dict) and set(settings) == set(HUBS))
-        for hub, value in settings.items():
-            _require_settings(set(value) == set(defaults[hub]))
-            _require_settings(value["usage"] in ("nightlight", "desk") and type(value["auto_sound"]) is bool)
-            _require_settings(set(value["rules"]) == set(RULE_KEYS))
-            _require_settings(all(_valid_rule(r, k) for k, r in value["rules"].items()))
-            _require_settings(set(value["thresholds"]) == set(DESKS))
-            _require_settings(all(type(n) is int and 1 <= n <= 48 for n in value["thresholds"].values()))
-            _require_settings(value["sound_ms"] is None or type(value["sound_ms"]) is int and 200 <= value["sound_ms"] <= 3000)
-            _require_settings(type(value["sound_vol"]) is int and 0 <= value["sound_vol"] <= 15)
-            _require_settings(type(value["sound_id"]) is int and value["sound_id"] in {i for _, tones in TONES for i, _ in tones})
-            _require_settings(value["seen"] is None or (set(value["seen"]) == set(DESKS)
-                    and all(type(n) is int and n >= 0 for n in value["seen"].values())))
-            _require_settings(set(value["sound_generation"]) == set(DESKS))
-            _require_settings(all(type(n) is int and n >= 0 for n in value["sound_generation"].values()))
-            _require_settings(type(value["last_sound"]) in (int, float) and 0 <= value["last_sound"] <= 2**53 - 1)
+        migrated = isinstance(settings, dict) and all(isinstance(v, dict) and "version" not in v for v in settings.values())
+        if migrated:
+            _validate_legacy(settings)  # every hub before any write
+            settings = {hub: _migrate_hub(value) for hub, value in settings.items()}
+        _validate_v33(settings)
     except (KeyError, TypeError, AttributeError):
         raise SettingsStateError() from None
+    if migrated:
+        _atomic_json(SETTINGS_FILE, settings)
     return settings
 
 
@@ -591,7 +699,21 @@ def _settings_transaction():
 
 def get_settings():
     with _settings_transaction():
-        return {"ok": True, "settings": _read_settings()}
+        return {"ok": True, "settings": _public_settings(_read_settings())}
+
+
+def _public_settings(settings):
+    result = copy.deepcopy(settings)
+    for cfg in result.values():
+        for desk in cfg["desks"]:
+            ref = desk.pop("key_ref")
+            desk["key_set"] = ref is not None and _key_exists(ref)
+    return result
+
+
+def _engine_settings(hub):
+    with _settings_transaction():
+        return _read_settings()[hub]
 
 
 def save_settings(hub, query):
@@ -610,22 +732,31 @@ def save_settings(hub, query):
             key = query["rule"]
             if key not in RULE_KEYS:
                 raise ValueError("Unbekannte Regel")
-            rule = {"rgb": query["rgb"].upper(), "bri": int(query["bri"]),
+            own = next((d for d in value["desks"] if d["id"] == query.get("desk")), None)
+            if "desk" in query and (own is None or key not in LEVELS):
+                raise ValueError("Ungültige Desk-Regel")
+            rules = own["rules"] if own is not None and key in LEVELS else value["rules"]
+            rule = {"rgb": query.get("rgb", rules[key]["rgb"]).upper(), "bri": int(query["bri"]),
                     "mode": query["mode"], "rgb2": query.get("rgb2", "FFFFFF").upper(),
                     "takt": int(query["takt"])}
             if not _valid_rule(rule, key):
                 raise RuleValidationError()
-            keys = [key]
-            if query.get("all") == "1" and ":" in key:
-                keys = [key.split(":")[0] + ":" + desk for desk in (*DESKS, "both")]
-            for target in keys:
-                value["rules"][target] = dict(rule)
-        for desk in DESKS:
-            if "threshold_" + desk in query:
-                n = int(query["threshold_" + desk])
+            rules[key] = rule
+        for desk in value["desks"]:
+            if "threshold_" + desk["id"] in query:
+                n = int(query["threshold_" + desk["id"]])
                 if not 1 <= n <= 48:
                     raise ValueError("Schwelle muss 1–48 h sein")
-                value["thresholds"][desk] = n
+                value["thresholds"][desk["id"]] = n
+        if "multiple_mode" in query:
+            if query["multiple_mode"] not in ("cycle", "own"):
+                raise ValueError("Ungültige Mehrere-Regel")
+            value["multiple"]["mode"] = query["multiple_mode"]
+        if "multiple_rgb" in query:
+            rgb = query["multiple_rgb"].upper()
+            if re.fullmatch(r"[0-9A-F]{6}", rgb) is None or rgb == "000000":
+                raise RuleValidationError()
+            value["multiple"]["rgb"] = rgb
         if "auto_sound" in query:
             if query["auto_sound"] not in ("0", "1"):
                 raise ValueError("Ungültiger Schalter")
@@ -636,8 +767,184 @@ def save_settings(hub, query):
                 if n is not None and not low <= n <= high:
                     raise ValueError("Ungültiger Tonwert")
                 value[field] = n
+        _validate_v33(settings)
         _atomic_json(SETTINGS_FILE, settings)
-    return {"ok": True, "settings": settings}
+    return {"ok": True, "settings": _public_settings(settings)}
+
+
+class DeskKeyError(ValueError):
+    pass
+
+
+def check_desk_key(instance, key):
+    """Counts-only capability verifier boundary, deliberately fail closed.
+
+    OPS-502 owns the authenticated upstream protocol. A successful GET returning
+    counts is NOT proof that a credential cannot read titles or write. Until a
+    reviewed capability verifier exists, neither tests nor saves accept a key.
+    Offline tests replace this boundary with obvious fake credentials/verdicts.
+    No request-supplied scope flag or successful connection can bypass it.
+    """
+    raise DeskKeyError()
+
+
+def _key_directory():
+    KEY_DIRECTORY.mkdir(mode=0o700, exist_ok=True)
+    info = KEY_DIRECTORY.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise DeskKeyError()
+    os.chmod(KEY_DIRECTORY, 0o700)
+
+
+def _key_exists(ref):
+    if not isinstance(ref, str) or re.fullmatch(r"[0-9a-f]{32}", ref) is None:
+        return False
+    try:
+        directory = KEY_DIRECTORY.lstat()
+        info = (KEY_DIRECTORY / ref).lstat()
+        return (stat.S_ISDIR(directory.st_mode) and stat.S_IMODE(directory.st_mode) == 0o700
+                and directory.st_uid == os.getuid() and stat.S_ISREG(info.st_mode)
+                and info.st_nlink == 1 and info.st_size <= 1024 and info.st_uid == os.getuid()
+                and stat.S_IMODE(info.st_mode) == 0o600)
+    except OSError:
+        return False
+
+
+def _read_key(ref):
+    if not _key_exists(ref):
+        raise DeskKeyError()
+    fd = os.open(KEY_DIRECTORY / ref, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, encoding="utf-8") as handle:
+        info = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600):
+            raise DeskKeyError()
+        raw = handle.read(1025)
+        if len(raw) > 1024:
+            raise DeskKeyError()
+        value = json.loads(raw)
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{16,512}", value):
+        raise DeskKeyError()
+    return value
+
+
+def desk_action(hub, query, *, test=False):
+    """Secret-bearing input is POST body only; no credential in the return value.
+
+    Immutable random key generations + atomic settings pointer are the commit
+    protocol. A failed settings replace retains the old key and removes only
+    this operation's new file. A crash can leave an unreferenced private file.
+    """
+    if hub not in HUBS or not isinstance(query, dict):
+        raise DeskKeyError()
+    allowed = {"hub", "id", "short", "name", "url", "rgb", "key", "override", "confirm", "action"}
+    if not set(query) <= allowed or any(not isinstance(v, str) for v in query.values()):
+        raise DeskKeyError()
+    with _settings_transaction():
+        settings = _read_settings()
+        cfg = settings[hub]
+        current = next((d for d in cfg["desks"] if d["id"] == query.get("id")), None)
+        if query.get("id") and current is None:
+            raise DeskKeyError()
+        old_ref = current["key_ref"] if current else None
+        action = query.get("action", "save")
+        if action not in ("save", "remove"):
+            raise DeskKeyError()
+        if action == "remove":
+            if test or current is None or query.get("confirm") != "remove":
+                raise DeskKeyError()
+            if old_ref:
+                _key_directory()  # never unlink through a corrupt directory symlink
+            cfg["desks"].remove(current)
+            for field in ("thresholds", "sound_generation"):
+                cfg[field].pop(current["id"], None)
+            cfg["seen"] = None
+            short = current["short"]
+        else:
+            desk = copy.deepcopy(current) if current else {
+                "id": uuid.uuid4().hex, "key_ref": None, "key_set_at": None, "override": False,
+                "rules": {level: dict(cfg["rules"][level]) for level in LEVELS}}
+            for field in ("short", "name", "url", "rgb"):
+                if field in query:
+                    desk[field] = query[field].strip()
+            if "override" in query:
+                if query["override"] not in ("0", "1"):
+                    raise DeskKeyError()
+                desk["override"] = query["override"] == "1"
+            replacing = current is not None and bool(query.get("key"))
+            if replacing and not test and query.get("confirm") != "replace":
+                raise DeskKeyError()
+            if not _valid_url(desk.get("url")):
+                raise DeskKeyError()
+            if (not isinstance(desk.get("short"), str) or re.fullmatch(r"[A-Z0-9]{2,4}", desk["short"]) is None
+                    or not _valid_name(desk.get("name")) or not isinstance(desk.get("rgb"), str)
+                    or re.fullmatch(r"[0-9A-F]{6}", desk["rgb"]) is None or desk["rgb"] == "000000"):
+                raise DeskKeyError()
+            if current is not None and desk["url"] != current["url"] and not query.get("key"):
+                raise DeskKeyError()  # never forward an existing key to a changed host
+            key = query.get("key") or _read_key(old_ref)
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{16,512}", key):
+                raise DeskKeyError()
+            if any(key in desk.get(field, "") for field in ("name", "short", "url", "rgb")):
+                raise DeskKeyError()
+            # Exactly True from the trusted verifier; truthy strings/dicts fail.
+            try:
+                checked = check_desk_key(desk["url"], key) is True
+            except Exception:
+                checked = False
+            if not checked:
+                raise DeskKeyError()
+            if test:
+                return {"ok": True, "counts_only": True}
+            short = desk.get("short")
+            if current is not None:
+                cfg["desks"].remove(current)
+            cfg["desks"].append(desk)
+            if current is not None:
+                # Preserve the user's order when editing or replacing a desk.
+                order = [d["id"] for d in _read_settings()[hub]["desks"]]
+                cfg["desks"].sort(key=lambda d: order.index(d["id"]))
+            else:
+                cfg["thresholds"][desk["id"]] = 4
+                cfg["sound_generation"][desk["id"]] = 0
+            new_ref = uuid.uuid4().hex if query.get("key") else old_ref
+            desk.update(key_ref=new_ref, key_set_at=time.time() if query.get("key") else desk["key_set_at"])
+            action = "replace" if replacing else "save" if current else "add"
+        cfg["history"] = (cfg["history"] + [{"action": action, "short": short, "at": time.time()}])[-100:]
+        _validate_v33(settings)
+        temporary_ref = None
+        try:
+            if action != "remove" and new_ref != old_ref:
+                _key_directory()
+                temporary_ref = new_ref
+                _atomic_json(KEY_DIRECTORY / new_ref, key)
+            _atomic_json(SETTINGS_FILE, settings)
+        except Exception:
+            if temporary_ref:
+                # A directory fsync can fail AFTER the pointer rename. Never
+                # delete a generation which may already be committed. On an
+                # unreadable pointer, retaining a private orphan is safer too.
+                try:
+                    referenced = any(d["key_ref"] == temporary_ref
+                                     for value in _read_settings().values() for d in value["desks"])
+                except Exception:
+                    referenced = True
+                if not referenced and (KEY_DIRECTORY / temporary_ref).is_file():
+                    (KEY_DIRECTORY / temporary_ref).unlink()
+            error = DeskKeyError()
+            # A write/sync failure can have an uncertain commit outcome. Keep
+            # the revocation reminder even on the safe error response.
+            error.revoke = action in ("replace", "remove")
+            raise error from None
+        # Settings is committed; failed cleanup must not make a save ambiguous.
+        if old_ref and (action == "remove" or old_ref != new_ref):
+            try:
+                (KEY_DIRECTORY / old_ref).unlink(missing_ok=True)
+            except OSError:
+                print("aqara-nightlight: old desk key cleanup required", file=sys.stderr, flush=True)
+        print("aqara-nightlight: desk " + action, file=sys.stderr, flush=True)
+        return {"ok": True, "settings": _public_settings(settings),
+                "revoke": action in ("replace", "remove")}
 
 
 def quiet_hours(now=None):
@@ -651,15 +958,16 @@ def read_feed(now=None):
     now = time.time() if now is None else now
     try:
         with open(FEED_FILE, "rb") as handle:
-            raw = handle.read(16385)
-        if len(raw) > 16384:
+            raw = handle.read(1048577)
+        if len(raw) > 1048576:
             raise ValueError()
         feed = json.loads(raw.decode("utf-8"))
         if set(feed) != {"version", "updated_at", "desks"} or type(feed["version"]) is not int or feed["version"] != 1:
             raise ValueError()
         if type(feed["updated_at"]) not in (int, float) or not 0 <= now - feed["updated_at"] <= FEED_MAX_AGE:
             raise ValueError()
-        if not isinstance(feed["desks"], dict) or not feed["desks"] or not feed["desks"].keys() <= set(DESKS):
+        if not isinstance(feed["desks"], dict) or not feed["desks"] or any(
+                re.fullmatch(r"(?:ppm|pma|[0-9a-f]{32})", d) is None for d in feed["desks"]):
             raise ValueError()
         for desk in feed["desks"].values():
             if set(desk) != {"open", "held", "oldest_held_at", "oldest_expiry_at", "generation"}:
@@ -679,44 +987,59 @@ def read_feed(now=None):
         return None
 
 
-def _generation(feed):
-    return {d: feed["desks"].get(d, {}).get("generation", 0) for d in DESKS}
+def _generation(feed, desks=None):
+    return {d: feed["desks"].get(d, {}).get("generation", 0) for d in (feed["desks"] if desks is None else desks)}
 
 
 def resolve_signal(settings, feed, now):
-    if feed is None:
+    configured = {d["id"]: d for d in settings["desks"]}
+    active = []
+    if not configured or feed is None or not configured.keys() <= feed["desks"].keys():
         key = "unknown"
-    elif settings["seen"] == _generation(feed):
+    elif settings["seen"] == _generation(feed, configured):
         key = "idle"
     else:
         levels = {}
         for desk, counts in feed["desks"].items():
+            if desk not in configured:
+                continue
             urgent = counts["held"] and (
                 now - counts["oldest_held_at"] >= settings["thresholds"][desk] * 3600
                 or counts["oldest_expiry_at"] is not None and counts["oldest_expiry_at"] <= now + 3600)
             levels[desk] = "urgent" if urgent else "regular" if counts["held"] else "open" if counts["open"] else "idle"
         level = next((level for level in ("urgent", "regular", "open") if level in levels.values()), "idle")
-        # Both held desks participate even if only one is urgent. Urgency picks
-        # the row; the desk columns describe where the waiting items are.
-        desks = [desk for desk in DESKS if levels.get(desk) in
-                 (("urgent", "regular") if level in ("urgent", "regular") else (level,))]
-        key = level if level == "idle" else level + ":" + ("both" if len(desks) == 2 else desks[0])
-    rule = dict(settings["rules"][key])
+        active = [desk for desk in configured if levels.get(desk) == level] if level != "idle" else []
+        key = level if level == "idle" else level + ":" + ("both" if len(active) > 1 else active[0])
+    level = key.split(":")[0]
+    source = (configured[active[0]]["rules"] if len(active) == 1 and configured[active[0]]["override"]
+              else settings["rules"])
+    rule = dict(source[level])
+    colors = []
+    if active:
+        colors = [configured[d]["rgb"] for d in active]
+        rule["rgb"] = colors[0]
+        if len(active) > 1 and settings["multiple"]["mode"] == "own":
+            rule["rgb"] = settings["multiple"]["rgb"]
+            colors = []
+        elif len(active) == 1:
+            colors = []
     quiet = quiet_hours(now)
     if quiet:
         rule.update(mode="steady", bri=5 if rule["bri"] else 0)
-    return {"key": key, "rule": rule, "quiet": quiet}
+        colors = []
+    return {"key": key, "rule": rule, "quiet": quiet, "desks": active, "colors": colors}
 
 
 def signal_status(hub):
     if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
-    settings = get_settings()["settings"][hub]
+    settings = _engine_settings(hub)
     now = time.time()
     feed = read_feed(now)
     result = resolve_signal(settings, feed, now)
-    return {"ok": True, **result, "feed": feed, "settings": settings,
-            "applied": None if _engine is None else _engine.applied.get(hub)}
+    return {"ok": True, **result, "feed": feed, "settings": _public_settings({hub: settings})[hub],
+            "applied": None if _engine is None else _engine.applied.get(hub),
+            "desk_applied": {} if _engine is None else _engine.desk_applied.get(hub, {})}
 
 
 def mark_seen(hub):
@@ -727,7 +1050,10 @@ def mark_seen(hub):
         return {"ok": False, "error": "Keine aktuellen Desk-Daten"}
     with _settings_transaction():
         settings = _read_settings()
-        settings[hub]["seen"] = _generation(feed)
+        ids = [d["id"] for d in settings[hub]["desks"]]
+        if not ids or not set(ids) <= feed["desks"].keys():
+            return {"ok": False, "error": "Keine aktuellen Desk-Daten"}
+        settings[hub]["seen"] = _generation(feed, ids)
         _atomic_json(SETTINGS_FILE, settings)
     return signal_status(hub)
 
@@ -736,13 +1062,22 @@ def test_signal(hub, query):
     if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
     key = query["rule"]
-    settings = get_settings()["settings"][hub]
+    settings = _engine_settings(hub)
     if key not in RULE_KEYS or settings["usage"] != "desk":
         raise ValueError("Ungültige Signalprobe")
     rule = dict(settings["rules"][key])
+    if key in LEVELS and settings["desks"]:
+        desk = next((d for d in settings["desks"] if d["id"] == query.get("desk")), settings["desks"][0])
+        if query.get("desk") and desk["override"]:
+            rule = dict(desk["rules"][key])
+        rule["rgb"] = desk["rgb"]
     if "rgb" in query:
         rule = {"rgb": query["rgb"].upper(), "bri": int(query["bri"]), "mode": query["mode"],
                 "rgb2": query["rgb2"].upper(), "takt": int(query["takt"])}
+    if not _valid_rule(rule, key):
+        raise RuleValidationError()
+    if key in LEVELS:
+        rule["rgb"] = desk["rgb"] if settings["desks"] else "8FA3B0"
     if not _valid_rule(rule, key):
         raise RuleValidationError()
     if quiet_hours():
@@ -785,6 +1120,8 @@ class SignalEngine:
         self.next_tick = {}
         self.phase = {}
         self.applied = {}
+        self.desk_applied = {}
+        self.cycles = {}
 
     def finish(self, hub):
         old = self.previous.get(hub)
@@ -806,7 +1143,7 @@ class SignalEngine:
             with _page_lock:
                 if _page_active[hub]:
                     return False
-            settings = get_settings()["settings"][hub]
+            settings = _engine_settings(hub)
             old = self.previous.get(hub)
             if settings["usage"] != "desk":
                 if old:
@@ -816,11 +1153,13 @@ class SignalEngine:
             feed = read_feed(now)
             signal = resolve_signal(settings, feed, now)
             key, rule = signal["key"], signal["rule"]
+            colors = signal.get("colors", [])
             with _page_lock:
                 test = _signal_tests.get(hub)
                 if test and monotonic < test[0]:
                     _, key, rule = test
                     rule = dict(rule)
+                    colors = []
                     if signal["quiet"]:
                         rule.update(mode="steady", bri=5 if rule["bri"] else 0)
                 elif test:
@@ -829,7 +1168,9 @@ class SignalEngine:
             # cached state. Never route engine sends through set_light retries.
             if not _valid_rule(rule, key):
                 raise RuleValidationError()
-            changed = old != (key, rule)
+            if any(not isinstance(c, str) or re.fullmatch(r"[0-9A-F]{6}", c) is None or c == "000000" for c in colors):
+                raise RuleValidationError()
+            changed = old != (key, rule) or self.cycles.get(hub, []) != colors
             if not changed and monotonic < self.next_tick.get(hub, 0):
                 return False
             if monotonic < self.next_tick.get((hub, "attempt"), 0):
@@ -837,15 +1178,32 @@ class SignalEngine:
             self.next_tick[(hub, "attempt")] = monotonic + max(2, rule["takt"])
             # State transitions always start on the new defined static colour;
             # no queued off phase can leak from the previous animation.
-            phase = 0 if changed else 1 - self.phase.get(hub, 0)
-            rgb = rule["rgb2"] if phase and rule["mode"] == "alternate" else rule["rgb"]
-            bri = 0 if phase and rule["mode"] == "blink" else rule["bri"]
+            phase = 0 if changed else self.phase.get(hub, 0) + 1
+            alternating = phase % 2
+            rgb = (colors[phase % len(colors)] if colors else
+                   rule["rgb2"] if alternating and rule["mode"] == "alternate" else rule["rgb"])
+            # Mehrere cycles one desk colour per Takt. Blink/second-colour
+            # animation applies to a single desk or the explicit own colour.
+            bri = 0 if not colors and alternating and rule["mode"] == "blink" else rule["bri"]
+            self.applied[hub] = {"key": key, "rgb": rgb, "bri": bri, "at": now,
+                                 "mode": rule["mode"], "rgb2": rule["rgb2"], "takt": rule["takt"],
+                                 "rgb1": rule["rgb"], "rule_bri": rule["bri"],
+                                 "colors": colors, "confirmed": False}
             call(hub, "set_rgb", [(bri << 24) | int(rgb, 16)], attempts=1)
             self.previous[hub] = (key, rule)
             self.phase[hub] = phase
-            self.next_tick[hub] = monotonic + (rule["takt"] if rule["mode"] != "steady" else 30)
-            self.applied[hub] = {"key": key, "rgb": rgb, "bri": bri, "at": now}
-            self._auto_sound(hub, settings, feed, now)
+            self.cycles[hub] = colors
+            self.next_tick[hub] = monotonic + (rule["takt"] if colors or rule["mode"] != "steady" else 30)
+            self.applied[hub] = {"key": key, "rgb": rgb, "bri": bri, "at": now,
+                                 "mode": rule["mode"], "rgb2": rule["rgb2"], "takt": rule["takt"],
+                                 "rgb1": rule["rgb"], "rule_bri": rule["bri"],
+                                 "colors": colors, "confirmed": True}
+            participating = signal.get("desks", [])
+            if colors:
+                participating = [participating[phase % len(participating)]]
+            for desk in participating:
+                self.desk_applied.setdefault(hub, {})[desk] = dict(self.applied[hub])
+            self._auto_sound(hub, settings, feed if key != "unknown" else None, now)
             return True
         finally:
             _locks[hub].release()
@@ -853,8 +1211,9 @@ class SignalEngine:
     def _auto_sound(self, hub, settings, feed, now):
         if feed is None:
             return
-        generation = _generation(feed)
-        fresh = any(feed["desks"].get(d, {}).get("held", 0) and generation[d] > settings["sound_generation"][d] for d in DESKS)
+        ids = [d["id"] for d in settings["desks"]]
+        generation = _generation(feed, ids)
+        fresh = any(feed["desks"].get(d, {}).get("held", 0) and generation[d] > settings["sound_generation"][d] for d in ids)
         if not fresh:
             return
         play = settings["auto_sound"] and not quiet_hours(now) and now - settings["last_sound"] >= 600
@@ -862,7 +1221,7 @@ class SignalEngine:
         # a notification, but can never repeat it or play a quiet-hours backlog.
         with _settings_transaction():
             stored = _read_settings()
-            for d in DESKS:
+            for d in ids:
                 stored[hub]["sound_generation"][d] = max(stored[hub]["sound_generation"][d], generation[d])
             if play:
                 stored[hub]["last_sound"] = now
@@ -887,6 +1246,10 @@ class SignalEngine:
 
 def error_response(error):
     # Fixed messages only, including DeviceError and unexpected library failures.
+    if isinstance(error, DeskKeyError):
+        return {"ok": False, "code": "desk_key_refused", "error":
+                "Dieser Schlüssel darf mehr als Zählungen lesen oder seine Berechtigung konnte nicht geprüft werden. Bitte im Desk einen „Desk signal“-Schlüssel erstellen.",
+                **({"revoke": True} if getattr(error, "revoke", False) else {})}
     if isinstance(error, MessageIdStateError):
         print("aqara-nightlight: message id state failed", file=sys.stderr, flush=True)
         return {"ok": False, "error": "Nachrichten-Zähler nicht verfügbar; Server prüfen",
@@ -962,11 +1325,32 @@ class H(BaseHTTPRequestHandler):
             if self.headers.get_all("X-Nightlight", []) != ["1"]:
                 self.send_error(403)
                 return
+            if url.path in ("/desk", "/desk-test"):
+                # The adult view is an interaction lock, not authentication.
+                # Enforce its explicit assertion as well as network/origin/Host.
+                if (self.command != "POST" or url.query
+                        or self.headers.get_all("X-Nightlight-Mode", []) != ["erwachsen"]):
+                    self.send_error(403)
+                    return
             # GET-with-header is deprecated; retained for live HA rest_command.
         elif self.command != "GET":
             self._reply(b"", "text/plain; charset=utf-8", status=405, allow="GET")
             return
         query = {k: v[0] for k, v in parse_qs(url.query, keep_blank_values=True).items()}
+        if url.path in ("/desk", "/desk-test"):
+            try:
+                lengths = self.headers.get_all("Content-Length", [])
+                if (len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,5}", lengths[0])
+                        or not 1 <= int(lengths[0]) <= 8192
+                        or self.headers.get_all("Transfer-Encoding", [])
+                        or self.headers.get_all("Content-Type", []) != ["application/json"]):
+                    raise DeskKeyError()
+                query = json.loads(self.rfile.read(int(lengths[0])).decode("utf-8"))
+                if not isinstance(query, dict) or not isinstance(query.get("hub"), str):
+                    raise DeskKeyError()
+            except Exception:
+                self._reply(json.dumps(error_response(DeskKeyError())).encode(), "application/json; charset=utf-8", status=400)
+                return
         try:
             with page_command(query.get("hub")):
                 self._dispatch(url, query)
@@ -1017,12 +1401,14 @@ class H(BaseHTTPRequestHandler):
                 result = mark_seen(query["hub"])
             elif url.path == "/signal-test":
                 result = test_signal(query["hub"], query)
+            elif url.path in ("/desk", "/desk-test"):
+                result = desk_action(query.get("hub"), query, test=url.path == "/desk-test")
             else:
                 self._reply(PAGE.encode(), "text/html; charset=utf-8")
                 return
         except Exception as error:
             result = error_response(error)
-            if isinstance(error, RuleValidationError):
+            if isinstance(error, (RuleValidationError, DeskKeyError)):
                 status = 400
         finally:
             _request_progress.callback = None
