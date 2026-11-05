@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>cm.barta.mbp2606.xcode-guard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/sbin/xcode-guard</string>
+        <string>--enforce</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>5</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/cm.barta.xcode-guard.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/cm.barta.xcode-guard.log</string>
+</dict>
+</plist>
