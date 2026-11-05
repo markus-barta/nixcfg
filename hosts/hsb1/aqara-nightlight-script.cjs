@@ -436,6 +436,8 @@ module.exports = function nightlightPage() {
   function updateSliders() {
     const s = state();
     const maximum = maxBrightness();
+    $("light-bri").textContent =
+      maximum < 100 ? `Helligkeit · max. ${percent(maximum)}` : "Helligkeit";
     s.bri = Math.min(s.bri, maximum);
     $("bri").max = maximum;
     $("bri").disabled = !s.lightReady;
@@ -560,14 +562,15 @@ module.exports = function nightlightPage() {
       const p = places[button.dataset.preset];
       button.hidden = !p;
       if (!p) return;
+      const brightness = Math.min(p.bri, maxBrightness());
       button.title = p.name;
-      button.setAttribute("aria-label", `${p.name} · ${percent(p.bri)}`);
+      button.setAttribute("aria-label", `${p.name} · ${percent(brightness)}`);
       button
         .querySelectorAll(".pre-n, .pre-nm")
         .forEach((n) => (n.textContent = p.name));
       button
         .querySelectorAll(".pre-v")
-        .forEach((n) => (n.textContent = percent(p.bri)));
+        .forEach((n) => (n.textContent = percent(brightness)));
       button.querySelector(".dot")?.style.setProperty("--c", "#" + p.rgb);
     });
     $("nightlight").title = places.nacht?.name || "Nicht gespeichert";
@@ -734,7 +737,7 @@ module.exports = function nightlightPage() {
     document.querySelectorAll("[data-rule]").forEach((b) => {
       const r = cfg.rules[b.dataset.rule];
       if (!r) return;
-      const value = r.bri ? percent(r.bri) : "Aus";
+      const value = r.bri ? percent(Math.min(r.bri, maxBrightness())) : "Aus";
       b.querySelector(".cv").textContent = value;
       b.querySelector(".cwave").classList.toggle(
         "motion-hidden",

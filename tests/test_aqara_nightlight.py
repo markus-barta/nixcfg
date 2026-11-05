@@ -900,6 +900,61 @@ class PageTest(unittest.TestCase):
             server.assert_not_called()
 
 
+class DesignFixTest(unittest.TestCase):
+    """Offline contracts for Tick's five blocking design findings.
+
+    These check shipped CSS/markup; real layout remains a browser QA gate.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = (ROOT / "hosts/hsb1/aqara-nightlight-page.html").read_text()
+        cls.page = PageParser(cls.html)
+        cls.css = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", cls.html, re.S).group(1), flags=re.S)
+
+    def declarations(self, selector):
+        result = {}
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", self.css):
+            if selector in [s.strip() for s in selectors.split(",")]:
+                result.update(part.strip().split(":", 1) for part in body.split(";") if ":" in part)
+        return {key: value.strip() for key, value in result.items()}
+
+    def test_fix1_presets_keep_64px_and_name_above_icon_value_row(self):
+        self.assertEqual(self.declarations(".pre")["height"], "64px")
+        self.assertEqual(self.declarations(".pre-k")["flex-direction"], "column")
+        self.assertEqual(self.declarations(".pre-kv")["display"], "flex")
+        for place in ("p2", "p3", "p4", "p5", "p6"):
+            with self.subTest(place=place):
+                button = re.search(r'<button\b[^>]*data-preset="' + place + r'"[^>]*>(.*?)</button', self.html, re.S).group(1)
+                self.assertRegex(button, r'(?s)class="pre-k".*?class="pre-n".*?class="pre-kv".*?<svg.*?class="pre-v"')
+
+    def test_fix2_tabs_have_centered_icons_and_add_desk_has_padding(self):
+        for tab in ("light", "sounds", "signal", "rules", "auto-tone", "desks"):
+            with self.subTest(tab=tab):
+                button = re.search(r'<button\b[^>]*data-tab="' + tab + r'"[^>]*>(.*?)</button', self.html, re.S).group(1)
+                self.assertRegex(button, r'(?s)class="tab-in".*?<svg.*?class="tab-l"')
+        self.assertEqual(self.declarations(".tab").get("display"), "grid")
+        self.assertEqual(self.declarations(".tab").get("justify-items"), "center")
+        self.assertEqual(self.declarations(".tab-in").get("justify-items"), "center")
+        self.assertEqual(self.declarations(".widebtn").get("padding"), "0 14px")
+
+    def test_fix3_panel_padding_preserves_page_margin_and_outer_rings(self):
+        self.assertEqual(self.declarations(".pg")["padding"], "10px 16px 0")
+        self.assertEqual(self.declarations(".cols").get("margin"), "0 -16px")
+        self.assertEqual(self.declarations(".cols > [data-panel]").get("padding"), "4px 16px")
+        self.assertEqual(self.declarations(".cols > [data-panel]")["overflow"], "hidden")
+
+    def test_fix4_slider_accessible_name_uses_the_dynamic_cap_label(self):
+        attrs = self.page.ids["bri"][1]
+        self.assertEqual(attrs.get("aria-labelledby"), "light-bri")
+        self.assertNotIn("aria-label", attrs)
+
+    def test_fix5_multiple_desks_share_verwendung_selected_styles(self):
+        selected = self.declarations('.mh-seg button[aria-pressed="true"]')
+        self.assertEqual(selected.get("background"), "var(--raised)")
+        self.assertEqual(selected, self.declarations('.seg button[aria-checked="true"]'))
+
+
 class ListenerTest(unittest.TestCase):
     def setUp(self):
         self.module = load()

@@ -607,6 +607,7 @@ test("WZ keeps its cap before config arrives and honors server max_bri on load",
   });
   assert.equal(Number(a.el("bri").max), 50);
   assert.equal(Number(a.el("bri").value), 50);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 50\s%$/);
   config.resolve(
     response({
       ok: true,
@@ -618,6 +619,7 @@ test("WZ keeps its cap before config arrives and honors server max_bri on load",
   assert.equal(Number(a.el("bri").max), 35);
   assert.equal(Number(a.el("bri").value), 35);
   assert.equal(Number(a.el("bri-track").properties.get("--f")), 1);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 35\s%$/);
 });
 
 test("config retry and settings replies refresh per-hub brightness limits", async () => {
@@ -640,6 +642,7 @@ test("config retry and settings replies refresh per-hub brightness limits", asyn
   await a.el("retry").fire("click");
   await flush();
   assert.equal(Number(a.el("bri").max), 45);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 45\s%$/);
   a.pending.push((url) => {
     assert.equal(url.pathname, "/settings");
     const settings = structuredClone(configDefaults);
@@ -649,6 +652,7 @@ test("config retry and settings replies refresh per-hub brightness limits", asyn
   await a.buttons("[data-usage]")[0].fire("click");
   await flush();
   assert.equal(Number(a.el("bri").max), 50);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 50\s%$/);
   assert.equal(a.pending.length, 0);
 });
 
@@ -2252,7 +2256,7 @@ test("matrix motion uses the frozen wave icon with accessible blink and alternat
   const urgent = a
     .buttons("[data-rule]")
     .find((b) => b.dataset.rule === "urgent");
-  assert.match(urgent.querySelector(".cv").textContent, /^60\s%$/);
+  assert.match(urgent.querySelector(".cv").textContent, /^50\s%$/);
   assert.equal(
     urgent.querySelector(".cwave").classList.contains("motion-hidden"),
     false,
@@ -2828,4 +2832,141 @@ test("desk and multiple palettes keep unique bindings and an explicit replace en
   await flush();
   assert.equal(a.pending.length, 0);
   assert.match(html, /\.pkc\.empty\s*\{[^}]*margin:\s*0\s*!important/s);
+});
+
+test("Tick -fix1: every preset puts its name above a single icon/value row", async () => {
+  const a = await setup();
+  for (const card of a.buttons("[data-preset]")) {
+    const kind = card.querySelector(".pre-k");
+    assert.ok(kind, `missing Kind layout for ${card.dataset.preset}`);
+    assert.deepEqual(
+      kind.children.map((e) => e.attrs.class),
+      ["pre-n", "pre-kv"],
+    );
+    const row = kind.querySelector(".pre-kv");
+    assert.deepEqual(
+      row.children.map((e) => e.tagName),
+      ["svg", "span"],
+    );
+    assert.equal(row.children[1].attrs.class, "pre-v");
+    assert.equal(row.children[0].getAttribute("aria-hidden"), "true");
+    assert.ok(card.querySelector(".pre-e"), "adult layout is retained");
+  }
+});
+
+test("Tick -fix2: all tabs have icons over labels and preserve accessible panel bindings", async () => {
+  const a = await setup({}, false, {}, { phone: true });
+  for (const tab of a.buttons("[data-tab]")) {
+    const inner = tab.querySelector(".tab-in");
+    assert.ok(inner, `missing icon/label wrapper for ${tab.dataset.tab}`);
+    assert.ok(inner.querySelector(".tab-l"));
+    const icons = inner.querySelectorAll("svg");
+    assert.ok(icons.length >= 1);
+    for (const icon of icons) {
+      assert.equal(icon.getAttribute("aria-hidden"), "true");
+      assert.ok(a.el(icon.querySelector("use").getAttribute("href").slice(1)));
+    }
+    assert.equal(tab.getAttribute("aria-controls"), `panel-${tab.dataset.tab}`);
+  }
+  assert.match(html, /\.widebtn\s*\{[^}]*padding:\s*0 14px/s);
+});
+
+test("Tick -fix3: light panel has horizontal ring clearance inside the 16px page margin", () => {
+  assert.match(html, /\.cols\s*\{[^}]*margin:\s*0 -16px/s);
+  assert.match(
+    html,
+    /\.cols\s*>\s*\[data-panel\]\s*\{[^}]*padding:\s*4px 16px/s,
+  );
+  assert.match(html, /\.pg\s*\{[^}]*padding:\s*10px 16px 0/s);
+});
+
+test("Tick -fix4: WZ label, preset and rule summaries follow max_bri without changing stored values", async () => {
+  for (const maximum of [50, 35]) {
+    const a = await setup({ "nightlight-hub": "WZ-594F" }, false, {
+      "/config": async () =>
+        response({
+          ok: true,
+          settings: structuredClone(configDefaults),
+          max_bri: { round: maximum, plug: 100 },
+        }),
+    });
+    assert.match(
+      a.el("light-bri").textContent,
+      new RegExp(`^Helligkeit · max\\. ${maximum}\\s%$`),
+    );
+    assert.equal(a.el("bri").getAttribute("aria-labelledby"), "light-bri");
+    for (const card of a.buttons("[data-preset]").filter((b) => !b.hidden)) {
+      const place = defaultPlaces.find((p) => p.id === card.dataset.preset);
+      const expected = Math.min(place.bri, maximum);
+      for (const value of card.querySelectorAll(".pre-v"))
+        assert.match(value.textContent, new RegExp(`^${expected}\\s%$`));
+      assert.match(
+        card.getAttribute("aria-label"),
+        new RegExp(`${expected}\\s%$`),
+      );
+    }
+    const urgent = a
+      .buttons("[data-rule]")
+      .find((b) => b.dataset.rule === "urgent");
+    assert.match(
+      urgent.querySelector(".cv").textContent,
+      new RegExp(`^${maximum}\\s%$`),
+    );
+    assert.match(
+      urgent.getAttribute("aria-label"),
+      new RegExp(`Dringend: ${maximum}\\s%`),
+    );
+    assert.equal(a.eval("settings.round.rules.urgent.bri"), 60);
+    assert.equal(a.eval("placesFor().p3.bri"), 80);
+    await a.buttons("[data-hub]")[0].fire("click");
+    assert.equal(a.el("light-bri").textContent, "Helligkeit");
+    const bright = a
+      .buttons("[data-preset]")
+      .find((b) => b.dataset.preset === "p3");
+    assert.match(bright.querySelector(".pre-v").textContent, /^80\s%$/);
+    assert.match(urgent.querySelector(".cv").textContent, /^60\s%$/);
+    assert.ok(
+      a.calls.every((call) => call.options.method === "GET"),
+      "rendering never actuates a hub",
+    );
+  }
+});
+
+test("Tick -fix5: multiple desks share selected styling and select exactly one saved option", async () => {
+  assert.match(
+    html,
+    /\.mh-seg button\[aria-pressed="true"\],\s*\.seg button\[aria-checked="true"\]\s*\{[^}]*background: var\(--raised\)/s,
+  );
+  for (const theme of ["dark", "light"]) {
+    const a = await setup({
+      "nightlight-mode": "erwachsen",
+      "nightlight-theme": theme,
+      "nightlight-hub": "WZ-594F",
+    });
+    assert.equal(a.el("multiple-settings").hidden, false);
+    const buttons = a.buttons("[data-multiple]");
+    for (const mode of ["own", "cycle"]) {
+      a.pending.push((url) => {
+        assert.equal(url.pathname, "/settings");
+        assert.equal(url.searchParams.get("multiple_mode"), mode);
+        const settings = structuredClone(configDefaults);
+        settings.round.multiple.mode = mode;
+        return Promise.resolve(
+          response({ ok: true, settings, max_bri: maxBri }),
+        );
+      });
+      await buttons.find((b) => b.dataset.multiple === mode).fire("click");
+      await flush();
+      assert.equal(
+        buttons.filter((b) => b.getAttribute("aria-pressed") === "true").length,
+        1,
+      );
+      assert.equal(
+        buttons.find((b) => b.getAttribute("aria-pressed") === "true").dataset
+          .multiple,
+        mode,
+      );
+    }
+    assert.equal(a.pending.length, 0);
+  }
 });

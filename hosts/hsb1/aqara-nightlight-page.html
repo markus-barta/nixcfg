@@ -198,6 +198,7 @@
         width: 18px;
         height: 18px;
       }
+      .mh-seg button[aria-pressed="true"],
       .seg button[aria-checked="true"] {
         background: var(--raised);
         color: var(--ink);
@@ -3529,6 +3530,11 @@
         margin-top: 10px !important;
         width: 100%;
         min-height: 52px;
+        padding: 0 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
         background: var(--surface) !important;
         border-radius: var(--rb);
         box-shadow: 0 0 0 1px var(--line);
@@ -3680,11 +3686,19 @@
         .desk-grid.e {
           height: 100%;
         }
+        /* Move the existing page gutter inside the panels so outer card rings
+           have clearance without moving the cards beyond the 16px margin. */
+        .cols {
+          margin: 0 -16px;
+        }
         .desk-grid > [data-panel],
         .cols > [data-panel] {
           height: 100%;
           min-height: 0;
           overflow: hidden;
+        }
+        .cols > [data-panel] {
+          padding: 4px 16px;
         }
         .desk-grid > [data-panel]:not(.active-panel),
         .cols > [data-panel]:not(.active-panel) {
@@ -3702,7 +3716,7 @@
           height: 80px;
         }
         .pre {
-          height: 60px;
+          height: 64px;
         }
         .sw {
           height: 56px;
@@ -3795,14 +3809,39 @@
         }
         .tab {
           flex: 1;
-          height: 56px;
+          height: 58px;
           border-radius: 14px;
+          display: grid;
+          align-items: center;
+          justify-items: center;
+          padding: 4px 6px;
+          color: var(--ink-2);
           font-size: 13px !important;
           font-weight: 600 !important;
+        }
+        .tab-in {
+          display: grid;
+          justify-items: center;
+          gap: 3px;
+        }
+        .tab .tbic {
+          width: 24px;
+          height: 24px;
+        }
+        .tab .tbpic {
+          width: 30px;
+          height: 30px;
+        }
+        .tab-l {
+          line-height: 16px;
+        }
+        html[data-mode="kind"] .tab {
+          height: 60px;
         }
         .tab[aria-selected="true"] {
           background: var(--act-bg);
           box-shadow: 0 0 0 1.5px var(--act-line);
+          color: var(--ink);
         }
         .st {
           position: static;
@@ -4368,6 +4407,34 @@
               d="m6.8 7 .8 11.7a1.5 1.5 0 0 0 1.5 1.4h5.8a1.5 1.5 0 0 0 1.5-1.4L17.2 7"
             />
           </symbol>
+          <symbol id="i-note" viewBox="0 0 24 24">
+            <path d="M9.5 17.5V5.6l9-2v11.6" />
+            <circle cx="7.2" cy="17.6" r="2.3" />
+            <circle cx="16.2" cy="15.4" r="2.3" />
+          </symbol>
+          <symbol id="i-lamp" viewBox="0 0 24 24">
+            <path d="M8.2 4h7.6l2.8 7.2H5.4z" />
+            <path d="M12 11.2v7.2" />
+            <path d="M8.4 20.2c1.4-1 5.8-1 7.2 0" />
+          </symbol>
+          <symbol id="i-grid" viewBox="0 0 24 24">
+            <rect x="4" y="4" width="6.6" height="6.6" rx="1.6" />
+            <rect x="13.4" y="4" width="6.6" height="6.6" rx="1.6" />
+            <rect x="4" y="13.4" width="6.6" height="6.6" rx="1.6" />
+            <rect x="13.4" y="13.4" width="6.6" height="6.6" rx="1.6" />
+          </symbol>
+          <symbol id="i-bell" viewBox="0 0 24 24">
+            <path
+              d="M6.4 16.6h11.2c-1.1-1.1-1.8-2.6-1.8-4.6v-1.5a3.8 3.8 0 0 0-7.6 0V12c0 2-.7 3.5-1.8 4.6z"
+            />
+            <path d="M10.4 18.8a1.7 1.7 0 0 0 3.2 0" />
+            <path d="M12 6.7V5.2" />
+          </symbol>
+          <symbol id="i-desks" viewBox="0 0 24 24">
+            <rect x="4" y="4.5" width="16" height="6" rx="2" />
+            <rect x="4" y="13.5" width="16" height="6" rx="2" />
+            <path d="M7.5 7.5h.1M7.5 16.5h.1" />
+          </symbol>
           <symbol id="i-plus" viewBox="0 0 24 24">
             <path d="M12 5.5v13M5.5 12h13" />
           </symbol>
@@ -4646,10 +4713,10 @@
               >
                 <span class="k"
                   ><span class="pre-k"
-                    ><svg class="ic pic ppic" aria-hidden="true">
-                      <use href="#p-candle" /></svg
-                    ><span class="pre-t"
-                      ><span class="pre-n">Warm</span
+                    ><span class="pre-n">Warm</span
+                    ><span class="pre-kv"
+                      ><svg class="ic pic ppic" aria-hidden="true">
+                        <use href="#p-candle" /></svg
                       ><span class="pre-v">40 %</span></span
                     ></span
                   ></span
@@ -4669,10 +4736,10 @@
               >
                 <span class="k"
                   ><span class="pre-k"
-                    ><svg class="ic pic ppic" aria-hidden="true">
-                      <use href="#p-sun" /></svg
-                    ><span class="pre-t"
-                      ><span class="pre-n">Hell</span
+                    ><span class="pre-n">Hell</span
+                    ><span class="pre-kv"
+                      ><svg class="ic pic ppic" aria-hidden="true">
+                        <use href="#p-sun" /></svg
                       ><span class="pre-v">80 %</span></span
                     ></span
                   ></span
@@ -4692,10 +4759,10 @@
               >
                 <span class="k"
                   ><span class="pre-k"
-                    ><svg class="ic pic ppic" aria-hidden="true">
-                      <use href="#p-heart" /></svg
-                    ><span class="pre-t"
-                      ><span class="pre-n">Rot leise</span
+                    ><span class="pre-n">Rot leise</span
+                    ><span class="pre-kv"
+                      ><svg class="ic pic ppic" aria-hidden="true">
+                        <use href="#p-heart" /></svg
                       ><span class="pre-v">5 %</span></span
                     ></span
                   ></span
@@ -4715,9 +4782,20 @@
                 aria-pressed="false"
                 hidden
               >
-                <span class="pre-n">Neuer Platz</span
-                ><span class="pre-nm e">Neuer Platz</span
-                ><span class="pre-v"></span></button
+                <span class="k"
+                  ><span class="pre-k"
+                    ><span class="pre-n">Neuer Platz</span
+                    ><span class="pre-kv"
+                      ><svg class="ic pic ppic" aria-hidden="true">
+                        <use href="#p-candle" /></svg
+                      ><span class="pre-v"></span></span></span></span
+                ><span class="e"
+                  ><span class="pre-e"
+                    ><span class="pre-l"
+                      ><span class="dot"></span
+                      ><span class="pre-nm">Neuer Platz</span></span
+                    ><span class="pre-v"></span></span
+                ></span></button
               ><button
                 type="button"
                 class="b pre"
@@ -4725,9 +4803,20 @@
                 aria-pressed="false"
                 hidden
               >
-                <span class="pre-n">Neuer Platz</span
-                ><span class="pre-nm e">Neuer Platz</span
-                ><span class="pre-v"></span>
+                <span class="k"
+                  ><span class="pre-k"
+                    ><span class="pre-n">Neuer Platz</span
+                    ><span class="pre-kv"
+                      ><svg class="ic pic ppic" aria-hidden="true">
+                        <use href="#p-candle" /></svg
+                      ><span class="pre-v"></span></span></span></span
+                ><span class="e"
+                  ><span class="pre-e"
+                    ><span class="pre-l"
+                      ><span class="dot"></span
+                      ><span class="pre-nm">Neuer Platz</span></span
+                    ><span class="pre-v"></span></span
+                ></span>
               </button>
             </div>
             <div class="field">
@@ -4761,7 +4850,7 @@
                     max="100"
                     value="0"
                     disabled
-                    aria-label="Helligkeit"
+                    aria-labelledby="light-bri"
                   />
                 </div>
                 <span class="se"
@@ -5952,7 +6041,15 @@
             aria-controls="panel-light"
             aria-selected="false"
           >
-            Licht</button
+            <span class="tab-in"
+              ><span class="k"
+                ><svg class="ic pic tbpic" aria-hidden="true">
+                  <use href="#p-moonstar" /></svg></span
+              ><span class="e"
+                ><svg class="ic tbic" aria-hidden="true">
+                  <use href="#i-moon" /></svg></span
+              ><span class="tab-l">Licht</span></span
+            ></button
           ><button
             type="button"
             class="tab"
@@ -5962,7 +6059,15 @@
             aria-controls="panel-sounds"
             aria-selected="false"
           >
-            Töne</button
+            <span class="tab-in"
+              ><span class="k"
+                ><svg class="ic pic tbpic" aria-hidden="true">
+                  <use href="#p-musicbox" /></svg></span
+              ><span class="e"
+                ><svg class="ic tbic" aria-hidden="true">
+                  <use href="#i-note" /></svg></span
+              ><span class="tab-l">Töne</span></span
+            ></button
           ><button
             type="button"
             class="tab"
@@ -5972,7 +6077,11 @@
             aria-controls="panel-signal"
             aria-selected="false"
           >
-            Signal</button
+            <span class="tab-in"
+              ><svg class="ic tbic" aria-hidden="true">
+                <use href="#i-lamp" /></svg
+              ><span class="tab-l">Signal</span></span
+            ></button
           ><button
             type="button"
             class="tab"
@@ -5982,7 +6091,11 @@
             aria-controls="panel-rules"
             aria-selected="false"
           >
-            Regeln</button
+            <span class="tab-in"
+              ><svg class="ic tbic" aria-hidden="true">
+                <use href="#i-grid" /></svg
+              ><span class="tab-l">Regeln</span></span
+            ></button
           ><button
             type="button"
             class="tab"
@@ -5992,7 +6105,11 @@
             aria-controls="panel-auto-tone"
             aria-selected="false"
           >
-            Ton</button
+            <span class="tab-in"
+              ><svg class="ic tbic" aria-hidden="true">
+                <use href="#i-bell" /></svg
+              ><span class="tab-l">Ton</span></span
+            ></button
           ><button
             type="button"
             class="tab"
@@ -6002,7 +6119,11 @@
             aria-controls="panel-desks"
             aria-selected="false"
           >
-            Desks
+            <span class="tab-in"
+              ><svg class="ic tbic" aria-hidden="true">
+                <use href="#i-desks" /></svg
+              ><span class="tab-l">Desks</span></span
+            >
           </button>
         </div>
       </nav>
