@@ -56,10 +56,16 @@ material, and rewriting it would force a pointless rekey.
 
 The system selection was CommandLineTools, which has no `simctl`; Xcode test
 diagnostics then failed with exit 72. A small root guard pins the system
-selection to the root-owned `/Applications/Xcode-27.1.app` (27.1, build
+selection to the root-owned `/Library/Developer/Xcode-27.1.app` (27.1, build
 27A9275), checking ownership, permissions, Apple signature, version, license
 and first-launch status before each switch. CI jobs with their own
 `DEVELOPER_DIR` keep using that override.
+
+`ci` is in group `admin`, as are `mailina` and `mba`. `/Applications` is
+root:admin and group-writable, so ci can replace a bundle there. That is why
+the pin lives under `/Library/Developer`. A root-owned bundle there is not
+writable by ci unless ci can use sudo; that is the open isolation item on
+OPS-563. The guard checks every parent up to `/` as well as the bundle.
 
 This is a root LaunchDaemon, installed once by hand, outside Home Manager.
 The switch affects **all users without `DEVELOPER_DIR`**: every `/usr/bin`
@@ -68,9 +74,21 @@ follows the selection. Command Line Tools stays installed. If versions differ,
 mba's jobs get a different compiler, SDK and `/usr/bin/python3` interpreter;
 expect compiler-cache misses and possibly changed warnings or Python packages.
 
-Run these steps at an idle moment from the nixcfg checkout on this Mac.
+Run these steps from `/Users/mba/Code/nixcfg` on this Mac, never from the
+group-writable `/Users/Shared/nixcfg`. FLEET-OPS must first record the merged
+commit and its script and plist SHA-256 values on OPS-563. Use these recorded
+values below: `<SCRIPT_SHA256_FROM_OPS-563_MERGED_COMMIT>` and
+`<PLIST_SHA256_FROM_OPS-563_MERGED_COMMIT>`. They are placeholders to look up
+on the ticket, not values to compute from this checkout and trust.
+
 Run **one command at a time**, inspecting its result before continuing. Stop on
-any failure; never merge into an existing destination bundle or staging tree.
+any failure except the required absent-destination result in step 3 or the
+unloaded-service bootout error explained below. Never merge into an existing
+destination bundle or staging tree.
+
+```sh
+cd /Users/mba/Code/nixcfg
+```
 
 0. Before anything, record this baseline as each of `mailina`, `mba` and `ci`
    where possible, in a shell with no `DEVELOPER_DIR` and the system PATH:
@@ -95,10 +113,12 @@ any failure; never merge into an existing destination bundle or staging tree.
    python3 --version
    ```
 
-1. Keep the ci runners idle. Confirm the designated requirement on this Mac:
+1. FLEET-OPS confirms no ci worker and no lease, and LEAD has paused leases.
+   Keep ci and mba paused through the PASS line in step 7. Confirm the
+   designated requirement and identifier on this Mac:
 
    ```sh
-   codesign -d -r- /Users/ci/Applications/Xcode-27.1.app
+   sudo codesign -d -r- /Users/ci/Applications/Xcode-27.1.app
    ```
 
    The exact requirement below is unverified against real Xcode 27.1. If the
@@ -107,36 +127,61 @@ any failure; never merge into an existing destination bundle or staging tree.
    original Xcode archive rather than cleaning the bundle by hand):
 
    ```sh
-   codesign --verify --deep --strict -R='=anchor apple and identifier "com.apple.dt.Xcode"' /Users/ci/Applications/Xcode-27.1.app
+   sudo codesign --verify --deep --strict -R='anchor apple and identifier "com.apple.dt.Xcode"' /Users/ci/Applications/Xcode-27.1.app
    ```
 
-2. Stage the copy inside a new root-only directory:
+2. Stage the copy inside a new root-only directory. `mkdir` must fail if it
+   already exists; stop rather than reuse it:
 
    ```sh
-   sudo install -d -o root -g wheel -m 700 /var/tmp/xcode-guard-install
+   sudo mkdir -m 700 /var/root/xcode-guard-install
    ```
 
    ```sh
-   sudo ditto --noacl /Users/ci/Applications/Xcode-27.1.app /var/tmp/xcode-guard-install/Xcode-27.1.app
+   sudo ditto --noacl /Users/ci/Applications/Xcode-27.1.app /var/root/xcode-guard-install/Xcode-27.1.app
    ```
 
 3. Normalize ownership and permissions while the copy is inaccessible to other
-   users, remove ACLs, then move it into place:
+   users, remove ACLs, and verify this staged copy before moving it into place:
 
    ```sh
-   sudo chown -R root:wheel /var/tmp/xcode-guard-install/Xcode-27.1.app
+   sudo chown -R root:wheel /var/root/xcode-guard-install/Xcode-27.1.app
    ```
 
    ```sh
-   sudo chmod -R go-w /var/tmp/xcode-guard-install/Xcode-27.1.app
+   sudo chmod -R go-w /var/root/xcode-guard-install/Xcode-27.1.app
    ```
 
    ```sh
-   sudo chmod -RN /var/tmp/xcode-guard-install/Xcode-27.1.app
+   sudo chmod -RN /var/root/xcode-guard-install/Xcode-27.1.app
    ```
 
    ```sh
-   sudo mv /var/tmp/xcode-guard-install/Xcode-27.1.app /Applications/Xcode-27.1.app
+   sudo codesign --verify --deep --strict -R='anchor apple and identifier "com.apple.dt.Xcode"' /var/root/xcode-guard-install/Xcode-27.1.app
+   ```
+
+   ```sh
+   sudo find /var/root/xcode-guard-install/Xcode-27.1.app -xdev \( ! -user root -o \( ! -type l \( -perm -g+w -o -perm -o+w -o -perm -4000 -o -perm -2000 -o -acl \) \) \) -print -quit
+   ```
+
+   The signature command must succeed; the scan must succeed and print nothing.
+   On failure, leave the staged copy inaccessible and stop for review. Inspect
+   the destination's parents; all must be real root-owned directories without
+   group/other write access:
+
+   ```sh
+   ls -ld /Library/Developer /Library /
+   ```
+
+   Immediately before moving, this command **must report No such file or
+   directory**. Any existing file, directory or symlink means stop:
+
+   ```sh
+   ls -ld /Library/Developer/Xcode-27.1.app
+   ```
+
+   ```sh
+   sudo mv /var/root/xcode-guard-install/Xcode-27.1.app /Library/Developer/Xcode-27.1.app
    ```
 
 4. Create the script directory and inspect both parent directories:
@@ -150,11 +195,21 @@ any failure; never merge into an existing destination bundle or staging tree.
    ```
 
    Both must be real root-owned directories without group/other write access.
-   Stop otherwise. Install the guard, then pre-create its readable log:
+   Stop otherwise. Install the guard from the named checkout:
 
    ```sh
    sudo install -o root -g wheel -m 755 hosts/mbp2606/xcode-guard.sh /usr/local/sbin/xcode-guard
    ```
+
+   Immediately compare the installed SHA-256 with
+   `<SCRIPT_SHA256_FROM_OPS-563_MERGED_COMMIT>` recorded by FLEET-OPS:
+
+   ```sh
+   shasum -a 256 /usr/local/sbin/xcode-guard
+   ```
+
+   On a mismatch, stop before running the script or bootstrapping the daemon.
+   After a match, pre-create its readable log:
 
    ```sh
    sudo install -o root -g wheel -m 644 /dev/null /var/log/cm.barta.xcode-guard.log
@@ -176,15 +231,31 @@ any failure; never merge into an existing destination bundle or staging tree.
    sudo XG_APP=/tmp/x /usr/local/sbin/xcode-guard --check
    ```
 
-   It must still report `/Applications/Xcode-27.1.app`, with the same PASS
-   results. Stop on any FAIL.
+   It must still report `/Library/Developer/Xcode-27.1.app`, with the same PASS
+   results. Stop on any FAIL. If step 5 fails, keep the installed bundle in
+   place, do not run `--enforce` or install/bootstrap the plist, and have
+   FLEET-OPS review the failed check. Replace or remove the bundle only in a
+   separately reviewed repair; do not fall back to the ci-owned source.
 
-6. Before switching, confirm **no ci job and no mba lease**. A compile running
-   across the switch would see two toolchains. Install and enable the daemon:
+6. FLEET-OPS confirms no ci worker and no lease, and LEAD has paused leases.
+   Keep ci and mba paused until step 7's PASS line. A compile running across
+   the switch would see two toolchains. Install the daemon:
 
    ```sh
    sudo install -o root -g wheel -m 644 hosts/mbp2606/cm.barta.mbp2606.xcode-guard.plist /Library/LaunchDaemons/
    ```
+
+   Immediately compare the installed SHA-256 with
+   `<PLIST_SHA256_FROM_OPS-563_MERGED_COMMIT>` recorded by FLEET-OPS:
+
+   ```sh
+   shasum -a 256 /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist
+   ```
+
+   On a mismatch, stop before bootstrapping. A reboot after installing this
+   plist and before bootstrap can load it and switch the system selection;
+   keep the host running and the jobs paused throughout this procedure.
+   After a match, enable the daemon:
 
    ```sh
    sudo launchctl enable system/cm.barta.mbp2606.xcode-guard
@@ -197,7 +268,16 @@ any failure; never merge into an existing destination bundle or staging tree.
    sudo launchctl bootstrap system /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist
    ```
 
-7. Inspect the success line in the log:
+7. The run takes minutes, including the deep signature scan. Bootstrap
+   returns before the guard finishes. Keep ci and mba paused. Repeat this
+   command until it shows `state = not running` and `last exit code = 0`:
+
+   ```sh
+   sudo launchctl print system/cm.barta.mbp2606.xcode-guard
+   ```
+
+   Then require `PASS selected pinned Xcode and verified system simctl, git
+and clang` in the log. Do not resume work before that PASS line:
 
    ```sh
    tail -n 20 /var/log/cm.barta.xcode-guard.log
@@ -209,19 +289,13 @@ any failure; never merge into an existing destination bundle or staging tree.
    cat /var/db/cm.barta.xcode-guard/prior-selection
    ```
 
-   Check the job's last exit status is 0:
-
-   ```sh
-   sudo launchctl print system/cm.barta.mbp2606.xcode-guard
-   ```
-
    As `ci`, with no `DEVELOPER_DIR` and the system PATH:
 
    ```sh
    /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcrun --find simctl
    ```
 
-   Require `/Applications/Xcode-27.1.app/Contents/Developer/usr/bin/simctl`.
+   Require `/Library/Developer/Xcode-27.1.app/Contents/Developer/usr/bin/simctl`.
    Repeat every baseline command as all three users where possible, then run
    one representative mba compile job before resuming normal work.
 
@@ -235,11 +309,17 @@ immediately before switching; failed restoration logs ALERT.
 During launchd runs, ALERT lines only reach
 `/var/log/cm.barta.xcode-guard.log` (mode 644). FLEET-OPS reads that log and
 the job's last exit status read-only; there is no other watcher. Manual
-enforce/rollback failures also print to stderr when it is a terminal. A busy
-rollback prints `busy` to stderr and fails, so retry after the guard finishes.
+enforce/rollback failures also print to stderr outside launchd, including
+pipes and non-terminal sessions. The `XPC_SERVICE_NAME` launchd detection is
+unverified on mbp2606. A busy rollback prints `busy` to stderr and fails, so
+retry after the guard finishes.
 Only enforce under launchd quietly exits 0 on lock contention.
 
 `/usr/local/sbin/xcode-guard --check` can run without root and makes no changes.
+Checks 1, 2, 3 and 5 run before bundle code. If any fails, checks 4 and 6
+report "not run". Dry runs preserve tool stderr for diagnosis. Enforcement
+requires explicit `--enforce` (also passed by the plist); a bare invocation
+prints usage and exits 1.
 The first prior selection stays in
 `/var/db/cm.barta.xcode-guard/prior-selection` and is never overwritten.
 
@@ -257,11 +337,19 @@ sudo launchctl disable system/cm.barta.mbp2606.xcode-guard
 sudo /usr/local/sbin/xcode-guard --rollback
 ```
 
+If the service is already unloaded, `bootout` errors; continue with `disable`
+and `--rollback`. Rollback leaves the plist, installed script, state directory
+and prior record, log, and pinned Xcode bundle in place. It also leaves the
+root-only staging directory behind. These files are not deleted automatically.
+
 Bootout alone allows the daemon to reload at the next boot; disable keeps it
 off. Rollback alone does not unload or disable it. Rollback refuses an unsafe
 or missing prior record or a recorded developer directory that no longer
 exists. After a script change, repeat only the script installation command in
-step 4 and the checks in step 5; do not truncate the log. For an already
+step 4, immediately compare the installed script's `shasum -a 256` with the
+new merged-commit value FLEET-OPS records on OPS-563, then repeat step 5.
+Stop before running on a mismatch; do not truncate the log. After any plist
+reinstall, repeat its hash comparison in step 6 before bootstrap. For an already
 selected installation, require the final `PASS enforce would keep…` line
 instead. A new Xcode needs new constants and a reviewed change. The daemon
 runs at load and daily at 05:30 local time, catching up on wake if that time

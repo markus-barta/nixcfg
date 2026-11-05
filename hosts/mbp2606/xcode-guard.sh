@@ -10,7 +10,9 @@ set -u
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 umask 022
 
-APP=/Applications/Xcode-27.1.app
+# Preserve the initial launch context before macOS refreshes it during a spawn.
+LAUNCHD_SERVICE=${XPC_SERVICE_NAME:-}
+APP=/Library/Developer/Xcode-27.1.app
 DEV=$APP/Contents/Developer
 STATE=/var/db/cm.barta.xcode-guard
 PRIOR=$STATE/prior-selection
@@ -67,14 +69,14 @@ if [ "$EUID" -ne 0 ]; then
   RM=${XG_RM:-$RM}
 fi
 
-MODE=${1:-enforce}
-case "$MODE" in enforce | --check | --rollback) ;; *)
-  printf 'Usage: %s [--check|--rollback]\n' "$0" >&2
+MODE=${1:-}
+case "$MODE" in --enforce | --check | --rollback) ;; *)
+  printf 'Usage: %s --enforce|--check|--rollback\n' "$0" >&2
   exit 1
   ;;
 esac
-if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$MODE" = enforce ]; }; then
-  printf 'Use no argument to enforce.\n' >&2
+if [ "$#" -ne 1 ]; then
+  printf 'Usage: %s --enforce|--check|--rollback\n' "$0" >&2
   exit 1
 fi
 if [ "$MODE" != --check ] && [ "$EUID" -ne 0 ] && [ "${XG_TEST:-}" != 1 ]; then
@@ -82,11 +84,22 @@ if [ "$MODE" != --check ] && [ "$EUID" -ne 0 ] && [ "${XG_TEST:-}" != 1 ]; then
   exit 1
 fi
 
+# Keep tool diagnostics visible during an operator's dry run.
+check_tool() {
+  if [ "$MODE" = --check ]; then
+    "$@" </dev/null
+  else
+    "$@" </dev/null 2>/dev/null
+  fi
+}
+# XPC_SERVICE_NAME for system LaunchDaemons is unverified on the target host.
+under_launchd() { [ "$LAUNCHD_SERVICE" = cm.barta.mbp2606.xcode-guard ]; }
+
 # stat does not follow links on macOS. Reject links explicitly as well.
 owned_safe() {
   local metadata owner permissions
   [ ! -L "$1" ] || return 1
-  metadata=$("$STAT" -f '%u %OLp' "$1" </dev/null 2>/dev/null) || return 1
+  metadata=$(check_tool "$STAT" -f '%u %OLp' "$1") || return 1
   owner=${metadata%% *}
   permissions=${metadata#* }
   [[ "$permissions" =~ ^[0-7]+$ ]] || return 1
@@ -125,7 +138,7 @@ say() {
 }
 
 fail() {
-  if [ "$MODE" != --check ] && [ -t 2 ]; then
+  if [ "$MODE" != --check ] && ! under_launchd; then
     printf 'FAIL %s\n' "$*" >&2
   fi
   say "FAIL $*"
@@ -133,7 +146,7 @@ fail() {
 }
 report() { [ "$MODE" != --check ] || say "PASS $*"; }
 # Read and change the system selection even from a shell that pins its own Xcode.
-select_system() { "$ENV" -i PATH=/usr/bin:/bin "$SELECT" "$@" </dev/null; }
+select_system() { check_tool "$ENV" -i PATH=/usr/bin:/bin "$SELECT" "$@"; }
 
 state_valid() {
   if [ -L "$STATE" ] || { [ -e "$STATE" ] && { [ ! -d "$STATE" ] || ! owned_safe "$STATE"; }; }; then
@@ -153,15 +166,24 @@ state_valid() {
 
 bundle_valid() {
   local path bad version failed=0 directories_ok=1
-  for path in "$APP" "$APP/Contents" "$DEV" "$DEV/usr/bin"; do
+  local -a directories
+  directories=("$APP/Contents" "$DEV" "$DEV/usr/bin")
+  path=$APP
+  while :; do
+    directories[${#directories[@]}]=$path
+    [ "$path" != / ] || break
+    path=${path%/*}
+    [ -n "$path" ] || path=/
+  done
+  for path in "${directories[@]}"; do
     if [ ! -d "$path" ] || ! owned_safe "$path"; then
-      fail "check 1: $path: required bundle directory is missing, symlinked, wrongly owned or writable"
+      fail "check 1: $path: required bundle or parent directory is missing, symlinked, wrongly owned or writable"
       directories_ok=0
       failed=1
     fi
   done
-  [ "$directories_ok" -eq 0 ] || report "check 1: $APP: required bundle directories are safe"
-  if ! bad=$("$FIND" "$APP" -xdev ! -type l \( ! -user "$EXPECT_OWNER" -o -perm -g+w -o -perm -o+w -o -perm -4000 -o -perm -2000 -o -acl \) -print -quit </dev/null 2>/dev/null); then
+  [ "$directories_ok" -eq 0 ] || report "check 1: $APP: required bundle directories and every parent up to / are safe"
+  if ! bad=$(check_tool "$FIND" "$APP" -xdev \( ! -user "$EXPECT_OWNER" -o \( ! -type l \( -perm -g+w -o -perm -o+w -o -perm -4000 -o -perm -2000 -o -acl \) \) \) -print -quit); then
     fail "check 2: $APP: whole-bundle ownership/permissions scan failed"
     failed=1
   elif [ -n "$bad" ]; then
@@ -176,24 +198,30 @@ bundle_valid() {
   else
     report 'check 3: simctl is an executable regular file'
   fi
+  if ! check_tool "$CODESIGN" --verify --deep --strict -R='anchor apple and identifier "com.apple.dt.Xcode"' "$APP" >/dev/null; then
+    fail 'check 5: deep strict Apple Xcode signature verification failed'
+    failed=1
+  else
+    report 'check 5: deep strict Apple Xcode signature verification passed'
+  fi
+  # Never run bundle code as root until checks 1, 2, 3 and 5 all pass.
+  if [ "$failed" -ne 0 ]; then
+    say 'check 4: not run because bundle validation failed'
+    say 'check 6: not run because bundle validation failed'
+    return 1
+  fi
   # Clean environments prevent shell/CI settings from choosing another Xcode.
-  if ! version=$("$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -version </dev/null 2>/dev/null) ||
+  if ! version=$(check_tool "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -version) ||
     [ "$version" != $'Xcode 27.1\nBuild version 27A9275' ]; then
     fail 'check 4: xcodebuild must report exactly Xcode 27.1, build 27A9275'
     failed=1
   else
     report 'check 4: Xcode version and build match the pin'
   fi
-  if ! "$CODESIGN" --verify --deep --strict -R='=anchor apple and identifier "com.apple.dt.Xcode"' "$APP" </dev/null >/dev/null 2>&1; then
-    fail 'check 5: deep strict Apple Xcode signature verification failed'
-    failed=1
-  else
-    report 'check 5: deep strict Apple Xcode signature verification passed'
-  fi
-  if ! "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -license check </dev/null >/dev/null 2>&1; then
+  if ! check_tool "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -license check >/dev/null; then
     fail 'check 6: Xcode license check failed'
     failed=1
-  elif ! "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -checkFirstLaunchStatus </dev/null >/dev/null 2>&1; then
+  elif ! check_tool "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -checkFirstLaunchStatus >/dev/null; then
     fail 'check 6: Xcode first-launch status check failed'
     failed=1
   else
@@ -222,7 +250,7 @@ if [ "$MODE" != --check ]; then
     "$LOCKF" -s -k -t 0 "$LOCK" "$ENV" CM_XCODE_GUARD_LOCKED=1 "$BASH_TOOL" "$0" "$@" </dev/null
     rc=$?
     if [ "$rc" -eq 75 ]; then
-      if [ "$MODE" = enforce ] && [ "${XPC_SERVICE_NAME:-}" = cm.barta.mbp2606.xcode-guard ]; then
+      if [ "$MODE" = --enforce ] && under_launchd; then
         exit 0
       fi
       printf 'FAIL busy: another xcode-guard holds the lock.\n' >&2
@@ -263,7 +291,7 @@ if ! log_safe; then
 else
   report 'log path is safe'
 fi
-if ! current=$(select_system -p 2>/dev/null) || [[ "$current" != /* ]] || [ ! -d "$current" ]; then
+if ! current=$(select_system -p) || [[ "$current" != /* ]] || [ ! -d "$current" ]; then
   fail 'current developer selection is unreadable or its directory does not exist'
   failed=1
 else
