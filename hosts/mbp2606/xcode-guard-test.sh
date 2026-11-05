@@ -16,6 +16,7 @@ ROOT=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/xcode-guard-test.XXXXXXXX") || exit 1
 ROOT=$(cd "$ROOT" && pwd) || exit 1
 passed=0
 failed=0
+skipped=0
 
 die() {
   printf '  FAIL %s\n' "$*" >&2
@@ -60,6 +61,9 @@ case "$1" in
   -p) [ ! -f "$base/select-read-fail" ] || exit 1; /bin/cat "$base/current" ;;
   --switch)
     printf '%s\n' "$2" >> "$base/switches"
+    if [ -f "$base/restore-fail" ] && [ "$2" != "$base/Xcode-27.1.app/Contents/Developer" ]; then
+      exit 1
+    fi
     if [ -f "$base/switch-fail" ] && [ "$2" = "$base/Xcode-27.1.app/Contents/Developer" ]; then
       exit 1
     fi
@@ -75,10 +79,15 @@ STUB
 #!/bin/bash
 base=$(cd "${0%/*}/.." && pwd) || exit 1
 printf 'build\n' >> "$base/calls"
-[ "$#" -eq 1 ] && [ "$1" = -version ] || exit 2
 [ "$PATH" = /usr/bin:/bin ] || exit 2
 [ "$DEVELOPER_DIR" = "$base/Xcode-27.1.app/Contents/Developer" ] || exit 2
 [ -z "${XG_TEST:-}" ] || exit 2
+case "$*" in
+  '-license check') [ ! -f "$base/license-fail" ]; exit $? ;;
+  -checkFirstLaunchStatus) [ ! -f "$base/first-launch-fail" ]; exit $? ;;
+  -version) [ "$#" -eq 1 ] || exit 2 ;;
+  *) exit 2 ;;
+esac
 if [ -f "$base/version-fail" ]; then
   printf 'Xcode 27.0\nBuild version 27A0000\n'
 elif [ -f "$base/build-fail" ]; then
@@ -104,22 +113,39 @@ STUB
 #!/bin/bash
 base=$(cd "${0%/*}/.." && pwd) || exit 1
 printf 'codesign\n' >> "$base/calls"
-[ "$#" -eq 4 ] && [ "$1" = --verify ] && [ "$2" = --deep ] && [ "$3" = --strict ] || exit 2
-[ "$4" = "$base/Xcode-27.1.app" ] || exit 2
+[ "$#" -eq 5 ] && [ "$1" = --verify ] && [ "$2" = --deep ] && [ "$3" = --strict ] || exit 2
+[ "$4" = '-R==anchor apple and identifier "com.apple.dt.Xcode"' ] || exit 2
+[ "$5" = "$base/Xcode-27.1.app" ] || exit 2
 if [ -f "$base/slow" ]; then
   : > "$base/entered"
   /bin/sleep 2
 fi
+if [ -f "$base/reselect" ]; then
+  /bin/cat "$base/reselect" > "$base/current"
+fi
 [ ! -f "$base/codesign-fail" ]
 STUB
+  /bin/cat >"$CASE/tools/git" <<'STUB'
+#!/bin/bash
+base=$(cd "${0%/*}/.." && pwd) || exit 1
+tool=${0##*/}
+printf '%s\n' "$tool" >> "$base/calls"
+[ "$#" -eq 1 ] && [ "$1" = --version ] || exit 2
+[ "$PATH" = /usr/bin:/bin ] && [ -z "${DEVELOPER_DIR+x}" ] || exit 2
+[ -z "${XG_TEST:-}" ] || exit 2
+[ ! -f "$base/$tool-fail" ]
+STUB
+  /bin/cp "$CASE/tools/git" "$CASE/tools/clang" || die 'copy clang stub'
   /bin/chmod 755 "$CASE/tools/"* || die 'chmod tools'
   # Each subprocess gets only overrides pointing into this fixture. The real
   # lockf/stat/find exercise macOS semantics; the real select is never used.
   export XG_TEST=1 XG_APP="$APP" XG_STATE="$CASE/state" XG_LOG="$CASE/guard.log"
   export XG_EXPECT_OWNER="$EUID" XG_SELECT="$CASE/tools/xcode-select"
   export XG_BUILD="$CASE/tools/xcodebuild" XG_XCRUN="$CASE/tools/xcrun"
+  export XG_GIT="$CASE/tools/git" XG_CLANG="$CASE/tools/clang"
   export XG_CODESIGN="$CASE/tools/codesign"
   unset CM_XCODE_GUARD_LOCKED
+  unset XPC_SERVICE_NAME
 }
 
 switch_and_prior() {
@@ -176,14 +202,37 @@ bundle_directory_permissions() {
   reject_check 2
 }
 bundle_owner() {
-  /bin/cat >"$CASE/tools/find" <<'STUB'
-#!/bin/bash
-# Simulate a foreign-owned descendant; changing ownership needs root.
-printf 'foreign-owned-entry\n'
-STUB
-  /bin/chmod 755 "$CASE/tools/find"
-  export XG_FIND="$CASE/tools/find"
+  # The fixture is user-owned. Use real find to reject it when root is required.
+  export XG_EXPECT_OWNER=0
+  expect_rc 1 guard --check
+  contains "$CASE/output" 'FAIL check 2:' 'real find missed non-root ownership'
+  contains "$CASE/output" "check 2: $APP:" 'owner failure omitted offending path'
+  equal "$(switches)" 0 'wrong-owner check attempted switch'
+  absent "$CASE/state" 'wrong-owner check created state'
+}
+bundle_setuid() {
+  /bin/chmod u+s "$DEV/usr/bin/simctl" || die 'setuid fixture'
+  if [ "$(/usr/bin/stat -f %OLp "$DEV/usr/bin/simctl")" != 4755 ]; then
+    printf '  SKIP filesystem or sandbox stripped setuid from fixture\n'
+    exit 77
+  fi
   reject_check 2
+  contains "$CASE/guard.log" "$DEV/usr/bin/simctl:" 'setuid failure omitted path'
+}
+bundle_setgid() {
+  /bin/chmod g+s "$DEV/usr/bin/simctl" || die 'setgid fixture'
+  if [ "$(/usr/bin/stat -f %OLp "$DEV/usr/bin/simctl")" != 2755 ]; then
+    printf '  SKIP filesystem or sandbox stripped setgid from fixture\n'
+    exit 77
+  fi
+  reject_check 2
+  contains "$CASE/guard.log" "$DEV/usr/bin/simctl:" 'setgid failure omitted path'
+}
+bundle_acl() {
+  : >"$DEV/acl-entry"
+  /bin/chmod +a "$(/usr/bin/id -un) allow write" "$DEV/acl-entry" || die 'ACL fixture'
+  reject_check 2
+  contains "$CASE/guard.log" "$DEV/acl-entry:" 'ACL failure omitted path'
 }
 find_failure() {
   export XG_FIND=/usr/bin/false
@@ -214,6 +263,22 @@ signature_failure() {
   : >"$CASE/codesign-fail"
   reject_check 5
 }
+license_failure() {
+  : >"$CASE/license-fail"
+  reject_check 6
+  printf '%s\n' "$DEV" >"$CASE/current"
+  expect_rc 1 guard
+  equal "$(selection)" "$DEV" 'selected Xcode license failure changed selection'
+  contains "$CASE/guard.log" ALERT 'selected license failure omitted ALERT'
+}
+first_launch_failure() {
+  : >"$CASE/first-launch-fail"
+  reject_check 6
+  printf '%s\n' "$DEV" >"$CASE/current"
+  expect_rc 1 guard
+  equal "$(selection)" "$DEV" 'selected Xcode first-launch failure changed selection'
+  contains "$CASE/guard.log" ALERT 'selected first-launch failure omitted ALERT'
+}
 selected_invalid() {
   printf '%s\n' "$DEV" >"$CASE/current"
   : >"$CASE/codesign-fail"
@@ -236,6 +301,46 @@ select_verify_restore() {
   : >"$CASE/select-verify-fail"
   expect_rc 1 guard
   equal "$(selection)" "$OLD" 'selection verification failure did not restore'
+}
+git_verify_restore() {
+  : >"$CASE/git-fail"
+  expect_rc 1 guard
+  equal "$(selection)" "$OLD" 'git failure did not restore selection'
+  equal "$(switches)" 2 'git failure did not attempt restoration'
+  contains "$CASE/calls" git 'post-switch git not called'
+}
+clang_verify_restore() {
+  : >"$CASE/clang-fail"
+  expect_rc 1 guard
+  equal "$(selection)" "$OLD" 'clang failure did not restore selection'
+  equal "$(switches)" 2 'clang failure did not attempt restoration'
+  contains "$CASE/calls" clang 'post-switch clang not called'
+}
+restore_failure() {
+  : >"$CASE/xcrun-fail"
+  : >"$CASE/restore-fail"
+  expect_rc 1 guard
+  equal "$(selection)" "$DEV" 'fixture did not leave failed restoration selected'
+  equal "$(switches)" 2 'restoration not attempted'
+  contains "$CASE/guard.log" 'ALERT switch or verification failed AND restoration failed' 'restore failure omitted ALERT'
+}
+refreshed_prior() {
+  printf '%s\n' "$OTHER" >"$CASE/reselect"
+  expect_rc 0 guard
+  equal "$(/bin/cat "$CASE/state/prior-selection")" "$OTHER" 'prior did not use refreshed selection'
+  equal "$(selection)" "$DEV" 'refreshed selection did not switch'
+}
+refreshed_restore() {
+  printf '%s\n' "$OTHER" >"$CASE/reselect"
+  : >"$CASE/xcrun-fail"
+  expect_rc 1 guard
+  equal "$(selection)" "$OTHER" 'restoration did not use refreshed selection'
+}
+refreshed_missing() {
+  printf '%s\n' "$CASE/missing" >"$CASE/reselect"
+  expect_rc 1 guard
+  equal "$(switches)" 0 'missing refreshed selection caused switch'
+  absent "$CASE/state/prior-selection" 'missing refreshed selection recorded prior'
 }
 switch_failure() {
   : >"$CASE/switch-fail"
@@ -266,9 +371,10 @@ check_all_failures() {
   /bin/chmod 644 "$DEV/usr/bin/simctl"
   : >"$CASE/version-fail"
   : >"$CASE/codesign-fail"
+  : >"$CASE/license-fail"
   expect_rc 1 guard --check
   local n
-  for n in 1 2 3 4 5; do contains "$CASE/output" "FAIL check $n:" 'check did not run all checks'; done
+  for n in 1 2 3 4 5 6; do contains "$CASE/output" "FAIL check $n:" 'check did not run all checks'; done
   absent "$CASE/state" 'check created state on failures'
 }
 rollback() {
@@ -348,7 +454,10 @@ current_unreadable() {
 log_bounded() {
   /usr/bin/awk 'BEGIN { for (i=1;i<=20000;i++) print "2026-11-05T00:00:00Z prior guard event padding padding padding padding" }' >"$CASE/guard.log"
   printf '%s\n' "$DEV" >"$CASE/current"
+  local inode
+  inode=$(/usr/bin/stat -f %i "$CASE/guard.log")
   expect_rc 0 guard
+  equal "$(/usr/bin/stat -f %i "$CASE/guard.log")" "$inode" 'log trim replaced inode'
   equal "$(/usr/bin/wc -l <"$CASE/guard.log" | /usr/bin/tr -d ' ')" 1001 'log did not retain last 1000 lines plus new line'
   /usr/bin/grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z valid pinned' "$CASE/guard.log" || die 'log missing ISO timestamp'
 }
@@ -362,9 +471,53 @@ single_instance() {
     n=$((n + 1))
   done
   [ -f "$CASE/entered" ] || die 'first guard did not reach signature check'
-  expect_rc 0 guard
+  expect_rc 75 guard
+  contains "$CASE/output" busy 'busy manual enforce omitted diagnostic'
   wait "$first" || die 'first guard failed'
   equal "$(switches)" 1 'overlapping guards both switched'
+}
+busy_refused() {
+  /bin/mkdir "$CASE/state" || die 'mkdir state'
+  printf '%s\n' "$OLD" >"$CASE/state/prior-selection"
+  # Hold the real lock separately so rollback cannot race an enforcer's finish.
+  # shellcheck disable=SC2016 # The child shell expands its own positional arg.
+  /usr/bin/lockf -k -t 0 "$CASE/state/lock" /bin/bash -c ': >"$1"; /bin/sleep 3' bash "$CASE/entered" &
+  local holder=$! n=0 actual
+  while [ ! -f "$CASE/entered" ] && [ "$n" -lt 100 ]; do
+    /bin/sleep 0.02
+    n=$((n + 1))
+  done
+  [ -f "$CASE/entered" ] || die 'lock holder did not start'
+  expect_rc 75 guard
+  contains "$CASE/output" busy 'interactive enforce busy omitted diagnostic'
+  guard --rollback >"$CASE/output" 2>"$CASE/stderr"
+  actual=$?
+  wait "$holder" || die 'lock holder failed'
+  equal "$actual" 75 'busy rollback did not exit non-zero'
+  contains "$CASE/stderr" busy 'busy rollback omitted stderr diagnostic'
+  equal "$(switches)" 0 'busy guard attempted switch'
+}
+usage_errors() {
+  expect_rc 1 guard --unknown
+  contains "$CASE/output" Usage 'unknown argument omitted usage'
+  expect_rc 1 guard enforce
+  expect_rc 1 guard --check extra
+  expect_rc 1 guard --rollback extra
+  absent "$CASE/state" 'usage error created state'
+  absent "$CASE/guard.log" 'usage error created log'
+  equal "$(switches)" 0 'usage error attempted switch'
+}
+prior_temp_cleanup() {
+  export XG_MV=/usr/bin/false
+  expect_rc 1 guard
+  equal "$(switches)" 0 'prior write failure switched'
+  equal "$(/usr/bin/find "$CASE/state" -name 'prior-selection.*' -print)" '' 'prior temp leaked after failed move'
+}
+log_temp_cleanup() {
+  /usr/bin/awk 'BEGIN { for (i=1;i<=20000;i++) print "prior guard event padding padding padding padding padding padding" }' >"$CASE/guard.log"
+  export XG_TAIL=/usr/bin/false
+  expect_rc 1 guard
+  equal "$(/usr/bin/find "$CASE" -name 'guard.log.*' -print)" '' 'log temp leaked after failed trim'
 }
 inherited_developer_dir() {
   export DEVELOPER_DIR=/deliberately/unrelated
@@ -373,11 +526,13 @@ inherited_developer_dir() {
 }
 
 for scenario in switch_and_prior idempotent directory_permissions directory_symlink directory_owner \
-  bundle_permissions bundle_directory_permissions bundle_owner find_failure simctl_missing simctl_nonexec \
-  simctl_symlink version_failure build_failure signature_failure selected_invalid verify_restore \
+  bundle_permissions bundle_directory_permissions bundle_owner bundle_setuid bundle_setgid bundle_acl find_failure simctl_missing simctl_nonexec \
+  simctl_symlink version_failure build_failure signature_failure license_failure first_launch_failure selected_invalid verify_restore \
+  git_verify_restore clang_verify_restore restore_failure refreshed_prior refreshed_restore refreshed_missing \
   select_verify_restore switch_failure check_readonly check_all_failures rollback rollback_missing \
   rollback_symlink rollback_directory_missing prior_wrong_owner state_symlink state_writable lock_symlink \
-  log_symlink nonroot_refused current_unreadable log_bounded single_instance inherited_developer_dir; do
+  log_symlink nonroot_refused current_unreadable log_bounded single_instance busy_refused usage_errors \
+  prior_temp_cleanup log_temp_cleanup inherited_developer_dir; do
   (
     fixture "$scenario"
     "$scenario"
@@ -386,11 +541,14 @@ for scenario in switch_and_prior idempotent directory_permissions directory_syml
   if [ "$rc" -eq 0 ]; then
     printf 'PASS %s\n' "$scenario"
     passed=$((passed + 1))
+  elif [ "$rc" -eq 77 ]; then
+    printf 'SKIP %s\n' "$scenario"
+    skipped=$((skipped + 1))
   else
     printf 'FAIL %s\n' "$scenario"
     failed=$((failed + 1))
   fi
 done
-printf 'Summary: %s passed, %s failed (%s scenarios).\n' "$passed" "$failed" "$((passed + failed))"
+printf 'Summary: %s passed, %s failed, %s skipped (%s scenarios).\n' "$passed" "$failed" "$skipped" "$((passed + failed + skipped))"
 printf 'Fixtures retained at %s\n' "$ROOT"
 [ "$failed" -eq 0 ]

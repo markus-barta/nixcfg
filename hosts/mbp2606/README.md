@@ -57,44 +57,215 @@ material, and rewriting it would force a pointless rekey.
 The system selection was CommandLineTools, which has no `simctl`; Xcode test
 diagnostics then failed with exit 72. A small root guard pins the system
 selection to the root-owned `/Applications/Xcode-27.1.app` (27.1, build
-27A9275), checking ownership, permissions, version and signature before each
-switch. CI jobs keep using their own `DEVELOPER_DIR`.
+27A9275), checking ownership, permissions, Apple signature, version, license
+and first-launch status before each switch. CI jobs with their own
+`DEVELOPER_DIR` keep using that override.
 
 This is a root LaunchDaemon, installed once by hand, outside Home Manager.
-Run each command separately, in this order, from the nixcfg checkout on this
-Mac; inspect the result before continuing:
+The switch affects **all users without `DEVELOPER_DIR`**: every `/usr/bin`
+developer shim (`git`, `clang`, `make`, `swift`, `lldb`, `python3`, `pip3`)
+follows the selection. Command Line Tools stays installed. If versions differ,
+mba's jobs get a different compiler, SDK and `/usr/bin/python3` interpreter;
+expect compiler-cache misses and possibly changed warnings or Python packages.
 
-1. `sudo ditto /Users/ci/Applications/Xcode-27.1.app /Applications/Xcode-27.1.app`
-2. `sudo chown -R root:wheel /Applications/Xcode-27.1.app && sudo chmod -R go-w /Applications/Xcode-27.1.app`
-3. `codesign --verify --deep --strict /Applications/Xcode-27.1.app`
-4. `sudo install -o root -g wheel -m 755 hosts/mbp2606/xcode-guard.sh /usr/local/sbin/xcode-guard`
-5. `sudo install -o root -g wheel -m 644 hosts/mbp2606/cm.barta.mbp2606.xcode-guard.plist /Library/LaunchDaemons/ && sudo launchctl bootstrap system /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist`
+Run these steps at an idle moment from the nixcfg checkout on this Mac.
+Run **one command at a time**, inspecting its result before continuing. Stop on
+any failure; never merge into an existing destination bundle or staging tree.
 
-Verify as `ci` with `DEVELOPER_DIR` absent and the system PATH:
+0. Before anything, record this baseline as each of `mailina`, `mba` and `ci`
+   where possible, in a shell with no `DEVELOPER_DIR` and the system PATH:
 
-```sh
-/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcrun --find simctl
-```
+   ```sh
+   xcode-select -p
+   ```
 
-It must print `/Applications/Xcode-27.1.app/Contents/Developer/usr/bin/simctl`.
-`/usr/local/sbin/xcode-guard --check` can run any time without root and makes
-no changes. The guard logs to `/var/log/cm.barta.xcode-guard.log`; it retains
-the first prior selection in `/var/db/cm.barta.xcode-guard/prior-selection`.
+   ```sh
+   clang --version
+   ```
 
-Rollback is two separate commands, in order:
+   ```sh
+   xcrun --show-sdk-path
+   ```
+
+   ```sh
+   git --version
+   ```
+
+   ```sh
+   python3 --version
+   ```
+
+1. Keep the ci runners idle. Confirm the designated requirement on this Mac:
+
+   ```sh
+   codesign -d -r- /Users/ci/Applications/Xcode-27.1.app
+   ```
+
+   The exact requirement below is unverified against real Xcode 27.1. If the
+   displayed requirement does not support this pin, stop for review. Verify
+   the source before copying; if verification fails, stop (re-expand the
+   original Xcode archive rather than cleaning the bundle by hand):
+
+   ```sh
+   codesign --verify --deep --strict -R='=anchor apple and identifier "com.apple.dt.Xcode"' /Users/ci/Applications/Xcode-27.1.app
+   ```
+
+2. Stage the copy inside a new root-only directory:
+
+   ```sh
+   sudo install -d -o root -g wheel -m 700 /var/tmp/xcode-guard-install
+   ```
+
+   ```sh
+   sudo ditto --noacl /Users/ci/Applications/Xcode-27.1.app /var/tmp/xcode-guard-install/Xcode-27.1.app
+   ```
+
+3. Normalize ownership and permissions while the copy is inaccessible to other
+   users, remove ACLs, then move it into place:
+
+   ```sh
+   sudo chown -R root:wheel /var/tmp/xcode-guard-install/Xcode-27.1.app
+   ```
+
+   ```sh
+   sudo chmod -R go-w /var/tmp/xcode-guard-install/Xcode-27.1.app
+   ```
+
+   ```sh
+   sudo chmod -RN /var/tmp/xcode-guard-install/Xcode-27.1.app
+   ```
+
+   ```sh
+   sudo mv /var/tmp/xcode-guard-install/Xcode-27.1.app /Applications/Xcode-27.1.app
+   ```
+
+4. Create the script directory and inspect both parent directories:
+
+   ```sh
+   sudo install -d -o root -g wheel -m 755 /usr/local/sbin
+   ```
+
+   ```sh
+   ls -ld /usr/local /usr/local/sbin
+   ```
+
+   Both must be real root-owned directories without group/other write access.
+   Stop otherwise. Install the guard, then pre-create its readable log:
+
+   ```sh
+   sudo install -o root -g wheel -m 755 hosts/mbp2606/xcode-guard.sh /usr/local/sbin/xcode-guard
+   ```
+
+   ```sh
+   sudo install -o root -g wheel -m 644 /dev/null /var/log/cm.barta.xcode-guard.log
+   ```
+
+5. Run the dry run; nothing has switched yet:
+
+   ```sh
+   sudo /usr/local/sbin/xcode-guard --check
+   ```
+
+   Require the final `PASS enforce would preserve…` line. Stop on any FAIL.
+   Check 6 runs `xcodebuild -license check` and `-checkFirstLaunchStatus` with
+   the pinned developer directory in a clean environment; both flags remain
+   unverified on real Xcode. The guard never accepts a license or installs
+   first-launch components for you. Verify once that root ignores overrides:
+
+   ```sh
+   sudo XG_APP=/tmp/x /usr/local/sbin/xcode-guard --check
+   ```
+
+   It must still report `/Applications/Xcode-27.1.app`, with the same PASS
+   results. Stop on any FAIL.
+
+6. Before switching, confirm **no ci job and no mba lease**. A compile running
+   across the switch would see two toolchains. Install and enable the daemon:
+
+   ```sh
+   sudo install -o root -g wheel -m 644 hosts/mbp2606/cm.barta.mbp2606.xcode-guard.plist /Library/LaunchDaemons/
+   ```
+
+   ```sh
+   sudo launchctl enable system/cm.barta.mbp2606.xcode-guard
+   ```
+
+   **This next command switches the system selection**, because RunAtLoad
+   starts the guard immediately:
+
+   ```sh
+   sudo launchctl bootstrap system /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist
+   ```
+
+7. Inspect the success line in the log:
+
+   ```sh
+   tail -n 20 /var/log/cm.barta.xcode-guard.log
+   ```
+
+   Check that the first prior selection matches the baseline:
+
+   ```sh
+   cat /var/db/cm.barta.xcode-guard/prior-selection
+   ```
+
+   Check the job's last exit status is 0:
+
+   ```sh
+   sudo launchctl print system/cm.barta.mbp2606.xcode-guard
+   ```
+
+   As `ci`, with no `DEVELOPER_DIR` and the system PATH:
+
+   ```sh
+   /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcrun --find simctl
+   ```
+
+   Require `/Applications/Xcode-27.1.app/Contents/Developer/usr/bin/simctl`.
+   Repeat every baseline command as all three users where possible, then run
+   one representative mba compile job before resuming normal work.
+
+The guard refuses a broken, missing or unreadable current selection; it does
+not repair one automatically, because it needs a valid restore target. It
+also refuses setuid, setgid or ACL entries in the bundle. If already selected
+and any check fails, it logs ALERT and leaves the selection for operator repair.
+Post-switch selection, simctl, git or clang failure restores the selection read
+immediately before switching; failed restoration logs ALERT.
+
+During launchd runs, ALERT lines only reach
+`/var/log/cm.barta.xcode-guard.log` (mode 644). FLEET-OPS reads that log and
+the job's last exit status read-only; there is no other watcher. Manual
+enforce/rollback failures also print to stderr when it is a terminal. A busy
+rollback prints `busy` to stderr and fails, so retry after the guard finishes.
+Only enforce under launchd quietly exits 0 on lock contention.
+
+`/usr/local/sbin/xcode-guard --check` can run without root and makes no changes.
+The first prior selection stays in
+`/var/db/cm.barta.xcode-guard/prior-selection` and is never overwritten.
+
+Rollback uses three separate commands, in order:
 
 ```sh
 sudo launchctl bootout system/cm.barta.mbp2606.xcode-guard
 ```
 
 ```sh
+sudo launchctl disable system/cm.barta.mbp2606.xcode-guard
+```
+
+```sh
 sudo /usr/local/sbin/xcode-guard --rollback
 ```
 
-Rollback alone does not unload the daemon. It refuses an unsafe or missing
-prior record or a recorded developer directory that no longer exists.
-After a script change, re-run step 4. A new Xcode needs new constants and a
-reviewed change. The daemon runs at load and then every 86400 seconds.
+Bootout alone allows the daemon to reload at the next boot; disable keeps it
+off. Rollback alone does not unload or disable it. Rollback refuses an unsafe
+or missing prior record or a recorded developer directory that no longer
+exists. After a script change, repeat only the script installation command in
+step 4 and the checks in step 5; do not truncate the log. For an already
+selected installation, require the final `PASS enforce would keep…` line
+instead. A new Xcode needs new constants and a reviewed change. The daemon
+runs at load and daily at 05:30 local time, catching up on wake if that time
+was missed during sleep.
 
 ## Notes
 

@@ -5,7 +5,7 @@
 # the system fallback usable; Home Manager does not install or run it.
 # Validate the whole bundle before switching, even when it is already selected.
 # Keep the first prior selection for an operator rollback. A failed post-switch
-# verification restores the selection read at the start of this invocation.
+# verification restores the selection read immediately before switching.
 set -u
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 umask 022
@@ -23,6 +23,8 @@ ENV=/usr/bin/env
 SELECT=/usr/bin/xcode-select
 BUILD=/usr/bin/xcodebuild
 XCRUN=/usr/bin/xcrun
+GIT=/usr/bin/git
+CLANG=/usr/bin/clang
 CODESIGN=/usr/bin/codesign
 LOCKF=/usr/bin/lockf
 BASH_TOOL=/bin/bash
@@ -50,6 +52,8 @@ if [ "$EUID" -ne 0 ]; then
   SELECT=${XG_SELECT:-$SELECT}
   BUILD=${XG_BUILD:-$BUILD}
   XCRUN=${XG_XCRUN:-$XCRUN}
+  GIT=${XG_GIT:-$GIT}
+  CLANG=${XG_CLANG:-$CLANG}
   CODESIGN=${XG_CODESIGN:-$CODESIGN}
   LOCKF=${XG_LOCKF:-$LOCKF}
   BASH_TOOL=${XG_BASH:-$BASH_TOOL}
@@ -82,8 +86,9 @@ fi
 owned_safe() {
   local metadata owner permissions
   [ ! -L "$1" ] || return 1
-  metadata=$("$STAT" -f '%u %OLp' "$1" 2>/dev/null) || return 1
-  read -r owner permissions <<<"$metadata"
+  metadata=$("$STAT" -f '%u %OLp' "$1" </dev/null 2>/dev/null) || return 1
+  owner=${metadata%% *}
+  permissions=${metadata#* }
   [[ "$permissions" =~ ^[0-7]+$ ]] || return 1
   [ "$owner" = "$EXPECT_OWNER" ] && [ $((8#$permissions & 022)) -eq 0 ]
 }
@@ -104,27 +109,31 @@ say() {
   }
   size=0
   if [ -f "$LOG" ]; then
-    size=$("$STAT" -f '%z' "$LOG" 2>/dev/null) || return 1
+    size=$("$STAT" -f '%z' "$LOG" </dev/null 2>/dev/null) || return 1
   fi
   if [ "$size" -gt 1048576 ]; then
-    tmp=$("$MKTEMP" "$LOG.XXXXXXXX") || return 1
+    tmp=$("$MKTEMP" "$LOG.XXXXXXXX" </dev/null) || return 1
     # Preserve the inode: launchd also holds this log open for stdout/stderr.
-    if ! "$TAIL" -n 1000 "$LOG" >"$tmp" || ! "$CAT" "$tmp" >"$LOG"; then
+    if ! "$TAIL" -n 1000 "$LOG" </dev/null >"$tmp" || ! "$CAT" "$tmp" </dev/null >"$LOG"; then
+      "$RM" -f "$tmp" </dev/null
       printf 'FAIL log trimming failed.\n' >&2
       return 1
     fi
-    "$RM" -f "$tmp" || return 1
+    "$RM" -f "$tmp" </dev/null || return 1
   fi
-  printf '%s %s\n' "$("$DATE" -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG"
+  printf '%s %s\n' "$("$DATE" -u '+%Y-%m-%dT%H:%M:%SZ' </dev/null)" "$*" >>"$LOG"
 }
 
 fail() {
+  if [ "$MODE" != --check ] && [ -t 2 ]; then
+    printf 'FAIL %s\n' "$*" >&2
+  fi
   say "FAIL $*"
   return 1
 }
 report() { [ "$MODE" != --check ] || say "PASS $*"; }
 # Read and change the system selection even from a shell that pins its own Xcode.
-select_system() { "$ENV" -i PATH=/usr/bin:/bin "$SELECT" "$@"; }
+select_system() { "$ENV" -i PATH=/usr/bin:/bin "$SELECT" "$@" </dev/null; }
 
 state_valid() {
   if [ -L "$STATE" ] || { [ -e "$STATE" ] && { [ ! -d "$STATE" ] || ! owned_safe "$STATE"; }; }; then
@@ -146,17 +155,17 @@ bundle_valid() {
   local path bad version failed=0 directories_ok=1
   for path in "$APP" "$APP/Contents" "$DEV" "$DEV/usr/bin"; do
     if [ ! -d "$path" ] || ! owned_safe "$path"; then
-      fail 'check 1: required bundle directory is missing, symlinked, wrongly owned or writable'
+      fail "check 1: $path: required bundle directory is missing, symlinked, wrongly owned or writable"
       directories_ok=0
       failed=1
     fi
   done
-  [ "$directories_ok" -eq 0 ] || report 'check 1: required bundle directories are safe'
-  if ! bad=$("$FIND" "$APP" -xdev ! -type l \( ! -user "$EXPECT_OWNER" -o -perm -g+w -o -perm -o+w \) -print -quit 2>/dev/null); then
-    fail 'check 2: whole-bundle ownership/permissions scan failed'
+  [ "$directories_ok" -eq 0 ] || report "check 1: $APP: required bundle directories are safe"
+  if ! bad=$("$FIND" "$APP" -xdev ! -type l \( ! -user "$EXPECT_OWNER" -o -perm -g+w -o -perm -o+w -o -perm -4000 -o -perm -2000 -o -acl \) -print -quit </dev/null 2>/dev/null); then
+    fail "check 2: $APP: whole-bundle ownership/permissions scan failed"
     failed=1
   elif [ -n "$bad" ]; then
-    fail 'check 2: bundle contains a wrongly owned or group/other-writable entry'
+    fail "check 2: $bad: bundle entry has wrong ownership, group/other write, setuid/setgid or an ACL"
     failed=1
   else
     report 'check 2: whole-bundle ownership and permissions are safe'
@@ -168,18 +177,27 @@ bundle_valid() {
     report 'check 3: simctl is an executable regular file'
   fi
   # Clean environments prevent shell/CI settings from choosing another Xcode.
-  if ! version=$("$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -version 2>/dev/null) ||
+  if ! version=$("$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -version </dev/null 2>/dev/null) ||
     [ "$version" != $'Xcode 27.1\nBuild version 27A9275' ]; then
     fail 'check 4: xcodebuild must report exactly Xcode 27.1, build 27A9275'
     failed=1
   else
     report 'check 4: Xcode version and build match the pin'
   fi
-  if ! "$CODESIGN" --verify --deep --strict "$APP" >/dev/null 2>&1; then
-    fail 'check 5: deep strict code signature verification failed'
+  if ! "$CODESIGN" --verify --deep --strict -R='=anchor apple and identifier "com.apple.dt.Xcode"' "$APP" </dev/null >/dev/null 2>&1; then
+    fail 'check 5: deep strict Apple Xcode signature verification failed'
     failed=1
   else
-    report 'check 5: deep strict code signature verification passed'
+    report 'check 5: deep strict Apple Xcode signature verification passed'
+  fi
+  if ! "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -license check </dev/null >/dev/null 2>&1; then
+    fail 'check 6: Xcode license check failed'
+    failed=1
+  elif ! "$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -checkFirstLaunchStatus </dev/null >/dev/null 2>&1; then
+    fail 'check 6: Xcode first-launch status check failed'
+    failed=1
+  else
+    report 'check 6: Xcode license and first-launch status checks passed'
   fi
   return "$failed"
 }
@@ -191,7 +209,7 @@ if [ "$MODE" != --check ]; then
   }
   state_valid || exit 1
   if [ ! -d "$STATE" ]; then
-    "$MKDIR" -m 755 "$STATE" 2>/dev/null || {
+    "$MKDIR" -m 755 "$STATE" </dev/null 2>/dev/null || {
       # Another starting copy may have created it before taking the lock.
       if [ ! -d "$STATE" ] || ! state_valid; then
         fail 'cannot create state directory'
@@ -201,9 +219,14 @@ if [ "$MODE" != --check ]; then
   fi
   # Same lifetime kernel lock as mem-guard.sh. EX_TEMPFAIL (75) means busy.
   if [ "${CM_XCODE_GUARD_LOCKED:-}" != 1 ]; then
-    "$LOCKF" -s -k -t 0 "$LOCK" "$ENV" CM_XCODE_GUARD_LOCKED=1 "$BASH_TOOL" "$0" "$@"
+    "$LOCKF" -s -k -t 0 "$LOCK" "$ENV" CM_XCODE_GUARD_LOCKED=1 "$BASH_TOOL" "$0" "$@" </dev/null
     rc=$?
-    [ "$rc" -ne 75 ] || exit 0
+    if [ "$rc" -eq 75 ]; then
+      if [ "$MODE" = enforce ] && [ "${XPC_SERVICE_NAME:-}" = cm.barta.mbp2606.xcode-guard ]; then
+        exit 0
+      fi
+      printf 'FAIL busy: another xcode-guard holds the lock.\n' >&2
+    fi
     exit "$rc"
   fi
   state_valid || exit 1
@@ -214,7 +237,7 @@ if [ "$MODE" = --rollback ]; then
     fail 'rollback refused: prior selection is missing'
     exit 1
   }
-  previous=$("$CAT" "$PRIOR") || {
+  previous=$("$CAT" "$PRIOR" </dev/null) || {
     fail 'cannot read prior selection'
     exit 1
   }
@@ -227,7 +250,7 @@ if [ "$MODE" = --rollback ]; then
     fail 'rollback switch or verification failed; this does not unload the daemon'
     exit 1
   fi
-  say 'PASS rollback restored prior selection; this does not unload the daemon'
+  say 'PASS rollback restored prior selection; this does not unload the daemon' || exit 1
   printf 'Restored prior selection. This does not unload the daemon.\n'
   exit 0
 fi
@@ -259,23 +282,34 @@ if [ "$MODE" = --check ]; then
   if [ "$current" = "$DEV" ]; then
     say 'PASS enforce would keep the already selected, valid Xcode'
   else
-    say 'PASS enforce would preserve the first prior selection, switch to pinned Xcode and verify simctl'
+    say 'PASS enforce would preserve the first prior selection, switch to pinned Xcode and verify simctl, git and clang'
   fi
   exit 0
 fi
+# Validation can take minutes; preserve a manual selection made in that time.
+if ! current=$(select_system -p 2>/dev/null) || [[ "$current" != /* ]] || [ ! -d "$current" ]; then
+  fail 'current developer selection is unreadable or its directory does not exist; refusing to switch'
+  exit 1
+fi
 if [ "$current" = "$DEV" ]; then
-  say 'valid pinned Xcode is already selected'
+  say 'valid pinned Xcode is already selected' || exit 1
   exit 0
 fi
 if [ ! -e "$PRIOR" ]; then
-  tmp=$("$MKTEMP" "$STATE/prior-selection.XXXXXXXX") || {
+  tmp=$("$MKTEMP" "$STATE/prior-selection.XXXXXXXX" </dev/null) || {
     fail 'cannot create prior-selection temporary file'
     exit 1
   }
-  if ! printf '%s\n' "$current" >"$tmp" || ! "$CHMOD" 644 "$tmp" || ! "$MV" -n "$tmp" "$PRIOR"; then
+  if ! printf '%s\n' "$current" >"$tmp" || ! "$CHMOD" 644 "$tmp" </dev/null || ! "$MV" -n "$tmp" "$PRIOR" </dev/null; then
+    "$RM" -f "$tmp" </dev/null
     fail 'cannot atomically record prior selection'
     exit 1
   fi
+  # mv -n can succeed without moving when a destination already exists.
+  "$RM" -f "$tmp" </dev/null || {
+    fail 'cannot remove prior-selection temporary file'
+    exit 1
+  }
   if [ ! -f "$PRIOR" ] || ! owned_safe "$PRIOR"; then
     fail 'prior selection was not safely recorded'
     exit 1
@@ -283,8 +317,10 @@ if [ ! -e "$PRIOR" ]; then
 fi
 if select_system --switch "$DEV" >/dev/null 2>&1 &&
   selected=$(select_system -p 2>/dev/null) && [ "$selected" = "$DEV" ] &&
-  simctl=$("$ENV" -i PATH=/usr/bin:/bin "$XCRUN" --find simctl 2>/dev/null) && [ "$simctl" = "$DEV/usr/bin/simctl" ]; then
-  say 'PASS selected pinned Xcode and verified system simctl'
+  simctl=$("$ENV" -i PATH=/usr/bin:/bin "$XCRUN" --find simctl </dev/null 2>/dev/null) && [ "$simctl" = "$DEV/usr/bin/simctl" ] &&
+  "$ENV" -i PATH=/usr/bin:/bin "$GIT" --version </dev/null >/dev/null 2>&1 &&
+  "$ENV" -i PATH=/usr/bin:/bin "$CLANG" --version </dev/null >/dev/null 2>&1; then
+  say 'PASS selected pinned Xcode and verified system simctl, git and clang' || exit 1
   exit 0
 fi
 if select_system --switch "$current" >/dev/null 2>&1 &&
