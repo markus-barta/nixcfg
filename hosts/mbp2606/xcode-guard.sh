@@ -1,0 +1,296 @@
+#!/bin/bash
+# OPS-563: keep the system developer selection on the root-owned Xcode 27.1 bundle.
+# CommandLineTools has no simctl, so Xcode test diagnostics failed with exit 72.
+# CI jobs still choose their own DEVELOPER_DIR. This root LaunchDaemon only keeps
+# the system fallback usable; Home Manager does not install or run it.
+# Validate the whole bundle before switching, even when it is already selected.
+# Keep the first prior selection for an operator rollback. A failed post-switch
+# verification restores the selection read at the start of this invocation.
+set -u
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+umask 022
+
+APP=/Applications/Xcode-27.1.app
+DEV=$APP/Contents/Developer
+STATE=/var/db/cm.barta.xcode-guard
+PRIOR=$STATE/prior-selection
+LOG=/var/log/cm.barta.xcode-guard.log
+LOCK=$STATE/lock
+EXPECT_OWNER=0
+FIND=/usr/bin/find
+STAT=/usr/bin/stat
+ENV=/usr/bin/env
+SELECT=/usr/bin/xcode-select
+BUILD=/usr/bin/xcodebuild
+XCRUN=/usr/bin/xcrun
+CODESIGN=/usr/bin/codesign
+LOCKF=/usr/bin/lockf
+BASH_TOOL=/bin/bash
+MKDIR=/bin/mkdir
+CHMOD=/bin/chmod
+MKTEMP=/usr/bin/mktemp
+MV=/bin/mv
+DATE=/bin/date
+TAIL=/usr/bin/tail
+CAT=/bin/cat
+RM=/bin/rm
+
+# Root never consults test overrides, including the test permission and owner.
+if [ "$EUID" -ne 0 ]; then
+  APP=${XG_APP:-$APP}
+  DEV=${XG_DEV:-$APP/Contents/Developer}
+  STATE=${XG_STATE:-$STATE}
+  PRIOR=${XG_PRIOR:-$STATE/prior-selection}
+  LOG=${XG_LOG:-$LOG}
+  LOCK=${XG_LOCK:-$STATE/lock}
+  EXPECT_OWNER=${XG_EXPECT_OWNER:-0}
+  FIND=${XG_FIND:-$FIND}
+  STAT=${XG_STAT:-$STAT}
+  ENV=${XG_ENV:-$ENV}
+  SELECT=${XG_SELECT:-$SELECT}
+  BUILD=${XG_BUILD:-$BUILD}
+  XCRUN=${XG_XCRUN:-$XCRUN}
+  CODESIGN=${XG_CODESIGN:-$CODESIGN}
+  LOCKF=${XG_LOCKF:-$LOCKF}
+  BASH_TOOL=${XG_BASH:-$BASH_TOOL}
+  MKDIR=${XG_MKDIR:-$MKDIR}
+  CHMOD=${XG_CHMOD:-$CHMOD}
+  MKTEMP=${XG_MKTEMP:-$MKTEMP}
+  MV=${XG_MV:-$MV}
+  DATE=${XG_DATE:-$DATE}
+  TAIL=${XG_TAIL:-$TAIL}
+  CAT=${XG_CAT:-$CAT}
+  RM=${XG_RM:-$RM}
+fi
+
+MODE=${1:-enforce}
+case "$MODE" in enforce | --check | --rollback) ;; *)
+  printf 'Usage: %s [--check|--rollback]\n' "$0" >&2
+  exit 1
+  ;;
+esac
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$MODE" = enforce ]; }; then
+  printf 'Use no argument to enforce.\n' >&2
+  exit 1
+fi
+if [ "$MODE" != --check ] && [ "$EUID" -ne 0 ] && [ "${XG_TEST:-}" != 1 ]; then
+  printf 'FAIL enforce and rollback require root.\n' >&2
+  exit 1
+fi
+
+# stat does not follow links on macOS. Reject links explicitly as well.
+owned_safe() {
+  local metadata owner permissions
+  [ ! -L "$1" ] || return 1
+  metadata=$("$STAT" -f '%u %OLp' "$1" 2>/dev/null) || return 1
+  read -r owner permissions <<<"$metadata"
+  [[ "$permissions" =~ ^[0-7]+$ ]] || return 1
+  [ "$owner" = "$EXPECT_OWNER" ] && [ $((8#$permissions & 022)) -eq 0 ]
+}
+
+log_safe() {
+  [ ! -L "$LOG" ] && { [ ! -e "$LOG" ] || { [ -f "$LOG" ] && owned_safe "$LOG"; }; }
+}
+
+say() {
+  local size tmp
+  if [ "$MODE" = --check ]; then
+    printf '%s\n' "$*"
+    return 0
+  fi
+  log_safe || {
+    printf 'FAIL unsafe log file.\n' >&2
+    return 1
+  }
+  size=0
+  if [ -f "$LOG" ]; then
+    size=$("$STAT" -f '%z' "$LOG" 2>/dev/null) || return 1
+  fi
+  if [ "$size" -gt 1048576 ]; then
+    tmp=$("$MKTEMP" "$LOG.XXXXXXXX") || return 1
+    # Preserve the inode: launchd also holds this log open for stdout/stderr.
+    if ! "$TAIL" -n 1000 "$LOG" >"$tmp" || ! "$CAT" "$tmp" >"$LOG"; then
+      printf 'FAIL log trimming failed.\n' >&2
+      return 1
+    fi
+    "$RM" -f "$tmp" || return 1
+  fi
+  printf '%s %s\n' "$("$DATE" -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG"
+}
+
+fail() {
+  say "FAIL $*"
+  return 1
+}
+report() { [ "$MODE" != --check ] || say "PASS $*"; }
+# Read and change the system selection even from a shell that pins its own Xcode.
+select_system() { "$ENV" -i PATH=/usr/bin:/bin "$SELECT" "$@"; }
+
+state_valid() {
+  if [ -L "$STATE" ] || { [ -e "$STATE" ] && { [ ! -d "$STATE" ] || ! owned_safe "$STATE"; }; }; then
+    fail 'state directory must be a real, owned directory without group/other write access'
+    return 1
+  fi
+  if [ -L "$PRIOR" ] || { [ -e "$PRIOR" ] && { [ ! -f "$PRIOR" ] || ! owned_safe "$PRIOR"; }; }; then
+    fail 'prior selection must be an owned regular non-symlink file without group/other write access'
+    return 1
+  fi
+  if [ -L "$LOCK" ] || { [ -e "$LOCK" ] && { [ ! -f "$LOCK" ] || ! owned_safe "$LOCK"; }; }; then
+    fail 'lock must be an owned regular non-symlink file without group/other write access'
+    return 1
+  fi
+  report 'state, prior selection and lock are safe (missing state would be created mode 755)'
+}
+
+bundle_valid() {
+  local path bad version failed=0 directories_ok=1
+  for path in "$APP" "$APP/Contents" "$DEV" "$DEV/usr/bin"; do
+    if [ ! -d "$path" ] || ! owned_safe "$path"; then
+      fail 'check 1: required bundle directory is missing, symlinked, wrongly owned or writable'
+      directories_ok=0
+      failed=1
+    fi
+  done
+  [ "$directories_ok" -eq 0 ] || report 'check 1: required bundle directories are safe'
+  if ! bad=$("$FIND" "$APP" -xdev ! -type l \( ! -user "$EXPECT_OWNER" -o -perm -g+w -o -perm -o+w \) -print -quit 2>/dev/null); then
+    fail 'check 2: whole-bundle ownership/permissions scan failed'
+    failed=1
+  elif [ -n "$bad" ]; then
+    fail 'check 2: bundle contains a wrongly owned or group/other-writable entry'
+    failed=1
+  else
+    report 'check 2: whole-bundle ownership and permissions are safe'
+  fi
+  if [ -L "$DEV/usr/bin/simctl" ] || [ ! -f "$DEV/usr/bin/simctl" ] || [ ! -x "$DEV/usr/bin/simctl" ]; then
+    fail 'check 3: simctl must be an executable regular non-symlink file'
+    failed=1
+  else
+    report 'check 3: simctl is an executable regular file'
+  fi
+  # Clean environments prevent shell/CI settings from choosing another Xcode.
+  if ! version=$("$ENV" -i PATH=/usr/bin:/bin "DEVELOPER_DIR=$DEV" "$BUILD" -version 2>/dev/null) ||
+    [ "$version" != $'Xcode 27.1\nBuild version 27A9275' ]; then
+    fail 'check 4: xcodebuild must report exactly Xcode 27.1, build 27A9275'
+    failed=1
+  else
+    report 'check 4: Xcode version and build match the pin'
+  fi
+  if ! "$CODESIGN" --verify --deep --strict "$APP" >/dev/null 2>&1; then
+    fail 'check 5: deep strict code signature verification failed'
+    failed=1
+  else
+    report 'check 5: deep strict code signature verification passed'
+  fi
+  return "$failed"
+}
+
+if [ "$MODE" != --check ]; then
+  log_safe || {
+    printf 'FAIL unsafe log file.\n' >&2
+    exit 1
+  }
+  state_valid || exit 1
+  if [ ! -d "$STATE" ]; then
+    "$MKDIR" -m 755 "$STATE" 2>/dev/null || {
+      # Another starting copy may have created it before taking the lock.
+      if [ ! -d "$STATE" ] || ! state_valid; then
+        fail 'cannot create state directory'
+        exit 1
+      fi
+    }
+  fi
+  # Same lifetime kernel lock as mem-guard.sh. EX_TEMPFAIL (75) means busy.
+  if [ "${CM_XCODE_GUARD_LOCKED:-}" != 1 ]; then
+    "$LOCKF" -s -k -t 0 "$LOCK" "$ENV" CM_XCODE_GUARD_LOCKED=1 "$BASH_TOOL" "$0" "$@"
+    rc=$?
+    [ "$rc" -ne 75 ] || exit 0
+    exit "$rc"
+  fi
+  state_valid || exit 1
+fi
+
+if [ "$MODE" = --rollback ]; then
+  [ -f "$PRIOR" ] || {
+    fail 'rollback refused: prior selection is missing'
+    exit 1
+  }
+  previous=$("$CAT" "$PRIOR") || {
+    fail 'cannot read prior selection'
+    exit 1
+  }
+  if [[ "$previous" != /* ]] || [ ! -d "$previous" ]; then
+    fail 'rollback refused: recorded developer directory does not exist'
+    exit 1
+  fi
+  if ! select_system --switch "$previous" >/dev/null 2>&1 ||
+    ! current=$(select_system -p 2>/dev/null) || [ "$current" != "$previous" ]; then
+    fail 'rollback switch or verification failed; this does not unload the daemon'
+    exit 1
+  fi
+  say 'PASS rollback restored prior selection; this does not unload the daemon'
+  printf 'Restored prior selection. This does not unload the daemon.\n'
+  exit 0
+fi
+
+failed=0
+state_valid || failed=1
+if ! log_safe; then
+  fail 'log must be an owned regular non-symlink file without group/other write access'
+  failed=1
+else
+  report 'log path is safe'
+fi
+if ! current=$(select_system -p 2>/dev/null) || [[ "$current" != /* ]] || [ ! -d "$current" ]; then
+  fail 'current developer selection is unreadable or its directory does not exist'
+  failed=1
+else
+  report 'current developer selection is readable and its directory exists'
+fi
+bundle_valid || failed=1
+if [ "$failed" -ne 0 ]; then
+  if [ "$current" = "$DEV" ]; then
+    fail 'ALERT selected Xcode is invalid; leaving selection unchanged for operator repair'
+  fi
+  [ "$MODE" != --check ] || say 'FAIL enforce would refuse; no selection or state changes made'
+  exit 1
+fi
+
+if [ "$MODE" = --check ]; then
+  if [ "$current" = "$DEV" ]; then
+    say 'PASS enforce would keep the already selected, valid Xcode'
+  else
+    say 'PASS enforce would preserve the first prior selection, switch to pinned Xcode and verify simctl'
+  fi
+  exit 0
+fi
+if [ "$current" = "$DEV" ]; then
+  say 'valid pinned Xcode is already selected'
+  exit 0
+fi
+if [ ! -e "$PRIOR" ]; then
+  tmp=$("$MKTEMP" "$STATE/prior-selection.XXXXXXXX") || {
+    fail 'cannot create prior-selection temporary file'
+    exit 1
+  }
+  if ! printf '%s\n' "$current" >"$tmp" || ! "$CHMOD" 644 "$tmp" || ! "$MV" -n "$tmp" "$PRIOR"; then
+    fail 'cannot atomically record prior selection'
+    exit 1
+  fi
+  if [ ! -f "$PRIOR" ] || ! owned_safe "$PRIOR"; then
+    fail 'prior selection was not safely recorded'
+    exit 1
+  fi
+fi
+if select_system --switch "$DEV" >/dev/null 2>&1 &&
+  selected=$(select_system -p 2>/dev/null) && [ "$selected" = "$DEV" ] &&
+  simctl=$("$ENV" -i PATH=/usr/bin:/bin "$XCRUN" --find simctl 2>/dev/null) && [ "$simctl" = "$DEV/usr/bin/simctl" ]; then
+  say 'PASS selected pinned Xcode and verified system simctl'
+  exit 0
+fi
+if select_system --switch "$current" >/dev/null 2>&1 &&
+  restored=$(select_system -p 2>/dev/null) && [ "$restored" = "$current" ]; then
+  fail 'switch or verification failed; restored the selection read before switching'
+else
+  fail 'ALERT switch or verification failed AND restoration failed; operator repair required'
+fi
+exit 1

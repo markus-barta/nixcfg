@@ -52,6 +52,50 @@ no re-encryption is involved. The `m5-*` filename and the `root@mbp0` /
 `mba@mbp0` key comments are retained by intent — a key comment is not key
 material, and rewriting it would force a pointless rekey.
 
+## System Xcode selection (OPS-563)
+
+The system selection was CommandLineTools, which has no `simctl`; Xcode test
+diagnostics then failed with exit 72. A small root guard pins the system
+selection to the root-owned `/Applications/Xcode-27.1.app` (27.1, build
+27A9275), checking ownership, permissions, version and signature before each
+switch. CI jobs keep using their own `DEVELOPER_DIR`.
+
+This is a root LaunchDaemon, installed once by hand, outside Home Manager.
+Run each command separately, in this order, from the nixcfg checkout on this
+Mac; inspect the result before continuing:
+
+1. `sudo ditto /Users/ci/Applications/Xcode-27.1.app /Applications/Xcode-27.1.app`
+2. `sudo chown -R root:wheel /Applications/Xcode-27.1.app && sudo chmod -R go-w /Applications/Xcode-27.1.app`
+3. `codesign --verify --deep --strict /Applications/Xcode-27.1.app`
+4. `sudo install -o root -g wheel -m 755 hosts/mbp2606/xcode-guard.sh /usr/local/sbin/xcode-guard`
+5. `sudo install -o root -g wheel -m 644 hosts/mbp2606/cm.barta.mbp2606.xcode-guard.plist /Library/LaunchDaemons/ && sudo launchctl bootstrap system /Library/LaunchDaemons/cm.barta.mbp2606.xcode-guard.plist`
+
+Verify as `ci` with `DEVELOPER_DIR` absent and the system PATH:
+
+```sh
+/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/xcrun --find simctl
+```
+
+It must print `/Applications/Xcode-27.1.app/Contents/Developer/usr/bin/simctl`.
+`/usr/local/sbin/xcode-guard --check` can run any time without root and makes
+no changes. The guard logs to `/var/log/cm.barta.xcode-guard.log`; it retains
+the first prior selection in `/var/db/cm.barta.xcode-guard/prior-selection`.
+
+Rollback is two separate commands, in order:
+
+```sh
+sudo launchctl bootout system/cm.barta.mbp2606.xcode-guard
+```
+
+```sh
+sudo /usr/local/sbin/xcode-guard --rollback
+```
+
+Rollback alone does not unload the daemon. It refuses an unsafe or missing
+prior record or a recorded developer directory that no longer exists.
+After a script change, re-run step 4. A new Xcode needs new constants and a
+reviewed change. The daemon runs at load and then every 86400 seconds.
+
 ## Notes
 
 - `inspr.git.atelier.personal` is **disabled** since NIX-216 (m5 userkey
