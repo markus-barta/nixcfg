@@ -346,7 +346,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
               # The pusher and stager both need it (README "Two proven Today conversions").
               # Set both to "10" for rollback; remove both to return to rev 9.
               # v2 set only: the v1 "current" set keeps its pre-v2 baseline (v2-contracts test).
-              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=11";
+              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=10";
           }
           // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
             volumes =
@@ -372,7 +372,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
                   # JOED-102: append, never replace. recursiveUpdate replaces lists, so a bare list here
                   # would drop the base JOE_V2_STAGE_CHECKPOINT_DIR and bring back the full cold scan.
                   environment = (joeComposeBase.services.joe-household-v2-stage.environment or [ ]) ++ [
-                    "JOE_V2_CONTRACT_REV=11"
+                    "JOE_V2_CONTRACT_REV=10"
                   ];
                 };
               }
