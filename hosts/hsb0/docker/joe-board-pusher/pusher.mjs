@@ -163,6 +163,7 @@ const familyAdapter = createFamilySessionAdapter({
   targetAccount: ACCOUNT,
   familyClientIds: FAMILY_CLIENT_IDS,
   familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+  fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
   excludedSymbols: ["SXR8", "TSLA"],
   periodStart: FAMILY_BASELINE_PERIOD_START,
   calculateFamily,
@@ -196,7 +197,8 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   normalizeExecutionRow: normalizeEconomicExecution,
   normalizeCommissionReport: normalizeEconomicCommission,
   reconcileCapture: reconcileExecutionCapture,
-  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, executorAttribution }),
+  projectHistory: args => projectBestAvailableHistory({ ...args, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides, executorAttribution }),
   eventNames: EventName,
   store: createFileFamilyHistoryStore(FAMILY_HISTORY_PATH),
   loadBootstrapCapture({ targetAccount, classifier, historyStart }) {
@@ -254,12 +256,15 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
 });
 
 const deskProviderContract = deskOwnershipPolicyContract(deskOwnershipPolicy);
+const historyBasis = `desk-policy-${deskProviderContract.policyHash.slice(0, 12)}`;
 const dayPnlProducer = createDeskDayPnlProducer({
   account: ACCOUNT,
   policy: deskOwnershipPolicy,
   providerContract: deskProviderContract,
   historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
   store: createPolicyDayBaselineStore(DAY_BASELINE_PATH, deskProviderContract.policyHash),
+  // OPS-557 retires prior-policy DAY; only a newly proven NY boundary restores it.
+  allowSessionProxy: false,
   buildBoundaryEvidence: args => buildDeskDayBoundaryEvidence({ ...args, executorAttribution }),
   getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
   // Live FX observations are valid for five minutes in the family adapter, so
@@ -379,7 +384,7 @@ async function pushOnce(stageObservation) {
   const requestBody = JSON.stringify(snap);
   if (v2Publisher) {
     if (stageObservation) Object.assign(stageObservation, {
-      book, family, deskEquities, dayPnl, executions: familyAdapter.activitySnapshot(), executorAttribution,
+      book, family, deskEquities, dayPnl, historyBasis, executions: familyAdapter.activitySnapshot(), executorAttribution,
       v1Cycle: startCycle(requestBody)("not_posted_v2_active"), v1Body: requestBody,
     });
     return { ok: true, status: "not_posted_v2_active" };
@@ -390,7 +395,7 @@ async function pushOnce(stageObservation) {
     return { ok: false, error: "no token" };
   }
 
-  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, dayPnl, executions: familyAdapter.activitySnapshot(), executorAttribution });
+  if (stageObservation) Object.assign(stageObservation, { book, family, deskEquities, dayPnl, historyBasis, executions: familyAdapter.activitySnapshot(), executorAttribution });
 
   const settleCycle = startCycle(requestBody);
   let status = "post_failed";
@@ -505,6 +510,7 @@ function syncFlatNetMarks() {
     account: ACCOUNT,
     familyClientIds: FAMILY_CLIENT_IDS,
     familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
     executorAttribution,
     excludedSymbols: ["SXR8", "TSLA"],
   })); } catch { flatNetMarks.reset(); }

@@ -518,6 +518,7 @@ export function createDayBaselineAdapter({
   store,
   boundaryFreshMs = 120_000,
   currentFreshMs = 300_000,
+  allowSessionProxy = true,
   now = () => new Date().toISOString(),
 } = {}) {
   const targetAccount = text(account, "account");
@@ -548,7 +549,7 @@ export function createDayBaselineAdapter({
       return unavailable("no complete virtual-equity observation exists for the current New York day");
     }
     const exact = state.baseline?.periodStart === currentPeriod ? state.baseline : null;
-    const proxy = state.proxy?.periodStart === currentPeriod ? state.proxy : null;
+    const proxy = allowSessionProxy && state.proxy?.periodStart === currentPeriod ? state.proxy : null;
     const baseline = exact || proxy;
     if (!baseline) {
       return unavailable(state.missed?.reason || "exact New York SOD virtual-equity proof is pending");
@@ -659,7 +660,7 @@ export function createDayBaselineAdapter({
   }
 
   function establishProxy(next, observation, periodStart, ingestAt) {
-    if (next.baseline || next.proxy || observation.sourceObservedAt < periodStart ||
+    if (!allowSessionProxy || next.baseline || next.proxy || observation.sourceObservedAt < periodStart ||
         newYorkPeriodStart(observation.sourceObservedAt) !== periodStart) return;
     const ageAtReferenceMs = Date.parse(observation.sourceObservedAt) -
       Date.parse(observation.oldestSourceObservedAt);
@@ -777,6 +778,7 @@ export function createDeskDayPnlProducer({
   getVerifiedHistoryState,
   boundaryFreshMs = 300_000,
   currentFreshMs = 300_000,
+  allowSessionProxy = true,
   now = () => new Date().toISOString(),
 } = {}) {
   const targetAccount = text(account, "account");
@@ -800,6 +802,7 @@ export function createDeskDayPnlProducer({
     store,
     boundaryFreshMs,
     currentFreshMs,
+    allowSessionProxy,
     now,
   });
 

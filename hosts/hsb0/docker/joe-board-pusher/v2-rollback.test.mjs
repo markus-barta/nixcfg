@@ -10,6 +10,8 @@ import { StageStore, prepareLock } from "./v2-stage-worker.mjs";
 import { FRAME_FORMAT } from "./v2-stage-handoff.mjs";
 import { startCycle } from "./v1-cycle.mjs";
 import { createCycleStore } from "./v1-cycle-store.mjs";
+import { copyObservation } from "./v2-stage-handoff.mjs";
+import { deskOwnershipPolicyContract } from "./desk-ledger.mjs";
 
 const fixture = new URL("./fixtures/r15/", import.meta.url);
 const revision = "0c4e2946fc5ea220c72b57709db00710ebd3ba8c";
@@ -184,3 +186,106 @@ test("actual r15 rejects r16 pairs; move-aside preserves evidence and resumes ab
 function jsonLines(name) {
   return fs.readFileSync(name, "utf8").trim().split("\n").map(line => JSON.parse(line));
 }
+
+for (const revision of [9, 10]) test(`pre-OPS-557 rev ${revision} rejects new basis pairs; documented move-aside resumes above high-water`, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops557-rollback-"));
+  t.after(() => spawnSync("trash", [root]));
+  const runtime = path.join(root, "pre-ops557");
+  const base = "b93de64056508c2d9fe228b97fe2b40dc23108ae";
+  const tree = "hosts/hsb0/docker/joe-board-pusher";
+  // Import the actual old worker with its complete runtime/contract closure.
+  // No copied or approximated validation logic can mask a rollback regression.
+  const files = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", `${base}:${tree}`], { encoding: "utf8" }).trim().split("\n");
+  for (const name of files.filter(name => (/^[^/]+\.mjs$/.test(name) && !name.endsWith(".test.mjs"))
+    || name === "contracts.lock.json" || name.startsWith("contracts/"))) {
+    const destination = path.join(runtime, name);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, execFileSync("git", ["show", `${base}:${tree}/${name}`]));
+  }
+  const { StageStore: OldStore, validObservation: oldValidObservation } = await import(pathToFileURL(path.join(runtime, "v2-stage-worker.mjs")));
+  const { createV2Publisher: oldPublisher, createPostStateStore: oldPostState } = await import(pathToFileURL(path.join(runtime, "v2-publisher.mjs")));
+  const v2 = path.join(root, "v2"), cycles = path.join(root, "v1-cycles"), backup = path.join(root, "rollback-ops557");
+  fs.mkdirSync(v2, { mode: 0o700 });
+  const options = { root: v2, uid: process.getuid(), gid: process.getgid(), revision, env: {} };
+  prepareLock(v2, options.uid, options.gid);
+  const store = new StageStore(options); store.enroll(); await store.open();
+  const writer = createCycleStore({ root: cycles });
+  const basis = `desk-policy-${deskOwnershipPolicyContract().policyHash.slice(0, 12)}`;
+  let newObservation;
+  for (const seconds of [30, 60]) {
+    const generatedAt = at(seconds);
+    const body = JSON.stringify({ schema: "inspr.joe.household.v1", generatedAt, masked: true });
+    const observation = copyObservation({
+      book: { ts: generatedAt, apiReplyCheckedAt: generatedAt, gateway: true, summary: {}, positions: [], portfolio: [] },
+      ...(seconds === 60 ? { historyBasis: basis } : {}),
+      v1Cycle: startCycle(body)(200, generatedAt),
+    }, revision);
+    const reservation = store.reserve(observation, generatedAt);
+    assert.equal(reservation.status, 200);
+    assert.equal(await writer.write(reservation.seq, body, observation.v1Cycle.v1Sha256), true);
+    assert.equal(store.stage(observation, () => generatedAt, reservation, true).status, 200);
+    if (seconds === 60) newObservation = observation;
+  }
+  assert.equal(oldValidObservation(newObservation), false, "mixed old/new handoffs are rejected too");
+  const pairs = new Map(store.retainedSeqs().map(seq => [`pair-${seq}`, new Map(["snapshot.json", "receipt.json"]
+    .map(name => [name, fs.readFileSync(path.join(v2, `pair-${seq}`, name))]))]));
+  const v1 = new Map(fs.readdirSync(cycles).map(name => [name, fs.readFileSync(path.join(cycles, name))]));
+  const before = new Map(["current.json", "sequence-state.json", "receipts.jsonl"]
+    .map(name => [name, fs.readFileSync(path.join(v2, name))]));
+  const lockInode = fs.statSync(path.join(v2, ".allocator.lock")).ino;
+  const postPath = path.join(root, "v2-post-state.json");
+  const postState = oldPostState({ file: postPath });
+  postState.save({ format: "ops408.v2-post-state.v1",
+    lastPosted: { seq: 1, sha256: sha(pairs.get("pair-1").get("snapshot.json")) },
+    pending: { seq: 2, sha256: sha(pairs.get("pair-2").get("snapshot.json")) }, outcomes: [] });
+  const beforePost = fs.readFileSync(postPath);
+  const rollback = new OldStore(options);
+  await assert.rejects(rollback.open(), /stage_storage_invalid/);
+  assert.equal(rollback.validProjection(JSON.parse(pairs.get("pair-1").get("snapshot.json"))), true);
+  assert.equal(rollback.validProjection(JSON.parse(pairs.get("pair-2").get("snapshot.json"))), false);
+  assert.throws(() => rollback.readCommittedPair(), /stage_storage_invalid/);
+  let sends = 0;
+  const publish = reader => oldPublisher({ reader, now: () => at(180),
+    stateStore: postState,
+    emit() {}, send: async () => { sends++; return { ok: true, status: 200,
+      text: async () => JSON.stringify({ receivedAt: at(180) }) }; },
+  }).push({ url: "http://fixture.invalid/joe/inbox", token: "synthetic-rollback" });
+  assert.equal(await publish(rollback), null);
+  assert.equal(sends, 0, "old publisher cannot read or send the new pair");
+  assert.deepEqual(fs.readFileSync(postPath), beforePost);
+  for (const [name, bytes] of before) assert.deepEqual(fs.readFileSync(path.join(v2, name)), bytes);
+
+  // README order: stop both processes, archive v1 evidence, move pointer and
+  // every pair outside v2; leave the allocator, lock and append-only log intact.
+  fs.mkdirSync(backup, { mode: 0o700 });
+  fs.cpSync(cycles, path.join(backup, "v1-cycles"), { recursive: true });
+  fs.copyFileSync(postPath, path.join(backup, "v2-post-state.json"));
+  fs.renameSync(path.join(v2, "current.json"), path.join(backup, "current.json"));
+  await assert.rejects(new OldStore(options).open(), /stage_storage_invalid/,
+    "moving the pointer alone leaves incompatible retained pairs");
+  for (const name of pairs.keys()) fs.renameSync(path.join(v2, name), path.join(backup, name));
+  assert.deepEqual(fs.readdirSync(v2).sort(), [".allocator.lock", "receipts.jsonl", "sequence-state.json"]);
+  for (const name of ["sequence-state.json", "receipts.jsonl"]) assert.deepEqual(fs.readFileSync(path.join(v2, name)), before.get(name));
+  assert.equal(fs.statSync(path.join(v2, ".allocator.lock")).ino, lockInode);
+  const old = await new OldStore(options).open();
+  assert.deepEqual(old.retainedSeqs(), []);
+  assert.equal(old.readCommittedPair(), null);
+  assert.equal(old.state.lastReservedSeq, 2);
+  assert.equal(old.state.lastGeneratedAt, at(60));
+  assert.deepEqual(fs.readFileSync(postPath), beforePost, "rollback preserves the durable cursor and uncertain POST");
+  const next = copyObservation({ book: { ts: at(180), apiReplyCheckedAt: at(180), gateway: true, summary: {}, positions: [], portfolio: [] } }, revision);
+  assert.deepEqual(old.stage(next, () => at(180)), { status: 200, reason: null, seq: 3 });
+  assert.equal((await publish(old)).status, 200);
+  assert.equal(sends, 1);
+  assert.deepEqual(postState.load().lastPosted, { seq: 3, sha256: sha(old.readCommittedPair().bytes) });
+  assert.equal(postState.load().pending, null);
+  assert.equal(fs.statSync(path.join(v2, ".allocator.lock")).ino, lockInode);
+  assert.deepEqual(jsonLines(path.join(v2, "receipts.jsonl")).map(row => row.seq), [1, 2, 3]);
+  assert.ok(fs.readFileSync(path.join(v2, "receipts.jsonl")).subarray(0, before.get("receipts.jsonl").length).equals(before.get("receipts.jsonl")));
+  assert.deepEqual((await new OldStore(options).open()).retainedSeqs(), [3]);
+  await writer.prune(old.retainedSeqs());
+  assert.deepEqual(fs.readFileSync(path.join(backup, "current.json")), before.get("current.json"));
+  for (const [name, files] of pairs) for (const [file, bytes] of files) assert.deepEqual(fs.readFileSync(path.join(backup, name, file)), bytes);
+  for (const [name, bytes] of v1) assert.deepEqual(fs.readFileSync(path.join(backup, "v1-cycles", name)), bytes);
+  assert.deepEqual(fs.readFileSync(path.join(backup, "v2-post-state.json")), beforePost);
+});

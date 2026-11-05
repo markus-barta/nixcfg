@@ -4,10 +4,25 @@ import { registerHooks } from "node:module";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { Worker, isMainThread, workerData, parentPort } from "node:worker_threads";
 import { EventEmitter } from "node:events";
-import { configure } from "./pusher-dependencies.mjs";
+import assert from "node:assert/strict";
+import { configure, deskOwnershipPolicyContract } from "./pusher-dependencies.mjs";
+import { copyObservation } from "../v2-stage-handoff.mjs";
 
 let generation = 0;
 export const instant = "2026-10-19T07:00:00.000Z";
+
+// Fixed historical bodies predate OPS-557's two new fields. Require their
+// exact current value, then compare every remaining byte (including Joel).
+export function withoutPolicyHistoryBasis(body) {
+  const snapshot = JSON.parse(body);
+  const basis = `desk-policy-${deskOwnershipPolicyContract().policyHash.slice(0, 12)}`;
+  for (const id of ["j", "joe"]) {
+    const desk = snapshot.desks.find(row => row.id === id);
+    assert.equal(desk.historyBasis, basis);
+    delete desk.historyBasis;
+  }
+  return Buffer.from(JSON.stringify(snapshot));
+}
 
 export function syntheticState(variant = "normal", at = instant) {
   return {
@@ -58,7 +73,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   const state = syntheticState(variant);
   const before = JSON.stringify({ book: state.book, retained: state.retained });
   const requests = [], observations = [], trace = [], errors = [], logs = [], timers = [];
-  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.cycle = source.v1Cycle; state.v1Body = source.v1Body; return socket?.offer(source); }, stop() {} };
+  state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.observation = copyObservation(source); state.cycle = source.v1Cycle; state.v1Body = source.v1Body; return socket?.offer(source); }, stop() {} };
   const url = pathToFileURL(realpathSync(fileURLToPath(moduleURL))); url.searchParams.set("fixture", String(++generation));
   const hooks = installPusherDoubles(url.href, state);
   const saved = { fetch: globalThis.fetch, Date: globalThis.Date, setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, log: console.log, warn: console.warn, error: console.error };
@@ -95,7 +110,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
       await nextTurn();
     }
     return {
-      requests, observations, trace, errors,
+      requests, observations, observation: state.observation, trace, errors,
       errorIdentityPreserved: errors.at(-1)?.[1] === (fetchError || bodyError),
       cycle: state.cycle, v1Body: state.v1Body, v2Calls: state.v2Calls ?? 0, logs,
       result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "status")),

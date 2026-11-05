@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { newYorkPeriodStart } from "./day-baseline.mjs";
-import { J_DATED_CLIENT_ASSIGNMENTS, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { J_DATED_CLIENT_ASSIGNMENTS, assertFillAttributionOverrides, fillAttributionOverride, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
@@ -32,6 +32,19 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
   keepPositions: Object.freeze([
     Object.freeze({ symbol: "SXR8", quantity: 1401 }),
     Object.freeze({ symbol: "TSLA", quantity: 1 }),
+  ]),
+  // OPS-557: account closes crossed desk routes. Exact fill identities take
+  // precedence without claiming any other execution from these clients.
+  fillAttributionOverrides: Object.freeze([
+    ...[
+      ["0000dc8f.6bb0d852.01.01", "j"],
+      // OPS-392 already assigns this fill to J. Retain it as an exact-fill
+      // guard: missing, corrected or duplicate history must fail closed too.
+      ["0000dc8f.6bd3bc59.01.01", "j"],
+      ["00025b45.6ace1f95.01.01", "joe"],
+    ].map(([execId, desk]) => Object.freeze({
+      execId, desk, basis: "OPS-557 cross-booked NVDA close, 2026-11-04", date: "2026-11-04",
+    })),
   ]),
   assignments: Object.freeze([
     ...[27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83].map((clientId) => Object.freeze({
@@ -121,13 +134,28 @@ function canonicalPolicy(value = CURRENT_DESK_OWNERSHIP_POLICY) {
       }
     }
   }
+  const fillAttributionOverrides = (value.fillAttributionOverrides ?? []).map((row) => {
+    if (typeof row?.execId !== "string" || !row.execId || row.execId.trim() !== row.execId ||
+        !DESKS.includes(row.desk) || typeof row.basis !== "string" || !row.basis.trim() ||
+        typeof row.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.date) ||
+        !Number.isFinite(Date.parse(`${row.date}T00:00:00Z`)) ||
+        new Date(`${row.date}T00:00:00Z`).toISOString().slice(0, 10) !== row.date) {
+      throw new Error("desk fill attribution override is invalid");
+    }
+    return { execId: row.execId, desk: row.desk, basis: row.basis.trim(), date: row.date };
+  }).sort((left, right) => left.execId.localeCompare(right.execId));
+  if (new Set(fillAttributionOverrides.map(row => row.execId)).size !== fillAttributionOverrides.length) {
+    throw new Error("desk fill attribution overrides have duplicate execution identities");
+  }
   const emptyDesks = [...new Set(value.emptyDesks || [])].sort();
   if (emptyDesks.some((desk) => !DESKS.includes(desk))) throw new Error("desk ownership empty-desk declaration is invalid");
   for (const desk of emptyDesks) {
-    if (assignments.some((row) => row.desk === desk)) throw new Error(`${desk} cannot be both assigned and explicitly empty`);
+    if (assignments.some((row) => row.desk === desk) || fillAttributionOverrides.some(row => row.desk === desk)) {
+      throw new Error(`${desk} cannot be both assigned and explicitly empty`);
+    }
   }
   for (const desk of DESKS) {
-    if (!assignments.some((row) => row.desk === desk) && !emptyDesks.includes(desk)) {
+    if (!assignments.some((row) => row.desk === desk) && !fillAttributionOverrides.some(row => row.desk === desk) && !emptyDesks.includes(desk)) {
       throw new Error(`${desk} has neither an ownership assignment nor an explicit empty declaration`);
     }
   }
@@ -136,6 +164,8 @@ function canonicalPolicy(value = CURRENT_DESK_OWNERSHIP_POLICY) {
     throw new Error("executor client configuration is invalid");
   }
   return { method: POLICY_METHOD, periodStart, scope: SCOPE, excludedSymbols, keepPositions, assignments, emptyDesks, executorClientIds,
+    // Preserve the pre-override policy's digest when its override set is empty.
+    ...(fillAttributionOverrides.length ? { fillAttributionOverrides } : {}),
     executorAttribution: EXECUTOR_ATTRIBUTION_METHOD, executorDeskRollup: EXECUTOR_DESK_ROLLUP };
 }
 
@@ -152,6 +182,8 @@ export function deskOwnershipPolicyContract(policy = CURRENT_DESK_OWNERSHIP_POLI
 }
 
 function classify(row, policy, executorAttribution) {
+  const override = fillAttributionOverride(row.execution, policy.fillAttributionOverrides);
+  if (override) return { ...row.execution, desk: override.desk };
   if (policy.executorClientIds.includes(row.execution.clientId)) return executorExecution(row.execution, executorAttribution);
   const matches = policy.assignments.filter((rule) => rule.clientId === row.execution.clientId &&
     rule.fromInclusive <= row.execution.time && (rule.toExclusive === null || row.execution.time < rule.toExclusive));
@@ -254,7 +286,7 @@ function completeCoverage(receipts, fromInclusive, throughExclusive, proofObserv
   throw new Error("authoritative all-account execution coverage is incomplete");
 }
 
-function canonicalLedgerSource(ledgerState, account) {
+function canonicalLedgerSource(ledgerState, account, policy) {
   if (!ledgerState || ledgerState.account !== account || ledgerState.periodStart !== PERIOD_START ||
       !Array.isArray(ledgerState.executions) || !Array.isArray(ledgerState.commissions)) {
     throw new Error("all-account ledger state is invalid");
@@ -262,20 +294,25 @@ function canonicalLedgerSource(ledgerState, account) {
   if (ledgerState.executions.some((row) => row?.execution?.pendingPriceRevision === true)) {
     throw new Error("all-account ledger contains a pending execution correction");
   }
+  // Check before merge as well: deduplication must not hide an ambiguous match.
+  // Validate the complete source, not the pre-midnight economic sub-window.
+  assertFillAttributionOverrides(ledgerState.executions, policy.fillAttributionOverrides);
   const rows = effectiveRows(ledgerState.executions);
+  assertFillAttributionOverrides(rows.filter(row => !policy.excludedSymbols.includes(row.contract.symbol)), policy.fillAttributionOverrides);
   if (rows.some((row) => row.execution.acctNumber !== account)) {
     throw new Error("execution account does not match the all-desk source");
   }
   return { rows, commissions: ledgerState.commissions, account };
 }
 
-function canonicalHistorySource(state, account) {
+function canonicalHistorySource(state, account, policy) {
   validateBestAvailableHistoryState(state);
   if (state.account !== account) throw new Error("authoritative history account does not match");
   const effective = effectiveExecutionRecords(state);
   if (effective.some((row) => row?.execution?.pendingPriceRevision === true)) {
     throw new Error("authoritative history contains a pending execution correction");
   }
+  assertFillAttributionOverrides(effective.filter(row => !policy.excludedSymbols.includes(row.contract.symbol)), policy.fillAttributionOverrides);
   return { rows: effective.map(normalizeDeskExecution), commissions: state.commissions, account };
 }
 
@@ -375,8 +412,8 @@ export function calculateDeskEquities({
     const cutoff = instant(ledgerState?.coverageThrough, "ledger coverageThrough");
     const sourceAt = instant(observedAt, "source observedAt");
     if (sourceAt < cutoff) throw new Error("source observation predates execution coverage");
-    const ledger = canonicalLedgerSource(ledgerState, account);
-    const history = canonicalHistorySource(verifiedHistoryState, account);
+    const ledger = canonicalLedgerSource(ledgerState, account, canonical);
+    const history = canonicalHistorySource(verifiedHistoryState, account, canonical);
     if (ledger.rows.some((row) => row.execution.time > cutoff)) {
       throw new Error("live ledger contains an execution after its coverage boundary");
     }
@@ -495,7 +532,7 @@ export function calculateDeskEquities({
 export function deskLedgerRevisionAt({ ledgerState, account, policy = CURRENT_DESK_OWNERSHIP_POLICY, throughInclusive, executorAttribution = null } = {}) {
   try {
     const canonical = canonicalPolicy(policy);
-    const source = canonicalLedgerSource(ledgerState, account);
+    const source = canonicalLedgerSource(ledgerState, account, canonical);
     return {
       ok: true,
       historyRevisionMethod: HISTORY_REVISION_METHOD,
@@ -547,7 +584,7 @@ export function buildDeskDayBoundaryEvidence({
     const proofAt = instant(proofObservedAt, "proofObservedAt");
     if (candidateAt > boundary) throw new Error("candidate observation must not follow periodStart");
     if (proofAt < boundary) throw new Error("proofObservedAt must not precede periodStart");
-    const history = canonicalHistorySource(verifiedHistoryState, account);
+    const history = canonicalHistorySource(verifiedHistoryState, account, canonical);
     if (instant(verifiedHistoryState.updatedAt, "authoritative history updatedAt") > proofAt) {
       throw new Error("authoritative history was observed after proofObservedAt");
     }
