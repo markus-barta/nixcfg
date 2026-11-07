@@ -91,6 +91,11 @@ let
     "@@||conf-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (config)
     "@@||anonymousinfo-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (telemetry)
     "@@||cdn.awsde0.fds.api.mi-img.com^" # Xiaomi CDN (firmware/images)
+
+    # WowUp (Wago flavor) consent window on mbp2607 (OPS-578): consent.nitrocnct.com/loader.js
+    # loads its config + assets from s.nitropay.com/cmp/; blocked, the window stays blank
+    # and locks the app. Also lets NitroPay ad scripts resolve for the whole LAN.
+    "@@||s.nitropay.com^"
   ];
 
   # DNS rewrite rules (internal hostnames)
