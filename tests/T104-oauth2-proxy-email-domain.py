@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""OPS-366: restrict SSO to the operator domain; offline by default."""
+"""OPS-366: restrict SSO to the operator domain; OPS-512: request a refresh token.
+
+Offline by default."""
 
 from __future__ import annotations
 
@@ -28,6 +30,8 @@ REQUIRED = {
     "hosts/csb1/docker/compose-spec.nix:hostdash-auth",
 }
 UNVERIFIED = "--insecure-oidc-allow-unverified-email"
+SCOPE = "--scope=openid email profile offline_access"
+SCOPES = {"openid", "email", "profile", "offline_access"}
 
 
 def require(condition: bool, message: str) -> None:
@@ -105,6 +109,11 @@ def check_services(services: dict) -> int:
         )
         if name in REQUIRED:
             require(domains == ["barta.com"], f"{name}: operator domain must be barta.com")
+            # OPS-512: without offline_access Zitadel issues no refresh token and the
+            # session dies with its 12 h token, whatever --cookie-expire says.
+            scopes = [arg for arg in args if arg == "--scope" or arg.startswith("--scope=")]
+            require(scopes == [SCOPE], f"{name}: scope must be exactly '{SCOPE}'")
+            require(set(SCOPE.split("=", 1)[1].split()) == SCOPES, "scope anchor drift")
     require(REQUIRED <= seen, "required HostDash oauth2-proxy service missing")
     return proxies
 
@@ -173,6 +182,26 @@ def mutations(services: dict) -> int:
                 count += 1
             else:
                 raise AssertionError(f"{name}: unsafe mutation accepted")
+    # OPS-512: a session that cannot refresh must not pass.
+    for name in sorted(REQUIRED):
+        for replacement in (
+            [],
+            ["--scope=openid email profile"],
+            ["--scope=offline_access"],
+            ["--scope", "openid email profile offline_access"],
+            [SCOPE, SCOPE],
+            [SCOPE, "--scope=openid email profile"],
+        ):
+            candidate = copy.deepcopy(services)
+            args = candidate[name]["command"]
+            index = args.index(SCOPE)
+            args[index : index + 1] = replacement
+            try:
+                check_services(candidate)
+            except AssertionError:
+                count += 1
+            else:
+                raise AssertionError(f"{name}: non-refreshing scope accepted")
     # A proxy on a newly discovered host must also satisfy the generic rule.
     for args in ([], ["--email-domain=*"], ["--email-domain=barta.com", UNVERIFIED]):
         candidate = copy.deepcopy(services)
