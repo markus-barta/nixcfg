@@ -10,7 +10,7 @@ import { labCompose, requireWorkstation, requireLocalEndpoint, assertCadence } f
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(root, "../../../..");
-const contractRevision = 10;
+const contractRevision = 11;
 const checkpointDir = "/var/lib/joe-household-v2-stage-checkpoint";
 const run = (cmd, args, options = {}) => execFileSync(cmd, args, { encoding: "utf8", ...options });
 function temp(t) {
@@ -28,15 +28,15 @@ function copyClosure(directory) {
   fs.copyFileSync(path.join(root, "contracts.lock.json"), path.join(directory, "contracts.lock.json"));
 }
 
-test("independently pinned reviewed 17-file closure verifies, at rev 10", async t => {
+test("independently pinned reviewed 17-file closure verifies, at rev 11", async t => {
   assert.equal(verify(), true);
   const lock = JSON.parse(fs.readFileSync(path.join(root, "contracts.lock.json")));
   assert.equal(Object.keys(lock.files).length, 17);
   const directory = temp(t); copyClosure(directory);
   for (const check of await verifiers(directory)) assert.equal(check(), true);
-  assert.equal(lock.revision, "7c1616325c0007608425e4ad31a0a8256be4aeb7");
+  assert.equal(lock.revision, "36fecfeb7e56400db3076304d150e9eeb2beb05b");
   assert.equal(lock.manifest_revision, contractRevision);
-  assert.equal(lock.contract_set_sha256, "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350");
+  assert.equal(lock.contract_set_sha256, "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b");
 });
 for (const fault of ["changed", "extra", "symlink", "directory-symlink", "lock-drift", "set-drift", "size-drift", "hash-drift", "manifest-drift"]) test(`fixed-path pusher verifier reject ${fault}`, async t => {
   const directory = temp(t); copyClosure(directory);
@@ -171,11 +171,11 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.ok(!JSON.stringify(lab).includes("/run/agenix"));
 });
 
-test("active v2 set (JOED-86): shared r20e image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
+test("active v2 set (JOED-149): shared r21 image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
   const r17 = release.sets.v2.pusher.image;
-  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640");
+  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r21-202611031258");
   assert.equal(release.sets.v2.executor.image, r17);
   for (const enabled of [true, false]) {
     const v2 = hostEval(t, source, enabled, false, "v2");
@@ -183,6 +183,7 @@ test("active v2 set (JOED-86): shared r20e image, v2 POST schema and read-only v
     assert.equal(pusher.image, r17);
     assert.equal(v2.executorImage, r17);
     assert.ok(pusher.environment.includes("JOE_PUSH_SCHEMA=inspr.joe.household.v2"));
+    assert.ok(pusher.environment.includes(`JOE_V2_CONTRACT_REV=${contractRevision}`));
     assert.ok(pusher.volumes.includes("/var/lib/joe-board-pusher/v2:/var/lib/joe-board-pusher/v2:ro"));
     assert.equal(Object.hasOwn(v2.spec.services, "joe-household-v2-stage"), enabled);
     if (enabled) {
@@ -200,6 +201,16 @@ test("active v2 set (JOED-86): shared r20e image, v2 POST schema and read-only v
   const v1 = hostEval(t, source, true, false, "current").spec.services["joe-board-pusher"];
   assert.ok(!v1.environment.some(e => e.startsWith("JOE_PUSH_SCHEMA=")));
   assert.ok(!v1.volumes.some(v => v.startsWith("/var/lib/joe-board-pusher/v2:")));
+});
+
+test("rev-11 host configuration changes only the pusher and stager service declarations", t => {
+  const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
+  const prior = run("git", ["show", "c15ecd9f:hosts/hsb0/configuration.nix"], { cwd: repo });
+  const before = hostEval(t, prior, true, false, "v2").spec.services;
+  const after = hostEval(t, source, true, false, "v2").spec.services;
+  assert.deepEqual(Object.keys(after).sort(), Object.keys(before).sort());
+  assert.deepEqual(Object.keys(after).filter(name => JSON.stringify(after[name]) !== JSON.stringify(before[name])).sort(),
+    ["joe-board-pusher", "joe-household-v2-stage"]);
 });
 
 test("real Nix relative-path source filter preserves full verified closure and excludes test/fixture JSON", async t => {
