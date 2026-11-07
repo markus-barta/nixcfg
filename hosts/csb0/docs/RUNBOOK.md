@@ -730,9 +730,14 @@ Contracts manifest revision 11 has set SHA256
 `c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`;
 `release/contracts.json` SHA256 is
 `de73dcc195e3054bb0ea53882c994f7255adb3f5567e5af1adb9eb6069c19747`.
-The board accepts revision-10 and revision-9 payloads. The hsb0 pusher/executor retain the r20e
-pins with revision 9 still the default, keep their vendored revision-10 set `3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350` and emit no fx until the separate JOED-149 flip; Phase B activation and producer
-sign-off remain separately owned under JOED-86.
+The board accepts revision-11, revision-10 and revision-9 payloads. JOED-149
+prepares the hsb0 pusher/executor image `household-v2-switch-set-r21-202611031258`
+from nixcfg `729ddf040951a5a0f4ee3acada8613d62255227e`, with the complete vendored
+revision-11 set `c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`
+and revision 11 configured for pusher and stager. Revision 10 is an explicit
+rollback setting; revision 9 remains the fallback. Image build, host activation
+and live producer sign-off remain separate gates. This pusher-family pin change
+preserves every board entry, the joedesk flake input and csb0 Compose declaration.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
 the exact main commit and hashes identify the selected source, with OPS still

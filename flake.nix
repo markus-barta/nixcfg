@@ -94,7 +94,7 @@
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
     # NIX-588/589: release 12 (stable107) brings `aeon-agentd pair`; its signed
     # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
-    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 73f40e0d89b35eefa7a3159a9fa39eaa48bdd5bf
+    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 770d6b2ba52ff873adccd42abe09aafa4b9576b2
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.

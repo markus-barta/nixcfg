@@ -47,16 +47,16 @@
         "public_health": true
       },
       "pusher": {
-        "nixcfg_rev": "beaa3270fb7e4c05d3aed1705c20e78ffb970f9b",
-        "source_tree": "768f15bcdba561e131f0b3a4c904e4b08b88a1dd",
+        "nixcfg_rev": "03cc0d81f234fb1cb06753db7ca0bb81317bd857",
+        "source_tree": "21f67b3ff0f0b389c985146b4f1583bd45c19fa2",
         "source_path": "hosts/hsb0/docker/joe-board-pusher",
-        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r21-202611031258"
       },
       "executor": {
-        "nixcfg_rev": "beaa3270fb7e4c05d3aed1705c20e78ffb970f9b",
-        "source_tree": "92e261d0dd504b30d8ec8850641310e129f7a8fe",
+        "nixcfg_rev": "03cc0d81f234fb1cb06753db7ca0bb81317bd857",
+        "source_tree": "123eefa72d3a8484a4e3c7cf474306aa5ab87628",
         "source_path": "modules/paper-desk-executor",
-        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r20e-202610291640"
+        "image": "hsb0-joe-board-pusher:household-v2-switch-set-r21-202611031258"
       },
       "contracts": {
         "schema": "joedesk.release-contracts.v1",
