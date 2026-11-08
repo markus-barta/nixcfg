@@ -7,7 +7,7 @@ Acting endpoints /set, /tone, /stop, /preset, /apply, /settings, /seen and
 GET actions are deprecated compatibility for Home Assistant; the UI uses POST.
 /desk and /desk-test are adult-view, JSON-body POSTs only. Credentials are
 write-only and refused until their counts-only capability can be verified.
-KI-18FB is plug; WZ-594F is round. Default nacht: 5C0701 at 44%.
+KI-18FB is plug; WZ-594F is round; KG-5632 is kg. Default nacht: 5C0701 at 44%.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
 Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
 The handshake token stays in memory; no library payloads or exceptions are logged.
@@ -47,7 +47,7 @@ _miio_log.addHandler(logging.NullHandler())
 _miio_log.propagate = False
 
 # Stable API handles; the page retains the operator-selected hub display labels.
-HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108"}
+HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108", "kg": "192.168.1.107"}
 # Per-hub policy; unspecified hubs retain the full brightness range.
 HUB_CONFIG = {"round": {"max_bri": 50}}
 TIMEOUT = 1.5
@@ -189,7 +189,7 @@ def _connect(name):
 def call(name, cmd, params=None, attempts=ATTEMPTS):
     """Serialize per hub, allocate a fresh ID per attempt and re-handshake on loss."""
     if name not in HUBS:
-        raise ValueError("Unbekannter Hub (plug oder round)")
+        raise ValueError("Unbekannter Hub (plug, round oder kg)")
     with _locks[name]:
         for attempt in range(1, attempts + 1):
             progress = getattr(_request_progress, "callback", None)
@@ -399,12 +399,11 @@ def _color_transaction(hub):
     if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
     # Select constant basenames; hub/query text never becomes path data.
-    path = (STATE_DIRECTORY / "last-color-plug.json" if hub == "plug"
-            else STATE_DIRECTORY / "last-color-round.json")
+    path = STATE_DIRECTORY / {"plug": "last-color-plug.json", "round": "last-color-round.json",
+                              "kg": "last-color-kg.json"}[hub]
     # Separate files avoid cross-hub lost updates. flock also serializes CLI
     # and HTTP writers; the RLock keeps the first ACK and echo together.
-    lock_path = (STATE_DIRECTORY / "last-color-plug.json.lock" if hub == "plug"
-                 else STATE_DIRECTORY / "last-color-round.json.lock")
+    lock_path = path.with_name(path.name + ".lock")
     with _locks[hub], open(lock_path, "a", encoding="ascii") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield path
@@ -458,6 +457,8 @@ def _read_presets():
         values.sort(key=lambda p: PRESET_IDS.index(p["id"]))
     if migrated:
         _atomic_json(PRESET_FILE, presets)
+    # Missing KG uses defaults in memory; only an explicit write persists it.
+    presets.setdefault("kg", _default_presets()["kg"])
     return presets
 
 
@@ -610,7 +611,7 @@ def _require_settings(condition):
 
 def _validate_legacy(settings):
     defaults = _legacy_defaults()
-    _require_settings(isinstance(settings, dict) and set(settings) == set(HUBS))
+    _require_settings(isinstance(settings, dict) and {"plug", "round"} <= set(settings) <= set(HUBS))
     for hub, value in settings.items():
         _require_settings(set(value) == set(defaults[hub]))
         _validate_common(value, DESKS, LEGACY_RULE_KEYS)
@@ -649,7 +650,7 @@ def _valid_url(value, *, missing=False):
 
 
 def _validate_v33(settings):
-    _require_settings(isinstance(settings, dict) and set(settings) == set(HUBS))
+    _require_settings(isinstance(settings, dict) and {"plug", "round"} <= set(settings) <= set(HUBS))
     fields = set(default_settings()["round"])
     for value in settings.values():
         _require_settings(isinstance(value, dict) and set(value) == fields and type(value["version"]) is int and value["version"] == 33)
@@ -683,11 +684,11 @@ def _validate_v33(settings):
             _require_settings(type(event["at"]) in (int, float) and 0 <= event["at"] <= 2**53 - 1)
 
 
-def _read_settings():
+def _read_settings(*, fill_kg=True):
     try:
         settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return default_settings()
+        return {hub: cfg for hub, cfg in default_settings().items() if fill_kg or hub != "kg"}
     except (UnicodeError, ValueError):
         raise SettingsStateError() from None
     try:
@@ -700,6 +701,9 @@ def _read_settings():
         raise SettingsStateError() from None
     if migrated:
         _atomic_json(SETTINGS_FILE, settings)
+    # Two-hub v3.3 state stays untouched on reads, including desk/key metadata.
+    if fill_kg:
+        settings.setdefault("kg", default_settings()["kg"])
     return settings
 
 
@@ -1245,7 +1249,8 @@ class SignalEngine:
         # Persist consumed generations BEFORE playback: restart/failure can drop
         # a notification, but can never repeat it or play a quiet-hours backlog.
         with _settings_transaction():
-            stored = _read_settings()
+            # Background writes must not persist KG's in-memory default.
+            stored = _read_settings(fill_kg=False)
             for d in ids:
                 stored[hub]["sound_generation"][d] = max(stored[hub]["sound_generation"][d], generation[d])
             if play:

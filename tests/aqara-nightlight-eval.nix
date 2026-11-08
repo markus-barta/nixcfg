@@ -20,6 +20,16 @@ let
     ];
   };
 in
+assert builtins.all
+  (
+    peer:
+    builtins.elem peer system.config.systemd.services.aqara-nightlight.serviceConfig.IPAddressAllow
+  )
+  [
+    "192.168.1.106/32"
+    "192.168.1.107/32"
+    "192.168.1.108/32"
+  ];
 {
   service = {
     inherit (system.config.systemd.services.aqara-nightlight)

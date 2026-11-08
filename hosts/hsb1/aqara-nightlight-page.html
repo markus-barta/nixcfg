@@ -1442,6 +1442,9 @@
       .seg {
         min-width: 0;
       }
+      .top > .seg {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
       .seg button {
         font-size: 13px;
         gap: 5px;
@@ -1623,6 +1626,15 @@
         min-height: 44px;
         text-decoration: underline;
         text-underline-offset: 3px;
+      }
+      @media (max-width: 600px) {
+        .top {
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .top > .seg {
+          flex-basis: 100%;
+        }
       }
       @media (max-width: 359px) {
         .pg {
@@ -3669,6 +3681,11 @@
           top: 64px;
           z-index: 5;
         }
+        @media (max-width: 600px) {
+          .mhint {
+            top: 122px;
+          }
+        }
         .use {
           margin: 6px 0;
         }
@@ -4312,6 +4329,25 @@
               stroke="none"
             />
           </symbol>
+          <symbol id="p-kg" viewBox="0 0 24 24">
+            <rect
+              x="3"
+              y="12"
+              width="8"
+              height="8"
+              rx="1.2"
+              style="fill: var(--f-sky)"
+            />
+            <rect
+              x="13"
+              y="12"
+              width="8"
+              height="8"
+              rx="1.2"
+              style="fill: var(--f-sage)"
+            />
+            <path d="M8 10V4h8v6z" style="fill: var(--f-sun)" />
+          </symbol>
           <symbol id="p-thought" viewBox="0 0 24 24">
             <path
               d="M8.6 14.6c-2.3 0-4-1.5-4-3.5 0-1.8 1.4-3.2 3.2-3.4.6-2.1 2.3-3.4 4.3-3.4 1.7 0 3.1.9 3.8 2.3 2.2 0 3.9 1.6 3.9 3.7 0 2.4-1.9 4.3-4.4 4.3z"
@@ -4518,6 +4554,20 @@
                 ><svg class="ic" aria-hidden="true">
                   <use href="#i-round" /></svg></span
               ><span class="nw">WZ-594F</span>
+            </button>
+            <button
+              type="button"
+              data-hub="KG-5632"
+              role="radio"
+              aria-checked="false"
+            >
+              <span class="k"
+                ><svg class="ic pic" aria-hidden="true">
+                  <use href="#p-kg" /></svg></span
+              ><span class="e"
+                ><svg class="ic" aria-hidden="true">
+                  <use href="#i-round" /></svg></span
+              ><span class="nw">KG-5632</span>
             </button>
           </div>
           <button

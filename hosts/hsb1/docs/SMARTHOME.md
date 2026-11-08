@@ -10,14 +10,15 @@
 ## Aqara Nightlight (OPS-496)
 
 `aqara-nightlight.service` is a native Python service for light and the 25
-built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
+built-in sounds on three LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
-Kinderzimmer nightlight) and **WZ-594F** (`round`, `192.168.1.108`) map to stable
-API handles. On first visit the responsive page starts in Kind with KI-18FB
+Kinderzimmer nightlight), **WZ-594F** (`round`, `192.168.1.108`, Wohnzimmer) and **KG-5632**
+(`kg`, `192.168.1.107`, KG = Kinderzimmer Groß) map to stable API handles.
+On first visit the responsive page starts in Kind with KI-18FB
 selected; hub choice, Kind/Erwachsen and Hell/Dunkel are device preferences.
 Switching out of Kind or opening its loud tones requires a one-second hold.
 Brightness and colour drags coalesce at one command per second and send the final release value; readback is marked ≈ because hardware values can lag. The default
-Nachtlicht is **5C0701 at 44%** for both hubs; tone volume starts at 15%.
+Nachtlicht is **5C0701 at 44%** for all three hubs; tone volume starts at 15%.
 The HTML is a separate self-contained file packaged by Nix and read once at
 service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
 no external assets.
@@ -34,7 +35,7 @@ and <http://127.0.0.1:8765/> on hsb1. Port 8765 has no other checked-in hsb1
 listener. There is no public proxy, DNS route or login. The host firewall is
 disabled for HomeKit: its `allowedTCPPorts` entry is documentation only.
 Explicit loopback/LAN/tailnet binds, systemd `IPAddressDeny=any` with
-loopback/LAN/tailnet and both hub addresses allowed, and an HTTP peer
+loopback/LAN/tailnet and all three hub addresses allowed, and an HTTP peer
 allowlist enforce the service boundary. IP rules apply in both directions;
 the gateways remain reachable on UDP 54321. The host declares no outbound
 port restriction; systemd's address rules do not restrict destination ports.
@@ -85,8 +86,9 @@ including HA's legacy GET caller. An unknown or missing saved preset returns
 
 `/var/lib/aqara-nightlight/presets.json` is the server's source of truth for
 both the page and HA's Kinderzimmer double-press/Gute-Nacht actions. A missing
-file supplies the defaults for both hubs; an absent entry in an existing file
-is unsaved. Saves use a separate stable `presets.json.lock` and an atomic,
+file supplies the defaults for all three hubs. Missing KG in an existing file
+uses defaults in memory; an absent plug/round entry remains unsaved.
+Saves use a separate stable `presets.json.lock` and an atomic,
 private file replacement, with file/directory sync. Corrupt state fails closed
 rather than silently applying defaults or overwriting it. The old single-Nachtlicht file migrates atomically and losslessly to named slots
 `nacht`, `p2`–`p6`; IDs stay fixed and `nacht` cannot be deleted. The page offers
@@ -108,7 +110,7 @@ do not replace a newer command's status. The CSP permits only the packaged
 script's SHA-256 hash, inline styles and same-origin connections/SVG references.
 No handshake token or raw library exception is logged.
 
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Version 33
+KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Version 33
 settings store zero or more desks, three shared urgency rules, Ruhe/Unbekannt,
 optional per-desk overrides, multiple-colour policy, four-hour urgency thresholds
 and automatic audio. Desk colours come from the desk. The highest urgency wins;
@@ -125,6 +127,14 @@ Automatic sound starts off, is capped at 15%, never repeats a consumed held
 generation, and is limited to once per ten minutes. Vienna quiet hours
 20:00–07:30 disable animation/audio and hold lit rules at 5%.
 
+Existing two-hub v3.3 `settings.json` and preset arrays remain valid. A missing
+`kg` gets defaults in memory; reads never write those files, and the first explicit
+write to each file persists KG while retaining plug/round entries. Background
+sound-generation writes never persist a missing KG entry. KG has the neutral v3.3
+fields: no desks or keys, empty thresholds/generation maps and automatic sound off.
+KG has no brightness cap (100%); WZ retains its 50% cap. No automations are added.
+Back up settings and presets before activation for a two-hub rollback.
+
 Each hub has a lock and a dedicated bounded signal worker. Blink/alternate ticks
 send one attempt, skip busy hubs, and have a 2–5 s Takt. Manual commands pause the
 engine through their reply and retain the existing four-attempt reliability
@@ -135,7 +145,8 @@ progress. Drags wait for replies, coalesce and stay at one per second.
 
 The shared counter reserves blocks of 256 monotonic wire IDs, with file and
 directory sync per block; restart discards unused IDs. It bypasses python-miio's
-internal 9999 wrap. Preserve `msgid`, `msgid.lock`, presets and settings; never
+internal 9999 wrap. All three hubs share `msgid`; there is no per-hub counter or
+9999 ceiling (the limit remains 2147483000). Preserve `msgid`, `msgid.lock`, presets and settings; never
 restore an older counter. Old code cannot read new preset arrays, so rollback
 requires a reviewed compatibility plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
 for API details, retry budgets, the exact feed schema and poller ownership.
