@@ -21,10 +21,15 @@ ssh mba@hsb1.lan
 Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
-and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
-**WZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
-same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on both hubs.
+and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer),
+**WZ-594F** = `round` (`192.168.1.108`) and **KG-5632** = `kg` (`192.168.1.107`,
+Kinderzimmer groß). Labels use `<ROOM>-<last 4 MAC hex>`; KG means Kinderzimmer groß.
+The packaged responsive page uses the same-origin guarded API.
+The `nacht` place defaults to **5C0701 at 44%** on all three hubs.
 KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+KG-5632 uses Nachtlicht with automatic sound off and no new automations.
+Existing two-hub named presets are not rewritten; an absent KG entry is unsaved.
+Missing KG settings use in-memory defaults without rewriting `settings.json`.
 Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
 Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
 the server. On first load no light is marked as commanded: brightness starts
@@ -49,12 +54,14 @@ sudo cat /var/lib/aqara-nightlight/msgid  # message counter only, never a token
 
 StateDirectory `/var/lib/aqara-nightlight` has mode 0700; systemd gives the
 dynamic service user write access even with `ProtectSystem=strict`. The
-`msgid` file records the durable reservation high-water mark. A separate stable
+`msgid` file records the durable reservation high-water mark shared by all three
+hubs. Adding KG never resets or migrates `msgid`. A separate stable
 `msgid.lock` serializes processes. Reserve 256 IDs with a private atomic replacement,
 file fsync and directory fsync before issuing any of them; subsequent commands
 use memory. A restart discards unused reservations, so gaps are expected and a
-crash never reuses an issued ID. IDs are monotonic up to 2147483000; exhaustion or
-corruption fails closed. Counter I/O/format failure returns `msgid_state`, logs
+crash never reuses an issued ID. IDs are monotonic up to 2147483000;
+exhaustion or corruption fails closed.
+Counter I/O/format failure returns `msgid_state`, logs
 `aqara-nightlight: message id state failed` and makes no hub call; it is never
 reported as a hub timeout. No rolling/random reset remains. python-miio's own
 9999 wrap is bypassed on the wire using `extra_parameters={"id": reserved_id}`.
@@ -62,7 +69,7 @@ Never delete/reset these files or restore an older counter after commands have
 been issued. The handshake token stays only in memory; logs contain fixed error
 categories, never library exception bodies.
 
-`last-color-plug.json` and `last-color-round.json` each store a nonblack RRGGBB
+`last-color-plug.json`, `last-color-round.json` and `last-color-kg.json` each store a nonblack RRGGBB
 JSON string. Every acknowledged nonblack `/set` or `/apply` persists it with
 0600 permissions, atomic replace and file/directory fsync; a stable per-hub
 `.json.lock` serializes CLI and HTTP writes. Black commands and failed hub
@@ -105,7 +112,7 @@ sudo systemctl start aqara-nightlight.service
 ```
 
 Confirm the move succeeded before starting; preserve the backup, `msgid` and
-`presets.json.lock`. With no presets file, both hubs use 5C0701 at 44%; recovery
+`presets.json.lock`. With no presets file, all three hubs use 5C0701 at 44%; recovery
 does not call `/apply`. A Desk hub resumes its configured signal on service start.
 Re-save any desired custom presets afterward.
 Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
@@ -142,8 +149,8 @@ without CORS permission headers. The HTML denies framing with CSP
 by its packaged SHA-256 hash. A 403 in the page offers reload, never retry.
 Tone volume defaults to 15% and is
 clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
-No public reverse proxy is configured. IP rules also govern egress; both hubs
-(`192.168.1.106`, `.108`) remain allowed for miio UDP 54321. Linux
+No public reverse proxy is configured. IP rules also govern egress; all three hubs
+(`192.168.1.106`, `.107`, `.108`) remain allowed for miio UDP 54321. Linux
 `IP_FREEBIND` lets each listener bind before its address is assigned, so an
 unavailable tailnet address does not prevent LAN/loopback access. Tailnet
 access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts

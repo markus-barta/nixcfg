@@ -57,7 +57,7 @@ def verify(result):
     assert unit["IPAddressDeny"] == "any"
     allowed = set(unit["IPAddressAllow"])
     assert allowed == {"127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
-                       "192.168.1.106/32", "192.168.1.108/32"}
+                       "192.168.1.106/32", "192.168.1.107/32", "192.168.1.108/32"}
     assert set(unit["RestrictAddressFamilies"]) == {"AF_INET", "AF_INET6"}
     for option in ("PrivateTmp", "PrivateDevices", "ProtectHome", "ProtectKernelTunables",
                    "ProtectKernelModules", "ProtectControlGroups", "NoNewPrivileges",

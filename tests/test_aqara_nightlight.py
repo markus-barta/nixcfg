@@ -109,11 +109,12 @@ class StateDirectoryTest(unittest.TestCase):
                         with module._color_transaction(hub):
                             self.fail("invalid hub entered a state transaction")
                 opened.assert_not_called()
-            for hub, filename in (("plug", "last-color-plug.json"), ("round", "last-color-round.json")):
+            for hub, filename in (("plug", "last-color-plug.json"), ("round", "last-color-round.json"),
+                                  ("kg", "last-color-kg.json")):
                 with module._color_transaction(hub) as path:
                     self.assertEqual(path, Path(directory).resolve() / filename)
             self.assertEqual(sorted(p.name for p in Path(directory).iterdir()),
-                             ["last-color-plug.json.lock", "last-color-round.json.lock"])
+                             ["last-color-kg.json.lock", "last-color-plug.json.lock", "last-color-round.json.lock"])
 
 
 class CounterTest(unittest.TestCase):
@@ -123,6 +124,61 @@ class CounterTest(unittest.TestCase):
         self.module = load()
         self.path = Path(self.tmp.name, "msgid")
         self.module.ID_FILE = str(self.path)
+
+    def test_all_hubs_share_existing_counter_across_blocks_and_reload(self):
+        self.path.write_text("50111")
+        peer = Mock()
+        with patch.object(self.module, "_connect", return_value=peer):
+            for index in range(self.module.ID_BLOCK + 4):
+                self.module.call(("kg", "plug", "round")[index % 3], "get_prop")
+        ids = [c.kwargs["extra_parameters"]["id"] for c in peer.send.call_args_list]
+        self.assertEqual(ids, list(range(50112, 50372)))
+        self.assertEqual(self.path.read_text(), "50623\n")
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+        fresh = load(state_directory=self.tmp.name)
+        with patch.object(fresh, "_connect", return_value=peer):
+            fresh.call("kg", "get_prop")
+        self.assertEqual(peer.send.call_args.kwargs["extra_parameters"]["id"], 50624)
+        self.assertEqual(self.path.read_text(), "50879\n")
+        self.assertEqual(sorted(p.name for p in self.path.parent.iterdir()),
+                         ["msgid", "msgid.lock"])
+
+    def test_kg_uses_full_id_limit_and_exhaustion_never_contacts_hardware(self):
+        self.path.write_text(str(self.module.ID_LIMIT - self.module.ID_BLOCK))
+        peer = Mock()
+        with patch.object(self.module, "_connect", return_value=peer):
+            for _ in range(self.module.ID_BLOCK):
+                self.module.call("kg", "get_prop")
+        ids = [c.kwargs["extra_parameters"]["id"] for c in peer.send.call_args_list]
+        self.assertEqual(ids, list(range(self.module.ID_LIMIT - self.module.ID_BLOCK + 1,
+                                        self.module.ID_LIMIT + 1)))
+        self.module._dev.clear()
+        with patch.object(self.module, "_connect") as connect:
+            for hub in ("kg", "plug", "round"):
+                with self.subTest(hub=hub), self.assertRaises(self.module.MessageIdStateError):
+                    self.module.call(hub, "get_prop")
+            connect.assert_not_called()
+        self.assertEqual(peer.send.call_count, self.module.ID_BLOCK)
+        self.assertEqual(int(self.path.read_text()), self.module.ID_LIMIT)
+
+    def test_kg_corrupt_or_failed_reservation_preserves_shared_counter(self):
+        with patch.object(self.module, "_connect") as connect:
+            for invalid in ("", "corrupt", "-1", str(self.module.ID_LIMIT)):
+                self.path.write_text(invalid)
+                with self.subTest(invalid=invalid), self.assertRaises(self.module.MessageIdStateError):
+                    self.module.call("kg", "get_prop")
+                self.assertEqual(self.path.read_text(), invalid)
+            self.path.write_text("50111")
+            with patch.object(self.module.os, "replace", side_effect=OSError()), self.assertRaises(self.module.MessageIdStateError):
+                self.module.call("kg", "get_prop")
+            connect.assert_not_called()
+        self.assertEqual(self.path.read_text(), "50111")
+        peer = Mock()
+        with patch.object(self.module, "_connect", return_value=peer):
+            self.module.call("kg", "get_prop")
+        self.assertEqual(peer.send.call_args.kwargs["extra_parameters"]["id"], 50112)
+        self.assertEqual(sorted(p.name for p in self.path.parent.iterdir()),
+                         ["msgid", "msgid.lock"])
 
     def test_counter_survives_reload(self):
         self.path.write_text("4000")
@@ -153,16 +209,20 @@ class CounterTest(unittest.TestCase):
         program = """
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 sys.path.insert(0, str(Path(sys.argv[1]) / 'tests'))
 from test_aqara_nightlight import load
 module = load()
 module.ID_FILE = sys.argv[2]
-print(','.join(str(module._next_id()) for _ in range(40)))
+peer = Mock()
+peer.send.side_effect = lambda cmd, params, **kw: kw['extra_parameters']['id']
+module._connect = lambda name: peer
+print(','.join(str(module.call(sys.argv[3], 'get_prop')[0]) for _ in range(40)))
 """
         children = [subprocess.Popen(
-            [sys.executable, "-B", "-c", program, str(ROOT), str(self.path)],
+            [sys.executable, "-B", "-c", program, str(ROOT), str(self.path), hub],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        ) for _ in range(4)]
+        ) for hub in ("plug", "round", "kg", "kg")]
         ids = []
         for child in children:
             stdout, stderr = child.communicate(timeout=15)
@@ -172,6 +232,8 @@ print(','.join(str(module._next_id()) for _ in range(40)))
         expected = sorted(start+i for start in (101,357,613,869) for i in range(40))
         self.assertEqual(sorted(ids), expected)
         self.assertEqual(int(self.path.read_text()), 1124)
+        self.assertEqual(sorted(p.name for p in self.path.parent.iterdir()),
+                         ["msgid", "msgid.lock"])
 
 
 class ProtocolTest(unittest.TestCase):
@@ -200,6 +262,17 @@ class ProtocolTest(unittest.TestCase):
         protocol.send_handshake.assert_not_called()
         self.assertTrue(protocol._discovered)
         self.assertIs(protocol.token, handshake.checksum)
+
+    def test_kg_uses_its_own_address_and_session_with_shared_id_allocator(self):
+        self.assertEqual(self.module.HUBS, {"plug": "192.168.1.106", "round": "192.168.1.108", "kg": "192.168.1.107"})
+        self.module._connect("kg")
+        self.module.MiIOProtocol.discover.assert_called_once_with("192.168.1.107", timeout=1.5)
+        peers = {hub: self.fake_protocol() for hub in self.module.HUBS}
+        self.module._dev.update(peers)
+        for hub, peer in peers.items():
+            self.assertEqual(self.module.call(hub, "get_prop"), (["ok"], 1))
+            peer.send.assert_called_once()
+        self.assertEqual(self.ids.call_args_list, [call(), call(), call()])
 
     def test_retry_rehandshakes_and_uses_new_id_without_library_retry(self):
         lost, good = self.fake_protocol(TimeoutError()), self.fake_protocol()
@@ -251,21 +324,22 @@ class ProtocolTest(unittest.TestCase):
 
     def test_same_hub_serialized_but_other_hub_can_proceed(self):
         entered, release = threading.Event(), threading.Event()
-        peer, other = self.fake_protocol(), self.fake_protocol()
+        peer, other, kg = self.fake_protocol(), self.fake_protocol(), self.fake_protocol()
         def block(*args, **kwargs):
             entered.set()
             if not release.wait(3):
                 raise AssertionError("fixture timed out")
             return ["ok"]
         peer.send.side_effect = block
-        self.module._dev.update(plug=peer, round=other)
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        self.module._dev.update(plug=peer, round=other, kg=kg)
+        with ThreadPoolExecutor(max_workers=4) as pool:
             first = pool.submit(self.module.call, "plug", "get_prop")
             try:
                 self.assertTrue(entered.wait(2))
                 second = pool.submit(self.module.call, "plug", "get_prop")
                 independent = pool.submit(self.module.call, "round", "get_prop")
                 self.assertEqual(independent.result(timeout=2), (["ok"], 1))
+                self.assertEqual(pool.submit(self.module.call, "kg", "get_prop").result(timeout=2), (["ok"], 1))
                 self.assertEqual(peer.send.call_count, 1)
                 self.assertFalse(second.done())
             finally:
@@ -296,6 +370,29 @@ class ApiTest(unittest.TestCase):
             result = self.module.set_light("plug", "FF8C28", 10)
         self.assertTrue(result["ok"])
         self.assertEqual(result["versuche"], 2)
+
+    def test_kg_http_and_cli_commands_use_its_fake_peer_and_shared_counter(self):
+        self.module = load(state_directory=self.tmp.name)
+        peer = Mock()
+        peer.send.side_effect = lambda cmd, *args, **kwargs: ([0, 42] if cmd == "get_prop" else ["ok"])
+        with patch.object(self.module, "_connect", return_value=peer) as connect, patch.object(self.module.time, "sleep"):
+            for query in ("/set?hub=kg&rgb=5C0701&bri=44", "/get?hub=kg",
+                          "/tone?hub=kg&id=27", "/stop?hub=kg"):
+                handler = self.request(query, method="POST" if query.startswith(("/set", "/tone", "/stop")) else "GET")
+                result = json.loads(handler._reply.call_args.args[0])
+                self.assertTrue(result["ok"], query)
+                self.assertEqual(result["hub"], "kg")
+                if query.startswith("/tone"):
+                    self.assertEqual(result["vol"], 15)
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(self.module.main(["get", "kg"]), 0)
+            self.assertEqual(json.loads(output.getvalue())["hub"], "kg")
+            connect.assert_called_once_with("kg")
+        ids = [c.kwargs["extra_parameters"]["id"] for c in peer.send.call_args_list]
+        self.assertEqual(ids, list(range(1, 7)))
+        self.assertEqual(Path(self.module.ID_FILE).read_text(), "256\n")
+        self.assertFalse(Path(self.module.ID_FILE).with_name("msgid-kg").exists())
+        self.assertFalse(Path(self.module.ID_FILE).with_name("msgid-kg.lock").exists())
 
     def test_readback_and_quiet_sound_and_stop_payloads(self):
         with patch.object(self.module, "call", return_value=([(10 << 24) | 0xFF8C28, 42], 1)) as send:
@@ -582,12 +679,26 @@ class PresetTest(unittest.TestCase):
         response = self.request(path, method=method, headers=headers, peer=peer)
         return json.loads(response._reply.call_args.args[0])
 
-    def test_defaults_for_both_hubs_are_readable_without_custom_header(self):
+    def test_defaults_for_three_hubs_are_readable_without_custom_header(self):
         with patch.object(self.module, "call") as send:
             result = self.result("/presets", method="GET", headers=[("Host", "127.0.0.1:8765")])
         self.assertEqual(result, {"ok": True, "presets": self.module._default_presets()})
         send.assert_not_called()
         self.assertFalse(self.path.exists())
+
+    def test_existing_two_hub_named_presets_are_unchanged_and_kg_is_unsaved(self):
+        presets = {hub: [dict(p) for p in self.module.PLACE_DEFAULTS] for hub in ("plug", "round")}
+        presets["plug"][0].update(rgb="123456", bri=11)
+        presets["round"][0].update(rgb="ABCDEF", bri=22)
+        self.path.write_text(json.dumps(presets, indent=2) + "\n")
+        before = self.path.read_bytes(), self.path.stat().st_ino, self.path.stat().st_mtime_ns
+        with patch.object(self.module, "call") as send, patch.object(self.module, "_atomic_json") as write:
+            self.assertEqual(self.module.get_presets(), {"ok": True, "presets": presets})
+            self.assertFalse(self.module.apply_preset("kg", "nacht")["ok"])
+            self.assertEqual(self.module._resume_color("kg", Path(self.tmp.name, "last-color-kg.json")), "5C0701")
+            send.assert_not_called()
+            write.assert_not_called()
+        self.assertEqual((self.path.read_bytes(), self.path.stat().st_ino, self.path.stat().st_mtime_ns), before)
 
     def test_save_and_reset_are_per_hub_and_never_contact_hardware(self):
         with patch.object(self.module, "call") as send:
@@ -639,12 +750,13 @@ class PresetTest(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), previous)
         self.assertEqual(list(self.path.parent.glob(".presets-*")), [])
 
-    def test_concurrent_hub_saves_preserve_both_hubs(self):
+    def test_concurrent_hub_saves_preserve_three_hubs(self):
+        hubs = (("plug", "123456"), ("round", "ABCDEF"), ("kg", "225577"))
         with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(lambda i: self.module.save_preset("plug" if i % 2 else "round", "nacht", "123456" if i % 2 else "ABCDEF", 5), range(40)))
+            list(pool.map(lambda i: self.module.save_preset(hubs[i % 3][0], "nacht", hubs[i % 3][1], 5), range(42)))
         presets = self.module.get_presets()["presets"]
-        self.assertEqual(nacht(presets, "plug"), {"rgb": "123456", "bri": 5})
-        self.assertEqual(nacht(presets, "round"), {"rgb": "ABCDEF", "bri": 5})
+        for hub, rgb in hubs:
+            self.assertEqual(nacht(presets, hub), {"rgb": rgb, "bri": 5})
 
     def test_independent_processes_do_not_lose_other_hub_updates(self):
         program = """
@@ -658,17 +770,18 @@ for i in range(12):
     module.save_preset(sys.argv[3], 'nacht', sys.argv[4], i)
 """
         children = [subprocess.Popen([sys.executable, "-B", "-c", program, str(ROOT), str(self.path), hub, rgb], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                    for hub, rgb in (("plug", "123456"), ("round", "ABCDEF"))]
+                    for hub, rgb in (("plug", "123456"), ("round", "ABCDEF"), ("kg", "225577"))]
         for child in children:
             _, error = child.communicate(timeout=15)
             self.assertEqual(child.returncode, 0, error)
         saved = self.module.get_presets()["presets"]
         self.assertEqual(nacht(saved, "plug"), {"rgb": "123456", "bri": 11})
         self.assertEqual(nacht(saved, "round"), {"rgb": "ABCDEF", "bri": 11})
+        self.assertEqual(nacht(saved, "kg"), {"rgb": "225577", "bri": 11})
 
     def test_apply_default_and_saved_nightlight_returns_set_shape_for_ha(self):
         for method in ("GET", "POST"):
-            for hub in ("plug", "round"):
+            for hub in ("plug", "round", "kg"):
                 with self.subTest(method=method, hub=hub), patch.object(self.module, "call", return_value=(["ok"], 2)) as send, patch.object(self.module.time, "sleep"):
                     # No browser Origin/CSRF token, exactly the HA loopback contract.
                     result = self.result(f"/apply?hub={hub}&preset=nacht", method=method, headers=[("Host", "127.0.0.1:8765"), ("X-Nightlight", "1")])
@@ -685,7 +798,7 @@ for i in range(12):
                 for query in ("hub=plug&preset=unknown", "hub=missing&preset=nacht", "hub=plug", "preset=nacht", "hub=plug&preset=../msgid"):
                     self.assertFalse(self.result("/apply?" + query, method=method)["ok"])
             self.path.write_text(json.dumps({"plug": {}, "round": {}}))
-            for hub in ("plug", "round"):
+            for hub in ("plug", "round", "kg"):
                 self.assertFalse(self.result(f"/apply?hub={hub}&preset=nacht")["ok"])
         send.assert_not_called()
 
@@ -914,8 +1027,8 @@ class ListenerTest(unittest.TestCase):
         with patch.dict(self.module.os.environ, settings), patch.object(self.module, "Server", side_effect=servers) as constructor, patch.object(self.module.threading, "Thread") as thread, patch("sys.stdout", new_callable=io.StringIO):
             self.module.serve()
         self.assertEqual(constructor.call_args_list, [call((address, 8765), self.module.H) for address in ("127.0.0.1", "192.168.1.101", "100.64.0.7")])
-        self.assertEqual(thread.call_count, 4)
-        self.assertEqual(thread.return_value.start.call_count, 4)
+        self.assertEqual(thread.call_count, 5)  # three hub engines + two HTTP threads
+        self.assertEqual(thread.return_value.start.call_count, 5)
         servers[-1].serve_forever.assert_called_once_with()
         for server in servers:
             server.__exit__.assert_called_once()
@@ -946,7 +1059,7 @@ class ListenerTest(unittest.TestCase):
             listener.bind.assert_called_once_with((address, 8765))
             listener.listen.assert_called_once()
             listener.close.assert_called_once_with()
-        self.assertEqual(thread.return_value.start.call_count, 4)
+        self.assertEqual(thread.return_value.start.call_count, 5)
         serve.assert_called_once_with()
 
     def test_unsupported_freebind_still_attempts_normal_bind(self):
@@ -985,6 +1098,22 @@ class RoundFourTest(unittest.TestCase):
 
     def stamp(self, text):
         return self.module.datetime.fromisoformat(text).timestamp()
+
+    def test_existing_two_hub_settings_supply_neutral_kg_without_rewrite_or_automation(self):
+        settings = self.module.default_settings()
+        kg = settings.pop("kg")
+        settings["round"]["thresholds"]["ppm"] = 12
+        self.module.SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+        before = self.module.SETTINGS_FILE.read_bytes()
+        with patch.object(self.module, "_atomic_json") as write:
+            result = self.module.get_settings()["settings"]
+            self.assertEqual(result, {**settings, "kg": kg})
+            self.assertEqual(kg["usage"], "nightlight")
+            self.assertFalse(kg["auto_sound"])
+            self.assertFalse(self.module.SignalEngine().tick("kg", self.now, 0))
+            write.assert_not_called()
+        self.send.assert_not_called()
+        self.assertEqual(self.module.SETTINGS_FILE.read_bytes(), before)
 
     def feed(self, **overrides):
         counts = dict(open=2, held=1, oldest_held_at=self.now-3600,
@@ -1502,10 +1631,10 @@ class ColorRecoveryTest(unittest.TestCase):
         self.assertEqual(json.loads(self.color_path().read_text()), "123456")
 
     def test_fallback_uses_each_hubs_saved_nacht_without_replacing_it(self):
-        for hub, rgb in (("plug", "ABCDEF"), ("round", "123456")):
+        for hub, rgb in (("plug", "ABCDEF"), ("round", "123456"), ("kg", "225577")):
             self.module.save_preset(hub, "nacht", rgb, 44)
         before = self.module.PRESET_FILE.read_bytes()
-        for hub, rgb in (("plug", "ABCDEF"), ("round", "123456")):
+        for hub, rgb in (("plug", "ABCDEF"), ("round", "123456"), ("kg", "225577")):
             result = self.result(f"/set?hub={hub}&rgb=000000&bri=65")
             self.assertEqual((result["rgb"], result["brightness"]), (rgb, 65))
         self.assertEqual(self.module.PRESET_FILE.read_bytes(), before)
@@ -1555,13 +1684,14 @@ class ColorRecoveryTest(unittest.TestCase):
             self.send.assert_not_called()
             self.assertEqual(self.color_path().read_text(), invalid)
 
-    def test_independent_hub_writers_preserve_both_colors(self):
-        with ThreadPoolExecutor(max_workers=2) as pool:
+    def test_independent_hub_writers_preserve_all_three_colors(self):
+        with ThreadPoolExecutor(max_workers=3) as pool:
             results = list(pool.map(lambda args: self.module.set_light(*args),
-                                    (("plug", "123456", 20), ("round", "ABCDEF", 30))))
+                                    (("plug", "123456", 20), ("round", "ABCDEF", 30), ("kg", "225577", 40))))
         self.assertTrue(all(r["ok"] for r in results))
         self.assertEqual(json.loads(self.color_path().read_text()), "123456")
         self.assertEqual(json.loads(self.color_path("round").read_text()), "ABCDEF")
+        self.assertEqual(json.loads(self.color_path("kg").read_text()), "225577")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# OPS-496: local light + built-in sounds for the two LAN Aqara gateways.
+# OPS-496 / OPS-580: local light + built-in sounds for three LAN Aqara gateways.
 { pkgs, ... }:
 let
   # The harness imports this canonical program as code. Serve the same body
@@ -71,7 +71,7 @@ in
       ];
       SystemCallArchitectures = "native";
       # hsb1's firewall is disabled for HomeKit. This applies to ingress AND
-      # egress; keep both UDP/54321 peers explicitly allowed. The HTTP handler
+      # egress; keep all UDP/54321 peers explicitly allowed. The HTTP handler
       # also checks peer addresses, including when cgroup BPF is unavailable.
       IPAddressDeny = "any";
       IPAddressAllow = [
@@ -80,6 +80,7 @@ in
         "192.168.1.0/24"
         "100.64.0.0/10"
         "192.168.1.106/32"
+        "192.168.1.107/32"
         "192.168.1.108/32"
       ];
     };
