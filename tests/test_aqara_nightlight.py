@@ -1913,6 +1913,46 @@ class ThirdHubV33Test(unittest.TestCase):
         self.assert_original()
         self.assertFalse(self.module.KEY_DIRECTORY.exists())
 
+    def test_background_sound_generation_writes_preserve_on_disk_hubs(self):
+        now = self.module.datetime.fromisoformat("2026-10-30T12:00:00+01:00").timestamp()
+        for include_kg in (False, True):
+            for auto_sound in (False, True):
+                for through_tick in (False, True):
+                    with self.subTest(include_kg=include_kg, auto_sound=auto_sound, through_tick=through_tick):
+                        expected = json.loads(json.dumps(self.settings))
+                        if include_kg:
+                            expected["kg"] = self.module.default_settings()["kg"]
+                            expected["kg"]["rules"]["regular"]["bri"] = 27
+                        cfg = expected["round"]
+                        cfg.update(usage="desk", auto_sound=auto_sound)
+                        self.module.SETTINGS_FILE.write_text(json.dumps(expected))
+                        feed = {"version": 1, "updated_at": now, "desks": {
+                            "ppm": {"open": 2, "held": 1, "oldest_held_at": now - 60,
+                                    "oldest_expiry_at": None, "generation": 9},
+                            "pma": {"open": 0, "held": 0, "oldest_held_at": None,
+                                    "oldest_expiry_at": None, "generation": 12},
+                        }}
+                        self.module.FEED_FILE.write_text(json.dumps(feed))
+                        engine = self.module.SignalEngine()
+                        with patch.object(self.module, "call", return_value=(["ok"], 1)), \
+                                patch.object(self.module, "play_tone") as tone:
+                            if through_tick:
+                                self.assertTrue(engine.tick("round", now, 0))
+                            else:
+                                engine._auto_sound("round", self.module._engine_settings("round"),
+                                                   self.module.read_feed(now), now)
+                            cfg["sound_generation"]["ppm"] = 9
+                            if auto_sound:
+                                cfg["last_sound"] = now
+                                tone.assert_called_once_with("round", cfg["sound_id"], cfg["sound_vol"], cfg["sound_ms"])
+                            else:
+                                tone.assert_not_called()
+                        stored = self.assert_existing_entries(self.module.SETTINGS_FILE, expected)
+                        self.assertEqual(stored, expected)
+                        if not include_kg:
+                            self.assertNotIn("kg", stored)
+                        self.assert_original(self.module.PRESET_FILE)
+
     def test_kg_nacht_apply_uses_defaults_without_persisting_config_or_presets(self):
         with patch.object(self.module, "call", return_value=(["ok"], 1)) as send, patch.object(self.module.time, "sleep"):
             result = self.result("/apply?hub=kg&preset=nacht")

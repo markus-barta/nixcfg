@@ -684,11 +684,11 @@ def _validate_v33(settings):
             _require_settings(type(event["at"]) in (int, float) and 0 <= event["at"] <= 2**53 - 1)
 
 
-def _read_settings():
+def _read_settings(*, fill_kg=True):
     try:
         settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return default_settings()
+        return {hub: cfg for hub, cfg in default_settings().items() if fill_kg or hub != "kg"}
     except (UnicodeError, ValueError):
         raise SettingsStateError() from None
     try:
@@ -702,7 +702,8 @@ def _read_settings():
     if migrated:
         _atomic_json(SETTINGS_FILE, settings)
     # Two-hub v3.3 state stays untouched on reads, including desk/key metadata.
-    settings.setdefault("kg", default_settings()["kg"])
+    if fill_kg:
+        settings.setdefault("kg", default_settings()["kg"])
     return settings
 
 
@@ -1248,7 +1249,8 @@ class SignalEngine:
         # Persist consumed generations BEFORE playback: restart/failure can drop
         # a notification, but can never repeat it or play a quiet-hours backlog.
         with _settings_transaction():
-            stored = _read_settings()
+            # Background writes must not persist KG's in-memory default.
+            stored = _read_settings(fill_kg=False)
             for d in ids:
                 stored[hub]["sound_generation"][d] = max(stored[hub]["sound_generation"][d], generation[d])
             if play:

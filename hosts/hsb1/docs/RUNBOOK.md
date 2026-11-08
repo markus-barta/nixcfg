@@ -22,8 +22,8 @@ Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
 and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer),
-**WZ-594F** = `round` (`192.168.1.108`) and **KG-5632** = `kg` (`192.168.1.107`,
-KG = Kinderzimmer Groß). Labels follow `<ROOM>-<last 4 hex of the hardware address>`. The packaged responsive page uses the
+**WZ-594F** = `round` (`192.168.1.108`, Wohnzimmer) and **KG-5632** = `kg` (`192.168.1.107`,
+KG = Kinderzimmer Groß). The packaged responsive page uses the
 same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on all three hubs.
 KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
 Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
@@ -91,8 +91,9 @@ Before activating the three-hub build, stop the service and back up both
 `settings.json` and `presets.json` privately, preserving ownership and permissions;
 record the prior NixOS generation. Existing two-hub v3.3 settings and preset
 arrays load without migration or writes. Missing `kg` defaults exist only in
-memory until the first explicit write to the corresponding file. Plug/round
-entries are retained. KG starts as Nachtlicht with no desks/keys, empty
+memory until the first explicit write to the corresponding file. Background
+sound-generation writes never persist a missing KG entry. Plug/round entries
+are retained. KG starts as Nachtlicht with no desks/keys, empty
 thresholds and generation maps, and automatic sound disabled; the v3.3 schema
 requires its neutral signal-rule fields but creates no automation.
 Once KG is written, rollback to a two-hub build requires restoring these backed-up

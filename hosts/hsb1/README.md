@@ -47,9 +47,9 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
 `100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
-`192.168.1.106`, Kinderzimmer), **WZ-594F** (`round`, `192.168.1.108`) and
+`192.168.1.106`, Kinderzimmer), **WZ-594F** (`round`, `192.168.1.108`, Wohnzimmer) and
 **KG-5632** (`kg`, `192.168.1.107`, KG = Kinderzimmer Groß) map to stable API
-handles. Labels follow `<ROOM>-<last 4 hex of the hardware address>`. Per-hub brightness limits are **WZ/round 50%** and
+handles. Per-hub brightness limits are **WZ/round 50%** and
 **KI/plug and KG/kg 100%**. Every light command, including presets, signal tests, desk colour cycles and animation
 steps, clamps to that hub's maximum. Light-setting replies expose effective
 `bri` and `capped`; settings replies expose the per-hub `max_bri` map. The page's
@@ -64,8 +64,9 @@ returns ordered arrays, and `/apply?hub&preset=<id>` applies any saved place.
 Old single-Nachtlicht files migrate atomically and preserve their saved values.
 KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
 Existing two-hub v3.3 settings and preset arrays get KG defaults in memory;
-reads do not write. The first explicit write persists KG without changing the
-existing hub entries. KG has no desks, keys or automatic sound by default; no
+reads do not write. The first explicit write to each file persists KG while retaining
+the existing hub entries. Background writes consume sound generations without
+persisting a missing KG entry. KG has no desks, keys or automatic sound by default; no
 automations are added. Back up `settings.json` and `presets.json` before activation
 for rollback to a two-hub build (see the runbook).
 Without the separately owned poller feed, Desk-Signal shows **Unbekannt** at

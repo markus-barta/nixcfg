@@ -12,9 +12,9 @@
 `aqara-nightlight.service` is a native Python service for light and the 25
 built-in sounds on three LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
-Kinderzimmer nightlight), **WZ-594F** (`round`, `192.168.1.108`) and **KG-5632**
-(`kg`, `192.168.1.107`, KG = Kinderzimmer Groß) map to stable API handles. Labels
-follow `<ROOM>-<last 4 hex of the hardware address>`. On first visit the responsive page starts in Kind with KI-18FB
+Kinderzimmer nightlight), **WZ-594F** (`round`, `192.168.1.108`, Wohnzimmer) and **KG-5632**
+(`kg`, `192.168.1.107`, KG = Kinderzimmer Groß) map to stable API handles.
+On first visit the responsive page starts in Kind with KI-18FB
 selected; hub choice, Kind/Erwachsen and Hell/Dunkel are device preferences.
 Switching out of Kind or opening its loud tones requires a one-second hold.
 Brightness and colour drags coalesce at one command per second and send the final release value; readback is marked ≈ because hardware values can lag. The default
@@ -129,7 +129,8 @@ generation, and is limited to once per ten minutes. Vienna quiet hours
 
 Existing two-hub v3.3 `settings.json` and preset arrays remain valid. A missing
 `kg` gets defaults in memory; reads never write those files, and the first explicit
-write persists KG without changing plug/round entries. KG has the neutral v3.3
+write to each file persists KG while retaining plug/round entries. Background
+sound-generation writes never persist a missing KG entry. KG has the neutral v3.3
 fields: no desks or keys, empty thresholds/generation maps and automatic sound off.
 KG has no brightness cap (100%); WZ retains its 50% cap. No automations are added.
 Back up settings and presets before activation for a two-hub rollback.
