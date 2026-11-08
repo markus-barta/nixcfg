@@ -438,6 +438,9 @@ def _read_presets():
         values.sort(key=lambda p: PRESET_IDS.index(p["id"]))
     if migrated:
         _atomic_json(PRESET_FILE, presets)
+    # Existing two-hub files gain KG defaults in memory only. Persist them
+    # with the next explicit preset write, after validating all saved state.
+    presets.setdefault("kg", _default_presets()["kg"])
     return presets
 
 

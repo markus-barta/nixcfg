@@ -686,19 +686,67 @@ class PresetTest(unittest.TestCase):
         send.assert_not_called()
         self.assertFalse(self.path.exists())
 
-    def test_existing_two_hub_named_presets_are_unchanged_and_kg_is_unsaved(self):
+    def two_hub_state(self):
         presets = {hub: [dict(p) for p in self.module.PLACE_DEFAULTS] for hub in ("plug", "round")}
-        presets["plug"][0].update(rgb="123456", bri=11)
-        presets["round"][0].update(rgb="ABCDEF", bri=22)
-        self.path.write_text(json.dumps(presets, indent=2) + "\n")
-        before = self.path.read_bytes(), self.path.stat().st_ino, self.path.stat().st_mtime_ns
+        presets["plug"][0].update(name="Abend", rgb="123456", bri=11)
+        presets["round"][0].update(name="Lesen", rgb="ABCDEF", bri=22)
+        self.path.write_text(json.dumps(presets, ensure_ascii=False, sort_keys=True) + "\n")
+        settings = self.module.default_settings()
+        settings.pop("kg")
+        settings["round"]["thresholds"]["ppm"] = 12
+        self.module.SETTINGS_FILE = Path(self.tmp.name, "settings.json")
+        self.module.SETTINGS_FILE.write_text(json.dumps(settings, indent=2) + "\n")
+        return presets, settings
+
+    def file_snapshot(self, path):
+        return path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns
+
+    def test_two_hub_reads_and_kg_apply_supply_defaults_without_rewriting_either_file(self):
+        presets, settings = self.two_hub_state()
+        before = {path: self.file_snapshot(path) for path in (self.path, self.module.SETTINGS_FILE)}
         with patch.object(self.module, "call") as send, patch.object(self.module, "_atomic_json") as write:
-            self.assertEqual(self.module.get_presets(), {"ok": True, "presets": presets})
-            self.assertFalse(self.module.apply_preset("kg", "nacht")["ok"])
+            self.assertEqual(self.result("/presets", method="GET"),
+                             {"ok": True, "presets": {**presets, "kg": self.module._default_presets()["kg"]}})
+            self.assertEqual(self.result("/config", method="GET")["settings"],
+                             {**settings, "kg": self.module.default_settings()["kg"]})
+            for method in ("GET", "POST"):
+                with patch.object(self.module, "set_light", return_value={"ok": True}) as action:
+                    self.assertTrue(self.result("/apply?hub=kg&preset=nacht", method=method)["ok"])
+                    action.assert_called_once_with("kg", "5C0701", 44)
             self.assertEqual(self.module._resume_color("kg", Path(self.tmp.name, "last-color-kg.json")), "5C0701")
             send.assert_not_called()
             write.assert_not_called()
-        self.assertEqual((self.path.read_bytes(), self.path.stat().st_ino, self.path.stat().st_mtime_ns), before)
+        self.assertEqual({path: self.file_snapshot(path) for path in before}, before)
+
+    def test_two_hub_kg_save_rename_and_reset_preserve_existing_hubs_and_settings(self):
+        for query, expected in (
+                ("rgb=225577&bri=9", dict(name="Nachtlicht", rgb="225577", bri=9)),
+                ("name=Abend", dict(name="Abend", rgb="5C0701", bri=44)),
+                ("reset=1", dict(name="Nachtlicht", rgb="5C0701", bri=44))):
+            with self.subTest(query=query):
+                presets, _ = self.two_hub_state()
+                settings_before = self.file_snapshot(self.module.SETTINGS_FILE)
+                hub_bytes = {hub: json.dumps(values, ensure_ascii=False, sort_keys=True).encode()
+                             for hub, values in presets.items()}
+                for value in hub_bytes.values():
+                    self.assertIn(value, self.path.read_bytes())
+                with patch.object(self.module, "call") as send, patch.object(
+                        self.module, "_atomic_json", wraps=self.module._atomic_json) as write:
+                    result = self.result("/preset?hub=kg&id=nacht&" + query)
+                    self.assertTrue(result["ok"])
+                    self.assertEqual(result["presets"]["kg"][0], dict(id="nacht", **expected))
+                    write.assert_called_once_with(self.path, result["presets"])
+                    send.assert_not_called()
+                persisted = json.loads(self.path.read_bytes())
+                self.assertEqual(persisted, result["presets"])
+                for hub, value in hub_bytes.items():
+                    self.assertEqual(persisted[hub], presets[hub])
+                    self.assertIn(value, self.path.read_bytes())
+                self.assertEqual(self.file_snapshot(self.module.SETTINGS_FILE), settings_before)
+                restarted = load(state_directory=self.tmp.name)
+                with patch.object(restarted, "set_light", return_value={"ok": True}) as action:
+                    self.assertTrue(restarted.apply_preset("kg", "nacht")["ok"])
+                    action.assert_called_once_with("kg", expected["rgb"], expected["bri"])
 
     def test_save_and_reset_are_per_hub_and_never_contact_hardware(self):
         with patch.object(self.module, "call") as send:
@@ -797,7 +845,8 @@ for i in range(12):
             for method in ("GET", "POST"):
                 for query in ("hub=plug&preset=unknown", "hub=missing&preset=nacht", "hub=plug", "preset=nacht", "hub=plug&preset=../msgid"):
                     self.assertFalse(self.result("/apply?" + query, method=method)["ok"])
-            self.path.write_text(json.dumps({"plug": {}, "round": {}}))
+            # An explicitly empty KG list stays unsaved; an absent KG gets defaults.
+            self.path.write_text(json.dumps({"plug": {}, "round": {}, "kg": []}))
             for hub in ("plug", "round", "kg"):
                 self.assertFalse(self.result(f"/apply?hub={hub}&preset=nacht")["ok"])
         send.assert_not_called()

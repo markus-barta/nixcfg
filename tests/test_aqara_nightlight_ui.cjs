@@ -900,20 +900,27 @@ test("hub keyboard cycles through three radios in both directions with Home and 
   }
 });
 
-test("two-hub presets leave KG unsaved without writes, while manual state stays per hub", async () => {
+test("two-hub state supplies KG defaults through the API without writes, while light state stays per hub", async () => {
   const a = await setup({ "nightlight-hub": "KG-5632" }, false, {
     "/presets": () =>
       Promise.resolve(
         response({
           ok: true,
-          presets: { plug: defaultPlaces, round: defaultPlaces },
+          // The backend supplies missing KG in memory for a two-hub file.
+          presets: { plug: defaultPlaces, round: defaultPlaces, kg: defaultPlaces },
         }),
       ),
   });
-  assert.equal(a.eval("presetFor()"), undefined);
+  assert.equal(a.eval("presetFor().rgb"), "5C0701");
+  assert.equal(a.eval("presetFor().bri"), 44);
   assert.equal(a.eval("state().rgb"), "FF8C28");
-  assert.equal(a.eval("Object.keys(placesFor()).length"), 0);
+  assert.equal(a.eval("Object.keys(placesFor()).length"), 4);
   assert.ok(a.calls.every((c) => c.options.method === "GET"));
+  await a.el("nightlight").fire("click");
+  assert.equal(a.calls.at(-1).path, "/apply");
+  assert.equal(a.calls.at(-1).params.get("hub"), "kg");
+  assert.equal(a.eval("state().last.rgb"), "5C0701");
+  assert.equal(a.eval("state().bri"), 44);
   a.eval('acceptLight({rgb:"225577",brightness:22},"KG-5632","KG",1);');
   a.eval('acceptLight({rgb:"112233",brightness:33},"KI-18FB","KI",2);');
   a.eval('acceptLight({rgb:"AABBCC",brightness:44},"WZ-594F","WZ",3);');
@@ -927,6 +934,38 @@ test("two-hub presets leave KG unsaved without writes, while manual state stays 
     assert.equal(a.eval("state().lastRgb"), rgb);
     assert.equal(a.eval("state().bri"), bri);
   }
+});
+
+test("KG default nacht can be saved and reset through the save sheet", async () => {
+  const a = await setup({ "nightlight-hub": "KG-5632", "nightlight-mode": "erwachsen" });
+  a.eval('acceptLight({rgb:"225577",brightness:9},"KG-5632","Eigene Farbe"); render();');
+  await a.el("save-nightlight").fire("click");
+  assert.match(a.el("old-preset").textContent, /5C0701/);
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/preset");
+    assert.equal(url.searchParams.get("hub"), "kg");
+    assert.equal(url.searchParams.get("id"), "nacht");
+    assert.equal(url.searchParams.get("rgb"), "225577");
+    assert.equal(url.searchParams.get("bri"), "9");
+    const presets = structuredClone(defaults);
+    Object.assign(presets.kg[0], { rgb: "225577", bri: 9 });
+    return Promise.resolve(response({ ok: true, presets }));
+  });
+  await a.el("confirm-save").fire("click");
+  await flush();
+  assert.equal(a.eval("presetFor().rgb"), "225577");
+  await a.el("save-nightlight").fire("click");
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("hub"), "kg");
+    assert.equal(url.searchParams.get("reset"), "1");
+    return Promise.resolve(response({ ok: true, presets: structuredClone(defaults) }));
+  });
+  await a.el("reset-preset").fire("click");
+  await flush();
+  assert.equal(a.eval("presetFor().rgb"), "5C0701");
+  assert.equal(a.eval("presetFor().bri"), 44);
+  assert.equal(a.eval('presetFor("KI-18FB").rgb'), "5C0701");
+  assert.equal(a.eval('presetFor("WZ-594F").rgb'), "5C0701");
 });
 
 test("phone hub switcher has three flexible columns on its own row", () => {

@@ -81,8 +81,11 @@ including HA's legacy GET caller. An unknown or missing saved preset returns
 
 `/var/lib/aqara-nightlight/presets.json` is the server's source of truth for
 both the page and HA's Kinderzimmer double-press/Gute-Nacht actions. A missing
-file supplies the defaults for all three hubs; an absent entry in an existing file
-is unsaved. Adding KG never rewrites an existing two-hub named-place file.
+file supplies the defaults for all three hubs. A missing KG entry in an existing
+two-hub file supplies default places in memory, including `nacht` at 5C0701/44%,
+ready to apply, save, rename or reset. Reads do not rewrite a named-place file;
+the next explicit preset write persists KG alongside unchanged plug/round entries.
+Missing slots within an existing hub entry remain unsaved.
 Saves use a separate stable `presets.json.lock` and an atomic,
 private file replacement, with file/directory sync. Corrupt state fails closed
 rather than silently applying defaults or overwriting it. The old single-Nachtlicht file migrates atomically and losslessly to named slots
@@ -127,8 +130,12 @@ progress. Drags wait for replies, coalesce and stay at one per second.
 The shared counter reserves blocks of 256 monotonic wire IDs, with file and
 directory sync per block; restart discards unused IDs. It bypasses python-miio's
 internal 9999 wrap. Preserve `msgid`, `msgid.lock`, presets and settings; never
-restore an older counter. Old code cannot read new preset arrays, so rollback
-requires a reviewed compatibility plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
+restore an older counter. Back up both settings and presets before third-hub
+activation: subsequent writes persist KG, which the old two-hub build rejects.
+Rollback requires restoring those backups or removing their `kg` keys; see the
+[activation/rollback note](RUNBOOK.md#aqara-nightlight-ops-496). Old code cannot
+read new preset arrays, so schema rollback also requires a reviewed compatibility
+plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
 for API details, retry budgets, the exact feed schema and poller ownership.
 
 **Integration ownership:** DEVOPS verified on **2026-10-29** that hsb1's live

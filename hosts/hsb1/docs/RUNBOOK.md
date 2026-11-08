@@ -28,8 +28,11 @@ The packaged responsive page uses the same-origin guarded API.
 The `nacht` place defaults to **5C0701 at 44%** on all three hubs.
 KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
 KG-5632 uses Nachtlicht with automatic sound off and no new automations.
-Existing two-hub named presets are not rewritten; an absent KG entry is unsaved.
-Missing KG settings use in-memory defaults without rewriting `settings.json`.
+Existing two-hub named presets supply missing KG places in memory, including
+`nacht` at 5C0701/44%; apply, save, rename and reset work immediately. Reads do
+not rewrite the named-place file. Missing KG settings also use in-memory defaults
+without rewriting `settings.json`. Explicitly absent slots within an existing
+hub entry remain unsaved.
 Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
 Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
 the server. On first load no light is marked as commanded: brightness starts
@@ -98,6 +101,19 @@ per-hub use, the 11 signal rules, thresholds, automatic audio settings, Gesehen
 and consumed sound-generation high-water marks. Preserve all state files across
 restarts. Corrupt settings fail closed with `settings_corrupt` and the fixed
 journal line `aqara-nightlight: settings state corrupt`.
+
+**Activation/rollback for the third hub:** before activation, stop the service
+and back up both `/var/lib/aqara-nightlight/settings.json` and
+`/var/lib/aqara-nightlight/presets.json` to fresh backup names, preserving ownership
+and permissions. Any settings write (`/settings`, `/seen` or automatic sound
+bookkeeping) persists the in-memory KG settings; any explicit preset write
+persists KG places. The old two-hub build rejects these `kg` keys. To roll back,
+stop the service and restore both pre-activation backups (or remove only the
+top-level `kg` keys from both files), preserving ownership and permissions,
+before starting the old build. Restoring backups loses subsequent settings and
+preset edits. Keep `msgid`, `msgid.lock` and the colour recovery records intact;
+never restore an older counter. Legacy preset-schema rollback still requires
+the separate compatibility plan described below.
 
 Corrupt JSON/schema returns `code: presets_corrupt` with
 “Gespeicherte Nachtlicht-Vorgaben beschädigt; Server prüfen” and logs the fixed
