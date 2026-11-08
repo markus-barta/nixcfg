@@ -111,11 +111,12 @@ class StateDirectoryTest(unittest.TestCase):
                         with module._color_transaction(hub):
                             self.fail("invalid hub entered a state transaction")
                 opened.assert_not_called()
-            for hub, filename in (("plug", "last-color-plug.json"), ("round", "last-color-round.json")):
+            for hub, filename in (("plug", "last-color-plug.json"), ("round", "last-color-round.json"),
+                                  ("kg", "last-color-kg.json")):
                 with module._color_transaction(hub) as path:
                     self.assertEqual(path, Path(directory).resolve() / filename)
             self.assertEqual(sorted(p.name for p in Path(directory).iterdir()),
-                             ["last-color-plug.json.lock", "last-color-round.json.lock"])
+                             ["last-color-kg.json.lock", "last-color-plug.json.lock", "last-color-round.json.lock"])
 
 
 class CounterTest(unittest.TestCase):
@@ -982,8 +983,8 @@ class ListenerTest(unittest.TestCase):
         with patch.dict(self.module.os.environ, settings), patch.object(self.module, "Server", side_effect=servers) as constructor, patch.object(self.module.threading, "Thread") as thread, patch("sys.stdout", new_callable=io.StringIO):
             self.module.serve()
         self.assertEqual(constructor.call_args_list, [call((address, 8765), self.module.H) for address in ("127.0.0.1", "192.168.1.101", "100.64.0.7")])
-        self.assertEqual(thread.call_count, 4)
-        self.assertEqual(thread.return_value.start.call_count, 4)
+        self.assertEqual(thread.call_count, 5)  # two listeners + three per-hub signal workers
+        self.assertEqual(thread.return_value.start.call_count, 5)
         servers[-1].serve_forever.assert_called_once_with()
         for server in servers:
             server.__exit__.assert_called_once()
@@ -1014,7 +1015,7 @@ class ListenerTest(unittest.TestCase):
             listener.bind.assert_called_once_with((address, 8765))
             listener.listen.assert_called_once()
             listener.close.assert_called_once_with()
-        self.assertEqual(thread.return_value.start.call_count, 4)
+        self.assertEqual(thread.return_value.start.call_count, 5)
         serve.assert_called_once_with()
 
     def test_unsupported_freebind_still_attempts_normal_bind(self):
@@ -1844,6 +1845,156 @@ class Version33Test(unittest.TestCase):
         self.assertFalse(any("desk-keys" in p for p in paths))
 
 
+class ThirdHubV33Test(unittest.TestCase):
+    """Exercise the activation boundary using existing two-hub v3.3 files."""
+    request = ApiTest.request
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.module = load(state_directory=self.tmp.name)
+        # Model a migrated installation with customised places, desk rules,
+        # overrides and generation watermarks, rather than a fresh install.
+        self.settings = {
+            hub: self.module._migrate_hub(value)
+            for hub, value in self.module._legacy_defaults().items() if hub != "kg"
+        }
+        self.settings["plug"].update(desks=[], thresholds={}, sound_generation={}, legacy_rules=None)
+        cfg = self.settings["round"]
+        cfg["desks"][1]["override"] = True
+        cfg["desks"][1]["rules"]["regular"]["bri"] = 37
+        cfg["rules"]["urgent"].update(rgb="ABCDEF", bri=81)
+        cfg["thresholds"]["pma"] = 12
+        cfg.update(seen={"ppm": 8, "pma": 13}, sound_generation={"ppm": 8, "pma": 13})
+        self.presets = {
+            "plug": [{"id": "nacht", "name": "Leise", "rgb": "123456", "bri": 17}],
+            "round": [{"id": "nacht", "name": "Abend", "rgb": "ABCDEF", "bri": 73},
+                      {"id": "p5", "name": "Warm", "rgb": "FF8C28", "bri": 29}],
+        }
+        self.module.SETTINGS_FILE.write_text(json.dumps(self.settings, indent=2) + "\n")
+        self.module.PRESET_FILE.write_text(json.dumps(self.presets, indent=2) + "\n")
+        self.original = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                         for p in (self.module.SETTINGS_FILE, self.module.PRESET_FILE)}
+
+    def result(self, path, method="POST"):
+        handler = self.request(path, method=method)
+        return json.loads(handler._reply.call_args.args[0])
+
+    def assert_original(self, *paths):
+        for path in paths or self.original:
+            self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), self.original[path])
+
+    def assert_existing_entries(self, path, expected):
+        stored = json.loads(path.read_text())
+        for hub in ("plug", "round"):
+            self.assertEqual(stored[hub], expected[hub])
+        return stored
+
+    def test_two_hub_reads_fill_only_kg_in_memory_and_never_write(self):
+        with patch.object(self.module, "_atomic_json") as write, patch.object(self.module, "call") as send:
+            for _ in range(2):
+                cfg = self.result("/config", "GET")
+                presets = self.result("/presets", "GET")["presets"]
+                kg = cfg["settings"]["kg"]
+                self.assertEqual(kg, self.module.default_settings()["kg"])
+                self.assertEqual((kg["version"], kg["usage"], kg["auto_sound"]), (33, "nightlight", False))
+                self.assertEqual((kg["desks"], kg["thresholds"], kg["sound_generation"], kg["history"]),
+                                 ([], {}, {}, []))
+                self.assertIsNone(kg["legacy_rules"])
+                self.assertEqual(presets["kg"], self.module._default_presets()["kg"])
+                self.assertEqual(cfg["max_bri"], {"plug": 100, "round": 50, "kg": 100})
+                for hub in ("plug", "round"):
+                    self.assertEqual(presets[hub], self.presets[hub])
+                    self.assertEqual(self.module._engine_settings(hub), self.settings[hub])
+                self.module.signal_status("kg")
+                self.assertFalse(self.module.SignalEngine().tick("kg"))
+            write.assert_not_called()
+            send.assert_not_called()
+        self.assert_original()
+        self.assertFalse(self.module.KEY_DIRECTORY.exists())
+
+    def test_kg_nacht_apply_uses_defaults_without_persisting_config_or_presets(self):
+        with patch.object(self.module, "call", return_value=(["ok"], 1)) as send, patch.object(self.module.time, "sleep"):
+            result = self.result("/apply?hub=kg&preset=nacht")
+        self.assertTrue(result["ok"])
+        self.assertEqual((result["hub"], result["rgb"], result["brightness"], result["capped"]),
+                         ("kg", "5C0701", 44, False))
+        self.assertEqual(send.call_args_list[0], call("kg", "set_rgb", [(44 << 24) | 0x5C0701]))
+        self.assert_original()
+        self.assertEqual(json.loads(Path(self.tmp.name, "last-color-kg.json").read_text()), "5C0701")
+
+    def test_each_first_preset_write_save_rename_or_reset_persists_kg_only(self):
+        for query, expected in (
+            ("rgb=abcdef&bri=100", {"id": "nacht", "name": "Nachtlicht", "rgb": "ABCDEF", "bri": 100}),
+            ("name=Schlaflicht", {"id": "nacht", "name": "Schlaflicht", "rgb": "5C0701", "bri": 44}),
+            ("reset=1", {"id": "nacht", "name": "Nachtlicht", "rgb": "5C0701", "bri": 44}),
+        ):
+            with self.subTest(query=query):
+                self.module.PRESET_FILE.write_bytes(self.original[self.module.PRESET_FILE][0])
+                with patch.object(self.module, "call") as send:
+                    result = self.result("/preset?hub=kg&id=nacht&" + query)
+                self.assertTrue(result["ok"])
+                stored = self.assert_existing_entries(self.module.PRESET_FILE, self.presets)
+                self.assertEqual(stored["kg"][0], expected)
+                self.assertEqual(load(state_directory=self.tmp.name).get_presets()["presets"]["kg"][0], expected)
+                self.assert_original(self.module.SETTINGS_FILE)
+                send.assert_not_called()
+
+    def test_settings_first_write_persists_neutral_kg_without_changing_old_desks(self):
+        with patch.object(self.module, "call") as send:
+            result = self.result("/settings?hub=kg&usage=nightlight")
+        self.assertTrue(result["ok"])
+        stored = self.assert_existing_entries(self.module.SETTINGS_FILE, self.settings)
+        self.assertEqual(stored["kg"], self.module.default_settings()["kg"])
+        self.assertEqual(load(state_directory=self.tmp.name)._engine_settings("kg"), stored["kg"])
+        self.assert_original(self.module.PRESET_FILE)
+        self.assertFalse(self.module.KEY_DIRECTORY.exists())
+        send.assert_not_called()
+
+    def test_kg_shares_counter_above_50000_and_never_creates_a_hub_counter(self):
+        self.assertEqual((self.module.ID_LIMIT, self.module.ID_BLOCK), (2147483000, 256))
+        Path(self.module.ID_FILE).write_text("50200\n")
+        peers = {hub: Mock() for hub in self.module.HUBS}
+        with patch.object(self.module, "_connect", side_effect=lambda hub: peers[hub]):
+            for hub in ("plug", "kg", "round", "kg"):
+                self.module.call(hub, "get_prop")
+        self.assertEqual(peers["plug"].send.call_args.kwargs["extra_parameters"], {"id": 50201})
+        self.assertEqual(peers["round"].send.call_args.kwargs["extra_parameters"], {"id": 50203})
+        self.assertEqual([c.kwargs["extra_parameters"]["id"] for c in peers["kg"].send.call_args_list],
+                         [50202, 50204])
+        self.assertEqual(int(Path(self.module.ID_FILE).read_text()), 50456)
+        self.assertEqual(sorted(p.name for p in Path(self.tmp.name).glob("msgid*")), ["msgid", "msgid.lock"])
+        fresh = load(state_directory=self.tmp.name)
+        self.assertEqual(fresh._next_id(), 50457)
+        self.assert_original()
+
+    def test_kg_exhausted_counter_fails_before_connecting_and_never_wraps(self):
+        Path(self.module.ID_FILE).write_text(str(self.module.ID_LIMIT))
+        with patch.object(self.module, "_connect") as connect:
+            with self.assertRaises(self.module.MessageIdStateError):
+                self.module.call("kg", "get_prop")
+        connect.assert_not_called()
+        self.assertEqual(Path(self.module.ID_FILE).read_text(), str(self.module.ID_LIMIT))
+
+    def test_hub_identity_locks_recovery_and_brightness_are_independent(self):
+        self.assertEqual(self.module.HUBS,
+                         {"plug": "192.168.1.106", "round": "192.168.1.108", "kg": "192.168.1.107"})
+        self.assertEqual(self.module.HUB_CONFIG, {"round": {"max_bri": 50}})
+        self.assertEqual(len({id(lock) for lock in self.module._locks.values()}), 3)
+        with patch.object(self.module, "call", return_value=(["ok"], 1)), patch.object(self.module.time, "sleep"):
+            for hub, rgb in (("plug", "112233"), ("round", "AABBCC"), ("kg", "123456")):
+                result = self.module.set_light(hub, rgb, 100)
+                self.assertEqual((result["brightness"], result["capped"]),
+                                 (50, True) if hub == "round" else (100, False))
+            fresh = load(state_directory=self.tmp.name)
+            with patch.object(fresh, "call", return_value=(["ok"], 1)):
+                result = fresh.set_light("kg", "000000", 100)
+            self.assertEqual((result["rgb"], result["brightness"]), ("123456", 100))
+        for hub, rgb in (("plug", "112233"), ("round", "AABBCC"), ("kg", "123456")):
+            self.assertEqual(json.loads(Path(self.tmp.name, "last-color-" + hub + ".json").read_text()), rgb)
+        self.assert_original()
+
+
 class StreamingProgressTest(unittest.TestCase):
     parsed_request = ApiTest.parsed_request
 
@@ -2034,7 +2185,7 @@ class BrightnessLimitTest(unittest.TestCase):
             self.assert_effective(self.result(f"/apply?hub={hub}&preset=nacht"), expected, capped)
 
     def test_settings_expose_limits_without_changing_other_hub_or_saved_rules(self):
-        expected = {"round": 50, "plug": 100}
+        expected = {"round": 50, "plug": 100, "kg": 100}
         config = self.result("/config", "GET")
         self.assertEqual(config["max_bri"], expected)
         other = config["settings"]["plug"]

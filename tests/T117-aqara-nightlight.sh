@@ -26,7 +26,7 @@ nix-instantiate --parse "${repo}/tests/aqara-nightlight-eval.nix" >/dev/null
 grep -Fq './aqara-nightlight.nix # OPS-496:' "${repo}/hosts/hsb1/configuration.nix"
 
 if [ "$mode" = "--local-only" ]; then
-  printf 'T117: fake-hub brightness caps, UI slider limits and Nix parse checks passed; NixOS evaluation omitted (required before release)\n'
+  printf 'T117: three fake hubs, two-hub v3.3 compatibility, shared IDs, UI switching and slider limits and Nix parse checks passed; NixOS evaluation omitted (required before release)\n'
   exit 0
 fi
 
@@ -64,7 +64,7 @@ def verify(result):
     assert unit["IPAddressDeny"] == "any"
     allowed = set(unit["IPAddressAllow"])
     assert allowed == {"127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
-                       "192.168.1.106/32", "192.168.1.108/32"}
+                       "192.168.1.106/32", "192.168.1.107/32", "192.168.1.108/32"}
     assert set(unit["RestrictAddressFamilies"]) == {"AF_INET", "AF_INET6"}
     for option in ("PrivateTmp", "PrivateDevices", "ProtectHome", "ProtectKernelTunables",
                    "ProtectKernelModules", "ProtectControlGroups", "NoNewPrivileges",

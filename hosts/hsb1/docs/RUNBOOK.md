@@ -21,10 +21,11 @@ ssh mba@hsb1.lan
 Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
-and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
-**WZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
-same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on both hubs.
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer),
+**WZ-594F** = `round` (`192.168.1.108`) and **KG-5632** = `kg` (`192.168.1.107`,
+KG = Kinderzimmer Groß). Labels follow `<ROOM>-<last 4 hex of the hardware address>`. The packaged responsive page uses the
+same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on all three hubs.
+KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
 Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
 Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
 the server. On first load no light is marked as commanded: brightness starts
@@ -62,7 +63,7 @@ Never delete/reset these files or restore an older counter after commands have
 been issued. The handshake token stays only in memory; logs contain fixed error
 categories, never library exception bodies.
 
-`last-color-plug.json` and `last-color-round.json` each store a nonblack RRGGBB
+`last-color-plug.json`, `last-color-round.json` and `last-color-kg.json` each store a nonblack RRGGBB
 JSON string. Every acknowledged nonblack `/set` or `/apply` persists it with
 0600 permissions, atomic replace and file/directory fsync; a stable per-hub
 `.json.lock` serializes CLI and HTTP writes. Black commands and failed hub
@@ -86,6 +87,19 @@ Reset keeps the slot's ID and name; deleting a slot never renumbers other slots.
 `nacht` cannot be deleted. The page's Erwachsen-only “Speichern als …” sheet
 provides previews, inline rename, delete confirmation, reset and save-only Undo.
 
+Before activating the three-hub build, stop the service and back up both
+`settings.json` and `presets.json` privately, preserving ownership and permissions;
+record the prior NixOS generation. Existing two-hub v3.3 settings and preset
+arrays load without migration or writes. Missing `kg` defaults exist only in
+memory until the first explicit write to the corresponding file. Plug/round
+entries are retained. KG starts as Nachtlicht with no desks/keys, empty
+thresholds and generation maps, and automatic sound disabled; the v3.3 schema
+requires its neutral signal-rule fields but creates no automation.
+Once KG is written, rollback to a two-hub build requires restoring these backed-up
+settings and presets while the service is stopped; the older build rejects `kg`.
+Preserve the current shared `msgid` and `msgid.lock` throughout rollback. All
+three hubs use that counter; never create a `msgid-kg` file or reset at 9999.
+
 `settings.json`, serialized by `settings.json.lock` and written atomically, stores
 per-hub use, v3.3 desks and five shared signal rules, optional overrides,
 thresholds, automatic audio settings, Gesehen
@@ -106,7 +120,7 @@ sudo systemctl start aqara-nightlight.service
 ```
 
 Confirm the move succeeded before starting; preserve the backup, `msgid` and
-`presets.json.lock`. With no presets file, both hubs use 5C0701 at 44%; recovery
+`presets.json.lock`. With no presets file, all three hubs use 5C0701 at 44%; recovery
 does not call `/apply`. A Desk hub resumes its configured signal on service start.
 Re-save any desired custom presets afterward.
 Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
@@ -116,7 +130,7 @@ and service restart are needed to change the live page.
 The host firewall is **disabled** for HomeKit. Port 8765 in `allowedTCPPorts`
 does not provide protection. The service binds exactly loopback, hsb1's LAN
 address and its tailnet address; systemd IP rules allow loopback,
-`192.168.1.0/24`, `100.64.0.0/10` and both hub IPs, denying other addresses.
+`192.168.1.0/24`, `100.64.0.0/10` and all three hub IPs, denying other addresses.
 The HTTP handler independently rejects peers outside these networks. It
 accepts only Host names `127.0.0.1`, `localhost`, `192.168.1.101`, `hsb1`,
 `hsb1.lan` and `100.64.0.7`, each with or without `:8765`. A present
@@ -154,8 +168,8 @@ without CORS permission headers. The HTML denies framing with CSP
 by its packaged SHA-256 hash. A 403 in the page offers reload, never retry.
 Tone volume defaults to 15% and is
 clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
-No public reverse proxy is configured. IP rules also govern egress; both hubs
-(`192.168.1.106`, `.108`) remain allowed for miio UDP 54321. Linux
+No public reverse proxy is configured. IP rules also govern egress; all three hubs
+(`192.168.1.106`, `.107`, `.108`) remain allowed for miio UDP 54321. Linux
 `IP_FREEBIND` lets each listener bind before its address is assigned, so an
 unavailable tailnet address does not prevent LAN/loopback access. Tailnet
 access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts
@@ -384,7 +398,7 @@ For each separately reviewed OPS release:
    contain no `xiaomi_aqara` or `xiaomi_miio` entries. Retain that dated
    evidence and recheck live `configuration.yaml` and integration entries if
    ownership changes before activation. That bind-mounted configuration is
-   outside the repo. Do not dump credentials or change HA. If either gateway
+   outside the repo. Do not dump credentials or change HA. If any gateway
    has another miio controller, stop the cutover and report the message-ID
    collision risk to the host owner.
 2. Stop the Mac prototype and its UI process; do not run its CLI concurrently.
@@ -403,9 +417,9 @@ For each separately reviewed OPS release:
    the lamp changed. Play one short tone at volume **10**, stop immediately
    with `/stop`, and confirm silence. Avoid unattended sound tests.
 5. Record `msgid`, restart the unit, issue a request and confirm the counter
-   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm both gateways still respond after the restart. Save a custom
+   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm all three gateways still respond after the restart. Save a custom
    Nachtlicht for one hub and check that `/presets` and `/apply` retain it
-   across restart while the other hub is unchanged; reset afterwards.
+   across restart while the other hubs are unchanged; reset afterwards.
 6. Tick's design approval remains required before merge: check the actual page
    on hsb1 in Kind/Erwachsen × Hell/Dunkel, at phone and laptop widths. Verify
    holds, fixed status/no layout jumps, the immediate tap lock and throttled drags, low-brightness

@@ -41,8 +41,12 @@ const defaultPlaces = [
   { id: "p3", name: "Hell", rgb: "FFF4E0", bri: 80 },
   { id: "p4", name: "Rot leise", rgb: "FF2A00", bri: 5 },
 ];
-const defaults = { plug: defaultPlaces, round: defaultPlaces };
-const maxBri = { round: 50, plug: 100 };
+const defaults = {
+  plug: defaultPlaces,
+  round: defaultPlaces,
+  kg: defaultPlaces,
+};
+const maxBri = { round: 50, plug: 100, kg: 100 };
 const rules = Object.fromEntries(
   ["urgent", "regular", "open", "idle", "unknown"].map((level) => [
     level,
@@ -80,15 +84,15 @@ const fakeDesks = [
   },
 ];
 const configDefaults = Object.fromEntries(
-  ["plug", "round"].map((h) => [
+  ["plug", "round", "kg"].map((h) => [
     h,
     {
       version: 33,
       usage: h === "round" ? "desk" : "nightlight",
       rules,
-      desks: fakeDesks,
+      desks: h === "kg" ? [] : fakeDesks,
       multiple: { mode: "cycle", rgb: "9B6BFF" },
-      thresholds: { ppm: 4, pma: 4 },
+      thresholds: h === "kg" ? {} : { ppm: 4, pma: 4 },
       auto_sound: false,
       history: [],
     },
@@ -660,6 +664,7 @@ test("applying a bright saved place displays the effective brightness for each h
   for (const [label, maximum] of [
     ["WZ-594F", 50],
     ["KI-18FB", 100],
+    ["KG-5632", 100],
   ]) {
     const a = await setup({ "nightlight-hub": label });
     await a
@@ -1068,6 +1073,138 @@ test("hub choice is remembered, validated and safe when storage is disabled", as
   assert.equal(d.eval("selected"), "KI-18FB");
   d.eval('selectHub("WZ-594F")');
   assert.equal(d.eval("selected"), "WZ-594F");
+});
+
+test("KG restores its label, neutral usage, full brightness and inline motif", async () => {
+  const a = await setup({ "nightlight-hub": "KG-5632" });
+  assert.equal(a.eval("selected"), "KG-5632");
+  assert.equal(a.eval("hub()"), "kg");
+  assert.equal(a.eval("usageFor()"), "nightlight");
+  assert.equal(a.eval("settings.kg.desks.length"), 0);
+  assert.equal(a.eval("settings.kg.auto_sound"), false);
+  assert.equal(Number(a.el("bri").max), 100);
+  assert.equal(a.el("status-text").textContent, "Bereit · KG-5632");
+  assert.equal(a.calls.find((c) => c.path === "/get").params.get("hub"), "kg");
+  assert.ok(
+    a.calls.every((c) => ["/get", "/presets", "/config"].includes(c.path)),
+  );
+  assert.equal(
+    a.eval(
+      'document.querySelector(".hubsays .hspic use").getAttribute("href")',
+    ),
+    "#p-kg",
+  );
+  const kg = a.buttons("[data-hub]").find((b) => b.dataset.hub === "KG-5632");
+  assert.equal(kg.querySelector(".k use").getAttribute("href"), "#p-kg");
+  assert.match(html, /<symbol id="p-kg"/);
+  assert.equal(kg.getAttribute("aria-checked"), "true");
+  assert.equal(kg.tabIndex, 0);
+});
+
+test("three-hub arrows wrap both ways and Home/End maintain radio focus", async () => {
+  const a = await setup();
+  assert.deepEqual(
+    a.buttons("[data-hub]").map((b) => b.dataset.hub),
+    ["KI-18FB", "WZ-594F", "KG-5632"],
+  );
+  for (const [key, expected] of [
+    ["ArrowLeft", "KG-5632"],
+    ["ArrowRight", "KI-18FB"],
+    ["ArrowRight", "WZ-594F"],
+    ["ArrowRight", "KG-5632"],
+    ["ArrowRight", "KI-18FB"],
+    ["End", "KG-5632"],
+    ["Home", "KI-18FB"],
+  ]) {
+    const current = a
+      .buttons("[data-hub]")
+      .find((b) => b.dataset.hub === a.eval("selected"));
+    await current.fire("keydown", { key });
+    await flush();
+    assert.equal(a.eval("selected"), expected);
+    assert.equal(a.storage.get("nightlight-hub"), expected);
+    for (const button of a.buttons("[data-hub]")) {
+      assert.equal(button.tabIndex, button.dataset.hub === expected ? 0 : -1);
+      assert.equal(
+        button.getAttribute("aria-checked"),
+        String(button.dataset.hub === expected),
+      );
+    }
+  }
+});
+
+test("KG button remembers the choice and nacht commands use the kg API handle", async () => {
+  const a = await setup();
+  await a.buttons("[data-hub]")[2].fire("click");
+  await flush();
+  assert.equal(a.storage.get("nightlight-hub"), "KG-5632");
+  assert.equal(a.calls.at(-1).params.get("hub"), "kg");
+  await a.el("nightlight").fire("click");
+  await flush();
+  const sent = a.calls.find((c) => c.path === "/apply");
+  assert.equal(sent.params.get("hub"), "kg");
+  assert.equal(sent.params.get("preset"), "nacht");
+  assert.equal(sent.options.method, "POST");
+  assert.equal(a.eval("state().last.rgb"), "5C0701");
+  assert.equal(a.eval("state().last.bri"), 44);
+  const restored = await setup(Object.fromEntries(a.storage));
+  assert.equal(restored.eval("selected"), "KG-5632");
+  const disabled = await setup({ "nightlight-hub": "KG-5632" }, true);
+  assert.equal(disabled.eval("selected"), "KI-18FB");
+});
+
+test("KG save, rename and reset use preset writes without light commands", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "KG-5632",
+  });
+  for (const [query, reset] of [
+    [{ rgb: "ABCDEF", bri: 100 }, false],
+    [{ name: "Schlaflicht" }, false],
+    [{}, true],
+  ]) {
+    a.pending.push((url) => {
+      assert.equal(url.pathname, "/preset");
+      assert.equal(url.searchParams.get("hub"), "kg");
+      assert.equal(url.searchParams.get("id"), "nacht");
+      if (reset) assert.equal(url.searchParams.get("reset"), "1");
+      else
+        for (const [key, value] of Object.entries(query))
+          assert.equal(url.searchParams.get(key), String(value));
+      return Promise.resolve(
+        response({ ok: true, presets: structuredClone(defaults) }),
+      );
+    });
+    if (query.name) {
+      a.el("rename-nacht").value = query.name;
+      await a
+        .buttons("[data-rename-place]")
+        .find((b) => b.dataset.renamePlace === "nacht")
+        .fire("click");
+    } else
+      await a.eval(
+        `persistPreset({label:"KG-5632",id:"nacht",next:{rgb:"ABCDEF",bri:100}}, ${reset})`,
+      );
+    await flush();
+  }
+  assert.equal(a.pending.length, 0);
+  assert.equal(a.calls.filter((c) => c.path === "/preset").length, 3);
+  assert.ok(
+    a.calls.every((c) =>
+      ["/get", "/config", "/presets", "/preset"].includes(c.path),
+    ),
+  );
+});
+
+test("three-hub layout gives the switcher a full row on narrow screens", () => {
+  assert.match(
+    html,
+    /\.top > \.seg\s*\{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/,
+  );
+  assert.match(
+    html,
+    /@media \(max-width: 600px\)\s*\{\s*\.top\s*\{\s*flex-wrap: wrap;\s*justify-content: flex-end;\s*\}\s*\.top > \.seg\s*\{\s*flex-basis: 100%;/,
+  );
 });
 
 test("first readback initializes brightness without selecting or claiming a command", async () => {
