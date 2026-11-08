@@ -5,7 +5,7 @@ GET /get?hub=plug, /presets, /config, /signal?hub=round and / for the UI.
 Acting endpoints /set, /tone, /stop, /preset, /apply, /settings, /seen and
 /signal-test require X-Nightlight: 1 and accept GET or POST.
 GET actions are deprecated compatibility for Home Assistant; the UI uses POST.
-KI-18FB is plug; WZ-594F is round. Default nacht: 5C0701 at 44%.
+KI-18FB is plug; WZ-594F is round; KG-5632 is kg. Default nacht: 5C0701 at 44%.
 CLI: set <hub> <RRGGBB> <brightness>, get <hub>, tone <hub> <id> [vol], stop <hub>.
 Tone volume defaults to 15% and clamps to 0–40% in both HTTP and CLI use.
 The handshake token stays in memory; no library payloads or exceptions are logged.
@@ -42,7 +42,7 @@ _miio_log.addHandler(logging.NullHandler())
 _miio_log.propagate = False
 
 # Stable API handles; the page retains the operator-selected hub display labels.
-HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108"}
+HUBS = {"plug": "192.168.1.106", "round": "192.168.1.108", "kg": "192.168.1.107"}
 TIMEOUT = 1.5
 ATTEMPTS = 4
 MAX_TONE_VOLUME = 40
@@ -181,7 +181,7 @@ def _connect(name):
 def call(name, cmd, params=None, attempts=ATTEMPTS):
     """Serialize per hub, allocate a fresh ID per attempt and re-handshake on loss."""
     if name not in HUBS:
-        raise ValueError("Unbekannter Hub (plug oder round)")
+        raise ValueError("Unbekannter Hub (plug, round oder kg)")
     with _locks[name]:
         for attempt in range(1, attempts + 1):
             progress = getattr(_request_progress, "callback", None)
@@ -380,12 +380,11 @@ def _color_transaction(hub):
     if hub not in HUBS:
         raise ValueError("Unbekannter Hub")
     # Select constant basenames; hub/query text never becomes path data.
-    path = (STATE_DIRECTORY / "last-color-plug.json" if hub == "plug"
-            else STATE_DIRECTORY / "last-color-round.json")
+    path = STATE_DIRECTORY / {"plug": "last-color-plug.json", "round": "last-color-round.json",
+                              "kg": "last-color-kg.json"}[hub]
     # Separate files avoid cross-hub lost updates. flock also serializes CLI
     # and HTTP writers; the RLock keeps the first ACK and echo together.
-    lock_path = (STATE_DIRECTORY / "last-color-plug.json.lock" if hub == "plug"
-                 else STATE_DIRECTORY / "last-color-round.json.lock")
+    lock_path = path.with_name(path.name + ".lock")
     with _locks[hub], open(lock_path, "a", encoding="ascii") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield path
@@ -439,6 +438,9 @@ def _read_presets():
         values.sort(key=lambda p: PRESET_IDS.index(p["id"]))
     if migrated:
         _atomic_json(PRESET_FILE, presets)
+    # Existing two-hub files gain KG defaults in memory only. Persist them
+    # with the next explicit preset write, after validating all saved state.
+    presets.setdefault("kg", _default_presets()["kg"])
     return presets
 
 
@@ -561,7 +563,9 @@ def _read_settings():
         raise SettingsStateError() from None
     try:
         defaults = default_settings()
-        _require_settings(isinstance(settings, dict) and set(settings) == set(HUBS))
+        # Existing two-hub settings remain valid. Fill only KG in memory;
+        # reads never rewrite or migrate the durable settings file.
+        _require_settings(isinstance(settings, dict) and {"plug", "round"} <= set(settings) <= set(HUBS))
         for hub, value in settings.items():
             _require_settings(set(value) == set(defaults[hub]))
             _require_settings(value["usage"] in ("nightlight", "desk") and type(value["auto_sound"]) is bool)
@@ -579,6 +583,8 @@ def _read_settings():
             _require_settings(type(value["last_sound"]) in (int, float) and 0 <= value["last_sound"] <= 2**53 - 1)
     except (KeyError, TypeError, AttributeError):
         raise SettingsStateError() from None
+    if "kg" not in settings:
+        settings["kg"] = defaults["kg"]
     return settings
 
 

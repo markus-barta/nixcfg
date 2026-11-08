@@ -2,7 +2,16 @@ module.exports = function nightlightPage() {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const root = document.documentElement;
-  const HUB_HANDLES = { "KI-18FB": "plug", "WZ-594F": "round" };
+  const HUB_HANDLES = {
+    "KI-18FB": "plug",
+    "WZ-594F": "round",
+    "KG-5632": "kg",
+  };
+  const HUB_PICTURES = {
+    "KI-18FB": "#p-teddy",
+    "WZ-594F": "#p-sofa",
+    "KG-5632": "#p-kg",
+  };
   const DEFAULT_NIGHTLIGHT = { rgb: "5C0701", bri: 44 };
   const PLACE_IDS = ["nacht", "p2", "p3", "p4", "p5", "p6"];
   const DEFAULT_PLACES = {
@@ -1270,10 +1279,7 @@ module.exports = function nightlightPage() {
       undoCommand.label !== selected ||
       root.dataset.mode !== "erwachsen";
     const readIcon = document.querySelector(".hubsays .hspic use");
-    readIcon.setAttribute(
-      "href",
-      selected === "KI-18FB" ? "#p-teddy" : "#p-sofa",
-    );
+    readIcon.setAttribute("href", HUB_PICTURES[selected]);
     updateSliders();
     renderPlaces();
     renderDesk();
@@ -1299,14 +1305,17 @@ module.exports = function nightlightPage() {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
         return;
       event.preventDefault();
+      const labels = Object.keys(HUB_HANDLES);
+      const step = event.key === "ArrowLeft" ? -1 : 1;
       const label =
         event.key === "Home"
-          ? "KI-18FB"
+          ? labels[0]
           : event.key === "End"
-            ? "WZ-594F"
-            : selected === "KI-18FB"
-              ? "WZ-594F"
-              : "KI-18FB";
+            ? labels.at(-1)
+            : labels[
+                (labels.indexOf(selected) + step + labels.length) %
+                  labels.length
+              ];
       selectHub(label);
       document.querySelector(`[data-hub="${label}"]`).focus();
     });

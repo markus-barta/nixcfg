@@ -21,10 +21,18 @@ ssh mba@hsb1.lan
 Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
-and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
-**WZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
-same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on both hubs.
+and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer),
+**WZ-594F** = `round` (`192.168.1.108`) and **KG-5632** = `kg` (`192.168.1.107`,
+Kinderzimmer groß). Labels use `<ROOM>-<last 4 MAC hex>`; KG means Kinderzimmer groß.
+The packaged responsive page uses the same-origin guarded API.
+The `nacht` place defaults to **5C0701 at 44%** on all three hubs.
 KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+KG-5632 uses Nachtlicht with automatic sound off and no new automations.
+Existing two-hub named presets supply missing KG places in memory, including
+`nacht` at 5C0701/44%; apply, save, rename and reset work immediately. Reads do
+not rewrite the named-place file. Missing KG settings also use in-memory defaults
+without rewriting `settings.json`. Explicitly absent slots within an existing
+hub entry remain unsaved.
 Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
 Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
 the server. On first load no light is marked as commanded: brightness starts
@@ -49,12 +57,14 @@ sudo cat /var/lib/aqara-nightlight/msgid  # message counter only, never a token
 
 StateDirectory `/var/lib/aqara-nightlight` has mode 0700; systemd gives the
 dynamic service user write access even with `ProtectSystem=strict`. The
-`msgid` file records the durable reservation high-water mark. A separate stable
+`msgid` file records the durable reservation high-water mark shared by all three
+hubs. Adding KG never resets or migrates `msgid`. A separate stable
 `msgid.lock` serializes processes. Reserve 256 IDs with a private atomic replacement,
 file fsync and directory fsync before issuing any of them; subsequent commands
 use memory. A restart discards unused reservations, so gaps are expected and a
-crash never reuses an issued ID. IDs are monotonic up to 2147483000; exhaustion or
-corruption fails closed. Counter I/O/format failure returns `msgid_state`, logs
+crash never reuses an issued ID. IDs are monotonic up to 2147483000;
+exhaustion or corruption fails closed.
+Counter I/O/format failure returns `msgid_state`, logs
 `aqara-nightlight: message id state failed` and makes no hub call; it is never
 reported as a hub timeout. No rolling/random reset remains. python-miio's own
 9999 wrap is bypassed on the wire using `extra_parameters={"id": reserved_id}`.
@@ -62,7 +72,7 @@ Never delete/reset these files or restore an older counter after commands have
 been issued. The handshake token stays only in memory; logs contain fixed error
 categories, never library exception bodies.
 
-`last-color-plug.json` and `last-color-round.json` each store a nonblack RRGGBB
+`last-color-plug.json`, `last-color-round.json` and `last-color-kg.json` each store a nonblack RRGGBB
 JSON string. Every acknowledged nonblack `/set` or `/apply` persists it with
 0600 permissions, atomic replace and file/directory fsync; a stable per-hub
 `.json.lock` serializes CLI and HTTP writes. Black commands and failed hub
@@ -92,6 +102,19 @@ and consumed sound-generation high-water marks. Preserve all state files across
 restarts. Corrupt settings fail closed with `settings_corrupt` and the fixed
 journal line `aqara-nightlight: settings state corrupt`.
 
+**Activation/rollback for the third hub:** before activation, stop the service
+and back up both `/var/lib/aqara-nightlight/settings.json` and
+`/var/lib/aqara-nightlight/presets.json` to fresh backup names, preserving ownership
+and permissions. Any settings write (`/settings`, `/seen` or automatic sound
+bookkeeping) persists the in-memory KG settings; any explicit preset write
+persists KG places. The old two-hub build rejects these `kg` keys. To roll back,
+stop the service and restore both pre-activation backups (or remove only the
+top-level `kg` keys from both files), preserving ownership and permissions,
+before starting the old build. Restoring backups loses subsequent settings and
+preset edits. Keep `msgid`, `msgid.lock` and the colour recovery records intact;
+never restore an older counter. Legacy preset-schema rollback still requires
+the separate compatibility plan described below.
+
 Corrupt JSON/schema returns `code: presets_corrupt` with
 “Gespeicherte Nachtlicht-Vorgaben beschädigt; Server prüfen” and logs the fixed
 line `aqara-nightlight: preset state corrupt; stop service and move presets.json aside before restart`.
@@ -105,7 +128,7 @@ sudo systemctl start aqara-nightlight.service
 ```
 
 Confirm the move succeeded before starting; preserve the backup, `msgid` and
-`presets.json.lock`. With no presets file, both hubs use 5C0701 at 44%; recovery
+`presets.json.lock`. With no presets file, all three hubs use 5C0701 at 44%; recovery
 does not call `/apply`. A Desk hub resumes its configured signal on service start.
 Re-save any desired custom presets afterward.
 Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
@@ -142,8 +165,8 @@ without CORS permission headers. The HTML denies framing with CSP
 by its packaged SHA-256 hash. A 403 in the page offers reload, never retry.
 Tone volume defaults to 15% and is
 clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
-No public reverse proxy is configured. IP rules also govern egress; both hubs
-(`192.168.1.106`, `.108`) remain allowed for miio UDP 54321. Linux
+No public reverse proxy is configured. IP rules also govern egress; all three hubs
+(`192.168.1.106`, `.107`, `.108`) remain allowed for miio UDP 54321. Linux
 `IP_FREEBIND` lets each listener bind before its address is assigned, so an
 unavailable tailnet address does not prevent LAN/loopback access. Tailnet
 access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts
@@ -300,9 +323,9 @@ For each separately reviewed OPS release:
    the lamp changed. Play one short tone at volume **10**, stop immediately
    with `/stop`, and confirm silence. Avoid unattended sound tests.
 5. Record `msgid`, restart the unit, issue a request and confirm the counter
-   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm both gateways still respond after the restart. Save a custom
+   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm all three gateways still respond after the restart. Save a custom
    Nachtlicht for one hub and check that `/presets` and `/apply` retain it
-   across restart while the other hub is unchanged; reset afterwards.
+   across restart while the other hubs are unchanged; reset afterwards.
 6. Tick's design approval remains required before merge: check the actual page
    on hsb1 in Kind/Erwachsen × Hell/Dunkel, at phone and laptop widths. Verify
    holds, fixed status/no layout jumps, the immediate tap lock and throttled drags, low-brightness

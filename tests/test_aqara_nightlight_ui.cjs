@@ -41,7 +41,11 @@ const defaultPlaces = [
   { id: "p3", name: "Hell", rgb: "FFF4E0", bri: 80 },
   { id: "p4", name: "Rot leise", rgb: "FF2A00", bri: 5 },
 ];
-const defaults = { plug: defaultPlaces, round: defaultPlaces };
+const defaults = {
+  plug: defaultPlaces,
+  round: defaultPlaces,
+  kg: defaultPlaces,
+};
 const rules = Object.fromEntries(
   ["urgent", "regular", "open"]
     .flatMap((level) =>
@@ -68,7 +72,7 @@ const rules = Object.fromEntries(
     ]),
 );
 const configDefaults = Object.fromEntries(
-  ["plug", "round"].map((h) => [
+  ["plug", "round", "kg"].map((h) => [
     h,
     {
       usage: h === "round" ? "desk" : "nightlight",
@@ -827,6 +831,153 @@ test("hub choice is remembered, validated and safe when storage is disabled", as
   assert.equal(d.eval("selected"), "KI-18FB");
   d.eval('selectHub("WZ-594F")');
   assert.equal(d.eval("selected"), "WZ-594F");
+});
+
+test("KG selection persists, uses its API handle and keeps neutral defaults", async () => {
+  const a = await setup({ "nightlight-hub": "KG-5632" });
+  assert.equal(a.eval("selected"), "KG-5632");
+  assert.equal(a.eval("usageFor()"), "nightlight");
+  assert.equal(a.eval("settings.kg.auto_sound"), false);
+  assert.equal(a.eval("presetFor().rgb"), "5C0701");
+  assert.equal(a.eval("presetFor().bri"), 44);
+  assert.equal(a.el("vol").value, "15");
+  assert.equal(a.el("status-text").textContent, "Bereit · KG-5632");
+  assert.equal(a.calls.find((c) => c.path === "/get").params.get("hub"), "kg");
+  assert.equal(
+    a.calls.some((c) => c.path === "/signal"),
+    false,
+  );
+  const kg = a.buttons("[data-hub]").find((b) => b.dataset.hub === "KG-5632");
+  assert.equal(kg.querySelector(".k use").getAttribute("href"), "#p-kg");
+  assert.equal(
+    a.eval(
+      'document.querySelector(".hubsays .hspic use").getAttribute("href")',
+    ),
+    "#p-kg",
+  );
+  a.calls.length = 0;
+  await a.el("nightlight").userFire("click");
+  assert.equal(a.calls[0].path, "/apply");
+  assert.equal(a.calls[0].params.get("hub"), "kg");
+  await a.buttons("[data-t]")[0].userFire("click");
+  assert.equal(a.calls.at(-1).path, "/tone");
+  assert.equal(a.calls.at(-1).params.get("hub"), "kg");
+  assert.equal(a.calls.at(-1).params.get("vol"), "15");
+  a.eval('selectHub("KI-18FB");selectHub("KG-5632");');
+  const b = await setup(Object.fromEntries(a.storage));
+  assert.equal(b.eval("selected"), "KG-5632");
+});
+
+test("hub keyboard cycles through three radios in both directions with Home and End", async () => {
+  const a = await setup();
+  assert.deepEqual(
+    a.buttons("[data-hub]").map((b) => b.dataset.hub),
+    ["KI-18FB", "WZ-594F", "KG-5632"],
+  );
+  for (const [key, label] of [
+    ["ArrowRight", "WZ-594F"],
+    ["ArrowRight", "KG-5632"],
+    ["ArrowRight", "KI-18FB"],
+    ["ArrowLeft", "KG-5632"],
+    ["ArrowLeft", "WZ-594F"],
+    ["Home", "KI-18FB"],
+    ["End", "KG-5632"],
+  ]) {
+    const current = a
+      .buttons("[data-hub]")
+      .find((b) => b.dataset.hub === a.eval("selected"));
+    await current.userFire("keydown", { key });
+    await flush();
+    assert.equal(a.eval("selected"), label);
+    assert.equal(a.storage.get("nightlight-hub"), label);
+    for (const button of a.buttons("[data-hub]")) {
+      assert.equal(
+        button.getAttribute("aria-checked"),
+        String(button.dataset.hub === label),
+      );
+      assert.equal(button.tabIndex, button.dataset.hub === label ? 0 : -1);
+    }
+  }
+});
+
+test("two-hub state supplies KG defaults through the API without writes, while light state stays per hub", async () => {
+  const a = await setup({ "nightlight-hub": "KG-5632" }, false, {
+    "/presets": () =>
+      Promise.resolve(
+        response({
+          ok: true,
+          // The backend supplies missing KG in memory for a two-hub file.
+          presets: { plug: defaultPlaces, round: defaultPlaces, kg: defaultPlaces },
+        }),
+      ),
+  });
+  assert.equal(a.eval("presetFor().rgb"), "5C0701");
+  assert.equal(a.eval("presetFor().bri"), 44);
+  assert.equal(a.eval("state().rgb"), "FF8C28");
+  assert.equal(a.eval("Object.keys(placesFor()).length"), 4);
+  assert.ok(a.calls.every((c) => c.options.method === "GET"));
+  await a.el("nightlight").fire("click");
+  assert.equal(a.calls.at(-1).path, "/apply");
+  assert.equal(a.calls.at(-1).params.get("hub"), "kg");
+  assert.equal(a.eval("state().last.rgb"), "5C0701");
+  assert.equal(a.eval("state().bri"), 44);
+  a.eval('acceptLight({rgb:"225577",brightness:22},"KG-5632","KG",1);');
+  a.eval('acceptLight({rgb:"112233",brightness:33},"KI-18FB","KI",2);');
+  a.eval('acceptLight({rgb:"AABBCC",brightness:44},"WZ-594F","WZ",3);');
+  for (const [label, rgb, bri] of [
+    ["KI-18FB", "112233", 33],
+    ["WZ-594F", "AABBCC", 44],
+    ["KG-5632", "225577", 22],
+  ]) {
+    a.eval(`selectHub(${JSON.stringify(label)});`);
+    await flush();
+    assert.equal(a.eval("state().lastRgb"), rgb);
+    assert.equal(a.eval("state().bri"), bri);
+  }
+});
+
+test("KG default nacht can be saved and reset through the save sheet", async () => {
+  const a = await setup({ "nightlight-hub": "KG-5632", "nightlight-mode": "erwachsen" });
+  a.eval('acceptLight({rgb:"225577",brightness:9},"KG-5632","Eigene Farbe"); render();');
+  await a.el("save-nightlight").fire("click");
+  assert.match(a.el("old-preset").textContent, /5C0701/);
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/preset");
+    assert.equal(url.searchParams.get("hub"), "kg");
+    assert.equal(url.searchParams.get("id"), "nacht");
+    assert.equal(url.searchParams.get("rgb"), "225577");
+    assert.equal(url.searchParams.get("bri"), "9");
+    const presets = structuredClone(defaults);
+    Object.assign(presets.kg[0], { rgb: "225577", bri: 9 });
+    return Promise.resolve(response({ ok: true, presets }));
+  });
+  await a.el("confirm-save").fire("click");
+  await flush();
+  assert.equal(a.eval("presetFor().rgb"), "225577");
+  await a.el("save-nightlight").fire("click");
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("hub"), "kg");
+    assert.equal(url.searchParams.get("reset"), "1");
+    return Promise.resolve(response({ ok: true, presets: structuredClone(defaults) }));
+  });
+  await a.el("reset-preset").fire("click");
+  await flush();
+  assert.equal(a.eval("presetFor().rgb"), "5C0701");
+  assert.equal(a.eval("presetFor().bri"), 44);
+  assert.equal(a.eval('presetFor("KI-18FB").rgb'), "5C0701");
+  assert.equal(a.eval('presetFor("WZ-594F").rgb'), "5C0701");
+});
+
+test("phone hub switcher has three flexible columns on its own row", () => {
+  // Geometry still needs browser QA outside Codex; this checks the responsive contract.
+  assert.match(
+    html,
+    /\.top > \.seg\s*\{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/,
+  );
+  assert.match(
+    html,
+    /@media \(max-width: 600px\)\s*\{\s*\.top\s*\{[^}]*flex-wrap: wrap;[^}]*\}\s*\.top > \.seg\s*\{\s*flex-basis: 100%;/,
+  );
 });
 
 test("first readback initializes brightness without selecting or claiming a command", async () => {
@@ -1968,7 +2119,7 @@ test("recovery colours remain separate across hub switches and late readbacks", 
   assert.equal(a.eval("state().lastRgb"), "112233");
 });
 
-test("Verwendung selects exactly one styled radio on both hubs, modes and themes", async () => {
+test("Verwendung selects exactly one styled radio on three hubs, modes and themes", async () => {
   assert.match(
     html,
     /\.seg button\[aria-checked="true"\]\s*\{[^}]*background: var\(--raised\)/,
@@ -1978,6 +2129,7 @@ test("Verwendung selects exactly one styled radio on both hubs, modes and themes
       for (const [hub, usage] of [
         ["KI-18FB", "nightlight"],
         ["WZ-594F", "desk"],
+        ["KG-5632", "nightlight"],
       ]) {
         const a = await setup({
           "nightlight-theme": theme,

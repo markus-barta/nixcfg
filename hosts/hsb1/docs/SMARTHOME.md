@@ -10,14 +10,16 @@
 ## Aqara Nightlight (OPS-496)
 
 `aqara-nightlight.service` is a native Python service for light and the 25
-built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
+built-in sounds on three LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
-Kinderzimmer nightlight) and **WZ-594F** (`round`, `192.168.1.108`) map to stable
-API handles. On first visit the responsive page starts in Kind with KI-18FB
+Kinderzimmer nightlight), **WZ-594F** (`round`, `192.168.1.108`) and **KG-5632**
+(`kg`, `192.168.1.107`, Kinderzimmer groß) map to stable API handles.
+Labels use `<ROOM>-<last 4 MAC hex>`; KG means Kinderzimmer groß.
+On first visit the responsive page starts in Kind with KI-18FB
 selected; hub choice, Kind/Erwachsen and Hell/Dunkel are device preferences.
 Switching out of Kind or opening its loud tones requires a one-second hold.
 Brightness and colour drags coalesce at one command per second and send the final release value; readback is marked ≈ because hardware values can lag. The default
-Nachtlicht is **5C0701 at 44%** for both hubs; tone volume starts at 15%.
+Nachtlicht is **5C0701 at 44%** for all three hubs; tone volume starts at 15%.
 The HTML is a separate self-contained file packaged by Nix and read once at
 service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
 no external assets.
@@ -79,8 +81,12 @@ including HA's legacy GET caller. An unknown or missing saved preset returns
 
 `/var/lib/aqara-nightlight/presets.json` is the server's source of truth for
 both the page and HA's Kinderzimmer double-press/Gute-Nacht actions. A missing
-file supplies the defaults for both hubs; an absent entry in an existing file
-is unsaved. Saves use a separate stable `presets.json.lock` and an atomic,
+file supplies the defaults for all three hubs. A missing KG entry in an existing
+two-hub file supplies default places in memory, including `nacht` at 5C0701/44%,
+ready to apply, save, rename or reset. Reads do not rewrite a named-place file;
+the next explicit preset write persists KG alongside unchanged plug/round entries.
+Missing slots within an existing hub entry remain unsaved.
+Saves use a separate stable `presets.json.lock` and an atomic,
 private file replacement, with file/directory sync. Corrupt state fails closed
 rather than silently applying defaults or overwriting it. The old single-Nachtlicht file migrates atomically and losslessly to named slots
 `nacht`, `p2`–`p6`; IDs stay fixed and `nacht` cannot be deleted. The page offers
@@ -102,7 +108,9 @@ do not replace a newer command's status. The CSP permits only the packaged
 script's SHA-256 hash, inline styles and same-origin connections/SVG references.
 No handshake token or raw library exception is logged.
 
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Use,
+KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+KG adds no automations and starts with automatic sound off. Missing KG settings
+in an existing two-hub file use defaults in memory; reads do not rewrite it. Use,
 11 matrix rules, four-hour urgency thresholds and automatic audio are persisted
 in `settings.json`. Until the separately owned poller supplies the documented
 `desk-counts.json` input, the Desk hub stays **Unbekannt** at 5%, and both desk
@@ -122,8 +130,12 @@ progress. Drags wait for replies, coalesce and stay at one per second.
 The shared counter reserves blocks of 256 monotonic wire IDs, with file and
 directory sync per block; restart discards unused IDs. It bypasses python-miio's
 internal 9999 wrap. Preserve `msgid`, `msgid.lock`, presets and settings; never
-restore an older counter. Old code cannot read new preset arrays, so rollback
-requires a reviewed compatibility plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
+restore an older counter. Back up both settings and presets before third-hub
+activation: subsequent writes persist KG, which the old two-hub build rejects.
+Rollback requires restoring those backups or removing their `kg` keys; see the
+[activation/rollback note](RUNBOOK.md#aqara-nightlight-ops-496). Old code cannot
+read new preset arrays, so schema rollback also requires a reviewed compatibility
+plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
 for API details, retry budgets, the exact feed schema and poller ownership.
 
 **Integration ownership:** DEVOPS verified on **2026-10-29** that hsb1's live

@@ -47,15 +47,24 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
 `100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
-`192.168.1.106`, Kinderzimmer) and **WZ-594F** (`round`, `192.168.1.108`) map to
-stable API handles. The self-contained responsive page has Kind/Erwachsen
+`192.168.1.106`, Kinderzimmer), **WZ-594F** (`round`, `192.168.1.108`) and
+**KG-5632** (`kg`, `192.168.1.107`, Kinderzimmer groß) map to stable API handles.
+Labels use `<ROOM>-<last 4 MAC hex>`; KG means Kinderzimmer groß.
+The self-contained responsive page has Kind/Erwachsen
 and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
 mode and theme are remembered on the device.
-The `nacht` place defaults to **5C0701 at 44%** for both hubs. Erwachsen can
+The `nacht` place defaults to **5C0701 at 44%** for all three hubs. Erwachsen can
 save, rename, reset and manage up to six fixed-ID places per hub; `/presets`
 returns ordered arrays, and `/apply?hub&preset=<id>` applies any saved place.
 Old single-Nachtlicht files migrate atomically and preserve their saved values.
 KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+KG-5632 uses Nachtlicht with automatic sound off and no new automations.
+Existing two-hub presets and message-ID state remain valid. A missing KG preset
+entry supplies the default places in memory, so `nacht` applies and can be saved,
+renamed or reset immediately. Missing KG settings also use in-memory defaults.
+Reading a named-place file or settings does not rewrite it; the next explicit
+preset write persists KG in `presets.json`, and a settings write persists KG in
+`settings.json`. See the runbook's activation/rollback note before switching builds.
 Without the separately owned poller feed, Desk-Signal shows **Unbekannt** at
 5%, never Aus. Per-hub use, signal rules and automatic audio persist server-side.
 Vienna quiet hours are 20:00–07:30; automatic sound starts off.
