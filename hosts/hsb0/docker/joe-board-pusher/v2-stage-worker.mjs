@@ -12,7 +12,8 @@ import { contractRevision, validExactValues, applyExactValues, exactDeskAction, 
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
-export const CONTRACT_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
+export const CONTRACT_SHA = "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b";
+const REV10_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
 const REV9_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 export const RETAIN_PAIRS = 10;
@@ -146,7 +147,7 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
       ...(!positionsFresh ? { reason: "source_unavailable" }
         : !gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
   };
-  return revision === 10 ? applyExactValues(candidate, observation, generatedAt) : candidate;
+  return revision >= 10 ? applyExactValues(candidate, observation, generatedAt, revision) : candidate;
 }
 
 export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, floor, highWater = null) {
@@ -175,7 +176,7 @@ export class StageStore {
       else console.log('{"event":"v2_stage_checkpoint_disabled","reason":"directory_unsafe"}');
     } } = {}) {
     if (!Number.isSafeInteger(retainPairs) || retainPairs < RETAIN_PAIRS || retainPairs > MAX_RETAIN_PAIRS) fail();
-    if (![9, 10].includes(revision)) fail();
+    if (![9, 10, 11].includes(revision)) fail();
     Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision, socketPath, onCheckpointDisabled });
     // No default or legacy shared-directory fallback, including after rollback
     // of the host mount. The injected env object is only a test seam.
@@ -284,7 +285,9 @@ export class StageStore {
       || !canonical(receipt.stagedReceivedAt) || !canonical(receipt.generatedAdvancedAt)
       || receipt.generatedAdvancedAt > receipt.stagedReceivedAt
       || receipt.snapshotSha256 !== sha(bytes)
-      || !(receipt.contractSetSha256 === CONTRACT_SHA || (receipt.contractSetSha256 === REV9_SHA && !snapshot.pnlSources))
+      || !(receipt.contractSetSha256 === CONTRACT_SHA
+        || (receipt.contractSetSha256 === REV10_SHA && !snapshot.desks.some(desk => desk.pnlSources?.day?.fx))
+        || (receipt.contractSetSha256 === REV9_SHA && !snapshot.pnlSources))
       || !this.validateContract("data", snapshot, { stage: "ingress" }).ok
       || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
@@ -695,7 +698,7 @@ export class StageStore {
       const receipt = {
         format: pairFormat, stagedReceivedAt, seq: candidate.seq, generatedAt,
         generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes),
-        contractSetSha256: this.revision === 10 ? CONTRACT_SHA : REV9_SHA, ...binding,
+        contractSetSha256: this.revision >= 10 ? CONTRACT_SHA : REV9_SHA, ...binding,
       };
       const next = `.next-${candidate.seq}`;
       const pair = `pair-${candidate.seq}`;
@@ -738,7 +741,7 @@ export function launchLocked({ root = STATE_DIR, args = [], uid = 1000, gid = 10
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     env: { PATH: env.PATH, NODE_ENV: "production",
       ...(env.JOE_V2_STAGE_CHECKPOINT_DIR ? { JOE_V2_STAGE_CHECKPOINT_DIR: env.JOE_V2_STAGE_CHECKPOINT_DIR } : {}),
-      ...(contractRevision() === 10 ? { JOE_V2_CONTRACT_REV: "10" } : {}) },
+      ...(contractRevision(env.JOE_V2_CONTRACT_REV) >= 10 ? { JOE_V2_CONTRACT_REV: String(contractRevision(env.JOE_V2_CONTRACT_REV)) } : {}) },
   });
 }
 

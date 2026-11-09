@@ -182,7 +182,7 @@ export function createFlatNetMarkController({
         const existing = byKey.get(row.key);
         const age = existing?.markObservedAt ? observedNow - Date.parse(existing.markObservedAt) : 0;
         if (existing && !(Number.isFinite(age) && age >= refreshAfterMs)) continue;
-        if (existing) {
+        if (existing && !existing.cancelled) {
           try { cancel(existing.tickerId); } catch {}
         }
         if (!marketDataTypeSet && typeof setMarketDataType === "function") {

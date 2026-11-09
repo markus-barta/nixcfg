@@ -35,7 +35,7 @@ export function copyObservation({ book, family, deskEquities, dayPnl, historyBas
     for (const desk of ["j", "joe", "joel"]) {
       if (!addOwners(desk, deskEquities.desks?.[desk]?.positions)) return null;
     }
-  } else if (revision === 10 && deskEquities?.phaseBDesks) {
+  } else if (revision >= 10 && deskEquities?.phaseBDesks) {
     for (const desk of ["j", "joe", "joel"]) {
       const value = deskEquities.phaseBDesks[desk];
       if (value?.reconciled && !addOwners(desk, value.positions)) return null;
@@ -76,7 +76,7 @@ export function copyObservation({ book, family, deskEquities, dayPnl, historyBas
     apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
     deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }),
     ...(historyBasis === undefined ? {} : { historyBasis }),
-    ...(revision === 10 ? { exactValues: copyExactValues({ book, deskEquities, dayPnl }) } : {}),
+    ...(revision >= 10 ? { exactValues: copyExactValues({ book, deskEquities, dayPnl }) } : {}),
     ...(v1Cycle === undefined ? {} : { v1Cycle: { ...v1Cycle } }) };
 }
 

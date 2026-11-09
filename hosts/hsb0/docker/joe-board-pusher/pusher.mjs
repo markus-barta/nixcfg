@@ -356,7 +356,7 @@ async function pushOnce(stageObservation) {
   const deskEquities = familyAdapter.projectDeskEquities(book, {
     calculateDeskEquities,
     policy: deskOwnershipPolicy,
-    phaseB: contractRevision() === 10,
+    phaseB: contractRevision() >= 10,
   });
   if (!deskEquities.ok) {
     console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));

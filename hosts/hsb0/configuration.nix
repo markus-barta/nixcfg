@@ -320,7 +320,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # JOED-100 r20e (r20d + OPS-497 two-rate Today; r20d = r20c #1159 bounded ownership history + #1171 JOED-102 stager checkpoint; JOED-86 lineage after JOED-63/HOSTD-77 r19a): household-v2-switch-set-r20e-202610291640, selected
+    # JOED-149 r21 (rev-11 desk DAY FX provenance on the JOED-100/OPS-497 shared-image lineage): household-v2-switch-set-r21-202611031258, selected
     # only by the release set. Shared-image rollback retains r19a; the separate
     # current v1 set retains household-v2-switch-set-r16d-202610201800. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
@@ -342,11 +342,11 @@ assert joeSet.pusher != null && joeSet.executor != null;
               ]
               ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
               ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2"
-              # JOED-87 Phase B (Markus Desk ae96cf9f): exact desk values where Amy's rules allow. The
-              # pusher and the stager both need it (README "Phase B exact values"). Only the string
-              # "10" activates it (v2-exact-values.mjs:11); remove both lines to return to rev 9.
+              # JOED-149: revision 11 adds proven desk DAY conversion observations.
+              # The pusher and stager both need it (README "Two proven Today conversions").
+              # Set both to "10" for rollback; remove both to return to rev 9.
               # v2 set only: the v1 "current" set keeps its pre-v2 baseline (v2-contracts test).
-              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=10";
+              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=11";
           }
           // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
             volumes =
@@ -368,12 +368,11 @@ assert joeSet.pusher != null && joeSet.executor != null;
                   pull_policy = "never";
                 }
                 // lib.optionalAttrs joePushV2 {
-                  # JOED-87 Phase B: the supervisor forwards this to the stager child
-                  # (v2-stage-worker.mjs:589) only when its own environment has it.
+                  # JOED-149: the supervisor forwards revision 11 to the stager child.
                   # JOED-102: append, never replace. recursiveUpdate replaces lists, so a bare list here
                   # would drop the base JOE_V2_STAGE_CHECKPOINT_DIR and bring back the full cold scan.
                   environment = (joeComposeBase.services.joe-household-v2-stage.environment or [ ]) ++ [
-                    "JOE_V2_CONTRACT_REV=10"
+                    "JOE_V2_CONTRACT_REV=11"
                   ];
                 };
               }

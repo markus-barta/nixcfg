@@ -1278,8 +1278,8 @@ environment/mounts; the source build context/restart trigger still changes with
 production `.mjs`. Pusher and stager use `joeSet.pusher.image`, executor uses
 `joeSet.executor.image`. The OPS activation commit (OPS-354) selects the matching
 r17 images in the release set and moved the joedesk lock to 6eacd6c7 (JOED-58 retry; d36b5295 was the first attempt).
-Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), since JOED-87 it was 8be38581 (sequence 32), since JOED-90 it was e96ff9a5 (sequence 33), since JOED-97 a3a3683d (sequence 34), since JOED-99 2d36c7b4 (sequence 35), since JOED-106 b1863082 (sequence 36), since JOED-122 aedc6664 (sequence 37), since JOED-159 95aa9342 (sequence 39; sequence 38, 9ec65b46, was published but never deployed), since JOED-171 2ad81321 (sequence 40), since JOED-172 daa49125 (sequence 41), since JOED-174 a76621e4 (sequence 42, published, never live), and since JOED-177 it is 36fecfeb (sequence 43).
-Release 43's board accepts contract revision 11 beside revision 10 and still accepts existing revision-9 payloads. The r20e pusher keeps its vendored revision-10 set and emits no fx until the separate JOED-149 flip.
+Since JOED-39 the v2 set pinned r18a (ops_test), since JOED-57 r18c (gateway heartbeat + CodeQL timer bound), since JOED-62 r18f (attribution memory; r18d and r18e were its pre-CodeQL-fix folds, never live), since JOED-63/HOSTD-77 r19a (FX stale clock on IB's raw rate; unknown gateway evidence omitted, never false), since JOED-60 the joedesk lock was a60f4c56 (sequence 28; JOED-59 was 040d6756, sequence 27), since JOED-75 it was cdf843a5 (sequence 29), since JOED-78 it was d4eb6627 (sequence 30), since JOED-84 it was 20c37cdd (sequence 31), since JOED-87 it was 8be38581 (sequence 32), since JOED-90 it was e96ff9a5 (sequence 33), since JOED-97 a3a3683d (sequence 34), since JOED-99 2d36c7b4 (sequence 35), since JOED-106 b1863082 (sequence 36), since JOED-122 aedc6664 (sequence 37), since JOED-159 95aa9342 (sequence 39; sequence 38, 9ec65b46, was published but never deployed), since JOED-171 2ad81321 (sequence 40), since JOED-172 daa49125 (sequence 41), since JOED-174 a76621e4 (sequence 42, published, never live), since JOED-177 36fecfeb (sequence 43, live 2026-11-01T11:14:45Z), and since JOED-183 it is fa97f884 (sequence 44).
+Release 44's board (like release 43's) accepts contract revision 11 beside revision 10 and still accepts existing revision-9 payloads. JOED-149 prepares the r21 pusher with the complete vendored revision-11 set and revision 11 configured for pusher and stager; host activation and live producer sign-off remain separate gates.
 JOED-100 prepares `household-v2-switch-set-r20c-202610271530`: r20b's JOED-86
 pusher code plus the bounded ownership history (JOED-100, #1159). r20a and r20b
 carried the JOED-86 code (r20a was its first prestage: its build context had
@@ -1289,11 +1289,22 @@ pusher code, with revision 9 still the default. Phase B activation and real
 producer sign-off remain separate; this tag does not set `JOE_V2_CONTRACT_REV=10`.
 Prestage the immutable image before one validated host build and activation.
 
-JOED-100 now prepares `household-v2-switch-set-r20e-202610291640`:
+JOED-100 prepared `household-v2-switch-set-r20e-202610291640`:
 r20e = r20d + OPS-497 (pusher two-rate Today via proven SOD FX); r20d = r20c (#1159 bounded ownership history) + #1171 (JOED-102 bounded
 stager cold start, stager-only checkpoint). r20c was built but rolled back on
 2026-10-27 and is never deployed by this combined re-land. The new tag prevents
 reuse of the earlier r20c image without the checkpoint code.
+
+JOED-149 now prepares `household-v2-switch-set-r21-202611031258` from the
+committed rev-11 implementation `729ddf040951a5a0f4ee3acada8613d62255227e`.
+Both `v2.pusher.nixcfg_rev` and `v2.executor.nixcfg_rev` name that commit;
+`git rev-parse REV:SOURCE_PATH` derives pusher tree
+`eda3c8d69c3b555c9136bf30195d1ffafa82f99f` and unchanged executor tree
+`92e261d0dd504b30d8ec8850641310e129f7a8fe`. Tag-related docs/tests are outside
+the filtered image context, and the executor comment changes no copied runtime
+source. Build this new tag from that runtime tree before an approved activation;
+switch never rebuilds it. Every board entry and both legacy rollback sets stay
+intact. The csb0 Compose values and joedesk source pin stay unchanged.
 
 The pusher, stager, executor and mailbox share the tag and recreate together;
 the existing compose post-recreation also recreates `hsb0-home`. Reject any
