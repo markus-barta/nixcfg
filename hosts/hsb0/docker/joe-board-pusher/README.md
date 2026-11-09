@@ -970,14 +970,15 @@ the adapter retains that optional mode for callers that explicitly allow it.
 
 **Required before the 2026-11-10 deployment (22:25–22:40 Europe/Vienna):**
 take **fresh, consistent copies on deploy day** of `family-history.json`,
-`/var/lib/paper-desk-executor/ledger.json` and
-`executor-attribution-memory.json`. Keep the private copies outside Git and
-record their capture time privately. Re-take and re-run if those inputs change
-before activation. Earlier ticket replays and synthetic tests do not satisfy
-this gate. From this reviewed checkout, run offline against the three copies:
+`/var/lib/paper-desk-executor/ledger.json`,
+`executor-attribution-memory.json` and `family-ledger.json`. Keep the private
+copies outside Git and record their capture time privately. Re-take and re-run
+if those inputs change before activation. Earlier ticket replays and synthetic tests do not satisfy
+this gate. From this reviewed checkout, run offline against the four copies;
+`--deploy-date` is the intended activation instant with an explicit timezone:
 
 ```bash
-node replay-ops557.mjs /private/deploy-day/family-history.json /private/deploy-day/ledger.json /private/deploy-day/executor-attribution-memory.json
+node replay-ops557.mjs --deploy-date 2026-11-10T21:25:00Z /private/deploy-day/family-history.json /private/deploy-day/ledger.json /private/deploy-day/executor-attribution-memory.json /private/deploy-day/family-ledger.json
 ```
 
 Every line must say `PASS` and the exit status must be zero. Required evidence:
@@ -985,6 +986,18 @@ Every line must say `PASS` and the exit status must be zero. Required evidence:
 - Each `override[index] matches count=1` and `override[index] README fill`
   passes: exactly one effective fill matches the table's conId **4815747**,
   symbol, client, side, quantity and UTC time. Corrected-away identities fail.
+  The same checks must pass with the `ledger raw` and `ledger merged` prefixes:
+  the raw family ledger must contain exactly one copy, and correction merge
+  plus KEEP filtering must retain it. Deduplication cannot hide an extra copy.
+- `PASS history freshness` and `PASS family ledger freshness`: history
+  `updatedAt` and family-ledger `coverageThrough` must each fall within the
+  **60 minutes ending at `--deploy-date`**, inclusive. Missing/invalid clocks,
+  older copies and clocks after that instant fail. The bound is enforced from
+  source timestamps, not copy mtimes. `ledgerObservedAt` can stay old when no
+  fills change; `coverageThrough` is the execution-query freshness clock.
+  This bound checks those two source clocks; capture the executor ledger and
+  memory together with these copies. A later activation needs a new deployment
+  instant and fresh replay, even if the earlier run passed.
 - `PASS J NVDA before=+8`, then `PASS J NVDA after=0` and
   `PASS Joe NVDA after=0`: the explicit **+8 → 0 on J** expectation.
 - `PASS other-symbol lots unchanged count=...` and
@@ -993,12 +1006,16 @@ Every line must say `PASS` and the exit status must be zero. Required evidence:
   and realised result, including flat instruments; KEEP remains excluded.
 - `PASS FIFO replay` and `PASS OPS-557 deploy gate`.
 
-The script reads all three files without modifying them, resolves executor
-ownership with the ledger and attribution memory, and runs the production FIFO
-before and after the fill overrides. The J-family rollup is the same in both
-comparisons. It uses internal neutral marks and FX solely for a deterministic
-economic comparison; it does not attest current market valuation. Output is
-value-free: fixed check names, counts and PASS/FAIL, with only the required
+The script reads all four files without modifying them, resolves executor
+ownership with the executor ledger and attribution memory, and runs the
+production FIFO before and after the fill overrides. The J-family rollup is the
+same in both comparisons. The complete raw family ledger supplies `executionRows`, exactly
+as production does: it retains the `orderRef` evidence needed to prove flat
+OPS-test exclusions, which normalized history intentionally omits. History
+supplies the economic FIFO and commission comparison. It uses internal neutral
+marks and FX solely for a deterministic economic comparison; it does not attest
+current market valuation. Output is value-free: fixed check names, counts and
+PASS/FAIL, with only the required
 NVDA +8/0 lot quantities. It never prints prices, monetary results, input
 identities or exception text. A missing input, unclaimed fill or failed replay
 also fails the gate. **Any FAIL or nonzero exit = do not deploy.** Save the
@@ -1019,6 +1036,16 @@ metadata therefore requires an archive/move-aside for rollback; a mixed
 pusher/stager generation is not supported. Without it, recovery reports
 `stage_storage_invalid` and the old publisher cannot send the committed pair.
 
+**Desk-money limit:** after OPS-567 records any `j3` or `j4` proof in
+`executor-attribution-memory.json`, r21's old rollup validator rejects the
+**whole memory file**, including otherwise compatible proofs. Its executor
+attribution then fails closed and J/all-desk money is unavailable. A fresh
+published sequence alone does not prove desk-money recovery. Preserve the
+memory file byte-for-byte; never delete, trim, rewrite or restore an older copy
+to make r21 accept it. The recovery path for this case is to **roll forward**
+to the reviewed OPS-557/OPS-567 runtime with the preserved memory. Even without
+a saved proof, r21 cannot attribute a live `j3`/`j4` intent.
+
 This is a coordinator-operated rollback procedure, not automatic cleanup:
 
 1. Stop `joe-board-pusher` first, then `joe-household-v2-stage`, and verify both
@@ -1033,7 +1060,9 @@ This is a coordinator-operated rollback procedure, not automatic cleanup:
    when present, plus `v2/sequence-state.json` and `v2/receipts.jsonl` for
    comparison. Record the `.allocator.lock` inode and saved sequence/time
    high-water. Leave the original cursor, pending POST, baseline files, family
-   ledger/history and checkpoint directory untouched.
+   ledger/history, `executor-attribution-memory.json` and checkpoint directory
+   untouched. Also copy the attribution memory into the archive as evidence;
+   preserve the live original byte-for-byte through rollback and roll-forward.
 3. Move `/var/lib/joe-board-pusher/v2/current.json`, when present, into the
    archive first. Then move **every** `v2/pair-<seq>/` directory into the same
    archive, including compatible older pairs. Moving the pointer alone fails:
@@ -1050,16 +1079,23 @@ This is a coordinator-operated rollback procedure, not automatic cleanup:
    succeeds with no current/retained pair and the saved high-water intact.
    The next healthy IB cycle must commit a sequence **above** that high-water,
    append to the existing receipt log, and publish successfully using the
-   preserved posting state. Verify the board becomes fresh; neither process
-   startup nor a missing storage error alone proves recovery. Preserve the
-   archive after pruning and do not reset the board or POST cursor.
+   preserved posting state. Verify the board becomes fresh and check J and
+   all-desk money for availability/reconciliation in the new published snapshot,
+   with value-free evidence. If money is null/unavailable because the old worker
+   rejects a j3/j4 proof, the sequence check is only transport recovery: preserve
+   the memory and coordinate roll-forward; do not declare money recovered.
+   Neither process startup nor a missing storage error alone proves recovery.
+   Preserve the archive after pruning and do not reset the board or POST cursor.
 
-The rollback restores pre-fix ownership and removes J/Joe's policy basis,
-causing another board series cut. The old policy's own preserved baseline is
-selected again; it must never be copied into the corrected policy's file.
+When attribution remains compatible, rollback restores pre-fix ownership and
+removes J/Joe's policy basis, causing another board series cut. The old policy's
+own preserved baseline is selected again; it must never be copied into the
+corrected policy's file.
 `v2-rollback.test.mjs` loads the actual base-commit runtime/contract closure and
 pins rejection, pointer-only failure, evidence preservation, monotonic recovery
 and successful old-worker publication for all three supported contract revisions.
+Its rev-11 case also pins whole-file rejection of a j3 proof, loss of an otherwise
+valid Joe proof, unchanged memory bytes and successful attribution on roll-forward.
 
 Stage-0 desks share one paper account and may both hold one contract.
 `calculateFamily` defaults to exclusive ownership and fails with
@@ -1078,6 +1114,19 @@ After the first accepted last/close tick the market-data subscription is cancell
 
 KEEP names are never requested. Exact KEEP stays SXR8×1401 and TSLA×1. A
 client ID outside the dated ownership policy still fails loud.
+
+OPS-555 remains open: a marked flat-account cross-desk close can currently
+leave opposite virtual lots while both desks report reconciled. The synthetic
+`desk-ledger.test.mjs` reproduction opens ACME on client 27 and closes it on
+client 22: an explicit flat-net mark permits J +1 / Joe -1; assigning the exact
+close to J makes both flat. Missing marks fail loud, but supplying a mark does
+not detect this ownership error.
+
+An unclaimed non-KEEP executor fill blocks the **whole all-desk calculation**;
+it is never silently skipped or isolated to one desk. `executor-attribution.mjs`
+throws during ownership classification, and `calculateDeskEquities` in
+`desk-ledger.mjs` returns `ok:false` without desk money. The proven, flat
+`ops_test` exclusion is the explicit exception.
 
 OPS-392 adds J's legacy Mac client 229 from `2026-10-06T13:40:47Z`, inclusive,
 with no end date. `J_DATED_CLIENT_ASSIGNMENTS` in `execution-history.mjs` is

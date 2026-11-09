@@ -164,7 +164,8 @@ function canonicalPolicy(value = CURRENT_DESK_OWNERSHIP_POLICY) {
     throw new Error("executor client configuration is invalid");
   }
   return { method: POLICY_METHOD, periodStart, scope: SCOPE, excludedSymbols, keepPositions, assignments, emptyDesks, executorClientIds,
-    // Preserve the pre-override policy's digest when its override set is empty.
+    // Omit empty overrides; with OPS-567's rollup this yields 0f9071ea…,
+    // not the historical pre-OPS-567 digest c32cde79….
     ...(fillAttributionOverrides.length ? { fillAttributionOverrides } : {}),
     executorAttribution: EXECUTOR_ATTRIBUTION_METHOD, executorDeskRollup: EXECUTOR_DESK_ROLLUP };
 }

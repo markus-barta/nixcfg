@@ -495,26 +495,34 @@ if (flatNetMarksEnabled()) {
   flatNetMarks = createNoOpFlatNetMarkController();
   console.log(JSON.stringify({ event: "flat_net_marks_disabled", reason: process.env.JOE_FLAT_NET_MARKS === "0" ? "env" : "disable-file" }));
 }
+let flatNetMarksError = null;
 function syncFlatNetMarks() {
   if (!flatNetMarksEnabled()) {
+    flatNetMarksError = null;
     flatNetMarks?.reset();
     return;
   }
   const book = adapter.snapshot();
   const state = familyAdapter.inspectState();
   if (!book || !state) return;
-  try { flatNetMarks.sync(contractsNeedingFlatNetMarks({
-    executions: state.executions,
-    positions: book.positionsCoverage?.rows || [],
-    portfolio: book.portfolio || [],
-    account: ACCOUNT,
-    familyClientIds: FAMILY_CLIENT_IDS,
-    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
-    fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
-    executorAttribution,
-    excludedSymbols: ["SXR8", "TSLA"],
-  })); } catch (error) {
-    console.warn(JSON.stringify({ event: "family_unavailable", reason: error.message }));
+  try {
+    flatNetMarks.sync(contractsNeedingFlatNetMarks({
+      executions: state.executions,
+      positions: book.positionsCoverage?.rows || [],
+      portfolio: book.portfolio || [],
+      account: ACCOUNT,
+      familyClientIds: FAMILY_CLIENT_IDS,
+      familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+      fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
+      executorAttribution,
+      excludedSymbols: ["SXR8", "TSLA"],
+    }));
+    flatNetMarksError = null;
+  } catch (error) {
+    if (error.message !== flatNetMarksError) {
+      console.warn(JSON.stringify({ event: "family_unavailable", reason: error.message }));
+    }
+    flatNetMarksError = error.message;
     flatNetMarks.reset();
   }
 }

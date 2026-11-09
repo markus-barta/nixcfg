@@ -1336,8 +1336,12 @@ because the response itself does not attest remote byte identity.
 window: 22:25–22:40 Europe/Vienna. Before activation, run the
 [OPS-557 pre-deploy replay gate](../docker/joe-board-pusher/README.md#ops-557-pre-deploy-replay-gate)
 offline on **fresh, consistent deploy-day copies** of `family-history.json`,
-the executor `ledger.json` and `executor-attribution-memory.json`. Require
-exactly one fill per override agreeing with the README table (conId 4815747,
+the executor `ledger.json`, `executor-attribution-memory.json` and
+`family-ledger.json`. Pass `--deploy-date` with the intended activation instant
+(22:25 Vienna = `2026-11-10T21:25:00Z`); history `updatedAt` and family-ledger
+`coverageThrough` must be within the preceding **60 minutes**, inclusive, with
+no future clocks. Require exactly one fill per override in effective history
+and both raw and merged family-ledger rows, agreeing with the README table (conId 4815747,
 client, side, quantity, time), **J NVDA +8 before → 0 after**, Joe NVDA 0 after,
 and every other symbol's lots and realised results unchanged. Keep value-free
 PASS/FAIL output and counts as evidence. **Any FAIL or nonzero exit: do not
@@ -1349,9 +1353,17 @@ for 2026-11-09 23:20–2026-11-10 01:00 Europe/Vienna. Verify that pre-switch
 target and follow the [OPS-557 rollback procedure](../docker/joe-board-pusher/README.md#ops-557-rollback-to-the-pre-change-image):
 stop the matched pusher/stager, archive the pointer and every retained pair
 outside `v2`, preserve allocator/lock inode, receipts, posting state and all
-baselines, then verify a fresh committed/published sequence above high-water.
+baselines, then verify a fresh committed/published sequence above high-water
+**and J/all-desk money availability and reconciliation** in that snapshot.
 The old worker rejects the new basis on revisions 9, 10 and 11; moving only
 the pointer cannot recover it. Preserve the archive as evidence.
+Also archive and preserve the live `executor-attribution-memory.json`
+byte-for-byte: once it contains a j3/j4 proof, r21 rejects the **entire** file
+and J/all-desk money stays unavailable despite a fresh sequence. Never remove
+or edit those proofs or restore an older memory to make rollback pass. The
+recovery path is coordinated **roll-forward** to the reviewed OPS-557/OPS-567
+runtime using the preserved memory; transport recovery alone is not desk-money
+recovery. r21 also rejects a live j3/j4 intent without a saved proof.
 
 The r17 rollback image is `household-v2-switch-set-r16d-202610201800`.
 **Before activation, r17 → r16d needs no move-aside. After activation, it does:**

@@ -12,6 +12,8 @@ import { startCycle } from "./v1-cycle.mjs";
 import { createCycleStore } from "./v1-cycle-store.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
 import { deskOwnershipPolicyContract } from "./desk-ledger.mjs";
+import { createExecutorAttributionMemory } from "./executor-attribution-memory.mjs";
+import { readExecutorAttribution } from "./executor-attribution.mjs";
 
 const fixture = new URL("./fixtures/r15/", import.meta.url);
 const revision = "0c4e2946fc5ea220c72b57709db00710ebd3ba8c";
@@ -204,6 +206,42 @@ for (const revision of [9, 10, 11]) test(`pre-OPS-557 rev ${revision} rejects ne
   }
   const { StageStore: OldStore, validObservation: oldValidObservation } = await import(pathToFileURL(path.join(runtime, "v2-stage-worker.mjs")));
   const { createV2Publisher: oldPublisher, createPostStateStore: oldPostState } = await import(pathToFileURL(path.join(runtime, "v2-publisher.mjs")));
+  let memoryPath, memoryBytes;
+  if (revision === 11) await t.test("r21 rejects the whole j3 memory; preserving it permits roll-forward attribution", async () => {
+    const { createExecutorAttributionMemory: oldMemory } = await import(pathToFileURL(path.join(runtime, "executor-attribution-memory.mjs")));
+    const { readExecutorAttribution: oldAttribution } = await import(pathToFileURL(path.join(runtime, "executor-attribution.mjs")));
+    const account = "DUROLLBACK";
+    const memory = createExecutorAttributionMemory({ account });
+    const executions = ["j3", "joe"].map((subDesk, index) => {
+      const execution = { acctNumber: account, execId: `rollback.memory.${index}.01`, clientId: 705,
+        orderId: 900 + index, side: "BOT", shares: 1, price: 1, time: instant };
+      memory.record({ clientId: execution.clientId, execId: execution.execId, orderId: execution.orderId,
+        desk: subDesk === "j3" ? "j" : "joe", subDesk, source: "intent", provenAt: instant });
+      return { contract: { conId: 557, symbol: "MEMORY", secType: "STK", currency: "USD" }, execution };
+    });
+    const state = memory.snapshot();
+    const legacyCompatible = structuredClone(state);
+    delete legacyCompatible.entries[JSON.stringify([account, 705, executions[0].execution.execId])];
+    assert.doesNotThrow(() => oldMemory({ account, state: legacyCompatible }), "Joe proof alone is compatible");
+    assert.throws(() => oldMemory({ account, state }), /memory unavailable/, "one j3 entry rejects even the Joe proof");
+    memoryPath = path.join(root, "executor-attribution-memory.json");
+    memoryBytes = Buffer.from(JSON.stringify(state));
+    fs.writeFileSync(memoryPath, memoryBytes, { mode: 0o600 });
+    const ledgerPath = path.join(root, "executor-ledger.json");
+    fs.writeFileSync(ledgerPath, JSON.stringify({ schema: "barta.paper-desk-executor-state.v1", account, executions,
+      intents: Object.fromEntries(["j3", "joe"].map((desk, index) => [desk, { action: "place", desk,
+        result: { bracket: { clientId: 705, parentOrderId: 900 + index } } }])) }));
+    const options = { account, file: ledgerPath, memoryFile: memoryPath, remember: true, onEvent() {} };
+    const rollbackAttribution = oldAttribution(options);
+    for (const { execution } of executions) assert.throws(() => rollbackAttribution.attribute(execution), /ledger_unavailable/);
+    assert.deepEqual(fs.readFileSync(memoryPath), memoryBytes, "rollback must preserve the incompatible proof file");
+    const forward = readExecutorAttribution(options);
+    assert.deepEqual(executions.map(({ execution }) => {
+      const { desk, subDesk } = forward.attribute(execution);
+      return { desk, subDesk };
+    }), [{ desk: "j", subDesk: "j3" }, { desk: "joe", subDesk: "joe" }]);
+    assert.deepEqual(fs.readFileSync(memoryPath), memoryBytes, "roll-forward reuses both exact proofs unchanged");
+  });
   const v2 = path.join(root, "v2"), cycles = path.join(root, "v1-cycles"), backup = path.join(root, "rollback-ops557");
   fs.mkdirSync(v2, { mode: 0o700 });
   const options = { root: v2, uid: process.getuid(), gid: process.getgid(), revision, env: {} };
@@ -289,4 +327,5 @@ for (const revision of [9, 10, 11]) test(`pre-OPS-557 rev ${revision} rejects ne
   for (const [name, files] of pairs) for (const [file, bytes] of files) assert.deepEqual(fs.readFileSync(path.join(backup, name, file)), bytes);
   for (const [name, bytes] of v1) assert.deepEqual(fs.readFileSync(path.join(backup, "v1-cycles", name)), bytes);
   assert.deepEqual(fs.readFileSync(path.join(backup, "v2-post-state.json")), beforePost);
+  if (memoryPath) assert.deepEqual(fs.readFileSync(memoryPath), memoryBytes, "stager recovery leaves attribution memory intact");
 });

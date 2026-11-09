@@ -48,8 +48,13 @@ export const projectBestAvailableHistory = noop;
 export const readOfficialExecutionWindow = noop;
 export const createFileFamilyStateStore = noop;
 export const waitForExecutionCycle = async () => {};
-export const contractsNeedingFlatNetMarks = noop;
-export const createFlatNetMarkController = noop;
+export const contractsNeedingFlatNetMarks = () => {
+  const reason = state.flatNetFailures?.shift();
+  if (reason) throw new Error(reason);
+  return [];
+};
+export const createFlatNetMarkController = () => ({ sync: noop,
+  reset() { state.flatNetResets = (state.flatNetResets ?? 0) + 1; } });
 export const createNoOpFlatNetMarkController = () => ({ reset: noop });
 export const createPortfolioRefreshController = () => ({ tick: noop });
 export const createConnectionSupervisor = () => ({ start: noop, shutdown: noop });
@@ -64,7 +69,7 @@ export function createBrokerSessionAdapter() {
 }
 export function createFamilySessionAdapter() {
   const current = state;
-  return { requestInFlight: false, activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
+  return { requestInFlight: false, inspectState: () => ({}), activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
 }
 export function createFamilyHistorySessionAdapter() {
   const current = state;

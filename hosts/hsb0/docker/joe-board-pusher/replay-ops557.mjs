@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // Offline deploy gate. Never logs input data, exceptions, prices or money.
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
-import { normalizeEconomicExecution } from "./execution-history.mjs";
-import { createExecutorAttribution } from "./executor-attribution.mjs";
+import { assertFillAttributionOverrides, normalizeEconomicExecution } from "./execution-history.mjs";
+import { createExecutorAttribution, validatedExecutionTime } from "./executor-attribution.mjs";
 import { createExecutorAttributionMemory, readBoundedJson, MAX_MEMORY_BYTES } from "./executor-attribution-memory.mjs";
-import { calculateFamily, VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
+import { calculateFamily, mergeExecutionRecords, VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
 
 const POLICY = CURRENT_DESK_OWNERSHIP_POLICY;
 const DESKS = ["j", "joe", "joel"];
+export const MAX_COPY_AGE_MS = 60 * 60 * 1000;
 // Independent transcription of the reviewed README table; deliberately no prices.
 const EXPECTED = [
   { execId: "0000dc8f.6bb0d852.01.01", desk: "j", conId: 4815747, symbol: "NVDA", clientId: 119, side: "SELL", shares: 4, time: "2026-09-23T13:30:04.000Z" },
@@ -109,10 +110,25 @@ export function checkReplayResults(before, after) {
   return checks;
 }
 
-export function ops557ReplayGate({ history, executorLedger, memoryState }) {
+export function ops557ReplayGate({ history, executorLedger, memoryState, familyLedger, deployDate }) {
   const checks = [];
   try {
     validateBestAvailableHistoryState(history);
+    if (familyLedger?.schema !== "inspr.joe.family-execution-ledger.v1" || familyLedger.version !== 1 ||
+        familyLedger.account !== history.account || familyLedger.periodStart !== POLICY.periodStart ||
+        !Array.isArray(familyLedger.executions) || !Array.isArray(familyLedger.commissions)) {
+      throw new Error("replay family ledger unavailable");
+    }
+    // coverageThrough advances with the family execution query, even when no
+    // fill changes ledgerObservedAt. File mtime cannot prove source freshness.
+    const deployAt = typeof deployDate === "string" && /^\d{4}-\d{2}-\d{2}T/.test(deployDate)
+      ? validatedExecutionTime(deployDate) : null;
+    if (!deployAt) throw new Error("replay deploy date unavailable");
+    for (const [name, value] of [["history freshness", history.updatedAt], ["family ledger freshness", familyLedger.coverageThrough]]) {
+      const at = typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value) ? validatedExecutionTime(value) : null;
+      const age = at ? Date.parse(deployAt) - Date.parse(at) : NaN;
+      checks.push({ name, pass: Number.isFinite(age) && age >= 0 && age <= MAX_COPY_AGE_MS });
+    }
     if (executorLedger?.schema !== "barta.paper-desk-executor-state.v1" || executorLedger.account !== history.account ||
         !executorLedger.intents || typeof executorLedger.intents !== "object" || Array.isArray(executorLedger.intents) ||
         !Array.isArray(executorLedger.executions)) throw new Error("replay inputs unavailable");
@@ -120,19 +136,27 @@ export function ops557ReplayGate({ history, executorLedger, memoryState }) {
     const memory = createExecutorAttributionMemory({ account: history.account, state: memoryState });
     const rows = effectiveExecutionRecords(history);
     const attribution = createExecutorAttribution({ ledger: executorLedger, account: history.account,
-      memory, executionRows: rows, onEvent() {} });
+      memory, executionRows: familyLedger.executions, onEvent() {} });
     checks.push({ name: "inputs", pass: true });
     checks.push({ name: "override policy table", pass: POLICY.fillAttributionOverrides.length === EXPECTED.length &&
       EXPECTED.every(expected => POLICY.fillAttributionOverrides.some(rule => rule.execId === expected.execId && rule.desk === expected.desk)) });
-    EXPECTED.forEach((expected, index) => {
-      const matches = rows.filter(row => row.execution.execId === expected.execId);
-      checks.push({ name: `override[${index}] matches count=${matches.length}`, pass: matches.length === 1 });
-      const match = matches[0] && normalizeEconomicExecution(matches[0]);
-      const metadata = match && { execId: match.execution.execId, desk: expected.desk,
-        conId: match.contract.conId, symbol: match.contract.symbol, clientId: match.execution.clientId,
-        side: match.execution.side, shares: match.execution.shares, time: match.execution.time };
-      checks.push({ name: `override[${index}] README fill`, pass: matches.length === 1 && isDeepStrictEqual(metadata, expected) });
-    });
+    for (const [prefix, sourceRows] of [["", () => rows], ["ledger raw ", () => familyLedger.executions],
+      ["ledger merged ", () => mergeExecutionRecords([], familyLedger.executions).map(normalizeEconomicExecution)
+        .filter(row => !POLICY.excludedSymbols.includes(row.contract.symbol))]]) {
+      const source = sourceRows();
+      EXPECTED.forEach((expected, index) => {
+        const matches = source.filter(row => row.execution.execId === expected.execId);
+        checks.push({ name: `${prefix}override[${index}] matches count=${matches.length}`, pass: matches.length === 1 });
+        const match = matches[0] && normalizeEconomicExecution(matches[0]);
+        const metadata = match && { execId: match.execution.execId, desk: expected.desk,
+          conId: match.contract.conId, symbol: match.contract.symbol, clientId: match.execution.clientId,
+          side: match.execution.side, shares: match.execution.shares, time: match.execution.time };
+        checks.push({ name: `${prefix}override[${index}] README fill`, pass: matches.length === 1 && isDeepStrictEqual(metadata, expected) });
+      });
+      // Match the production raw/merged cardinality guards, including the
+      // correction and KEEP filtering semantics of canonicalLedgerSource.
+      assertFillAttributionOverrides(source, POLICY.fillAttributionOverrides);
+    }
     const before = replayDeskHistory(history, attribution, { ...POLICY, fillAttributionOverrides: [] });
     const after = replayDeskHistory(history, attribution);
     checks.push({ name: "FIFO replay", pass: true }, ...checkReplayResults(before, after));
@@ -142,18 +166,23 @@ export function ops557ReplayGate({ history, executorLedger, memoryState }) {
   return { ok: checks.every(check => check.pass), checks };
 }
 
-export function runReplayGate(files, write = line => console.log(line)) {
+export function runReplayGate(args, write = line => console.log(line)) {
   let result;
   try {
-    if (files.length !== 3) throw new Error("three input files required");
+    const files = [...args];
+    const flag = files.indexOf("--deploy-date");
+    if (flag < 0 || files.length !== 6) throw new Error("four input files and deploy date required");
+    const [, deployDate] = files.splice(flag, 2);
+    if (files.some(file => file.startsWith("--"))) throw new Error("invalid arguments");
     result = ops557ReplayGate({ history: readBoundedJson(files[0], 64 * 1024 * 1024),
-      executorLedger: readBoundedJson(files[1], 16 * 1024 * 1024), memoryState: readBoundedJson(files[2], MAX_MEMORY_BYTES) });
-  } catch { result = { ok: false, checks: [{ name: "three input files", pass: false }] }; }
+      executorLedger: readBoundedJson(files[1], 16 * 1024 * 1024), memoryState: readBoundedJson(files[2], MAX_MEMORY_BYTES),
+      familyLedger: readBoundedJson(files[3], 16 * 1024 * 1024), deployDate });
+  } catch { result = { ok: false, checks: [{ name: "four input files and deploy date", pass: false }] }; }
   for (const { name, pass } of result.checks) write(`${pass ? "PASS" : "FAIL"} ${name}`);
   write(`${result.ok ? "PASS" : "FAIL"} OPS-557 deploy gate`);
   return result.ok ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   process.exitCode = runReplayGate(process.argv.slice(2));
 }

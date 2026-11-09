@@ -58,7 +58,7 @@ export async function runPusher(moduleURL, options = {}) {
     worker.once("exit", code => { if (code) reject(new Error("pusher_fixture_failed")); });
   });
 }
-async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0, pushSchema } = {}) {
+async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0, pushSchema, flatNetFailures } = {}) {
   const { createStageHandoff } = await import("../v2-stage-handoff.mjs");
   class Socket extends EventEmitter {
     writable = true; writableLength = 0; destroyed = false; connecting = false;
@@ -71,8 +71,9 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   if (["idle", "backpressure", "throw"].includes(stageState)) transport.emit("data", Buffer.from([1]));
   if (["nonzero-exit", "OOM", "corrupt-state"].includes(stageState)) { transport.emit("error", new Error("synthetic")); transport.emit("close"); }
   const state = syntheticState(variant);
+  state.flatNetFailures = flatNetFailures;
   const before = JSON.stringify({ book: state.book, retained: state.retained });
-  const requests = [], observations = [], trace = [], errors = [], logs = [], timers = [];
+  const requests = [], observations = [], trace = [], errors = [], logs = [], warnings = [], timers = [];
   state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.observation = copyObservation(source); state.cycle = source.v1Cycle; state.v1Body = source.v1Body; return socket?.offer(source); }, stop() {} };
   const url = pathToFileURL(realpathSync(fileURLToPath(moduleURL))); url.searchParams.set("fixture", String(++generation));
   const hooks = installPusherDoubles(url.href, state);
@@ -81,7 +82,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   if (pushSchema === undefined) delete process.env.JOE_PUSH_SCHEMA; else process.env.JOE_PUSH_SCHEMA = pushSchema;
   const oldSocket = process.env.JOE_V2_STAGE_SOCKET, oldMarks = process.env.JOE_FLAT_NET_MARKS;
   process.env.JOE_V2_STAGE_SOCKET = "/run/joe-household-v2/stage.sock";
-  process.env.JOE_FLAT_NET_MARKS = "0";
+  process.env.JOE_FLAT_NET_MARKS = flatNetFailures ? "1" : "0";
   Object.assign(globalThis, {
     Date: class extends saved.Date { constructor(...args) { super(...(args.length ? args : [instant])); } },
     setTimeout: (fn, delay) => { timers.push({ fn, delay, kind: "timeout" }); return 1; },
@@ -95,7 +96,7 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
     },
   });
   console.log = (...args) => logs.push(args);
-  console.warn = () => {};
+  console.warn = (...args) => warnings.push(args);
   console.error = (...args) => errors.push(args);
   const listeners = new Map(["SIGINT", "SIGTERM"].map(signal => [signal, process.listeners(signal)]));
   try {
@@ -110,7 +111,8 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
       await nextTurn();
     }
     return {
-      requests, observations, observation: state.observation, trace, errors,
+      requests, observations, observation: state.observation, trace, errors, warnings,
+      flatNetResets: state.flatNetResets ?? 0,
       errorIdentityPreserved: errors.at(-1)?.[1] === (fetchError || bodyError),
       cycle: state.cycle, v1Body: state.v1Body, v2Calls: state.v2Calls ?? 0, logs,
       result: logs.map(([line]) => { try { return JSON.parse(line); } catch { return {}; } }).find(line => Object.hasOwn(line, "status")),
