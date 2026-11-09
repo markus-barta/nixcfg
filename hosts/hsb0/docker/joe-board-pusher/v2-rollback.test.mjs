@@ -187,11 +187,11 @@ function jsonLines(name) {
   return fs.readFileSync(name, "utf8").trim().split("\n").map(line => JSON.parse(line));
 }
 
-for (const revision of [9, 10]) test(`pre-OPS-557 rev ${revision} rejects new basis pairs; documented move-aside resumes above high-water`, async t => {
+for (const revision of [9, 10, 11]) test(`pre-OPS-557 rev ${revision} rejects new basis pairs; documented move-aside resumes above high-water`, async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ops557-rollback-"));
   t.after(() => spawnSync("trash", [root]));
   const runtime = path.join(root, "pre-ops557");
-  const base = "b93de64056508c2d9fe228b97fe2b40dc23108ae";
+  const base = "84ae0f6219eb36784376c8d49fde7b797d9a2005"; // JOED-149, #1224.
   const tree = "hosts/hsb0/docker/joe-board-pusher";
   // Import the actual old worker with its complete runtime/contract closure.
   // No copied or approximated validation logic can mask a rollback regression.
@@ -220,6 +220,7 @@ for (const revision of [9, 10]) test(`pre-OPS-557 rev ${revision} rejects new ba
       ...(seconds === 60 ? { historyBasis: basis } : {}),
       v1Cycle: startCycle(body)(200, generatedAt),
     }, revision);
+    if (seconds === 30) assert.equal(oldValidObservation(observation), true, "old handoff without a basis is accepted");
     const reservation = store.reserve(observation, generatedAt);
     assert.equal(reservation.status, 200);
     assert.equal(await writer.write(reservation.seq, body, observation.v1Cycle.v1Sha256), true);

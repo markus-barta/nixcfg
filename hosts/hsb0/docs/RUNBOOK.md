@@ -1332,6 +1332,27 @@ time. Only a greater committed sequence can advance the cursor. A 422
 OPS must migrate from the same retained bytes and preserve the allocator,
 because the response itself does not attest remote byte identity.
 
+**2026-11-10 — OPS-557 / OPS-567 pusher attribution deployment.** Planned
+window: 22:25–22:40 Europe/Vienna. Before activation, run the
+[OPS-557 pre-deploy replay gate](../docker/joe-board-pusher/README.md#ops-557-pre-deploy-replay-gate)
+offline on **fresh, consistent deploy-day copies** of `family-history.json`,
+the executor `ledger.json` and `executor-attribution-memory.json`. Require
+exactly one fill per override agreeing with the README table (conId 4815747,
+client, side, quantity, time), **J NVDA +8 before → 0 after**, Joe NVDA 0 after,
+and every other symbol's lots and realised results unchanged. Keep value-free
+PASS/FAIL output and counts as evidence. **Any FAIL or nonzero exit: do not
+deploy.** Re-copy and re-run if inputs change before activation.
+The expected rollback target is JOED-149 (#1224), merge
+`84ae0f6219eb36784376c8d49fde7b797d9a2005`, image
+`household-v2-switch-set-r21-202611031258`, contract revision 11, scheduled
+for 2026-11-09 23:20–2026-11-10 01:00 Europe/Vienna. Verify that pre-switch
+target and follow the [OPS-557 rollback procedure](../docker/joe-board-pusher/README.md#ops-557-rollback-to-the-pre-change-image):
+stop the matched pusher/stager, archive the pointer and every retained pair
+outside `v2`, preserve allocator/lock inode, receipts, posting state and all
+baselines, then verify a fresh committed/published sequence above high-water.
+The old worker rejects the new basis on revisions 9, 10 and 11; moving only
+the pointer cannot recover it. Preserve the archive as evidence.
+
 The r17 rollback image is `household-v2-switch-set-r16d-202610201800`.
 **Before activation, r17 → r16d needs no move-aside. After activation, it does:**
 r16d's receipt validator rejects `not_posted_v2_active`, including in the

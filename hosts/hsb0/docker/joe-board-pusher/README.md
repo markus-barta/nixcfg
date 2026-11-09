@@ -914,9 +914,9 @@ Each entry records its desk, basis and decision date. The reviewed corrections a
 
 | Exact execution ID        | Desk | Fill                                                  |
 | ------------------------- | ---- | ----------------------------------------------------- |
-| `0000dc8f.6bb0d852.01.01` | J    | 2026-09-23 13:30:04Z, client 119, SELL 4 NVDA @228.02 |
-| `0000dc8f.6bd3bc59.01.01` | J    | 2026-10-06 13:40:47Z, client 229, BUY 1 NVDA @241.39  |
-| `00025b45.6ace1f95.01.01` | Joe  | 2026-10-12 19:50:12Z, client 28, BUY 4 NVDA @226.81   |
+| `0000dc8f.6bb0d852.01.01` | J    | 2026-09-23 13:30:04Z, client 119, SELL 4 NVDA, conId 4815747 |
+| `0000dc8f.6bd3bc59.01.01` | J    | 2026-10-06 13:40:47Z, client 229, BUY 1 NVDA, conId 4815747  |
+| `00025b45.6ace1f95.01.01` | Joe  | 2026-10-12 19:50:12Z, client 28, BUY 4 NVDA, conId 4815747   |
 
 All three carry basis `OPS-557 cross-booked NVDA close, 2026-11-04` and date
 `2026-11-04`. ClientId assignments, KEEP exclusions, the retained family
@@ -925,15 +925,15 @@ supplement feeds J FIFO, fee/FX readiness, captured history, activity and flat-n
 mark selection, so J agrees with all-desk accounting. J and Joe both finish flat
 on NVDA (`conId 4815747`), matching the account; no residual NVDA mark is needed.
 The six-fill `fixtures/ops557-nvda.json` is a small synthetic regression fixture,
-not a copied live history. Counterpart execution IDs and prices absent from the
-brief are synthetic.
+not a copied live history. Counterpart execution IDs and economic inputs absent
+from the brief are synthetic.
 The legacy-route entry remains an explicit exact-fill guard even though OPS-392
 already assigns that fill to J. Its cardinality must still hold; retaining the
 guard preserves the reviewed policy digest and history basis.
 
 OPS-557 also publishes `historyBasis` on J and Joe from the first snapshot:
 `desk-policy-` plus the first 12 **lowercase** hex characters of the canonical
-ownership-policy SHA-256 (currently `desk-policy-b5a60129aec4`). It is carried
+ownership-policy SHA-256 (with OPS-567, `desk-policy-a7b2b7316e31`). It is carried
 through the v1 projection and v2 observation, committed pair and publisher,
 including when money is unavailable. It stays stable across restarts, market
 updates and history revisions; only an ownership-policy change changes it.
@@ -946,10 +946,16 @@ unchanged. Recovery accepts retained pairs without the new field and preserves
 their exact bytes; new pairs keep their recorded basis across restart.
 
 The complete override set (identities, desks, basis and dates) binds both the
-ownership-policy hash and `historyRevision`. The pre-override hash is
+ownership-policy hash and `historyRevision`. The live pre-OPS-557/OPS-567 hash is
 `c32cde7929bf505ce75e8f76fa8c81268d5aef3446927653dfe857796e86a025`.
-Its day-baseline file is retired from active use and preserved byte-for-byte
-for rollback. The corrected policy selects a fresh file automatically. The
+OPS-567 also extends the hashed executor rollup table. The combined policy hash
+is `a7b2b7316e318e78727095d9178df156d5f84a55b7ca801dc9a9aabb12f2591d`;
+the earlier OPS-557-only basis `desk-policy-b5a60129aec4` is historical.
+Removing only the fill overrides while keeping the extended rollup yields
+`0f9071ea04830168c6b83acd61a9bc0a74553d40ec5fd5216dfac4564d8dd877`,
+which is the gate's before-override comparison, not a live rollback policy.
+The live pre-change policy's day-baseline file is retired from active use and
+preserved byte-for-byte for rollback. The corrected policy selects a fresh file automatically. The
 pusher now passes `allowSessionProxy: false`: Today/DAY stays unavailable/null
 on the cutover day, including across restart, while corrected complete equity
 continues to be persisted and displayed. At the next America/New_York
@@ -960,11 +966,55 @@ no same-day zero proxy is invented, and no retained state file is deleted.
 The older R14/R15 session-proxy notes below describe the prior runtime policy;
 the adapter retains that optional mode for callers that explicitly allow it.
 
+#### OPS-557 pre-deploy replay gate
+
+**Required before the 2026-11-10 deployment (22:25–22:40 Europe/Vienna):**
+take **fresh, consistent copies on deploy day** of `family-history.json`,
+`/var/lib/paper-desk-executor/ledger.json` and
+`executor-attribution-memory.json`. Keep the private copies outside Git and
+record their capture time privately. Re-take and re-run if those inputs change
+before activation. Earlier ticket replays and synthetic tests do not satisfy
+this gate. From this reviewed checkout, run offline against the three copies:
+
+```bash
+node replay-ops557.mjs /private/deploy-day/family-history.json /private/deploy-day/ledger.json /private/deploy-day/executor-attribution-memory.json
+```
+
+Every line must say `PASS` and the exit status must be zero. Required evidence:
+
+- Each `override[index] matches count=1` and `override[index] README fill`
+  passes: exactly one effective fill matches the table's conId **4815747**,
+  symbol, client, side, quantity and UTC time. Corrected-away identities fail.
+- `PASS J NVDA before=+8`, then `PASS J NVDA after=0` and
+  `PASS Joe NVDA after=0`: the explicit **+8 → 0 on J** expectation.
+- `PASS other-symbol lots unchanged count=...` and
+  `PASS other-symbol realised unchanged count=...` across J, Joe and Joel.
+  The gate compares each instrument's owned FIFO inputs/fees, ending quantity
+  and realised result, including flat instruments; KEEP remains excluded.
+- `PASS FIFO replay` and `PASS OPS-557 deploy gate`.
+
+The script reads all three files without modifying them, resolves executor
+ownership with the ledger and attribution memory, and runs the production FIFO
+before and after the fill overrides. The J-family rollup is the same in both
+comparisons. It uses internal neutral marks and FX solely for a deterministic
+economic comparison; it does not attest current market valuation. Output is
+value-free: fixed check names, counts and PASS/FAIL, with only the required
+NVDA +8/0 lot quantities. It never prints prices, monetary results, input
+identities or exception text. A missing input, unclaimed fill or failed replay
+also fails the gate. **Any FAIL or nonzero exit = do not deploy.** Save the
+value-free output as deploy evidence. This offline builder session has no fresh
+host copies; the live gate remains a deployment prerequisite.
+
 #### OPS-557 rollback to the pre-change image
 
-The pre-OPS-557 worker at `b93de64056508c2d9fe228b97fe2b40dc23108ae`
-rejects `desks[].historyBasis` on both rev-9 and rev-10 pairs. Its handoff parser
-also rejects new observations carrying the basis. Keeping this required board
+The rollback target is JOED-149 (#1224), merge
+`84ae0f6219eb36784376c8d49fde7b797d9a2005`, image
+`household-v2-switch-set-r21-202611031258`, configured contract revision 11.
+It is scheduled to activate in the 2026-11-09 23:20–2026-11-10 01:00
+Europe/Vienna window, before the OPS-557/OPS-567 deployment on 2026-11-10
+22:25–22:40 Europe/Vienna. Confirm it is the actual pre-switch image.
+This worker rejects `desks[].historyBasis` on rev-9, rev-10 and rev-11 pairs.
+Its handoff parser also rejects new observations carrying the basis. Keeping this required board
 metadata therefore requires an archive/move-aside for rollback; a mixed
 pusher/stager generation is not supported. Without it, recovery reports
 `stage_storage_invalid` and the old publisher cannot send the committed pair.
@@ -1009,7 +1059,7 @@ causing another board series cut. The old policy's own preserved baseline is
 selected again; it must never be copied into the corrected policy's file.
 `v2-rollback.test.mjs` loads the actual base-commit runtime/contract closure and
 pins rejection, pointer-only failure, evidence preservation, monotonic recovery
-and successful old-worker publication for both supported contract revisions.
+and successful old-worker publication for all three supported contract revisions.
 
 Stage-0 desks share one paper account and may both hold one contract.
 `calculateFamily` defaults to exclusive ownership and fails with
@@ -1067,10 +1117,12 @@ For retained economic captures without routing fields, an exact execution-ID,
 client and account match in the executor ledger's `executions` must first
 recover one unambiguous order ID. Missing ledger data, missing keys, no intent,
 duplicate intents or conflicting execution identities leave the execution
-unclaimed. Amy's explicit intent-desk table is `j → j`, `j2 → j`, `j5 → j`,
-`joe → joe`, `joel → joel`; no prefix parsing or orderRef inference is used.
-The attributed execution keeps the original intent desk as internal `subDesk`,
-including `j2`/`j5`, and history evidence retains that distinction. Rev 9 output
+unclaimed. Markus's 2026-09-10 decision rolls the entire J family
+(J, J2, J3, J4, J5) into J. OPS-567 completes the explicit intent-desk table:
+`j → j`, `j2 → j`, `j3 → j`, `j4 → j`, `j5 → j`, `joe → joe`, `joel → joel`;
+no prefix parsing or orderRef inference is used. The attributed execution keeps
+the original intent desk as internal `subDesk`, including `j2`–`j5`, and history
+evidence retains that distinction. Rev 9 output
 has no sub-desk field. Any other intent desk stays unclaimed and emits
 `executor_intent_desk_unclaimed` with only `cause:intent_desk_invalid` and the
 desk token (`null` for a missing/non-string desk), never account, order,

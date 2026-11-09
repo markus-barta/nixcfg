@@ -15,7 +15,7 @@ import { runPusher, instant } from "./fixtures/pusher-harness.mjs";
 
 const at = "2026-11-04T10:00:00.000Z";
 const next = "2026-11-04T10:00:30.000Z";
-const expected = "desk-policy-b5a60129aec4";
+const expected = "desk-policy-a7b2b7316e31"; // OPS-567 extends the hashed rollup table.
 // Read-only comparison with local JoeDesk contracts/data.schema.json:364
 // confirmed this pinned, vendored field has the board owner's r43 constraints.
 const schema = JSON.parse(fs.readFileSync(new URL("./contracts/data.schema.json", import.meta.url)))

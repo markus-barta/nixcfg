@@ -513,7 +513,10 @@ function syncFlatNetMarks() {
     fillAttributionOverrides: deskOwnershipPolicy.fillAttributionOverrides,
     executorAttribution,
     excludedSymbols: ["SXR8", "TSLA"],
-  })); } catch { flatNetMarks.reset(); }
+  })); } catch (error) {
+    console.warn(JSON.stringify({ event: "family_unavailable", reason: error.message }));
+    flatNetMarks.reset();
+  }
 }
 // Independent of both publisher cadence and unrelated healthy socket traffic.
 const portfolioRefreshTimer = setInterval(() => {

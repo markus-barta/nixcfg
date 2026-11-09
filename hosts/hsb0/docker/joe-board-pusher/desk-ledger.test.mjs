@@ -232,7 +232,7 @@ test("fill override identities, desks, basis and date bind the policy hash and h
   const input = nvdaFixture();
   const priorPolicy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
   assert.equal(deskOwnershipPolicyContract(priorPolicy).policyHash,
-    "c32cde7929bf505ce75e8f76fa8c81268d5aef3446927653dfe857796e86a025");
+    "0f9071ea04830168c6b83acd61a9bc0a74553d40ec5fd5216dfac4564d8dd877");
   const current = deskOwnershipPolicyContract();
   assert.notEqual(current.policyHash, deskOwnershipPolicyContract(priorPolicy).policyHash);
   const revision = policy => {
@@ -296,7 +296,7 @@ test("missing overrides withhold ledger revisions, authoritative boundary proof 
     fillAttributionOverrides: policy.fillAttributionOverrides }), { message: revision.reason });
 });
 
-test("a cross-desk close on a flat account fails loud until its exact override reconciles both desks", () => {
+test("a cross-desk close on a flat account without a mark fails loud until its exact override reconciles both desks", () => {
   const input = fixture();
   const executions = [execution("cross.open.01", 27, "ACME", 101),
     execution("cross.close.01", 22, "ACME", 101, { side: "SLD", price: 11 })];
@@ -314,6 +314,16 @@ test("a cross-desk close on a flat account fails loud until its exact override r
   assert.match(crossed.reason, /J desk calculation unavailable: .*mark/);
   assert.equal(crossed.phaseBDesks.j.reconciled, false);
   assert.equal(crossed.phaseBDesks.joe.reconciled, false);
+  // OPS-555 open question: a real flat-net mark makes the unassigned cross
+  // close value successfully, silently leaving opposite virtual lots open.
+  input.portfolio = [{ account: ACCOUNT, contract: contract("ACME", 101), symbol: "ACME", pos: 0,
+    marketPrice: 11, markObservedAt: OBSERVED }];
+  const marked = calculate(PRE_OVERRIDE_POLICY);
+  assert.equal(marked.ok, true, marked.reason);
+  assert.deepEqual(marked.desks.j.positions.map(({ symbol, quantity }) => ({ symbol, quantity })), [{ symbol: "ACME", quantity: 1 }]);
+  assert.deepEqual(marked.desks.joe.positions.map(({ symbol, quantity }) => ({ symbol, quantity })), [{ symbol: "ACME", quantity: -1 }]);
+  assert.equal(marked.phaseBDesks.j.reconciled, true);
+  assert.equal(marked.phaseBDesks.joe.reconciled, true);
   const policy = { ...PRE_OVERRIDE_POLICY, fillAttributionOverrides: [
     { execId: "cross.close.01", desk: "j", basis: "synthetic cross-desk close", date: "2026-11-04" },
   ] };
@@ -482,8 +492,8 @@ test("OPS exceptions preserve all-account historical coverage and receipt checks
     "trusted official identities are still required");
 });
 
-for (const [clientId, intentDesk] of [[705, "j"], [705, "j2"], [705, "j5"], [705, "joe"], [705, "joel"], [700, "j"], [812, "j"]]) test(`${clientId} exact intent ${intentDesk}; J FIFO, all-desk v1 and v2 agree on raw IB rows`, () => {
-  const desk = ["j2", "j5"].includes(intentDesk) ? "j" : intentDesk;
+for (const [clientId, intentDesk] of [[705, "j"], [705, "j2"], [705, "j3"], [705, "j4"], [705, "j5"], [705, "joe"], [705, "joel"], [700, "j"], [812, "j"]]) test(`${clientId} exact intent ${intentDesk}; J FIFO, all-desk v1 and v2 agree on raw IB rows`, () => {
+  const desk = ["j2", "j3", "j4", "j5"].includes(intentDesk) ? "j" : intentDesk;
   const input = executorFixture(intentDesk, "joel|masked", clientId);
   assert.equal(input.executorAttribution.attribute(input.ledgerState.executions[0].execution).subDesk, intentDesk);
   const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
