@@ -57,9 +57,18 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 59: v261102165603.0.0 (sequence 129). Contents since 58: HNET-431 Your automations in Smarthome (one read-only file, new module option smarthomeFile: group hausnetz-smarthome, a tmpfiles folder and the group on the unit); HNET-432 hidden. nix/module.nix, nix/module-test.nix and nix/vm-test.nix changed; no new units, ports, listeners, outbound paths or capabilities.
+    # HNET pin 60: v261109113223.0.0 (sequence 130). Contents since 59: HNET-469 static HTML sheets
+    # in Smarthome (new sheetsDir option: group hausnetz-sheets, tmpfiles dir 2775 root:hausnetz-sheets,
+    # supplementary group and ReadOnlyPaths on the unit); HNET-329 opt-in FRITZ!Box mesh source
+    # (Markus Desk dacb2bcf: outbound to the configured FRITZ!Box only, off until set up in Settings;
+    # state <data>/fritzbox-source.json, 0600, excluded from backups). HNET-448 adds onFailure (empty
+    # by default), unlimited restart retries and 2s..60s backoff in five steps; HNET-452/476 bound the
+    # leases copy to 30s + 5s stop grace and disable its start limit for DHCP bursts. Also topology,
+    # scan/naming, Smarthome filters and probe/save/stream reliability fixes (release notes).
+    # nix/module.nix, nix/module-test.nix and nix/vm-test.nix changed. Existing units changed as above;
+    # no new units, ports, listeners or capabilities; the opt-in FRITZ!Box source adds an outbound path.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=429d590760b0cb8b5742a68991714111163155fb";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=a4845315324f69617d5319fd47a47dacd7049be1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

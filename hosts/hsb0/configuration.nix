@@ -218,9 +218,15 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # rule for this folder (root, that group, 2775) and the group on the unit; no listener, port or
     # outbound path. mba writes the file (below), by temp file and rename, mode 0640.
     smarthomeFile = "/var/lib/hausnetz-smarthome/automations.json";
+    # OPS-582 / HNET-469: static HTML sheets; publish HTML first, sheets.json last by atomic rename.
+    # Writers join hausnetz-sheets and publish 0640 files.
+    sheetsDir = "/var/lib/hausnetz-sheets";
   };
-  # HNET-431: mba writes the Smarthome automations file above; this is its only use of the group.
-  users.users.mba.extraGroups = [ "hausnetz-smarthome" ];
+  # HNET-431 / OPS-582: mba publishes the Smarthome automations file and static sheets above.
+  users.users.mba.extraGroups = [
+    "hausnetz-smarthome"
+    "hausnetz-sheets"
+  ];
   systemd.services.hausnetz.serviceConfig = {
     MemoryMax = "512M";
     CPUQuota = "50%";

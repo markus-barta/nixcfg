@@ -369,9 +369,32 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `41063ad31a7a3911abb3172a741a311f8ff099af`
-(`v261020103312.0.0`, HNET-252/257/258: sidebar, keyboard and sheet-focus fixes, UI + QA tooling; module unchanged since `v261017204833.0.0`, OPS-355; the web source HNET-238 and the Starlink dish status HNET-48 keep their module defaults (on, owner-approved 2026-10-17): outgoing only, no firewall or capability change; `discovery.webCheck = false` or `starlink = false` turns either off), with `discovery.passive = true` (ARP/DHCP
-listener on `enp2s0f0` only; the unit gains `CAP_NET_RAW` and `AF_PACKET`).
+The private flake input is pinned to `a4845315324f69617d5319fd47a47dacd7049be1`
+(`v261109113223.0.0`, HNET pin 60, release sequence 130; OPS-582). Keep the
+merge gate: **Do not merge before JOED-149's hsb0 switch is done (2026-11-09 ~01:00)**.
+The existing passive ARP/DHCP listener stays on `enp2s0f0` with `CAP_NET_RAW`
+and `AF_PACKET`; ports, listeners and capabilities are unchanged by this bump.
+The web source and Starlink status keep their approved outgoing-only defaults
+(on); `discovery.webCheck = false` or `starlink = false` turns either off.
+The module now retries hausnetz indefinitely with a five-step 2s..60s restart
+backoff, offers an empty-by-default `onFailure` hook, and limits lease copies
+to 30s plus 5s stop grace. Lease-copy start limiting is disabled for DHCP bursts.
+
+`services.hausnetz.sheetsDir = "/var/lib/hausnetz-sheets"` enables static HTML
+sheets in Smarthome (OPS-582 / HNET-469). The module creates the directory
+as `2775 root:hausnetz-sheets` and gives the service that supplementary group
+and a directory-level `ReadOnlyPaths` entry. The host's memory/CPU/nice
+override merges with those settings. `mba` joins `hausnetz-sheets` to publish:
+write mode 0640 temporary files in that directory, atomically rename the HTML
+files first, then atomically replace the `sheets.json` manifest last. Start a
+fresh login after activation to acquire the group. Keep the publications
+outside `/home` and `/tmp`; the service sandbox hides those locations.
+
+The FRITZ!Box mesh source (HNET-329, Markus Desk dacb2bcf) stays off until
+configured in Settings > Sources. Enabling it adds outbound requests only
+to the configured FRITZ!Box. Its login state is
+`<data>/fritzbox-source.json`, mode 0600, excluded from backups. No new
+host-managed credential, unit, inbound listener or firewall opening is needed.
 Root's SSH client selects `/root/.ssh/hausnetz_deploy` for `github.com`. This
 hand-provisioned private file is a **read-only deploy key registered on
 markus-barta/hausnetz**, not a Nix-managed secret. On a reinstall/recovery,
@@ -401,10 +424,11 @@ hausnetz node in `flake.lock`; verify the release revision and NAR hash and
 run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
 and build), then `just switch`. Roll back this bump by reverting its reviewed
-commit(s), restoring the previous pin
-`037a6b5f5580937f7e343c0ea04dadefe3f32889` (`v261017161630.0.0`), its lock
-node and the T99 pin, and restoring the `webCheck = false` line (that release has
-no `starlink` option).
+commit(s), restoring pin 59
+`429d590760b0cb8b5742a68991714111163155fb` (`v261102165603.0.0`), its lock
+node and the T99 pin/hash/time expectations. Remove `sheetsDir` and mba's
+`hausnetz-sheets` membership, and restore the previous reader-group contract
+and fixture. Keep `smarthomeFile` and `hausnetz-smarthome`; pin 59 supports them.
 Repeat the same root-build-before-switch sequence. Retain `/var/lib/private/hausnetz` and
 download a state backup from `GET /api/export` (legacy `GET /ops/api/export` redirects) on the LAN before activation;
 reverting a source pin does not undo imported data. The nginx snippets
