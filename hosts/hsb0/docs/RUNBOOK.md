@@ -370,8 +370,7 @@ The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
 The private flake input is pinned to `a4845315324f69617d5319fd47a47dacd7049be1`
-(`v261109113223.0.0`, HNET pin 60, release sequence 130; OPS-582). Keep the
-merge gate: **Do not merge before JOED-149's hsb0 switch is done (2026-11-09 ~01:00)**.
+(`v261109113223.0.0`, HNET pin 60, release sequence 130; OPS-582).
 The existing passive ARP/DHCP listener stays on `enp2s0f0` with `CAP_NET_RAW`
 and `AF_PACKET`; ports, listeners and capabilities are unchanged by this bump.
 The web source and Starlink status keep their approved outgoing-only defaults
