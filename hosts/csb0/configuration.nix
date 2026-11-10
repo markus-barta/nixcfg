@@ -63,6 +63,17 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     # Safe HERE: all project-csb0 containers are declared in the spec
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
+    # OPS-528: GHCR login for the private INSPR push relay image (PAPP-68),
+    # same NIX-384 read:packages token as csb1 (docker login is daemon-wide,
+    # so the separate relay stack uses it too). Guarded on the ciphertext like
+    # the secret below.
+    registryLogins = lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age) [
+      {
+        registry = "ghcr.io";
+        username = "markus-barta";
+        passwordFile = "/run/agenix/csb1-inspr-site-ghcr-pull";
+      }
+    ];
     autoUpdate.enable = true;
     autoUpdate.excludeFromPull = [ "joe-board" ];
     # Build and tag the existing service from the immutable application revision.
@@ -424,6 +435,20 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     group = "root";
     mode = "0400";
   };
+
+  # OPS-528 / NIX-384: GHCR pull token (read:packages), read only by the
+  # root-run compose units through composeStack.registryLogins. 0400 root:root,
+  # raw token (single line). Requires csb0 as a recipient of the ciphertext
+  # (secrets.nix) and Markus's one-file rekey before this host can decrypt it.
+  age.secrets.csb1-inspr-site-ghcr-pull =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age)
+      {
+        file = ../../secrets/csb1-inspr-site-ghcr-pull.age;
+        path = "/run/agenix/csb1-inspr-site-ghcr-pull";
+        owner = "root";
+        group = "root";
+        mode = "0400";
+      };
 
   # NIX-356: 0400 — read client-side by the root-run compose units only.
   age.secrets.csb-hostdash-oauth2-proxy-env = {
