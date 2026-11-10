@@ -63,17 +63,6 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     # Safe HERE: all project-csb0 containers are declared in the spec
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
-    # OPS-528: GHCR login for the private INSPR push relay image (PAPP-68),
-    # same NIX-384 read:packages token as csb1 (docker login is daemon-wide,
-    # so the separate relay stack uses it too). Guarded on the ciphertext like
-    # the secret below.
-    registryLogins = lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age) [
-      {
-        registry = "ghcr.io";
-        username = "markus-barta";
-        passwordFile = "/run/agenix/csb1-inspr-site-ghcr-pull";
-      }
-    ];
     autoUpdate.enable = true;
     autoUpdate.excludeFromPull = [ "joe-board" ];
     # Build and tag the existing service from the immutable application revision.
@@ -436,8 +425,10 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     mode = "0400";
   };
 
-  # OPS-528 / NIX-384: GHCR pull token (read:packages), read only by the
-  # root-run compose units through composeStack.registryLogins. 0400 root:root,
+  # OPS-528 / NIX-384: GHCR pull token (read:packages) for the private INSPR
+  # push relay image. Read only by the relay's own compose unit, which does its
+  # own per-unit `docker login --password-stdin` (DOCKER_CONFIG is per unit,
+  # never daemon-wide; compose-csb0 pulls nothing private). 0400 root:root,
   # raw token (single line). Requires csb0 as a recipient of the ciphertext
   # (secrets.nix) and Markus's one-file rekey before this host can decrypt it.
   age.secrets.csb1-inspr-site-ghcr-pull =

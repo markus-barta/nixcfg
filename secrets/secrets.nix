@@ -353,7 +353,8 @@ in
   # Edit: agenix -e secrets/csb1-inspr-site-ghcr-pull.age
   # OPS-528 (Markus Desk 11ebd2e9 'go', 2026-11-10): csb0 also pulls the private
   # INSPR push relay image (ghcr.io/inspr-at/…, PAPP-68) with the same token, so
-  # csb0 is a recipient too. The file name keeps its csb1 prefix (no rename,
+  # csb0 is a recipient too; on csb0 the relay unit logs in itself (per-unit
+  # DOCKER_CONFIG), csb1 keeps composeStack.registryLogins. The file name keeps its csb1 prefix (no rename,
   # no new token). Rekey this ONE file only (see OPS-528), never a global rekey.
   "csb1-inspr-site-ghcr-pull.age".publicKeys = markus ++ csb1 ++ csb0;
 
