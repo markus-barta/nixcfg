@@ -22,7 +22,7 @@ http:
       entryPoints: [web-secure]
       service: push-relay
       middlewares: [relay-management-rate, relay-inflight, relay-buffer]
-      observability: {accessLogs: false, tracing: false}
+      observability: { accessLogs: false, tracing: false }
       tls:
         certResolver: public-http
     push-relay-send:
@@ -31,7 +31,7 @@ http:
       entryPoints: [web-secure]
       service: push-relay
       middlewares: [relay-send-rate, relay-inflight, relay-buffer]
-      observability: {accessLogs: false, tracing: false}
+      observability: { accessLogs: false, tracing: false }
       tls:
         certResolver: public-http
     # LEAD 2026-11-02: csb1 gets 32 in-flight sends, still rate/body limited.
@@ -42,7 +42,7 @@ http:
       entryPoints: [web-secure]
       service: push-relay
       middlewares: [relay-send-rate, relay-inflight-instances, relay-buffer]
-      observability: {accessLogs: false, tracing: false}
+      observability: { accessLogs: false, tracing: false }
       tls:
         certResolver: public-http
     push-relay-bootstrap:
@@ -51,7 +51,7 @@ http:
       entryPoints: [web-secure]
       service: push-relay
       middlewares: [relay-bootstrap-rate, relay-inflight, relay-attest-buffer]
-      observability: {accessLogs: false, tracing: false}
+      observability: { accessLogs: false, tracing: false }
       tls:
         certResolver: public-http
   middlewares:
