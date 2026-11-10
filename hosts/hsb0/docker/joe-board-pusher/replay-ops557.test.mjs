@@ -11,9 +11,10 @@ import { ATTRIBUTION_MEMORY_SCHEMA, createExecutorAttributionMemory } from "./ex
 import { createExecutorAttribution } from "./executor-attribution.mjs";
 import { CURRENT_DESK_OWNERSHIP_POLICY as POLICY } from "./desk-ledger.mjs";
 import { checkReplayResults, MAX_COPY_AGE_MS, ops557ReplayGate, replayDeskHistory, runReplayGate } from "./replay-ops557.mjs";
+import nvdaFixture from "./fixtures/ops557-nvda.json" with { type: "json" };
 
 function fixture(change = () => {}) {
-  const source = JSON.parse(fs.readFileSync(new URL("./fixtures/ops557-nvda.json", import.meta.url)));
+  const source = structuredClone(nvdaFixture);
   const rows = source.fills.map(fill => ({ contract: source.contract, execution: { ...fill, acctNumber: source.account } }));
   // Include both open and realised non-NVDA economics in the comparison.
   for (const [execId, side, shares, price] of [["other.open.01", "BOT", 3, 9876.54321], ["other.close.01", "SLD", 1, 9877.65432]]) {
@@ -129,8 +130,11 @@ test("deploy replay uses exact attribution memory after intent retention", () =>
   const input = fixture();
   const execution = input.executorLedger.executions[0].execution;
   const key = JSON.stringify([input.history.account, execution.clientId, execution.execId]);
-  input.memoryState.entries[key] = { clientId: execution.clientId, execId: execution.execId,
-    orderId: execution.orderId, desk: "joe", subDesk: "joe", source: "intent", provenAt: input.history.updatedAt };
+  // Constant-shape key check, then a defined (not computed) write (CodeQL js/remote-property-injection).
+  assert.match(key, /^\["[A-Za-z0-9-]+",[0-9]+,"[A-Za-z0-9.:-]+"\]$/);
+  Object.defineProperty(input.memoryState.entries, key, { enumerable: true, writable: true, configurable: true,
+    value: { clientId: execution.clientId, execId: execution.execId, orderId: execution.orderId,
+      desk: "joe", subDesk: "joe", source: "intent", provenAt: input.history.updatedAt } });
   input.executorLedger.intents = {};
   const saved = structuredClone(input);
   const result = ops557ReplayGate(input);

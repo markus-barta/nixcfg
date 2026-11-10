@@ -12,18 +12,22 @@ import { createV2Publisher } from "./v2-publisher.mjs";
 import { validateContract } from "./contracts/index.mjs";
 import { checkSchema } from "./contracts/schema-validator.mjs";
 import { runPusher, instant } from "./fixtures/pusher-harness.mjs";
+import vendoredDataSchema from "./contracts/data.schema.json" with { type: "json" };
 
 const at = "2026-11-04T10:00:00.000Z";
 const next = "2026-11-04T10:00:30.000Z";
 const expected = "desk-policy-a7b2b7316e31"; // OPS-567 extends the hashed rollup table.
 // Read-only comparison with local JoeDesk contracts/data.schema.json:364
 // confirmed this pinned, vendored field has the board owner's r43 constraints.
-const schema = JSON.parse(fs.readFileSync(new URL("./contracts/data.schema.json", import.meta.url)))
-  .properties.desks.items.properties.historyBasis;
+// The pattern is compiled from this constant (CodeQL js/regex-injection); the
+// vendored schema must carry exactly it, so the check stays a real comparison.
+const BASIS_PATTERN = "^[a-z][a-z0-9.-]*$";
+const vendoredBasis = vendoredDataSchema.properties.desks.items.properties.historyBasis;
+const schema = { ...vendoredBasis, pattern: BASIS_PATTERN };
 const desk = (snapshot, id) => snapshot.desks.find(row => row.id === id);
 const book = (ts = at) => ({ ts, gateway: true, summary: {}, positions: [], portfolio: [] });
 function checkBases(snapshot, basis = expected) {
-  assert.equal(schema.pattern, "^[a-z][a-z0-9.-]*$");
+  assert.equal(vendoredBasis.pattern, BASIS_PATTERN);
   assert.equal(schema.maxLength, 96);
   for (const id of ["j", "joe"]) {
     assert.equal(desk(snapshot, id).historyBasis, basis);
