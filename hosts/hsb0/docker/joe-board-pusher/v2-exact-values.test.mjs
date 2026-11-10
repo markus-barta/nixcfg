@@ -41,13 +41,13 @@ function source() {
         historyRevision: "a".repeat(64), historyRevisionMethod: "sha256-effective-all-desk-economic-history-v1" } },
   };
 }
-function build(input = source(), now = at) {
-  const observation = copyObservation(input, 10);
+function build(input = source(), now = at, revision = 10) {
+  const observation = copyObservation(input, revision);
   assert.equal(validObservation(observation), true);
-  const snapshot = buildCandidate(1, now, observation, now, null, 10);
+  const snapshot = buildCandidate(1, now, observation, now, null, revision);
   const checked = validateContract("data", snapshot, { stage: "ingress" });
   assert.equal(checked.ok, true, JSON.stringify(checked.errors));
-  const store = new StageStore({ revision: 10 }); store.validateContract = validateContract;
+  const store = new StageStore({ revision }); store.validateContract = validateContract;
   assert.equal(store.validProjection(snapshot), true);
   return snapshot;
 }
@@ -59,9 +59,100 @@ function twoRateSource() {
   return input;
 }
 
+test("rev 11 emits per-desk proven DAY observations without moving rates out of money.fx", () => {
+  const input = twoRateSource();
+  input.dayPnl.source.detail = "Untrusted display text is not FX evidence.";
+  const snapshot = build(input, at, 11);
+  for (const desk of snapshot.desks.slice(0, 2)) {
+    assert.equal(desk.pnlSources.day.status, "available");
+    assert.equal(desk.pnlSources.day.method, "sod-virtual-equity");
+    assert.deepEqual(desk.pnlSources.day.fx, {
+      start: { source: fx.source, observedAt: input.dayPnl.evidence.sourceObservedAt },
+      end: { source: fx.source, observedAt: fx.observedAt },
+    });
+    assert.deepEqual(desk.money, build(input).desks.find(row => row.id === desk.id).money);
+  }
+  assert.equal(Object.hasOwn(snapshot.desks[2].pnlSources.day, "fx"), false, "EUR-only desk");
+  assert.equal(Object.hasOwn(snapshot.pnlSources.day, "fx"), false, "aggregate has no desk FX claim");
+  assert.equal(Object.hasOwn(snapshot.desks[0].pnlSources.open, "fx"), false);
+});
+
+test("rev 11 emits provenance even when SOD and current rates are equal and detail is absent", () => {
+  const input = twoRateSource();
+  input.dayPnl.evidence.sodFx.j.rate = fx.rate;
+  const day = build(input, at, 11).desks[0].pnlSources.day;
+  assert.equal(Object.hasOwn(day, "detail"), false);
+  assert.equal(day.fx.start.observedAt, input.dayPnl.evidence.sourceObservedAt);
+  assert.equal(day.fx.end.observedAt, fx.observedAt);
+});
+
+test("rev 11 accepts start FX observed exactly at periodStart", () => {
+  const input = twoRateSource();
+  const periodStart = input.dayPnl.source.periodStart;
+  Object.assign(input.dayPnl.evidence, { sourceObservedAt: periodStart, oldestSourceObservedAt: periodStart, ageAtBoundaryMs: 0 });
+  for (const id of ["j", "joe"]) input.dayPnl.evidence.sodFx[id].observedAt = periodStart;
+  for (const desk of build(input, at, 11).desks.slice(0, 2)) assert.equal(desk.pnlSources.day.fx.start.observedAt, periodStart);
+});
+
+for (const order of ["equal", "before"]) test(`rev 11 current FX ${order} SOD observation respects timestamp ordering`, () => {
+  const now = "2026-10-25T04:00:01.000Z";
+  const input = JSON.parse(JSON.stringify(twoRateSource()).replaceAll(at, now));
+  const end = order === "equal" ? input.dayPnl.evidence.sourceObservedAt : "2026-10-25T03:59:58.000Z";
+  for (const id of ["j", "joe"]) input.deskEquities.phaseBDesks[id].fx.observedAt = end;
+  const snapshot = build(input, now, 11);
+  for (const desk of snapshot.desks.slice(0, 2)) {
+    if (order === "equal") assert.equal(desk.pnlSources.day.fx.start.observedAt, desk.pnlSources.day.fx.end.observedAt);
+    else assert.equal(Object.hasOwn(desk.pnlSources.day, "fx"), false, "invalid pair must not be sent");
+  }
+});
+
+for (const missing of ["sod", "day", "current", "source", "unavailable"]) test(`rev 11 omits structured FX with ${missing} proof missing`, () => {
+  const input = twoRateSource();
+  // Display text alone must never reconstruct missing proof.
+  input.dayPnl.source.detail = `New York SOD conversion: ${fx.source}; observedAt ${input.dayPnl.evidence.sourceObservedAt}.`;
+  if (missing === "sod") delete input.dayPnl.evidence.sodFx;
+  if (missing === "day") input.dayPnl = null;
+  if (missing === "current") input.deskEquities.phaseBDesks.j.fx = false;
+  if (missing === "source") input.dayPnl.evidence.sodFx.j.source = "unproven";
+  if (missing === "unavailable") input.dayPnl.ok = false;
+  assert.equal(Object.hasOwn(build(input, at, 11).desks[0].pnlSources.day, "fx"), false);
+});
+
+test("vendored rev-11 validator rejects invalid structured DAY FX before staging", () => {
+  for (const fault of ["late-start", "reversed", "rate", "source", "unavailable", "method"]) {
+    const snapshot = build(twoRateSource(), at, 11);
+    const day = snapshot.desks[0].pnlSources.day;
+    if (fault === "late-start") day.fx.start.observedAt = at;
+    if (fault === "reversed") day.fx.end.observedAt = "2026-10-25T03:59:58.000Z";
+    if (fault === "rate") day.fx.start.rate = fx.rate;
+    if (fault === "source") day.fx.end.source = "unproven";
+    if (fault === "unavailable") day.status = "unavailable";
+    if (fault === "method") day.method = "owned-lots-current-mark-fx";
+    const checked = validateContract("data", snapshot, { stage: "ingress" });
+    assert.equal(checked.ok, false, fault);
+    assert.ok(checked.errors.some(error => error.path.startsWith("$.desks[0].pnlSources.day")), fault);
+  }
+});
+
+test("rev 10 remains byte-identical to its immutable prior exact-value implementation", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "joed149-rev10-"));
+  t.after(() => spawnSync("trash", [root]));
+  const priorFile = path.join(root, "v2-exact-values.mjs");
+  fs.writeFileSync(priorFile, execFileSync("git", ["show", "c15ecd9f:hosts/hsb0/docker/joe-board-pusher/v2-exact-values.mjs"]));
+  const prior = await import(pathToFileURL(priorFile));
+  for (const input of [source(), twoRateSource()]) {
+    const observation = copyObservation(input, 10);
+    const previous = prior.applyExactValues(buildCandidate(1, at, observation, at), observation, at);
+    const current = build(input);
+    assert.equal(JSON.stringify(current), JSON.stringify(previous));
+    for (const desk of current.desks) assert.equal(Object.hasOwn(desk.pnlSources.day, "fx"), false);
+  }
+});
+
 test("rev 9 is the default and remains byte-identical to the pre-change stager, even with exact evidence", async t => {
-  for (const value of [undefined, "", "9", "11", "10 ", "true"]) assert.equal(contractRevision(value), 9);
+  for (const value of [undefined, "", "9", "12", "10 ", "11 ", "true"]) assert.equal(contractRevision(value), 9);
   assert.equal(contractRevision("10"), 10);
+  assert.equal(contractRevision("11"), 11);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "joed86-rev9-"));
   t.after(() => spawnSync("trash", [root]));
   // Load the pre-JOED-86 stager from a FIXED commit (main before #1136; CI checks out full history), with its exact
@@ -369,16 +460,47 @@ test("activated staging persists rev 10, recovers without reset, and accepts pri
   assert.equal(committed.desks[0].money.equity.amount, "5001");
 });
 
-test("explicit rev-10 activation reaches the isolated lock worker without forwarding unrelated environment", () => {
+test("rev 11 recovers historic rev-10 receipts and rolls future output back to rev 10 without resetting history", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "joed149-stage-"));
+  t.after(() => spawnSync("trash", [root])); fs.chmodSync(root, 0o700);
+  const options = { root, uid: process.getuid(), gid: process.getgid() };
+  prepareLock(root, options.uid, options.gid);
+  const rev10 = new StageStore({ ...options, revision: 10 }); rev10.enroll(); await rev10.open();
+  assert.equal(rev10.stage(copyObservation(twoRateSource(), 10), () => at).status, 200);
+  const receiptFile = path.join(root, "pair-1/receipt.json");
+  const receipt = JSON.parse(fs.readFileSync(receiptFile));
+  receipt.contractSetSha256 = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
+  fs.writeFileSync(receiptFile, JSON.stringify(receipt));
+  const active = await new StageStore({ ...options, revision: 11 }).open();
+  assert.equal(active.stage(copyObservation(twoRateSource(), 11), () => "2026-10-25T20:00:01.000Z").status, 200);
+  assert.ok(JSON.parse(active.readCommittedPair().bytes).desks[0].pnlSources.day.fx);
+  const activeReceiptFile = path.join(root, "pair-2/receipt.json");
+  const activeReceiptBytes = fs.readFileSync(activeReceiptFile);
+  const activeReceipt = JSON.parse(activeReceiptBytes);
+  assert.equal(activeReceipt.contractSetSha256, CONTRACT_SHA);
+  activeReceipt.contractSetSha256 = receipt.contractSetSha256;
+  fs.writeFileSync(activeReceiptFile, JSON.stringify(activeReceipt));
+  assert.throws(() => active.readCommittedPair(), /stage_storage_invalid/, "rev-10 digest cannot claim structured FX");
+  fs.writeFileSync(activeReceiptFile, activeReceiptBytes);
+  const rollback = await new StageStore({ ...options, revision: 10 }).open();
+  assert.ok(JSON.parse(rollback.readCommittedPair().bytes).desks[0].pnlSources.day.fx, "preserve committed history");
+  assert.equal(rollback.stage(copyObservation(twoRateSource(), 10), () => "2026-10-25T20:00:02.000Z").status, 200);
+  const snapshot = JSON.parse(rollback.readCommittedPair().bytes);
+  assert.equal(snapshot.seq, 3);
+  assert.equal(Object.hasOwn(snapshot.desks[0].pnlSources.day, "fx"), false);
+  assert.equal(fs.existsSync(receiptFile), true);
+});
+
+for (const revision of ["10", "11"]) test(`explicit rev-${revision} activation reaches the isolated lock worker without forwarding unrelated environment`, () => {
   const previous = process.env.JOE_V2_CONTRACT_REV;
-  process.env.JOE_V2_CONTRACT_REV = "10";
+  process.env.JOE_V2_CONTRACT_REV = revision;
   try {
     // prepareLock is tested separately; use the same safe private local root.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "joed86-env-")); fs.chmodSync(root, 0o700);
     try {
       let launch;
       launchLocked({ root, uid: process.getuid(), gid: process.getgid(), spawnWorker: (...args) => { launch = args; return {}; } });
-      assert.equal(launch[2].env.JOE_V2_CONTRACT_REV, "10");
+      assert.equal(launch[2].env.JOE_V2_CONTRACT_REV, revision);
       assert.deepEqual(Object.keys(launch[2].env).sort(), ["JOE_V2_CONTRACT_REV", "NODE_ENV", "PATH"]);
     } finally { spawnSync("trash", [root]); }
   } finally { if (previous === undefined) delete process.env.JOE_V2_CONTRACT_REV; else process.env.JOE_V2_CONTRACT_REV = previous; }

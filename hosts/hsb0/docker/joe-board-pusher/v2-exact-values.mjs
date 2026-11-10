@@ -8,7 +8,7 @@ const DESKS = ["j", "joe", "joel"];
 const POSITION_FIELDS = ["quantity", "mark", "marketValue", "openPnl"];
 const MAX_AGE_MS = 300_000;
 const decimalPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,8})?$/;
-export const contractRevision = (value = process.env.JOE_V2_CONTRACT_REV) => value === "10" ? 10 : 9;
+export const contractRevision = (value = process.env.JOE_V2_CONTRACT_REV) => value === "11" ? 11 : value === "10" ? 10 : 9;
 const instant = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const fresh = (at, now) => instant(at) && Date.parse(now) >= Date.parse(at) && Date.parse(now) - Date.parse(at) <= MAX_AGE_MS;
@@ -154,7 +154,7 @@ const provenDayFx = (day, id, fx) => {
     && instant(sodFx.observedAt) && sodFx.observedAt <= day.periodStart;
 };
 
-export function applyExactValues(candidate, observation, generatedAt) {
+export function applyExactValues(candidate, observation, generatedAt, revision = 10) {
   const evidence = observation.exactValues;
   const ready = candidate.safety.gateway?.apiSessionReady === true;
   const valid = validExactValues(evidence, observation.positions?.length || 0);
@@ -180,6 +180,14 @@ export function applyExactValues(candidate, observation, generatedAt) {
     desk.pnlSources = Object.fromEntries([["day", "dayPnl"], ["open", "openPnl"]].map(([kind, field]) =>
       [kind, source(kind, desk.money[field], desk.money.reasons?.[field], kind === "day" ? evidence?.day?.observedAt : row?.observedAt, evidence?.day?.periodStart)]));
     const sodFx = evidence?.day?.sodFx?.[desk.id];
+    if (revision === 11 && desk.money.dayPnl && fx && sodFx
+      && sodFx.source === "ib-account-ExchangeRate" && fx.source === "ib-account-ExchangeRate"
+      && fx.observedAt >= sodFx.observedAt) {
+      desk.pnlSources.day.fx = {
+        start: { source: sodFx.source, observedAt: sodFx.observedAt },
+        end: { source: fx.source, observedAt: fx.observedAt },
+      };
+    }
     if (desk.money.dayPnl && fx && sodFx && units(sodFx.rate) !== units(fx.rate)) {
       desk.pnlSources.day.detail = `New York SOD conversion: ${sodFx.source}; observedAt ${sodFx.observedAt}.`;
     }

@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/36fecfeb7e56400db3076304d150e9eeb2beb05b";
+      url = "github:markus-barta/joedesk/6ba8051af1108cd35ee6fb6e3cd51a94474f6d24";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
@@ -94,7 +94,7 @@
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
     # NIX-588/589: release 12 (stable107) brings `aeon-agentd pair`; its signed
     # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
-    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 73f40e0d89b35eefa7a3159a9fa39eaa48bdd5bf
+    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 770d6b2ba52ff873adccd42abe09aafa4b9576b2
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.

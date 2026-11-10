@@ -187,7 +187,7 @@
     # historical record per the "Retiring a key" doctrine above — NOT admitted;
     # the `bytepoetsInbound` preset was removed in the same change.
     "bytepoets-mba-ed25519" = {
-      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd32Z80au6Tz7qrBFcpcF5AvMY0/p3KraFlytZpjiER markus.barta@bytepoets.com";
+      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd32Z80au6Tz7qrBFcpcF5AvMY0/p3KraFlytZpjiER bytepoets-mba";
       status = "revoked";
       note = "Former employer work identity; revoked post-exit (June 2026, INSPR-241). Declaration retained as historical record; bytepoetsInbound preset removed.";
     };
