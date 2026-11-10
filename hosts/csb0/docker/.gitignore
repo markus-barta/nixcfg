@@ -1,3 +1,4 @@
 # ignores
 traefik/acme.json
 traefik/variables.env
+traefik/acme-http.json
