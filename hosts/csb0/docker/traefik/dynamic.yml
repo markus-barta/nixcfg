@@ -13,6 +13,47 @@ http:
         - https-redirect
       service: redirect-all
       priority: 1
+    # OPS-528 / PAPP-68: INSPR push relay at push.inspr.at. The route lives here, in Traefik's own file, so it
+    # exists whatever the relay container does: an absent or unready backend gives 502/503, never a missing-router
+    # 404. Limits sit before buffering; no retries. Never attach cloudflarewarp here: DNS-only ingress, and that
+    # plugin would let a client header choose the source key. Keep access logs off: the /p/ path is a capability.
+    push-relay:
+      rule: "Host(`push.inspr.at`) && (PathPrefix(`/v1/`) || PathPrefix(`/p/`))"
+      entryPoints: [web-secure]
+      service: push-relay
+      middlewares: [relay-management-rate, relay-inflight, relay-buffer]
+      observability: { accessLogs: false, tracing: false }
+      tls:
+        certResolver: public-http
+    push-relay-send:
+      rule: "Host(`push.inspr.at`) && PathPrefix(`/p/`)"
+      priority: 100
+      entryPoints: [web-secure]
+      service: push-relay
+      middlewares: [relay-send-rate, relay-inflight, relay-buffer]
+      observability: { accessLogs: false, tracing: false }
+      tls:
+        certResolver: public-http
+    # LEAD 2026-11-02: csb1 gets 32 in-flight sends, still rate/body limited.
+    # Only /p/: this exception must never bypass the bootstrap proof limits.
+    push-relay-instances:
+      rule: "Host(`push.inspr.at`) && PathPrefix(`/p/`) && ClientIP(`152.53.64.166/32`)"
+      priority: 200
+      entryPoints: [web-secure]
+      service: push-relay
+      middlewares: [relay-send-rate, relay-inflight-instances, relay-buffer]
+      observability: { accessLogs: false, tracing: false }
+      tls:
+        certResolver: public-http
+    push-relay-bootstrap:
+      rule: "Host(`push.inspr.at`) && (Path(`/v1/registrations`) || Path(`/v1/attest/challenges`) || PathPrefix(`/v1/claims/`)) && Method(`POST`)"
+      priority: 100
+      entryPoints: [web-secure]
+      service: push-relay
+      middlewares: [relay-bootstrap-rate, relay-inflight, relay-attest-buffer]
+      observability: { accessLogs: false, tracing: false }
+      tls:
+        certResolver: public-http
   middlewares:
     https-redirect:
       redirectScheme:
@@ -24,11 +65,68 @@ http:
           trustip: # Trust IPS not required if disableDefault is false - we will allocate Cloud Flare IPs automatically
             - "172.16.0.0/12"
             - "2400:cb00::/32"
+    relay-management-rate:
+      rateLimit:
+        average: 60
+        period: 1m
+        burst: 20
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+            ipv6Subnet: 64
+    relay-send-rate:
+      rateLimit:
+        average: 120
+        period: 1m
+        burst: 30
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+            ipv6Subnet: 64
+    relay-bootstrap-rate:
+      rateLimit:
+        average: 10
+        period: 1m
+        burst: 5
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+            ipv6Subnet: 64
+    relay-inflight:
+      inFlightReq:
+        amount: 4
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+            ipv6Subnet: 64
+    relay-inflight-instances:
+      inFlightReq:
+        amount: 32
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+            ipv6Subnet: 64
+    relay-buffer:
+      buffering:
+        maxRequestBodyBytes: 2900
+        memRequestBodyBytes: 2900
+    relay-attest-buffer:
+      buffering:
+        maxRequestBodyBytes: 32768
+        memRequestBodyBytes: 32768
   services:
     redirect-all:
       loadBalancer:
         servers:
           - url: ""
+    push-relay:
+      loadBalancer:
+        servers:
+          - url: "http://paimos-push-relay:8080"
+        healthCheck:
+          path: /healthz
+          interval: 2s
+          timeout: 1s
 
 # https://doc.traefik.io/traefik/https/tls/
 tls:

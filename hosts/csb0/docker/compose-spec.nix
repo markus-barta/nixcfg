@@ -137,11 +137,14 @@
       networks = [
         "traefik"
         "docker-sock-traefik"
+        # OPS-528: reaches the push relay by its alias paimos-push-relay.
+        "relay-ingress"
       ];
       volumes = [
         "./traefik/static.yml:/etc/traefik/traefik.yml:ro"
         "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro"
         "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
+        "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
@@ -562,6 +565,10 @@
     bitwarden = null;
     docker-sock-traefik = {
       internal = true;
+    };
+    # OPS-528: shared by Traefik and the INSPR push relay only. Fixed name, so a later separate relay stack can join it.
+    relay-ingress = {
+      name = "relay-ingress";
     };
   };
 }

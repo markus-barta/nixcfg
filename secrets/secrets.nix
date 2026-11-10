@@ -782,3 +782,12 @@ in
   # Deliberately excludes gb: hsb8 receives only its own verifier, never plaintext.
   "hsb8-adguard-users.age".publicKeys = markus ++ hsb8;
 }
+// (
+  if builtins.pathExists ./csb0-push-relay-apns-key.age then
+    {
+      # OPS-528: PKCS#8 APNs key; sealed later, never a plaintext repository file.
+      "csb0-push-relay-apns-key.age".publicKeys = markus ++ csb0;
+    }
+  else
+    { }
+)

@@ -74,6 +74,128 @@ curl -I https://bitwarden.barta.cm  # Bitwarden (expect 200)
 
 ---
 
+## INSPR push relay (OPS-528)
+
+The independent `paimos-push-relay` Compose project is reconciled by
+`compose-paimos-push-relay.service`, using
+`/etc/compose/paimos-push-relay/docker-compose.json`. It joins the external
+`relay-ingress` network owned by project `csb0`; its stable state volume is
+`paimos-push-relay-data`. Image/key changes restart only this unit. Traefik's file
+routes stay installed during relay stop/remove/recreate, including before key
+provisioning. No public `/healthz` route exists.
+
+The unit, Compose file and agenix declaration exist only after
+`secrets/csb0-push-relay-apns-key.age` is sealed for `markus ++ csb0`.
+`hosts/csb0/push-relay.nix` must also contain verified ten-character uppercase
+alphanumeric `apnsKeyId` and `appAttestAppIdPrefix`; empty values fail the NixOS
+assertion when the ciphertext exists. The key is materialized as UID/GID 65532,
+mode 0400, and mounted read-only. Private GHCR pull access requires the token
+declaration from PR #1245; a NixOS assertion blocks deployment without it. Docker
+login is per unit, never daemon-wide: the relay logs in as `markus-barta` using
+`/run/agenix/csb1-inspr-site-ghcr-pull` and its own `DOCKER_CONFIG` at
+`/run/compose-paimos-push-relay-docker-auth` (0700, umask 077). It removes
+`config.json` after a successful start; systemd removes the runtime directory
+when the unit stops. Verify private pulls in the reviewed switch window.
+
+The key was sealed on 2026-11-10. The sealing procedure uses `age -R` with the
+recipient list from an existing exact `markus ++ csb0` entry, such as
+`csb0-recovery-password.age` in `secrets/secrets.nix`:
+
+```bash
+# From the nixcfg root; relay_plaintext names the securely staged APNs key.
+recipients="$(mktemp)"
+nix eval --impure --json --expr '(import ./secrets/secrets.nix)."csb0-recovery-password.age".publicKeys' |
+  jq -r '.[]' > "$recipients"
+age -R "$recipients" -o secrets/csb0-push-relay-apns-key.age "$relay_plaintext"
+```
+
+On csb0, prove host-key decryption without displaying plaintext; return only
+the SHA-256 and compare it with the securely recorded original:
+
+```bash
+set -o pipefail
+sudo age --decrypt -i /etc/ssh/ssh_host_ed25519_key secrets/csb0-push-relay-apns-key.age | sha256sum
+```
+
+After successful proof, dispose of the plaintext on the sealing machine:
+
+```bash
+p="$(realpath "$relay_plaintext")"
+trash "$p"; trash-rm "$p"
+trash-list | grep -F -- "$p"
+```
+
+The verification command must print nothing. Never stage the plaintext in a
+synced or backed-up folder. Then stage the ciphertext for review.
+The 2026-11-10 procedure included that proof and plaintext disposal. Keep the
+conditional rule in `secrets/secrets.nix`:
+`agenix -e` cannot create this initially absent conditional entry, and a global
+rekey must not create a placeholder that enables the relay.
+
+Tmpfiles pre-creates `hosts/csb0/docker/traefik/acme-http.json` on csb0 as a
+root-owned regular file, mode 0600, before Compose (without truncating existing
+state); the path is gitignored. Verify it is a file before the first route switch.
+`public-http` uses HTTP-01 on `web` and this separate writable state file;
+preserve existing ACME state.
+Before any switch that installs these routes, require
+`dig +short push.inspr.at` to return `89.58.63.96`, confirm the record is
+DNS-only (grey cloud), and require no AAAA record unless csb0 serves IPv6.
+INSPR-589 owns the record. HTTP-01 starts as soon as the routes load, so unmet
+DNS preconditions can consume the certificate validation budget. Verify the
+live Traefik version supports per-router observability controls. Forwarded
+headers stay untrusted.
+
+First installation requires a JOED/coordinator-controlled window. The reviewed
+switch starts the relay before its state is initialized: the container fails
+closed and Docker restart-loops until `-init-state` has run. Stop reconciliation
+and its project containers, initialize the intended empty volume exactly once,
+clear any systemd start-limit failure, then start:
+
+```bash
+sudo systemctl stop compose-paimos-push-relay
+sudo docker compose -p paimos-push-relay -f /etc/compose/paimos-push-relay/docker-compose.json run --rm --no-deps relay -init-state
+sudo systemctl reset-failed compose-paimos-push-relay
+sudo systemctl start compose-paimos-push-relay
+```
+
+Never put initialization in the daemon command or rerun it to work around
+missing/wrong state. After fixing a failed pull or other unit failure, also run
+`sudo systemctl reset-failed compose-paimos-push-relay` before restarting.
+Real-device App Attest/ownership evidence, the app/switch kit, a backup/restore
+drill and live-host acceptance remain go-live gates.
+
+On csb0, `sudo systemctl status compose-paimos-push-relay` checks reconciliation.
+Use `sudo docker network inspect relay-ingress --format '{{range .Containers}}{{println .Name .IPv4Address}}{{end}}'`
+to find `paimos-push-relay-relay-1`, then query its private bridge address with
+`curl --fail --silent --show-error http://<relay-bridge-ip>:8080/healthz` (drop the
+CIDR suffix). Expect HTTP 200 and inspect disk readiness, registration/proof
+counts, and `apns_auth_status`/`apns_auth_reason` privately. APNs 403 can coexist
+with HTTP 200; health does not contact Apple.
+
+Outside acceptance: `curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' --request POST --data '' https://push.inspr.at/p/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`.
+This is an unknown, 43-character capability: expect **410** when ready,
+**502/503** while stopped/removed/unready, **never 404**. Verify continuously
+through relay stop/remove/recreate/start and a Traefik recreate. While the
+outside check runs continuously, on csb0 run
+`sudo flock -w 570 /run/lock/compose-csb0.lock docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml --project-directory /home/mba/Code/nixcfg/hosts/csb0/docker up -d --no-deps --force-recreate traefik`.
+Traefik startup may expose an approximately two-second 404 window while its
+providers load; acceptance still requires no 404 on `/p/`. Record any 404 and
+hold go-live for coordinator review. Keep the existing `compose-csb0`
+`postRecreate` sequence. Keep access logging, tracing, request capture and debug
+logging off. Do not test public `/healthz` as readiness.
+
+Rollback: stop `compose-paimos-push-relay`, select the previous reviewed digest
+in `hosts/csb0/docker/push-relay-compose.nix`, and use the normal reviewed switch
+flow. The unit's stop action removes only its project containers; it preserves
+the external network, named volume and Traefik routes. For a schema rollback,
+retain the stopped current volume and restore a compatible offline backup into
+a new volume; run `/relay -reset-restored-state` against the restored data before
+serving traffic (old bindings must return 410). Never use `down -v`, reinitialize
+a populated volume, or replay restored bindings. Exercise backup/restore and
+record retained image/volume identities in the switch kit before go-live.
+
+---
+
 ## Common Tasks
 
 ### Update & Switch Configuration
