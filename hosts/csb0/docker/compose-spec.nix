@@ -144,6 +144,7 @@
         "./traefik/static.yml:/etc/traefik/traefik.yml:ro"
         "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro"
         "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
+        "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"

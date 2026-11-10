@@ -16,6 +16,9 @@ entryPoints:
       # version before cutover because the compose image intentionally floats.
       aliasHeadersStrategy: delete
     http3: {}
+    transport:
+      respondingTimeouts:
+        readTimeout: 10s
   mqtt:
     address: ":8883"
     transport:
@@ -33,7 +36,6 @@ providers:
   file:
     directory: /etc/traefik/dynamic
     watch: true
-    filename: dynamic.yml
 
 certificatesResolvers:
   default:
@@ -45,6 +47,17 @@ certificatesResolvers:
       dnsChallenge:
         provider: cloudflare
         delayBeforeCheck: 0
+
+  public-http:
+    acme:
+      email: markus@barta.com
+      storage: /etc/traefik/acme/acme-http.json
+      httpChallenge:
+        entryPoint: web
+
+# Capability-bearing routers must never use debug/request capture.
+log:
+  level: INFO
 
 api:
   dashboard: false
