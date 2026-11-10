@@ -14,6 +14,8 @@ let
     apnsKeyId = "8666MJ2TST";
     appAttestAppIdPrefix = "P66J39QV6V";
   };
+  hasRegistryToken = config.age.secrets ? "csb1-inspr-site-ghcr-pull";
+  authDirectory = "compose-paimos-push-relay-docker-auth";
   validIdentifier = value: builtins.match "[A-Z0-9]{10}" value != null;
   spec = import ./docker/push-relay-compose.nix {
     inherit (appleIdentifiers) apnsKeyId appAttestAppIdPrefix;
@@ -21,11 +23,15 @@ let
   };
   composeFile = pkgs.writeText "docker-compose-paimos-push-relay.json" (builtins.toJSON spec);
   compose = "${pkgs.docker-compose}/bin/docker-compose -p paimos-push-relay -f ${composeFile}";
-  locked = "${pkgs.util-linux}/bin/flock -w 570 /run/lock/compose-paimos-push-relay.lock";
+  locked = timeout: "${pkgs.util-linux}/bin/flock -w ${toString timeout} /run/lock/compose-paimos-push-relay.lock";
 in
 {
   config = lib.mkIf enabled {
     assertions = [
+      {
+        assertion = hasRegistryToken;
+        message = "OPS-528: the relay requires age.secrets.csb1-inspr-site-ghcr-pull from PR #1245 before deployment.";
+      }
       {
         assertion = lib.all validIdentifier (lib.attrValues appleIdentifiers);
         message = "OPS-528: sealed APNs key requires verified APNS_KEY_ID and APP_ATTEST_APP_ID_PREFIX (10 uppercase alphanumeric characters each) in hosts/csb0/push-relay.nix.";
@@ -54,6 +60,11 @@ in
       restartTriggers = [ composeFile ciphertext ];
       startLimitIntervalSec = 300;
       startLimitBurst = 3;
+      # Docker credentials are client-side and private to this unit. PR #1245
+      # declares the shared token; its compose-csb0 login cannot authenticate us.
+      environment = lib.optionalAttrs hasRegistryToken {
+        DOCKER_CONFIG = "/run/${authDirectory}";
+      };
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -61,18 +72,30 @@ in
         TimeoutStopSec = "60";
         Restart = "on-failure";
         RestartSec = "30s";
+      } // lib.optionalAttrs hasRegistryToken {
+        RuntimeDirectory = authDirectory;
+        RuntimeDirectoryMode = "0700";
       };
-      preStart = ''
+      preStart = lib.optionalString hasRegistryToken ''
+        umask 077
+        test -r /run/agenix/csb1-inspr-site-ghcr-pull
+        ${config.virtualisation.docker.package}/bin/docker login ghcr.io \
+          --username markus-barta --password-stdin \
+          < /run/agenix/csb1-inspr-site-ghcr-pull
+      '' + ''
         test -r ${lib.escapeShellArg config.age.secrets.csb0-push-relay-apns-key.path}
         ${config.virtualisation.docker.package}/bin/docker network inspect relay-ingress > /dev/null
       '';
-      # No initialization here: a missing state file must fail closed. Pull
-      # access is the separate GHCR change (#1245), never another token here.
+      postStart = lib.optionalString hasRegistryToken ''
+        ${pkgs.coreutils}/bin/rm -f /run/${authDirectory}/config.json
+      '';
+      # No initialization here: a missing state file must fail closed.
+      # Login above is per unit; no daemon-wide credential is created.
       script = ''
-        ${locked} ${compose} up -d --remove-orphans
+        ${locked 570} ${compose} up -d --remove-orphans
       '';
       preStop = ''
-        ${locked} ${compose} down --timeout 20
+        ${locked 50} ${compose} down --timeout 20
       '';
     };
   };

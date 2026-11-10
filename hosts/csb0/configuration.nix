@@ -50,7 +50,6 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     # 🟢 CUT OVER 2026-08-01 (OPS-121).
     reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb0/docker";
-    extraAfter = [ "systemd-tmpfiles-setup.service" ];
     # Order matters: auth before dashboard before the edge (was the
     # csb0-hostdash unit's documented sequence).
     postRecreate = [

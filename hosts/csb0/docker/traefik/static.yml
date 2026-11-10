@@ -16,9 +16,6 @@ entryPoints:
       # version before cutover because the compose image intentionally floats.
       aliasHeadersStrategy: delete
     http3: {}
-    transport:
-      respondingTimeouts:
-        readTimeout: 10s
   mqtt:
     address: ":8883"
     transport:
@@ -57,7 +54,7 @@ certificatesResolvers:
 
 # Capability-bearing routers must never use debug/request capture.
 log:
-  level: INFO
+  level: ERROR
 
 api:
   dashboard: false
