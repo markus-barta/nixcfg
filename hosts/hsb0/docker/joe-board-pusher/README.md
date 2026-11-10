@@ -912,8 +912,8 @@ economic values. Day-only activity and partial captured-history views are not
 complete accounting sources and cannot establish this cardinality proof.
 Each entry records its desk, basis and decision date. The reviewed corrections are:
 
-| Exact execution ID        | Desk | Fill                                                  |
-| ------------------------- | ---- | ----------------------------------------------------- |
+| Exact execution ID        | Desk | Fill                                                         |
+| ------------------------- | ---- | ------------------------------------------------------------ |
 | `0000dc8f.6bb0d852.01.01` | J    | 2026-09-23 13:30:04Z, client 119, SELL 4 NVDA, conId 4815747 |
 | `0000dc8f.6bd3bc59.01.01` | J    | 2026-10-06 13:40:47Z, client 229, BUY 1 NVDA, conId 4815747  |
 | `00025b45.6ace1f95.01.01` | Joe  | 2026-10-12 19:50:12Z, client 28, BUY 4 NVDA, conId 4815747   |
