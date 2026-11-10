@@ -8,8 +8,7 @@
 let
   ciphertext = ../../secrets/csb0-push-relay-apns-key.age;
   enabled = builtins.pathExists ciphertext;
-  # Public Apple identifiers. Fill both from verified Apple portal/app metadata
-  # before sealing the key; empty values deliberately block activation.
+  # Public Apple identifiers (verified 2026-11-10); the assertion rejects malformed values.
   appleIdentifiers = {
     apnsKeyId = "8666MJ2TST";
     appAttestAppIdPrefix = "P66J39QV6V";

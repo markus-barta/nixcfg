@@ -103,9 +103,10 @@ recipient list from an existing exact `markus ++ csb0` entry, such as
 
 ```bash
 # From the nixcfg root; relay_plaintext names the securely staged APNs key.
+recipients="$(mktemp)"
 nix eval --impure --json --expr '(import ./secrets/secrets.nix)."csb0-recovery-password.age".publicKeys' |
-  jq -r '.[]' > "$TMPDIR/relay-recipients.txt"
-age -R "$TMPDIR/relay-recipients.txt" -o secrets/csb0-push-relay-apns-key.age "$relay_plaintext"
+  jq -r '.[]' > "$recipients"
+age -R "$recipients" -o secrets/csb0-push-relay-apns-key.age "$relay_plaintext"
 ```
 
 On csb0, prove host-key decryption without displaying plaintext; return only
@@ -116,11 +117,18 @@ set -o pipefail
 sudo age --decrypt -i /etc/ssh/ssh_host_ed25519_key secrets/csb0-push-relay-apns-key.age | sha256sum
 ```
 
-After successful proof, `trash "$relay_plaintext"` on the sealing machine, then
-delete that one item from the Trash at once (`trash-rm <path>`); never stage the
-plaintext in a synced or backed-up folder. Then stage the ciphertext for review.
-The 2026-11-10 procedure included that proof
-and plaintext disposal. Keep the conditional rule in `secrets/secrets.nix`:
+After successful proof, dispose of the plaintext on the sealing machine:
+
+```bash
+p="$(realpath "$relay_plaintext")"
+trash "$p"; trash-rm "$p"
+trash-list | grep -F -- "$p"
+```
+
+The verification command must print nothing. Never stage the plaintext in a
+synced or backed-up folder. Then stage the ciphertext for review.
+The 2026-11-10 procedure included that proof and plaintext disposal. Keep the
+conditional rule in `secrets/secrets.nix`:
 `agenix -e` cannot create this initially absent conditional entry, and a global
 rekey must not create a placeholder that enables the relay.
 
