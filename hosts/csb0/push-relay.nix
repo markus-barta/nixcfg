@@ -60,8 +60,7 @@ in
       restartTriggers = [ composeFile ciphertext ];
       startLimitIntervalSec = 300;
       startLimitBurst = 3;
-      # Docker credentials are client-side and private to this unit. PR #1245
-      # declares the shared token; its compose-csb0 login cannot authenticate us.
+      # Docker credentials are client-side; this unit is the only csb0 consumer of the token #1245 declares.
       environment = lib.optionalAttrs hasRegistryToken {
         DOCKER_CONFIG = "/run/${authDirectory}";
       };

@@ -103,7 +103,7 @@ recipient list from an existing exact `markus ++ csb0` entry, such as
 
 ```bash
 # From the nixcfg root; relay_plaintext names the securely staged APNs key.
-nix eval --json --expr '(import ./secrets/secrets.nix)."csb0-recovery-password.age".publicKeys' |
+nix eval --impure --json --expr '(import ./secrets/secrets.nix)."csb0-recovery-password.age".publicKeys' |
   jq -r '.[]' > "$TMPDIR/relay-recipients.txt"
 age -R "$TMPDIR/relay-recipients.txt" -o secrets/csb0-push-relay-apns-key.age "$relay_plaintext"
 ```
@@ -117,7 +117,9 @@ sudo age --decrypt -i /etc/ssh/ssh_host_ed25519_key secrets/csb0-push-relay-apns
 ```
 
 After successful proof, `trash "$relay_plaintext"` on the sealing machine, then
-stage the ciphertext for review. The 2026-11-10 procedure included that proof
+delete that one item from the Trash at once (`trash-rm <path>`); never stage the
+plaintext in a synced or backed-up folder. Then stage the ciphertext for review.
+The 2026-11-10 procedure included that proof
 and plaintext disposal. Keep the conditional rule in `secrets/secrets.nix`:
 `agenix -e` cannot create this initially absent conditional entry, and a global
 rekey must not create a placeholder that enables the relay.
@@ -167,7 +169,7 @@ This is an unknown, 43-character capability: expect **410** when ready,
 **502/503** while stopped/removed/unready, **never 404**. Verify continuously
 through relay stop/remove/recreate/start and a Traefik recreate. While the
 outside check runs continuously, on csb0 run
-`sudo docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml --project-directory /home/mba/Code/nixcfg/hosts/csb0/docker up -d --no-deps --force-recreate traefik`.
+`sudo flock -w 570 /run/lock/compose-csb0.lock docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml --project-directory /home/mba/Code/nixcfg/hosts/csb0/docker up -d --no-deps --force-recreate traefik`.
 Traefik startup may expose an approximately two-second 404 window while its
 providers load; acceptance still requires no 404 on `/p/`. Record any 404 and
 hold go-live for coordinator review. Keep the existing `compose-csb0`
