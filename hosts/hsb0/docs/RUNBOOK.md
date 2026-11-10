@@ -1357,13 +1357,18 @@ baselines, then verify a fresh committed/published sequence above high-water
 **and J/all-desk money availability and reconciliation** in that snapshot.
 The old worker rejects the new basis on revisions 9, 10 and 11; moving only
 the pointer cannot recover it. Preserve the archive as evidence.
-Also archive and preserve the live `executor-attribution-memory.json`
-byte-for-byte: once it contains a j3/j4 proof, r21 rejects the **entire** file
-and J/all-desk money stays unavailable despite a fresh sequence. Never remove
-or edit those proofs or restore an older memory to make rollback pass. The
-recovery path is coordinated **roll-forward** to the reviewed OPS-557/OPS-567
-runtime using the preserved memory; transport recovery alone is not desk-money
-recovery. r21 also rejects a live j3/j4 intent without a saved proof.
+Also archive the live `executor-attribution-memory.json` and make no manual
+edits, trims or restores to it (the worker itself may add new proofs): once it
+contains a j3/j4 proof, r21 rejects the **entire** file and J/all-desk money
+stays unavailable despite a fresh sequence. Never remove or edit those proofs or
+restore an older memory to make rollback pass. The recovery path is coordinated
+**roll-forward** to the reviewed OPS-557/OPS-567 runtime using the preserved
+memory: the activation procedure again, with fresh deploy-day copies and a new
+`--deploy-date` replay (every PASS), then the switch and live checks. Money is
+recovered only when the next published snapshot shows desk J's
+`desks[].pnlSources.open.status` = `available` (and `pnlSources.day.status`
+once SOD proof exists) with all-desk aggregates no longer withheld; transport
+recovery alone is not desk-money recovery. r21 also rejects a live j3/j4 intent without a saved proof.
 
 The r17 rollback image is `household-v2-switch-set-r16d-202610201800`.
 **Before activation, r17 → r16d needs no move-aside. After activation, it does:**

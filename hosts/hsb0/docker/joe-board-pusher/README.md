@@ -1040,9 +1040,9 @@ pusher/stager generation is not supported. Without it, recovery reports
 `executor-attribution-memory.json`, r21's old rollup validator rejects the
 **whole memory file**, including otherwise compatible proofs. Its executor
 attribution then fails closed and J/all-desk money is unavailable. A fresh
-published sequence alone does not prove desk-money recovery. Preserve the
-memory file byte-for-byte; never delete, trim, rewrite or restore an older copy
-to make r21 accept it. The recovery path for this case is to **roll forward**
+published sequence alone does not prove desk-money recovery. Make no manual
+edits to the memory file: never delete, trim, rewrite or restore an older copy
+to make r21 accept it (the worker itself may still add new proofs). The recovery path for this case is to **roll forward**
 to the reviewed OPS-557/OPS-567 runtime with the preserved memory. Even without
 a saved proof, r21 cannot attribute a live `j3`/`j4` intent.
 
@@ -1062,7 +1062,9 @@ This is a coordinator-operated rollback procedure, not automatic cleanup:
    high-water. Leave the original cursor, pending POST, baseline files, family
    ledger/history, `executor-attribution-memory.json` and checkpoint directory
    untouched. Also copy the attribution memory into the archive as evidence;
-   preserve the live original byte-for-byte through rollback and roll-forward.
+   make no manual edits, trims or restores to the live original through rollback
+   and roll-forward (a running worker with `remember: true` legitimately writes
+   new proofs).
 3. Move `/var/lib/joe-board-pusher/v2/current.json`, when present, into the
    archive first. Then move **every** `v2/pair-<seq>/` directory into the same
    archive, including compatible older pairs. Moving the pointer alone fails:
@@ -1086,6 +1088,18 @@ This is a coordinator-operated rollback procedure, not automatic cleanup:
    the memory and coordinate roll-forward; do not declare money recovered.
    Neither process startup nor a missing storage error alone proves recovery.
    Preserve the archive after pruning and do not reset the board or POST cursor.
+
+**Roll-forward** is the activation procedure again, not a separate path: copy
+fresh deploy-day inputs, re-run the
+[pre-deploy replay gate](#ops-557-pre-deploy-replay-gate) with a **new**
+`--deploy-date` (the new activation instant; the 60-minute freshness window
+applies again) and require every PASS, then switch to the reviewed
+OPS-557/OPS-567 runtime with the preserved attribution memory and run the same
+live checks. Desk-money recovery is proven only by the next published snapshot
+in which desk J's `desks[].pnlSources.open.status` is `available` (and
+`pnlSources.day.status` once its SOD proof exists) and the all-desk aggregates
+are no longer withheld; record that as value-free evidence. A fresh sequence
+alone is transport recovery only.
 
 When attribution remains compatible, rollback restores pre-fix ownership and
 removes J/Joe's policy basis, causing another board series cut. The old policy's
