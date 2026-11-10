@@ -855,10 +855,13 @@ Contracts manifest revision 11 has set SHA256
 `release/contracts.json` SHA256 is
 `de73dcc195e3054bb0ea53882c994f7255adb3f5567e5af1adb9eb6069c19747`.
 The board accepts revision-11, revision-10 and revision-9 payloads. JOED-149
-prepares the hsb0 pusher/executor image `household-v2-switch-set-r21-202611031258`
+prepared the hsb0 pusher/executor image `household-v2-switch-set-r21-202611031258`
 from nixcfg `729ddf040951a5a0f4ee3acada8613d62255227e`, with the complete vendored
 revision-11 set `c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`
-and revision 11 configured for pusher and stager. Revision 10 is an explicit
+and revision 11 configured for pusher and stager. OPS-557/OPS-567 select
+`household-v2-switch-set-r22-202611102200` from nixcfg
+`0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (same vendored set and revision);
+r21 is the shared-image rollback. Revision 10 is an explicit
 rollback setting; revision 9 remains the fallback. Image build, host activation
 and live producer sign-off remain separate gates. This pusher-family pin change
 preserves every board entry, the joedesk flake input and csb0 Compose declaration.

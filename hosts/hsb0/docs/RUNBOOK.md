@@ -1295,7 +1295,7 @@ stager cold start, stager-only checkpoint). r20c was built but rolled back on
 2026-10-27 and is never deployed by this combined re-land. The new tag prevents
 reuse of the earlier r20c image without the checkpoint code.
 
-JOED-149 now prepares `household-v2-switch-set-r21-202611031258` from the
+JOED-149 prepared `household-v2-switch-set-r21-202611031258` from the
 committed rev-11 implementation `729ddf040951a5a0f4ee3acada8613d62255227e`.
 Both `v2.pusher.nixcfg_rev` and `v2.executor.nixcfg_rev` name that commit;
 `git rev-parse REV:SOURCE_PATH` derives pusher tree
@@ -1306,12 +1306,31 @@ source. Build this new tag from that runtime tree before an approved activation;
 switch never rebuilds it. Every board entry and both legacy rollback sets stay
 intact. The csb0 Compose values and joedesk source pin stay unchanged.
 
+OPS-557/OPS-567 now prepare `household-v2-switch-set-r22-202611102200` from the committed
+implementation `0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (#1228). The pusher source changed, so the
+deployment needs a new immutable tag: services are `build` = source with
+`pull_policy = "never"` and the switch runs no `--build`, so an unchanged tag
+would silently keep running r21. Both `v2.pusher.nixcfg_rev` and
+`v2.executor.nixcfg_rev` name that commit; `git rev-parse REV:SOURCE_PATH`
+derives pusher tree `c7ae810fb0e9f153cbd37fb2ae2773d8895ee844` and unchanged
+executor tree `123eefa72d3a8484a4e3c7cf474306aa5ab87628`. Seed r22 on hsb0 from that
+runtime tree before the switch, never over an existing tag; keep r21 as the
+immediate rollback (OPS-557 procedure). Before seeding: refuse if the r22 tag
+already exists on hsb0 (never build over a published tag). Before switching:
+refuse unless the seeded r22 image's recorded source tree is the pinned pusher
+tree, and refuse if the selected tag equals the running image while the pinned
+pusher tree differs from the running one. Merge #1228 with a merge
+commit (not squash) so the pinned commit stays reachable from main.
+
 The pusher, stager, executor and mailbox share the tag and recreate together;
 the existing compose post-recreation also recreates `hsb0-home`. Reject any
 other runtime definition change. The gateway container and Results producer
-invocation must stay unchanged. For this image promotion, rollback explicitly
-activates the asserted pre-switch generation with its retained r19a image;
-do not use the separate r16d/v1 variant B rollback below.
+invocation must stay unchanged. For the r22 promotion, rollback activates the
+asserted pre-switch generation with its retained r21 image through the
+[OPS-557 rollback procedure](../docker/joe-board-pusher/README.md#ops-557-rollback-to-the-pre-change-image)
+(archive/move-aside; moving only the pointer cannot recover). Earlier
+promotions rolled back to r19a; that is historical. Do not use the separate
+r16d/v1 variant B rollback below.
 
 In v2 mode, only the `current.json` committed pair is eligible. The existing
 stager reader validates it and returns the exact snapshot bytes for POST.

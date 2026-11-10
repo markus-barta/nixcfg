@@ -320,8 +320,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # JOED-149 r21 (rev-11 desk DAY FX provenance on the JOED-100/OPS-497 shared-image lineage): household-v2-switch-set-r21-202611031258, selected
-    # only by the release set. Shared-image rollback retains r19a; the separate
+    # OPS-557/OPS-567 r22 (NVDA closing fills to their opening desk + historyBasis, on the JOED-149 r21 rev-11 lineage): household-v2-switch-set-r22-202611102200, selected
+    # only by the release set. Shared-image rollback retains r21 (OPS-557 procedure); the separate
     # current v1 set retains household-v2-switch-set-r16d-202610201800. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate

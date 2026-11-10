@@ -41,8 +41,8 @@ no app-origin stamp. Use no production credentials in this check.
 ## One compatible release set
 
 `hosts/csb0/joedesk-release.json` is shared by csb0, the hsb0 pusher and
-executor. `active = v2` (OPS-354 activation) selects 6ba8051a (sequence 45, JOED-189) with the r21
-pusher/executor pins (JOED-149 revision 11 configured; after JOED-86 and JOED-63/HOSTD-77 r19a); `current` retains db621bf, legacy `calendar`
+executor. `active = v2` (OPS-354 activation) selects 6ba8051a (sequence 45, JOED-189) with the r22
+pusher/executor pins (OPS-557/OPS-567 on the JOED-149 revision-11 lineage; r21 is the shared-image rollback); `current` retains db621bf, legacy `calendar`
 26.09.21.12.00, sequence 23, no release tag. v1 has neither contracts.json nor
 public `/joe/healthz`. Pusher and executor record their nixcfg source commits,
 source trees and existing runtime image. The current downstream pins match
@@ -60,7 +60,7 @@ board (frozen at the last good figures, labelled and inert; never
 readable as live), JOED-175 sign-in check across a restored tab, JOED-149 acceptance of revision 11. JOED-149 now prepares the r21 pusher with the complete vendored revision-11 set and revision 11 configured for pusher and stager; image build, host activation and live producer sign-off remain separately gated. The board still accepts revision-9
 payloads; revision 9 remains the pusher's fallback for an absent or unrecognized setting.
 The full source/tree, release-set, image and contract hashes are in the RUNBOOK. Its
-downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (JOED-149; image `household-v2-switch-set-r21-202611031258`, revision 11 configured). Fixtures do not
+downstream deployment pins are `v2.pusher`/`v2.executor` in the release set (OPS-557; image `household-v2-switch-set-r22-202611102200`, revision 11 configured; rollback `household-v2-switch-set-r21-202611031258`). Fixtures do not
 establish JOED-20 compatibility. In one approved cutover commit, record the
 published board rev/image, final digest/IDs and approved immutable pusher and
 executor pins, update flake URL/lock, select the complete compatible v2 set,
