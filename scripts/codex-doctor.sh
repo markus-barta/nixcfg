@@ -60,7 +60,9 @@
 #      (2026-11-10): 0.167.0 requires `--from-cli`; plain `--yes` failed with
 #      "required arguments were not provided: --from-cli". An explicit
 #      replacement turns off automatic package updates (openai/codex #45580), so
-#      the daemon then follows the CLI that `just update-ai-clis` installs.
+#      the daemon then follows the CLI that `just update-ai-clis` installs. Any
+#      drift runs it, a stale cache alone included, so a package the update
+#      loop had moved ahead of the CLI goes back to the CLI's version.
 #   2. `codex debug models` refreshes the models cache; then report again
 #
 # Never: kills a process, edits config.toml, touches auth.json.
@@ -146,21 +148,38 @@ version_of() { # version_of BINARY → "0.153.4" or empty
   "$1" --version 2>/dev/null | awk '{print $NF}' || true
 }
 
-# install_of BINARY → the resolved file BINARY really runs. A small launcher
-# script whose last line is `exec /absolute/path "$@"` stands for that path:
-# the agent guard puts such an env-only `codex` shadow ahead of
-# ~/.npm-global/bin (NIX-445, modules/uzumaki/agent-browser-guard.nix). It
-# cannot drift from the install it execs, so it is not a second install.
+# install_of BINARY → the resolved file BINARY really runs. The agent guard puts
+# an env-only `codex` launcher ahead of ~/.npm-global/bin (NIX-445,
+# mkEnvOnlyWrapper in modules/uzumaki/agent-browser-guard.nix): literal
+# exports, the NODE_OPTIONS preload `case`, then `exec /absolute/path "$@"`.
+# It cannot drift from the install it execs, so it stands for that path. Only
+# that exact shape is recognised; any other script (a condition, another
+# command, unbalanced quotes) counts as an install of its own.
+# shellcheck disable=SC2016 # ${word} is a JavaScript template substitution
 install_of() {
   node -e '
     const fs = require("fs");
     let bin = process.argv[1];
+    // A literal shell word: no quotes, expansions, separators or redirections.
+    const word = String.raw`[^\s\x27"$\x60\\;&|<>()]`;
+    const allowed = [
+      new RegExp(String.raw`^export [A-Za-z_][A-Za-z0-9_]*=${word}*$`),
+      /^case " \$\{NODE_OPTIONS-\} " in$/,
+      new RegExp(String.raw`^\s*\*" --require /${word}+ "\*\) ;;$`),
+      new RegExp(String.raw`^\s*\*\) NODE_OPTIONS="\$\{NODE_OPTIONS-\} --require /${word}+"; export NODE_OPTIONS ;;$`),
+      /^esac$/,
+    ];
+    // exec /path "$@", the path bare or in balanced single quotes.
+    const exec = new RegExp(String.raw`^exec (?:\x27(/[^\x27]+)\x27|(/${word}+)) "\$@"$`);
     try {
       if (fs.statSync(bin).size < 65536) {
-        const text = fs.readFileSync(bin, "utf8");
-        const last = text.trimEnd().split("\n").pop();
-        const m = text.startsWith("#!") && /^exec '"'"'?(\/[^'"'"' ]+)'"'"'? "\$@"$/.exec(last);
-        if (m && fs.statSync(m[1]).isFile()) bin = m[1];
+        const [shebang, ...rest] = fs.readFileSync(bin, "utf8").split("\n");
+        const lines = rest.map((l) => l.trimEnd()).filter((l) => l !== "");
+        const m = exec.exec(lines.pop() ?? "");
+        if (shebang.startsWith("#!") && m && lines.every((l) => allowed.some((re) => re.test(l)))) {
+          const target = m[1] ?? m[2];
+          if (fs.statSync(target).isFile()) bin = target;
+        }
       }
     } catch {}
     try { bin = fs.realpathSync(bin); } catch {}

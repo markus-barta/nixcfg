@@ -436,6 +436,19 @@ exit 99
         self.assertIn("single codex install on PATH", result.stdout)
         self.assertIn(f"{self.bin / 'codex'} runs the same install", result.stdout)
         self.assertNotIn("another codex", result.stdout)
+        # Only that exact shape counts: a script that may run something else
+        # first, or whose exec line does not parse, stays a separate install.
+        launcher, path = (shadow / "codex").read_text(), self.env["PATH"]
+        self.env["PATH"] = f"{self.bin}:{path}"
+        for body in (f'[ -z "${{X-}}" ] || exec {other / "codex"} "$@"\nexec {self.bin / "codex"} "$@"\n',
+                     f"exec '{self.bin / 'codex'} \"$@\"\n"):
+            with self.subTest(body=body):
+                (shadow / "codex").write_text(f"#!/bin/bash\n{body}")
+                result = self.run_command("bash", str(DOCTOR), "--check")
+                self.assertIn(f"another codex on PATH: {shadow / 'codex'}", result.stdout)
+                self.assertNotIn("runs the same install", result.stdout)
+        (shadow / "codex").write_text(launcher)
+        self.env["PATH"] = path
         self.env["TEST_WHICH"] += f" {other / 'codex'}"
         result = self.run_command("bash", str(DOCTOR), "--check")
         self.assertEqual(result.returncode, 1, result.stdout)
