@@ -27,11 +27,13 @@
 #
 # Daemon package: `codex app-server daemon version` names it (managedCodexPath,
 # managedCodexVersion). Since 0.162, `daemon update` moves it into a dedicated
-# package (~/.codex/packages/app-server-daemon) that keeps itself current with
-# its own update loop, so the daemon may run NEWER than the CLI; only older is
-# drift. The legacy standalone package (~/.codex/packages/standalone) has no
-# working update loop: a daemon still managed from there is drift even at the
-# CLI version. After the move the standalone package stays behind, unused.
+# package (~/.codex/packages/app-server-daemon). Unless pinned, that package
+# keeps itself current with its own update loop, so the daemon may run NEWER
+# than the CLI; only older is drift. The doctor's repair pins it to the CLI
+# (see Repair), after which the next CLI bump shows up here as drift. The legacy
+# standalone package (~/.codex/packages/standalone) has no working update loop:
+# a daemon still managed from there is drift even at the CLI version. After the
+# move the standalone package stays behind, unused.
 #
 # Drift = any of:
 #   - the daemon runs a version older than the CLI
@@ -52,8 +54,13 @@
 # is a persistent setting and blocks until it is disabled). A daemon status
 # that cannot be established refuses the repair. The window between the last
 # check and the restart stays, as before.
-#   1. `codex app-server daemon update --yes` — upstream installs the current
-#      release into the dedicated package and restarts the daemon
+#   1. `codex app-server daemon update --from-cli --yes` — upstream copies this
+#      CLI's complete package into the dedicated package, pins it there and
+#      restarts a running daemon (a stopped one stays stopped). OPS-586
+#      (2026-11-10): 0.167.0 requires `--from-cli`; plain `--yes` failed with
+#      "required arguments were not provided: --from-cli". An explicit
+#      replacement turns off automatic package updates (openai/codex #45580), so
+#      the daemon then follows the CLI that `just update-ai-clis` installs.
 #   2. `codex debug models` refreshes the models cache; then report again
 #
 # Never: kills a process, edits config.toml, touches auth.json.
@@ -137,6 +144,28 @@ catalog_has() {
 
 version_of() { # version_of BINARY → "0.153.4" or empty
   "$1" --version 2>/dev/null | awk '{print $NF}' || true
+}
+
+# install_of BINARY → the resolved file BINARY really runs. A small launcher
+# script whose last line is `exec /absolute/path "$@"` stands for that path:
+# the agent guard puts such an env-only `codex` shadow ahead of
+# ~/.npm-global/bin (NIX-445, modules/uzumaki/agent-browser-guard.nix). It
+# cannot drift from the install it execs, so it is not a second install.
+install_of() {
+  node -e '
+    const fs = require("fs");
+    let bin = process.argv[1];
+    try {
+      if (fs.statSync(bin).size < 65536) {
+        const text = fs.readFileSync(bin, "utf8");
+        const last = text.trimEnd().split("\n").pop();
+        const m = text.startsWith("#!") && /^exec '"'"'?(\/[^'"'"' ]+)'"'"'? "\$@"$/.exec(last);
+        if (m && fs.statSync(m[1]).isFile()) bin = m[1];
+      }
+    } catch {}
+    try { bin = fs.realpathSync(bin); } catch {}
+    process.stdout.write(bin);
+  ' "$1"
 }
 
 # version_cmp A B → prints -1, 0 or 1 (semver precedence: numeric dotted core,
@@ -315,11 +344,22 @@ report() {
   }
   printf '\n\033[1mCodex doctor\033[0m  CLI %s  (%s)\n' "$CLI_VER" "$CLI_BIN"
 
-  # Every `codex` on PATH — a second install that shadows the npm one drifts silently.
-  local other_paths other_ver
-  other_paths="$(which -a codex 2>/dev/null | grep -vx "$CLI_BIN" | sort -u || true)"
+  # Every `codex` on PATH — a second install that shadows the npm one drifts
+  # silently. Entries that run the CLI's own install (a launcher, a symlink)
+  # are listed, not counted.
+  local cli_install p other_ver other_paths="" same_paths=""
+  cli_install="$(install_of "$CLI_BIN")"
+  while IFS= read -r p; do
+    [ -n "$p" ] && [ "$p" != "$CLI_BIN" ] || continue
+    if [ -n "$cli_install" ] && [ "$(install_of "$p")" = "$cli_install" ]; then
+      same_paths+="$p"$'\n'
+    else
+      other_paths+="$p"$'\n'
+    fi
+  done < <(which -a codex 2>/dev/null | sort -u || true)
   if [ -n "$other_paths" ]; then
     while IFS= read -r p; do
+      [ -n "$p" ] || continue
       other_ver="$(version_of "$p")"
       if [ "$other_ver" = "$CLI_VER" ]; then
         warn "another codex on PATH: $p ($other_ver) — same version today, will drift"
@@ -328,8 +368,11 @@ report() {
       fi
     done <<<"$other_paths"
   else
-    ok "single codex on PATH"
+    ok "single codex install on PATH"
   fi
+  while IFS= read -r p; do
+    [ -z "$p" ] || info "$p runs the same install ($cli_install)"
+  done <<<"$same_paths"
 
   # Daemon package = what `daemon start` will run. The daemon names it; older
   # CLIs do not, so fall back to the dedicated, then the legacy location.
@@ -414,8 +457,8 @@ report() {
 # ── Repair ───────────────────────────────────────────────────────────────────
 repair() {
   echo "Repair:"
-  info "codex app-server daemon update --yes"
-  if ! codex app-server daemon update --yes >"$TMP/update.log" 2>&1; then
+  info "codex app-server daemon update --from-cli --yes"
+  if ! codex app-server daemon update --from-cli --yes >"$TMP/update.log" 2>&1; then
     cp "$TMP/update.log" "${TMPDIR:-/tmp}/codex-doctor-update.log"
     bad "daemon update failed — log: ${TMPDIR:-/tmp}/codex-doctor-update.log"
     tail -5 "$TMP/update.log"
@@ -469,7 +512,7 @@ if [ "$MODE" = ask ]; then
     manual_steps
     exit 1
   fi
-  printf 'Run the repair now? codex app-server daemon update → refresh models cache [y/N] '
+  printf 'Run the repair now? codex app-server daemon update --from-cli (pins the daemon to this CLI) → refresh models cache [y/N] '
   IFS= read -r -n 1 ANSWER || ANSWER=""
   echo
   case "$ANSWER" in
