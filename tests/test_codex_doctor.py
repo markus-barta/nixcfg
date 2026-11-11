@@ -130,7 +130,7 @@ case "$mode" in
   client47) printf 'p47\\nf5\\nd0xproxy\\nn->0xaccepted\\n' ;;
 esac
 ''')
-        self.stub("which", 'printf "%s\\n" ${TEST_WHICH:-$TEST_BIN/codex}')
+        self.stub("which", 'printf "%s\\n" "$TEST_BIN/codex"')
         self.env["TEST_BIN"] = str(self.bin)
         self.stub("trash", 'exit "${TEST_TRASH_EXIT:-0}"')
         self.stub("pgrep", "exit 1")
@@ -415,44 +415,6 @@ exit 99
         self.assertIn("app-server daemon not running", result.stdout)
         self.assertIn("models cache written by client 0.153.4, older", result.stdout)
         self.assert_repaired(self.run_command("bash", str(DOCTOR), "--fix"))
-
-    def test_guard_launcher_is_the_same_install_but_a_second_install_counts(self):
-        # OPS-586: the agent guard's env-only `codex` shadow (first on PATH)
-        # execs the npm CLI; the doctor warned that it "will drift".
-        shadow = self.root / "store/0-inspr-agent-guard-shadow-bin/bin"
-        shadow.mkdir(parents=True)
-        (shadow / "codex").write_text(
-            f'#!/bin/bash\nexport NODE_OPTIONS=x\nexec {self.bin / "codex"} "$@"\n\n')
-        (shadow / "codex").chmod(0o755)
-        other = self.root / "other/bin"
-        other.mkdir(parents=True)
-        (other / "codex").write_text("#!/bin/sh\necho 'codex-cli 0.150.0'\n")
-        (other / "codex").chmod(0o755)
-        self.env.update(TEST_DAEMON_VERSION="0.154.0", PATH=f"{shadow}:{self.env['PATH']}",
-                        TEST_WHICH=f"{shadow / 'codex'} {self.bin / 'codex'}")
-        self.cache.write_text(self.cache.read_text().replace("0.153.4", "0.154.0"))
-        result = self.run_command("bash", str(DOCTOR), "--check")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("single codex install on PATH", result.stdout)
-        self.assertIn(f"{self.bin / 'codex'} runs the same install", result.stdout)
-        self.assertNotIn("another codex", result.stdout)
-        # Only that exact shape counts: a script that may run something else
-        # first, or whose exec line does not parse, stays a separate install.
-        launcher, path = (shadow / "codex").read_text(), self.env["PATH"]
-        self.env["PATH"] = f"{self.bin}:{path}"
-        for body in (f'[ -z "${{X-}}" ] || exec {other / "codex"} "$@"\nexec {self.bin / "codex"} "$@"\n',
-                     f"exec '{self.bin / 'codex'} \"$@\"\n"):
-            with self.subTest(body=body):
-                (shadow / "codex").write_text(f"#!/bin/bash\n{body}")
-                result = self.run_command("bash", str(DOCTOR), "--check")
-                self.assertIn(f"another codex on PATH: {shadow / 'codex'}", result.stdout)
-                self.assertNotIn("runs the same install", result.stdout)
-        (shadow / "codex").write_text(launcher)
-        self.env["PATH"] = path
-        self.env["TEST_WHICH"] += f" {other / 'codex'}"
-        result = self.run_command("bash", str(DOCTOR), "--check")
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn(f"another codex on PATH: {other / 'codex'} (0.150.0)", result.stdout)
 
     def test_prerelease_versions_follow_semver_order(self):
         self.env["TEST_CLI_VERSION"] = "0.163.0-alpha.2"

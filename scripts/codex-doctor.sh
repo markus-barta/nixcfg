@@ -148,45 +148,6 @@ version_of() { # version_of BINARY → "0.153.4" or empty
   "$1" --version 2>/dev/null | awk '{print $NF}' || true
 }
 
-# install_of BINARY → the resolved file BINARY really runs. The agent guard puts
-# an env-only `codex` launcher ahead of ~/.npm-global/bin (NIX-445,
-# mkEnvOnlyWrapper in modules/uzumaki/agent-browser-guard.nix): literal
-# exports, the NODE_OPTIONS preload `case`, then `exec /absolute/path "$@"`.
-# It cannot drift from the install it execs, so it stands for that path. Only
-# that exact shape is recognised; any other script (a condition, another
-# command, unbalanced quotes) counts as an install of its own.
-# shellcheck disable=SC2016 # ${word} is a JavaScript template substitution
-install_of() {
-  node -e '
-    const fs = require("fs");
-    let bin = process.argv[1];
-    // A literal shell word: no quotes, expansions, separators or redirections.
-    const word = String.raw`[^\s\x27"$\x60\\;&|<>()]`;
-    const allowed = [
-      new RegExp(String.raw`^export [A-Za-z_][A-Za-z0-9_]*=${word}*$`),
-      /^case " \$\{NODE_OPTIONS-\} " in$/,
-      new RegExp(String.raw`^\s*\*" --require /${word}+ "\*\) ;;$`),
-      new RegExp(String.raw`^\s*\*\) NODE_OPTIONS="\$\{NODE_OPTIONS-\} --require /${word}+"; export NODE_OPTIONS ;;$`),
-      /^esac$/,
-    ];
-    // exec /path "$@", the path bare or in balanced single quotes.
-    const exec = new RegExp(String.raw`^exec (?:\x27(/[^\x27]+)\x27|(/${word}+)) "\$@"$`);
-    try {
-      if (fs.statSync(bin).size < 65536) {
-        const [shebang, ...rest] = fs.readFileSync(bin, "utf8").split("\n");
-        const lines = rest.map((l) => l.trimEnd()).filter((l) => l !== "");
-        const m = exec.exec(lines.pop() ?? "");
-        if (shebang.startsWith("#!") && m && lines.every((l) => allowed.some((re) => re.test(l)))) {
-          const target = m[1] ?? m[2];
-          if (fs.statSync(target).isFile()) bin = target;
-        }
-      }
-    } catch {}
-    try { bin = fs.realpathSync(bin); } catch {}
-    process.stdout.write(bin);
-  ' "$1"
-}
-
 # version_cmp A B → prints -1, 0 or 1 (semver precedence: numeric dotted core,
 # then pre-release identifiers; a release sorts after its pre-releases; build
 # metadata is ignored). Prints "invalid" when either side does not parse.
@@ -363,22 +324,11 @@ report() {
   }
   printf '\n\033[1mCodex doctor\033[0m  CLI %s  (%s)\n' "$CLI_VER" "$CLI_BIN"
 
-  # Every `codex` on PATH — a second install that shadows the npm one drifts
-  # silently. Entries that run the CLI's own install (a launcher, a symlink)
-  # are listed, not counted.
-  local cli_install p other_ver other_paths="" same_paths=""
-  cli_install="$(install_of "$CLI_BIN")"
-  while IFS= read -r p; do
-    [ -n "$p" ] && [ "$p" != "$CLI_BIN" ] || continue
-    if [ -n "$cli_install" ] && [ "$(install_of "$p")" = "$cli_install" ]; then
-      same_paths+="$p"$'\n'
-    else
-      other_paths+="$p"$'\n'
-    fi
-  done < <(which -a codex 2>/dev/null | sort -u || true)
+  # Every `codex` on PATH — a second install that shadows the npm one drifts silently.
+  local other_paths other_ver
+  other_paths="$(which -a codex 2>/dev/null | grep -vx "$CLI_BIN" | sort -u || true)"
   if [ -n "$other_paths" ]; then
     while IFS= read -r p; do
-      [ -n "$p" ] || continue
       other_ver="$(version_of "$p")"
       if [ "$other_ver" = "$CLI_VER" ]; then
         warn "another codex on PATH: $p ($other_ver) — same version today, will drift"
@@ -387,11 +337,8 @@ report() {
       fi
     done <<<"$other_paths"
   else
-    ok "single codex install on PATH"
+    ok "single codex on PATH"
   fi
-  while IFS= read -r p; do
-    [ -z "$p" ] || info "$p runs the same install ($cli_install)"
-  done <<<"$same_paths"
 
   # Daemon package = what `daemon start` will run. The daemon names it; older
   # CLIs do not, so fall back to the dedicated, then the legacy location.
