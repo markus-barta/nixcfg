@@ -5,7 +5,7 @@
  * a SOD baseline, or a DAY value. Exclusive-mode callers never use this path.
  */
 
-import { isFamilyClientExecution } from "./execution-history.mjs";
+import { assertFillAttributionOverrides, isFamilyClientExecution } from "./execution-history.mjs";
 
 const ALWAYS_EXCLUDED = new Set(["SXR8", "TSLA"]);
 const QUANTITY_EPSILON = 1e-9;
@@ -69,10 +69,13 @@ export function contractsNeedingFlatNetMarks({
   account,
   familyClientIds = [],
   familyClientAssignments = [],
+  fillAttributionOverrides = [],
   executorAttribution = null,
   excludedSymbols = [],
 } = {}) {
   const excluded = new Set([...ALWAYS_EXCLUDED, ...excludedSymbols.map((value) => String(value).trim().toUpperCase())]);
+  assertFillAttributionOverrides(executions.filter(row => row?.execution?.acctNumber === account
+    && !excluded.has(symbolOf(row.contract))), fillAttributionOverrides);
   const familyIds = new Set(familyClientIds);
   const positionQty = new Map();
   for (const row of positions) {
@@ -96,7 +99,7 @@ export function contractsNeedingFlatNetMarks({
     const signed = signedQuantity(record.execution);
     if (!key || signed === null) continue;
     const bucket = nets.get(key) || { contract, family: 0, other: 0 };
-    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments, executorAttribution)) bucket.family += signed;
+    if (isFamilyClientExecution(record.execution, familyIds, familyClientAssignments, executorAttribution, fillAttributionOverrides)) bucket.family += signed;
     else bucket.other += signed;
     bucket.contract = contract;
     nets.set(key, bucket);

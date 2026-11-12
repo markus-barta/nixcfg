@@ -3,7 +3,7 @@
 import { EventEmitter } from "node:events";
 export { createDeskStateReporter } from "../desk-activity.mjs";
 export { J_DATED_CLIENT_ASSIGNMENTS } from "../execution-history.mjs";
-export { CURRENT_DESK_OWNERSHIP_POLICY } from "../desk-ledger.mjs";
+export { CURRENT_DESK_OWNERSHIP_POLICY, deskOwnershipPolicyContract } from "../desk-ledger.mjs";
 export { EXECUTOR_CLIENT_IDS, createExecutorAttribution } from "../executor-attribution.mjs";
 export { HEALTH_INTERVAL_MS, HEALTH_TIMEOUT_MS } from "../pusher-recovery.mjs";
 export const readExecutorAttribution = () => null;
@@ -41,7 +41,6 @@ export const calculateFamily = noop;
 export const executionActivity = noop;
 export const buildDeskDayBoundaryEvidence = noop;
 export const calculateDeskEquities = noop;
-export const deskOwnershipPolicyContract = () => ({ policyHash: "c".repeat(64) });
 export const createFileDayBaselineStore = noop;
 export const createPolicyDayBaselineStore = noop;
 export const createFileFamilyHistoryStore = noop;
@@ -49,8 +48,13 @@ export const projectBestAvailableHistory = noop;
 export const readOfficialExecutionWindow = noop;
 export const createFileFamilyStateStore = noop;
 export const waitForExecutionCycle = async () => {};
-export const contractsNeedingFlatNetMarks = noop;
-export const createFlatNetMarkController = noop;
+export const contractsNeedingFlatNetMarks = () => {
+  const reason = state.flatNetFailures?.shift();
+  if (reason) throw new Error(reason);
+  return [];
+};
+export const createFlatNetMarkController = () => ({ sync: noop,
+  reset() { state.flatNetResets = (state.flatNetResets ?? 0) + 1; } });
 export const createNoOpFlatNetMarkController = () => ({ reset: noop });
 export const createPortfolioRefreshController = () => ({ tick: noop });
 export const createConnectionSupervisor = () => ({ start: noop, shutdown: noop });
@@ -65,7 +69,7 @@ export function createBrokerSessionAdapter() {
 }
 export function createFamilySessionAdapter() {
   const current = state;
-  return { requestInFlight: false, activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
+  return { requestInFlight: false, inspectState: () => ({}), activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
 }
 export function createFamilyHistorySessionAdapter() {
   const current = state;

@@ -6,7 +6,7 @@ export const EXECUTOR_ATTRIBUTION_MEMORY_PATH = "/var/lib/joe-board-pusher/execu
 export const ATTRIBUTION_MEMORY_SCHEMA = "inspr.joe.executor-attribution-memory.v1";
 export const MAX_MEMORY_ENTRIES = 100_000;
 export const MAX_MEMORY_BYTES = 32 * 1024 * 1024;
-export const EXECUTOR_DESK_ROLLUP = Object.freeze({ j: "j", j2: "j", j5: "j", joe: "joe", joel: "joel" });
+export const EXECUTOR_DESK_ROLLUP = Object.freeze({ j: "j", j2: "j", j3: "j", j4: "j", j5: "j", joe: "joe", joel: "joel" });
 const dictionary = value => value && typeof value === "object" && !Array.isArray(value);
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
 const token = value => typeof value === "string" && value.length > 0 && value.length <= 256 && value.trim() === value;
