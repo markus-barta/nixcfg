@@ -11,7 +11,7 @@ import { docker, requireLabDocker, runningImage } from "./joedesk-docker.mjs";
 import { legacySmoke } from "./joedesk-legacy-smoke.mjs";
 import { validateLabRoot } from "./joedesk-lab-paths.mjs";
 const V1 = "db621bf7f00a4c609b0930ef7d5020f3c8935ee9";
-const V2 = "6ba8051af1108cd35ee6fb6e3cd51a94474f6d24";
+const V2 = "6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7";
 const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 function run(command, args, options = {}) {
   try {
