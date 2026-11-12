@@ -650,6 +650,12 @@ in
   # as OPENGATEWAY_API_KEY=… Encrypted by the agent from Markus's file (no editor session).
   "agents/host/mbp2607/OPENGATEWAY.age".publicKeys = markus ++ mbp2607;
 
+  # OPS-589 (2026-11-12): OpenRouter key for the START lane's local brief replays on mbp2607.
+  # Augmentoring credential (START's live key, reused), kept here by Markus's one-time go for this key.
+  # Materialized to ~/.inspr/secrets/agents/START_OPENROUTER.env as OPENROUTER_API_KEY=…
+  # Encrypted by the agent straight from agm1's runtime key file (no editor session, never in clear on disk).
+  "agents/host/mbp2607/START_OPENROUTER.age".publicKeys = markus ++ mbp2607;
+
   # PHAROS-344: read-only Pharos CLI token, used through PHAROS_OPERATOR_TOKEN_FILE. Raw token, not KEY=value.
   "agents/host/mbp2607/PHAROS_OPERATOR.age".publicKeys = markus ++ mbp2607;
   # inspr-uxqa test identity for the family live-UI harnesses (NIX-579,
