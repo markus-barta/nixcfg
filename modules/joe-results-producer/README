@@ -8,3 +8,64 @@ quantities. Older journal fills without book fall back to desk. A previously
 excluded J sub-desk key still in the executor ledger is re-captured through
 the existing fill-hash correction path; journals are never rewritten. The
 book field stays internal, with no Results contract or lock change.
+
+OPS-556 records desk equity closes from the pusher's same
+familyAdapter.projectDeskEquities -> calculateDeskEquities valuation. The
+recorder reuses copyObservation/buildCandidate (including the live v2 decimal,
+reconciliation, gateway, input-age and FX gates); it never uses the New York
+baseline, a proxy, FIFO realised net or a subsequent day's valuation.
+Desk policy, historyBasis, Today, the NY baseline and both wire contracts stay
+unchanged. Equity money in Results v2 still has only amount/currency.
+
+At the first observation after Vienna midnight, the last exact observation of
+the preceding civil day becomes its close if at most two publication intervals
+old: 60 seconds with the deployed 30-second cadence. See
+hosts/hsb0/docker/compose-spec.nix (JOE_PUSH_INTERVAL_SEC=30), pusher.mjs
+(parseIntervalSec and setInterval), and desk-equity-closes.mjs
+(closeMaxAgeMs). Vienna DST produces 23/25-hour days. Otherwise the outcome
+is null with no_observation, stale, inexact or restart_gap. A later inexact
+sample does not erase the day's last exact observation. A restart retains
+durable observations; missed intervening days get null, never estimates.
+
+DEVOPS must set nixcfg.joeResultsProducer.equityCloseFirstDay in
+hosts/hsb0/configuration.nix to a fixed Vienna YYYY-MM-DD at deployment after
+OPS-557 is live and JOED reviews the change (for example 2026-11-13 only if
+deployed that Vienna day). Nix passes JOE_EQUITY_CLOSE_FIRST_DAY to the
+pusher. The checked-in null becomes an empty env value and records nothing.
+Never set it from the clock, move it earlier or tie it to a board release.
+The durable state pins that first day; a changed pin fails closed. Keep the
+pin, state and outcomes across rollback. Fresh installs start on their actual
+observation day; they do not backfill earlier days, even after the guard day.
+
+Private state: /var/lib/joe-board-pusher/desk-equity-observations.json.
+Handoff: /var/lib/joe-desk-equity-closes/outcomes.jsonl, a separate tmpfiles
+directory (0700, uid/gid 1000; files 0600). Only that new directory is bound
+read-only into Results; the pusher state directory remains unbound. No raw
+ledger, account identity or credentials enter the handoff. Each v1 side-file
+record has schema, vienna_day, desk (j/joe/joel), closeAt, observedAt,
+oldestInputAt, equityClose, reason and maxAgeMs. Null outcomes have null
+observation clocks; exact amounts are EUR decimal strings of at most eight
+fractional digits. Source clocks refer to the live valuation evidence.
+
+Both files use temp-write, file fsync, rename and directory fsync. The stream
+is logically append-only: atomic replacement preserves the committed prefix;
+one immutable outcome per (vienna_day, desk). Identical replay adds no bytes;
+a conflicting result is rejected and logged without amounts. Outcomes commit
+before state advances, making boundary replay safe. Keep and back up both;
+never truncate, rotate, reconstruct or hand-edit them. Corrupt state prevents
+recording until operator recovery; it does not block household publication.
+
+The producer strictly validates the stream on every snapshot. Valid outcomes
+add closed-day desks (including desks with no activity) from trackingStart
+onward; equityClose is exact or null, and FIFO still supplies activity totals
+and coverage. Open-day equity stays null. Duplicate keys are unusable, even
+when identical. A missing/unreadable/malformed stream yields all null plus
+value-free desk_equity_close diagnostics and does not stop publication.
+Null reasons stay in those diagnostics, never in Results fields or FIFO
+partialReasons. The reader caps the file at 64 MiB; exceeding it fails closed.
+
+Offline validation (local cached nixpkgs, no NixOS build):
+  bash tests/T100-joe-results-producer.sh
+  node --test hosts/hsb0/docker/joe-board-pusher/*.test.mjs
+The close tests also run four mutation controls: age, start guard, conflict
+rejection and exactness. verify-contracts checks both untouched wire closures.

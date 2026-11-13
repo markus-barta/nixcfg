@@ -42,6 +42,7 @@ export const executionActivity = noop;
 export const buildDeskDayBoundaryEvidence = noop;
 export const calculateDeskEquities = noop;
 export const createFileDayBaselineStore = noop;
+export const createDeskEquityCloseRecorder = () => ({ observe: noop });
 export const createPolicyDayBaselineStore = noop;
 export const createFileFamilyHistoryStore = noop;
 export const projectBestAvailableHistory = noop;

@@ -61,7 +61,7 @@ for (const schema of fs.readdirSync(path.join(root, "contracts")).filter(n => n.
   for (const check of await verifiers(directory)) assert.throws(check);
 });
 
-function hostEval(t, source, enabled, filtered = false, active = "current") {
+function hostEval(t, source, enabled, filtered = false, active = "current", firstDay = null) {
   // OPS-354: host and executor module both read the release set; pin `active` for the
   // fixture (the stage-flag semantics below are the v1-set ones; v2 is tested separately).
   const base = temp(t);
@@ -93,7 +93,7 @@ function hostEval(t, source, enabled, filtered = false, active = "current") {
       inherit lib;
       pkgs.stdenv.hostPlatform.system = "x86_64-linux";
       inputs = {};
-      config.nixcfg = { paperDeskExecutor = { serviceSpec = { image = "fixture"; }; clientIds = { executor = 705; recon = 700; }; }; agentMailbox.enable = true; agentMailbox.serviceSpec = { image = "mailbox-fixture"; }; };
+      config.nixcfg = { joeResultsProducer.equityCloseFirstDay = ${firstDay === null ? "null" : JSON.stringify(firstDay)}; paperDeskExecutor = { serviceSpec = { image = "fixture"; }; clientIds = { executor = 705; recon = 700; }; }; agentMailbox.enable = true; agentMailbox.serviceSpec = { image = "mailbox-fixture"; }; };
     };
     executorDefault = (import ${base}/modules/paper-desk-executor/default.nix {
       lib = baseLib; config = {}; pkgs = {};
@@ -136,6 +136,8 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   const executorEnvironment = "JOE_EXECUTOR_CLIENT_IDS=[705,700]";
   assert.deepEqual(disabled.spec.services["joe-board-pusher"], { ...baselinePusher, environment: [...baselinePusher.environment, executorEnvironment] });
   assert.ok(baselinePusher.volumes.includes("/var/lib/paper-desk-executor:/var/lib/paper-desk-executor:ro"));
+  assert.ok(disabled.spec.services["joe-board-pusher"].volumes.includes("/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes:rw"));
+  assert.ok(disabled.spec.services["joe-board-pusher"].environment.includes("JOE_EQUITY_CLOSE_FIRST_DAY="));
   assert.equal(Object.hasOwn(disabled.spec.services, "joe-household-v2-stage"), false);
   assert.equal(disabled.executorImage, disabled.spec.services["joe-board-pusher"].image);
   assert.deepEqual(disabled.exclusions, baseline.exclusions);
@@ -169,6 +171,20 @@ test("Nix flag-off preserves baseline runtime with read-only executor evidence; 
   assert.equal(Object.hasOwn(lab.services.pusher, "env_file"), false);
   assert.deepEqual(lab.services.stage.volumes.slice(0, 2), ["state:/var/lib/joe-board-pusher/v2:rw", "ipc:/run/joe-household-v2:rw"]);
   assert.ok(!JSON.stringify(lab).includes("/run/agenix"));
+});
+
+test("OPS-556 handoff is isolated and the deployment day is fixed across board rollback", t => {
+  const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
+  for (const active of ["current", "v2"]) {
+    const { spec } = hostEval(t, source, true, false, active, "2026-11-13");
+    const pusher = spec.services["joe-board-pusher"];
+    assert.deepEqual(pusher.environment.filter(v => v.startsWith("JOE_EQUITY_CLOSE_FIRST_DAY=")), ["JOE_EQUITY_CLOSE_FIRST_DAY=2026-11-13"]);
+    assert.ok(pusher.volumes.includes("/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes:rw"));
+    for (const [name, service] of Object.entries(spec.services)) {
+      if (name === "joe-board-pusher") continue;
+      assert.ok(!(service.volumes || []).some(v => String(v).includes("/var/lib/joe-desk-equity-closes")), name);
+    }
+  }
 });
 
 test("active v2 set (OPS-557): shared r22 image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {

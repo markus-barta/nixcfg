@@ -274,6 +274,9 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ingressHost = "cs0.barta.cm";
     # csb0's declarative public IPv4: hosts/csb0/configuration.nix, ens3.
     ingressAddress = "89.58.63.96";
+    # OPS-556: DEVOPS sets a fixed Vienna YYYY-MM-DD at deployment after JOED review.
+    # Keep this pin on rollback; null disables recording and admits no earlier days.
+    equityCloseFirstDay = null;
     # Default KEEP policy and existing household token (systemd LoadCredential).
   };
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
@@ -336,7 +339,18 @@ assert joeSet.pusher != null && joeSet.executor != null;
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
             environment =
-              joeComposeBase.services.joe-board-pusher.environment
+              (map (
+                entry:
+                if lib.hasPrefix "JOE_EQUITY_CLOSE_FIRST_DAY=" entry then
+                  "JOE_EQUITY_CLOSE_FIRST_DAY=${
+                    if config.nixcfg.joeResultsProducer.equityCloseFirstDay == null then
+                      ""
+                    else
+                      config.nixcfg.joeResultsProducer.equityCloseFirstDay
+                  }"
+                else
+                  entry
+              ) joeComposeBase.services.joe-board-pusher.environment)
               ++ [
                 "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
               ]
@@ -1444,6 +1458,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # Official node:22-alpine runs the Dockerfile's USER node as uid/gid 1000.
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
     "d /var/lib/joe-board-pusher/v2 0700 1000 1000 - -"
+    # OPS-556: uid 1000 owns both services; no additional group access is needed.
+    "d /var/lib/joe-desk-equity-closes 0700 1000 1000 - -"
     "d /run/joe-household-v2 0700 1000 1000 - -"
     # JOED-102: stager-only receipt-scan checkpoint (never mounted by the pusher or any other service).
     "d ${joeStageCheckpointDir} 0700 1000 1000 - -"

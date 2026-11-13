@@ -22,7 +22,10 @@ async function main() {
   if (options.mode !== 'paper') throw new Error('paper_only');
   const health = executorHealthUrl(options.executorHealth);
   if (options.stateDir !== '/var/lib/joe-results-producer' || options.capturePath !== '/var/lib/paper-desk-executor/results-input.jsonl') throw new Error('invalid_state_path');
-  const producer = openProducer('/var/lib/joe-results-producer/results.jsonl', { keepSymbols: options.keepSymbols });
+  const producer = openProducer('/var/lib/joe-results-producer/results.jsonl', {
+    keepSymbols: options.keepSymbols,
+    equityClosePath: '/var/lib/joe-desk-equity-closes/outcomes.jsonl',
+  });
   const transport = httpTransport(options.endpoint, {
     origin: process.env.JOE_RESULTS_INGRESS_ORIGIN,
     keepSymbols: options.keepSymbols,

@@ -371,11 +371,15 @@
       environment = [
         "TZ=Europe/Vienna"
         "JOE_PUSH_INTERVAL_SEC=30"
+        # OPS-556: disabled until a fixed first eligible day is set at deployment.
+        "JOE_EQUITY_CLOSE_FIRST_DAY="
       ];
       volumes = [
         "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
         # Durable execution state: /var/lib/joe-board-pusher/family-ledger.json.
         "/var/lib/joe-board-pusher:/var/lib/joe-board-pusher:rw"
+        # Only this narrow outcome stream is handed to the Results producer.
+        "/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes:rw"
         # OPS-392: intent ownership evidence only; follow atomic ledger replacement.
         "/var/lib/paper-desk-executor:/var/lib/paper-desk-executor:ro"
       ];

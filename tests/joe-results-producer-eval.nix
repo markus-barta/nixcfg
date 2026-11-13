@@ -4,6 +4,7 @@
   endpoint ? "https://ingress.example.invalid/joe/inbox/results",
   ingressHost ? "ingress.example.invalid",
   ingressAddress ? "192.0.2.10",
+  equityCloseFirstDay ? null,
   keepSymbols ? [
     "SXR8"
     "TSLA"
@@ -76,6 +77,7 @@ let
             endpoint
             ingressHost
             ingressAddress
+            equityCloseFirstDay
             keepSymbols
             ;
         };
@@ -85,6 +87,7 @@ let
   cfg = evaluated.config;
   failures = builtins.filter (item: !item.assertion) cfg.assertions;
 in
+assert builtins.seq cfg.nixcfg.joeResultsProducer.equityCloseFirstDay true;
 assert lib.assertMsg (failures == [ ]) (lib.concatMapStringsSep "; " (item: item.message) failures);
 {
   capture = cfg.nixcfg.paperDeskExecutor.resultsCaptureEnabled;

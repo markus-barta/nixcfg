@@ -1880,13 +1880,49 @@ book, but round trips closing before capture began are omitted. `trackingStart`
 is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
 
-Daily rows come only from captured executor activity on each Vienna day; days
-without captured activity are omitted, except every Vienna day touching an
-explicit history or fill gap (including unattributed own fills): those days emit a
-partial row with an empty desk map, whose total is unknown, not zero.
-`equityClose` is always null: v1 does not
-consume household v2 health/account fragments, desk equity or History basis IDs,
-and old household observation journal events are ignored on replay. Day realised
+Daily activity rows come from captured executor activity on each Vienna day;
+OPS-556 also adds desks with recorded close outcomes on closed days. Every Vienna day touching an
+explicit history or fill gap (including unattributed own fills) also emits a
+partial row. With no attributed activity or close outcome its desk map stays
+empty and its total is unknown, not zero.
+OPS-556 fills `equityClose` from the pusher's dedicated
+`/var/lib/joe-desk-equity-closes/outcomes.jsonl` handoff. It uses the same
+`calculateDeskEquities` path and exact-value gates as live v2, retaining each
+desk's last exact EUR observation of the Vienna day. At the first observation
+after midnight (including restart), that close must be at most **60 seconds**
+old: two publication intervals, from `JOE_PUSH_INTERVAL_SEC=30` in
+`hosts/hsb0/docker/compose-spec.nix`, parsed/scheduled in `pusher.mjs` and
+enforced by `closeMaxAgeMs` in `desk-equity-closes.mjs`. This age bound needs
+JOED's review before deployment. DST follows Vienna civil midnights.
+Missing, stale, inexact and restart-gap outcomes remain plain null; their
+value-free reason appears only in the side file and producer diagnostics.
+Open-day closes remain null. No desk policy, History basis, Today or NY
+baseline changes; never substitute a NY baseline/proxy or a later observation.
+
+DEVOPS sets `nixcfg.joeResultsProducer.equityCloseFirstDay` in
+`hosts/hsb0/configuration.nix` to the fixed first eligible Vienna date at
+deployment **after OPS-557 is live and JOED reviews this change**. For example,
+use `"2026-11-13"` only for a deployment on that Vienna day. Nix passes it as
+`JOE_EQUITY_CLOSE_FIRST_DAY`; checked-in `null`/unset records nothing. No earlier
+day is written, and a new install does not backfill missing days. Keep the
+fixed pin across rollback; a mismatch with durable state disables recording.
+The next Vienna midnight finalizes the first eligible recorded day.
+
+The new directory has its own tmpfiles rule, mode 0700 and uid/gid 1000;
+outcome files are 0600, readable through the producer's existing uid 1000.
+Bind exactly that directory read-only into Results; never bind the pusher's
+state directory. Private observations stay at
+`/var/lib/joe-board-pusher/desk-equity-observations.json`. Both files use
+temp-write + file fsync + rename + directory fsync. Outcomes are immutable by
+`(vienna_day, desk)` and logically append-only; replay adds no bytes and a
+conflict is rejected/logged. Outcomes commit before state advances. Retain and
+back up both paths; do not rotate, truncate, reconstruct or hand-edit either.
+The side file contains only closes and clock evidence, no ledger or credentials.
+Results strictly rejects malformed records and duplicate keys; missing,
+unreadable or invalid input gives null + diagnostics without stopping results
+publication. The stream has a 64 MiB reader limit; monitor storage and preserve
+the archive when planning any future retention change. Results v2 is unchanged;
+old household observation journal events are still ignored on replay. Day realised
 net, fees and trade counts sum every included closed FIFO portion across all
 active desks, including opening-only desks with zero realised totals. Both legs'
 fees are charged to each closed portion. Revision-6 validation still checks

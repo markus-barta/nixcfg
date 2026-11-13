@@ -6,6 +6,7 @@ import { earlierGapDays, PositionProofIndex } from './position-proof.mjs';
 import { dayFx, fxDayPartial } from './fx.mjs';
 import { brokerMismatches } from './broker-backstop.mjs';
 import { IngressError } from './transport.mjs';
+import { readEquityCloses } from './equity-closes.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
 export const MIDNIGHT_RETRIES = 1;
@@ -31,7 +32,8 @@ export function executorHealth(health, checkedAt, disagreement = false) {
   return result;
 }
 
-export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = () => new Date().toISOString() } = {}) {
+export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = () => new Date().toISOString(),
+  equityClosePath = null, diagnostic = event => console.error(JSON.stringify(event)) } = {}) {
   if (!keepSymbols.includes('SXR8') || !keepSymbols.includes('TSLA')) throw unavailable();
   let start, sourceCount = 0, sourceDigest = '0'.repeat(64), seq = 0, generatedAt = null;
   const fills = new Map(), mismatches = new Set(), exclusions = new Set();
@@ -42,6 +44,8 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   let coverageIntervals = [];
   let historyOnlyIntervals = [], fillGaps = [];
   let historyStart = Infinity, historyEnd = -Infinity;
+  let closeDiagnosticsHash;
+  let closeDiagnostics = [];
   const positionProofs = new PositionProofIndex();
   function apply(event) {
     if (event.type === 'start') start = event.at;
@@ -174,7 +178,14 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       const intervals = subtractIntervals(coverageIntervals, mergeIntervals(gaps));
       for (const day of earlierGapDays(stage0, affected, intervals, positionProofs, proofFrom)) earlierGaps.add(day);
     }
-    const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals, historyEnd, earlierGaps });
+    const outcomes = equityClosePath ? readEquityCloses(equityClosePath, at) : { closes: new Map(), diagnostics: [] };
+    closeDiagnostics = outcomes.diagnostics;
+    if (hash(closeDiagnostics) !== closeDiagnosticsHash) {
+      closeDiagnosticsHash = hash(closeDiagnostics);
+      for (const detail of closeDiagnostics) diagnostic({ event: 'desk_equity_close', ...detail });
+    }
+    const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals,
+      historyEnd, earlierGaps, equityCloses: outcomes.closes });
     // Gaps without an attributed desk remain visible without inventing ownership.
     for (const [a, b] of historyGaps(reportedHistoryCoverage(authority), authority.at) || []) {
       const first = viennaDate(new Date(Math.max(a, Date.parse(start))).toISOString());
@@ -251,6 +262,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     get latestHealth() { return latestHealth; },
     get retainedEntries() { return journal.entries.length; },
     get sourceCount() { return sourceCount; },
+    get equityCloseDiagnostics() { return structuredClone(closeDiagnostics); },
   };
 }
 

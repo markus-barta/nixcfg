@@ -29,6 +29,7 @@ COPY contracts/ ./contracts/
 COPY executor-attribution.mjs executor-attribution-memory.mjs seed-attribution-memory.mjs diag-executor-unclaimed.mjs desk-activity.mjs contracts.lock.json verify-contracts.mjs verify-contracts-entry.mjs v2-stage-handoff.mjs v2-stage-supervisor.mjs v2-stage-worker.mjs ./
 COPY v1-cycle.mjs v1-cycle-store.mjs v2-publisher.mjs ./
 COPY v2-exact-values.mjs ./
+COPY desk-equity-closes.mjs ./
 RUN node verify-contracts-entry.mjs
 USER node
 CMD ["node", "pusher.mjs"]

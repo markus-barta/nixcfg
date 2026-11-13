@@ -50,6 +50,11 @@ in
       ];
       description = "Full policy KEEP set. The protected floor cannot be removed.";
     };
+    equityCloseFirstDay = lib.mkOption {
+      type = lib.types.nullOr (lib.types.strMatching "[0-9]{4}-[0-9]{2}-[0-9]{2}");
+      default = null;
+      description = "Fixed first eligible Vienna day for pusher closes, set by DEVOPS at deployment after OPS-557. Null records nothing; never derive from today's date.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -152,6 +157,7 @@ in
         ];
         BindReadOnlyPaths = [
           "/var/lib/paper-desk-executor"
+          "/var/lib/joe-desk-equity-closes"
           "${hostsFile}:/etc/hosts"
         ];
         InaccessiblePaths = [
