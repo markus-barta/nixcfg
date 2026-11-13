@@ -184,11 +184,16 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
     const added = [...currentDiagnostics].filter(key => !previousCloseDiagnostics.has(key)).map(detail => JSON.parse(detail));
     // Log only new/changed reasons, with a fixed per-snapshot budget. The full
     // diagnostic list remains available locally, outside Results wire fields.
-    const reasons = added.filter(detail => detail.reason !== 'no_record');
-    const missing = added.filter(detail => detail.reason === 'no_record');
-    const batch = [...missing.slice(0, Math.max(0, 20 - reasons.length)), ...reasons.slice(0, 20)];
+    const integrity = reason => reason.startsWith('stream_') || /duplicate_outcome|conflict|invalid|day_not_closed/.test(reason);
+    added.sort((a, b) => Number(integrity(b.reason)) - Number(integrity(a.reason))
+      || (b.day || '').localeCompare(a.day || ''));
+    const batch = added.slice(0, 20);
     for (const detail of batch) diagnostic({ event: 'desk_equity_close', ...detail });
-    if (added.length > 20) diagnostic({ event: 'desk_equity_close', reason: 'diagnostics_truncated', count: added.length - 20 });
+    if (added.length > 20) {
+      const reasonCounts = {};
+      for (const { reason } of added) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+      diagnostic({ event: 'desk_equity_close', reason: 'diagnostics_truncated', count: added.length - 20, reasonCounts });
+    }
     previousCloseDiagnostics = currentDiagnostics;
     const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals,
       historyEnd, earlierGaps, equityCloses: outcomes.closes });

@@ -1,16 +1,17 @@
 import '../../tests/paper-desk-account-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, writeFileSync, symlinkSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readEquityCloses } from './equity-closes.mjs';
 import { dayCloses } from './fifo.mjs';
 import { openProducer, createRunner } from './producer.mjs';
+import { createEquityCloseDiagnosticsWriter } from './main.mjs';
 import { validateResults } from './results-validation.mjs';
 import { verifyContracts } from './verify-contracts.mjs';
-import { createDeskEquityCloseRecorder } from '../../hosts/hsb0/docker/joe-board-pusher/desk-equity-closes.mjs';
+import { createDeskEquityCloseRecorder, closeBoundary } from '../../hosts/hsb0/docker/joe-board-pusher/desk-equity-closes.mjs';
 
 const now = '2026-10-17T10:00:00.000Z', start = '2026-10-16T11:00:00.000Z';
 const fills = JSON.parse(readFileSync(new URL('./fixtures/fills.json', import.meta.url)));
@@ -49,7 +50,7 @@ test('producer restart re-reads the same durable outcome', () => {
 });
 test('missing stream gives all null with a value-free diagnostic', () => {
   const f = fixture(), snapshot = f.producer.snapshot(now); valid(snapshot);
-  assert.equal(equity(snapshot), null); assert.equal(f.diagnostics.at(-1).reason, 'stream_missing'); f.producer.close();
+  assert.equal(equity(snapshot), null); assert.equal(f.diagnostics[0].reason, 'stream_missing'); f.producer.close();
 });
 test('unreadable stream gives all null and still publishes', async () => {
   const f = fixture(), other = path.join(f.dir, 'other.jsonl'); writeFileSync(other, JSON.stringify(outcome()) + '\n'); symlinkSync(other, f.filename);
@@ -57,7 +58,7 @@ test('unreadable stream gives all null and still publishes', async () => {
   const runner = createRunner({ producer: f.producer, readSource: source, now: () => Date.parse(now),
     readHealth: async () => ({}), transport: { send: async snapshot => { sent = snapshot; } } });
   assert.equal(await runner.tick(), true); valid(sent); assert.equal(equity(sent), null);
-  assert.equal(f.diagnostics.at(-1).reason, 'stream_unreadable'); f.producer.close();
+  assert.equal(f.diagnostics[0].reason, 'stream_unreadable'); f.producer.close();
 });
 test('a valid null outcome keeps its reason in diagnostics only', () => {
   const f = fixture(); f.write([outcome({ equityClose: null, reason: 'stale', observedAt: null, oldestInputAt: null })]);
@@ -77,7 +78,7 @@ for (const [name, change] of [
   ['future-input', { oldestInputAt: '2026-10-16T21:59:50.000Z' }],
 ]) test(`strict invalid ${name} outcome stays null without blocking publication`, () => {
   const f = fixture(); f.write([outcome(change)]); const snapshot = f.producer.snapshot(now); valid(snapshot);
-  assert.equal(equity(snapshot), null); assert.equal(f.diagnostics.at(-1).reason, 'stream_invalid');
+  assert.equal(equity(snapshot), null); assert.equal(f.diagnostics[0].reason, 'stream_invalid');
   assert.equal(JSON.stringify(f.diagnostics).includes('5001.12345678'), false); f.producer.close();
 });
 for (const name of ['identical', 'conflicting', 'triple']) test(`${name} duplicate key is unusable; an unrelated key survives`, () => {
@@ -194,8 +195,64 @@ test('producer bounds a large missing-history diagnostic batch', () => {
   producer.snapshot(now); assert.equal(diagnostics.length, 21);
   assert.ok(diagnostics.some(row => row.reason === 'stream_missing'), 'stream failure must survive the missing-day log budget');
   assert.equal(diagnostics.at(-1).reason, 'diagnostics_truncated');
+  assert.deepEqual(diagnostics.at(-1).reasonCounts, { stream_missing: 1, no_record: 867 });
+  assert.deepEqual(diagnostics[1], { event: 'desk_equity_close', reason: 'no_record', day: '2026-10-16', desk: 'j' });
   assert.ok(producer.equityCloseDiagnostics.length > 800);
   producer.snapshot(now); assert.equal(diagnostics.length, 21); producer.close();
+});
+
+test('recent integrity warnings survive 43 older routine outcomes at startup, newest first', () => {
+  const f = fixture(), rows = [];
+  for (let i = 0; i < 43; i++) {
+    const day = new Date(Date.parse('2026-09-01T12:00:00Z') + i * 86400_000).toISOString().slice(0, 10);
+    rows.push(outcome({ vienna_day: day, closeAt: closeBoundary(day), equityClose: null,
+      observedAt: null, oldestInputAt: null, reason: 'stale' }));
+  }
+  f.write([...rows, rows[41], rows[42]]); f.producer.snapshot(now);
+  assert.equal(f.diagnostics.length, 21);
+  assert.deepEqual(f.diagnostics.slice(0, 2).map(({ reason, day }) => ({ reason, day })), [
+    { reason: 'duplicate_outcome', day: '2026-10-13' }, { reason: 'duplicate_outcome', day: '2026-10-12' },
+  ]);
+  assert.equal(f.diagnostics[2].day, '2026-10-16');
+  assert.ok(f.diagnostics.slice(2, 20).every((row, i, list) => !i || list[i - 1].day >= row.day));
+  assert.deepEqual(f.diagnostics.at(-1), { event: 'desk_equity_close', reason: 'diagnostics_truncated',
+    count: 28, reasonCounts: { duplicate_outcome: 2, no_record: 3, stale: 43 } });
+  assert.equal(f.producer.equityCloseDiagnostics.length, 48);
+  f.producer.snapshot(now); assert.equal(f.diagnostics.length, 21);
+  writeFileSync(f.filename, 'invalid\n'); f.producer.snapshot(now);
+  assert.equal(f.diagnostics.at(-1).reason, 'stream_invalid');
+  f.producer.close();
+});
+
+test('full producer diagnostics persist locally, unchanged lists skip writes and recovery clears them', () => {
+  const f = fixture(), filename = path.join(f.dir, 'diagnostics.json'), calls = [];
+  const io = { ...fs, writeFileSync: (...args) => { calls.push(args); fs.writeFileSync(...args); } };
+  const save = createEquityCloseDiagnosticsWriter(filename, { io });
+  f.producer.snapshot(now); save(f.producer.equityCloseDiagnostics);
+  assert.deepEqual(JSON.parse(readFileSync(filename)), f.producer.equityCloseDiagnostics);
+  assert.equal(statSync(filename).mode & 0o777, 0o600);
+  save(f.producer.equityCloseDiagnostics); assert.equal(calls.length, 1);
+  save([]); assert.deepEqual(JSON.parse(readFileSync(filename)), []);
+  assert.equal(calls.length, 2); assert.deepEqual(readdirSync(f.dir).filter(name => name.endsWith('.tmp')), []);
+  f.producer.close();
+});
+
+test('failed local diagnostics writes retain the last full list, clean temp files and retry without throwing', t => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ops556-diagnostics-')), filename = path.join(dir, 'diagnostics.json'), events = [];
+  let fail = false, clock = 0; t.mock.method(Date, 'now', () => clock);
+  const save = createEquityCloseDiagnosticsWriter(filename, { diagnostic: event => events.push(event),
+    io: { ...fs, writeFileSync: (...args) => {
+      fs.writeFileSync(...args);
+      if (fail) throw new Error('injected_write_failure');
+    } } });
+  save([]); fail = true;
+  for (let i = 0; i < 10; i++) save([{ reason: 'stream_invalid' }]);
+  assert.deepEqual(JSON.parse(readFileSync(filename)), []);
+  assert.deepEqual(readdirSync(dir), ['diagnostics.json']);
+  assert.deepEqual(events, [{ event: 'desk_equity_close', reason: 'local_diagnostics_unavailable' }]);
+  clock = 15 * 60_000; save([{ reason: 'stream_invalid' }]); assert.equal(events.length, 2);
+  fail = false; save([{ reason: 'stream_invalid' }]);
+  assert.deepEqual(JSON.parse(readFileSync(filename)), [{ reason: 'stream_invalid' }]);
 });
 
 test('M2 mutation controls reject null close entries and synthetic desk rows', async () => {

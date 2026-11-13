@@ -1926,13 +1926,17 @@ Deploy in this order, after OPS-557 is live and JOED approves the change:
 No earlier day is written, and a fresh install never backfills. Keep the fixed
 pin across rollback; a mismatch with durable state disables recording. For a
 changed pin, restore the original value through reviewed Nix configuration.
-For invalid state, stop the pusher and restore a verified matched backup pair.
-Without a valid private-state backup, preserve the corrupt observation file in
-an owner-only archive and move aside only that file under operator control;
-retain the pin and immutable outcomes. Restart starts on today's Vienna day,
-leaving missed days unknown. Never hand-edit or reconstruct historical values.
-For a corrupt outcome stream, preserve it and recover from a verified backup;
-do not truncate it to make validation pass.
+For invalid state, stop the pusher and restore **ONLY the private observation
+state file** from a verified backup. Without a valid state backup, preserve the
+corrupt observation file in an owner-only archive and move aside **ONLY that
+state file** under operator control. Retain the pin and current immutable
+outcomes; replay preserves their committed closes. Restart without state starts
+on today's Vienna day, leaving missed days unknown. Restore a matched backup
+pair **ONLY when the outcomes file itself is lost**. An older outcomes backup
+discards later committed closes and can turn previously published exact closes
+into null. Preserve a corrupt outcome stream for operator recovery; do not
+truncate it to make validation pass. Never hand-edit or reconstruct historical
+values.
 
 The new directory has its own tmpfiles rule, mode 0700 and uid/gid 1000;
 outcome files are 0600, readable through the producer's existing uid 1000.
@@ -1952,8 +1956,11 @@ off-host archive (directory 0700, files 0600), verify a matched restore in an
 isolated location, then restart the pusher. Outcomes cannot be reconstructed.
 Startup cleans only this writer's stale UUID `.tmp` files. Repeated recorder
 errors log at most once per reason per 15 minutes. Results logs only new/changed
-diagnostics, at most 20 entries plus a count summary per snapshot; its full
-local diagnostic list is retained. Private observations still fsync each tick.
+diagnostics, at most 20 entries plus per-reason counts for the entire new batch
+when truncated. Integrity warnings come first, with newest days first within
+each priority group. The full value-free list is atomically saved locally at
+`/var/lib/joe-results-producer/equity-close-diagnostics.json` (0600).
+Private observations still fsync each tick.
 The side file contains only closes and clock evidence, no ledger or credentials.
 Results strictly rejects malformed records and duplicate keys; missing,
 unreadable or invalid input gives null + diagnostics without stopping results

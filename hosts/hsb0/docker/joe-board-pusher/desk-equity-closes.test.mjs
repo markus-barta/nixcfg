@@ -263,6 +263,25 @@ test("atomic persistence fsyncs bytes before rename and directory afterwards", (
   assert.deepEqual(events.map(e => e[0]), ["openSync", "writeFileSync", "fsyncSync", "closeSync", "renameSync", "openSync", "fsyncSync", "closeSync"]);
   assert.equal(events[0][2], "wx"); assert.equal(events[0][3], 0o600);
 });
+for (const failure of ['writeFileSync', 'fsyncSync', 'renameSync']) test(`atomic persistence removes its temp after ${failure} failure`, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops556-atomic-failure-')), filename = path.join(dir, 'outcomes.jsonl');
+  fs.writeFileSync(filename, 'committed\n');
+  const injected = new Error('injected_storage_failure'), io = { ...fs, [failure]: (...args) => {
+    if (failure === 'writeFileSync') fs.writeFileSync(...args); // Leave partial bytes before failing.
+    throw injected;
+  } };
+  for (let i = 0; i < 10; i++) {
+    assert.throws(() => atomicWrite(filename, 'uncommitted\n', io), error => error === injected);
+    assert.deepEqual(fs.readdirSync(dir), ['outcomes.jsonl']);
+    assert.equal(fs.readFileSync(filename, 'utf8'), 'committed\n');
+  }
+});
+test('atomic persistence preserves the original error when temp cleanup also fails', () => {
+  const injected = new Error('injected_write_failure');
+  const io = { openSync: () => 1, writeFileSync: () => { throw injected; }, closeSync: () => {},
+    unlinkSync: () => { throw new Error('injected_cleanup_failure'); } };
+  assert.throws(() => atomicWrite('/synthetic/state.json', '{}', io), error => error === injected);
+});
 test("read-only or failed storage never propagates into publication", () => {
   const f = fixture(undefined, { statePath: "/nonexistent-ops556/state.json" });
   assert.equal(f.recorder.observe(source(), before), false);

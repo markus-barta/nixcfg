@@ -68,11 +68,16 @@ function read(filename) {
 
 export function atomicWrite(filename, bytes, io = fs) {
   const temp = `${filename}.${randomUUID()}.tmp`;
-  const fd = io.openSync(temp, "wx", 0o600);
-  try { io.writeFileSync(fd, bytes); io.fsyncSync(fd); } finally { io.closeSync(fd); }
-  io.renameSync(temp, filename);
-  const dir = io.openSync(path.dirname(filename), "r");
-  try { io.fsyncSync(dir); } finally { io.closeSync(dir); }
+  try {
+    const fd = io.openSync(temp, "wx", 0o600);
+    try { io.writeFileSync(fd, bytes); io.fsyncSync(fd); } finally { io.closeSync(fd); }
+    io.renameSync(temp, filename);
+    const dir = io.openSync(path.dirname(filename), "r");
+    try { io.fsyncSync(dir); } finally { io.closeSync(dir); }
+  } catch (error) {
+    try { io.unlinkSync(temp); } catch { /* Preserve the original storage error. */ }
+    throw error;
+  }
 }
 
 function syncDirectory(filename) {

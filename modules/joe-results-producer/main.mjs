@@ -1,4 +1,6 @@
 import { constants, openSync, fstatSync, readFileSync, closeSync } from 'node:fs';
+import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { openProducer, createRunner } from './producer.mjs';
@@ -14,6 +16,28 @@ export function readJson(filename) {
     if (!info.isFile() || info.size > 262144) throw new Error('source_not_authoritative');
     return JSON.parse(readFileSync(fd, 'utf8'));
   } finally { closeSync(fd); }
+}
+
+// Derived, value-free operator diagnostics; persistence must not stop Results.
+export function createEquityCloseDiagnosticsWriter(filename = '/var/lib/joe-results-producer/equity-close-diagnostics.json',
+  { io = fs, diagnostic = event => console.error(JSON.stringify(event)) } = {}) {
+  let previous, nextWarning = -Infinity;
+  return diagnostics => {
+    const bytes = JSON.stringify(diagnostics) + '\n';
+    if (bytes === previous) return;
+    const temp = `${filename}.${randomUUID()}.tmp`;
+    try {
+      io.writeFileSync(temp, bytes, { flag: 'wx', mode: 0o600 });
+      io.renameSync(temp, filename);
+      previous = bytes;
+    } catch {
+      try { io.unlinkSync(temp); } catch { /* Preserve publication on storage errors. */ }
+      if (Date.now() >= nextWarning) {
+        nextWarning = Date.now() + 15 * 60_000;
+        diagnostic({ event: 'desk_equity_close', reason: 'local_diagnostics_unavailable' });
+      }
+    }
+  };
 }
 
 async function main() {
@@ -41,13 +65,16 @@ async function main() {
       return JSON.parse(text);
     },
   });
+  const writeCloseDiagnostics = createEquityCloseDiagnosticsWriter();
   let stopping = false;
   const stop = () => { stopping = true; };
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
   try {
     while (!stopping) {
-      try { await runner.tick(); }
+      let attempted = true;
+      try { attempted = await runner.tick(); }
       catch (error) { console.error(JSON.stringify(failureDiagnostic(error))); }
+      finally { if (attempted) writeCloseDiagnostics(producer.equityCloseDiagnostics); }
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   } finally { producer.close(); }
