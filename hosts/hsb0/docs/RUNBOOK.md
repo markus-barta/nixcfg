@@ -1349,7 +1349,10 @@ OPS-556 now prepares `household-v2-switch-set-r23-202611131200` from
 `5b754845115206c7d8469b1629eb644874f32185` (#1249). The v2 pusher pin is tree
 `fc9f97db3b022df988bbd473481404611b1df111`; the executor pin is tree
 `fc279405adfeaf54a7253ebc228542d2015ab77f` at the same revision. The executor
-subtree changed only in its r22 comment since the r22 pin; runtime code is unchanged.
+module subtree changed only in its r22 comment since the r22 pin. Its effective
+runtime code also includes the reviewed Results producer source when capture is
+on: `server.mjs` imports `results/capture.mjs`, which imports the changed `fifo.mjs`.
+That bundled source changes the executor source volume's Nix store hash.
 The stager files are unchanged and follow the pusher source/image pin.
 Seed r23 once from `git archive 5b754845115206c7d8469b1629eb644874f32185:hosts/hsb0/docker/joe-board-pusher`,
 verify its recorded tree against the release set and new image ID, then switch
@@ -1379,8 +1382,20 @@ read-write bind `/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes
 and empty `JOE_EQUITY_CLOSE_FIRST_DAY=` entry, plus the Results producer
 read-only bind of that directory and new `InaccessiblePaths` entries
 `-/var/lib/joe-board-pusher` and `-/var/lib/joe-household-v2-stage-checkpoint`.
-The producer source changes only by the reviewed OPS-556 source; its invocation
-otherwise stays unchanged. The handoff tmpfiles rule is exactly
+The producer's `ExecStart` source hash changes for the reviewed OPS-556 source;
+its invocation otherwise stays unchanged. With capture on, the executor also
+bundles that source: allow only the store hash in the single
+`/nix/store/<32-char-hash>-paper-desk-executor-source:/executor:ro` volume entry to
+change, preserving its list position, destination and read-only mode. Prove with
+Git from the running revision to C (check-only) or M (switch) that
+`modules/paper-desk-executor` changes only in the exact reviewed `default.nix`
+comment, including unchanged file modes/types, and `modules/tailnet-peers` has no
+changes. The volume content changes only through the bundled producer source;
+the code the executor reaches is unchanged: `results/capture.mjs` is untouched and
+imports only unchanged `fifo.mjs` exports (`resultsDesk`, `unavailable`,
+`invalidFillField`); the `fifo.mjs` change is in `dayCloses`, which capture never
+calls. All other store paths and runtime fields stay equal. The handoff
+tmpfiles rule is exactly
 `d /var/lib/joe-desk-equity-closes 0700 1000 1000 - -`. Reject any other runtime
 definition change. The gateway container stays unchanged. For the r23
 promotion, rollback activates the asserted pre-switch generation with retained r22.
