@@ -6,6 +6,7 @@ import {
   capturesFromOfficialWindowFile,
 } from "./execution-history.mjs";
 import { compactBestAvailableHistoryState, reconcileExecutionCapture } from "./execution-reconciliation.mjs";
+import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
 import {
   createFileFamilyHistoryStore,
   projectBestAvailableHistory,
@@ -63,7 +64,8 @@ function argumentsFrom(argv) {
 }
 
 function summary(state, importedReceiptId) {
-  const projection = projectBestAvailableHistory({ state, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS });
+  const projection = projectBestAvailableHistory({ state, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
+    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides });
   return {
     ok: true,
     status: projection.status,

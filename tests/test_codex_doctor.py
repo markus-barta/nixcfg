@@ -74,7 +74,7 @@ case "$*" in
       printf '{"status":"%s","managedCodexPath":"%s","managedCodexVersion":"%s","socketPath":"%s","appServerVersion":"%s"}\\n' \\
         "${TEST_DAEMON_STATUS:-running}" "$pkg" "$ver" "$sock" "$ver"
     fi ;;
-  'app-server daemon update --yes')
+  'app-server daemon update --from-cli --yes')
     if [ "${TEST_UPDATE_EXIT:-0}" != 0 ]; then echo 'update failed' >&2; exit "$TEST_UPDATE_EXIT"; fi
     printf '%s dedicated\\n' "${TEST_UPDATE_TO:-0.154.0}" > "$state" ;;
   'debug models')
@@ -222,7 +222,7 @@ exit 99
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Fixed.", result.stdout)
         calls = self.log.read_text()
-        self.assertIn("codex app-server daemon update --yes", calls)
+        self.assertIn("codex app-server daemon update --from-cli --yes", calls)
         self.assertIn("codex debug models", calls)
         for forbidden in ("daemon stop", "daemon start", "curl "):
             self.assertNotIn(forbidden, calls)

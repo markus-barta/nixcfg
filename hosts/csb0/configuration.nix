@@ -20,6 +20,7 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ./push-relay.nix # OPS-528: independent, ciphertext-gated Compose project
     ./ops-alerts.nix # OPS-104: watch all three HA instances, report to Telegram
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb1 see this poller is alive
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
@@ -81,6 +82,12 @@ assert inputs.joedesk.rev == joeSet.board.rev;
       };
     };
   };
+
+  # OPS-528: pre-create HTTP-01 state as a private regular file before Compose
+  # can turn a missing bind source into a directory. `f` preserves its contents.
+  systemd.tmpfiles.rules = [
+    "f ${config.nixcfg.composeStack.projectDirectory}/traefik/acme-http.json 0600 root root -"
+  ];
 
   # ============================================================================
   # UZUMAKI MODULE CONFIGURATION
@@ -424,6 +431,22 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     group = "root";
     mode = "0400";
   };
+
+  # OPS-528 / NIX-384: GHCR pull token (read:packages) for the private INSPR
+  # push relay image. Read only by the relay's own compose unit, which does its
+  # own per-unit `docker login --password-stdin` (DOCKER_CONFIG is per unit,
+  # never daemon-wide; compose-csb0 pulls nothing private). 0400 root:root,
+  # raw token (single line). Requires csb0 as a recipient of the ciphertext
+  # (secrets.nix) and Markus's one-file rekey before this host can decrypt it.
+  age.secrets.csb1-inspr-site-ghcr-pull =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age)
+      {
+        file = ../../secrets/csb1-inspr-site-ghcr-pull.age;
+        path = "/run/agenix/csb1-inspr-site-ghcr-pull";
+        owner = "root";
+        group = "root";
+        mode = "0400";
+      };
 
   # NIX-356: 0400 — read client-side by the root-run compose units only.
   age.secrets.csb-hostdash-oauth2-proxy-env = {

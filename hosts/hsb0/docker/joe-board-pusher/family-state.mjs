@@ -566,6 +566,7 @@ export function createFamilySessionAdapter({
   targetAccount,
   familyClientIds,
   familyClientAssignments = [],
+  fillAttributionOverrides = [],
   excludedSymbols = ["SXR8", "TSLA"],
   periodStart = BASELINE_PERIOD_START,
   calculateFamily,
@@ -815,7 +816,7 @@ export function createFamilySessionAdapter({
     const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
     // Filtering discovers required fees/FX; the calculator below refuses the
     // entire projection if an executor row still has no unique intent owner.
-    try { return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments, getExecutorAttribution()); }
+    try { return !excluded.has(symbol) && isFamilyClientExecution(row.execution, familyIds, familyClientAssignments, getExecutorAttribution(), fillAttributionOverrides); }
     catch { return false; }
   }
 
@@ -1196,6 +1197,7 @@ export function createFamilySessionAdapter({
         account: targetAccount,
         familyClientIds: [...familyIds],
         familyClientAssignments,
+        fillAttributionOverrides,
         executorAttribution: getExecutorAttribution(),
         excludedSymbols: [...excluded],
         periodStart,

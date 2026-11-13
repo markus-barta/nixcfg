@@ -70,12 +70,12 @@ function contractKey(contract) {
   return symbol && type && currency ? `${symbol}:${type}:${currency}` : "unknown-contract";
 }
 
-function includedFamilyRows(state, familyClientAssignments, executorAttribution) {
+function includedFamilyRows(state, familyClientAssignments, executorAttribution, fillAttributionOverrides) {
   const ids = new Set(state.classifier.familyClientIds);
   const excluded = new Set(state.classifier.excludedSymbols);
   return effectiveExecutionRecords(state).filter((row) =>
     !excluded.has(String(row.contract.symbol || "").trim().toUpperCase())
-    && isFamilyClientExecution(row.execution, ids, familyClientAssignments, executorAttribution));
+    && isFamilyClientExecution(row.execution, ids, familyClientAssignments, executorAttribution, fillAttributionOverrides));
 }
 
 function latestVerifiedPeriod(coverage) {
@@ -228,9 +228,9 @@ function capturedOpenQuantities(rows) {
 }
 
 /** Calculate a native-currency subtotal; no caller-supplied PnL or FX is accepted. */
-export function calculateCapturedRealizedSubtotal(state, familyClientAssignments = [], executorAttribution = null) {
+export function calculateCapturedRealizedSubtotal(state, familyClientAssignments = [], executorAttribution = null, fillAttributionOverrides = []) {
   validateBestAvailableHistoryState(state);
-  const rows = includedFamilyRows(state, familyClientAssignments, executorAttribution)
+  const rows = includedFamilyRows(state, familyClientAssignments, executorAttribution, fillAttributionOverrides)
     .sort((left, right) => (executionInstant(left.execution.time) || "").localeCompare(executionInstant(right.execution.time) || "") ||
       left.execution.execId.localeCompare(right.execution.execId));
   const fees = new Map(state.commissions.map((row) => [row.execId, row]));
@@ -253,9 +253,9 @@ export function calculateCapturedRealizedSubtotal(state, familyClientAssignments
  * Project only claims supported by durable capture receipts. A captured subtotal
  * is deliberately separate from complete J equity and must bind this exact state.
  */
-export function projectBestAvailableHistory({ state, fullAccounting = null, familyClientAssignments = [], executorAttribution = null } = {}) {
+export function projectBestAvailableHistory({ state, fullAccounting = null, familyClientAssignments = [], executorAttribution = null, fillAttributionOverrides = [] } = {}) {
   validateBestAvailableHistoryState(state);
-  const familyRows = includedFamilyRows(state, familyClientAssignments, executorAttribution);
+  const familyRows = includedFamilyRows(state, familyClientAssignments, executorAttribution, fillAttributionOverrides);
   const familyIds = new Set(familyRows.map((row) => row.execution.execId));
   const matchingFees = state.commissions.filter((row) => familyIds.has(row.execId));
   const executionIds = new Set(state.executions.map((row) => row.execution.execId));
@@ -264,7 +264,7 @@ export function projectBestAvailableHistory({ state, fullAccounting = null, fami
     .map((row) => row.execId)
     .sort();
   const times = familyRows.map((row) => executionInstant(row.execution.time)).filter(Boolean).sort();
-  const calculatedSubtotal = calculateCapturedRealizedSubtotal(state, familyClientAssignments, executorAttribution);
+  const calculatedSubtotal = calculateCapturedRealizedSubtotal(state, familyClientAssignments, executorAttribution, fillAttributionOverrides);
   const singleCurrency = calculatedSubtotal.nativeRealizedPnl.length === 1
     ? calculatedSubtotal.nativeRealizedPnl[0]
     : null;
