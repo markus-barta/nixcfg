@@ -56,6 +56,7 @@ import { createConnectionSupervisor, HEALTH_INTERVAL_MS, HEALTH_TIMEOUT_MS } fro
 import { createBrokerSessionAdapter, waitForExecutionCycle } from "./pusher-state.mjs";
 import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
 import { contractsNeedingFlatNetMarks, createFlatNetMarkController, createNoOpFlatNetMarkController } from "./flat-net-marks.mjs";
+import { createDeskEquityCloseRecorder } from "./desk-equity-closes.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -87,6 +88,12 @@ function parseIntervalSec() {
 }
 
 const INTERVAL_SEC = parseIntervalSec();
+const equityCloseRecorder = createDeskEquityCloseRecorder({
+  firstDay: process.env.JOE_EQUITY_CLOSE_FIRST_DAY,
+  intervalSec: INTERVAL_SEC,
+  statePath: "/var/lib/joe-board-pusher/desk-equity-observations.json",
+  outcomePath: "/var/lib/joe-desk-equity-closes/outcomes.jsonl",
+});
 const v2StageHandoff = process.env.JOE_V2_STAGE_SOCKET
   ? createStageHandoff({ socketPath: process.env.JOE_V2_STAGE_SOCKET, cycleStore: createCycleStore() })
   : null;
@@ -342,6 +349,7 @@ async function pushOnce(stageObservation) {
   await waitForExecutionCycle({ isPending: () => familyAdapter.requestInFlight });
   const book = bookSnapshot();
   if (!book) {
+    equityCloseRecorder.observe(null);
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker snapshot incomplete" }));
     return { ok: false, error: "broker snapshot incomplete" };
   }
@@ -358,6 +366,7 @@ async function pushOnce(stageObservation) {
     policy: deskOwnershipPolicy,
     phaseB: contractRevision() >= 10,
   });
+  equityCloseRecorder.observe({ book, deskEquities });
   if (!deskEquities.ok) {
     console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
   }

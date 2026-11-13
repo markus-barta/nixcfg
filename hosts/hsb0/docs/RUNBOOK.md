@@ -1329,7 +1329,7 @@ source. Build this new tag from that runtime tree before an approved activation;
 switch never rebuilds it. Every board entry and both legacy rollback sets stay
 intact. The csb0 Compose values and joedesk source pin stay unchanged.
 
-OPS-557/OPS-567 now prepare `household-v2-switch-set-r22-202611102200` from the committed
+OPS-557/OPS-567 prepared `household-v2-switch-set-r22-202611102200` from the committed
 implementation `0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (#1228). The pusher source changed, so the
 deployment needs a new immutable tag: services are `build` = source with
 `pull_policy = "never"` and the switch runs no `--build`, so an unchanged tag
@@ -1345,10 +1345,62 @@ tree, and refuse if the selected tag equals the running image while the pinned
 pusher tree differs from the running one. Merge #1228 with a merge
 commit (not squash) so the pinned commit stays reachable from main.
 
+OPS-556 now prepares `household-v2-switch-set-r23-202611131200` from
+`5b754845115206c7d8469b1629eb644874f32185` (#1249). The v2 pusher pin is tree
+`fc9f97db3b022df988bbd473481404611b1df111`; the executor pin is tree
+`fc279405adfeaf54a7253ebc228542d2015ab77f` at the same revision. The executor
+module subtree changed only in its r22 comment since the r22 pin. Its effective
+runtime code also includes the reviewed Results producer source when capture is
+on: `server.mjs` imports `results/capture.mjs`, which imports the changed `fifo.mjs`.
+That bundled source changes the executor source volume's Nix store hash.
+The stager files are unchanged and follow the pusher source/image pin.
+Seed r23 once from `git archive 5b754845115206c7d8469b1629eb644874f32185:hosts/hsb0/docker/joe-board-pusher`,
+verify its recorded tree against the release set and new image ID, then switch
+all four services together: pusher, stager, executor and `agent-mailbox`.
+Refuse if the selected tag equals the running image while the pinned pusher
+tree differs from the running one. Never rebuild a published tag. Retain r22
+`household-v2-switch-set-r22-202611102200`, full image ID
+`sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`,
+and record the exact pre-switch generation for rollback. Merge #1249 as a merge
+commit so the pinned source revision remains reachable. Build the system from
+that merge commit M, never prebuild a toplevel from the PR head (configurationRevision differs).
+This is step 2 of the ordered OPS-556 deployment: `equityCloseFirstDay` stays
+null, the pusher's `JOE_EQUITY_CLOSE_FIRST_DAY` is empty, and the Results
+producer has no such environment variable. tmpfiles creates
+`/var/lib/joe-desk-equity-closes` with mode 0700 and uid/gid 1000:1000; only
+that handoff directory is added read-only to Results. Pusher private state
+remains unbound and hidden by InaccessiblePaths. The later step 3 separately
+sets a reviewed fixed Vienna first day on or after the r23 activation day and
+switches again; do not derive it from the clock. Preserve recorder state,
+outcomes and pin across rollback. An r22 rollback disables the new recorder;
+never truncate outcomes or move the pin backward.
+
 The pusher, stager, executor and mailbox share the tag and recreate together;
-the existing compose post-recreation also recreates `hsb0-home`. Reject any
-other runtime definition change. The gateway container and Results producer
-invocation must stay unchanged. For the r22 promotion, rollback activates the
+the existing compose post-recreation also recreates `hsb0-home`. The exact allowed
+r23 runtime delta is the shared r22-to-r23 image selection, the pusher
+read-write bind `/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes:rw`
+and empty `JOE_EQUITY_CLOSE_FIRST_DAY=` entry, plus the Results producer
+read-only bind of that directory and new `InaccessiblePaths` entries
+`-/var/lib/joe-board-pusher` and `-/var/lib/joe-household-v2-stage-checkpoint`.
+The producer's `ExecStart` source hash changes for the reviewed OPS-556 source;
+its invocation otherwise stays unchanged. With capture on, the executor also
+bundles that source: allow only the store hash in the single
+`/nix/store/<32-char-hash>-paper-desk-executor-source:/executor:ro` volume entry to
+change, preserving its list position, destination and read-only mode. Prove with
+Git from the running revision to C (check-only) or M (switch) that
+`modules/paper-desk-executor` changes only in the exact reviewed `default.nix`
+comment, including unchanged file modes/types, and `modules/tailnet-peers` has no
+changes. The volume content changes only through the bundled producer source;
+the code the executor reaches is unchanged: `results/capture.mjs` is untouched and
+imports only unchanged `fifo.mjs` exports (`resultsDesk`, `unavailable`,
+`invalidFillField`); the `fifo.mjs` change is in `dayCloses`, which capture never
+calls. All other store paths and runtime fields stay equal. The handoff
+tmpfiles rule is exactly
+`d /var/lib/joe-desk-equity-closes 0700 1000 1000 - -`. Reject any other runtime
+definition change. The gateway container stays unchanged. For the r23
+promotion, rollback activates the asserted pre-switch generation with retained r22.
+Print the recorded activation command for the operator; never roll back automatically.
+For the historical r22 promotion, rollback activated the
 asserted pre-switch generation with its retained r21 image through the
 [OPS-557 rollback procedure](../docker/joe-board-pusher/README.md#ops-557-rollback-to-the-pre-change-image)
 (archive/move-aside; moving only the pointer cannot recover). Earlier
@@ -1903,13 +1955,93 @@ book, but round trips closing before capture began are omitted. `trackingStart`
 is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
 
-Daily rows come only from captured executor activity on each Vienna day; days
-without captured activity are omitted, except every Vienna day touching an
-explicit history or fill gap (including unattributed own fills): those days emit a
-partial row with an empty desk map, whose total is unknown, not zero.
-`equityClose` is always null: v1 does not
-consume household v2 health/account fragments, desk equity or History basis IDs,
-and old household observation journal events are ignored on replay. Day realised
+Daily activity rows come from captured executor activity on each Vienna day.
+Every Vienna day touching an explicit history or fill gap (including
+unattributed own fills) also emits a partial row. Without attributed activity
+its desk map stays empty and its total is unknown, not zero. OPS-556 outcomes
+never create days or desk rows; exact closes enrich existing activity rows.
+Null outcomes remain diagnostics. The v2 contract requires no extra desk rows.
+
+OPS-556 fills `equityClose` from the pusher's dedicated
+`/var/lib/joe-desk-equity-closes/outcomes.jsonl` handoff. It uses the same
+`calculateDeskEquities` path and exact-value gates as live v2, retaining each
+desk's last exact EUR observation of the Vienna day. At the first tick after
+midnight (including restart), age is measured **against Vienna midnight**,
+with a **120-second** bound: four publication intervals from
+`JOE_PUSH_INTERVAL_SEC=30` in `hosts/hsb0/docker/compose-spec.nix`, scheduled in
+`pusher.mjs` and enforced by `closeMaxAgeMs` in `desk-equity-closes.mjs`.
+Alternative cadences are capped at the unchanged live input-age limit of
+300 seconds. The observation clock decides the day: a 23:59:58 valuation
+processed at 00:00:02 is credited before rollover; an observation exactly at
+midnight belongs to the new day. DST follows Vienna civil midnights.
+Missing, stale and inexact outcomes remain null. `restart_gap` is reserved for
+whole intervening days before this recorder instance's first tick;
+`recorder_gap` identifies days missed while it was running. A broker snapshot
+under revision < 10 yields `contract_unsupported`. Producer `no_record`
+diagnostics cover every closed day/desk since trackingStart without a record,
+including days with no activity. Reasons stay outside Results fields and FIFO
+partialReasons. Open-day closes remain null; never substitute a later valuation.
+
+Deploy in this order, after OPS-557 is live and JOED approves the change:
+
+1. Commit the reviewed OPS-556 implementation and prepare the **r23 release
+   set**, using a new immutable pusher/stager image tag pinned to that committed
+   runtime source tree. Apply the release-set/source-tree checks above; keep
+   the preceding release for rollback and refuse to overwrite any existing tag.
+2. Prestage the new image on hsb0 and activate r23 with the close pin still
+   unset. Services have `pull_policy = "never"`; switch runs **no `--build`**.
+   Verify the running tag and source tree include OPS-556. Setting
+   `equityCloseFirstDay` alone while r22 still runs yields all-null closes.
+3. Set `nixcfg.joeResultsProducer.equityCloseFirstDay` in
+   `hosts/hsb0/configuration.nix` to a real fixed Vienna YYYY-MM-DD **on or after
+   the Vienna day the new image became live**, then apply the reviewed switch.
+   Nix passes `JOE_EQUITY_CLOSE_FIRST_DAY`. The next eligible midnight finalizes
+   the first recorded day. Checked-in `null`/unset records nothing.
+
+No earlier day is written, and a fresh install never backfills. Keep the fixed
+pin across rollback; a mismatch with durable state disables recording. For a
+changed pin, restore the original value through reviewed Nix configuration.
+For invalid state, stop the pusher and restore **ONLY the private observation
+state file** from a verified backup. Without a valid state backup, preserve the
+corrupt observation file in an owner-only archive and move aside **ONLY that
+state file** under operator control. Retain the pin and current immutable
+outcomes; replay preserves their committed closes. Restart without state starts
+on today's Vienna day, leaving missed days unknown. Restore a matched backup
+pair **ONLY when the outcomes file itself is lost**. An older outcomes backup
+discards later committed closes and can turn previously published exact closes
+into null. Preserve a corrupt outcome stream for operator recovery; do not
+truncate it to make validation pass. Never hand-edit or reconstruct historical
+values.
+
+The new directory has its own tmpfiles rule, mode 0700 and uid/gid 1000;
+outcome files are 0600, readable through the producer's existing uid 1000.
+Bind exactly that directory read-only into Results; never bind the pusher's
+state directory. The producer's `InaccessiblePaths` also hides
+`/var/lib/joe-board-pusher` and `/var/lib/joe-household-v2-stage-checkpoint`.
+Private observations stay at
+`/var/lib/joe-board-pusher/desk-equity-observations.json`. Both files use
+temp-write + file fsync + rename + directory fsync. Outcomes are immutable by
+`(vienna_day, desk)` and logically append-only; replay adds no bytes and a
+conflict is rejected/logged. Outcomes commit before state advances. Retain
+both paths; do not rotate, truncate, reconstruct or hand-edit either.
+The current hsb0 restic mounts cover **AdGuardHome, ncps and `/etc` only**
+(`compose-spec.nix`); these two paths are **not automatically backed up**.
+Manual backup: stop the pusher, copy both files together to an owner-only
+off-host archive (directory 0700, files 0600), verify a matched restore in an
+isolated location, then restart the pusher. Outcomes cannot be reconstructed.
+Startup cleans only this writer's stale UUID `.tmp` files. Repeated recorder
+errors log at most once per reason per 15 minutes. Results logs only new/changed
+diagnostics, at most 20 entries plus per-reason counts for the entire new batch
+when truncated. Integrity warnings come first, with newest days first within
+each priority group. The full value-free list is atomically saved locally at
+`/var/lib/joe-results-producer/equity-close-diagnostics.json` (0600).
+Private observations still fsync each tick.
+The side file contains only closes and clock evidence, no ledger or credentials.
+Results strictly rejects malformed records and duplicate keys; missing,
+unreadable or invalid input gives null + diagnostics without stopping results
+publication. The stream has a 64 MiB reader limit; monitor storage and preserve
+the archive when planning any future retention change. Results v2 is unchanged;
+old household observation journal events are still ignored on replay. Day realised
 net, fees and trade counts sum every included closed FIFO portion across all
 active desks, including opening-only desks with zero realised totals. Both legs'
 fees are charged to each closed portion. Revision-6 validation still checks

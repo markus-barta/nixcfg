@@ -159,10 +159,10 @@ export function roundTrips(fills, trackingInstant, keepSymbols, onClose = () => 
   return trades.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.id.localeCompare(b.id));
 }
 
-export function dayCloses(fills, trades, trackingStart, { from, through, intervals, historyEnd, earlierGaps = new Set() } = {}) {
+export function dayCloses(fills, trades, trackingStart, { from, through, intervals, historyEnd, earlierGaps = new Set(), equityCloses = new Map() } = {}) {
   const days = new Map();
-  // Executor captures are the only daily source. No household equity/account
-  // fragment is read; an active desk's unknown equity stays null.
+  // Executor captures supply activity; the narrow recorded-close handoff is
+  // the only equity source. No household account fragments or NY baselines.
   for (const fill of fills) {
     if (!validInstant(fill.at)) throw unavailable();
     if ((from && fill.at < from) || (through && fill.at > through)) continue;
@@ -184,10 +184,13 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
     desks[trade.desk] ||= { equityClose: null };
     days.set(date, desks);
   }
+  // The v2 contract permits absent desks. A close enriches activity rows;
+  // it cannot establish zero realised activity or turn unknown totals into zero.
   const result = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, desks]) => {
     for (const [desk, value] of Object.entries(desks)) {
       const total = totals.get(`${date}:${desk}`) || { count: 0, net: 0n, fees: 0n };
       Object.assign(value, { realisedNet: money(unitsDecimal(total.net)), fees: money(unitsDecimal(total.fees)), trades: total.count });
+      if (through && date < viennaDate(through)) value.equityClose = equityCloses.get(`${date}:${desk}`) ?? null;
     }
     coverage[date] = earlierGaps.has(date) ? 'partial' : dayCoverage(date, from, through, intervals);
     const day = { date, desks: { ...desks } };
