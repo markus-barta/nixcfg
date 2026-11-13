@@ -44,7 +44,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   let coverageIntervals = [];
   let historyOnlyIntervals = [], fillGaps = [];
   let historyStart = Infinity, historyEnd = -Infinity;
-  let closeDiagnosticsHash;
+  let previousCloseDiagnostics = new Set();
   let closeDiagnostics = [];
   const positionProofs = new PositionProofIndex();
   function apply(event) {
@@ -178,12 +178,18 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
       const intervals = subtractIntervals(coverageIntervals, mergeIntervals(gaps));
       for (const day of earlierGapDays(stage0, affected, intervals, positionProofs, proofFrom)) earlierGaps.add(day);
     }
-    const outcomes = equityClosePath ? readEquityCloses(equityClosePath, at) : { closes: new Map(), diagnostics: [] };
+    const outcomes = equityClosePath ? readEquityCloses(equityClosePath, at, { fromDay: viennaDate(start) }) : { closes: new Map(), diagnostics: [] };
     closeDiagnostics = outcomes.diagnostics;
-    if (hash(closeDiagnostics) !== closeDiagnosticsHash) {
-      closeDiagnosticsHash = hash(closeDiagnostics);
-      for (const detail of closeDiagnostics) diagnostic({ event: 'desk_equity_close', ...detail });
-    }
+    const currentDiagnostics = new Set(closeDiagnostics.map(detail => JSON.stringify(detail)));
+    const added = [...currentDiagnostics].filter(key => !previousCloseDiagnostics.has(key)).map(detail => JSON.parse(detail));
+    // Log only new/changed reasons, with a fixed per-snapshot budget. The full
+    // diagnostic list remains available locally, outside Results wire fields.
+    const reasons = added.filter(detail => detail.reason !== 'no_record');
+    const missing = added.filter(detail => detail.reason === 'no_record');
+    const batch = [...missing.slice(0, Math.max(0, 20 - reasons.length)), ...reasons.slice(0, 20)];
+    for (const detail of batch) diagnostic({ event: 'desk_equity_close', ...detail });
+    if (added.length > 20) diagnostic({ event: 'desk_equity_close', reason: 'diagnostics_truncated', count: added.length - 20 });
+    previousCloseDiagnostics = currentDiagnostics;
     const { days } = dayCloses(stage0, trades, viennaDate(start), { from: start, through: at, intervals: historyOnlyIntervals,
       historyEnd, earlierGaps, equityCloses: outcomes.closes });
     // Gaps without an attributed desk remain visible without inventing ownership.

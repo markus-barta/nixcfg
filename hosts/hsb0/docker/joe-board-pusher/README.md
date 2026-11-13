@@ -1590,3 +1590,20 @@ the broker snapshot timestamp; before the first complete broker snapshot the
 publisher skips the push rather than fabricating an empty book.
 
 Run synthetic replay tests: `npm test` (fixtures are labelled synthetic, not live).
+
+## OPS-556 Vienna equity closes
+
+The recorder uses each desk's exact live valuation, with age measured against
+Vienna midnight: four push intervals, **120 seconds** at the deployed 30-second
+cadence (capped at the live 300-second input limit). The valuation timestamp
+decides the day, including a pre-midnight value delivered just after midnight.
+Results fills `equityClose` only on existing activity rows; null outcomes stay
+in diagnostics, and partial days retain unknown activity totals.
+
+Deployment requires the **r23 release set and its new immutable pusher/stager
+image**. Services use `pull_policy = "never"` and switch runs no `--build`.
+First prestage and activate that image with the pin unset, verify its source
+tree, then set the fixed `equityCloseFirstDay` to a Vienna day on or after the
+new image became live. A pin alone with r22 yields all-null closes. Follow the
+ordered deployment, backup and recovery steps in the
+[Results producer runbook](../../docs/RUNBOOK.md#joedesk-results-producer-joed-39-enabled-in-config-switch-pending).

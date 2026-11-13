@@ -5,7 +5,7 @@ import { viennaDate } from './results-validation.mjs';
 
 const DESKS = ['j', 'joe', 'joel'];
 const SCHEMA = 'inspr.joe.desk-equity-close.v1';
-const REASONS = ['no_observation', 'stale', 'inexact', 'restart_gap'];
+const REASONS = ['no_observation', 'stale', 'inexact', 'restart_gap', 'recorder_gap', 'contract_unsupported'];
 const fields = ['schema', 'vienna_day', 'desk', 'closeAt', 'observedAt', 'oldestInputAt', 'equityClose', 'reason', 'maxAgeMs'];
 const keys = (v, names) => v && typeof v === 'object' && !Array.isArray(v)
   && Object.keys(v).sort().join(',') === [...names].sort().join(',');
@@ -25,8 +25,20 @@ function validOutcome(row) {
     && boundary - Date.parse(row.observedAt) <= row.maxAgeMs;
 }
 
-export function readEquityCloses(filename, at) {
+export function readEquityCloses(filename, at, { fromDay } = {}) {
   const diagnostics = [], closes = new Map();
+  function result(seen = new Set(), extra = []) {
+    const missing = [];
+    if (validDate(fromDay)) {
+      const today = viennaDate(at);
+      for (let noon = Date.parse(`${fromDay}T12:00:00Z`); ; noon += 86400_000) {
+        const day = new Date(noon).toISOString().slice(0, 10);
+        if (day >= today) break;
+        for (const desk of DESKS) if (!seen.has(`${day}:${desk}`)) missing.push({ reason: 'no_record', day, desk });
+      }
+    }
+    return { closes, diagnostics: [...missing, ...diagnostics, ...extra] };
+  }
   let fd;
   try {
     fd = openSync(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -50,13 +62,14 @@ export function readEquityCloses(filename, at) {
         diagnostics.push({ reason: 'day_not_closed', day: row.vienna_day, desk: row.desk });
         continue;
       }
-      closes.set(key, row.equityClose);
+      if (row.equityClose !== null) closes.set(key, row.equityClose);
       if (row.reason) diagnostics.push({ reason: row.reason, day: row.vienna_day, desk: row.desk });
     }
-    return { closes, diagnostics };
+    return result(seen);
   } catch (error) {
     // Never retain a formerly readable value through an unreadable/invalid input.
-    return { closes: new Map(), diagnostics: [{ reason: error.code === 'ENOENT' ? 'stream_missing'
-      : error.message === 'invalid_stream' || error instanceof SyntaxError ? 'stream_invalid' : 'stream_unreadable' }] };
+    closes.clear(); diagnostics.length = 0;
+    return result(new Set(), [{ reason: error.code === 'ENOENT' ? 'stream_missing'
+      : error.message === 'invalid_stream' || error instanceof SyntaxError ? 'stream_invalid' : 'stream_unreadable' }]);
   } finally { if (fd !== undefined) closeSync(fd); }
 }

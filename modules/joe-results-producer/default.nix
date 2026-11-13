@@ -9,6 +9,22 @@
 }:
 let
   cfg = config.nixcfg.joeResultsProducer;
+  validFirstDay =
+    if cfg.equityCloseFirstDay == null then
+      true
+    else
+      let
+        parts = builtins.match "([0-9]{4})-([0-9]{2})-([0-9]{2})" cfg.equityCloseFirstDay;
+        year = lib.toIntBase10 (builtins.elemAt parts 0);
+        month = lib.toIntBase10 (builtins.elemAt parts 1);
+        day = lib.toIntBase10 (builtins.elemAt parts 2);
+        leap = lib.mod year 4 == 0 && (lib.mod year 100 != 0 || lib.mod year 400 == 0);
+        lengths = [
+          31 (if leap then 29 else 28) 31 30 31 30 31 31 30 31 30 31
+        ];
+      in
+      parts != null && year >= 1 && month >= 1 && month <= 12
+      && day >= 1 && day <= builtins.elemAt lengths (month - 1);
   source = import ./source.nix { inherit pkgs; };
   settings = pkgs.writeText "joe-results-producer.json" (
     builtins.toJSON {
@@ -59,6 +75,10 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = validFirstDay;
+        message = "joeResultsProducer equityCloseFirstDay must be a real fixed Vienna YYYY-MM-DD date";
+      }
       {
         assertion = config.nixcfg.paperDeskExecutor.enable;
         message = "joeResultsProducer requires the paper executor";
@@ -164,6 +184,8 @@ in
           "-/run/agenix"
           "-/run/secrets"
           "-/var/run/docker.sock"
+          "-/var/lib/joe-board-pusher"
+          "-/var/lib/joe-household-v2-stage-checkpoint"
         ];
         ReadWritePaths = [ "/var/lib/joe-results-producer" ];
         SystemCallFilter = [

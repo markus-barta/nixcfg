@@ -45,6 +45,8 @@ assert service["SocketBindDeny"] == ["any"]
 assert service["LoadCredential"] == ["joe-board-push-token:/run/agenix/joe-board-push-token"]
 assert "-/run/agenix" in service["InaccessiblePaths"]
 assert "-/run/secrets" in service["InaccessiblePaths"]
+assert "-/var/lib/joe-board-pusher" in service["InaccessiblePaths"]
+assert "-/var/lib/joe-household-v2-stage-checkpoint" in service["InaccessiblePaths"]
 assert "time-sync.target" in value["services"]["joe-results-producer"]["after"]
 disabled = evaluate("{ enable = false; }")
 assert disabled.returncode == 0, disabled.stderr
@@ -56,6 +58,13 @@ fixed_day = evaluate('{ equityCloseFirstDay = "2026-11-13"; }')
 assert fixed_day.returncode == 0, fixed_day.stderr
 invalid_day = evaluate('{ equityCloseFirstDay = "today"; }')
 assert invalid_day.returncode != 0, "relative deployment day must fail evaluation"
+for day in ["2026-02-30", "2026-02-29", "2100-02-29", "2026-04-31", "2026-00-01", "2026-13-01", "2026-01-00"]:
+    rejected = evaluate(f'{{ equityCloseFirstDay = "{day}"; }}')
+    assert rejected.returncode != 0, f"impossible deployment day {day} must fail evaluation"
+    assert "real fixed Vienna" in rejected.stderr, rejected.stderr
+for day in ["2028-02-29", "2000-02-29", "2026-12-31"]:
+    accepted = evaluate(f'{{ equityCloseFirstDay = "{day}"; }}')
+    assert accepted.returncode == 0, accepted.stderr
 for options in ['{ endpoint = "http://ingress.example.invalid/joe/inbox/results"; }', '{ endpoint = "https://ingress.example.invalid/joe/inbox"; }', '{ endpoint = "https://ingress.example.invalid/joe/inbox/results?token=bad"; }', '{ ingressAddress = "any"; }', '{ ingressAddress = "999.0.0.1"; }', '{ keepSymbols = [ "TSLA" ]; }']:
     rejected = evaluate(options)
     assert rejected.returncode != 0, options
@@ -67,6 +76,8 @@ assert 'if config.nixcfg.joeResultsProducer.equityCloseFirstDay == null then' in
 compose = (repo / "hosts/hsb0/docker/compose-spec.nix").read_text()
 assert '"/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes:rw"' in compose
 assert '"JOE_EQUITY_CLOSE_FIRST_DAY="' in compose
+assert '"JOE_V2_STAGE_CHECKPOINT_DIR=/var/lib/joe-household-v2-stage-checkpoint"' in compose
+assert 'joeStageCheckpointDir = "/var/lib/joe-household-v2-stage-checkpoint";' in host
 mixed_case = evaluate('{ ingressHost = "Ingress.example.invalid"; endpoint = "https://Ingress.example.invalid/joe/inbox/results"; }')
 assert mixed_case.returncode != 0, "mixed-case ingressHost must fail evaluation"
 assert "lowercase ingressHost" in mixed_case.stderr, mixed_case.stderr
@@ -105,6 +116,7 @@ assert host_service["IPAddressDeny"] == ["any"]
 assert host_service["IPAddressAllow"] == ["127.0.0.1/32", "89.58.63.96/32"]
 assert host_service["LoadCredential"] == service["LoadCredential"]
 assert host_service["BindReadOnlyPaths"] == service["BindReadOnlyPaths"]
+assert host_service["InaccessiblePaths"] == service["InaccessiblePaths"]
 # OPS-556: evaluate the actual pusher overlay with inert packages. No source
 # build or secret reads; environment must override the env_file even when unset.
 for first_day in [None, "2026-11-13"]:
@@ -138,5 +150,5 @@ except AssertionError as error:
     assert "service uid must resolve" in str(error), error
 else:
     raise AssertionError("undeclared service uid must fail the wiring check")
-print("JOED-20/39 + OPS-556: 12 module evaluations + hsb0 wiring + 2 pusher guard evaluations + sandbox assertions + 2 identity regressions passed (no build)")
+print("JOED-20/39 + OPS-556: module evaluations + 10 calendar regressions + hsb0 wiring + 2 pusher guard evaluations + sandbox assertions + 2 identity regressions passed (no build)")
 PY

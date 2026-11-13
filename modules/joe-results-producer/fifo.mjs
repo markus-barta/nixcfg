@@ -184,13 +184,8 @@ export function dayCloses(fills, trades, trackingStart, { from, through, interva
     desks[trade.desk] ||= { equityClose: null };
     days.set(date, desks);
   }
-  for (const [key, equityClose] of equityCloses) {
-    const [date, desk] = key.split(':');
-    if (!through || date < trackingStart || date >= viennaDate(through) || !DESKS.includes(desk)) continue;
-    const desks = days.get(date) || Object.create(null);
-    desks[desk] ||= { equityClose };
-    days.set(date, desks);
-  }
+  // The v2 contract permits absent desks. A close enriches activity rows;
+  // it cannot establish zero realised activity or turn unknown totals into zero.
   const result = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, desks]) => {
     for (const [desk, value] of Object.entries(desks)) {
       const total = totals.get(`${date}:${desk}`) || { count: 0, net: 0n, fees: 0n };

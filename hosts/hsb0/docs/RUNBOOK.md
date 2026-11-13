@@ -1880,43 +1880,80 @@ book, but round trips closing before capture began are omitted. `trackingStart`
 is the Vienna date capture began; display earlier coverage as **since that
 date**, never as a complete lifetime result.
 
-Daily activity rows come from captured executor activity on each Vienna day;
-OPS-556 also adds desks with recorded close outcomes on closed days. Every Vienna day touching an
-explicit history or fill gap (including unattributed own fills) also emits a
-partial row. With no attributed activity or close outcome its desk map stays
-empty and its total is unknown, not zero.
+Daily activity rows come from captured executor activity on each Vienna day.
+Every Vienna day touching an explicit history or fill gap (including
+unattributed own fills) also emits a partial row. Without attributed activity
+its desk map stays empty and its total is unknown, not zero. OPS-556 outcomes
+never create days or desk rows; exact closes enrich existing activity rows.
+Null outcomes remain diagnostics. The v2 contract requires no extra desk rows.
+
 OPS-556 fills `equityClose` from the pusher's dedicated
 `/var/lib/joe-desk-equity-closes/outcomes.jsonl` handoff. It uses the same
 `calculateDeskEquities` path and exact-value gates as live v2, retaining each
-desk's last exact EUR observation of the Vienna day. At the first observation
-after midnight (including restart), that close must be at most **60 seconds**
-old: two publication intervals, from `JOE_PUSH_INTERVAL_SEC=30` in
-`hosts/hsb0/docker/compose-spec.nix`, parsed/scheduled in `pusher.mjs` and
-enforced by `closeMaxAgeMs` in `desk-equity-closes.mjs`. This age bound needs
-JOED's review before deployment. DST follows Vienna civil midnights.
-Missing, stale, inexact and restart-gap outcomes remain plain null; their
-value-free reason appears only in the side file and producer diagnostics.
-Open-day closes remain null. No desk policy, History basis, Today or NY
-baseline changes; never substitute a NY baseline/proxy or a later observation.
+desk's last exact EUR observation of the Vienna day. At the first tick after
+midnight (including restart), age is measured **against Vienna midnight**,
+with a **120-second** bound: four publication intervals from
+`JOE_PUSH_INTERVAL_SEC=30` in `hosts/hsb0/docker/compose-spec.nix`, scheduled in
+`pusher.mjs` and enforced by `closeMaxAgeMs` in `desk-equity-closes.mjs`.
+Alternative cadences are capped at the unchanged live input-age limit of
+300 seconds. The observation clock decides the day: a 23:59:58 valuation
+processed at 00:00:02 is credited before rollover; an observation exactly at
+midnight belongs to the new day. DST follows Vienna civil midnights.
+Missing, stale and inexact outcomes remain null. `restart_gap` is reserved for
+whole intervening days before this recorder instance's first tick;
+`recorder_gap` identifies days missed while it was running. A broker snapshot
+under revision < 10 yields `contract_unsupported`. Producer `no_record`
+diagnostics cover every closed day/desk since trackingStart without a record,
+including days with no activity. Reasons stay outside Results fields and FIFO
+partialReasons. Open-day closes remain null; never substitute a later valuation.
 
-DEVOPS sets `nixcfg.joeResultsProducer.equityCloseFirstDay` in
-`hosts/hsb0/configuration.nix` to the fixed first eligible Vienna date at
-deployment **after OPS-557 is live and JOED reviews this change**. For example,
-use `"2026-11-13"` only for a deployment on that Vienna day. Nix passes it as
-`JOE_EQUITY_CLOSE_FIRST_DAY`; checked-in `null`/unset records nothing. No earlier
-day is written, and a new install does not backfill missing days. Keep the
-fixed pin across rollback; a mismatch with durable state disables recording.
-The next Vienna midnight finalizes the first eligible recorded day.
+Deploy in this order, after OPS-557 is live and JOED approves the change:
+
+1. Commit the reviewed OPS-556 implementation and prepare the **r23 release
+   set**, using a new immutable pusher/stager image tag pinned to that committed
+   runtime source tree. Apply the release-set/source-tree checks above; keep
+   the preceding release for rollback and refuse to overwrite any existing tag.
+2. Prestage the new image on hsb0 and activate r23 with the close pin still
+   unset. Services have `pull_policy = "never"`; switch runs **no `--build`**.
+   Verify the running tag and source tree include OPS-556. Setting
+   `equityCloseFirstDay` alone while r22 still runs yields all-null closes.
+3. Set `nixcfg.joeResultsProducer.equityCloseFirstDay` in
+   `hosts/hsb0/configuration.nix` to a real fixed Vienna YYYY-MM-DD **on or after
+   the Vienna day the new image became live**, then apply the reviewed switch.
+   Nix passes `JOE_EQUITY_CLOSE_FIRST_DAY`. The next eligible midnight finalizes
+   the first recorded day. Checked-in `null`/unset records nothing.
+
+No earlier day is written, and a fresh install never backfills. Keep the fixed
+pin across rollback; a mismatch with durable state disables recording. For a
+changed pin, restore the original value through reviewed Nix configuration.
+For invalid state, stop the pusher and restore a verified matched backup pair.
+Without a valid private-state backup, preserve the corrupt observation file in
+an owner-only archive and move aside only that file under operator control;
+retain the pin and immutable outcomes. Restart starts on today's Vienna day,
+leaving missed days unknown. Never hand-edit or reconstruct historical values.
+For a corrupt outcome stream, preserve it and recover from a verified backup;
+do not truncate it to make validation pass.
 
 The new directory has its own tmpfiles rule, mode 0700 and uid/gid 1000;
 outcome files are 0600, readable through the producer's existing uid 1000.
 Bind exactly that directory read-only into Results; never bind the pusher's
-state directory. Private observations stay at
+state directory. The producer's `InaccessiblePaths` also hides
+`/var/lib/joe-board-pusher` and `/var/lib/joe-household-v2-stage-checkpoint`.
+Private observations stay at
 `/var/lib/joe-board-pusher/desk-equity-observations.json`. Both files use
 temp-write + file fsync + rename + directory fsync. Outcomes are immutable by
 `(vienna_day, desk)` and logically append-only; replay adds no bytes and a
-conflict is rejected/logged. Outcomes commit before state advances. Retain and
-back up both paths; do not rotate, truncate, reconstruct or hand-edit either.
+conflict is rejected/logged. Outcomes commit before state advances. Retain
+both paths; do not rotate, truncate, reconstruct or hand-edit either.
+The current hsb0 restic mounts cover **AdGuardHome, ncps and `/etc` only**
+(`compose-spec.nix`); these two paths are **not automatically backed up**.
+Manual backup: stop the pusher, copy both files together to an owner-only
+off-host archive (directory 0700, files 0600), verify a matched restore in an
+isolated location, then restart the pusher. Outcomes cannot be reconstructed.
+Startup cleans only this writer's stale UUID `.tmp` files. Repeated recorder
+errors log at most once per reason per 15 minutes. Results logs only new/changed
+diagnostics, at most 20 entries plus a count summary per snapshot; its full
+local diagnostic list is retained. Private observations still fsync each tick.
 The side file contains only closes and clock evidence, no ledger or credentials.
 Results strictly rejects malformed records and duplicate keys; missing,
 unreadable or invalid input gives null + diagnostics without stopping results
