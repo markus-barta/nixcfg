@@ -1306,7 +1306,7 @@ source. Build this new tag from that runtime tree before an approved activation;
 switch never rebuilds it. Every board entry and both legacy rollback sets stay
 intact. The csb0 Compose values and joedesk source pin stay unchanged.
 
-OPS-557/OPS-567 now prepare `household-v2-switch-set-r22-202611102200` from the committed
+OPS-557/OPS-567 prepared `household-v2-switch-set-r22-202611102200` from the committed
 implementation `0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (#1228). The pusher source changed, so the
 deployment needs a new immutable tag: services are `build` = source with
 `pull_policy = "never"` and the switch runs no `--build`, so an unchanged tag
@@ -1322,10 +1322,38 @@ tree, and refuse if the selected tag equals the running image while the pinned
 pusher tree differs from the running one. Merge #1228 with a merge
 commit (not squash) so the pinned commit stays reachable from main.
 
+OPS-556 now prepares `household-v2-switch-set-r23-202611131200` from
+`5b754845115206c7d8469b1629eb644874f32185` (#1249). The v2 pusher pin is tree
+`fc9f97db3b022df988bbd473481404611b1df111`; the executor pin is tree
+`fc279405adfeaf54a7253ebc228542d2015ab77f` at the same revision. The executor
+subtree changed only in its r22 comment since the r22 pin; runtime code is unchanged.
+The stager files are unchanged and follow the pusher source/image pin.
+Seed r23 once from `git archive 5b754845115206c7d8469b1629eb644874f32185:hosts/hsb0/docker/joe-board-pusher`,
+verify its recorded tree against the release set and new image ID, then switch
+all three services together. Never rebuild a published tag. Retain r22
+`household-v2-switch-set-r22-202611102200`, full image ID
+`sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`,
+and record the exact pre-switch generation for rollback. Merge #1249 as a merge
+commit so the pinned source revision remains reachable. Build the system from
+that merge commit M, never prebuild a toplevel from the PR head (configurationRevision differs).
+This is step 2 of the ordered OPS-556 deployment: `equityCloseFirstDay` stays
+null, the pusher's `JOE_EQUITY_CLOSE_FIRST_DAY` is empty, and the Results
+producer has no such environment variable. tmpfiles creates
+`/var/lib/joe-desk-equity-closes` with mode 0700 and uid/gid 1000:1000; only
+that handoff directory is added read-only to Results. Pusher private state
+remains unbound and hidden by InaccessiblePaths. The later step 3 separately
+sets a reviewed fixed Vienna first day on or after the r23 activation day and
+switches again; do not derive it from the clock. Preserve recorder state,
+outcomes and pin across rollback. An r22 rollback disables the new recorder;
+never truncate outcomes or move the pin backward.
+
 The pusher, stager, executor and mailbox share the tag and recreate together;
 the existing compose post-recreation also recreates `hsb0-home`. Reject any
-other runtime definition change. The gateway container and Results producer
-invocation must stay unchanged. For the r22 promotion, rollback activates the
+other runtime definition change. The gateway container stays unchanged. The Results
+producer changes only by the reviewed OPS-556 source and isolated handoff. For the r23
+promotion, rollback activates the asserted pre-switch generation with retained r22.
+Print the recorded activation command for the operator; never roll back automatically.
+For the historical r22 promotion, rollback activated the
 asserted pre-switch generation with its retained r21 image through the
 [OPS-557 rollback procedure](../docker/joe-board-pusher/README.md#ops-557-rollback-to-the-pre-change-image)
 (archive/move-aside; moving only the pointer cannot recover). Earlier

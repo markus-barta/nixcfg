@@ -859,13 +859,21 @@ The board accepts revision-11, revision-10 and revision-9 payloads. JOED-149
 prepared the hsb0 pusher/executor image `household-v2-switch-set-r21-202611031258`
 from nixcfg `729ddf040951a5a0f4ee3acada8613d62255227e`, with the complete vendored
 revision-11 set `c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`
-and revision 11 configured for pusher and stager. OPS-557/OPS-567 select
+and revision 11 configured for pusher and stager. OPS-557/OPS-567 selected
 `household-v2-switch-set-r22-202611102200` from nixcfg
 `0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (same vendored set and revision);
-r21 is the shared-image rollback. Revision 10 is an explicit
+OPS-556 now selects `household-v2-switch-set-r23-202611131200` from nixcfg
+`5b754845115206c7d8469b1629eb644874f32185`, pusher tree
+`fc9f97db3b022df988bbd473481404611b1df111`; r22 is the shared-image rollback
+(`sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`).
+This is deploy step 2: the first-day pin remains null. No board field or input changes. Revision 10 is an explicit
 rollback setting; revision 9 remains the fallback. Image build, host activation
 and live producer sign-off remain separate gates. This pusher-family pin change
 preserves every board entry, the joedesk flake input and csb0 Compose declaration.
+csb0 reads only the active selector and selected board revision/image from this
+file; the pusher/executor fields are hsb0 consumers. A new nixcfg merge still
+changes csb0's toplevel metadata through `system.configurationRevision` and
+Pharos deployment evidence, so Compose equality is not full derivation equality.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
 the exact main commit and hashes identify the selected source, with OPS still

@@ -12,7 +12,7 @@ Missing or malformed paper-account configuration fails closed. Identity values
 live in the private PPM runbook `host-hsb0`; no public default or fingerprint
 is shipped.
 
-The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r22-202611102200` (OPS-557/OPS-567: NVDA closing fills to their opening desk and `historyBasis`, on the JOED-149 revision-11 lineage; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set (OPS-354 activation). The immediate shared-image rollback is `household-v2-switch-set-r21-202611031258` via the [OPS-557 rollback procedure](#ops-557-rollback-to-the-pre-change-image) (archive/move-aside; moving only the pointer is not enough) and the asserted running generation. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set, which restores the pre-cutover hsb0 tree).
+The switch-set image is `hsb0-joe-board-pusher:household-v2-switch-set-r23-202611131200` (OPS-556 desk equity closes; pusher, stager, executor and mailbox runtime), selected by the active `v2` release set. This is deployment step 2: `equityCloseFirstDay` remains null and no closes are recorded. The immediate shared-image rollback is `household-v2-switch-set-r22-202611102200`, image ID `sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`, with the asserted pre-switch generation. Preserve private recorder state and immutable outcomes across rollback. The historical [OPS-557 rollback procedure](#ops-557-rollback-to-the-pre-change-image) concerns the r22-to-r21 transition. The separate v1/variant B rollback remains `hsb0-joe-board-pusher:household-v2-switch-set-r16d-202610201800` (the `current` set).
 The pusher, isolated stager, executor and mailbox runtime use that same immutable image;
 the executor source remains on its existing mount. `pull_policy = "never"`
 prevents an automatic rebuild or pull. Build this new tag during the separately
@@ -20,12 +20,16 @@ reviewed host promotion; keep `flat-net-reconcile-perf-202610010310` intact for
 rollback. Never rebuild over either published tag. The base image digests,
 package manifests and `npm ci` remain unchanged.
 
-Both runtime source pins name the committed OPS-557 implementation
-`0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (#1228 head before this tag change). `git rev-parse REV:SOURCE_PATH`
-gives pusher tree `c7ae810fb0e9f153cbd37fb2ae2773d8895ee844` and executor tree
-`123eefa72d3a8484a4e3c7cf474306aa5ab87628` (the executor implementation is unchanged since r21).
-r21 (rev-11 implementation `729ddf040951a5a0f4ee3acada8613d62255227e`, pusher tree
-`eda3c8d69c3b555c9136bf30195d1ffafa82f99f`) is the immediate rollback image.
+Both runtime source pins name the committed OPS-556 implementation
+`5b754845115206c7d8469b1629eb644874f32185` (#1249 head before this release change).
+`git rev-parse REV:SOURCE_PATH` gives pusher tree
+`fc9f97db3b022df988bbd473481404611b1df111` and executor tree
+`fc279405adfeaf54a7253ebc228542d2015ab77f`. The executor tree differs from its
+r22 pin only by the r22 image comment; its runtime implementation is unchanged.
+The stager runtime files are unchanged since r22 and have no independent
+release entry: they inherit the pusher source/image pin. r22 was built from
+`0faf0a8d5f276ef15e1487bc01766f79df9a6ffd`, pusher tree
+`c7ae810fb0e9f153cbd37fb2ae2773d8895ee844`; retain it as rollback.
 The later tag-only README/test edits are excluded from the pusher build context;
 the executor's image-comment edit changes no copied runtime source. These Git
 pins identify source snapshots; the new tag still needs its separately approved build.

@@ -157,7 +157,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      # OPS-557 shared image (after JOED-149 r21): hsb0-joe-board-pusher:household-v2-switch-set-r22-202611102200.
+      # OPS-556 shared image (after OPS-557/OPS-567 r22): hsb0-joe-board-pusher:household-v2-switch-set-r23-202611131200.
       # Activation and rollback select the executor pin from the same release set.
       default = joeSet.executor.image;
       description = "Pinned local image used only for Node and @stoqey/ib. The pusher service is unchanged.";

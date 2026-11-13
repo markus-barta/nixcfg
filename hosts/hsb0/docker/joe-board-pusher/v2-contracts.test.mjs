@@ -187,11 +187,11 @@ test("OPS-556 handoff is isolated and the deployment day is fixed across board r
   }
 });
 
-test("active v2 set (OPS-557): shared r22 image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
+test("active v2 set (OPS-556): shared r23 image, v2 POST schema and read-only v2 mount, also when staging is disabled", t => {
   const source = fs.readFileSync(path.join(repo, "hosts/hsb0/configuration.nix"), "utf8");
   const release = JSON.parse(fs.readFileSync(path.join(repo, "hosts/csb0/joedesk-release.json"), "utf8"));
   const r17 = release.sets.v2.pusher.image;
-  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r22-202611102200");
+  assert.equal(r17, "hsb0-joe-board-pusher:household-v2-switch-set-r23-202611131200");
   assert.equal(release.sets.v2.executor.image, r17);
   for (const enabled of [true, false]) {
     const v2 = hostEval(t, source, enabled, false, "v2");
