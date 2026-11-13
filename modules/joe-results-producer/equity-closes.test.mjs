@@ -1,7 +1,7 @@
 import '../../tests/paper-desk-account-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs, { mkdtempSync, readFileSync, writeFileSync, symlinkSync, statSync, readdirSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, writeFileSync, symlinkSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -229,8 +229,11 @@ test('full producer diagnostics persist locally, unchanged lists skip writes and
   const io = { ...fs, writeFileSync: (...args) => { calls.push(args); fs.writeFileSync(...args); } };
   const save = createEquityCloseDiagnosticsWriter(filename, { io });
   f.producer.snapshot(now); save(f.producer.equityCloseDiagnostics);
-  assert.deepEqual(JSON.parse(readFileSync(filename)), f.producer.equityCloseDiagnostics);
-  assert.equal(statSync(filename).mode & 0o777, 0o600);
+  const fd = fs.openSync(filename, 'r');
+  try {
+    assert.deepEqual(JSON.parse(fs.readFileSync(fd, 'utf8')), f.producer.equityCloseDiagnostics);
+    assert.equal(fs.fstatSync(fd).mode & 0o777, 0o600);
+  } finally { fs.closeSync(fd); }
   save(f.producer.equityCloseDiagnostics); assert.equal(calls.length, 1);
   save([]); assert.deepEqual(JSON.parse(readFileSync(filename)), []);
   assert.equal(calls.length, 2); assert.deepEqual(readdirSync(f.dir).filter(name => name.endsWith('.tmp')), []);

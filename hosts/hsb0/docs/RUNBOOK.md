@@ -1353,7 +1353,9 @@ subtree changed only in its r22 comment since the r22 pin; runtime code is uncha
 The stager files are unchanged and follow the pusher source/image pin.
 Seed r23 once from `git archive 5b754845115206c7d8469b1629eb644874f32185:hosts/hsb0/docker/joe-board-pusher`,
 verify its recorded tree against the release set and new image ID, then switch
-all three services together. Never rebuild a published tag. Retain r22
+all four services together: pusher, stager, executor and `agent-mailbox`.
+Refuse if the selected tag equals the running image while the pinned pusher
+tree differs from the running one. Never rebuild a published tag. Retain r22
 `household-v2-switch-set-r22-202611102200`, full image ID
 `sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`,
 and record the exact pre-switch generation for rollback. Merge #1249 as a merge
@@ -1371,9 +1373,16 @@ outcomes and pin across rollback. An r22 rollback disables the new recorder;
 never truncate outcomes or move the pin backward.
 
 The pusher, stager, executor and mailbox share the tag and recreate together;
-the existing compose post-recreation also recreates `hsb0-home`. Reject any
-other runtime definition change. The gateway container stays unchanged. The Results
-producer changes only by the reviewed OPS-556 source and isolated handoff. For the r23
+the existing compose post-recreation also recreates `hsb0-home`. The exact allowed
+r23 runtime delta is the shared r22-to-r23 image selection, the pusher
+read-write bind `/var/lib/joe-desk-equity-closes:/var/lib/joe-desk-equity-closes:rw`
+and empty `JOE_EQUITY_CLOSE_FIRST_DAY=` entry, plus the Results producer
+read-only bind of that directory and new `InaccessiblePaths` entries
+`-/var/lib/joe-board-pusher` and `-/var/lib/joe-household-v2-stage-checkpoint`.
+The producer source changes only by the reviewed OPS-556 source; its invocation
+otherwise stays unchanged. The handoff tmpfiles rule is exactly
+`d /var/lib/joe-desk-equity-closes 0700 1000 1000 - -`. Reject any other runtime
+definition change. The gateway container stays unchanged. For the r23
 promotion, rollback activates the asserted pre-switch generation with retained r22.
 Print the recorded activation command for the operator; never roll back automatically.
 For the historical r22 promotion, rollback activated the

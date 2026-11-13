@@ -20,11 +20,26 @@ let
         day = lib.toIntBase10 (builtins.elemAt parts 2);
         leap = lib.mod year 4 == 0 && (lib.mod year 100 != 0 || lib.mod year 400 == 0);
         lengths = [
-          31 (if leap then 29 else 28) 31 30 31 30 31 31 30 31 30 31
+          31
+          (if leap then 29 else 28)
+          31
+          30
+          31
+          30
+          31
+          31
+          30
+          31
+          30
+          31
         ];
       in
-      parts != null && year >= 1 && month >= 1 && month <= 12
-      && day >= 1 && day <= builtins.elemAt lengths (month - 1);
+      parts != null
+      && year >= 1
+      && month >= 1
+      && month <= 12
+      && day >= 1
+      && day <= builtins.elemAt lengths (month - 1);
   source = import ./source.nix { inherit pkgs; };
   settings = pkgs.writeText "joe-results-producer.json" (
     builtins.toJSON {
