@@ -190,7 +190,7 @@ else
       unitsNewMax = cfg.unitsNewMax == 3;
       unitsFinishingReserve = cfg.unitsFinishingReserve == 1;
       aeonNewMax = cfg.aeonNewMax == 2;
-      aitNewMax = cfg.aitNewMax == 1;
+      aitNewMax = cfg.aitNewMax == 2;
       opsNewMax = cfg.opsNewMax == 1;
       browserMax = cfg.browserMax == 2;
       unitsNewMaxDuringBrowser = cfg.unitsNewMaxDuringBrowser == 2;

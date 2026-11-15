@@ -115,6 +115,7 @@ in
   services.aeonRemoteGuard = {
     enable = true;
     browserMax = 2; # OPS-409: two browsers share the existing two-new-unit cap.
+    aitNewMax = 2; # OPS-594: Markus's Desk 4ac58733 'macs-too' lets AIT build on mbp2606, at most 2 runs.
   };
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;
