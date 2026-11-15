@@ -115,6 +115,7 @@ in
   services.aeonRemoteGuard = {
     enable = true;
     browserMax = 2; # OPS-409: two browsers share the existing two-new-unit cap.
+    aitNewMax = 2; # OPS-594: Desk 4ac58733 'macs-too': at most 2 new AIT units; finishing reserve and maxruns still apply.
   };
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;
