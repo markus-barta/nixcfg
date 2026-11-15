@@ -107,6 +107,8 @@ if moduleOnly then
       browserMaxDefault = cfg.browserMax == 1;
       mbp2606BrowserMax = hostCfg.enable && hostCfg.browserMax == 2;
       mbp2606BrowserMaxPinned = lib.hasInfix "readonly guard_browser_max=2" hostGuard.text;
+      mbp2606AitNewMax = hostCfg.enable && hostCfg.aitNewMax == 2;
+      mbp2606AitNewMaxPinned = lib.hasInfix "readonly guard_ait_new_max=2" hostGuard.text;
       mbp2606OtherCaps =
         hostCfg.unitsTotal == 4
         && hostCfg.unitsNewMax == 3
