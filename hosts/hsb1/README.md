@@ -47,19 +47,32 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 
 The native `aqara-nightlight.service` (OPS-496) also listens on loopback and
 `100.64.0.7:8765` for tailnet clients. Hub labels **KI-18FB** (`plug`,
-`192.168.1.106`, Kinderzimmer) and **WZ-594F** (`round`, `192.168.1.108`) map to
-stable API handles. The self-contained responsive page has Kind/Erwachsen
-and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
-mode and theme are remembered on the device.
-The `nacht` place defaults to **5C0701 at 44%** for both hubs. Erwachsen can
+`192.168.1.106`, Kinderzimmer), **WZ-594F** (`round`, `192.168.1.108`, Wohnzimmer) and
+**KG-5632** (`kg`, `192.168.1.107`, KG = Kinderzimmer Groß) map to stable API
+handles. Per-hub brightness limits are **WZ/round 50%** and
+**KI/plug and KG/kg 100%**. Every light command, including presets, signal tests, desk colour cycles and animation
+steps, clamps to that hub's maximum. Light-setting replies expose effective
+`bri` and `capped`; settings replies expose the per-hub `max_bri` map. The page's
+brightness and rule sliders use those limits. The self-contained responsive page
+has Kind/Erwachsen and Hell/Dunkel looks; Kind and KI-18FB are the first-visit defaults. Hub choice,
+mode and theme are remembered on the device. Phone tabs are remembered per hub;
+the fixed status/tab bar leaves scrolling to bottom sheets. Desktop keeps columns.
+The Signal lamp preview has a device-local pause and starts paused under reduced motion.
+The `nacht` place defaults to **5C0701 at 44%** for all three hubs. Erwachsen can
 save, rename, reset and manage up to six fixed-ID places per hub; `/presets`
 returns ordered arrays, and `/apply?hub&preset=<id>` applies any saved place.
 Old single-Nachtlicht files migrate atomically and preserve their saved values.
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+Existing two-hub v3.3 settings and preset arrays get KG defaults in memory;
+reads do not write. The first explicit write to each file persists KG while retaining
+the existing hub entries. Background writes consume sound generations without
+persisting a missing KG entry. KG has no desks, keys or automatic sound by default; no
+automations are added. Back up `settings.json` and `presets.json` before activation
+for rollback to a two-hub build (see the runbook).
 Without the separately owned poller feed, Desk-Signal shows **Unbekannt** at
 5%, never Aus. Per-hub use, signal rules and automatic audio persist server-side.
 Vienna quiet hours are 20:00–07:30; automatic sound starts off.
-Acting endpoints accept **GET or POST** with exactly one `X-Nightlight: 1`;
+Existing acting endpoints accept **GET or POST** with exactly one `X-Nightlight: 1`;
 GET-with-header remains deprecated HA compatibility. Loopback HA `/apply` needs
 no Origin or extra CSRF token; unknown/unsaved presets never call a hub. All
 Host/Origin/fetch guards, OPTIONS denial and the script-hash CSP remain in place.
@@ -71,6 +84,16 @@ slider uses an 80 px row, 20 px track and 40 px thumb. Manual tones cap at **40%
 and support an optional 200–3000 ms stop timer; automatic audio caps at 15%.
 StateDirectory contains the reserved-ID counter, named presets, settings and
 atomic per-hub `last-color-<hub>.json` recovery records.
+v3.3 supports zero or more desks: each supplies its colour; shared urgency rules
+set brightness/mode/Takt. Only desks at the highest urgency participate in
+multiple-colour cycling. Validated old matrices migrate atomically once, retaining
+the full matrix as history. Desk key POSTs require the adult-view assertion and
+the existing network guards. Keys are write-only, in a 0700 `desk-keys/` directory
+with 0600 files, excluded from off-host restic. **Key tests and saves currently
+refuse:** OPS-502 must supply a reviewed counts-only capability verifier. Neither
+a successful connection nor a client scope assertion substitutes for that proof.
+Until its poller exists, desk rows show **keine Daten** and the lamp remains
+Unbekannt. See the runbook for input, restore and revocation contracts.
 Preserve all state on restart and prepare a reviewed schema/ID rollback before
 release; never restore an older counter. No deployment is part of this change.
 Because hsb1's firewall is disabled, the service uses explicit address binds,
