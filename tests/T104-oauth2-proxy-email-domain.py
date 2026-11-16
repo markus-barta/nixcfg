@@ -32,6 +32,7 @@ REQUIRED = {
 UNVERIFIED = "--insecure-oidc-allow-unverified-email"
 SCOPE = "--scope=openid email profile offline_access"
 SCOPES = {"openid", "email", "profile", "offline_access"}
+SKIP = "--skip-claims-from-profile-url=true"
 
 
 def require(condition: bool, message: str) -> None:
@@ -114,6 +115,10 @@ def check_services(services: dict) -> int:
             scopes = [arg for arg in args if arg == "--scope" or arg.startswith("--scope=")]
             require(scopes == [SCOPE], f"{name}: scope must be exactly '{SCOPE}'")
             require(set(SCOPE.split("=", 1)[1].split()) == SCOPES, "scope anchor drift")
+            # OPS-512 addendum: a refresh must not depend on the userinfo URL (it returned 401
+            # for the refreshed access token and the renewed session was discarded).
+            skips = [arg for arg in args if arg == "--skip-claims-from-profile-url" or arg.startswith("--skip-claims-from-profile-url=")]
+            require(skips == [SKIP], f"{name}: must run exactly '{SKIP}'")
     require(REQUIRED <= seen, "required HostDash oauth2-proxy service missing")
     return proxies
 
@@ -182,6 +187,20 @@ def mutations(services: dict) -> int:
                 count += 1
             else:
                 raise AssertionError(f"{name}: unsafe mutation accepted")
+    # OPS-512 addendum: profile-URL claim loading must stay off, exactly once.
+    for name in sorted(REQUIRED):
+        for replacement in ([], ["--skip-claims-from-profile-url=false"], ["--skip-claims-from-profile-url"],
+                            [SKIP, SKIP]):
+            candidate = copy.deepcopy(services)
+            args = candidate[name]["command"]
+            index = args.index(SKIP)
+            args[index : index + 1] = replacement
+            try:
+                check_services(candidate)
+            except AssertionError:
+                count += 1
+            else:
+                raise AssertionError(f"{name}: unsafe skip-claims mutation accepted")
     # OPS-512: a session that cannot refresh must not pass.
     for name in sorted(REQUIRED):
         for replacement in (
