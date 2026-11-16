@@ -361,7 +361,7 @@ Each browser counts as one of the two new units allowed by
 `units_new_max_during_browser`, which stays at 2: two new browsers can run
 together, or one new browser beside one new pool test. A third new unit is
 refused while a browser is live. Browsers in the finishing phase still count
-against `browserMax`; the total cap remains 4 and the finishing reserve stays at 1.
+against `browserMax`; the total cap is 7 on mbp2606 (OPS-599; module default 4) and the finishing reserve stays at 1.
 Fresh YELLOW and RED policies still allow no browser admissions.
 `browser_hold_max_min` (20 minutes) is a client obligation, enforced by the
 harness timeout. The guard does not enforce browser duration; a live adopted
