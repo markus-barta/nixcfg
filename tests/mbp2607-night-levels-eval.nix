@@ -7,10 +7,12 @@
 let
   # As in aeon-remote-guard-eval.nix, a cached nixpkgs/lib and inert package
   # stubs evaluate the real module without fetching a flake or building.
-  lib = (import <nixpkgs/lib>).extend (_: _: {
-    # Inert Home Manager DAG entry with the same shape as entryBetween.
-    hm.dag.entryBetween = before: after: data: { inherit before after data; };
-  });
+  lib = (import <nixpkgs/lib>).extend (
+    _: _: {
+      # Inert Home Manager DAG entry with the same shape as entryBetween.
+      hm.dag.entryBetween = before: after: data: { inherit before after data; };
+    }
+  );
   pkgs.writeShellScript = name: text: {
     inherit text;
     outPath = "/fixture/${name}";
@@ -61,21 +63,25 @@ let
     macHealth = lib.hasSuffix "mac-health.sh" env.NL_MAC_HEALTH;
     unguarded = lib.hasSuffix "mbp2606-unguarded.sh" env.NL_UNGUARDED;
     home = env.HOME == "/Users/markus" && watcher.EnvironmentVariables.HOME == env.HOME;
-    macOSPath = env.PATH == "/Users/markus/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin:/usr/sbin:/sbin:/etc/profiles/per-user/markus/bin:/run/current-system/sw/bin";
+    macOSPath =
+      env.PATH
+      == "/Users/markus/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin:/usr/sbin:/sbin:/etc/profiles/per-user/markus/bin:/run/current-system/sw/bin";
     sshServerAlive = sshCount > 0 && sshCount == count "ServerAliveInterval=15" loopScript;
     staleKickstart = lib.hasInfix "launchctl kickstart -k" staleScript;
     staleFallback = lib.hasInfix "maxload 12" staleScript;
     activationExists = hostConfig.home.activation ? nightLevelsStateDirectory;
-    activationOrdering = hostConfig.home.activation.nightLevelsStateDirectory.before == [ "setupLaunchAgents" ]
+    activationOrdering =
+      hostConfig.home.activation.nightLevelsStateDirectory.before == [ "setupLaunchAgents" ]
       && hostConfig.home.activation.nightLevelsStateDirectory.after == [ "writeBoundary" ];
-    activationMkdir = lib.hasInfix "run mkdir -p ${lib.escapeShellArg "/Users/markus/.local/share/ops-qa/state"}"
-      hostConfig.home.activation.nightLevelsStateDirectory.data;
+    activationMkdir = lib.hasInfix "run mkdir -p ${lib.escapeShellArg "/Users/markus/.local/share/ops-qa/state"}" hostConfig.home.activation.nightLevelsStateDirectory.data;
     throttle = loop.ThrottleInterval == 30;
-    sameLog = loop.StandardOutPath == "/Users/markus/.local/share/ops-qa/state/brake-night-levels.log"
+    sameLog =
+      loop.StandardOutPath == "/Users/markus/.local/share/ops-qa/state/brake-night-levels.log"
       && loop.StandardErrorPath == loop.StandardOutPath;
     staleInterval = watcher.StartInterval == 300;
     staleNotAtLoad = !watcher.RunAtLoad;
-    staleLog = watcher.StandardOutPath == "/Users/markus/.local/share/ops-qa/state/night-levels-stale.log"
+    staleLog =
+      watcher.StandardOutPath == "/Users/markus/.local/share/ops-qa/state/night-levels-stale.log"
       && watcher.StandardErrorPath == watcher.StandardOutPath;
   };
 in

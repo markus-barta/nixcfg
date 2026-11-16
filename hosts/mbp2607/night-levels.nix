@@ -8,7 +8,12 @@
 # five-minute check alerts mac-lead once when the heartbeat is
 # over 900 s old (or missing/malformed), and once on recovery; its state and log
 # are night-levels-stale.state and night-levels-stale.log in the same directory.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   home = config.home.homeDirectory;
   stateDir = "${home}/.local/share/ops-qa/state";
@@ -81,7 +86,10 @@ in
   launchd.agents.night-levels = {
     enable = true;
     config = {
-      ProgramArguments = [ "/bin/bash" "${./files/night-levels/night-levels.sh}" ];
+      ProgramArguments = [
+        "/bin/bash"
+        "${./files/night-levels/night-levels.sh}"
+      ];
       EnvironmentVariables = {
         RED_LOAD = "28";
         NL_MAC_HEALTH = "${./files/night-levels/mac-health.sh}";
