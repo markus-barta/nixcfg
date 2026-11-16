@@ -82,7 +82,7 @@ test("masked 30-fill inventory rejects a desk outside the table with a value-fre
     executorClients: [{ client: 705, matched: 29, unmatched: 1 }] });
 });
 
-for (const [intentDesk, desk] of [["j", "j"], ["j2", "j"], ["j5", "j"], ["joe", "joe"], ["joel", "joel"]]) test(`705 explicitly rolls intent ${intentDesk} up to ${desk}, retaining its sub-desk and ignoring every orderRef prefix`, () => {
+for (const [intentDesk, desk] of [["j", "j"], ["j2", "j"], ["j3", "j"], ["j4", "j"], ["j5", "j"], ["joe", "joe"], ["joel", "joel"]]) test(`705 explicitly rolls intent ${intentDesk} up to ${desk}, retaining its sub-desk and ignoring every orderRef prefix`, () => {
   const source = attribution({ "masked-intent": bracket(intentDesk) });
   for (const orderRef of ["j2|masked", "j5|masked", "joe|masked", "joel|masked", "unrecognized"]) {
     assert.equal(source.resolve(execution({ orderRef })), desk);

@@ -1,5 +1,5 @@
 import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
-import { executionTime } from "./execution-history.mjs";
+import { executionTime, fillAttributionOverride } from "./execution-history.mjs";
 import { executorDesk, executorExecution, isExecutorClient, executorClientCounts } from "./executor-attribution.mjs";
 
 export const DESK_IDS = ["j", "joe", "joel"];
@@ -28,6 +28,8 @@ export function newYorkDay(epoch = Date.now()) {
 }
 
 function owner(clientId, at, execution, executorAttribution) {
+  const override = fillAttributionOverride(execution, CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides);
+  if (override) return override.desk;
   if (isExecutorClient(clientId, executorAttribution)) {
     try { return executorDesk(execution, executorAttribution); }
     catch { return null; }

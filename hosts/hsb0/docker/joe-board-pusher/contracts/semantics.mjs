@@ -87,6 +87,13 @@ export function checkSemantics(kind, payload, stage, errors, receivedAt) {
         const path = `$.desks[${i}].pnlSources.${kind}`;
         checkPnlSource(own ?? source, own ? path : `$.pnlSources.${kind}`, kind, [desk.money[field]]);
         if (own?.status === 'available' && own.method !== (kind === 'day' ? 'sod-virtual-equity' : 'owned-lots-current-mark-fx')) fail(`${path}.method`, 'exactDeskMethod');
+        if (kind === 'day' && own?.fx) {
+          // Rev 11 records provenance, not rates or a new exactness shortcut.
+          // Both observations belong to this desk's available SOD result.
+          if (own.status !== 'available' || own.method !== 'sod-virtual-equity' || !own.periodStart) fail(`${path}.fx`, 'availableSodRequired');
+          if (Date.parse(own.fx.start.observedAt) > Date.parse(own.periodStart)) fail(`${path}.fx.start.observedAt`, 'startFxAfterPeriodStart');
+          if (Date.parse(own.fx.end.observedAt) < Date.parse(own.fx.start.observedAt)) fail(`${path}.fx.end.observedAt`, 'endFxBeforeStart');
+        }
         checkPhaseBNull(desk.money[field], own?.reason, `$.desks[${i}].money.${field}`);
       });
     }

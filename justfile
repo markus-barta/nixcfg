@@ -1613,8 +1613,9 @@ pixoo-logs:
 # 0.153.4, daemon 0.150.1, and "gpt-6-astra requires a newer version of Codex"
 # on the newest CLI; NIX-609 (2026-10-10): daemon 0.158.0 for twelve days and
 # "gpt-6.1-sol is not supported" in the TUI. After an update the doctor repairs
-# with `codex app-server daemon update` (dedicated, self-updating package) unless
-# a daemon-attached session (a TUI) is running; then it defers successfully.
+# with `codex app-server daemon update --from-cli` (pins the daemon package to
+# the new CLI; required since 0.167.0, OPS-586) unless a daemon-attached
+# session (a TUI) is running; then it defers successfully.
 # `codex exec` workers never block it. Explicit --check and --fix stay strict.
 # The Cursor CLI is not an npm package but a hash-pinned Nix package (NIX-514):
 # scripts/update-cursor-agent.sh bumps pkgs/cursor-agent/sources.json to the

@@ -5,14 +5,15 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verify } from "./verify-contracts.mjs";
-import { FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
+import { FRAME_FORMAT, MAX_FRAME_BYTES, validHistoryBasis } from "./v2-stage-handoff.mjs";
 import { validCycle, cycleId, cycleReceipt, validCycleReceipt, receiptBinding, frame } from "./v1-cycle.mjs";
 import { DESK_IDS, DESK_ACTION, EXECUTION_CAUSES, ACTIVITY_FRESH_MS, deskState } from "./desk-activity.mjs";
 import { contractRevision, validExactValues, applyExactValues, exactDeskAction, MONEY_FIELDS } from "./v2-exact-values.mjs";
 
 export const STATE_DIR = "/var/lib/joe-board-pusher/v2";
 export const SOCKET_PATH = "/run/joe-household-v2/stage.sock";
-export const CONTRACT_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
+export const CONTRACT_SHA = "c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b";
+const REV10_SHA = "3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350";
 const REV9_SHA = "000045fb7843a16be95f6a7e42d46d4b4ecb34b0efd39fc987bee444817fc9d5";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 export const RETAIN_PAIRS = 10;
@@ -28,6 +29,11 @@ const fail = () => { throw new Error("stage_storage_invalid"); };
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
   && JSON.stringify(Object.keys(value).sort()) === JSON.stringify(keys.split(",").sort());
 const positiveSeq = n => Number.isSafeInteger(n) && n > 0;
+// Retained pre-cutover pairs remain readable; a new basis belongs to J/Joe only.
+const validDeskHistoryBases = desks => Array.isArray(desks) && desks.every(desk => desk && typeof desk === "object")
+  && (desks.every(desk => desk.historyBasis === undefined)
+  || (desks.length === 3 && validHistoryBasis(desks[0].historyBasis)
+    && desks[1].historyBasis === desks[0].historyBasis && desks[2].historyBasis === undefined));
 
 export function normalizeBookTs(value) {
   if (typeof value !== "string" || value.length > 64) return null;
@@ -63,11 +69,13 @@ export function validObservation(value) {
       && (row.executionDay === null || (typeof row.executionDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.executionDay)));
   }));
   return validActivity && (value?.exactValues === undefined || validExactValues(value.exactValues, value.positions?.length))
+    && (value?.historyBasis === undefined || validHistoryBasis(value.historyBasis))
     && (value?.v1Cycle === undefined || validCycle(value.v1Cycle))
     && (value?.sourceObservedAt === undefined || (exactKeys(value.sourceObservedAt, "equity,cash,positions")
       && Object.values(value.sourceObservedAt).every(at => at === null || canonical(at))))
     && exactKeys(value, "format,bookTs,equity,cash,apiReplyCheckedAt,positions"
       + (value.sourceObservedAt === undefined ? "" : ",sourceObservedAt")
+      + (value.historyBasis === undefined ? "" : ",historyBasis")
       + (activity === undefined ? "" : ",deskActivity") + (value.v1Cycle === undefined ? "" : ",v1Cycle")
       + (value.exactValues === undefined ? "" : ",exactValues")) && value.format === FRAME_FORMAT
     && typeof value.bookTs === "string" && value.bookTs.length <= 64 && raw(value.equity) && raw(value.cash)
@@ -130,6 +138,7 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
     safety: { halt: false, haltReason: null, ...(gateway ? { gateway } : {}) },
     desks: [["j", "J"], ["joe", "Joe"], ["joel", "Joel"]].map(([id, label]) => ({
       id, label, state: deskState(observation.deskActivity?.[id], generatedAt, receivedAt), action: DESK_ACTION, money: money(),
+      ...(id !== "joel" && observation.historyBasis !== undefined ? { historyBasis: observation.historyBasis } : {}),
     })),
     totals: money(),
     brokerAccount: { scope: "paper-account-including-keep", observedAt: accountAt, equity, cash,
@@ -138,7 +147,7 @@ export function buildCandidate(seq, generatedAt, observation = {}, receivedAt = 
       ...(!positionsFresh ? { reason: "source_unavailable" }
         : !gateway?.apiSessionReady ? { reason: gateway?.reason || "gateway_unconfirmed" } : {}) },
   };
-  return revision === 10 ? applyExactValues(candidate, observation, generatedAt) : candidate;
+  return revision >= 10 ? applyExactValues(candidate, observation, generatedAt, revision) : candidate;
 }
 
 export function acceptStage(acceptSnapshot, candidate, previous, receivedAt, floor, highWater = null) {
@@ -167,7 +176,7 @@ export class StageStore {
       else console.log('{"event":"v2_stage_checkpoint_disabled","reason":"directory_unsafe"}');
     } } = {}) {
     if (!Number.isSafeInteger(retainPairs) || retainPairs < RETAIN_PAIRS || retainPairs > MAX_RETAIN_PAIRS) fail();
-    if (![9, 10].includes(revision)) fail();
+    if (![9, 10, 11].includes(revision)) fail();
     Object.assign(this, { root, uid, gid, io, boundary, retainPairs, revision, socketPath, onCheckpointDisabled });
     // No default or legacy shared-directory fallback, including after rollback
     // of the host mount. The injected env object is only a test seam.
@@ -276,7 +285,9 @@ export class StageStore {
       || !canonical(receipt.stagedReceivedAt) || !canonical(receipt.generatedAdvancedAt)
       || receipt.generatedAdvancedAt > receipt.stagedReceivedAt
       || receipt.snapshotSha256 !== sha(bytes)
-      || !(receipt.contractSetSha256 === CONTRACT_SHA || (receipt.contractSetSha256 === REV9_SHA && !snapshot.pnlSources))
+      || !(receipt.contractSetSha256 === CONTRACT_SHA
+        || (receipt.contractSetSha256 === REV10_SHA && !snapshot.desks.some(desk => desk.pnlSources?.day?.fx))
+        || (receipt.contractSetSha256 === REV9_SHA && !snapshot.pnlSources))
       || !this.validateContract("data", snapshot, { stage: "ingress" }).ok
       || !this.validProjection(snapshot)
       || this.acceptSnapshot("data", snapshot, null, receipt.stagedReceivedAt).status !== 200) fail();
@@ -296,6 +307,7 @@ export class StageStore {
   validProjection(snapshot) {
     // Recovery verifies the closed switch-set shape without reclassifying old
     // checks against today's clock or inventing raw broker evidence.
+    if (!validDeskHistoryBases(snapshot.desks)) return false;
     if (snapshot.pnlSources) return this.validExactProjection(snapshot);
     const expected = buildCandidate(snapshot.seq, snapshot.generatedAt);
     if (JSON.stringify(Object.keys(snapshot).sort()) !== JSON.stringify(Object.keys(expected).sort())) return false;
@@ -304,7 +316,7 @@ export class StageStore {
     }
     if (!Array.isArray(snapshot.desks) || snapshot.desks.length !== 3 || !snapshot.desks.every((desk, index) => {
       const template = expected.desks[index];
-      return exactKeys(desk, "id,label,state,action,money") && desk.id === template.id && desk.label === template.label
+      return exactKeys(desk, "id,label,state,action,money" + (desk.historyBasis === undefined ? "" : ",historyBasis")) && desk.id === template.id && desk.label === template.label
         && ["working", "sit-out", "stuck"].includes(desk.state)
         && (desk.action === DESK_ACTION || (desk.state === "sit-out" && desk.action === "Valuation unavailable pending exact source validation."))
         && JSON.stringify(desk.money) === JSON.stringify(template.money);
@@ -347,7 +359,7 @@ export class StageStore {
       && MONEY_FIELDS.every(field => bag[field] === null ? Boolean(bag.reasons?.[field]) : !bag.reasons?.[field]
         && (!bag[field].fx || fresh(bag[field].fx.observedAt, 300000)));
     if (!validMoney(snapshot.totals) || snapshot.desks.length !== 3 || !snapshot.desks.every((desk, index) =>
-      exactKeys(desk, "id,label,state,action,money,pnlSources") && desk.id === template.desks[index].id
+      exactKeys(desk, "id,label,state,action,money,pnlSources" + (desk.historyBasis === undefined ? "" : ",historyBasis")) && desk.id === template.desks[index].id
       && desk.label === template.desks[index].label && desk.action === exactDeskAction(desk.money) && validMoney(desk.money)
       && ["day", "open"].every(kind => desk.pnlSources[kind].status !== "available" || fresh(desk.pnlSources[kind].observedAt, 300000)))) return false;
     const account = snapshot.brokerAccount;
@@ -686,7 +698,7 @@ export class StageStore {
       const receipt = {
         format: pairFormat, stagedReceivedAt, seq: candidate.seq, generatedAt,
         generatedAdvancedAt: accepted.generatedAdvancedAt, snapshotSha256: sha(bytes),
-        contractSetSha256: this.revision === 10 ? CONTRACT_SHA : REV9_SHA, ...binding,
+        contractSetSha256: this.revision >= 10 ? CONTRACT_SHA : REV9_SHA, ...binding,
       };
       const next = `.next-${candidate.seq}`;
       const pair = `pair-${candidate.seq}`;
@@ -729,7 +741,7 @@ export function launchLocked({ root = STATE_DIR, args = [], uid = 1000, gid = 10
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     env: { PATH: env.PATH, NODE_ENV: "production",
       ...(env.JOE_V2_STAGE_CHECKPOINT_DIR ? { JOE_V2_STAGE_CHECKPOINT_DIR: env.JOE_V2_STAGE_CHECKPOINT_DIR } : {}),
-      ...(contractRevision() === 10 ? { JOE_V2_CONTRACT_REV: "10" } : {}) },
+      ...(contractRevision(env.JOE_V2_CONTRACT_REV) >= 10 ? { JOE_V2_CONTRACT_REV: String(contractRevision(env.JOE_V2_CONTRACT_REV)) } : {}) },
   });
 }
 

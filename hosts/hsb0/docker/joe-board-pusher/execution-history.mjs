@@ -24,7 +24,32 @@ export const J_DATED_CLIENT_ASSIGNMENTS = Object.freeze([
   }),
 ]);
 
-export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null) {
+export function fillAttributionOverride(execution, overrides = []) {
+  if (typeof execution?.execId !== "string" || !execution.execId) return null;
+  return overrides.find(rule => rule.execId === execution.execId) || null;
+}
+
+// Validate a complete accounting source, never a single fill or day-only feed.
+// Array keys identify policy errors without logging broker/economic values.
+export function assertFillAttributionOverrides(rows, overrides = []) {
+  if (!overrides.length) return;
+  const counts = new Map();
+  for (const row of rows) {
+    const id = row?.execution?.execId;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  overrides.forEach((rule, index) => {
+    if (counts.get(rule.execId) !== 1) {
+      throw new Error(`desk fill attribution override fillAttributionOverrides[${index}] must match exactly one fill`);
+    }
+  });
+}
+
+// Opt-in supplement: the all-desk calculator has already classified and remapped
+// its client IDs, so its per-desk FIFO must not apply raw fill overrides again.
+export function isFamilyClientExecution(execution, familyIds, assignments = [], executorAttribution = null, fillAttributionOverrides = []) {
+  const override = fillAttributionOverride(execution, fillAttributionOverrides);
+  if (override) return override.desk === "j";
   if (isExecutorClient(execution.clientId, executorAttribution)) return executorDesk(execution, executorAttribution) === "j";
   const rules = assignments.filter(rule => rule.clientId === execution.clientId);
   if (!rules.length) return familyIds.has(execution.clientId);

@@ -218,9 +218,15 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # rule for this folder (root, that group, 2775) and the group on the unit; no listener, port or
     # outbound path. mba writes the file (below), by temp file and rename, mode 0640.
     smarthomeFile = "/var/lib/hausnetz-smarthome/automations.json";
+    # OPS-582 / HNET-469: static HTML sheets; publish HTML first, sheets.json last by atomic rename.
+    # Writers join hausnetz-sheets and publish 0640 files.
+    sheetsDir = "/var/lib/hausnetz-sheets";
   };
-  # HNET-431: mba writes the Smarthome automations file above; this is its only use of the group.
-  users.users.mba.extraGroups = [ "hausnetz-smarthome" ];
+  # HNET-431 / OPS-582: mba publishes the Smarthome automations file and static sheets above.
+  users.users.mba.extraGroups = [
+    "hausnetz-smarthome"
+    "hausnetz-sheets"
+  ];
   systemd.services.hausnetz.serviceConfig = {
     MemoryMax = "512M";
     CPUQuota = "50%";
@@ -274,6 +280,9 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ingressHost = "cs0.barta.cm";
     # csb0's declarative public IPv4: hosts/csb0/configuration.nix, ens3.
     ingressAddress = "89.58.63.96";
+    # OPS-556: DEVOPS sets a fixed Vienna YYYY-MM-DD at deployment after JOED review.
+    # Keep this pin on rollback; null disables recording and admits no earlier days.
+    equityCloseFirstDay = null;
     # Default KEEP policy and existing household token (systemd LoadCredential).
   };
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
@@ -320,8 +329,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # JOED-100 r20e (r20d + OPS-497 two-rate Today; r20d = r20c #1159 bounded ownership history + #1171 JOED-102 stager checkpoint; JOED-86 lineage after JOED-63/HOSTD-77 r19a): household-v2-switch-set-r20e-202610291640, selected
-    # only by the release set. Shared-image rollback retains r19a; the separate
+    # OPS-556 r23 (desk equity close recorder, first-day pin remains null): household-v2-switch-set-r23-202611131200, selected
+    # only by the release set. Shared-image rollback retains r22 (OPS-556 step 2); the separate
     # current v1 set retains household-v2-switch-set-r16d-202610201800. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate
@@ -336,17 +345,28 @@ assert joeSet.pusher != null && joeSet.executor != null;
                 "hsb0-joe-board-pusher:flat-net-reconcile-perf-202610010310";
             pull_policy = "never";
             environment =
-              joeComposeBase.services.joe-board-pusher.environment
+              (map (
+                entry:
+                if lib.hasPrefix "JOE_EQUITY_CLOSE_FIRST_DAY=" entry then
+                  "JOE_EQUITY_CLOSE_FIRST_DAY=${
+                    if config.nixcfg.joeResultsProducer.equityCloseFirstDay == null then
+                      ""
+                    else
+                      config.nixcfg.joeResultsProducer.equityCloseFirstDay
+                  }"
+                else
+                  entry
+              ) joeComposeBase.services.joe-board-pusher.environment)
               ++ [
                 "JOE_EXECUTOR_CLIENT_IDS=${builtins.toJSON (builtins.attrValues config.nixcfg.paperDeskExecutor.clientIds)}"
               ]
               ++ lib.optional joeHouseholdV2StageEnabled "JOE_V2_STAGE_SOCKET=/run/joe-household-v2/stage.sock"
               ++ lib.optional joePushV2 "JOE_PUSH_SCHEMA=inspr.joe.household.v2"
-              # JOED-87 Phase B (Markus Desk ae96cf9f): exact desk values where Amy's rules allow. The
-              # pusher and the stager both need it (README "Phase B exact values"). Only the string
-              # "10" activates it (v2-exact-values.mjs:11); remove both lines to return to rev 9.
+              # JOED-149: revision 11 adds proven desk DAY conversion observations.
+              # The pusher and stager both need it (README "Two proven Today conversions").
+              # Set both to "10" for rollback; remove both to return to rev 9.
               # v2 set only: the v1 "current" set keeps its pre-v2 baseline (v2-contracts test).
-              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=10";
+              ++ lib.optional joePushV2 "JOE_V2_CONTRACT_REV=11";
           }
           // lib.optionalAttrs (joeHouseholdV2StageEnabled || joePushV2) {
             volumes =
@@ -368,12 +388,11 @@ assert joeSet.pusher != null && joeSet.executor != null;
                   pull_policy = "never";
                 }
                 // lib.optionalAttrs joePushV2 {
-                  # JOED-87 Phase B: the supervisor forwards this to the stager child
-                  # (v2-stage-worker.mjs:589) only when its own environment has it.
+                  # JOED-149: the supervisor forwards revision 11 to the stager child.
                   # JOED-102: append, never replace. recursiveUpdate replaces lists, so a bare list here
                   # would drop the base JOE_V2_STAGE_CHECKPOINT_DIR and bring back the full cold scan.
                   environment = (joeComposeBase.services.joe-household-v2-stage.environment or [ ]) ++ [
-                    "JOE_V2_CONTRACT_REV=10"
+                    "JOE_V2_CONTRACT_REV=11"
                   ];
                 };
               }
@@ -1445,6 +1464,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # Official node:22-alpine runs the Dockerfile's USER node as uid/gid 1000.
     "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
     "d /var/lib/joe-board-pusher/v2 0700 1000 1000 - -"
+    # OPS-556: uid 1000 owns both services; no additional group access is needed.
+    "d /var/lib/joe-desk-equity-closes 0700 1000 1000 - -"
     "d /run/joe-household-v2 0700 1000 1000 - -"
     # JOED-102: stager-only receipt-scan checkpoint (never mounted by the pusher or any other service).
     "d ${joeStageCheckpointDir} 0700 1000 1000 - -"
