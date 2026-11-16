@@ -218,7 +218,7 @@ jobs:
 
       - name: Verify hsb0 NCPS warmer current fleet target
         if: steps.pin.outputs.pin_only != 'true'
-        run: tests/T68-ncps-warmer-fleet.sh
+        run: nix-shell -p bash gawk --run "bash tests/T68-ncps-warmer-fleet.sh"
 
       - name: Verify headscale DERP-map fallback contract (OPS-180)
         if: steps.pin.outputs.pin_only != 'true'

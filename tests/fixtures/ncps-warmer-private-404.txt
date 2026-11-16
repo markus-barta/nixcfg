@@ -1,0 +1,29 @@
+evaluation warning: stdenv.isLinux is deprecated, use stdenv.hostPlatform.isLinux instead
+evaluation warning: stdenv.isDarwin is deprecated, use stdenv.hostPlatform.isDarwin instead
+unpacking 'github:inspr-at/paimos/770d6b2ba52ff873adccd42abe09aafa4b9576b2?narHash=sha256-Y3SfPcVWU60GB5CZy2gvYJQiRSxQLIIX8JCWjAujf3o%3D' into the Git cache...
+error:
+       … in the left operand of the update (//) operator
+         at «github:nix-community/home-manager/39411a8e12a5526d992e65bc7e3dc9a4414d6713?narHash=sha256-iZrxHToDJWnvt%2B5LGAtvuQMTy1NZYlNEKbKaVtBJNcc%3D»/modules/default.nix:60:5:
+           59|     in
+           60|     module
+             |     ^
+           61|     // {
+
+       … while evaluating a branch condition
+         at «github:nixos/nixpkgs/31ecbaca1bdefa45dffc409f0250bd8039ea0010?narHash=sha256-dhoW6VgFWlaodSY5jrBn%2BCF2FLmaUvDVgM7%2BC7T2%2BNM%3D»/lib/lists.nix:141:18:
+          140|       len = length list;
+          141|       fold' = n: if n == len then nul else op (elemAt list n) (fold' (n + 1));
+             |                  ^
+          142|     in
+
+       … while evaluating the option `home.packages':
+
+       … while evaluating definitions from `/nix/store/sc5hwcsva40cqa5s0i2mj7srinlxwi4q-source/modules/uzumaki/aeon.nix':
+
+       (stack trace truncated; use '--show-trace' to show the full, detailed trace)
+
+       error: Failed to open archive (Source threw exception: error: unable to download 'https://github.com/inspr-at/paimos/archive/770d6b2ba52ff873adccd42abe09aafa4b9576b2.tar.gz': HTTP error 404
+
+              response body:
+
+              Not Found)
