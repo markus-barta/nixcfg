@@ -9,6 +9,7 @@ import json
 import ssl
 import sys
 import tempfile
+import time
 import traceback
 import types
 import unittest
@@ -334,6 +335,45 @@ class GarageBotWatchTest(unittest.TestCase):
             f"# ignored\nexport WATCHTOWER_NOTIFICATION_URL='telegram://{encoded}@telegram?chats=1'\n"
         )
         self.confirm_polling_alarm()
+
+    def test_token_parser_accepts_ascii_characters_and_length_boundary(self):
+        for token in (
+            "0:a", TOKEN,
+            "0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-",
+            "0" * 126 + ":a",
+            "0:" + "a" * 126,
+        ):
+            with self.subTest(length=len(token)):
+                self.assertEqual(
+                    self.checks.notification_token(f"telegram://{token}@telegram?chats=1"),
+                    token,
+                )
+
+    def test_token_parser_rejects_malformed_characters_and_excess_length(self):
+        for token in (
+            "", "0", ":a", "0:", "0:a:b", "0::a", "a:b", "+0:a", "-0:a",
+            "\u0660:a", "\u00b2:a", "0:\u00e9", "0:a.b", "0:a+b", "0:a b", "0:a%0a",
+            "0" * 127 + ":a", "0:" + "a" * 127,
+        ):
+            with self.subTest(length=len(token)):
+                with self.assertRaises(ValueError) as caught:
+                    self.checks.notification_token(f"telegram://{token}@telegram?chats=1")
+                self.assertEqual(str(caught.exception), "unsupported notification target")
+
+    def test_token_parser_rejects_very_long_inputs_promptly(self):
+        for token in (
+            "0" * 100_000,
+            "0" * 100_000 + ":a",
+            "0:" + "a" * 100_000,
+            "%30" * 100_000 + ":a",
+        ):
+            with self.subTest(length=len(token)):
+                started = time.perf_counter()
+                with self.assertRaises(ValueError) as caught:
+                    self.checks.notification_token(f"telegram://{token}@telegram?chats=1")
+                elapsed = time.perf_counter() - started
+                self.assertEqual(str(caught.exception), "unsupported notification target")
+                self.assertLess(elapsed, 1.0)
 
     def test_notification_url_with_trailing_slash_is_supported(self):
         self.notification.write_text(f"WATCHTOWER_NOTIFICATION_URL=telegram://{TOKEN}@telegram/?chats=1\n")

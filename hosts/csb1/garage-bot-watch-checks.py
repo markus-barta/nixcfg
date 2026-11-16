@@ -10,7 +10,6 @@ owns confirmation, durable notification delivery and recovery transitions.
 from __future__ import annotations
 
 import json
-import re
 import ssl
 import time
 import urllib.parse
@@ -23,6 +22,10 @@ STATE_PATH = "/var/lib/garage-bot-watch/state.json"
 NOTIFICATION_ENV = "@NOTIFICATION_ENV@"
 POLLING_KEY = "garage-bot:not-polling"
 POLLING_REMINDER_SECONDS = 6 * 3600
+TOKEN_MAX_LENGTH = 128
+TOKEN_SECRET_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+)
 
 
 def reminder_interval(key: str) -> int | None:
@@ -34,12 +37,19 @@ def notification_token(target: str) -> str:
     try:
         parsed = urllib.parse.urlsplit(target.strip())
         token = urllib.parse.unquote(parsed.netloc.rsplit("@", 1)[0])
+        if len(token) > TOKEN_MAX_LENGTH:
+            raise ValueError
+        bot_id, separator, secret = token.partition(":")
         if (
             parsed.scheme == "telegram"
             and parsed.netloc.endswith("@telegram")
             and parsed.path in ("", "/")
             and not parsed.fragment
-            and re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]+", token)
+            and separator == ":"
+            and bot_id.isascii()
+            and bot_id.isdigit()
+            and secret
+            and all(char in TOKEN_SECRET_CHARACTERS for char in secret)
         ):
             return token
     except Exception:  # noqa: BLE001
