@@ -296,7 +296,7 @@ and `phase` alongside `reserved` and live `pid` lines.
 | All live units (`unitsTotal`)                                    | 4                                                   |
 | New units (`unitsNewMax`)                                        | 3                                                   |
 | Finishing units (`unitsFinishingReserve`)                        | 1                                                   |
-| New units per lane (`aeonNewMax`, `aitNewMax`, `opsNewMax`)      | 2 / 2 / 1 (ait: mbp2606 override; module default 1) |
+| New units per lane (`aeonNewMax`, `aitNewMax`, `opsNewMax`)      | 2 / 3 / 1 (ait: mbp2606 override; module default 1) |
 | Browsers across lanes and phases (`browserMax`)                  | 2 (mbp2606 override; module default 1)              |
 | New units while any browser is live (`unitsNewMaxDuringBrowser`) | 2, including a new browser                          |
 | Fresh YELLOW policy                                              | new ≤ 1, browsers = 0                               |

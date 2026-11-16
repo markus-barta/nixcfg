@@ -16,6 +16,7 @@ in the local nixcfg checkout, best effort) or it is at least MAX_COMMITS behind.
 pages as `silent:<host>` instead: Pharos 2 sends no alerts (PHAROS-345). As with
 Pharos 1's down alert, a workstation or a host with `suppress_down` never pages
 for silence. Hosts whose beacon carries no evidence are skipped (nothing to judge).
+Persistent silent-host alerts repeat every 12 hours (OPS-54).
 
 Depends on OPS-186 (beacons must see the CURRENT evidence; before that fix the
 numbers lag the beacon container's start time).
@@ -38,6 +39,11 @@ GIT = "@GIT_BIN@"
 MAX_AGE_DAYS = 7
 MAX_COMMITS = 25
 STALE_SECONDS = 30 * 60
+SILENT_REMINDER_SECONDS = 12 * 3600
+
+
+def reminder_interval(key: str) -> int | None:
+    return SILENT_REMINDER_SECONDS if key.startswith("silent:") else None
 
 
 def load_store(path: str) -> list[dict]:
@@ -77,7 +83,9 @@ def judge(host: dict, now: float) -> list[Problem]:
         if suppresses_down(host):
             return []
         since = f"for {(now - seen) / 3600.0:.1f} h" if seen else "yet"
-        return [Problem(f"silent:{name}", f"{name}: no beacon report {since}. "
+        return [Problem(f"silent:{name}", f"{name}: no beacon report {since} — "
+                                          f"host or its network may be down; services there "
+                                          f"(such as Home Assistant) may be unreachable too. "
                                           f"Check the host and its pharos-beacon container.")]
     if not host.get("is_nix"):
         return []
@@ -145,7 +153,10 @@ def main() -> int:
     except ValueError as error:
         print(f"notification target unusable: {error}")
         return engine.EXIT_UNDELIVERED
-    return engine.run_cycle(STATE_PATH, time.time(), collect, render, sender)
+    return engine.run_cycle(
+        STATE_PATH, time.time(), collect, render, sender,
+        reminder_interval=reminder_interval,
+    )
 
 
 if __name__ == "__main__":
