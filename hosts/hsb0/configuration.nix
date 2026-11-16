@@ -1541,6 +1541,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
         # must fail hsb0; only mbp2607 opts into the OPS-600 GitHub refusal skip.
         if ! plan="$(nix build "$ref" --dry-run 2>&1)"; then
           if [ "$skip_private_github" = true ] && source="$(printf '%s\n' "$plan" | awk '
+            # Nix opens traces with a bare error header; only messages count.
+            /^[[:space:]]*error:[[:space:]]*$/ { next }
             /(^|[[:space:]])error:/ {
               if (match($0, /unable to download \047https?:\/\/github[.]com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+(\/[^\047]*|[?][^\047]*)?\047: HTTP error (401|403|404)([^0-9]|$)/)) {
                 source = substr($0, RSTART, RLENGTH)
