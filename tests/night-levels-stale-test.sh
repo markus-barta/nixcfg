@@ -2,6 +2,11 @@
 # Usage: bash tests/night-levels-stale-test.sh .tmp/night-levels-stale.sh
 # Pass the staleScript rendered by mbp2607-night-levels-eval.nix, never the loop.
 set -euo pipefail
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run under bash 5: nix run nixpkgs#bash -- %s\n' \
+    "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 script=${1:?pass the rendered stale script path}
