@@ -107,8 +107,8 @@ if moduleOnly then
       browserMaxDefault = cfg.browserMax == 1;
       mbp2606BrowserMax = hostCfg.enable && hostCfg.browserMax == 2;
       mbp2606BrowserMaxPinned = lib.hasInfix "readonly guard_browser_max=2" hostGuard.text;
-      mbp2606AitNewMax = hostCfg.enable && hostCfg.aitNewMax == 2;
-      mbp2606AitNewMaxPinned = lib.hasInfix "readonly guard_ait_new_max=2" hostGuard.text;
+      mbp2606AitNewMax = hostCfg.enable && hostCfg.aitNewMax == 3;
+      mbp2606AitNewMaxPinned = lib.hasInfix "readonly guard_ait_new_max=3" hostGuard.text;
       mbp2606OtherCaps =
         hostCfg.unitsTotal == 4
         && hostCfg.unitsNewMax == 3
@@ -192,7 +192,7 @@ else
       unitsNewMax = cfg.unitsNewMax == 3;
       unitsFinishingReserve = cfg.unitsFinishingReserve == 1;
       aeonNewMax = cfg.aeonNewMax == 2;
-      aitNewMax = cfg.aitNewMax == 2;
+      aitNewMax = cfg.aitNewMax == 3;
       opsNewMax = cfg.opsNewMax == 1;
       browserMax = cfg.browserMax == 2;
       unitsNewMaxDuringBrowser = cfg.unitsNewMaxDuringBrowser == 2;
