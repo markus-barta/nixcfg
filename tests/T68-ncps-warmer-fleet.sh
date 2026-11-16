@@ -2,6 +2,11 @@
 # NIX-431 — the hsb0 NCPS warmer must follow the current macOS fleet identity.
 set -euo pipefail
 
+if ! command -v gawk >/dev/null 2>&1; then
+  printf 'T68 requires GNU awk (gawk) on PATH\n' >&2
+  exit 2
+fi
+
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 hsb0_config="$repo_root/hosts/hsb0/configuration.nix"
 flake="$repo_root/flake.nix"
@@ -12,7 +17,8 @@ grep -Fq "skip_private_github=\"''\${3:-false}\"" "$hsb0_config"
 grep -Fq "if [ \"\$skip_private_github\" = true ]" "$hsb0_config"
 grep -Fq 'warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel" || failed=1' "$hsb0_config"
 grep -Fq 'warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel" || failed=1' "$hsb0_config"
-grep -Fq 'warmer: done (mbp2607 skipped)' "$hsb0_config"
+grep -Fq "skipped_hosts+=(\"\$name\")" "$hsb0_config"
+grep -Fq 'warmer: done (skipped:' "$hsb0_config"
 grep -Fq 'homeConfigurations."markus@mbp2607"' "$flake"
 
 if grep -Fq 'homeConfigurations."mba@mbp0"' "$hsb0_config"; then
@@ -57,6 +63,10 @@ done
   cat "$fixture"
   printf '\nerror: unrelated evaluation failure\n'
 } | expect_no_skip 'an additional unrelated error'
+{
+  cat "$fixture"
+  printf '\n\033[31merror:\033[0m unrelated evaluation failure\n'
+} | expect_no_skip 'an additional ANSI-coloured unrelated error'
 sed 's/HTTP error 404/HTTP error 500/' "$fixture" | expect_no_skip 'GitHub HTTP 500'
 sed 's@https://github.com/@https://example.org/@' "$fixture" | expect_no_skip 'a non-GitHub host'
 

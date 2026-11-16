@@ -481,9 +481,10 @@ than claiming hsb0 is already cached. Inspect `journalctl -u ncps-warmer`;
 do not distribute the root deploy key to make this optional warm succeed.
 
 OPS-600: only mbp2607 opts into skipping GitHub source downloads refused with
-HTTP 401/403/404, logging the owner/repo warning and a final skip note; hsb0
-and hsb1 retain their existing failure behavior. Other mbp2607 failures still
-fail the unit and log the last five error lines with URL query strings removed.
+HTTP 401/403/404, logging the owner/repo warning and a final list of skipped
+hosts; hsb0 and hsb1 retain their existing failure behavior. Other mbp2607
+failures still fail the unit and log the last five error lines with URL query
+strings removed.
 
 Local contracts: `bash tests/T99-hausnetz-hsb0.sh` and, under Bash 5,
 `bash tests/T14-pharos-system-update.sh`. OPS runs this exact CI command from

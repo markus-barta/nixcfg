@@ -1543,7 +1543,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
           if [ "$skip_private_github" = true ] && source="$(printf '%s\n' "$plan" | awk '
             # Nix opens traces with a bare error header; only messages count.
             /^[[:space:]]*error:[[:space:]]*$/ { next }
-            /(^|[[:space:]])error:/ {
+            /error:/ {
               if (match($0, /unable to download \047https?:\/\/github[.]com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+(\/[^\047]*|[?][^\047]*)?\047: HTTP error (401|403|404)([^0-9]|$)/)) {
                 source = substr($0, RSTART, RLENGTH)
                 sub(/^unable to download \047https?:\/\//, "", source)
@@ -1554,7 +1554,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
             END { if (source != "" && !other_error) print source; else exit 1 }
           ')"; then
             echo "warmer: $name — SKIPPED: private source $source not reachable for mba (OPS-600); nothing warmed for $name"
-            mbp2607_skipped=true
+            skipped_hosts+=("$name")
             return 0
           fi
           echo "warmer: $name — evaluation/dry-run FAILED" >&2
@@ -1563,7 +1563,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
           fi
           if [ "$name" = mbp2607 ]; then
             # Keep the useful error tail, excluding URL query strings.
-            printf '%s\n' "$plan" | tail -n 5 | awk '{ gsub(/[?][^[:space:]\047\"]*/, ""); print }' >&2
+            printf '%s\n' "$plan" | tail -n 5 | awk '{ gsub(/[?][^[:space:]\047\042]*/, ""); print }' >&2
           fi
           return 1
         fi
@@ -1585,7 +1585,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
 
       # STATIC LAN list (NIX-155). NixOS hosts:
       failed=0
-      mbp2607_skipped=false
+      skipped_hosts=()
       warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel" || failed=1
       warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel" || failed=1
       # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):
@@ -1595,8 +1595,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
         echo "warmer: FAILED — one or more evaluations/dry-runs failed" >&2
         exit 1
       fi
-      if [ "$mbp2607_skipped" = true ]; then
-        echo "warmer: done (mbp2607 skipped)"
+      if [ "''${#skipped_hosts[@]}" -gt 0 ]; then
+        echo "warmer: done (skipped: ''${skipped_hosts[*]})"
       else
         echo "warmer: done"
       fi
