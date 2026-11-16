@@ -71,7 +71,7 @@
       ];
     };
     pixdcon = {
-      image = "ghcr.io/markus-barta/pixdcon:261009065314.0.0@sha256:0446267f1a26105431c6c9149c3f7e9ca7faddd72a56824c66c33eb643f70dca"; # release 261009065314.0.0 (PIXD-55)
+      image = "ghcr.io/markus-barta/pixdcon:261116181524.0.0@sha256:e410564813262575fbefe7bea1dfbcd1138c0651e2003a000f7873947628f362"; # release 261116181524.0.0 (PIXD-75)
       container_name = "pixdcon";
       network_mode = "host";
       restart = "unless-stopped";
