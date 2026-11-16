@@ -2,7 +2,7 @@
 # OPS night protocol (Markus 2026-10-11): mbp2607 + mbp2606 levels every 180 s; writes changes to AEON-LEAD's host-level.sh.
 # WEEKEND MODE (Markus 2026-10-11 08:30 via AEON-LEAD, until Mon 2026-10-12 07:00): RED at load>${RED_LOAD:-28}; set RED_LOAD=22 for the normal night protocol.
 # GREEN load<=14 (<=12 after YELLOW/RED), mem>=40%, disk>=100GB, swap<=4GB (or <60% mem) | RED load>22, mem<25%, disk<50GB, swap>8GB with mem<40%, throttled, unreachable.
-# OPS-595: vendored into nixcfg; launchd sets NL_MAC_HEALTH / NL_UNGUARDED to store paths; SSH server-alive probes bound hung connections to ~30 s.
+# OPS-595: vendored into nixcfg; launchd sets NL_MAC_HEALTH / NL_UNGUARDED to store paths; SSH server-alive probes end a silent peer/network within ~30-45 s (not a remote command hanging while sshd still answers; the stale watcher's kickstart covers that).
 S=${NL_MAC_HEALTH:-$HOME/.local/share/ops-qa/mac-health.sh}; HL=/Users/markus/.aeon/lead/aeon/host-level.sh
 p7=$(awk '$1=="mbp2607"{print $2}' /Users/markus/.aeon/lead/aeon/HOST-LEVEL 2>/dev/null); p7=${p7:-GREEN}
 p6=$(awk '$1=="mbp2606"{print $2}' /Users/markus/.aeon/lead/aeon/HOST-LEVEL 2>/dev/null); p6=${p6:-GREEN}

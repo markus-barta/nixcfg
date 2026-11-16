@@ -178,29 +178,50 @@ Cut over in this order on mbp2607:
    trust the pidfile:
 
    ```sh
-   pgrep -fl 'ops-qa/night-levels.sh'
+   pgrep -fl '[o]ps-qa/night-levels.sh'
    ps -p "$(cat ~/.local/share/ops-qa/state/brake-night-levels.pid 2>/dev/null)" -o command= 2>/dev/null
    ```
 
-2. Stop only a PID whose command line contains `ops-qa/night-levels.sh`, using
-   `kill <pid>`. The bash loop has no children worth keeping. Never run
+   Retire the old start paths before the switch. This is MAC-LEAD's or OPS's
+   step outside nixcfg, tracked on OPS-595: rename
+   `~/.local/share/ops-qa/night-levels.sh` to `night-levels.sh.retired-ops595`,
+   and remove `night-levels` from `brake-mode.sh`'s default `names=`. A running
+   old loop keeps its open file, so renaming is safe while it runs. After the
+   rename, `brake-mode.sh on night-levels` still prints "started pid N", but
+   the job exits 127; the error goes to `brake-night-levels.log`, and the
+   pidfile then holds a dead PID. Never use it.
+
+2. Inspect each candidate with `ps -p <pid> -o pid=,ppid=,command=`. Stop only
+   a PID whose full command line is exactly
+   `/bin/bash /Users/markus/.local/share/ops-qa/night-levels.sh` (or
+   `bash /Users/markus/.local/share/ops-qa/night-levels.sh`) **and whose PPID
+   is 1**: the nohup loop was reparented. Use `kill <pid>` only after both
+   checks. Never stop editors, pagers, grep, or a shell that merely mentions
+   the path. The bash loop has no children worth keeping. Never run
    `brake-mode.sh off night-levels` against a stale pidfile: on 2026-11-16 it
    still held a PID from 2026-11-03, and a reused PID would be killed.
 3. Remove the stale pidfile with
-   `trash ~/.local/share/ops-qa/state/brake-night-levels.pid`.
+   `trash ~/.local/share/ops-qa/state/brake-night-levels.pid`. A bare
+   `brake-mode.sh off` is safe only after this step. MAC-LEAD or OPS must also
+   switch `brake-mode.sh`'s `status`/`wake` liveness check to the launchd label.
+   `~/.local/share/ops-qa/host-health.sh` around line 62 reads the pidfile and
+   must switch to the launchd label too. These changes are outside nixcfg,
+   tracked on OPS-595.
 4. Run the Home Manager switch.
-5. Verify all three conditions: `pgrep -fl night-levels.sh` shows exactly one
-   loop, using only the `/nix/store` script path;
-   `launchctl print gui/$(id -u)/org.nix-community.home.night-levels` shows the
-   job running; and the `epoch=` value in
-   `~/.aeon/lead/aeon/HOST-LEVEL.heartbeat` is younger than 200 s compared with
-   `date +%s`.
-6. Retire the old start paths outside nixcfg. This is MAC-LEAD's step on
-   mbp2607, tracked on OPS-595: rename
-   `~/.local/share/ops-qa/night-levels.sh` to `night-levels.sh.retired-ops595`
-   so `brake-mode.sh on` fails loudly; remove `night-levels` from
-   `brake-mode.sh`'s default names; and make its `status`/`wake` liveness check
-   use the launchd label instead of the pidfile.
+5. Verify all three conditions:
+
+   ```sh
+   ps -axo pid,ppid,command | awk '$2==1 && /[n]ight-levels.sh/'
+   launchctl print gui/$(id -u)/org.nix-community.home.night-levels
+   ```
+
+   Count only loop processes with PPID 1: the first command must show exactly
+   one, with the `/nix/store` script path. Its PID must equal the `pid =` line
+   of `launchctl print`, which must show the job running. Command-substitution
+   subshells briefly show extra PIDs with the same command line; they are not
+   additional loops and must not be killed. Finally, the `epoch=` value in
+   `~/.aeon/lead/aeon/HOST-LEVEL.heartbeat` must change within 4 minutes
+   (one cycle is 180 s plus ssh time).
 
 `brake-mode.sh status`, `wake` and the pidfile no longer reflect this loop.
 The only liveness signals are the launchd job and the heartbeat epoch.

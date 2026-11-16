@@ -53,7 +53,7 @@ let
     if [ "$current" = stale ]; then
       message="night-levels heartbeat stale: $age s (> 900 s). mbp2606's guard fallback: maxload 12, maxruns 1, level UNKNOWN. Check: launchctl print gui/$(/usr/bin/id -u)/org.nix-community.home.night-levels"
     else
-      message="night-levels heartbeat recovered: $age s (<= 900 s). mbp2606's stale-policy guard fallback: maxload 12, maxruns 1, level UNKNOWN. Check: launchctl print gui/$(/usr/bin/id -u)/org.nix-community.home.night-levels"
+      message="night-levels heartbeat recovered: $age s (<= 900 s). Check: launchctl print gui/$(/usr/bin/id -u)/org.nix-community.home.night-levels"
     fi
     log "$message"
     if [ "$current" = stale ]; then
