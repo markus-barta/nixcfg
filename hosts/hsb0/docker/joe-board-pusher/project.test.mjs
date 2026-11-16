@@ -709,8 +709,9 @@ test("legacy positions stay visible and excluded from Stage-0 accounting", () =>
     portfolio: [{ symbol: "TSLA", pos: 1, marketValue: 210, unrealizedPNL: 10, realizedPNL: 0 }],
   }), { publisherAt: new Date(OBS_B) });
   const joel = deskById(snapshot, "joel");
-  assert.equal("historyBasis" in deskById(snapshot, "j"), false);
-  assert.equal("historyBasis" in deskById(snapshot, "joe"), false);
+  const historyBasis = `desk-policy-${deskOwnershipPolicyContract().policyHash.slice(0, 12)}`;
+  assert.equal(deskById(snapshot, "j").historyBasis, historyBasis);
+  assert.equal(deskById(snapshot, "joe").historyBasis, historyBasis);
   assert.equal(joel.positions[0].accountingScope, "legacy");
   assert.equal(joel.money.totalPnl, 0);
   assert.equal(joel.historyBasis, "joel.stage0-keep-excluded.v1");

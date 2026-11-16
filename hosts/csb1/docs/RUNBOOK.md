@@ -348,7 +348,121 @@ All OPS-136 commands run as root under the campaign flock
 `/root/ops136-backups/`. Disaster recovery from image archives:
 `ops136/dr-image-id.override.yml` (read its STEP 0 first).
 
-### Janus v1 retirement (OPS-280)
+### Pharos 2 cutover (PHAROS-345)
+
+Pharos 2 is read-only: CVEs, updates and reachability. It sends no alerts and
+offers no host actions, so `pharosd` no longer gets the watchtower webhook, the
+dispatch token, manifests or the access policy. Those two agenix declarations stay
+for a rollback. `PHAROS_ALLOWED_OPERATORS` is the only way into the page.
+
+The read-only `pharos` CLI uses one operator token. csb1 holds only its SHA-256,
+`secrets/csb1-pharos-operator-token-hash.age`, read once at start. The token is
+`secrets/agents/host/mbp2607/PHAROS_OPERATOR.age`, which Home Manager places at
+`~/.inspr/secrets/agents/PHAROS_OPERATOR.env`. It's a raw token rather than `KEY=value`,
+so point `PHAROS_OPERATOR_TOKEN_FILE` at that file instead of sourcing it. To rotate:
+re-encrypt both `.age` files together so the hash matches the token, merge, switch csb1,
+then recreate `pharosd` with the first command from `compose-csb1-start` plus
+`--force-recreate --no-deps pharosd`, because compose sees no change. Activate Home
+Manager on mbp2607 and check that the CLI authenticates and a wrong token gets 401.
+
+`fleet-drift` pages a silent host and `fleet-backup-watch` a failed or stale backup,
+which Pharos 1 used to do. Both timers were off from csb1's switch on 2026-11-01
+until the hosts had passed their checks. If they are ever off again, before turning
+them on check `sudo jq .pending /var/lib/fleet-drift/state.json` and the same in
+`/var/lib/fleet-backup-watch/`: a saved page is sent first, before any check, so if
+it isn't `null`, set only that field to `null`.
+
+- **Fleet data:** `/var/lib/pharos-fleet/fleet.json`, owned by `mba`, mode 0644,
+  schema 3, source in private ops. Copy it next to the target, then `mv` it over,
+  and Pharos reloads it without a restart. A bad file keeps the last good copy on
+  the page with the problem shown; with no good copy it reads "Can't check: no
+  data file".
+- **Reachability:** `hosts/csb1/docker/pharos/host-probes.json`, read once at
+  start, so a change needs a `pharosd` restart. One ICMP check, then a bare TCP
+  connect with no auth attempt: an auth attempt from csb1 could get it banned by
+  fail2ban on the target.
+- **Order:** csb0's beacon first, then csb1, then the other beacons. New beacons
+  report to Pharos 1 without trouble. Keep `PHAROS_DEPLOYED_ARTIFACT_*` unset on
+  every beacon until csb1 has moved, or Pharos 1 refuses the report with 422 and
+  the host goes silent.
+- **Right before csb1's switch:** `sudo systemctl stop fleet-drift.timer
+fleet-drift.service fleet-backup-watch.timer fleet-backup-watch.service`. The
+  change masks the timers, but a poller running at that moment would be restarted
+  and could page.
+- **Before csb1 moves:** every host in the store needs a hash, or it gets 401
+  until rotated (value-free, prints true or false per host):
+  `sudo cat /var/lib/docker/volumes/csb1_pharos_data/_data/pharos.json | jq -r '.[] | "\(.hostname // .name // .id)\t\(((.token_hash // "") | length) > 0)"'`
+  Then copy `pharos.json` to `/root/pharos-backups/`. Pharos writes it atomically,
+  so a plain copy is consistent.
+- **Rollback:** once a beacon has measured a CalVer3 container, Pharos 1 refuses
+  to start on that store, and a Pharos 2 restart on a restored store spoils it
+  again. Nothing else may touch the stack until the switch, so tell other sessions
+  first:
+  1. Revert the cutover commit on main and build csb1 without switching.
+  2. `sudo systemctl stop compose-csb1-update.timer compose-csb1-update.service`,
+     so the weekly updater can't start the new image.
+  3. `docker stop pharosd`, then a plain `sudo cp` of the backup onto the existing
+     `pharos.json`. It is 0600 owned by uid 10001; `mv` or `cp -p` would leave a
+     file `pharosd` can't read.
+  4. Switch csb1, which starts the old image on the restored store.
+  5. `sudo systemctl start compose-csb1-update.timer`.
+
+  Unset `PHAROS_DEPLOYED_ARTIFACT_*` on any beacon that has it by then, or Pharos 1
+  refuses its reports. Beacons need not move back. Reports since the backup are
+  lost until each beacon's next report.
+
+### Janus shutdown and local Pharos beacon auth (OPS-514)
+
+OPS-514 supersedes the OPS-280 runtime state below. Pharos uses
+`PHAROS_BEACON_TOKEN_MODE=local`, requires a bearer token, and explicitly
+disables local registration. It verifies the existing host hash in
+`pharos_data`; it no longer mounts Janus hash/provider projections, managed
+setup credentials or managed-service declarations. OIDC, alerts, ordinary
+nixcfg dispatch and the hsb8 manifest remain configured.
+
+The `janus`, `janus-placeholder`, `janus-engine-staged`,
+`janus-managed-transactiond` and `janus-managed-canary` Compose services are
+retained under `janus-retired`. Janus restore, host agent, canary, central seed
+and transaction daemon units are disabled, as are the managed declaration
+publisher and Pharos provisioning/retirement executors and their timers.
+Host removal dispatch and its workflow job are disabled to protect the only
+active copy of beacon hashes. Volumes, custody directories, encrypted files
+and agenix declarations remain available for rollback.
+
+Routing is deliberately unchanged, including the private-source assertions:
+`vault.barta.cm` and `flow.inspr.at/janus` reach an unavailable upstream (502
+after any existing redirects). `janus.inspr.at` remains the separate product
+site served by `inspr-www`. Both app Flow readers remain inactive; the shared
+Flow edge remains active for its other applications.
+
+Before an attended switch, verify there is no active provisioning, removal or
+retirement job, and record a private backup/restore path for `pharos_data`.
+Verify matching hashes exist for csb0, csb1, hsb0, hsb1, hsb8 and hsb9 without
+printing credential values. Losing this store or restoring stale hashes
+breaks beacon authentication; new enrollment and rotation need the separate
+PHAROS-336 lifecycle work.
+
+After the approved deployment, check `docker ps` and explicitly stop any
+remaining Janus containers with `docker stop` using those exact five names
+(select only containers that exist). An inactive Compose profile does not
+stop an existing container; `removeOrphans` remains false. Verify the old
+transactiond/canary units ran their stop commands, every retired unit/timer is
+inactive, and a second normal stack reconciliation leaves Janus stopped.
+Do not remove containers or volumes. Check Pharos readiness, reports from all
+six hosts, 401 for missing/wrong/unknown-host tokens, 410 for registration,
+normal OIDC/alerts, accepted Janus route failures and the working product site.
+
+hsb8 is unchanged. Its action agent authenticates through the local beacon
+hash, but Pharos's Janus action-readiness gate returns false in local mode:
+new Janus-guarded actions are unavailable. Authentication alone does not
+prove guarded delivery works; resolve queued work before cutover.
+
+Rollback is an attended reversal of OPS-514: restore the prior configuration,
+switch csb1, explicitly restart only the previously active retained Janus
+containers/units, and verify projections before returning Pharos to Janus
+mode. Keep the existing data; do not reset the store or re-enrol hosts.
+
+### Janus v1 retirement (OPS-280, historical)
 
 The `janus` service is retained under the `janus-retired` Compose profile with
 `restart = "no"`. Normal boot, switch and weekly reconciliation skip it.
@@ -379,7 +493,9 @@ No data restore is needed. The HostDash stopped-container card is a follow-up.
 
 ### Janus Staged Engine Smoke
 
-The `janus-engine-staged` compose profile stays disabled and non-Traefik. Its
+After OPS-514 the staged engine uses the `janus-retired` profile and remains
+outside normal reconciliation and Traefik. The commands below are retained
+manual smoke/rollback tools, not part of the active production pipeline. Its
 non-prod smoke uses the signed digest-pinned engine image, Docker-volume
 non-prod age material, a non-prod metadata overlay, and a permit-bound
 `janusd-use run` launched through the staged compose service; no production secret
@@ -412,9 +528,10 @@ mount shadowing the placeholder directory or its Caddyfile.
 
 The check evaluates only local Compose/Flow metadata, without a NixOS build or
 private flake fetch. It asserts the retired `janus` profile and disabled restart,
-the active read-only placeholder and its routing, and the isolated staged engine.
-Pharos's production renderers and retirement executor still use the staged pin;
-transactiond retains its separate pin, environment digest and verified admission
+the retired read-only placeholder and retained routing, and the retired isolated
+staged engine. The retained Pharos renderer/retirement tooling references the
+staged pin; its production executors are disabled. Transactiond retains its
+separate pin, environment digest and verified admission
 receipt. Neither pin must track the newest upstream release. For each retained
 pin the check requires its exact published stable release, the actual
 `rust-engine-sbom.spdx.json` release asset, the matching GHCR tag and manifest
@@ -2015,11 +2132,15 @@ the `./aeon-watch.nix` import in this host's configuration.
 `/hosts.json` needs an OIDC session even on localhost). It pages when a fleet
 host's beacon says its deployed nixcfg is `behind` main and the deployed commit
 is ≥ 7 days old (commit date from `~mba/Code/nixcfg`, best effort) or ≥ 25
-commits behind; `diverged`/`ahead` page as their own problem; hosts silent for
-
-> 30 min are skipped (Pharos HostDown owns silence). Same OPS-107 engine: two
-> consecutive runs before paging, recovery clears, `csb1-watchtower-env` target.
-> Truthful only with OPS-186 in place (beacons must see the current evidence).
+commits behind; `diverged`/`ahead` page as their own problem. Since PHAROS-345,
+hosts silent for more than 30 min page as `silent:<host>`: Pharos 2 sends no
+alerts. Workstations and hosts with `suppress_down` are excluded from silence
+alerts. Silent-host alerts repeat every 12 h while the problem persists
+(OPS-54); drift alerts remain transition-only. Check the host, its network,
+and its `pharos-beacon` container; services on that host may also be unreachable.
+Same OPS-107 engine: two consecutive runs before paging, recovery clears,
+`csb1-watchtower-env` target. Truthful only with OPS-186 in place (beacons must
+see the current evidence).
 
 ```bash
 systemctl status fleet-drift.timer --no-pager
@@ -2090,9 +2211,51 @@ termination, or an unhealthy replacement.
 
 ### Clean Up Disk Space
 
+`docker-image-gc` (OPS-327, design r34) runs daily at 04:30 with up to 10 minutes of jitter. There is no Persistent catch-up after boot. It deletes an image only when every rule allows it:
+
+- no container uses it, in any state;
+- no compose spec names it: the Nix-declared spec, every numbered generation, current, booted, every `^[0-9a-z]{32}-nixos-system-[^/]+$` directory in the store (excluding `.drv`), and their specialisations recursively;
+- no `/var/lib/docker-image-gc/keep.d/*.refs` file names it;
+- it is outside the newest 3 of every repository it belongs to (tags and digest-only pulls), is at least 2 days old, has no `:rollback` tag, is not the newest `prev-*`, and belongs to no protected Janus repository.
+
+References use Docker normalization and ID-prefix resolution. `keep.d` accepts one `name[:tag]@sha256:<64 hex>` per line, with blank lines and `#` comments. Malformed or unreadable input fails closed. Every file is opened nonblocking, checked as a regular file on its expected device, and read with caps; keep.d symlinks are refused. Directories are listed with `scandir`. Caps include 200 generations, 500 distinct systems, 1,000,000 store entries, 5,000 other directory entries, 64 specs' MiB in total, 16 specs per system, 100,000 references, and 64 keep files of 64 KiB each. Container/image listings are capped at 4/16 MiB, each spec at 1 MiB, and `/proc/locks` at 1 MiB. An incomplete store copy or a system collected during a decision can fail the run; the next day retries.
+
+**Release baseline (keep.d contract v2, canonical on OPS-327).** The release kit owns live and previous identity. Under `compose-csb1.lock` it writes `aeon-staged-<R>.refs` before pulling; at go-live it saves previous as `aeon-previous.pre-<R>`, writes previous := old live, writes live := R (each tmp + rename), then removes the staged file. Rollback restores both role files. Nothing is deleted, including build cache, unless `aeon-live.refs` and `aeon-previous.refs` exist, parse, are nonempty and differ, and live names every running AEON container's image. Bootstrap or a missing role file logs `release baseline not met`; exit 0. A malformed file is exit 2.
+
+Every DELETE and the single final build-cache prune have their own fresh snapshot and plan. The snapshot starts before the first Engine request and must be at most 2 seconds old at the call. Three slow snapshots end the batch. IDs are validated and URL-quoted; DELETE uses `noprune=1`, without force or untagging. A 409 keeps the image. After images, `POST /build/prune` uses `all=1` and `until=48h`. Volumes are never touched.
+
+The GC never orders activations. It never takes the switch-to-configuration lock. Before each snapshot and after its plan it observes the switch lock's device/inode in `/proc/locks` (holders and waiters); the final check also compares current and booted with the snapshot. A running switch or retarget releases the compose locks and retries after the cooldown. This is best effort.
+
+**Accepted race (Desk 1e2974cf).** A switch or publication after the checks, a system arriving during the snapshot, or a custom-named system missed by every source at its own read can lose an old image. If a container fails after a switch because its image is missing, run the compose reconcile again (or `docker compose pull` for that stack). It re-pulls by tag/digest; a Nix-built image is loaded again from the store by its unit. There is no activation barrier, process-chain guard or nixpkgs re-audit procedure. Guard 7 alone checks that each toplevel is named `nixos-system-*`; fix its name or extend the store scan in the same change. T115 compares computed names with actual `toplevel.name`.
+
+The GC takes only `compose-csb1.lock`, `compose-hausv.lock` and `compose-hausv-next.lock`, nonblocking, releasing all on any busy or partial acquisition. A GC-only `/run/lock/docker-image-gc.lock` excludes concurrent runs. Every run waits 45 seconds before its first compose attempt, and every release starts another 45-second cooldown. Busy/active for 300 seconds from the first detection skips the day. A batch budget is 10 seconds plus one capped processing step and one destructive call, approximately 45 seconds per hold when local storage does not stall. Every destructive call has a 30-second absolute deadline covering connect, send, HTTP status/headers and the complete body. GETs also have a watchdog. At 50 minutes the run finishes the current batch, exits 0 and logs `run budget used; continuing tomorrow`. It checks immediately after release and before attempts, and never sleeps a cooldown past that budget. The unit has a 1-hour start timeout and 180-second stop timeout. SIGTERM only sets a flag; the call in flight finishes or reaches its deadline. Output is buffered until every compose fd has closed.
+
+**An unanswered destructive call may still execute later.** Exit 2 with `DELETE <Id> not answered in 30 s` (or `prune ...`) means dockerd stalled or the prune was large. Check `journalctl -u docker` before the next run. The GC closes the connection, gives back all locks and sends nothing more; dockerd may still remove the image after a concurrent pull attached a tag to it. The same uncertainty follows a broken connection, crash or SIGKILL. Reconcile/pull again. If the compose unit has exhausted 3 starts in 300 seconds, recover with `systemctl reset-failed compose-<stack>; systemctl start compose-<stack>`.
+
+A full Engine Unix socket accept queue makes Linux `connect` fail at once with `EAGAIN`, reported as `DELETE <Id>: BlockingIOError: [Errno 11] Resource temporarily unavailable` (or `prune: ...`). This also exits 2 and releases the locks; it does not wait for the 30-second deadline. Check dockerd's health and connection load before the next run.
+
+**Other lock users can time out (residual d).** With no other holder, the GC delays an acquisition by up to approximately 45 seconds. With other holders, the GC's share is at most 45 seconds plus the rest of that wait: for wait W and GC-held time G, `G <= 45 + (W - G)`. Every acquisition, including stop commands and TERM/EXIT handlers, has that bound separately; each wait uses the user's own time budget. Check what a failed unit left, then restart it:
+
+- `hausv-backup-snapshot`: check whether hausv-org is running and start it if stopped. Check `/var/lib/csb1-docker/hausv-org-backup-snapshot`. If absent, move `.hausv-org-backup-snapshot.previous` back to that name **before** running the unit again; the next run deletes `.previous` first. A timeout may leave the previous, new, or renamed previous snapshot according to where publish stopped.
+- A failed canary stop can leave its container running or exited; restarting the unit recreates it.
+
+Store-only protection can retain extra images until an operator collects the corresponding unrooted Nix systems. The summary reports extra systems, references, image count and bytes. Store GC is outside this automation.
+
+| Exit | Meaning                                                                                                                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | done, baseline not met, another run active, busy/switch for 300 s, or run budget used                                                                                           |
+| 1    | SIGTERM without a Fatal                                                                                                                                                         |
+| 2    | malformed input, cap, read/device error, Engine error (including full accept queue), destructive deadline, or batch ended before a single DELETE; takes precedence over SIGTERM |
+| 64   | invalid CLI arguments                                                                                                                                                           |
+
 ```bash
-ssh mba@cs1.barta.cm -p 2222 "docker system prune -f"
+# Dry run: any invocation outside systemd changes nothing and takes no locks.
+sudo docker-image-gc
+journalctl -u docker-image-gc --since -2d --no-pager
+sudo systemctl start docker-image-gc
 ```
+
+🔴 No manual prune of any kind on csb1. Only this GC's age-filtered build-cache prune is allowed. Image/system/volume prunes drop Janus engine images, stopped-container protection or the unmounted Janus volumes that produce Pharos beacon tokens. For disk pressure, run the GC. To keep an otherwise eligible image, have the owning release kit add its digest to keep.d under the compose lock.
 
 ### View Logs
 

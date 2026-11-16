@@ -178,11 +178,11 @@ test("cancel-after-mark keeps the cached price and only resubscribes after refre
   controller.sync(needed);
   assert.equal(requests.length, 2);
   assert.equal(requests[1].tickerId, tickerId);
+  assert.equal(cancels.length, 1, "refresh must not re-cancel an already cancelled subscription");
   assert.equal(controller.marks()[0].marketPrice, 11.75);
 
   assert.equal(controller.onTick(tickerId, 68, 12.25), true);
-  assert.equal(cancels.length, 3); // refresh sync cancel + post-mark cancel (plus original)
-  // refresh path: sync cancels before request (cancel #2), then onTick cancels (cancel #3)
+  assert.equal(cancels.length, 2); // One cancellation per observed subscription.
   assert.equal(events.filter((e) => e.event === "flat_net_mark_cancelled").length, 2);
   assert.equal(controller.marks()[0].marketPrice, 12.25);
   assert.equal(controller.marks()[0].markObservedAt, new Date(nowMs).toISOString());

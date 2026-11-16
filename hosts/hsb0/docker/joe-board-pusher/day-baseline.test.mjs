@@ -17,6 +17,7 @@ import {
 } from "./day-baseline.mjs";
 
 import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
+import { CURRENT_DESK_OWNERSHIP_POLICY, deskOwnershipPolicyContract } from "./desk-ledger.mjs";
 
 const REV_A = "a".repeat(64);
 const REV_B = "b".repeat(64);
@@ -446,6 +447,64 @@ test("policy-keyed stores reject invalid hashes and keep corrupt current-policy 
   assert.match(h.adapter.blockedReason, /corrupt JSON/);
   assert.equal(h.adapter.observe(observation({ at: "2026-09-12T04:00:00.000Z" })).ok, false);
   assert.equal(fs.readFileSync(keyedFile, "utf8"), "{broken");
+});
+
+test("OPS-557 retires the old digest's baseline and keeps Today unavailable until a proven next NY periodStart", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "joe-ops557-retired-baseline-"));
+  const file = path.join(directory, "day-baseline.json");
+  const priorContract = deskOwnershipPolicyContract({ ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] });
+  const currentContract = deskOwnershipPolicyContract();
+  assert.notEqual(currentContract.policyHash, priorContract.policyHash);
+  const priorFile = path.join(directory, `day-baseline.${priorContract.policyHash}.json`);
+  let currentNow = "2026-11-04T12:00:10.000Z";
+  let proofAvailable = false;
+  const make = (contract, allowSessionProxy = false) => createDeskDayPnlProducer({
+    account: "SYNTHETIC-PAPER", providerContract: contract,
+    historyRevisionMethod: DESK_REVISION_METHOD, allowSessionProxy,
+    store: createPolicyDayBaselineStore(file, contract.policyHash), now: () => currentNow,
+    getVerifiedHistoryState: () => ({}),
+    buildBoundaryEvidence: input => proofAvailable ? {
+      ok: true, periodStart: input.periodStart, proofObservedAt: input.proofObservedAt,
+      historyRevisionMethod: DESK_REVISION_METHOD, policyHash: contract.policyHash,
+      boundaryHistoryRevision: input.candidateHistoryRevision,
+      executionCoverage: { status: "complete", fromInclusive: input.candidateSourceObservedAt,
+        throughExclusive: input.periodStart },
+    } : { ok: false, reason: "exact cutoff coverage is pending" },
+  });
+  const prior = make(priorContract, true);
+  const oldEvidence = deskEvidence({ at: "2026-11-04T12:00:00.000Z", contract: priorContract });
+  assert.equal(prior.observe(oldEvidence).ok, true);
+  const priorBytes = fs.readFileSync(priorFile, "utf8");
+
+  const active = make(currentContract);
+  assert.equal(active.project().ok, false);
+  assert.equal(active.observe(oldEvidence).ok, false, "prior-policy values cannot seed Today");
+  const current = deskEvidence({ at: "2026-11-04T12:00:00.000Z", equity: vector({ j: 5100 }),
+    revision: REV_B, contract: currentContract });
+  assert.equal(active.observe(current).ok, false, "a midday observation cannot invent a new SOD");
+  assert.deepEqual(active.inspectState().latest.equity, current.equity, "corrected equity remains available independently of DAY");
+  assert.equal(active.inspectState().proxy, null);
+  assert.equal(active.inspectState().baseline, null);
+  const restarted = make(currentContract);
+  assert.equal(restarted.project().ok, false, "restart cannot reuse or invent a baseline");
+
+  currentNow = "2026-11-05T04:59:55.000Z";
+  restarted.observe(deskEvidence({ at: "2026-11-05T04:59:50.000Z", equity: vector({ j: 5105 }),
+    revision: REV_B, contract: currentContract }));
+  currentNow = "2026-11-05T05:00:30.000Z";
+  const next = deskEvidence({ at: "2026-11-05T05:00:25.000Z", equity: vector({ j: 5107 }),
+    revision: REV_B, contract: currentContract });
+  assert.equal(restarted.observe(next).ok, false, "crossing midnight alone cannot establish Today");
+  assert.equal(restarted.inspectState().proxy, null);
+  proofAvailable = true;
+  const exact = restarted.observe(next);
+  assert.equal(exact.ok, true, exact.reason);
+  assert.equal(exact.source.periodStart, "2026-11-05T05:00:00.000Z");
+  assert.equal(exact.source.sodSource, "new_york_midnight_exact");
+  assert.equal(exact.source.approximate, false);
+  assert.equal(exact.values.j, 2);
+  assert.equal(make(currentContract).project().values.j, 2);
+  assert.equal(fs.readFileSync(priorFile, "utf8"), priorBytes, "rollback baseline is byte-for-byte preserved");
 });
 
 test("restart preserves a pre-boundary candidate until asynchronous coverage proof arrives", () => {

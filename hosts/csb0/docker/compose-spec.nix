@@ -137,11 +137,14 @@
       networks = [
         "traefik"
         "docker-sock-traefik"
+        # OPS-528: reaches the push relay by its alias paimos-push-relay.
+        "relay-ingress"
       ];
       volumes = [
         "./traefik/static.yml:/etc/traefik/traefik.yml:ro"
         "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro"
         "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
+        "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
@@ -340,6 +343,10 @@
         "/home:/backup/home:ro"
         "/root:/backup/root:ro"
         "/etc:/backup/etc:ro"
+        # OPS-529: the JoeDesk store does not fully rebuild from hsb0, and the
+        # cold pre-upgrade tarballs have no other copy.
+        "/var/lib/joe-board:/backup/var/lib/joe-board:ro"
+        "/var/lib/csb0-docker:/backup/var/lib/csb0-docker:ro"
         # Use SSH key from agenix
         "/run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro"
         # Recovered known_hosts
@@ -453,7 +460,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9";
+      image = "ghcr.io/inspr-at/pharos/pharosd:261031180823.0.0@sha256:822fe56a34822576bd64d89ceeeae0062dfbe5b660adb50c71a434763c746b0c";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -501,6 +508,9 @@
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/pharos-preferences:/etc/pharos:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        # PHAROS-341: the next boot's kernel. Directories at their own paths, so later generations are visible.
+        "/nix/var/nix/profiles:/nix/var/nix/profiles:ro"
+        "/nix/store:/nix/store:ro"
         "/var/lib/csb0-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
@@ -558,6 +568,10 @@
     bitwarden = null;
     docker-sock-traefik = {
       internal = true;
+    };
+    # OPS-528: shared by Traefik and the INSPR push relay only. Fixed name, so a later separate relay stack can join it.
+    relay-ingress = {
+      name = "relay-ingress";
     };
   };
 }

@@ -229,9 +229,10 @@ other failures keep the prior files and are reported (Home Manager continues,
 whereas `just update-ai-clis` fails).
 
 If the Codex app-server daemon, its package or the models cache is older than
-the new CLI, the command repairs it with `codex app-server daemon update`, which
-moves the daemon into its dedicated, self-updating package. Running `codex exec …`
-workers do not block this. A client connected to the daemon (an open Codex TUI,
+the new CLI, the command repairs it with `codex app-server daemon update --from-cli`
+(required since Codex 0.167.0), which copies the new CLI's package into the
+daemon's dedicated package and pins it there. Running `codex exec …` workers do
+not block this. A client connected to the daemon (an open Codex TUI,
 an SSH `app-server proxy`) or enabled remote control defers the repair without
 failing the successful npm update. Remote control is a persistent daemon setting:
 disable it before the repair. After closing those

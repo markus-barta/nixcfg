@@ -105,8 +105,8 @@ in
     removeOrphans = true;
     autoUpdate.enable = true;
     # OPS-430 (eMudhra): Home Assistant's own certifi bundle still trusts "emSign ECC Root CA - G3"
-    # (upstream image, certifi < 2026.10.19). Mount the system bundle, which carries the OPS-424
-    # blacklist, read-only over it. The source is the bundle's immutable store path: a bundle change
+    # (upstream image, certifi < 2026.10.19). Mount the system bundle, which no longer trusts the
+    # OPS-424 eMudhra roots, read-only over it. The source is the bundle's immutable store path: a bundle change
     # re-renders the compose file and recreates the container instead of pinning a stale inode.
     # The target follows the image's Python (3.14 on 2026-10-22). Drop once HA ships certifi >= 2026.10.19.
     spec =
@@ -146,7 +146,9 @@ in
   ];
 
   inspr.pharosGuardedDeploy = {
-    enable = true;
+    # PHAROS-345: Pharos 2 has no /agent/actions/claim, so the agent would only
+    # log 404s. Keep the references for an attended rollback to Pharos 1.
+    enable = false;
     applySecretRef = "sec_1dea981613b3ba82213e";
     rollbackSecretRef = "sec_cbd0bd3a2fa2d7fd4382";
     updateSecretRef = "sec_5486faf22bc4e9086253";

@@ -22,6 +22,9 @@ grep -Fq 'SuccessExitStatus = [' "${mod}"
 for ph in '@STORE_PATH@' '@NOTIFICATION_ENV@'; do
   grep -Fq "${ph}" "${checks}"
 done
-grep -Fq 'PAGED_BY_PHAROS' "${checks}"
+if grep -Fq 'PAGED_BY_PHAROS' "${checks}"; then
+  echo "T114: failed and stale must page from here: Pharos 2 sends no alerts" >&2
+  exit 1
+fi
 grep -Fq '"/var/lib/fleet-backup-watch/state.json"' "${checks}"
 echo "T114 ok"

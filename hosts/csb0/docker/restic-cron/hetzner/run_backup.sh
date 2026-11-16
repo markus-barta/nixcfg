@@ -104,7 +104,9 @@ trap 'rm -f "$message_file"' EXIT
 echo 'Starting csb0 backup.'
 "$RESTIC_BIN" backup --host csb0 \
   --exclude '*/cache/*' --exclude '*.log*' \
-  /backup/var/lib/docker/volumes /backup/home /backup/root /backup/etc \
+  --exclude '/backup/var/lib/joe-board/*.next' \
+  /backup/var/lib/docker/volumes /backup/var/lib/joe-board /backup/var/lib/csb0-docker \
+  /backup/home /backup/root /backup/etc \
   >"$message_file" 2>&1
 restic_status="$?"
 

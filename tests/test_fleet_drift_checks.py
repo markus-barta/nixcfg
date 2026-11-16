@@ -1,8 +1,8 @@
 """Unit tests for the fleet drift watch (OPS-187) on csb1.
 
 Pins what pages and what does not: behind+old pages, behind+young+few does not,
-diverged/ahead pages as its own problem, current/no-evidence/non-nix/stale hosts
-are ignored, an unreadable store is one loud problem, and commit age comes from
+diverged/ahead pages as its own problem, a silent host pages as silent,
+current/no-evidence/non-nix hosts are ignored, an unreadable store is one loud problem, and commit age comes from
 a stubbed git lookup (no network).
 """
 
@@ -15,6 +15,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 CHECKS = REPO / "hosts" / "csb1" / "fleet-drift-checks.py"
@@ -57,9 +58,13 @@ class DriftTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = str(Path(self.tmp.name) / "pharos.json")
         self.checks = load_checks(self.store)
+        self.checks.STATE_PATH = str(Path(self.tmp.name) / "state.json")
         self.ages: dict[str, float | None] = {}
         self.checks.commit_age_days = lambda rev, now: self.ages.get(rev)
-        self.checks.time.time = lambda: NOW
+        self.now = NOW
+        clock = patch.object(self.checks.time, "time", side_effect=lambda: self.now)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -96,18 +101,53 @@ class DriftTest(unittest.TestCase):
         self.assertEqual([p.key for p in problems], ["drift:x:relation"])
         self.assertIn("diverged", problems[0].text)
 
-    def test_stale_nonnix_and_no_evidence_are_skipped(self):
+    def test_nonnix_and_no_evidence_are_skipped(self):
         self.write([
-            host("gone", relation="behind", behind=999, seen=NOW - 3 * 3600),
             host("mac", relation="behind", behind=999, is_nix=False),
             host("blank", relation=None, evidence=False),
         ])
+        self.assertEqual(self.checks.collect(), [])
+
+    def test_silent_host_pages_as_silent_not_as_drift(self):
+        self.write([
+            host("gone", relation="behind", behind=999, seen=NOW - 3 * 3600),
+            host("mac", relation="behind", behind=999, is_nix=False, seen=NOW - 2 * 3600),
+            host("never", relation=None, seen=0),
+        ])
+        problems = self.checks.collect()
+        self.assertEqual([p.key for p in problems], ["silent:gone", "silent:mac", "silent:never"])
+        self.assertIn("no beacon report for 3.0 h", problems[0].text)
+        self.assertIn("no beacon report yet", problems[2].text)
+        self.assertIn("host or its network may be down", problems[0].text)
+        self.assertIn("Home Assistant", problems[0].text)
+        self.assertIn("Check the host and its pharos-beacon container", problems[0].text)
+
+    def test_silence_honours_pharos_down_suppression(self):
+        laptop = host("laptop", seen=NOW - 3 * 3600)
+        laptop["preferences"] = {"kind": "workstation", "alerts": {"suppress_down": False}}
+        muted = host("muted", seen=NOW - 3 * 3600)
+        muted["preferences"] = {"kind": "server", "alerts": {"suppress_down": True}}
+        server = host("server", seen=NOW - 3 * 3600)
+        server["preferences"] = {"kind": "server", "alerts": {"suppress_down": False}}
+        self.write([laptop, muted, server])
+        self.assertEqual([p.key for p in self.checks.collect()], ["silent:server"])
+
+    def test_a_short_gap_is_not_silence(self):
+        self.write([host("blip", relation=None, seen=NOW - 29 * 60)])
         self.assertEqual(self.checks.collect(), [])
 
     def test_unreadable_store_is_one_loud_problem(self):
         problems = self.checks.collect()  # nothing written
         self.assertEqual([p.key for p in problems], ["drift:store"])
         self.assertIn("unwatched", problems[0].text)
+
+    def test_unreadable_store_keeps_announced_problems_open(self):
+        with open(self.checks.STATE_PATH, "w", encoding="utf-8") as handle:
+            json.dump({"seen": {"silent:a": {"first_seen": NOW - 7200, "alerted": True, "text": "a: no beacon report."}},
+                       "pending": None}, handle)
+        problems = self.checks.collect()  # nothing written to the store
+        self.assertEqual({p.key for p in problems}, {"drift:store", "silent:a"})
+        self.assertEqual([p.text for p in problems if p.key == "silent:a"], ["a: no beacon report."])
 
     def test_engine_debounce_then_page(self):
         self.write([host("hsb9", relation="behind", behind=99, rev="146da190")])
@@ -118,6 +158,45 @@ class DriftTest(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         self.assertIn("Fleet drift", sent[0])
         self.assertIn("hsb9", sent[0])
+
+    def test_main_reminds_only_silent_hosts_every_twelve_hours(self):
+        def cycle():
+            self.write([
+                host("server", seen=NOW - 30.5 * 3600),
+                host("drifted", relation="behind", behind=99, seen=self.now),
+            ])
+            return self.checks.main()
+
+        sent = []
+        with patch.object(engine, "env_file_value", return_value="synthetic"), patch.object(
+            engine, "shoutrrr_telegram_sender", return_value=lambda text, _identifier: sent.append(text) or True,
+        ):
+            self.assertEqual(cycle(), engine.EXIT_PROBLEMS)
+            self.assertEqual(sent, [])
+            self.now += 3600
+            cycle()
+            self.assertEqual(len(sent), 1)
+            self.assertIn("31.5 h", sent[0])
+            self.assertIn("drifted", sent[0])
+            self.now += 12 * 3600 - 1
+            cycle()
+            self.assertEqual(len(sent), 1)
+            self.now += 1
+            cycle()
+            self.assertEqual(len(sent), 2)
+            self.assertIn("Reminder — still failing", sent[-1])
+            self.assertIn("43.5 h", sent[-1])
+            self.assertNotIn("drifted", sent[-1])
+            self.now += 12 * 3600
+            cycle()
+            self.assertEqual(len(sent), 3)
+            self.assertIn("55.5 h", sent[-1])
+
+    def test_reminder_policy_matches_only_silent_prefix(self):
+        self.assertEqual(self.checks.reminder_interval("silent:server"), 12 * 3600)
+        for key in ["drift:server", "drift:store", "drift:server:relation", "other:silent:server"]:
+            with self.subTest(key=key):
+                self.assertIsNone(self.checks.reminder_interval(key))
 
 
 if __name__ == "__main__":

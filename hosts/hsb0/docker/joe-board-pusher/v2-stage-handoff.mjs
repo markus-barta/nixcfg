@@ -6,11 +6,13 @@ import { contractRevision, copyExactValues } from "./v2-exact-values.mjs";
 export const FRAME_FORMAT = "ops392.switch-set-observation.v2";
 export const MAX_FRAME_BYTES = 16 * 1024;
 const MAX_CONTROL_BYTES = 32 * 1024;
+export const validHistoryBasis = value => typeof value === "string" && /^desk-policy-[0-9a-f]{12}$/.test(value);
 
 // Copy only existing scalar evidence, after v1 settles. Never inspect a ledger.
 // A symbol/side shared by desks or broker contracts cannot prove a single owner.
-export function copyObservation({ book, family, deskEquities, dayPnl, executions, executorAttribution, v1Cycle } = {}, revision = 9) {
+export function copyObservation({ book, family, deskEquities, dayPnl, historyBasis, executions, executorAttribution, v1Cycle } = {}, revision = 9) {
   if (v1Cycle !== undefined && !validCycle(v1Cycle)) return null;
+  if (historyBasis !== undefined && !validHistoryBasis(historyBasis)) return null;
   if (!book || typeof book.ts !== "string" || book.ts.length > 64) return null;
   if (book.apiReplyCheckedAt != null && (typeof book.apiReplyCheckedAt !== "string" || book.apiReplyCheckedAt.length > 24)) return null;
   const rows = book.positions || [];
@@ -33,7 +35,7 @@ export function copyObservation({ book, family, deskEquities, dayPnl, executions
     for (const desk of ["j", "joe", "joel"]) {
       if (!addOwners(desk, deskEquities.desks?.[desk]?.positions)) return null;
     }
-  } else if (revision === 10 && deskEquities?.phaseBDesks) {
+  } else if (revision >= 10 && deskEquities?.phaseBDesks) {
     for (const desk of ["j", "joe", "joel"]) {
       const value = deskEquities.phaseBDesks[desk];
       if (value?.reconciled && !addOwners(desk, value.positions)) return null;
@@ -73,7 +75,8 @@ export function copyObservation({ book, family, deskEquities, dayPnl, executions
     },
     apiReplyCheckedAt: book.apiReplyCheckedAt ?? null, positions,
     deskActivity: copyDeskActivity({ book, family, deskEquities, executions, executorAttribution }),
-    ...(revision === 10 ? { exactValues: copyExactValues({ book, deskEquities, dayPnl }) } : {}),
+    ...(historyBasis === undefined ? {} : { historyBasis }),
+    ...(revision >= 10 ? { exactValues: copyExactValues({ book, deskEquities, dayPnl }) } : {}),
     ...(v1Cycle === undefined ? {} : { v1Cycle: { ...v1Cycle } }) };
 }
 

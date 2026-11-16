@@ -37,6 +37,9 @@ concurrency:
 jobs:
   propose:
     name: Validate and open review-only removal
+    # OPS-514: local beacon hashes have no retirement/re-enrol lifecycle yet.
+    # Retain the review-only workflow for rollback, but refuse new jobs.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

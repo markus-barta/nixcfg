@@ -16,6 +16,7 @@ This module is the shared half. It owns the MECHANICS only:
   * atomic state writes   -- a crash mid-write must not corrupt state
   * confirm-before-alert  -- a single bad run must never page anyone
   * transition detection  -- announce a problem once, clear it once
+  * opt-in reminders      -- re-announce selected persistent problems
 
 It deliberately does NOT own presentation. hausv-alerts formats German,
 product-specific text for HAUSV's operators; ops-alerts formats English fleet
@@ -68,6 +69,7 @@ NETWORK_TIMEOUT_SECONDS = 15
 CONFIRM_RUNS = 2
 
 Sender = Callable[[str, str], bool]
+ReminderInterval = Callable[[str], float | None]
 
 
 @dataclass(frozen=True)
@@ -133,7 +135,12 @@ def load_state(path: str) -> dict:
 
 
 def advance(
-    previous: dict, problems: list[Problem], *, clear_confirm_runs: int = 1
+    previous: dict,
+    problems: list[Problem],
+    *,
+    clear_confirm_runs: int = 1,
+    stamp: float | None = None,
+    reminder_interval: ReminderInterval | None = None,
 ) -> tuple[dict, list[str], list[str]]:
     """Fold this run's problems into state; return (next_state, to_announce, cleared).
 
@@ -142,9 +149,14 @@ def advance(
     single blip produces a "recovered" message for something never reported.
     Callers can require consecutive clean runs before clearing (OPS-307);
     the default preserves existing pollers' immediate recovery behavior.
+    An optional per-key reminder interval (seconds, or None to stay silent)
+    requires an injected timestamp. Only opted-in, alerted keys gain a
+    last_announced_at field; old entries start their timer at this load's stamp.
     """
     if clear_confirm_runs < 1:
         raise ValueError("clear_confirm_runs must be positive")
+    if reminder_interval is not None and stamp is None:
+        raise ValueError("reminders require a timestamp")
     seen_before = previous.get("seen", {})
     current = {p.key: p.text for p in problems}
 
@@ -154,10 +166,22 @@ def advance(
         prior = seen_before.get(key, {})
         count = int(prior.get("count", 0)) + 1
         alerted = bool(prior.get("alerted", False))
+        interval = reminder_interval(key) if reminder_interval is not None else None
+        if interval is not None and interval <= 0:
+            raise ValueError("reminder interval must be positive")
+        last_announced = prior.get("last_announced_at", stamp)
+        if interval is not None:
+            last_announced = min(last_announced, stamp)
         if count >= CONFIRM_RUNS and not alerted:
             to_announce.append(text)
             alerted = True
+            last_announced = stamp
+        elif alerted and interval is not None and stamp - last_announced >= interval:
+            to_announce.append(f"Reminder — still failing: {text}")
+            last_announced = stamp
         seen_now[key] = {"text": text, "count": count, "alerted": alerted}
+        if alerted and interval is not None:
+            seen_now[key]["last_announced_at"] = last_announced
 
     cleared: list[str] = []
     for key, prior in seen_before.items():
@@ -280,6 +304,7 @@ def run_cycle(
     sender: Sender,
     *,
     clear_confirm_runs: int = 1,
+    reminder_interval: ReminderInterval | None = None,
 ) -> int:
     """One poll. See the module docstring for the write-ahead-log contract."""
     state = load_state(state_path)
@@ -291,11 +316,21 @@ def run_cycle(
         if not sender(pending["text"], pending.get("event_id", "retry")):
             print("still undelivered; leaving pending in place")
             return EXIT_UNDELIVERED
-        atomic_write_state(state_path, pending.get("next_state") or {"seen": {}, "pending": None})
+        committed = pending.get("next_state") or {"seen": {}, "pending": None}
+        # A retry may arrive days later. Start its reminder timer on successful
+        # delivery, not the failed attempt, so replay cannot trigger a burst.
+        for key in pending.get("announced_keys", []):
+            entry = committed.get("seen", {}).get(key)
+            if isinstance(entry, dict):
+                entry["last_announced_at"] = stamp
+        atomic_write_state(state_path, committed)
         state = load_state(state_path)
 
     problems = check()
-    next_state, announce, cleared = advance(state, problems, clear_confirm_runs=clear_confirm_runs)
+    next_state, announce, cleared = advance(
+        state, problems, clear_confirm_runs=clear_confirm_runs,
+        stamp=stamp, reminder_interval=reminder_interval,
+    )
 
     if announce or cleared:
         text = render(announce, cleared)
@@ -303,6 +338,16 @@ def run_cycle(
         # Write-ahead: pending is durable BEFORE the send is attempted.
         staged = dict(state)
         staged["pending"] = {"event_id": identifier, "text": text, "next_state": next_state}
+        if reminder_interval is not None:
+            # Record only actual announcements, excluding old-state backfills.
+            # Keep default pollers' pending format unchanged.
+            staged["pending"]["announced_keys"] = [
+                key for key, entry in next_state["seen"].items()
+                if "last_announced_at" in entry
+                and (not state["seen"].get(key, {}).get("alerted")
+                     or ("last_announced_at" in state["seen"].get(key, {})
+                         and entry["last_announced_at"] != state["seen"][key]["last_announced_at"]))
+            ]
         atomic_write_state(state_path, staged)
         if not sender(text, identifier):
             return EXIT_UNDELIVERED

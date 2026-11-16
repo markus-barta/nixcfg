@@ -74,6 +74,128 @@ curl -I https://bitwarden.barta.cm  # Bitwarden (expect 200)
 
 ---
 
+## INSPR push relay (OPS-528)
+
+The independent `paimos-push-relay` Compose project is reconciled by
+`compose-paimos-push-relay.service`, using
+`/etc/compose/paimos-push-relay/docker-compose.json`. It joins the external
+`relay-ingress` network owned by project `csb0`; its stable state volume is
+`paimos-push-relay-data`. Image/key changes restart only this unit. Traefik's file
+routes stay installed during relay stop/remove/recreate, including before key
+provisioning. No public `/healthz` route exists.
+
+The unit, Compose file and agenix declaration exist only after
+`secrets/csb0-push-relay-apns-key.age` is sealed for `markus ++ csb0`.
+`hosts/csb0/push-relay.nix` must also contain verified ten-character uppercase
+alphanumeric `apnsKeyId` and `appAttestAppIdPrefix`; empty values fail the NixOS
+assertion when the ciphertext exists. The key is materialized as UID/GID 65532,
+mode 0400, and mounted read-only. Private GHCR pull access requires the token
+declaration from PR #1245; a NixOS assertion blocks deployment without it. Docker
+login is per unit, never daemon-wide: the relay logs in as `markus-barta` using
+`/run/agenix/csb1-inspr-site-ghcr-pull` and its own `DOCKER_CONFIG` at
+`/run/compose-paimos-push-relay-docker-auth` (0700, umask 077). It removes
+`config.json` after a successful start; systemd removes the runtime directory
+when the unit stops. Verify private pulls in the reviewed switch window.
+
+The key was sealed on 2026-11-10. The sealing procedure uses `age -R` with the
+recipient list from an existing exact `markus ++ csb0` entry, such as
+`csb0-recovery-password.age` in `secrets/secrets.nix`:
+
+```bash
+# From the nixcfg root; relay_plaintext names the securely staged APNs key.
+recipients="$(mktemp)"
+nix eval --impure --json --expr '(import ./secrets/secrets.nix)."csb0-recovery-password.age".publicKeys' |
+  jq -r '.[]' > "$recipients"
+age -R "$recipients" -o secrets/csb0-push-relay-apns-key.age "$relay_plaintext"
+```
+
+On csb0, prove host-key decryption without displaying plaintext; return only
+the SHA-256 and compare it with the securely recorded original:
+
+```bash
+set -o pipefail
+sudo age --decrypt -i /etc/ssh/ssh_host_ed25519_key secrets/csb0-push-relay-apns-key.age | sha256sum
+```
+
+After successful proof, dispose of the plaintext on the sealing machine:
+
+```bash
+p="$(realpath "$relay_plaintext")"
+trash "$p"; trash-rm "$p"
+trash-list | grep -F -- "$p"
+```
+
+The verification command must print nothing. Never stage the plaintext in a
+synced or backed-up folder. Then stage the ciphertext for review.
+The 2026-11-10 procedure included that proof and plaintext disposal. Keep the
+conditional rule in `secrets/secrets.nix`:
+`agenix -e` cannot create this initially absent conditional entry, and a global
+rekey must not create a placeholder that enables the relay.
+
+Tmpfiles pre-creates `hosts/csb0/docker/traefik/acme-http.json` on csb0 as a
+root-owned regular file, mode 0600, before Compose (without truncating existing
+state); the path is gitignored. Verify it is a file before the first route switch.
+`public-http` uses HTTP-01 on `web` and this separate writable state file;
+preserve existing ACME state.
+Before any switch that installs these routes, require
+`dig +short push.inspr.at` to return `89.58.63.96`, confirm the record is
+DNS-only (grey cloud), and require no AAAA record unless csb0 serves IPv6.
+INSPR-589 owns the record. HTTP-01 starts as soon as the routes load, so unmet
+DNS preconditions can consume the certificate validation budget. Verify the
+live Traefik version supports per-router observability controls. Forwarded
+headers stay untrusted.
+
+First installation requires a JOED/coordinator-controlled window. The reviewed
+switch starts the relay before its state is initialized: the container fails
+closed and Docker restart-loops until `-init-state` has run. Stop reconciliation
+and its project containers, initialize the intended empty volume exactly once,
+clear any systemd start-limit failure, then start:
+
+```bash
+sudo systemctl stop compose-paimos-push-relay
+sudo docker compose -p paimos-push-relay -f /etc/compose/paimos-push-relay/docker-compose.json run --rm --no-deps relay -init-state
+sudo systemctl reset-failed compose-paimos-push-relay
+sudo systemctl start compose-paimos-push-relay
+```
+
+Never put initialization in the daemon command or rerun it to work around
+missing/wrong state. After fixing a failed pull or other unit failure, also run
+`sudo systemctl reset-failed compose-paimos-push-relay` before restarting.
+Real-device App Attest/ownership evidence, the app/switch kit, a backup/restore
+drill and live-host acceptance remain go-live gates.
+
+On csb0, `sudo systemctl status compose-paimos-push-relay` checks reconciliation.
+Use `sudo docker network inspect relay-ingress --format '{{range .Containers}}{{println .Name .IPv4Address}}{{end}}'`
+to find `paimos-push-relay-relay-1`, then query its private bridge address with
+`curl --fail --silent --show-error http://<relay-bridge-ip>:8080/healthz` (drop the
+CIDR suffix). Expect HTTP 200 and inspect disk readiness, registration/proof
+counts, and `apns_auth_status`/`apns_auth_reason` privately. APNs 403 can coexist
+with HTTP 200; health does not contact Apple.
+
+Outside acceptance: `curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' --request POST --data '' https://push.inspr.at/p/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`.
+This is an unknown, 43-character capability: expect **410** when ready,
+**502/503** while stopped/removed/unready, **never 404**. Verify continuously
+through relay stop/remove/recreate/start and a Traefik recreate. While the
+outside check runs continuously, on csb0 run
+`sudo flock -w 570 /run/lock/compose-csb0.lock docker compose -p csb0 -f /etc/compose/csb0/docker-compose.yml --project-directory /home/mba/Code/nixcfg/hosts/csb0/docker up -d --no-deps --force-recreate traefik`.
+Traefik startup may expose an approximately two-second 404 window while its
+providers load; acceptance still requires no 404 on `/p/`. Record any 404 and
+hold go-live for coordinator review. Keep the existing `compose-csb0`
+`postRecreate` sequence. Keep access logging, tracing, request capture and debug
+logging off. Do not test public `/healthz` as readiness.
+
+Rollback: stop `compose-paimos-push-relay`, select the previous reviewed digest
+in `hosts/csb0/docker/push-relay-compose.nix`, and use the normal reviewed switch
+flow. The unit's stop action removes only its project containers; it preserves
+the external network, named volume and Traefik routes. For a schema rollback,
+retain the stopped current volume and restore a compatible offline backup into
+a new volume; run `/relay -reset-restored-state` against the restored data before
+serving traffic (old bindings must return 410). Never use `down -v`, reinitialize
+a populated volume, or replay restored bindings. Exercise backup/restore and
+record retained image/volume identities in the switch kit before go-live.
+
+---
+
 ## Common Tasks
 
 ### Update & Switch Configuration
@@ -352,11 +474,13 @@ TOKEN=$(curl -s 'https://servercontrolpanel.de/realms/scp/protocol/openid-connec
 ### What Gets Backed Up
 
 ```
-✅ /var/lib/csb0-docker - ALL Docker volumes & data
-✅ /home/mba/Code/nixcfg - System configuration (via git)
+✅ /var/lib/docker/volumes - Docker volumes
+✅ /var/lib/joe-board - JoeDesk store (OPS-529)
+✅ /var/lib/csb0-docker - Cold pre-upgrade tarballs, status files
+✅ /home - Home directories
 ✅ /root - Root user data
 ✅ /etc - System configuration
-❌ Exclusions: */cache/*, *.log*
+❌ Exclusions: */cache/*, *.log*, /var/lib/joe-board/*.next
 ```
 
 ### Check Backup Status
@@ -618,6 +742,8 @@ the previous SSO policy; OPS owns execution and live verification.
 - URL: https://cs0.barta.cm/joe/ (oauth2-proxy)
 - Inbox: POST https://cs0.barta.cm/joe/inbox (Bearer; agenix `joe-board-push-token`)
 - Service: `joe-board` compose build `./joe-board`; data `/var/lib/joe-board`
+- Backup: nightly restic (OPS-529), so up to 24 h of history can be lost. `data-state.json`, `results-state.json` and `feed-rejections.json` come back from hsb0's next push; history, account closes and fleet config do not rebuild.
+- Restore: to a new directory with the board stopped, then `prepare-data backup --offline RESTORED NEW v2` and `verify --offline NEW`, with the same or a newer board image.
 - Security: `hosts/csb0/docker/joe-board/SECURITY.md`
 - Producer: hsb0 `joe-board-pusher` every 30s (paper 4002 only)
 
@@ -695,8 +821,13 @@ The OPS-354 activation (with the OPS-408 r17 producer flip) sets `active = v2`;
 it merges only as the cut-over's merge_sha under the hsb0/csb0 freeze and is not
 itself permission to switch. The rollback board is db621bf (legacy `calendar`,
 26.09.21.12.00, sequence 23, no matching tag). The
-active v2 source is main daa49125c26af7fd4e19855327fd01f5eabf23d5
-(JoeDesk publication PR #140, JOED-172 release 41: board only, contracts unchanged from release 40; JOED-170 faster Results switching, legacy-identical); supersedes
+active v2 source is main 6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7
+(JoeDesk publication PR #158, release PR #157, JOED-193 release 46: changes only CI checks, board behaviour and contracts unchanged from release 45; JOED-190 sharded signed-out matrix, JOED-191, JOED-192 push Results plan + nightly full Results); supersedes
+6ba8051a / 261109023132.0.0 / sequence 45, live 2026-11-09T08:53:35Z (JoeDesk publication PR #152, release PR #151, JOED-189 release 45: changes only CI checks, board behaviour and contracts unchanged from release 44; JOED-187 CI timing guards scale with the calibrated probe slowdown),
+fa97f884 / 261104111323.0.0 / sequence 44, live 2026-11-08T11:31:16Z (JoeDesk publication PR #150, release PR #149, JOED-183 release 44: changes the board only, contracts unchanged from release 43; JOED-185 honest account chart; Signal Tuesday edition 3 CI work, JOED-178–182, 184, 186, 188),
+36fecfeb / 261101023838.0.0 / sequence 43, live 2026-11-01T11:14:45Z (JoeDesk publication PR #144, release PR #143, JOED-177 release 43: changes the board only, contracts revision 11 accepted beside revision 10, pusher unchanged; JOED-173 honest signed-out board, frozen and never readable as live; JOED-175 sign-in check across a restored tab; JOED-149 desk DAY fx proof accepted, not yet emitted),
+a76621e4 / 261031052151.0.0 / sequence 42, published, never live: its only switch (2026-10-31T16:55Z) rolled back on feeds_not_ready (JoeDesk publication PR #142, release PR #141, JOED-174 release 42),
+daa49125 / 261030154842.0.0 / sequence 41, live 2026-10-31T05:04:23Z (JoeDesk publication PR #140, release PR #139, JOED-172 release 41: JOED-170 faster Results switching, legacy-identical),
 2ad81321 / 261030085000.0.0 / sequence 40, live 2026-10-30T11:34:29Z (JoeDesk publication PR #138, release PR #137, JOED-171 release 40: release-39 follow-ups JOED-158, JOED-168 and JOED-169),
 95aa9342 / 261029192345.0.0 / sequence 39, live 2026-10-30T08:44:03Z (JoeDesk publication PR #136 (first publication #133), release PRs #132 and #134, JOED-159 release 39: board only, contracts unchanged from release 37; the JOED-144 board redesign (whole-account chart, History minimap and natural zoom, session-dated Desk, Results redesign, honest reasons and a quieter board, account start in Settings, backups covering the new stores) with sweeps 2 and 3 from the never-deployed release 38 (JOED-129–134, JOED-140–142)),
 9ec65b46 / 261029075623.0.0 / sequence 38, published, never deployed,
@@ -708,25 +839,41 @@ e96ff9a5 / 261026070713.0.0 / sequence 33, live 2026-10-26 20:06Z,
 8be38581 / 261025221940.0.0 / sequence 32, live 2026-10-26,
 20c37cdd / 261025144826.0.0 / sequence 31, live 2026-10-25 21:22Z,
 d4eb6627 / sequence 30, cdf843a5 / sequence 29, a60f4c56 / sequence 28,
-040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree 82c700f01a001ec946b892cf8e62b38c2336734e,
-`inspr-calver-3` / 261030154842.0.0 / sequence 41. Version and sequence come
-from that checkout's `release.json` and `release/preparation.json` (JOED-172 preparation; JOED-171 was the previous release set).
-The release set comes from JoeDesk main CI run `41131164446` (all green, reproducible identical);
+040d6756 / sequence 27, 6eacd6c7 / sequence 26 and d36b5295 / sequence 25), tree 5bbc00a017ac63595361793d2bf24c2a54c23eee,
+`inspr-calver-3` / 261111154448.0.0 / sequence 46. Version and sequence come
+from that checkout's `release.json` and `release/preparation.json` (JOED-193 preparation; JOED-189 was the previous release set).
+The release set comes from JoeDesk main CI run `43171447809` attempt 1 (all green, reproducible identical);
 `release-set.json` SHA256 is
-`cc784dfcac2fb31aa8d47718e0c706817439336d4938c175a168f879e78bedb1`.
-Image `csb0-joe-board:source-daa49125c26af7fd4e19855327fd01f5eabf23d5`
-has digest `sha256:f378c84bd73dddb58b3f5478ad3f5a51c5ccfbab1f4055f08fc7a538677d6352`.
-Board-only rollback of this re-pin: revert the JOED-172 PR and switch csb0; with `pull_policy = never` the
-retained tag `csb0-joe-board:source-2ad813216785f7b6fd4b506a26b9a7bc29d72ebc` (sequence 40, local image
-`sha256:f79f59112f7965c290fbc3288cb7a4ef1c64bdfb89fbaeae3acadfaa6095fc5b`) is reused, no build.
+`4a5f8831206f67df76b46fea73c7b6526b21b1311fe6c06101c062602f757944`.
+Image `csb0-joe-board:source-6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7`
+has digest `sha256:4b727ff803d9e3c68515c22afa96918ad7b62e9f7deebce0e78745af2b02dc62`.
+Board-only rollback of this re-pin: revert the JOED-193 PR and switch csb0; with `pull_policy = never` the
+retained tag `csb0-joe-board:source-6ba8051af1108cd35ee6fb6e3cd51a94474f6d24` (sequence 45, image digest
+`sha256:4ecb24c59e16067f97a88a14f357c75612dca12f603c9dd4565b8886a9fd5a85`) is reused, no build.
 db621bf stays the v1 rollback.
-Contracts manifest revision 10 has set SHA256
-`3a9e1ae4ff24e063c38d6b7f77844ec03e03c9602d84421393010efacf244350`;
+Contracts manifest revision 11 has set SHA256
+`c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`;
 `release/contracts.json` SHA256 is
-`702b3cff10efec16048597c89f6cc05413792ec498f18190c41b5b2076c80117`.
-The board accepts revision-9 payloads. The hsb0 pusher/executor retain the r20e
-pins with revision 9 still the default; Phase B activation and producer
-sign-off remain separately owned under JOED-86.
+`de73dcc195e3054bb0ea53882c994f7255adb3f5567e5af1adb9eb6069c19747`.
+The board accepts revision-11, revision-10 and revision-9 payloads. JOED-149
+prepared the hsb0 pusher/executor image `household-v2-switch-set-r21-202611031258`
+from nixcfg `729ddf040951a5a0f4ee3acada8613d62255227e`, with the complete vendored
+revision-11 set `c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49b`
+and revision 11 configured for pusher and stager. OPS-557/OPS-567 selected
+`household-v2-switch-set-r22-202611102200` from nixcfg
+`0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (same vendored set and revision);
+OPS-556 now selects `household-v2-switch-set-r23-202611131200` from nixcfg
+`5b754845115206c7d8469b1629eb644874f32185`, pusher tree
+`fc9f97db3b022df988bbd473481404611b1df111`; r22 is the shared-image rollback
+(`sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`).
+This is deploy step 2: the first-day pin remains null. No board field or input changes. Revision 10 is an explicit
+rollback setting; revision 9 remains the fallback. Image build, host activation
+and live producer sign-off remain separate gates. This pusher-family pin change
+preserves every board entry, the joedesk flake input and csb0 Compose declaration.
+csb0 reads only the active selector and selected board revision/image from this
+file; the pusher/executor fields are hsb0 consumers. A new nixcfg merge still
+changes csb0's toplevel metadata through `system.configurationRevision` and
+Pharos deployment evidence, so Compose equality is not full derivation equality.
 Reuse JOED-26's approved adoption scope; live adoption still requires the OPS
 gates below. Upstream `release.json` still describes the source as a candidate;
 the exact main commit and hashes identify the selected source, with OPS still

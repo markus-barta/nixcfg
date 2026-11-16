@@ -26,11 +26,13 @@ Order of business on every run, and why:
      skipped, not fatal. Pruning never depends on Telegram: an undeliverable
      alert (engine retries pending delivery first) or a missing notification
      target must not stop capacity maintenance.
-  2. REPORT through the engine:
+  2. REPORT through the engine, except journal-only snapshots:
      * tm:<ds>:caps        live refquota/quota differ from tm-caps.nix.
      * tm:<ds>:snapshots   snapshot-held space > half the refquota→quota budget
-                           while real headroom under quota is < HEADROOM_TARGET
-                           (with TM far below its cap the budget is not in play).
+                           while real headroom under quota is < HEADROOM_TARGET.
+                           Log-only (OPS-560, 2026-11-04): the owner wants no
+                           action for normal bundle churn; pruned/prune/headroom
+                           are the paging signals for real capacity trouble.
      * tm:<ds>:pruned      pruning happened (sustained on two runs = pages).
      * tm:<ds>:headroom    still < HEADROOM_MIN with nothing left to prune —
                            raise quota now.
@@ -316,12 +318,10 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
     budget = props["quota"] - props["refquota"]
     if (budget > 0 and props["usedbysnapshots"] > SNAP_WARN * budget
             and headroom(props) < HEADROOM_TARGET):
-        problems.append(Problem(f"tm:{dataset}:snapshots",
-                                f"hsb1: sanoid snapshots hold {gib(props['usedbysnapshots'])} of {dataset}'s "
-                                f"{gib(budget)} snapshot budget (quota − refquota) and only "
-                                f"{gib(headroom(props))} is left under quota; tm-watch prunes "
-                                "before ZFS refuses, but the bundle is churning hard — check "
-                                f"`zfs list -t snapshot -r {dataset}` and the Mac."))
+        print(f"hsb1: sanoid snapshots hold {gib(props['usedbysnapshots'])} of {dataset}'s "
+              f"{gib(budget)} snapshot budget (quota − refquota) and only "
+              f"{gib(headroom(props))} is left under quota; normal bundle churn, "
+              "tm-watch manages pruning.")
     # Freshness must never take the capacity findings above down with it.
     try:
         fresh = freshness(path, now)
@@ -415,6 +415,40 @@ def render(announced: list[str], cleared: list[str]) -> str:
     return "\n".join(lines)
 
 
+def retire_snapshot_alerts() -> None:
+    """OPS-560: silently retire log-only keys before the engine can clear them.
+
+    The shared engine has no retirement hook. Clean both its current state
+    and a pending delivery's next_state so a retry cannot restore retired
+    keys. Re-render pending transitions from the remaining keys, preserving
+    unrelated delivery and its event id; commit a retired-only event silently.
+    """
+    state = engine.load_state(STATE_PATH)
+    pending = state.get("pending")
+    next_state = pending.get("next_state") if pending else None
+    retired = {f"tm:{cap['dataset']}:snapshots" for cap in CAPS.values()}
+    changed = False
+    for saved in (state, next_state):
+        if not isinstance(saved, dict):
+            continue
+        for key in retired.intersection(saved.get("seen", {})):
+            del saved["seen"][key]
+            changed = True
+    if not changed:
+        return
+    if isinstance(next_state, dict) and pending.get("text"):
+        before, after = state["seen"], next_state.get("seen", {})
+        announced = [value["text"] for key, value in after.items()
+                     if value.get("alerted") and not before.get(key, {}).get("alerted")]
+        cleared = [value.get("text", key) for key, value in before.items()
+                   if value.get("alerted") and key not in after]
+        if announced or cleared:
+            pending["text"] = render(announced, cleared)
+        else:
+            state = next_state
+    engine.atomic_write_state(STATE_PATH, state)
+
+
 def main() -> int:
     # Capacity maintenance first and unconditionally: the engine retries an
     # undelivered alert before it calls the check, and a missing/unusable
@@ -430,6 +464,7 @@ def main() -> int:
     except ValueError as error:
         print(f"notification target unusable: {error}")
         return engine.EXIT_UNDELIVERED
+    retire_snapshot_alerts()
     return engine.run_cycle(STATE_PATH, time.time(), lambda: problems, render, sender)
 
 

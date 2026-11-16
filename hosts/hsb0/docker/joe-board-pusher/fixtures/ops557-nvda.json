@@ -1,0 +1,62 @@
+{
+  "account": "SYNTHETIC-PAPER",
+  "contract": {
+    "symbol": "NVDA",
+    "conId": 4815747,
+    "currency": "USD",
+    "secType": "STK",
+    "exchange": "SMART",
+    "multiplier": 1
+  },
+  "fills": [
+    {
+      "execId": "ops557.j-open.01",
+      "clientId": 27,
+      "side": "BOT",
+      "shares": 4,
+      "price": 225,
+      "time": "2026-09-22T14:01:06Z"
+    },
+    {
+      "execId": "0000dc8f.6bb0d852.01.01",
+      "clientId": 119,
+      "side": "SLD",
+      "shares": 4,
+      "price": 228.02,
+      "time": "2026-09-23T13:30:04Z"
+    },
+    {
+      "execId": "0000dc8f.6bd3bc59.01.01",
+      "clientId": 229,
+      "side": "BOT",
+      "shares": 1,
+      "price": 241.39,
+      "time": "2026-10-06T13:40:47Z"
+    },
+    {
+      "execId": "ops557.j-close.01",
+      "clientId": 28,
+      "side": "SLD",
+      "shares": 1,
+      "price": 245,
+      "time": "2026-10-06T19:50:52Z"
+    },
+    {
+      "execId": "ops557.joe-open.01",
+      "clientId": 705,
+      "orderId": 557,
+      "side": "SLD",
+      "shares": 4,
+      "price": 230,
+      "time": "2026-10-12T18:54:11Z"
+    },
+    {
+      "execId": "00025b45.6ace1f95.01.01",
+      "clientId": 28,
+      "side": "BOT",
+      "shares": 4,
+      "price": 226.81,
+      "time": "2026-10-12T19:50:12Z"
+    }
+  ]
+}

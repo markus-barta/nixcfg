@@ -9,7 +9,7 @@
         "narHash": "sha256-Y3SfPcVWU60GB5CZy2gvYJQiRSxQLIIX8JCWjAujf3o=",
         "owner": "inspr-at",
         "repo": "paimos",
-        "rev": "73f40e0d89b35eefa7a3159a9fa39eaa48bdd5bf",
+        "rev": "770d6b2ba52ff873adccd42abe09aafa4b9576b2",
         "type": "github"
       },
       "original": {
@@ -454,16 +454,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793389253,
-        "narHash": "sha256-Lj28Mvkj+uT4I0JdW8Re+y9XvT8tLBDLafY+XQn4C+c=",
+        "lastModified": 1794223976,
+        "narHash": "sha256-E4IUlXjPmYvQrLdJ0rp6wVu6vSCWD0gzgWgJw0WR53M=",
         "ref": "refs/heads/main",
-        "rev": "f7af77884cebba3fe95d4d1e193c12bc3fbe0401",
-        "revCount": 1123,
+        "rev": "a4845315324f69617d5319fd47a47dacd7049be1",
+        "revCount": 1468,
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       },
       "original": {
-        "rev": "f7af77884cebba3fe95d4d1e193c12bc3fbe0401",
+        "rev": "a4845315324f69617d5319fd47a47dacd7049be1",
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       }
@@ -663,17 +663,17 @@
     "joedesk": {
       "flake": false,
       "locked": {
-        "lastModified": 1793395636,
-        "narHash": "sha256-0nxKNvJl2z8Q4oHv3M+ZMstU70bpshqe9gDFLr1QIYY=",
+        "lastModified": 1794466485,
+        "narHash": "sha256-S9OW3KuNl8IkUudg8hT+GIx1lFqggFc/8JRVr6de/qQ=",
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "daa49125c26af7fd4e19855327fd01f5eabf23d5",
+        "rev": "6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "daa49125c26af7fd4e19855327fd01f5eabf23d5",
+        "rev": "6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7",
         "type": "github"
       }
     },
@@ -1087,11 +1087,11 @@
     },
     "nixpkgs_7": {
       "locked": {
-        "lastModified": 1789785513,
-        "narHash": "sha256-B44WL6h0XoLjJ41bUPJk0X5SDinLCII//6EcBLXKiJ0=",
+        "lastModified": 1793110635,
+        "narHash": "sha256-dhoW6VgFWlaodSY5jrBn+CF2FLmaUvDVgM7+C7T2+NM=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+        "rev": "31ecbaca1bdefa45dffc409f0250bd8039ea0010",
         "type": "github"
       },
       "original": {

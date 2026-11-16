@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Validate and order Pharos legacy/calendar v1/calendar v2 release metadata.
+"""Validate and order Pharos legacy/calendar v1/calendar v2/CalVer3 release metadata.
 
 PHAROS-259: calendar v2 coordinates are the UTC reservation second as
 YYMMDDhhmmss.0.0. Cross-era ordering is by release sequence only.
+
+PHAROS-345: inspr-calver-3 is a new identifier for that same coordinate, so
+calendar v2 and CalVer3 are one era: same grammar, anchor keys and Cargo
+mapping, ordered against each other. Calendar v2 is closed after CalVer3.
 """
 
 from __future__ import annotations
@@ -21,7 +25,9 @@ LOCAL_SCHEMA = "inspr.pharos.fleet-release.v2"
 RELEASE_SET_SCHEMA = "inspr.pharos.release-set.v1"
 CALENDAR_SCHEME = "inspr-calendar-v1"
 CALENDAR_V2_SCHEME = "inspr-calendar-v2"
-CALENDAR_SCHEMES = {CALENDAR_SCHEME, CALENDAR_V2_SCHEME}
+CALVER3_SCHEME = "inspr-calver-3"
+SHARED_COORDINATE_SCHEMES = {CALENDAR_V2_SCHEME, CALVER3_SCHEME}
+CALENDAR_SCHEMES = {CALENDAR_SCHEME, *SHARED_COORDINATE_SCHEMES}
 LEGACY_SCHEME = "legacy"
 STABLE_CHANNEL = "stable"
 PHAROS_IMAGE = "ghcr.io/inspr-at/pharos/pharosd"
@@ -159,9 +165,15 @@ def scheme_coordinate(scheme: str, value: str) -> tuple[int, int, int, int, int,
 
     if scheme == CALENDAR_SCHEME:
         return calendar_coordinate(value)
-    if scheme == CALENDAR_V2_SCHEME:
+    if scheme in SHARED_COORDINATE_SCHEMES:
         return calendar_v2_coordinate(value)
     raise MetadataError("unsupported_version_scheme")
+
+
+def coordinate_era(scheme: str) -> str:
+    """Name the era whose coordinates order against each other."""
+
+    return CALENDAR_V2_SCHEME if scheme in SHARED_COORDINATE_SCHEMES else scheme
 
 
 def require_exact_keys(value: dict[str, Any], expected: set[str], reason: str) -> None:
@@ -203,7 +215,7 @@ def validate_document(document: dict[str, Any], schema: str) -> dict[str, Any]:
         raise MetadataError("invalid_migration_anchor")
     require_exact_keys(
         anchor,
-        ANCHOR_V2_KEYS if scheme == CALENDAR_V2_SCHEME else ANCHOR_KEYS,
+        ANCHOR_V2_KEYS if scheme in SHARED_COORDINATE_SCHEMES else ANCHOR_KEYS,
         "unexpected_migration_anchor_fields",
     )
     last_legacy = anchor.get("last_legacy_version")
@@ -244,7 +256,7 @@ def validate_document(document: dict[str, Any], schema: str) -> dict[str, Any]:
         if (sequence == first_calendar_sequence) != (coordinate == first_coordinate):
             raise MetadataError("calendar_anchor_mismatch")
     else:
-        # Calendar v2: the record pins the last v1 coordinate/sequence and the
+        # Calendar v2 and CalVer3: the record pins the last v1 coordinate/sequence and the
         # first v2 coordinate/sequence; the coordinate is validated only against
         # the v2 grammar and ordered within the era by its UTC stamp.
         coordinate = calendar_v2_coordinate(version)
@@ -274,7 +286,7 @@ def validate_document(document: dict[str, Any], schema: str) -> dict[str, Any]:
         if document.get("schema_version") != 1:
             raise MetadataError("unsupported_schema_version")
         cargo_version = document.get("cargo_version")
-        if scheme == CALENDAR_V2_SCHEME:
+        if scheme in SHARED_COORDINATE_SCHEMES:
             # A v2 coordinate is itself valid SemVer: the Cargo mapping is the identity.
             expected_cargo_version = version
         else:
@@ -435,9 +447,11 @@ def validate_transition(active: dict[str, Any], candidate: dict[str, Any]) -> No
             raise MetadataError("first_calendar_anchor_changed")
         active_scheme = active["version_scheme"]
         candidate_scheme = candidate["version_scheme"]
-        if active_scheme == CALENDAR_V2_SCHEME and candidate_scheme == CALENDAR_SCHEME:
+        if active_scheme in SHARED_COORDINATE_SCHEMES and candidate_scheme == CALENDAR_SCHEME:
             raise MetadataError("calendar_v1_closed_after_v2")
-        if active_scheme == candidate_scheme:
+        if active_scheme == CALVER3_SCHEME and candidate_scheme == CALENDAR_V2_SCHEME:
+            raise MetadataError("calendar_v2_closed_after_calver3")
+        if coordinate_era(active_scheme) == coordinate_era(candidate_scheme):
             if scheme_coordinate(candidate_scheme, candidate["version"]) <= scheme_coordinate(
                 active_scheme, active["version"]
             ):
@@ -457,7 +471,7 @@ def validate_transition(active: dict[str, Any], candidate: dict[str, Any]) -> No
                 or candidate["release_sequence"] < active["release_sequence"] + 1
             ):
                 raise MetadataError("calendar_v2_anchor_mismatch")
-        if active_scheme == CALENDAR_V2_SCHEME:
+        if active_scheme in SHARED_COORDINATE_SCHEMES:
             for key in (
                 "last_calendar_v1_version",
                 "last_calendar_v1_release_sequence",
@@ -567,13 +581,18 @@ def command_select(args: argparse.Namespace) -> None:
                 != active["migration_anchor"]["first_calendar_version"]
             ):
                 raise MetadataError("first_calendar_anchor_changed")
-            if candidate["version_scheme"] == active["version_scheme"]:
+            if (
+                active["version_scheme"] == CALENDAR_V2_SCHEME
+                and candidate["version_scheme"] == CALVER3_SCHEME
+            ):
+                raise MetadataError("calendar_v2_closed_after_calver3")
+            if coordinate_era(candidate["version_scheme"]) == coordinate_era(active["version_scheme"]):
                 if scheme_coordinate(
                     candidate["version_scheme"], candidate["version"]
                 ) >= scheme_coordinate(active["version_scheme"], active["version"]):
                     raise MetadataError("historical_calendar_order_mismatch")
-            elif active["version_scheme"] != CALENDAR_V2_SCHEME:
-                # Only calendar v1 history may precede a calendar v2 active record.
+            elif active["version_scheme"] not in SHARED_COORDINATE_SCHEMES:
+                # Only calendar v1 history may precede a calendar v2 or CalVer3 active record.
                 raise MetadataError("release_sequence_rollback")
             continue
         validate_transition(active, candidate)
@@ -586,6 +605,7 @@ def command_select(args: argparse.Namespace) -> None:
         raise MetadataError("active_release_set_not_found")
     previous: dict[str, tuple[int, int, int, int, int, int]] = {}
     seen_v2 = False
+    seen_calver3 = False
     for sequence in sorted(by_sequence):
         release = by_sequence[sequence]
         scheme = release["version_scheme"]
@@ -593,11 +613,15 @@ def command_select(args: argparse.Namespace) -> None:
             continue
         if scheme == CALENDAR_SCHEME and seen_v2:
             raise MetadataError("calendar_v1_closed_after_v2")
-        seen_v2 = seen_v2 or scheme == CALENDAR_V2_SCHEME
+        if scheme == CALENDAR_V2_SCHEME and seen_calver3:
+            raise MetadataError("calendar_v2_closed_after_calver3")
+        seen_v2 = seen_v2 or scheme in SHARED_COORDINATE_SCHEMES
+        seen_calver3 = seen_calver3 or scheme == CALVER3_SCHEME
         coordinate = scheme_coordinate(scheme, release["version"])
-        if scheme in previous and coordinate <= previous[scheme]:
+        era = coordinate_era(scheme)
+        if era in previous and coordinate <= previous[era]:
             raise MetadataError("calendar_sequence_order_mismatch")
-        previous[scheme] = coordinate
+        previous[era] = coordinate
     selected = by_sequence[max(by_sequence)]
     write_document(args.output, selected)
 

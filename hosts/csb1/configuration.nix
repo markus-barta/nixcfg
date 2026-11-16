@@ -258,6 +258,7 @@ in
     ./aeon-watch.nix # OPS-307: API 5xx rate plus public DB/authentication-path probes
     ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
     ./fleet-backup-watch.nix # OPS-485: page when a fleet backup has not succeeded within its schedule (reads pharosd's store)
+    ./docker-image-gc.nix # OPS-327: daily GC of unused release images + old build cache (never prune -a)
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -789,9 +790,9 @@ in
     ncps.enable = false; # Cloud server: Never sees hsb0
   };
 
-  # csb1 executes credential retirement for other hosts after their reviewed
-  # removal proposal is deployed. The executor rejects csb1 as its own target.
-  inspr.pharosRetirementExecutor.enable = true;
+  # OPS-514: Janus retirement and provider provisioning are retired. Keep their
+  # configuration and encrypted credentials intact for an attended rollback.
+  inspr.pharosRetirementExecutor.enable = false;
   # PHAROS-199: take the engine image from the same attribute that pins the
   # container, not from a parsed docker-compose.yml — OPS-122 deleted that file
   # on 2026-08-01, and every retirement since failed `missing_engine_image`,
@@ -804,7 +805,7 @@ in
   # key remains root-only in agenix. Paid creation still requires a separate
   # attended review and confirmation in Pharos.
   inspr.pharosProvisioningExecutor = {
-    enable = true;
+    enable = false;
     sshKeyRef = "pharos-csb1-executor";
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
   };
@@ -869,7 +870,7 @@ in
   # Value-free declaration consumed read-only by Pharos. The profile refs are
   # reviewed capabilities, not runtime paths or commands; Janus owns delivery.
   services.janus.managedServiceManifest = {
-    enable = true;
+    enable = false; # OPS-514: Pharos no longer consumes managed declarations.
     hostRef = "host_58f36c72a91e";
     services = [
       {
@@ -897,7 +898,7 @@ in
   # JANUS-365 activation follows the signed v0.1.17 release, closed runtime
   # authorities, immutable release pins, and production readiness review.
   inspr.janusHostSecrets = {
-    enable = true;
+    enable = false; # OPS-514: disables restore, host agent and canary units.
     hostRef = "host_58f36c72a91e";
     scopeRef = "scp_e3b09b6f7b8b2377d8c0e8b904043ef025b68d6b";
     ownerUid = 65534;
@@ -1107,6 +1108,8 @@ in
       # Create runtime directory structure
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
+      # PHAROS-346: the fleet data file, written by mba, read-only in pharosd.
+      "d /var/lib/pharos-fleet 0755 mba users -"
       # Aeon uses gcr.io/distroless/static:nonroot (UID/GID 65532).
       "d ${dockerRoot}/aeon-files 0750 65532 65532 -"
       "d ${dockerRoot}/aeon-postgres-backup-snapshot 0700 root root -"
@@ -1129,6 +1132,9 @@ in
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
+      # Coordination lock for the AEON switch kit and other sessions changing
+      # this host's nixcfg-managed release state. /run/lock is empty after boot.
+      "f /run/lock/aeon-nixcfg.lock 0660 root users -"
       # Central managed-secret custody is private to the exact uid used by the
       # two isolated Janus containers. Plaintext is never stored here.
       "d /var/lib/janus-managed-central 0700 janus-managed-central janus-managed-central -"
@@ -1260,6 +1266,12 @@ in
     "janus/managed/hooks.toml".source = ./docker/janus/managed-service-production/hooks.toml;
     "janus/managed/pharos-verification-keys.json".source =
       ./docker/janus/managed-service-production/pharos-verification-keys.json;
+    # PHAROS-343: pharosd refuses a symlink, so mode makes this a real root-owned
+    # file. It reads the registry once at start.
+    "pharos/host-probes.json" = {
+      source = ./docker/pharos/host-probes.json;
+      mode = "0444";
+    };
     "janus/managed/web-transaction-catalog.json" = {
       source = ./docker/janus/managed-service-production/web-transaction-catalog.json;
       user = "janus-managed-central";
@@ -1308,6 +1320,7 @@ in
   };
 
   systemd.services.janus-managed-central-seed = {
+    enable = false; # OPS-514: preserve custody data without running Janus.
     description = "Seed and validate the Janus managed-secret custody store";
     wantedBy = [ "multi-user.target" ];
     before = [
@@ -1349,6 +1362,7 @@ in
   };
 
   systemd.services.janus-managed-transactiond = {
+    enable = false; # OPS-514: no managed-service transactions after retirement.
     description = "Run the private Janus managed-service transaction boundary";
     wantedBy = [ "multi-user.target" ];
     # The daemon loads these contracts only at startup. Content triggers ensure
@@ -1781,6 +1795,15 @@ in
 
   # Raw GitHub token consumed through pharosd's file-only dispatcher setting.
   # Numeric ownership matches the non-root pharos user in the container image.
+  # PHAROS-344: pharosd runs as 10001:992 and reads this once at start.
+  age.secrets.csb1-pharos-operator-token-hash = {
+    file = ../../secrets/csb1-pharos-operator-token-hash.age;
+    path = "/run/agenix/csb1-pharos-operator-token-hash";
+    owner = "root";
+    group = "pharos-container";
+    mode = "0440";
+  };
+
   age.secrets.csb1-pharos-nixcfg-dispatch-token = {
     file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;
     path = "/run/agenix/csb1-pharos-nixcfg-dispatch-token";

@@ -10,20 +10,22 @@
 ## Aqara Nightlight (OPS-496)
 
 `aqara-nightlight.service` is a native Python service for light and the 25
-built-in sounds on two LAN gateways. It uses nixpkgs `python-miio`, not HA or
+built-in sounds on three LAN gateways. It uses nixpkgs `python-miio`, not HA or
 Zigbee2MQTT. The page labels **KI-18FB** (`plug`, `192.168.1.106`,
-Kinderzimmer nightlight) and **WZ-594F** (`round`, `192.168.1.108`) map to stable
-API handles. On first visit the responsive page starts in Kind with KI-18FB
+Kinderzimmer nightlight), **WZ-594F** (`round`, `192.168.1.108`, Wohnzimmer) and **KG-5632**
+(`kg`, `192.168.1.107`, KG = Kinderzimmer Groß) map to stable API handles.
+On first visit the responsive page starts in Kind with KI-18FB
 selected; hub choice, Kind/Erwachsen and Hell/Dunkel are device preferences.
 Switching out of Kind or opening its loud tones requires a one-second hold.
 Brightness and colour drags coalesce at one command per second and send the final release value; readback is marked ≈ because hardware values can lag. The default
-Nachtlicht is **5C0701 at 44%** for both hubs; tone volume starts at 15%.
+Nachtlicht is **5C0701 at 44%** for all three hubs; tone volume starts at 15%.
 The HTML is a separate self-contained file packaged by Nix and read once at
 service startup (`AQARA_PAGE_FILE`); it uses system fonts and inline SVG with
 no external assets.
 
-Same-origin localStorage keys `nightlight-hub`, `nightlight-mode` and
-`nightlight-theme` hold only these interface choices. The page reads them on
+Same-origin localStorage keys `nightlight-hub`, `nightlight-mode`,
+`nightlight-theme`, `nightlight-tab-plug`, `nightlight-tab-round` and
+`nightlight-preview-paused` hold only requested interface choices. The page reads them on
 load and writes them when the user changes a choice; they remain until site data
 is cleared. Storage failures retain the first-visit defaults. Requests go only
 to this service's same-origin API; saved Nachtlicht presets remain on the server.
@@ -33,7 +35,7 @@ and <http://127.0.0.1:8765/> on hsb1. Port 8765 has no other checked-in hsb1
 listener. There is no public proxy, DNS route or login. The host firewall is
 disabled for HomeKit: its `allowedTCPPorts` entry is documentation only.
 Explicit loopback/LAN/tailnet binds, systemd `IPAddressDeny=any` with
-loopback/LAN/tailnet and both hub addresses allowed, and an HTTP peer
+loopback/LAN/tailnet and all three hub addresses allowed, and an HTTP peer
 allowlist enforce the service boundary. IP rules apply in both directions;
 the gateways remain reachable on UDP 54321. The host declares no outbound
 port restriction; systemd's address rules do not restrict destination ports.
@@ -43,9 +45,11 @@ The HTTP Host allowlist accepts `127.0.0.1`, `localhost`, `192.168.1.101`,
 match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**. These checks are defence in depth because browsers can omit
 Origin and fetch metadata on plain HTTP. Every acting endpoint (`/set`,
-`/tone`, `/stop`, `/preset`, `/apply`, `/settings`, `/seen`, `/signal-test`) requires exactly one
+`/tone`, `/stop`, `/preset`, `/apply`, `/settings`, `/seen`, `/signal-test`, `/desk`, `/desk-test`) requires exactly one
 `X-Nightlight: 1` header; absent, duplicated or invalid headers return **403**.
-Actions accept **GET or POST** for this release. **GET-with-header is deprecated**
+Existing actions accept **GET or POST**. `/desk` and `/desk-test` require POST
+with exactly one `X-Nightlight-Mode: erwachsen` and a JSON body; query strings
+are refused. **GET-with-header is deprecated**
 compatibility for Home Assistant's existing `rest_command`; new callers and
 the UI use POST. The custom header is the CSRF protection. `/`, `/get` and
 `/presets`, `/config` and `/signal` remain read-only GETs without it. POST to these read-only paths returns 405. Cross-origin scripts need a preflight to send the custom header; **OPTIONS
@@ -55,32 +59,36 @@ Hosts or ports are rejected too. Linux `IP_FREEBIND` keeps LAN/loopback
 available while the tailnet address is absent. Empty or wildcard bind
 addresses fail startup before any listener opens.
 
-| Method      | Path           | Parameters                                            | Behavior                                        |
-| ----------- | -------------- | ----------------------------------------------------- | ----------------------------------------------- |
-| GET         | `/`            | —                                                     | Responsive Nachtlicht/Desk UI                   |
-| GET or POST | `/set`         | `hub`, `rgb`, `bri`                                   | Manual light; one 300 ms echo                   |
-| GET         | `/get`         | `hub`                                                 | Approximate RGB/illumination readback           |
-| GET or POST | `/tone`        | `hub`, `id`, optional `vol`, `ms=200..3000`           | Play; optional timed stop                       |
-| GET or POST | `/stop`        | `hub`                                                 | Stop; cancel timed stop                         |
-| GET         | `/presets`     | —                                                     | Ordered `[{id,name,rgb,bri}]` per hub           |
-| GET or POST | `/preset`      | `hub`, `id` plus colour/name/reset/delete, or `new=1` | Save/manage up to six places; no light command  |
-| GET or POST | `/apply`       | `hub`, `preset=<id>`                                  | Apply any saved place; HA-compatible JSON       |
-| GET         | `/config`      | —                                                     | Per-hub Verwendung, rules, thresholds and sound |
-| GET or POST | `/settings`    | `hub`, setting fields                                 | Persist use, rules or sound                     |
-| GET         | `/signal`      | `hub`                                                 | Resolved signal, counts and last hub ACK        |
-| GET or POST | `/seen`        | `hub`                                                 | Quiet until a new held generation               |
-| GET or POST | `/signal-test` | `hub`, `rule`, optional rule fields                   | Ten-second preview, then live signal            |
+| Method      | Path           | Parameters                                            | Behavior                                           |
+| ----------- | -------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| GET         | `/`            | —                                                     | Responsive Nachtlicht/Desk UI                      |
+| GET or POST | `/set`         | `hub`, `rgb`, `bri`                                   | Manual light; one 300 ms echo                      |
+| GET         | `/get`         | `hub`                                                 | Approximate RGB/illumination readback              |
+| GET or POST | `/tone`        | `hub`, `id`, optional `vol`, `ms=200..3000`           | Play; optional timed stop                          |
+| GET or POST | `/stop`        | `hub`                                                 | Stop; cancel timed stop                            |
+| GET         | `/presets`     | —                                                     | Ordered `[{id,name,rgb,bri}]` per hub              |
+| GET or POST | `/preset`      | `hub`, `id` plus colour/name/reset/delete, or `new=1` | Save/manage up to six places; no light command     |
+| GET or POST | `/apply`       | `hub`, `preset=<id>`                                  | Apply any saved place; HA-compatible JSON          |
+| GET         | `/config`      | —                                                     | Per-hub Verwendung, rules, thresholds and sound    |
+| GET or POST | `/settings`    | `hub`, setting fields                                 | Persist use, rules or sound                        |
+| GET         | `/signal`      | `hub`                                                 | Resolved signal, counts and last hub ACK           |
+| GET or POST | `/seen`        | `hub`                                                 | Quiet until a new held generation                  |
+| GET or POST | `/signal-test` | `hub`, `rule`, optional rule fields                   | Ten-second preview, then live signal               |
+| POST        | `/desk`        | JSON desk metadata, optional write-only `key`         | Add/save/replace/remove, capability check required |
+| POST        | `/desk-test`   | JSON desk metadata, optional write-only `key`         | Counts-only capability check, no persistence       |
 
-All acting calls need `X-Nightlight: 1`; parameters remain in the query string
-for both methods. Prefer `-H 'X-Nightlight: 1' -X POST` with curl. `/apply`
+All acting calls need `X-Nightlight: 1`; existing action parameters remain in the
+query string for both methods. Desk credentials travel only in the JSON body.
+Prefer `-H 'X-Nightlight: 1' -X POST` with curl. `/apply`
 works from `127.0.0.1` with the header and no Origin or extra CSRF token,
 including HA's legacy GET caller. An unknown or missing saved preset returns
 `ok:false` without sending anything to the hub.
 
 `/var/lib/aqara-nightlight/presets.json` is the server's source of truth for
 both the page and HA's Kinderzimmer double-press/Gute-Nacht actions. A missing
-file supplies the defaults for both hubs; an absent entry in an existing file
-is unsaved. Saves use a separate stable `presets.json.lock` and an atomic,
+file supplies the defaults for all three hubs. Missing KG in an existing file
+uses defaults in memory; an absent plug/round entry remains unsaved.
+Saves use a separate stable `presets.json.lock` and an atomic,
 private file replacement, with file/directory sync. Corrupt state fails closed
 rather than silently applying defaults or overwriting it. The old single-Nachtlicht file migrates atomically and losslessly to named slots
 `nacht`, `p2`–`p6`; IDs stay fixed and `nacht` cannot be deleted. The page offers
@@ -102,14 +110,30 @@ do not replace a newer command's status. The CSP permits only the packaged
 script's SHA-256 hash, inline styles and same-origin connections/SVG references.
 No handshake token or raw library exception is logged.
 
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Use,
-11 matrix rules, four-hour urgency thresholds and automatic audio are persisted
-in `settings.json`. Until the separately owned poller supplies the documented
-`desk-counts.json` input, the Desk hub stays **Unbekannt** at 5%, and both desk
-rows say “nicht verbunden”. This service has no Desk credentials or poller.
+KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use. Version 33
+settings store zero or more desks, three shared urgency rules, Ruhe/Unbekannt,
+optional per-desk overrides, multiple-colour policy, four-hour urgency thresholds
+and automatic audio. Desk colours come from the desk. The highest urgency wins;
+multiple desks at that urgency cycle their colours at one colour per Takt or use
+an explicit shared colour. Single-desk overrides set brightness/mode/Takt;
+simultaneous desks use the shared urgency behaviour. Until OPS-502 supplies the
+documented `desk-counts.json` input, the Desk hub stays **Unbekannt** at 5%, and
+each desk row says **keine Daten**. A fresh installation starts with zero desks,
+also Unbekannt. There is no poller or outbound Desk call in this revision.
+Key tests/saves fail closed until a reviewed counts-only capability verifier
+exists; connectivity alone cannot prove restricted scope. Runtime key storage
+and request boundaries are covered with obvious fake credentials offline.
 Automatic sound starts off, is capped at 15%, never repeats a consumed held
 generation, and is limited to once per ten minutes. Vienna quiet hours
 20:00–07:30 disable animation/audio and hold lit rules at 5%.
+
+Existing two-hub v3.3 `settings.json` and preset arrays remain valid. A missing
+`kg` gets defaults in memory; reads never write those files, and the first explicit
+write to each file persists KG while retaining plug/round entries. Background
+sound-generation writes never persist a missing KG entry. KG has the neutral v3.3
+fields: no desks or keys, empty thresholds/generation maps and automatic sound off.
+KG has no brightness cap (100%); WZ retains its 50% cap. No automations are added.
+Back up settings and presets before activation for a two-hub rollback.
 
 Each hub has a lock and a dedicated bounded signal worker. Blink/alternate ticks
 send one attempt, skip busy hubs, and have a 2–5 s Takt. Manual commands pause the
@@ -121,7 +145,8 @@ progress. Drags wait for replies, coalesce and stay at one per second.
 
 The shared counter reserves blocks of 256 monotonic wire IDs, with file and
 directory sync per block; restart discards unused IDs. It bypasses python-miio's
-internal 9999 wrap. Preserve `msgid`, `msgid.lock`, presets and settings; never
+internal 9999 wrap. All three hubs share `msgid`; there is no per-hub counter or
+9999 ceiling (the limit remains 2147483000). Preserve `msgid`, `msgid.lock`, presets and settings; never
 restore an older counter. Old code cannot read new preset arrays, so rollback
 requires a reviewed compatibility plan. See the [runbook](RUNBOOK.md#round-4-api-and-timing)
 for API details, retry budgets, the exact feed schema and poller ownership.
@@ -688,8 +713,8 @@ The FLIRC is on **hsb1** via the native `ir-bridge` systemd service — IR → {
                                                          │
                         ┌────────────────────────────────▼─────────────────┐
                         │  VLC (kiosk user, fullscreen)                    │
-                        │  - Telnet interface on localhost:4212            │
-                        │  - Password from /run/agenix/hsb1-tapo-c210-env  │
+                        │  - Telnet interface on 127.0.0.1:4212 only        │
+                        │  - Fresh private runtime password each launch    │
                         │  - Shows RTSP camera stream                      │
                         └──────────────────────────────────────────────────┘
 ```
@@ -702,30 +727,44 @@ The FLIRC is on **hsb1** via the native `ir-bridge` systemd service — IR → {
 | **Node-RED Flow**   | `~/docker/mounts/nodered/data/flows.json` | Listens for button, publishes MQTT     |
 | **MQTT Topic**      | `home/hsb1/kiosk-vlc-volume`              | Message bus for volume commands        |
 | **systemd service** | `mqtt-volume-control.service`             | Bridge between MQTT and VLC telnet     |
-| **VLC Telnet**      | `localhost:4212`                          | Accepts `volume N` commands            |
+| **VLC Telnet**      | `127.0.0.1:4212`                          | Local-only `volume N` commands         |
 | **VLC Display**     | X11 kiosk session                         | Shows camera on attached monitor       |
 
 ### MQTT Message Format
 
 ```bash
+# On hsb1 while mqtt-volume-control is running; credentials stay in its
+# kiosk-owned options file (0600 inside a 0700 runtime directory).
 # Mute (volume 0)
-mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "0"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "0"
 
 # Full volume (512)
-mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "512"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "512"
 
 # 50% volume (256)
-mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "256"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "256"
 ```
 
 ### Files Involved
 
-| File                               | Purpose                                            |
-| ---------------------------------- | -------------------------------------------------- |
-| `/run/agenix/hsb1-mqtt-client-env` | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS) |
-| `/run/agenix/hsb1-tapo-c210-env`   | VLC telnet password                                |
-| `configuration.nix`                | systemd service definition                         |
-| `flows.json`                       | Node-RED automation                                |
+| File                                           | Purpose                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `/run/agenix/hsb1-mqtt-client-env`             | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS)                             |
+| `/run/mqtt-volume-control/mosquitto.options`   | Private MQTT options for the volume listener                                   |
+| `/run/babycam-watchdog-mqtt/mosquitto.options` | Private MQTT options recreated on each watchdog run                            |
+| `/run/user/1001/kiosk-vlc/telnet-password`     | Random VLC control password, rotated on each autostart                         |
+| `/run/user/1001/kiosk-vlc/vlcrc`               | Generated VLC settings, including loopback bind and preserved audio processing |
+| `configuration.nix`                            | systemd service definition                                                     |
+| `flows.json`                                   | Node-RED automation                                                            |
+
+The two MQTT units have separate systemd runtime directories (0700), and unset
+`MQTT_PASS` after writing their options files with umask 077. VLC's runtime
+directory is also 0700; its password and config are 0600. Never print these files
+or inspect process command lines. The launcher marks its VLC with the harmless
+window-title argument `--video-title=hsb1-kiosk-babycam`; liveness checks use that
+marker. VLC control no longer uses the Tapo camera credential. The generated
+config preserves all nine former host-only settings, including equalizer and
+compressor values; edit their source in `files/kiosk-autostart.sh`.
 
 ### Troubleshooting
 
@@ -737,10 +776,17 @@ systemctl status mqtt-volume-control
 journalctl -t mqtt-volume-control -f
 
 # Test MQTT manually
-mosquitto_pub -h hsb1 -t "home/hsb1/kiosk-vlc-volume" -m "256"
+sudo -u kiosk mosquitto_pub -o /run/mqtt-volume-control/mosquitto.options -t "home/hsb1/kiosk-vlc-volume" -m "256"
 
-# Test VLC telnet directly
-echo -e "PASSWORD\nvolume 256\nquit" | nc localhost 4212
+# Test VLC telnet status without exposing the password in argv or logs.
+# No trailing quit: VLC can close before flushing its response.
+sudo -u kiosk bash -c '
+  IFS= read -r vlc_password </run/user/1001/kiosk-vlc/telnet-password || exit 1
+  printf "%s\nstatus\n" "$vlc_password" | timeout 10 nc -q 2 127.0.0.1 4212
+'
+
+# Must show 127.0.0.1:4212 only (no wildcard or IPv6 listener).
+ss -H -ltn 'sport = :4212'
 ```
 
 ### ✅ Migration Complete (2025-11-28)
@@ -764,7 +810,7 @@ The kiosk display (babycam) may go blank after `nixos-rebuild switch`:
 sudo systemctl restart display-manager.service
 
 # Verify VLC is running
-pgrep -a vlc
+pgrep -u kiosk -f -- '--video-title=hsb1-kiosk-babycam( |$)'
 ```
 
 ### Known Non-Critical Warnings

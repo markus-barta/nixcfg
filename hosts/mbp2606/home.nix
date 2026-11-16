@@ -115,6 +115,9 @@ in
   services.aeonRemoteGuard = {
     enable = true;
     browserMax = 2; # OPS-409: two browsers share the existing two-new-unit cap.
+    aitNewMax = 6; # OPS-599: Desk 7e63f179 confirmed (use mbp2606 fully); admit up to 6 new AIT units.
+    unitsNewMax = 6; # OPS-599: Desk 7e63f179 confirmed (use mbp2606 fully); raise the shared new-unit ceiling to 6.
+    unitsTotal = 7; # OPS-599: Desk 7e63f179 confirmed (use mbp2606 fully); = unitsNewMax + 1 finishing slot.
   };
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;

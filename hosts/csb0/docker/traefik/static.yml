@@ -33,7 +33,6 @@ providers:
   file:
     directory: /etc/traefik/dynamic
     watch: true
-    filename: dynamic.yml
 
 certificatesResolvers:
   default:
@@ -45,6 +44,17 @@ certificatesResolvers:
       dnsChallenge:
         provider: cloudflare
         delayBeforeCheck: 0
+
+  public-http:
+    acme:
+      email: markus@barta.com
+      storage: /etc/traefik/acme/acme-http.json
+      httpChallenge:
+        entryPoint: web
+
+# Capability-bearing routers must never use debug/request capture.
+log:
+  level: ERROR
 
 api:
   dashboard: false

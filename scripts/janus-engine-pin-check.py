@@ -2,7 +2,7 @@
 """Verify retained engine pins and Janus retirement without starting containers.
 
 Exit 0: correct; 1: drift or failed verification; 2: unavailable evidence/tooling.
-The staged pin is also Pharos's production renderer/retirement engine. It need
+The staged pin is also the retained Pharos renderer/retirement engine. It need
 not equal transactiond's separately admitted pin or the newest upstream release.
 """
 
@@ -50,11 +50,13 @@ in {
   };
   managed = {
     inherit (s.janus-managed-transactiond) image;
+    profiles = s.janus-managed-transactiond.profiles or [];
     network_mode = s.janus-managed-transactiond.network_mode or null;
     environment = builtins.filter
       (v: builtins.match "JANUS_RELEASE_ARTIFACT_DIGEST=.*" v != null)
       (s.janus-managed-transactiond.environment or []);
   };
+  canary = { profiles = s.janus-managed-canary.profiles or []; };
   placeholder = {
     inherit (s.janus-placeholder) image command volumes;
     profiles = s.janus-placeholder.profiles or [];
@@ -145,14 +147,14 @@ def check_local(state, receipt, policy, image_repo=IMAGE, release_repo=REPOSITOR
     require(state["janus"] == {"profiles": ["janus-retired"], "restart": "no"},
             "Janus app must remain profile-gated as retired with restart disabled")
     staged = state["staged"]
-    require(staged["profiles"] == ["janus-engine-staged"]
+    require(staged["profiles"] == ["janus-retired"]
             and staged["network_mode"] == "none"
             and "traefik.enable=false" in staged["labels"]
             and "traefik.enable=true" not in staged["labels"],
             "staged engine must remain profile-gated, networkless and outside Traefik")
     placeholder = state["placeholder"]
-    require(not placeholder["profiles"] and placeholder["restart"] == "unless-stopped",
-            "Janus placeholder must remain active in the normal Compose stack")
+    require(placeholder["profiles"] == ["janus-retired"] and placeholder["restart"] == "unless-stopped",
+            "Janus placeholder must remain retired outside the normal Compose stack")
     require(re.fullmatch(r"caddy:[^@\s]+@sha256:[0-9a-f]{64}", placeholder["image"]) is not None,
             "Janus placeholder must retain a digest-pinned Caddy image")
     require(placeholder["command"] == ["caddy", "run", "--config", "/srv/janus-placeholder/Caddyfile", "--adapter", "caddyfile"]
@@ -164,6 +166,9 @@ def check_local(state, receipt, policy, image_repo=IMAGE, release_repo=REPOSITOR
 
     pins = [parse_pin(state[name]["image"], image_repo) for name in ("staged", "managed")]
     managed = pins[1]
+    require(state["managed"]["profiles"] == ["janus-retired"]
+            and state["canary"]["profiles"] == ["janus-retired"],
+            "managed transaction engine and canary must remain retired")
     require(state["managed"]["network_mode"] == "none",
             "managed transaction engine must remain networkless")
     require(state["managed"]["environment"] == ["JANUS_RELEASE_ARTIFACT_DIGEST=" + managed["digest"]],

@@ -49,7 +49,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/daa49125c26af7fd4e19855327fd01f5eabf23d5";
+      url = "github:markus-barta/joedesk/6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7";
       flake = false;
     };
     # HOSTD-75: boards reconciled with nixcfg (hostdash #26) + HOSTD-37 (#23).
@@ -57,9 +57,18 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 55: v261030181501.0.0 (#321 merge, sequence 125). Contents since 54: HNET-415 slice 5 + blocker fix, HNET-414 fixes; client bundle (web/src), discovery name-tier matching (internal/discovery/match.go), CI job order and release metadata; no nix/module/flake/cmd/go.mod changes, no new option, listener or capability.
+    # HNET pin 60: v261109113223.0.0 (sequence 130). Contents since 59: HNET-469 static HTML sheets
+    # in Smarthome (new sheetsDir option: group hausnetz-sheets, tmpfiles dir 2775 root:hausnetz-sheets,
+    # supplementary group and ReadOnlyPaths on the unit); HNET-329 opt-in FRITZ!Box mesh source
+    # (Markus Desk dacb2bcf: outbound to the configured FRITZ!Box only, off until set up in Settings;
+    # state <data>/fritzbox-source.json, 0600, excluded from backups). HNET-448 adds onFailure (empty
+    # by default), unlimited restart retries and 2s..60s backoff in five steps; HNET-452/476 bound the
+    # leases copy to 30s + 5s stop grace and disable its start limit for DHCP bursts. Also topology,
+    # scan/naming, Smarthome filters and probe/save/stream reliability fixes (release notes).
+    # nix/module.nix, nix/module-test.nix and nix/vm-test.nix changed. Existing units changed as above;
+    # no new units, ports, listeners or capabilities; the opt-in FRITZ!Box source adds an outbound path.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=f7af77884cebba3fe95d4d1e193c12bc3fbe0401";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=a4845315324f69617d5319fd47a47dacd7049be1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
@@ -94,7 +103,7 @@
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
     # NIX-588/589: release 12 (stable107) brings `aeon-agentd pair`; its signed
     # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
-    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 73f40e0d89b35eefa7a3159a9fa39eaa48bdd5bf
+    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 770d6b2ba52ff873adccd42abe09aafa4b9576b2
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.

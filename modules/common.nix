@@ -50,18 +50,13 @@ in
   };
   environment.etc."pharos/deployed-revision".text = config.system.configurationRevision;
 
-  # OPS-424 (CVE sweep 2026-10-22, Markus ppm Desk 485a118d): distrust the eMudhra roots whose compromised
-  # intermediates were used in the October 2026 incident (Mozilla removed them in NSS 3.131.1; G1 stays, as in Mozilla).
-  # Names as in the nss-cacert bundle. Drop once nixpkgs ships nss-cacert >= 3.131.1.
-  security.pki.caCertificateBlacklist = [
-    "emSign ECC Root CA - G3"
-    "emSign Root CA - C1"
-    "emSign ECC Root CA - C3"
-  ];
+  # OPS-424's eMudhra distrust (G3, C1, C3) now comes from nixpkgs nss-cacert 3.131.1 itself; the
+  # interim caCertificateBlacklist was dropped with that bump (OPS-486), because nixpkgs refuses to
+  # blocklist certificates the bundle no longer contains.
 
   # OPS-430 (eMudhra, Python side): nixpkgs certifi uses its own bundle (which still has
   # "emSign ECC Root CA - G3") unless NIX_SSL_CERT_FILE points elsewhere. Point interactive
-  # shells at the system bundle above, which carries the OPS-424 blacklist. Services that load
+  # shells at the system bundle, which no longer carries the distrusted roots. Services that load
   # certifi need the same variable in their own environment (hsb0 uptime-kuma).
   environment.variables.NIX_SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
 

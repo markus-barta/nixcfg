@@ -46,14 +46,16 @@ import json, sys
 c = json.load(sys.stdin)
 s, fw, home = c["service"], c["firewall"], c["home"]
 assert s["enable"] and s["listen"] == "0.0.0.0:8377"
+assert s["allowFrom"] == ["127.0.0.1/32", "::1/128", "172.18.0.0/16"]  # HNET-417: loopback + the bridge nginx dials from
 assert s["firewallInterfaces"] == ["br-+", "docker0"]
 assert s["discovery"] == {"openFirewallMdns": True, "openFirewallSsdp": True, "mdnsInterfaces": ["enp2s0f0"], "passive": True}
+assert s["smarthomeFile"] == "/var/lib/hausnetz-smarthome/automations.json"  # HNET-431: Markus 2026-11-02 17:30, one file, nothing wider
 assert "seed" not in s and "leasesFile" not in s["discovery"] and "extraArgs" not in s and "starlink" not in s
 # HNET-45 (OPS-470): Shelly recovery in heal mode on the USB stick (rtl8192cu, path-based name); credentials only as runtime agenix paths.
 assert s["shellyHeal"] == {"mode": "heal", "interface": "wlp0s26f7u1u3", "addressing": "static", "address": "192.168.33.2/24", "scanInterval": "1m", "wifiSsid": "JHW2211-2.4",
     "wifiPskFile": "/run/agenix/hsb0-hausnetz-wifi-psk", "mqttServer": "192.168.1.101:1883", "mqttUser": "smarthome",
     "mqttPasswordFile": "/run/agenix/hsb0-hausnetz-mqtt-password", "telegramCredentialFile": "/run/agenix/hsb0-hausnetz-telegram",
-    "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow"}, s["shellyHeal"]
+    "allowMacsFile": "/run/agenix/hsb0-hausnetz-shelly-allow", "mqttPresence": True}, s["shellyHeal"]  # HNET-44: Desk b12218e9
 assert c["healSecretModes"] == {n: "400" for n in ("wifi-psk", "mqtt-password", "telegram", "shelly-allow")}, c["healSecretModes"]
 assert fw["enable"] and 8377 not in fw["allowedTCPPorts"] and all(p not in fw["allowedUDPPorts"] for p in (5353, 1901))
 assert c["limits"] == {"MemoryMax": "512M", "CPUQuota": "50%", "Nice": 10}
@@ -124,9 +126,9 @@ fixture = {
             'br-+': {'allowedTCPPorts': [8377]}, 'docker0': {'allowedTCPPorts': [8377]},
             'enp2s0f0': {'allowedUDPPorts': [5353, 1901]}}}},
     'systemd': {'services': {'hausnetz': {'serviceConfig': {
-        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"',
+        'StateDirectory': 'hausnetz', 'ExecStart': '"hausnetz" "--allow-from" "127.0.0.1/32,::1/128,172.18.0.0/16" "--ssdp-port" "1901" "--shelly-heal-mqtt-presence=true" "--passive" "--passive-interfaces" "enp2s0f0"',
         'RestrictAddressFamilies': ['AF_INET', 'AF_INET6', 'AF_NETLINK', 'AF_PACKET', 'AF_UNIX'],
-        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases', 'hausnetz-shelly']}}}},
+        'MemoryMax': '512M', 'CPUQuota': '50%', 'Nice': 10, 'SupplementaryGroups': ['hausnetz-leases', 'hausnetz-shelly', 'hausnetz-smarthome', 'hausnetz-sheets']}}}},
     'environment': {'etc': {'hsb0-home-hausnetz.conf': {'source': '/hosts/hsb0/docker/hsb0-home-hausnetz.conf'}}},
     'nixcfg': {'composeStack': {'extraRestartTriggers': [
         '/hosts/hsb0/docker/hsb0-home-hausnetz.conf', '/hosts/hsb0/docker/hsb0-home-inflight.conf',
@@ -164,9 +166,15 @@ for path, value, failed_check in (
     (('services', 'hausnetz', 'discovery', 'leasesFile'), None, 'leasesFromAdguard'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), [], 'leasesCopyGroupOnly'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases'], 'leasesCopyGroupOnly'),
-    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly', 'wheel'], 'leasesCopyGroupOnly'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly'], 'leasesCopyGroupOnly'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly', 'hausnetz-smarthome'], 'leasesCopyGroupOnly'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'SupplementaryGroups'), ['hausnetz-leases', 'hausnetz-shelly', 'hausnetz-smarthome', 'hausnetz-sheets', 'wheel'], 'leasesCopyGroupOnly'),
     (('services', 'hausnetz', 'discovery', 'passiveInterfaces'), ['enp2s0f0', 'docker0'], 'passiveLanOnly'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901"', 'passiveArgument'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--passive" "--passive-interfaces" "enp2s0f0"', 'mqttPresenceArgument'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--shelly-heal-mqtt-presence=false" "--passive" "--passive-interfaces" "enp2s0f0"', 'mqttPresenceArgument'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--ssdp-port" "1901" "--shelly-heal-mqtt-presence=true" "--passive" "--passive-interfaces" "enp2s0f0"', 'allowFromArgument'),
+    (('systemd', 'services', 'hausnetz', 'serviceConfig', 'ExecStart'), '"hausnetz" "--allow-from" "127.0.0.1/32,::1/128,172.17.0.0/16,172.18.0.0/16" "--ssdp-port" "1901"', 'allowFromArgument'),
     (('systemd', 'services', 'hausnetz', 'serviceConfig', 'RestrictAddressFamilies'), ['AF_INET', 'AF_NETLINK', 'AF_UNIX'], 'packetAllowed'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-hausnetz.conf'], 'proxyRestartTriggers'),
     (('nixcfg', 'composeStack', 'extraRestartTriggers'), ['/hosts/hsb0/docker/hsb0-home-inflight.conf'], 'proxyRestartTriggers'),
@@ -216,7 +224,7 @@ assert 'location / {' not in vhost  # only the included app snippet owns the roo
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in vhost
 assert 'include /etc/nginx/hostdash-extra/*.conf;' in Path('modules/files/hostdash-nginx.conf').read_text()
 
-pin = 'f7af77884cebba3fe95d4d1e193c12bc3fbe0401'  # HNET pin 55 (v261030181501.0.0); repo in inspr-at
+pin = 'a4845315324f69617d5319fd47a47dacd7049be1'  # HNET pin 60 (v261109113223.0.0); repo in inspr-at
 assert f'git+ssh://git@github.com/inspr-at/hausnetz?rev={pin}' in Path('flake.nix').read_text()
 lock = json.loads(Path('flake.lock').read_text())
 assert lock['nodes'][lock['root']]['inputs']['hausnetz'] == 'hausnetz'
@@ -225,8 +233,8 @@ assert node['inputs'] == {'nixpkgs': ['nixpkgs']}
 for source in ('locked', 'original'):
     assert node[source]['type'] == 'git' and node[source]['rev'] == pin
     assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
-assert node['locked']['narHash'] == 'sha256-Lj28Mvkj+uT4I0JdW8Re+y9XvT8tLBDLafY+XQn4C+c='
-assert node['locked']['lastModified'] == 1793389253
+assert node['locked']['narHash'] == 'sha256-E4IUlXjPmYvQrLdJ0rp6wVu6vSCWD0gzgWgJw0WR53M='
+assert node['locked']['lastModified'] == 1794223976
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 

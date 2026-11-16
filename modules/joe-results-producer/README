@@ -8,3 +8,109 @@ quantities. Older journal fills without book fall back to desk. A previously
 excluded J sub-desk key still in the executor ledger is re-captured through
 the existing fill-hash correction path; journals are never rewritten. The
 book field stays internal, with no Results contract or lock change.
+
+OPS-556 records desk equity closes from the pusher's same
+familyAdapter.projectDeskEquities -> calculateDeskEquities valuation. The
+recorder reuses copyObservation/buildCandidate (including the live v2 decimal,
+reconciliation, gateway, input-age and FX gates); it never uses the New York
+baseline, a proxy, FIFO realised net or a subsequent day's valuation.
+Desk policy, historyBasis, Today, the NY baseline and both wire contracts stay
+unchanged. Equity money in Results v2 still has only amount/currency.
+
+At the first tick after Vienna midnight, the preceding civil day's last exact
+observation becomes its close if its age measured AGAINST MIDNIGHT is at most
+four publication intervals: 120 seconds with the deployed 30-second cadence.
+The live input-age limit remains 300 seconds; closeMaxAgeMs also caps any
+alternative cadence at that limit. See hosts/hsb0/docker/compose-spec.nix
+(JOE_PUSH_INTERVAL_SEC=30), pusher.mjs and desk-equity-closes.mjs.
+The valuation timestamp decides the day: a 23:59:58 observation delivered at
+00:00:02 is credited before rollover; a midnight valuation belongs to the new
+day. Vienna DST produces 23/25-hour days. Missing, stale and inexact closes
+remain null. A later inexact sample does not erase the last exact observation.
+restart_gap means a whole intervening day before this recorder instance's
+first tick; days missed while this instance was running use recorder_gap.
+Broker observations under revision < 10 use contract_unsupported.
+
+Ordered deployment (DEVOPS, after OPS-557 and JOED approval):
+
+1. Commit the reviewed implementation, then prepare the r23 release set with
+   a NEW immutable pusher/stager image tag and its committed runtime source
+   tree. Follow the release-set prestaging/source-tree checks in the RUNBOOK;
+   preserve the prior release for rollback and never overwrite a published tag.
+2. Prestage that image on hsb0 and activate the r23 set while the pin remains
+   null. Services use pull_policy = "never" and switch runs no --build: a Nix
+   source change or equityCloseFirstDay alone keeps the old r22 image running
+   and gives all-null closes. Verify the running tag/tree includes OPS-556.
+3. Set nixcfg.joeResultsProducer.equityCloseFirstDay in
+   hosts/hsb0/configuration.nix to a real, fixed Vienna YYYY-MM-DD ON OR AFTER
+   the Vienna day that the new image became live, then apply the reviewed
+   switch. Nix passes JOE_EQUITY_CLOSE_FIRST_DAY to the pusher. The next
+   eligible midnight finalizes the first recorded day. Null records nothing.
+
+Never derive the pin from the clock, move it earlier or tie it to a board
+release. Durable state pins that day; a changed pin fails closed. Keep the
+pin, state and outcomes across rollback. Fresh installs start on their actual
+observation day without backfilling. Recovery: restore the original pin through
+Nix if it changed. For invalid state, stop the pusher and restore ONLY the
+private observation state from a verified backup. Without a valid state backup,
+preserve the bad state in an owner-only archive and move aside ONLY that state
+file under operator control. Retain the pin and current immutable outcomes;
+replay preserves their committed closes. Restart without state starts today
+and leaves unrecorded days unknown. Restore a matched backup pair ONLY when
+the outcomes file itself is lost. An older outcomes backup loses later
+committed closes and can turn previously published exact closes into null.
+Preserve a corrupt outcomes stream for operator recovery; never truncate it
+to make validation pass. Never invent historical observations.
+
+Private state: /var/lib/joe-board-pusher/desk-equity-observations.json.
+Handoff: /var/lib/joe-desk-equity-closes/outcomes.jsonl, a separate tmpfiles
+directory (0700, uid/gid 1000; files 0600). Only that new directory is bound
+read-only into Results; InaccessiblePaths hides the pusher state directory
+and stager checkpoint. No raw ledger, account identity or credentials enter
+the handoff. Each v1 side-file
+record has schema, vienna_day, desk (j/joe/joel), closeAt, observedAt,
+oldestInputAt, equityClose, reason and maxAgeMs. Null outcomes have null
+observation clocks; exact amounts are EUR decimal strings of at most eight
+fractional digits. Source clocks refer to the live valuation evidence.
+
+Both files use temp-write, file fsync, rename and directory fsync. The stream
+is logically append-only: atomic replacement preserves the committed prefix;
+one immutable outcome per (vienna_day, desk). Identical replay adds no bytes;
+a conflicting result is rejected and logged without amounts. Outcomes commit
+before state advances, making boundary replay safe. hsb0 restic currently
+covers only AdGuardHome, ncps and /etc, NOT these files. Operators must stop
+the pusher and manually copy both files together to an owner-only off-host
+archive (directory 0700, files 0600), and verify restore before relying on it.
+Never truncate, rotate, reconstruct or hand-edit the live files. Startup
+removes only this writer's stale UUID .tmp files; recorder errors log at most
+once per reason per 15 minutes. Private state still fsyncs every tick. Corrupt
+state prevents recording until operator recovery; it does not block household
+publication.
+
+The producer strictly validates the stream on every snapshot. Only exact
+outcomes enrich existing activity rows from trackingStart onward. The v2
+contract requires no additional desk rows; outcomes alone never create days
+or desks, including on partial days where absent totals mean unknown, not zero.
+FIFO still supplies activity totals and coverage. Open-day equity stays null.
+Duplicate keys are unusable, even when identical. A missing/unreadable/malformed
+stream yields all null plus
+value-free desk_equity_close diagnostics and does not stop publication.
+Null reasons stay in those diagnostics, never in Results fields or FIFO
+partialReasons. Each closed day/desk since trackingStart without a recorded
+outcome gets no_record, even if it has no activity row. Producer logs include
+only newly changed diagnostics, at most 20 plus a summary with per-reason
+counts for the entire new batch when truncated. Integrity reasons (stream
+errors, duplicates, conflicts, invalid data and open days) come first; each
+priority group is newest-day first. The complete value-free list is atomically
+written to /var/lib/joe-results-producer/equity-close-diagnostics.json (0600)
+after attempted ticks, including failed publication attempts. Unchanged lists
+are not rewritten; write failures log at most once per 15 minutes and do not
+stop Results publication. The outcomes reader caps its input at
+64 MiB; exceeding it fails closed.
+
+Offline validation (local cached nixpkgs, no NixOS build):
+  bash tests/T100-joe-results-producer.sh
+  node --test hosts/hsb0/docker/joe-board-pusher/*.test.mjs
+The close tests run six mutation controls: age, start guard, conflict
+rejection, exactness, null-map filtering and synthetic row creation.
+verify-contracts checks both untouched wire closures.

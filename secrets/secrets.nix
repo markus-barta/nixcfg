@@ -296,6 +296,8 @@ in
   # Dedicated GitHub PAT (classic) used only by pharosd to dispatch nixcfg's
   # fixed pharos-host-settings workflow. Contents: raw token, no KEY= prefix.
   "csb1-pharos-nixcfg-dispatch-token.age".publicKeys = markus ++ csb1;
+  # PHAROS-344: SHA-256 of the read-only Pharos CLI token. The token itself lives on mbp2607.
+  "csb1-pharos-operator-token-hash.age".publicKeys = markus ++ csb1;
 
   # Dedicated unencrypted-at-runtime SSH identity used only by csb1's Pharos
   # provisioning executor. Contents: an OpenSSH Ed25519 private key. The public
@@ -349,7 +351,12 @@ in
   # through composeStack.registryLogins (docker login --password-stdin).
   # Format: bare token text (one line)
   # Edit: agenix -e secrets/csb1-inspr-site-ghcr-pull.age
-  "csb1-inspr-site-ghcr-pull.age".publicKeys = markus ++ csb1;
+  # OPS-528 (Markus Desk 11ebd2e9 'go', 2026-11-10): csb0 also pulls the private
+  # INSPR push relay image (ghcr.io/inspr-at/…, PAPP-68) with the same token, so
+  # csb0 is a recipient too; on csb0 the relay unit logs in itself (per-unit
+  # DOCKER_CONFIG), csb1 keeps composeStack.registryLogins. The file name keeps its csb1 prefix (no rename,
+  # no new token). Rekey this ONE file only (see OPS-528), never a global rekey.
+  "csb1-inspr-site-ghcr-pull.age".publicKeys = markus ++ csb1 ++ csb0;
 
   # NIX-367 / HAUSV-495: Phase-0 PostgreSQL credentials. These are separate
   # files so the future application projection can never expose the bootstrap
@@ -642,6 +649,15 @@ in
   # (DeepSeek V4.1 Flash UltraFast). Materialized to ~/.inspr/secrets/agents/OPENGATEWAY.env
   # as OPENGATEWAY_API_KEY=… Encrypted by the agent from Markus's file (no editor session).
   "agents/host/mbp2607/OPENGATEWAY.age".publicKeys = markus ++ mbp2607;
+
+  # OPS-589 (2026-11-12): OpenRouter key for the START lane's local brief replays on mbp2607.
+  # Augmentoring credential (START's live key, reused), kept here by Markus's one-time go for this key.
+  # Materialized to ~/.inspr/secrets/agents/START_OPENROUTER.env as OPENROUTER_API_KEY=…
+  # Encrypted by the agent straight from agm1's runtime key file (no editor session, never in clear on disk).
+  "agents/host/mbp2607/START_OPENROUTER.age".publicKeys = markus ++ mbp2607;
+
+  # PHAROS-344: read-only Pharos CLI token, used through PHAROS_OPERATOR_TOKEN_FILE. Raw token, not KEY=value.
+  "agents/host/mbp2607/PHAROS_OPERATOR.age".publicKeys = markus ++ mbp2607;
   # inspr-uxqa test identity for the family live-UI harnesses (NIX-579,
   # INSPR-479). Consumer: pharos scripts/family-live-ui.mjs (signed-in live
   # captures of pharos, janus, paimos, aithema) via the protected-env mode.
@@ -720,6 +736,19 @@ in
   # Edit: agenix -e secrets/agents/shared/HOMEWIFI.age
   "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
+  # OPS-541 (2026-11-03): Tasmota web UI login (user admin) of gosp00, for the
+  # household Tasmota plugs. Markus asked for one shared copy every agent can
+  # use. Encrypted by the agent straight from Markus's clipboard with age -R
+  # (no editor session, never displayed). Cleartext source: Markus (via the
+  # clipboard); verified only against gosp00 so far.
+  # Format inside the .age file (two lines):
+  #   TASMOTA_WEB_USER=admin
+  #   TASMOTA_WEB_PASS=<password>
+  # Consume (password via stdin, not in argv; plain HTTP on the LAN):
+  #   ( set -a; source ~/.inspr/secrets/agents/TASMOTA_WEB.env; set +a; printf %s "$TASMOTA_WEB_PASS" |
+  #     curl -G --data-urlencode "user=$TASMOTA_WEB_USER" --data-urlencode "password@-" --data-urlencode cmnd=Status http://<plug>/cm )
+  "agents/shared/TASMOTA_WEB.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
+
   # ────────────────────────────────────────────────────────────────────────
   # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
   # ────────────────────────────────────────────────────────────────────────
@@ -759,3 +788,12 @@ in
   # Deliberately excludes gb: hsb8 receives only its own verifier, never plaintext.
   "hsb8-adguard-users.age".publicKeys = markus ++ hsb8;
 }
+// (
+  if builtins.pathExists ./csb0-push-relay-apns-key.age then
+    {
+      # OPS-528: PKCS#8 APNs key; sealed later, never a plaintext repository file.
+      "csb0-push-relay-apns-key.age".publicKeys = markus ++ csb0;
+    }
+  else
+    { }
+)

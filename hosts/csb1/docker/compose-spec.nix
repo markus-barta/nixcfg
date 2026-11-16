@@ -243,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261027155817.0.0@sha256:b43f5af4b5da226bdcec596831f5f31b8f27b86f123a05e72cf9bf1e1559bad8"; # release 142 Golden Geode (AEON-1888): see the release notes
+      image = "ghcr.io/inspr-at/aeon:261108162049.0.0@sha256:4067c0da0a94dbd6440c85809140234f5e59f51491422cfbbf2bbbb92e602286"; # release 150 Tiered Tracer (AEON-2271): see the release notes
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
@@ -337,7 +337,7 @@ in
       command = [
         "postgres"
         "-c"
-        "shared_buffers=128MB"
+        "shared_buffers=1GB"
         "-c"
         "max_connections=50"
         "-c"
@@ -364,7 +364,18 @@ in
       # AEON-1444: release 135 backends grow to ~60 MiB (29 backends at
       # 1985/2304 MiB on 2026-10-16), and the in-app pool of 16 starved (AEON-995).
       # 3584m covers max_connections=50 x ~64 MiB + shared_buffers; csb1 has 16 GB.
-      mem_limit = "3584m";
+      # AEON-2029 (2026-10-31, LEAD decision): memory.peak reached 3333/3584 MiB (93 %), backends
+      # ~100 MiB each, and the 128MB shared_buffers left the hot pages of a 7.2 GB DB to a ~166 MiB
+      # cgroup page cache (DataFileRead waits inside tenant-lock holders). shared_buffers=1GB plus
+      # 1.5 GiB more cap: observed peak ~3.3 GiB + 0.9 GiB more buffers = ~4.2 of 5 GiB (covers the observed
+      # load, not a worst-case bound for 50 backends). csb1 has 16 GB; the switch kit requires MemAvailable minus the
+      # whole new cap to leave >= 2 GiB. Planner settings (effective_cache_size, work_mem) unchanged.
+      # OPS-538 (2026-11-02, Markus: "yes raise limits. why not 8GB?"): 29 aeon-main connections held about
+      # 3.5 GiB anon on top of ~1 GiB shmem, and 30 connections at the observed 199 MiB top would pass 5 GiB.
+      # Everything else on csb1 uses ~4.9 GiB with ZFS ARC capped at 1.5 GiB, so a full 8 GiB leaves ~2.7 GiB
+      # plus 10 GiB swap. A ceiling only: shared_buffers and the pool are unchanged. Changing this recreates
+      # aeon-db, so it needs its own switch; the release kit stops when aeon-db is replaced during a release.
+      mem_limit = "8192m";
       networks = [
         "aeon"
       ];
@@ -1031,6 +1042,7 @@ in
     janus-placeholder = {
       image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648";
       container_name = "janus-placeholder";
+      profiles = [ "janus-retired" ]; # OPS-514: retain routes/data for rollback only.
       restart = "unless-stopped";
       user = "1000:1000";
       read_only = true;
@@ -1095,9 +1107,7 @@ in
       # project-wide compose lifecycle commands, when testing this profile.
       image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.44@sha256:bee5a2449d9d87516f57d0e2910e99d97915e12b6beb3af0a38bc6310e024487";
       container_name = "janus-engine-staged";
-      profiles = [
-        "janus-engine-staged"
-      ];
+      profiles = [ "janus-retired" ];
       restart = "unless-stopped";
       user = "65532:65532";
       read_only = true;
@@ -1192,9 +1202,7 @@ in
     janus-managed-transactiond = {
       image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
       container_name = "janus-managed-transactiond";
-      profiles = [
-        "janus-managed-service"
-      ];
+      profiles = [ "janus-retired" ];
       restart = "no";
       init = true;
       user = "100:993";
@@ -1356,9 +1364,7 @@ in
     janus-managed-canary = {
       image = "alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce";
       container_name = "janus-managed-canary";
-      profiles = [
-        "janus-managed-service"
-      ];
+      profiles = [ "janus-retired" ];
       restart = "no";
       init = true;
       user = "65534:65534";
@@ -1440,17 +1446,14 @@ in
     # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
     # FleetCom is decommissioned; Pharos is the live fleet dashboard.
     pharosd = {
-      # PHAROS-206: guarded delivery bridge and fixed Debian security snapshot.
-      # Pin the verified release index containing the linux/amd64 image and
-      # provenance. Upgrade the control plane before starting v6 beacons.
-      image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9";
+      # PHAROS-345: Pharos 2, read-only: CVEs, updates and reachability. Pin the
+      # verified release index containing the linux/amd64 image and provenance.
+      # Rollback needs the pharos_data backup too: runbook, Pharos 2 cutover.
+      image = "ghcr.io/inspr-at/pharos/pharosd:261031180823.0.0@sha256:822fe56a34822576bd64d89ceeeae0062dfbe5b660adb50c71a434763c746b0c";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
       user = "10001:992";
-      group_add = [
-        "991"
-      ];
       read_only = true;
       cap_drop = [
         "ALL"
@@ -1479,35 +1482,18 @@ in
         "PHAROS_ADDR=0.0.0.0:8080"
         "RUST_LOG=info"
         "PHAROS_DB=/data/pharos.json"
-        "PHAROS_MANIFEST_PATHS=/manifests/hsb8.json"
-        "PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=/managed-services/manifest.json"
-        "PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key"
-        "PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm"
-        "PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token"
-        "PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json"
-        "PHAROS_NIXCFG_DISPATCH_ENABLED=1"
-        "PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token"
-        "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1"
-        "PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm"
-        "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env"
-        # Execution is available only through the attended plan/review/confirm
-        # flow. No provider mutation occurs from connection tests or plan review.
-        "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production"
-        "PHAROS_HCLOUD_EXECUTE=1"
-        # The dedicated root-only csb1 identity and its exact selected public key
-        # were verified before activating the managed provisioning assistant.
-        "PHAROS_PROVISIONING_EXECUTOR_READY=1"
-        "PHAROS_PROVISIONING_OWNER_HOST=csb1"
-        "PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr"
-        "PHAROS_PROVISIONING_SCOPE_PROJECT=pharos"
-        "PHAROS_PROVISIONING_SCOPE_REPOSITORY=nixcfg"
-        "PHAROS_PROVISIONING_SCOPE_ENVIRONMENT=production"
-        # csb1 is the trusted executor for other hosts; it cannot retire itself.
-        "PHAROS_RETIREMENT_OWNER_HOST=csb1"
+        # PHAROS-346: CVE and host data, one file delivered from private ops.
+        # A directory mount, so a replaced file shows without a restart.
+        "PHAROS_FLEET_DATA_FILE=/fleet-data/fleet.json"
+        # PHAROS-343: reachability for hosts, bare TCP and ICMP only.
+        "PHAROS_HOST_PROBES_PATH=/config/host-probes.json"
+        # PHAROS-344: read-only CLI access. The token itself stays on mbp2607.
+        "PHAROS_OPERATOR_TOKEN_HASH_FILE=/run/secrets/pharos-operator-token-hash"
         "PHAROS_REQUIRE_BEACON_TOKEN=1"
-        "PHAROS_BEACON_TOKEN_MODE=janus"
-        "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes"
-        "PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env"
+        # OPS-514: authenticate existing hosts against their durable store hash.
+        # Registration must stay closed: it can overwrite an existing hash.
+        "PHAROS_BEACON_TOKEN_MODE=local"
+        "PHAROS_ALLOW_LOCAL_REGISTER=false"
         # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
         # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
         "PHAROS_OIDC_ISSUER=https://auth.inspr.at"
@@ -1518,10 +1504,11 @@ in
           else
             "https://pharos.barta.cm/auth/callback"
         }"
-        # Authorization identifiers are explicit and value-free. This migration
-        # reference is derived only from an OIDC email_verified=true claim.
-        "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
-        "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
+        # Authorization identifiers are explicit and value-free, and this list
+        # is the only way in. The first is derived only from an OIDC
+        # email_verified=true claim; the second is the headless UX test account
+        # (OPS-217).
+        "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27,operator-ref:f168f630edf0814cc053c2988d5dee045ee9856e824e5573b439d8d53e88bc25"
       ]
       # NIX-442 / PHAROS-257 — opt-in Flow host. Projection and guarded
       # Review/Start navigation only; no delivery, provider or Janus authority.
@@ -1533,32 +1520,9 @@ in
       ];
       volumes = [
         "pharos_data:/data"
-        "./pharos/access-policy.json:/etc/pharos/access-policy.json:ro"
-        "./pharos/manifests:/manifests:ro"
-        "/run/pharos/managed-service-declarations:/managed-services:ro"
-        "/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro"
-        "/run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro"
-        {
-          type = "bind";
-          source = "/run/agenix/csb1-janus-managed-pharos-signing-key";
-          target = "/run/pharos/managed-setup-signing-key";
-          read_only = true;
-          bind = {
-            create_host_path = false;
-          };
-        }
-        {
-          type = "bind";
-          source = "/run/agenix/csb1-janus-managed-internal-token-pharos";
-          target = "/run/pharos/managed-setup-internal-token";
-          read_only = true;
-          bind = {
-            create_host_path = false;
-          };
-        }
-        "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
-        "janus_pharos_production_provider_out:/run/pharos/providers:ro"
-        "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
+        "/var/lib/pharos-fleet:/fleet-data:ro"
+        "/etc/pharos/host-probes.json:/config/host-probes.json:ro"
+        "/run/agenix/csb1-pharos-operator-token-hash:/run/secrets/pharos-operator-token-hash:ro"
       ]
       ++ flowHostVolumes;
       networks = flowNetwork sharedFlow.network.addresses.pharos;
@@ -1579,7 +1543,7 @@ in
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:261022144327.0.0@sha256:518b20288c4518a24111c5f6a9d7944b51baba5178476cfac0d09ff33eaf03a9";
+      image = "ghcr.io/inspr-at/pharos/pharosd:261031180823.0.0@sha256:822fe56a34822576bd64d89ceeeae0062dfbe5b660adb50c71a434763c746b0c";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -1630,6 +1594,9 @@ in
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/pharos-preferences:/etc/pharos:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        # PHAROS-341: the next boot's kernel. Directories at their own paths, so later generations are visible.
+        "/nix/var/nix/profiles:/nix/var/nix/profiles:ro"
+        "/nix/store:/nix/store:ro"
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [

@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import test, { before, after } from "node:test";
 import { createStageHandoff, copyObservation, FRAME_FORMAT, MAX_FRAME_BYTES } from "./v2-stage-handoff.mjs";
-import { runPusher } from "./fixtures/pusher-harness.mjs";
+import { runPusher, withoutPolicyHistoryBasis } from "./fixtures/pusher-harness.mjs";
 
 const file = "hosts/hsb0/docker/joe-board-pusher/pusher.mjs";
 const candidate = fs.readFileSync(new URL("./pusher.mjs", import.meta.url), "utf8");
@@ -84,7 +84,7 @@ test("duplicate/invalid credits close the socket; construction failure is contai
 });
 
 for (const variant of ["normal", "retained", "outage"]) for (const stageState of ["idle", "busy", "hang", "nonzero-exit", "OOM", "backpressure", "throw", "slow-fsync", "ENOSPC", "restart", "corrupt-state"]) {
-  test(`original/candidate v1 bytes, one POST and result: ${variant}/${stageState}`, async () => {
+  test(`original/candidate v1 bytes except J/Joe history basis, one POST and result: ${variant}/${stageState}`, async () => {
     const old = await runPusher(baselineURL, { variant }); const next = await runPusher(candidateURL, { variant, stageState });
     if (old.result) {
       const { equity, inbox, ...safeResult } = old.result;
@@ -93,7 +93,7 @@ for (const variant of ["normal", "retained", "outage"]) for (const stageState of
     assert.deepEqual(next.errors, old.errors);
     assert.deepEqual(next.schedule, old.schedule);
     assert.equal(old.requests.length, 1); assert.equal(next.requests.length, 1);
-    assert.ok(old.requests[0].body.equals(next.requests[0].body));
+    assert.ok(old.requests[0].body.equals(withoutPolicyHistoryBasis(next.requests[0].body)));
     assert.equal(JSON.stringify({ ...next.requests[0], body: undefined }), JSON.stringify({ ...old.requests[0], body: undefined }));
     assert.deepEqual(next.observations, [instant]);
     assert.deepEqual(next.trace, ["fetch", "response-settled", "handoff"]);
@@ -108,7 +108,7 @@ for (const failureAt of ["fetch", "body"]) test(`v1 ${failureAt} rejection recor
   assert.equal(old.errorIdentityPreserved, true);
   assert.deepEqual(next.errors, [['{"event":"v1_push_failed"}']]);
   assert.equal(next.cycle.v1Status, failureAt === "fetch" ? "post_failed" : "reply_failed");
-  assert.equal(next.requests.length, 1); assert.ok(old.requests[0].body.equals(next.requests[0].body));
+  assert.equal(next.requests.length, 1); assert.ok(old.requests[0].body.equals(withoutPolicyHistoryBasis(next.requests[0].body)));
   assert.equal(next.trace.at(-1), "handoff");
 });
 for (const variant of ["incomplete", "no-timestamp", "no-token"]) test(`${variant} keeps coherent-source/token skip without a handoff`, async () => {

@@ -22,6 +22,8 @@ grep -Fq 'scripts/prepare-pharos-host-removal.sh' "$workflow"
 grep -Eq 'uses: peter-evans/create-pull-request@[0-9a-f]{40} # v8' "$workflow"
 grep -Eq 'uses: actions/checkout@[0-9a-f]{40} # v5' "$workflow"
 grep -Fq 'Validate and open review-only removal' "$workflow"
+# shellcheck disable=SC2016
+grep -Fq 'if: ${{ false }}' "$workflow"
 grep -Fq 'credential_retirement=pending_janus_owner' "$workflow"
 # PHAROS-197: the proposal must be able to record a retirement intent for a host
 # Janus manages but nixcfg does not declare.
@@ -41,8 +43,14 @@ if grep -Eq 'gh pr merge|merge validated|docker compose|nixos-rebuild|provider-d
   printf 'host removal workflow contains a forbidden apply or delete action\n' >&2
   exit 1
 fi
-grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$production_compose"
-grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$production_compose"
+if grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=' "$production_compose"; then
+  echo "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED= must stay absent from the csb1 compose spec" >&2
+  exit 1
+fi
+if grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=' "$production_compose"; then
+  echo "PHAROS_RETIREMENT_OWNER_HOST= must stay absent from the csb1 compose spec" >&2
+  exit 1
+fi
 
 jq -e '
   .schema == "inspr.pharos.janus-retirements.v1"
