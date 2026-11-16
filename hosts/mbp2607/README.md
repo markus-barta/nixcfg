@@ -154,6 +154,30 @@ generation is deleted. Log: `~/Library/Logs/nix-gc.log`.
   `nix build -o <link>` (an indirect GC root) instead.
 - Enable it for one user per Mac only; the store is shared by every account.
 
+## night-levels (OPS-595)
+
+Home Manager runs the OPS-300 `night-levels.sh` loop every 180 s as
+`org.nix-community.home.night-levels`, with KeepAlive. Its two helpers come
+from the Nix store. The loop writes mbp2606's remote policy and run budget;
+`/Users/markus/.aeon/lead/aeon/host-level.sh`, `HOST-LEVEL` and
+`HOST-LEVEL.heartbeat` belong to LEAD and stay outside nixcfg.
+
+Logs and state are under `~/.local/share/ops-qa/state/`: the loop keeps using
+`brake-night-levels.log` (also read by `brake-mode.sh wake`), and the five-minute
+`night-levels-stale` agent uses `night-levels-stale.log` and
+`night-levels-stale.state` (`ok` or `stale`). It sends mac-lead one alert when
+the heartbeat is missing, malformed or over 900 s old, and one on recovery.
+
+Cut over by running `~/.local/share/ops-qa/brake-mode.sh off night-levels`
+**before** the Home Manager switch, so two loops do not write at once.
+`brake-mode.sh on night-levels` must no longer be used.
+
+Stop the loop with
+`launchctl bootout gui/$(id -u)/org.nix-community.home.night-levels`.
+To stop its watcher too, use
+`launchctl bootout gui/$(id -u)/org.nix-community.home.night-levels-stale`.
+A Home Manager switch reloads enabled agents.
+
 ## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
