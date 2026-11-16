@@ -107,11 +107,13 @@ if moduleOnly then
       browserMaxDefault = cfg.browserMax == 1;
       mbp2606BrowserMax = hostCfg.enable && hostCfg.browserMax == 2;
       mbp2606BrowserMaxPinned = lib.hasInfix "readonly guard_browser_max=2" hostGuard.text;
-      mbp2606AitNewMax = hostCfg.enable && hostCfg.aitNewMax == 3;
-      mbp2606AitNewMaxPinned = lib.hasInfix "readonly guard_ait_new_max=3" hostGuard.text;
+      mbp2606AitNewMax = hostCfg.enable && hostCfg.aitNewMax == 6;
+      mbp2606AitNewMaxPinned = lib.hasInfix "readonly guard_ait_new_max=6" hostGuard.text;
+      mbp2606UnitsTotalPinned = lib.hasInfix "readonly guard_units_total=7" hostGuard.text;
+      mbp2606UnitsNewMaxPinned = lib.hasInfix "readonly guard_units_new_max=6" hostGuard.text;
       mbp2606OtherCaps =
-        hostCfg.unitsTotal == 4
-        && hostCfg.unitsNewMax == 3
+        hostCfg.unitsTotal == 7
+        && hostCfg.unitsNewMax == 6
         && hostCfg.unitsFinishingReserve == 1
         && hostCfg.unitsNewMaxDuringBrowser == 2
         && hostCfg.yellowBrowserMax == 0
@@ -188,11 +190,11 @@ else
       leaseDir = cfg.leaseDir == "${host.config.home.homeDirectory}/.aeon-remote-leases";
       jointBudgetPath = cfg.budgetFile == "${host.config.home.homeDirectory}/.aeon-remote-budget";
       unknownLaneDefault = cfg.allowUnknownLane;
-      unitsTotal = cfg.unitsTotal == 4;
-      unitsNewMax = cfg.unitsNewMax == 3;
+      unitsTotal = cfg.unitsTotal == 7;
+      unitsNewMax = cfg.unitsNewMax == 6;
       unitsFinishingReserve = cfg.unitsFinishingReserve == 1;
       aeonNewMax = cfg.aeonNewMax == 2;
-      aitNewMax = cfg.aitNewMax == 3;
+      aitNewMax = cfg.aitNewMax == 6;
       opsNewMax = cfg.opsNewMax == 1;
       browserMax = cfg.browserMax == 2;
       unitsNewMaxDuringBrowser = cfg.unitsNewMaxDuringBrowser == 2;

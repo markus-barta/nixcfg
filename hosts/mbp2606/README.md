@@ -293,10 +293,10 @@ and `phase` alongside `reserved` and live `pid` lines.
 
 | Limit                                                            | Pinned default                                      |
 | ---------------------------------------------------------------- | --------------------------------------------------- |
-| All live units (`unitsTotal`)                                    | 4                                                   |
-| New units (`unitsNewMax`)                                        | 3                                                   |
+| All live units (`unitsTotal`)                                    | 7 (mbp2606 override; module default 4)              |
+| New units (`unitsNewMax`)                                        | 6 (mbp2606 override; module default 3)              |
 | Finishing units (`unitsFinishingReserve`)                        | 1                                                   |
-| New units per lane (`aeonNewMax`, `aitNewMax`, `opsNewMax`)      | 2 / 3 / 1 (ait: mbp2606 override; module default 1) |
+| New units per lane (`aeonNewMax`, `aitNewMax`, `opsNewMax`)      | 2 / 6 / 1 (ait: mbp2606 override; module default 1) |
 | Browsers across lanes and phases (`browserMax`)                  | 2 (mbp2606 override; module default 1)              |
 | New units while any browser is live (`unitsNewMaxDuringBrowser`) | 2, including a new browser                          |
 | Fresh YELLOW policy                                              | new ≤ 1, browsers = 0                               |
@@ -361,7 +361,7 @@ Each browser counts as one of the two new units allowed by
 `units_new_max_during_browser`, which stays at 2: two new browsers can run
 together, or one new browser beside one new pool test. A third new unit is
 refused while a browser is live. Browsers in the finishing phase still count
-against `browserMax`; the total cap remains 4 and the finishing reserve stays at 1.
+against `browserMax`; the total cap is 7 on mbp2606 (OPS-599; module default 4) and the finishing reserve stays at 1.
 Fresh YELLOW and RED policies still allow no browser admissions.
 `browser_hold_max_min` (20 minutes) is a client obligation, enforced by the
 harness timeout. The guard does not enforce browser duration; a live adopted
