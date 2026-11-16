@@ -11,8 +11,8 @@ OK2=/Users/mba/ci.noindex/aeon-nm/
 OK3=/Users/mba/ci.noindex/aithema-runs/
 cwd_of() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
 guarded() { # 0 = guarded, 1 = unguarded, 2 = unknown (a process vanished mid-walk: never report)
-  local p=$1 i c
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  local p=$1 c
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
     [ -z "$p" ] && return 2
     [ "$p" -le 1 ] && return 1
     c=$(cwd_of "$p")
@@ -22,6 +22,7 @@ guarded() { # 0 = guarded, 1 = unguarded, 2 = unknown (a process vanished mid-wa
   done
   return 1
 }
+# shellcheck disable=SC2009 # ps -o command= gives the full command line pgrep -f cannot list with pids
 ps -u mba -o pid=,command= 2>/dev/null | grep -E 'chrome-headless-shell|playwright|/go test|go-build[0-9]+/b[0-9]+/[^ ]+\.test|vitest|node --test|--experimental-strip-types --test' | grep -v -E 'grep -E|mbp2606-unguarded' |
   while read -r pid cmd; do
     own=$(cwd_of "$pid")

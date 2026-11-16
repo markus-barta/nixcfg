@@ -13,8 +13,8 @@ fail() {
   exit 1
 }
 expect_count() {
-  local expected=$1 file=$2 count=0 line
-  while IFS= read -r line; do count=$((count + 1)); done <"$file"
+  local expected=$1 file=$2 count=0
+  while IFS= read -r _; do count=$((count + 1)); done <"$file"
   [ "$count" -eq "$expected" ] || fail "$file: expected $expected calls, got $count"
 }
 expect_text() {

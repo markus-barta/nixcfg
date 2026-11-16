@@ -77,7 +77,7 @@ lvl_for() {
 while true; do
   A=$($S 2>&1)
   obs7=$(date +%s)
-  B=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' <$S 2>&1 | tail -1)
+  B=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' <"$S" 2>&1 | tail -1)
   l7=$(lvl_for "$A" "$p7")
   l6=$(lvl_for "$B" "$p6")
   # Hold (2026-10-12): ~mba/.hold-mbp2606 means the machine is reserved (e.g. Mailina gaming); report RED until released.
@@ -158,8 +158,9 @@ STEOF
     pw=fail
   fi
   # OPS-300 follow-up (Markus 2026-10-11 "Detect + report"): heavy mba test runs outside LEAD's guarded run dirs.
-  U=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' <${NL_UNGUARDED:-$HOME/.local/share/ops-qa/mbp2606-unguarded.sh} 2>/dev/null)
+  U=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' <"${NL_UNGUARDED:-$HOME/.local/share/ops-qa/mbp2606-unguarded.sh}" 2>/dev/null)
   if [ -n "$U" ]; then
+    # shellcheck disable=SC2086 # seen_unguarded is a space-separated pid list; splitting is intended
     newp=$(echo "$U" | cut -d'|' -f1 | sort | comm -23 - <(printf '%s\n' $seen_unguarded | sort))
     [ -n "$newp" ] && echo "$(date +%T) UNGUARDED on mbp2606 (load $(echo "$B" | sed -E 's/.*load="([0-9.]+).*/\1/')): $(echo "$U" | cut -d'|' -f2 | sort | uniq -c | tr '\n' ';')"
     seen_unguarded=$(echo "$U" | cut -d'|' -f1 | tr '\n' ' ')
