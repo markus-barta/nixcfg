@@ -2132,11 +2132,15 @@ the `./aeon-watch.nix` import in this host's configuration.
 `/hosts.json` needs an OIDC session even on localhost). It pages when a fleet
 host's beacon says its deployed nixcfg is `behind` main and the deployed commit
 is ≥ 7 days old (commit date from `~mba/Code/nixcfg`, best effort) or ≥ 25
-commits behind; `diverged`/`ahead` page as their own problem; hosts silent for
-
-> 30 min are skipped (Pharos HostDown owns silence). Same OPS-107 engine: two
-> consecutive runs before paging, recovery clears, `csb1-watchtower-env` target.
-> Truthful only with OPS-186 in place (beacons must see the current evidence).
+commits behind; `diverged`/`ahead` page as their own problem. Since PHAROS-345,
+hosts silent for more than 30 min page as `silent:<host>`: Pharos 2 sends no
+alerts. Workstations and hosts with `suppress_down` are excluded from silence
+alerts. Silent-host alerts repeat every 12 h while the problem persists
+(OPS-54); drift alerts remain transition-only. Check the host, its network,
+and its `pharos-beacon` container; services on that host may also be unreachable.
+Same OPS-107 engine: two consecutive runs before paging, recovery clears,
+`csb1-watchtower-env` target. Truthful only with OPS-186 in place (beacons must
+see the current evidence).
 
 ```bash
 systemctl status fleet-drift.timer --no-pager

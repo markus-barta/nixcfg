@@ -57,11 +57,12 @@ class Harness:
         parts = [f"NEW {a}" for a in announced] + [f"CLEARED {c}" for c in cleared]
         return " | ".join(parts)
 
-    def run(self, *, clear_confirm_runs: int = 1) -> int:
-        self.clock += 900
+    def run(self, *, clear_confirm_runs: int = 1, reminder_interval=None, elapsed: float = 900) -> int:
+        self.clock += elapsed
         return engine.run_cycle(
             self.state, self.clock, lambda: list(self.problems), self.render, self.send,
             clear_confirm_runs=clear_confirm_runs,
+            reminder_interval=reminder_interval,
         )
 
     def stored(self) -> dict:
@@ -187,6 +188,164 @@ class DurableDelivery(unittest.TestCase):
         self.assertEqual(self.h.run(), engine.EXIT_UNDELIVERED)
         self.assertNotEqual(engine.EXIT_UNDELIVERED, engine.EXIT_PROBLEMS)
         self.assertNotEqual(engine.EXIT_UNDELIVERED, engine.EXIT_CLEAN)
+
+
+class Reminders(unittest.TestCase):
+    INTERVAL = 12 * 3600
+    SILENT = engine.Problem("silent:server", "server: no beacon report for 30.5 h")
+
+    def setUp(self) -> None:
+        self.h = Harness()
+        self.h.problems = [self.SILENT]
+
+    def cycle(self, elapsed=900):
+        return self.h.run(
+            elapsed=elapsed,
+            reminder_interval=lambda key: self.INTERVAL if key.startswith("silent:") else None,
+        )
+
+    def confirm(self):
+        for _ in range(engine.CONFIRM_RUNS - 1):
+            self.assertEqual(self.cycle(), engine.EXIT_PROBLEMS)
+            self.assertEqual(self.h.sent, [])
+        self.cycle()
+        self.assertEqual(len(self.h.sent), 1)
+        self.assertNotIn("Reminder", self.h.sent[0][0])
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], self.h.clock)
+
+    def test_reminds_every_twelve_hours_with_current_text(self):
+        self.confirm()
+        self.cycle(self.INTERVAL - 1)
+        self.assertEqual(len(self.h.sent), 1)
+        self.h.problems = [engine.Problem(self.SILENT.key, "server: no beacon report for 42.5 h")]
+        self.cycle(1)
+        self.assertEqual(len(self.h.sent), 2)
+        self.assertIn("Reminder — still failing", self.h.sent[-1][0])
+        self.assertIn("42.5 h", self.h.sent[-1][0])
+        self.cycle(self.INTERVAL - 1)
+        self.assertEqual(len(self.h.sent), 2)
+        self.cycle(61)  # first poll after the next deadline
+        self.assertEqual(len(self.h.sent), 3)
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], self.h.clock)
+
+    def test_recovery_clears_once_and_drops_reminder_state(self):
+        self.confirm()
+        self.cycle(self.INTERVAL)
+        self.h.problems = []
+        self.assertEqual(self.cycle(), engine.EXIT_CLEAN)
+        self.assertIn("CLEARED", self.h.sent[-1][0])
+        self.assertEqual(self.h.stored(), {"seen": {}, "pending": None})
+        self.cycle(self.INTERVAL * 3)
+        self.assertEqual(len(self.h.sent), 3)
+        self.h.problems = [self.SILENT]
+        self.cycle()
+        self.assertEqual(len(self.h.sent), 3, "a new outage must be confirmed again")
+        self.cycle()
+        self.assertEqual(len(self.h.sent), 4)
+        self.assertNotIn("Reminder", self.h.sent[-1][0])
+
+    def test_non_opted_key_never_reminds_or_gains_timestamp(self):
+        self.h.problems = [PROBLEM]
+        self.cycle()
+        self.cycle()
+        self.cycle(self.INTERVAL * 10)
+        self.assertEqual(len(self.h.sent), 1)
+        self.assertEqual(self.h.stored()["seen"][PROBLEM.key], {
+            "text": PROBLEM.text, "count": 3, "alerted": True,
+        })
+
+    def test_default_policy_preserves_old_state_shape_and_silence(self):
+        self.h.run()
+        self.h.run()
+        self.h.run(elapsed=self.INTERVAL * 10)
+        self.assertEqual(len(self.h.sent), 1)
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key], {
+            "text": self.SILENT.text, "count": 3, "alerted": True,
+        })
+
+    def test_old_formats_start_timer_on_load_and_persist_it(self):
+        for old in [
+            {self.SILENT.key: self.SILENT.text},
+            {self.SILENT.key: {"msg": self.SILENT.text, "count": 2, "alerted": True}},
+            {"seen": {self.SILENT.key: {"text": self.SILENT.text, "count": 2, "alerted": True}}, "pending": None},
+        ]:
+            with self.subTest(old=old):
+                self.h = Harness()
+                self.h.problems = [self.SILENT]
+                Path(self.h.state).write_text(json.dumps(old))
+                self.cycle()
+                baseline = self.h.clock
+                self.assertEqual(self.h.sent, [])
+                self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], baseline)
+                self.cycle(self.INTERVAL - 1)
+                self.assertEqual(self.h.sent, [])
+                self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], baseline)
+                self.cycle(1)
+                self.assertEqual(len(self.h.sent), 1)
+                self.assertIn("Reminder", self.h.sent[0][0])
+
+    def test_failed_reminder_replays_verbatim_before_check_and_restarts_timer(self):
+        self.confirm()
+        last_announced = self.h.clock
+        self.h.deliver = False
+        self.assertEqual(self.cycle(self.INTERVAL), engine.EXIT_UNDELIVERED)
+        pending = self.h.stored()["pending"]
+        self.assertIn("Reminder", pending["text"])
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], last_announced)
+        self.assertEqual(pending["next_state"]["seen"][self.SILENT.key]["last_announced_at"], self.h.clock)
+        with patch.object(engine, "advance", side_effect=AssertionError("must retry before evaluation")):
+            self.assertEqual(self.cycle(self.INTERVAL * 2), engine.EXIT_UNDELIVERED)
+        self.assertEqual(self.h.stored()["pending"], pending)
+        self.h.problems = [engine.Problem(self.SILENT.key, "server: updated outage duration")]
+        self.h.deliver = True
+        send = self.h.send
+
+        def inspect_pending(text, identifier):
+            self.assertEqual(self.h.stored()["pending"], pending, "write-ahead record must precede send")
+            return send(text, identifier)
+
+        with patch.object(self.h, "send", side_effect=inspect_pending):
+            self.cycle(self.INTERVAL)
+        self.assertEqual(len(self.h.sent), 2, "replay must not produce a second reminder immediately")
+        self.assertEqual(self.h.sent[-1], (pending["text"], pending["event_id"]))
+        self.assertIsNone(self.h.stored()["pending"])
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], self.h.clock)
+        self.cycle(self.INTERVAL - 1)
+        self.assertEqual(len(self.h.sent), 2)
+        self.cycle(1)
+        self.assertEqual(len(self.h.sent), 3)
+        self.assertIn("updated outage duration", self.h.sent[-1][0])
+
+    def test_recovery_after_failed_reminder_delivers_reminder_then_one_clear(self):
+        self.confirm()
+        self.h.deliver = False
+        self.cycle(self.INTERVAL)
+        pending = self.h.stored()["pending"]
+        self.h.problems = []
+        self.h.deliver = True
+        self.cycle(self.INTERVAL * 2)
+        self.assertEqual(self.h.sent[1], (pending["text"], pending["event_id"]))
+        self.assertIn("CLEARED", self.h.sent[2][0])
+        self.assertEqual(self.h.stored(), {"seen": {}, "pending": None})
+        self.cycle(self.INTERVAL)
+        self.assertEqual(len(self.h.sent), 3)
+
+    def test_failed_initial_page_also_starts_timer_on_delivery(self):
+        self.cycle()
+        self.h.deliver = False
+        self.assertEqual(self.cycle(), engine.EXIT_UNDELIVERED)
+        pending = self.h.stored()["pending"]
+        self.h.deliver = True
+        self.cycle(self.INTERVAL * 2)
+        self.assertEqual(self.h.sent, [(pending["text"], pending["event_id"])])
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], self.h.clock)
+
+    def test_invalid_policy_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "reminders require a timestamp"):
+            engine.advance({}, [self.SILENT], reminder_interval=lambda key: self.INTERVAL)
+        for interval in [0, -1]:
+            with self.subTest(interval=interval), self.assertRaisesRegex(ValueError, "reminder interval must be positive"):
+                engine.advance({}, [self.SILENT], stamp=self.h.clock, reminder_interval=lambda key: interval)
 
 
 class StateHandling(unittest.TestCase):
