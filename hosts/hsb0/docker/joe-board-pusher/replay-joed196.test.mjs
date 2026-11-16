@@ -57,7 +57,8 @@ const check = (result, name) => result.checks.find(check => check.name.startsWit
 const RESULT_CHECKS = ["AVGO before J long and Joe equal short", "AVGO after flat on every desk",
   "AMD before J long and Joe equal short", "AMD after flat on every desk",
   "other-symbol lots unchanged count=6", "other-symbol realised unchanged count=6",
-  "flat-contract guard rejects before state count=2", "flat-contract guard passes after state"];
+  "flat-contract guard rejects before state count=2", "flat-contract guard passes after state",
+  "OPS-557 deploy gate on the same copies"];
 
 test("deploy replay proves both mirrors, their closure and the guard, and leaves all four inputs unchanged", () => {
   const input = fixture(), saved = structuredClone(input);
@@ -72,8 +73,8 @@ test("deploy replay proves both mirrors, their closure and the guard, and leaves
       assert.equal(names.includes(`${prefix}override[${index}] quantity matches history`), prefix !== "");
     }
   }
-  assert.deepEqual(names.slice(-9), ["FIFO replay", ...RESULT_CHECKS]);
-  assert.equal(names.length, 4 + 4 * (2 + 3 + 3) + 9);
+  assert.deepEqual(names.slice(-10), ["FIFO replay", ...RESULT_CHECKS]);
+  assert.equal(names.length, 4 + 4 * (2 + 3 + 3) + 10);
   assert.deepEqual(input, saved);
 });
 
@@ -114,6 +115,18 @@ for (const [label, change, expected] of [
   assert.equal(check(result, expected).pass, false);
   assert.equal(check(result, "override[1] README fill").pass, true);
   if (label.startsWith("merged")) assert.equal(check(result, "ledger raw override[1] matches count=1").pass, true);
+});
+
+test("deploy replay also requires the full OPS-557 gate (an OPS-557 fill quantity drift fails it)", () => {
+  const good = joed196ReplayGate(fixture());
+  assert.equal(check(good, "OPS-557 deploy gate on the same copies").pass, true);
+  const input = fixture();
+  const row = input.familyLedger.executions.find(r => r.execution.execId === "0000dc8f.6bb0d852.01.01");
+  assert.ok(row, "fixture carries the OPS-557 NVDA override fill");
+  row.execution.shares += 1;
+  const result = joed196ReplayGate(input);
+  assert.equal(result.ok, false);
+  assert.equal(check(result, "OPS-557 deploy gate on the same copies").pass, false);
 });
 
 test("deploy replay rejects a family-ledger quantity disagreeing with history without naming it", () => {

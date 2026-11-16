@@ -10,7 +10,7 @@ import { assertFillAttributionOverrides, normalizeEconomicExecution } from "./ex
 import { createExecutorAttribution, validatedExecutionTime } from "./executor-attribution.mjs";
 import { createExecutorAttributionMemory } from "./executor-attribution-memory.mjs";
 import { mergeExecutionRecords, reconcileDeskOpenLots } from "./family-ledger.mjs";
-import { MAX_COPY_AGE_MS, replayDeskHistory, runReplayGate } from "./replay-ops557.mjs";
+import { MAX_COPY_AGE_MS, ops557ReplayGate, replayDeskHistory, runReplayGate } from "./replay-ops557.mjs";
 
 const POLICY = CURRENT_DESK_OWNERSHIP_POLICY;
 const DESKS = ["j", "joe", "joel"];
@@ -142,6 +142,10 @@ export function joed196ReplayGate({ history, executorLedger, memoryState, family
     checks.push({ name: `flat-contract guard rejects before state count=${caught.crossBooked}`,
       pass: !caught.ok && caught.crossBooked === CONTRACTS.length && caught.accountMismatch === 0 });
     checks.push({ name: "flat-contract guard passes after state", pass: replayFlatContractGuard(after, history.account).ok });
+    // Codex gate r1 (P2): the older OPS-557 rows must keep their full validation on
+    // the same copies (fill metadata, quantities, NVDA expectations), not only cardinality.
+    checks.push({ name: "OPS-557 deploy gate on the same copies",
+      pass: ops557ReplayGate({ history, executorLedger, memoryState, familyLedger, deployDate }).ok });
   } catch {
     checks.push({ name: "inputs or FIFO replay", pass: false });
   }
