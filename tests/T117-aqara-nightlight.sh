@@ -11,9 +11,9 @@ fi
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-full}"
 case "$mode" in
-full | --module-only) ;;
+full | --module-only | --local-only) ;;
 *)
-  printf 'usage: %s [--module-only]\n' "$0" >&2
+  printf 'usage: %s [--module-only|--local-only]\n' "$0" >&2
   exit 2
   ;;
 esac
@@ -22,7 +22,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_aqara_nightlight.py' -v
 node --test "${repo}/tests/test_aqara_nightlight_ui.cjs"
 nix-instantiate --parse "${repo}/hosts/hsb1/aqara-nightlight.nix" >/dev/null
+nix-instantiate --parse "${repo}/tests/aqara-nightlight-eval.nix" >/dev/null
 grep -Fq './aqara-nightlight.nix # OPS-496:' "${repo}/hosts/hsb1/configuration.nix"
+
+if [ "$mode" = "--local-only" ]; then
+  printf 'T117: three fake hubs, two-hub v3.3 compatibility, shared IDs, UI switching and slider limits and Nix parse checks passed; NixOS evaluation omitted (required before release)\n'
+  exit 0
+fi
 
 PYTHONDONTWRITEBYTECODE=1 python3 - "$repo" "$mode" <<'PY'
 import json
@@ -53,11 +59,12 @@ def verify(result):
     assert unit["DynamicUser"] is True
     assert unit["StateDirectory"] == "aqara-nightlight"
     assert unit["StateDirectoryMode"] == "0700"
+    assert unit["UMask"] == "0077"
     assert unit["ProtectSystem"] == "strict"
     assert unit["IPAddressDeny"] == "any"
     allowed = set(unit["IPAddressAllow"])
     assert allowed == {"127.0.0.0/8", "::1/128", "192.168.1.0/24", "100.64.0.0/10",
-                       "192.168.1.106/32", "192.168.1.108/32"}
+                       "192.168.1.106/32", "192.168.1.107/32", "192.168.1.108/32"}
     assert set(unit["RestrictAddressFamilies"]) == {"AF_INET", "AF_INET6"}
     for option in ("PrivateTmp", "PrivateDevices", "ProtectHome", "ProtectKernelTunables",
                    "ProtectKernelModules", "ProtectControlGroups", "NoNewPrivileges",
@@ -75,6 +82,8 @@ def verify(result):
     for peer in allowed:
         assert peer in result["unit"], peer
     assert result["miioVersion"] == "0.5.12", "review private MiIOProtocol ID API on version change"
+    assert result["backup"]["keyExclusion"] == "*/aqara-nightlight/desk-keys"
+    assert result["backup"]["managedScript"] is True
 
 source = os.environ.get("AQARA_TEST_NIXPKGS")
 arguments = '{ nixpkgs = builtins.toPath ' + json.dumps(source) + '; }' if source else '{}'
@@ -93,6 +102,12 @@ else:
       unit = system.config.systemd.units."aqara-nightlight.service".text;
       firewall = { inherit (system.config.networking.firewall) enable allowedTCPPorts; };
       miioVersion = system.pkgs.python3Packages.python-miio.version;
+      backup = {
+        keyExclusion = system.config.nixcfg.composeStack.spec.services.restic-cron-hetzner.environment.RESTIC_EXCLUDE_NIGHTLIGHT_KEYS;
+        managedScript = builtins.elem
+          "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
+          system.config.nixcfg.composeStack.spec.services.restic-cron-hetzner.volumes;
+      };
     }'''
     verify(evaluate([str(repo) + "#nixosConfigurations.hsb1", "--apply", projection]))
     print("T117: full hsb1 unit/firewall evaluation passed")
