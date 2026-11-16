@@ -52,6 +52,9 @@ MAX_PAGES = 20
 ADMISSION_WAIT_SECONDS = 150
 ADMISSION_API_UNAVAILABLE_LIMIT = 3
 ADMISSION_API_UNAVAILABLE_WINDOW_SECONDS = 30 * 60
+# AEON-2428: queued jobs the tick admitted and no slot holds yet, newest kept.
+# Attribution reads each one through the single-job endpoint before any run scan.
+POOL_ATTRIBUTION_JOBS = 16
 CANCEL = {"actions": "write"}
 ADMIN_READ = {"administration": "read"}
 ADMIN_WRITE = {"administration": "write"}
@@ -112,32 +115,65 @@ def could_take(job, runner_labels):
     return wanted <= {label.lower() for label in runner_labels}
 
 
+def class_owners(cfg):
+    """Every class label, lower-cased, with its configured spelling and the one
+    event it belongs to: classLabels (AEON-459) and extraClassLabels (AEON-2428).
+    A label configured for two events belongs to neither and is never minted
+    for: jobs of different events must not fit the same runner."""
+    pairs = list(cfg["classLabels"].items())
+    pairs += [(event, label) for event, labels in cfg.get("extraClassLabels", {}).items() for label in labels]
+    owners = {}
+    for event, label in pairs:
+        seen = owners.get(str(label).lower())
+        owners[str(label).lower()] = (label, event if seen is None or seen[1] == event else None)
+    return owners
+
+
 def job_classes(job, cfg):
-    """The configured event class labels a job asks for."""
-    names = {name.lower() for name in cfg["classLabels"].values()}
-    return {str(item).lower() for item in job.get("labels") or []} & names
+    """The configured class labels a job asks for."""
+    return {str(item).lower() for item in job.get("labels") or []} & set(class_owners(cfg))
 
 
 def expected_class(run, cfg):
     return cfg["classLabels"].get(run.get("event"))
 
 
+def event_classes(run, cfg):
+    """Every class a run of this event can be minted for, its AEON-459 class first."""
+    extra = cfg.get("extraClassLabels", {}).get(run.get("event"), [])
+    return [label for label in [expected_class(run, cfg), *extra] if label]
+
+
+def job_class(job, run, cfg):
+    """AEON-459: a mint candidate carries exactly one class label, and that label
+    is a class of its run's verified event. Returns it as configured; None means
+    the job is never minted for."""
+    asked = job_classes(job, cfg)
+    if len(asked) != 1:
+        return None
+    label, event = class_owners(cfg)[next(iter(asked))]
+    return label if event is not None and event == run.get("event") else None
+
+
 def class_ok(job, run, cfg):
-    """AEON-459: a mint candidate carries exactly one class label, the one its
-    run's verified event maps to. Anything else is never minted for."""
-    expected = expected_class(run, cfg)
-    return expected is not None and job_classes(job, cfg) == {expected.lower()}
+    return job_class(job, run, cfg) is not None
 
 
-def mint_labels(cfg, run):
-    """Base labels plus exactly one event class (GitHub matches runs-on as a
-    subset), so a class-labelled job only fits a runner of the same class."""
-    return list(cfg["runnerLabels"]) + [expected_class(run, cfg)]
+def mint_labels(cfg, run, job=None):
+    """Base labels plus exactly one class (GitHub matches runs-on as a subset), so
+    a class-labelled job only fits a runner of the same class: the class the job
+    asks for, or without a job the AEON-459 class of the run's event."""
+    if job is None:
+        return list(cfg["runnerLabels"]) + [expected_class(run, cfg)]
+    label = job_class(job, run, cfg)
+    if label is None:
+        raise BuilderError(f"job {job.get('id')} labels {job.get('labels')} carry no class of event {run.get('event')}")
+    return list(cfg["runnerLabels"]) + [label]
 
 
 def pool_labels(cfg):
     """Every label any pool runner can carry: the widest sweep target."""
-    return list(cfg["runnerLabels"]) + sorted(set(cfg["classLabels"].values()))
+    return list(cfg["runnerLabels"]) + sorted({label for label, _ in class_owners(cfg).values()})
 
 
 def uses_cache_disk(run, cfg):
@@ -785,6 +821,7 @@ class Controller:
         self.ruleset_lock = threading.Lock()
         self.last_ruleset_error_log = None
         self.admission_api_failures = deque()
+        self.admitted_jobs = {}
         self.workers = {}
         self.pending = 0
         self.last_proof = time.time()
@@ -1208,7 +1245,8 @@ class Controller:
             data = self.state.load()
             if not self.minting_allowed():
                 break
-            assigned = {s["jobId"] for s in data["slots"].values()}
+            # A job belongs to a slot that was minted for it or whose runner took it.
+            assigned = {s["jobId"] for s in data["slots"].values()} | {s.get("ranJob") for s in data["slots"].values()}
             if job["id"] in assigned or job["id"] in self.workers:
                 continue
             if run["id"] in data["cancelledRuns"]:
@@ -1225,8 +1263,10 @@ class Controller:
                 self.state.update(lambda d, r=run["id"]: d["verifiedRuns"].append(r))
             if not class_ok(job, run, self.cfg):
                 self.cancel_rejected_run(run["id"],
-                                         f"job {job['id']} labels {job.get('labels')} lack exact class {expected_class(run, self.cfg)}")
+                                         f"job {job['id']} labels {job.get('labels')} lack exact class "
+                                         f"{' or '.join(event_classes(run, self.cfg)) or None}")
                 continue
+            self.remember_admitted(job["id"])
             if attempted:
                 pending += 1
                 continue
@@ -1452,7 +1492,7 @@ class Controller:
             if not self.minting_allowed() or not self.check_ruleset(force=True):
                 return
             checked_windows = len(self.state.load().get("rulesetRejectedWindows", []))
-            labels = mint_labels(self.cfg, run)
+            labels = mint_labels(self.cfg, run, job)
             if self.unverified_label_runs(labels):
                 log(f"slot {slot}: unverified mbp2606 jobs were queued; cancelled them, not minting this tick")
                 return
@@ -1475,7 +1515,7 @@ class Controller:
             if outcome == "ran":
                 if not self.post_job_check(slot, vm, name, job):
                     self.tainted.add(slot)
-            elif outcome in ("denied", "unverified", "unattributed", "api-unavailable"):
+            elif outcome in ("denied", "unverified", "unattributed", "duplicate", "api-unavailable"):
                 self.tainted.add(slot)
             elif outcome == "class-mismatch":
                 log(f"slot {slot}: VM stopped before unlocking; the job it took fails and needs a rerun")
@@ -1610,8 +1650,8 @@ class Controller:
         return (self.lima.instances().get(vm) or {}).get("status") == "Running"
 
     def wait_for_runner(self, slot, vm, name, job):
-        """Returns ran | idle | denied | unverified | unattributed | api-unavailable |
-        class-mismatch | timeout | stopped."""
+        """Returns ran | idle | denied | unverified | unattributed | duplicate |
+        api-unavailable | class-mismatch | timeout | stopped."""
         deadline = time.time() + self.cfg["maxJobMinutes"] * 60
         idle_since = None
         unlocked = False
@@ -1668,9 +1708,13 @@ class Controller:
         """The hook admitted a job; confirm through the API which job this runner
         took, then hand the cache key over. Anything else kills the VM. API-only
         exhaustion or verified admission timeouts leave the pool on until the circuit breaker trips;
-        a successful attribution read with no matching job still pauses it."""
+        a successful attribution read with no matching job still pauses it.
+        The job need not be the one this slot was minted for (AEON-2428): it must
+        be a job of a verified run that no other slot has claimed, and it is
+        claimed here, so a sibling's runner is then admitted for the other job."""
         deadline = time.monotonic() + ADMISSION_WAIT_SECONDS
         ran = None
+        claimed = False
         metadata = None
         attempt = 0
         answered_unattributed = False
@@ -1681,7 +1725,7 @@ class Controller:
             attempt += 1
             try:
                 if ran is None:
-                    ran = self.find_runner_job(name, job)
+                    ran = self.find_runner_job(name, job, slot)
                     last_error = None
                     answered_unattributed = ran is None
                 if self.mode() == "stopping":
@@ -1691,6 +1735,14 @@ class Controller:
                     if ran.get("run_id") not in verified:
                         self.pause(f"slot {slot}: {name} took job {ran.get('id')} of unverified run {ran.get('run_id')} attempt {ran.get('run_attempt')}")
                         return "unverified"
+                    if not claimed:
+                        taken = self.claim_job(slot, ran)
+                        if taken:
+                            self.pause(f"slot {slot}: {name} took job {ran.get('id')} of run {ran.get('run_id')}, but {taken}")
+                            return "duplicate"
+                        claimed = True
+                        if ran.get("id") != job["id"]:
+                            log(f"slot {slot}: {name} was minted for job {job['id']} but took job {ran.get('id')} of verified run {ran.get('run_id')}; claimed")
                 if time.monotonic() >= deadline:
                     break
                 if ran:
@@ -1735,12 +1787,59 @@ class Controller:
         log(f"slot {slot}: admitted job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')}; cache unlocked")
         return "ok"
 
-    def find_runner_job(self, name, job):
+    def remember_admitted(self, job_id):
+        """The tick admitted this queued job (verified run, exact class) and no
+        slot holds it yet: a pool runner of its class may take it instead of the
+        job it was minted for."""
+        with self.lock:
+            self.admitted_jobs.pop(job_id, None)
+            self.admitted_jobs[job_id] = True
+            while len(self.admitted_jobs) > POOL_ATTRIBUTION_JOBS:
+                del self.admitted_jobs[next(iter(self.admitted_jobs))]
+
+    def forget_admitted(self, job_id):
+        with self.lock:
+            self.admitted_jobs.pop(job_id, None)
+
+    def attribution_jobs(self, slot, job):
+        """Where to look for a runner's job before any run scan, likeliest first.
+        Returns (own, others): the job this slot already claimed and the one it
+        was minted for; then the jobs of the other slots and the queued jobs the
+        tick admitted, newest first."""
+        slots = self.state.load()["slots"]
+        own = [(slots.get(str(slot)) or {}).get("ranJob"), job["id"]]
+        others = []
+        for key, info in sorted(slots.items()):
+            if key != str(slot):
+                others += [info.get("jobId"), info.get("ranJob")]
+        with self.lock:
+            others += reversed(self.admitted_jobs)
+        own = [job_id for job_id in dict.fromkeys(own) if job_id is not None]
+        return own, [job_id for job_id in dict.fromkeys(others) if job_id is not None and job_id not in own]
+
+    def find_runner_job(self, name, job, slot=None):
         """Which run, attempt and job did this runner actually take? Asked of the
-        API, never of the VM: the job had root there and could rewrite its logs."""
-        target = self.gh.job(job["id"])
-        if target.get("runner_name") == name:
-            return target
+        API, never of the VM: the job had root there and could rewrite its logs.
+        GitHub gives a runner any queued job its labels fit, so sibling jobs swap
+        runners. On 2026-10-19 the run scan below was the only way to see that,
+        runs/*/jobs answered 502, a scan that did complete did not show the
+        runner, and the pool paused on two legitimate jobs (AEON-2428). So the
+        jobs the pool itself admitted are read first, each through the single-job
+        endpoint. That list only says where to look: the caller judges the API
+        record it gets back."""
+        own, others = self.attribution_jobs(slot, job)
+        for job_id in own + others:
+            try:
+                item = self.gh.job(job_id)
+            except BuilderError as err:
+                # Another slot's or a remembered job that is gone with its run
+                # cannot be this runner's; every other error ends the lookup.
+                if job_id in own or "HTTP 404" not in str(err):
+                    raise
+                self.forget_admitted(job_id)
+                continue
+            if item.get("runner_name") == name:
+                return item
         data = self.state.load()
         run_ids = list(dict.fromkeys(data["verifiedRuns"][-20:] + [r["id"] for r in self.gh.recent_runs()]))
         for run_id in run_ids:
@@ -1749,14 +1848,46 @@ class Controller:
                     return item
         return None
 
+    def claim_job(self, slot, ran):
+        """Pool-level claim, atomic under the state lock: one job belongs to one
+        slot and one runner runs one job. Returns None once this slot holds the
+        job, otherwise why it cannot; the caller then pauses. A claim lives in
+        the slot's record and ends with it."""
+        job_id = ran.get("id")
+        if job_id is None:
+            return "the API record has no job id"
+        problem = []
+
+        def claim(data):
+            for key, info in sorted(data["slots"].items()):
+                if key != str(slot) and info.get("ranJob") == job_id:
+                    problem.append(f"slot {key} ({info.get('runner')}) already claimed that job")
+                    return
+            mine = data["slots"].get(str(slot))
+            if mine is None:
+                return
+            if mine.get("ranJob") not in (None, job_id):
+                problem.append(f"this slot already claimed job {mine['ranJob']}")
+                return
+            mine.update(ranJob=job_id, ranRun=ran.get("run_id"), ranAttempt=ran.get("run_attempt"))
+        self.state.update(claim)
+        if problem:
+            return problem[0]
+        self.forget_admitted(job_id)
+        return None
+
     def post_job_check(self, slot, vm, name, job):
-        ran = self.find_runner_job(name, job)
+        ran = self.find_runner_job(name, job, slot)
         verified = set(self.state.load()["verifiedRuns"])
         if ran is None:
             self.pause(f"slot {slot}: runner {name} ran a job the API cannot attribute")
             return False
         if ran.get("run_id") not in verified:
             self.pause(f"slot {slot}: runner {name} ran job {ran.get('id')} of unverified run {ran.get('run_id')} (attempt {ran.get('run_attempt')})")
+            return False
+        taken = self.claim_job(slot, ran)
+        if taken:
+            self.pause(f"slot {slot}: runner {name} ran job {ran.get('id')} of run {ran.get('run_id')}, but {taken}")
             return False
         log(f"slot {slot}: post-job ok, {name} ran job {ran.get('id')} run {ran.get('run_id')} attempt {ran.get('run_attempt')} ({ran.get('conclusion')})")
         return True
@@ -2038,7 +2169,9 @@ def cmd_status(cfg, args):
     print(f"net block:   last proven {data.get('networkProof', 'never')[:19]}")
     print(f"slots:       {len(data['slots'])}/{cfg['slots']} busy ({cfg['slotCpus']} CPU / {cfg['slotMemoryGiB']} GiB each)")
     for slot, info in sorted(data["slots"].items()):
-        print(f"  slot {slot}: {info.get('phase')} run {info.get('runId')} job {info.get('jobId')} {info.get('event')} since {info.get('since', '')[:19]}")
+        took = info.get("ranJob")
+        swapped = f" (runner took job {took} of run {info.get('ranRun')})" if took not in (None, info.get("jobId")) else ""
+        print(f"  slot {slot}: {info.get('phase')} run {info.get('runId')} job {info.get('jobId')}{swapped} {info.get('event')} since {info.get('since', '')[:19]}")
     load = subprocess.run(["/usr/sbin/sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.strip()
     pressure = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True).stdout.strip().splitlines()
     print(f"host:        load {load}  {pressure[-1] if pressure else ''}")
