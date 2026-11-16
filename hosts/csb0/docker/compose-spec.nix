@@ -32,8 +32,8 @@ let
       local package="$1" version="$2" installed
       installed=$(node -p "require('/data/node_modules/$package/package.json').version" 2>/dev/null) || installed=""
       if [ "$installed" != "$version" ]; then
-        if ! npm install --prefix /data --save-exact --no-audit --no-update-notifier --no-fund --omit=dev "$package@$version"; then
-          printf 'WARN: Node-RED add-on %s@%s could not be installed in /data; continuing startup (flows using it may be unavailable).\n' "$package" "$version" >&2
+        if ! npm install --prefix /data --save-exact --no-audit --no-update-notifier --no-fund --omit=dev --fetch-timeout=30000 --fetch-retries=1 "$package@$version"; then
+          printf 'WARN: Node-RED add-on %s@%s could not be installed in /data; continuing startup (Node-RED or all flows may fail; see csb0 README).\n' "$package" "$version" >&2
         fi
       fi
     }

@@ -26,6 +26,7 @@ ENTRYPOINT = "/usr/src/node-red/entrypoint.sh"
 FLAGS = [
     "install", "--prefix", "/data", "--save-exact", "--no-audit",
     "--no-update-notifier", "--no-fund", "--omit=dev",
+    "--fetch-timeout=30000", "--fetch-retries=1",
 ]
 ARGS = ["--userDir", "/data", "argument with spaces", ""]
 
