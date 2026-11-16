@@ -2173,6 +2173,28 @@ sudo systemctl start fleet-backup-watch.service
 journalctl -u fleet-backup-watch.service --since "1 day ago" --no-pager
 ```
 
+### Garage Telegram Bot Watch (garage-bot-watch, OPS-604)
+
+`garage-bot-watch.timer` checks the garage Telegram bot (Node-RED on csb0)
+every five minutes using Telegram's read-only `getWebhookInfo`. A positive
+`pending_update_count` on two consecutive runs pages as `garage-bot:not-polling`:
+the receiver can stop silently while sending still works (OPS-603). A zero
+count clears the alarm. API/network failures page as `garage-bot:unreadable`
+only after two runs and keep any announced polling alarm open until readable
+evidence returns. The OPS-107 engine delivers each transition durably to the
+same `csb1-watchtower-env` target as the other pollers; credentials stay in memory.
+
+```bash
+systemctl status garage-bot-watch.timer --no-pager
+sudo systemctl start garage-bot-watch.service
+journalctl -u garage-bot-watch.service --since "1 hour ago" --no-pager
+```
+
+Recovery: drop stale Telegram updates using the operator's credential-safe
+procedure, then restart `csb0-nodered-1` on csb0. The watcher only observes the
+queue; it never consumes or drops updates. Do not put the token or notification
+URL in shell commands or logs.
+
 ### HAUSV Graceful Stop Budget
 
 The private `hausv-jhw22` Compose service declares `stop_grace_period: 30s`.
