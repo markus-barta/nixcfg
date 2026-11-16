@@ -1,6 +1,7 @@
 #!/bin/bash
 # OPS night protocol (Markus 2026-10-11): mbp2607 + mbp2606 levels every 180 s; writes changes to AEON-LEAD's host-level.sh.
 # WEEKEND MODE (Markus 2026-10-11 08:30 via AEON-LEAD, until Mon 2026-10-12 07:00): RED at load>${RED_LOAD:-28}; set RED_LOAD=22 for the normal night protocol.
+# OPS-602 (2026-11-16): the weekend POLICY rule (maxload ${RED_LOAD:-28}, block only on RED) now applies every day; see the OPS-300 block below.
 # GREEN load<=14 (<=12 after YELLOW/RED), mem>=40%, disk>=100GB, swap<=4GB (or <60% mem) | RED load>22, mem<25%, disk<50GB, swap>8GB with mem<40%, throttled, unreachable.
 # OPS-595: vendored into nixcfg; launchd sets NL_MAC_HEALTH / NL_UNGUARDED to store paths; SSH server-alive probes end a silent peer/network within ~30-45 s (not a remote command hanging while sshd still answers; the stale watcher's kickstart covers that).
 S=${NL_MAC_HEALTH:-$HOME/.local/share/ops-qa/mac-health.sh}
@@ -50,7 +51,7 @@ lvl_for() {
     return
   fi
   # 2026-10-19 (LEAD ask): swap >8 GB is RED only while memory is also tight (<40 % free); otherwise it falls to YELLOW below
-  # (still blocks mbp2606 remote runs). mbp2606 12:40: swap 9.0 GB residual, mem 50 % free, load ~4 -> false RED.
+  # (OPS-602: YELLOW no longer blocks mbp2606 remote runs). mbp2606 12:40: swap 9.0 GB residual, mem 50 % free, load ~4 -> false RED.
   local sm=45
   [ "$last" != GREEN ] && sm=55 # swap-rule hysteresis (see the YELLOW branch)
   # 2026-10-21 (LEAD, r138 capacity): residual swap alone no longer holds YELLOW. mbp2606 kept 31.8 GB of another user's
@@ -85,13 +86,9 @@ while true; do
   # Hold (2026-10-31): ~/.hold-mbp2607 reserves this Mac (e.g. gaming); same meaning. The 10-31 20:04 leak: a local ci-static ran here because mbp2607 still read GREEN.
   [ -e "$HOME/.hold-mbp2607" ] && l7=RED
   # OPS-300: mirror the mbp2606 policy for its host-side remote-run guard (~mba/.aeon-remote-policy; stale after 900 s).
-  if [ -f /Users/markus/.aeon/lead/aeon/WEEKEND-MODE ]; then
-    ml=${RED_LOAD:-28}
-    [ "$l6" = RED ] && bl=1 || bl=0
-  else
-    ml=12
-    [ "$l6" = GREEN ] && bl=0 || bl=1
-  fi
+  # OPS-602 (LEAD 2026-11-16, Desk 7e63f179 "use fully"): the former WEEKEND-MODE rule applies every day; the WEEKEND-MODE file is no longer read.
+  ml=${RED_LOAD:-28}
+  [ "$l6" = RED ] && bl=1 || bl=0
   # OPS-341 ramp override (2026-10-16, time-boxed): state/mbp2606-ramp-override = "maxload=N until=EPOCH". While valid, the
   # remote-run guard gets that maxload and blocks only on RED or mem < 40 % (a load-only YELLOW is the ramp itself). The
   # host level reported to LEAD is unchanged, so LEAD's pool still sees YELLOW and backs off. Expired or absent = normal.
@@ -107,7 +104,7 @@ while true; do
     fi
   fi
   # OPS-385 (b), AEON-1490 (Markus go 2026-10-18 via AEON-LEAD): a remote-run budget per level instead of a flat 1.
-  # GREEN + load<=8 + mem>=50 % -> 3; other GREEN -> 2; YELLOW (not blocked, e.g. ramp override) -> 1; blocked -> 0.
+  # GREEN + load<=8 + mem>=50 % -> 3; other GREEN -> 2; YELLOW (not blocked since OPS-602) -> 1; blocked -> 0.
   # Three or more busy pool slots (4 x 4 CPU) cap it at 1, two cap it at 2. maxruns is written to ~/.aeon-remote-maxruns (see below).
   ps6=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local ci@100.64.0.13 '$HOME/.nix-profile/bin/aeon-builder status 2>/dev/null | grep -E "^(mode|slots):"' </dev/null 2>/dev/null)
   busy6=$(echo "$ps6" | sed -nE 's/^slots: +([0-9]+)\/.*/\1/p')

@@ -67,6 +67,10 @@ let
       env.PATH
       == "/Users/markus/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin:/usr/sbin:/sbin:/etc/profiles/per-user/markus/bin:/run/current-system/sw/bin";
     sshServerAlive = sshCount > 0 && sshCount == count "ServerAliveInterval=15" loopScript;
+    permanentPolicy = !lib.hasInfix "-f /Users/markus/.aeon/lead/aeon/WEEKEND-MODE" loopScript;
+    policyMaxload = lib.hasInfix "ml=\${RED_LOAD:-28}" loopScript;
+    policyBlocksOnlyRed = lib.hasInfix ''[ "$l6" = RED ] && bl=1 || bl=0'' loopScript;
+    noWeekdayMaxload = !lib.hasInfix "ml=12" loopScript;
     staleKickstart = lib.hasInfix "launchctl kickstart -k" staleScript;
     staleFallback = lib.hasInfix "maxload 12" staleScript;
     activationExists = hostConfig.home.activation ? nightLevelsStateDirectory;
