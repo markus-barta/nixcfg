@@ -1536,13 +1536,32 @@ assert joeSet.pusher != null && joeSet.executor != null;
       cd "$REPO"
 
       warm() {
-        local name="$1" ref="$2" plan paths n
+        local name="$1" ref="$2" skip_private_github="''${3:-false}" plan paths n source
         # mba has no hausnetz deploy-key access. Missing private source/cache
-        # must fail this unit rather than masquerade as an already-warm closure.
+        # must fail hsb0; only mbp2607 opts into the OPS-600 GitHub refusal skip.
         if ! plan="$(nix build "$ref" --dry-run 2>&1)"; then
+          if [ "$skip_private_github" = true ] && source="$(printf '%s\n' "$plan" | awk '
+            /(^|[[:space:]])error:/ {
+              if (match($0, /unable to download \047https?:\/\/github[.]com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+(\/[^\047]*|[?][^\047]*)?\047: HTTP error (401|403|404)([^0-9]|$)/)) {
+                source = substr($0, RSTART, RLENGTH)
+                sub(/^unable to download \047https?:\/\//, "", source)
+                split(source, parts, /[\/?\047]/)
+                source = parts[1] "/" parts[2] "/" parts[3]
+              } else other_error = 1
+            }
+            END { if (source != "" && !other_error) print source; else exit 1 }
+          ')"; then
+            echo "warmer: $name — SKIPPED: private source $source not reachable for mba (OPS-600); nothing warmed for $name"
+            mbp2607_skipped=true
+            return 0
+          fi
           echo "warmer: $name — evaluation/dry-run FAILED" >&2
           if [ "$name" = hsb0 ]; then
             echo "warmer: hsb0 — mba has no hausnetz access; warming requires the private source already available to mba" >&2
+          fi
+          if [ "$name" = mbp2607 ]; then
+            # Keep the useful error tail, excluding URL query strings.
+            printf '%s\n' "$plan" | tail -n 5 | awk '{ gsub(/[?][^[:space:]\047\"]*/, ""); print }' >&2
           fi
           return 1
         fi
@@ -1564,15 +1583,21 @@ assert joeSet.pusher != null && joeSet.executor != null;
 
       # STATIC LAN list (NIX-155). NixOS hosts:
       failed=0
+      mbp2607_skipped=false
       warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel" || failed=1
       warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel" || failed=1
       # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):
-      warm mbp2607   '.#homeConfigurations."markus@mbp2607".activationPackage' || failed=1
+      # OPS-600: skip only refused GitHub source downloads (HTTP 401/403/404).
+      warm mbp2607   '.#homeConfigurations."markus@mbp2607".activationPackage' true || failed=1
       if [ "$failed" -ne 0 ]; then
         echo "warmer: FAILED — one or more evaluations/dry-runs failed" >&2
         exit 1
       fi
-      echo "warmer: done"
+      if [ "$mbp2607_skipped" = true ]; then
+        echo "warmer: done (mbp2607 skipped)"
+      else
+        echo "warmer: done"
+      fi
     '';
     serviceConfig = {
       Type = "oneshot";
