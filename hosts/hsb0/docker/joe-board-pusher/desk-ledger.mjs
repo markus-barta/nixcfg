@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { newYorkPeriodStart } from "./day-baseline.mjs";
 import { J_DATED_CLIENT_ASSIGNMENTS, assertFillAttributionOverrides, fillAttributionOverride, normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
-import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords, reconcileDeskOpenLots } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
 import { EXECUTOR_ATTRIBUTION_METHOD, EXECUTOR_CLIENT_IDS, EXECUTOR_DESK_ROLLUP, executorExecution, executorClientCounts } from "./executor-attribution.mjs";
 
@@ -45,6 +45,18 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
     ].map(([execId, desk]) => Object.freeze({
       execId, desk, basis: "OPS-557 cross-booked NVDA close, 2026-11-04", date: "2026-11-04",
     })),
+    // JOED-196: the account is flat on both contracts, yet J kept an open long
+    // and Joe the equal open short. Each pair is booked to the desk of its
+    // first fill (JOED default). One line per fill: a desk decision changes
+    // only the desk on that pair's two lines.
+    ...[
+      ["0000e0d5.6ab27b67.01.01", "j"], // AVGO opening BUY, J route
+      ["0000dc8f.6bb12ac9.01.01", "j"], // AVGO closing SELL, Joe route
+      ["0000dc8f.6bb12336.01.01", "joe"], // AMD opening SELL, Joe route
+      ["0000e0d5.6abb75ef.01.01", "joe"], // AMD closing BUY, J route
+    ].map(([execId, desk]) => Object.freeze({
+      execId, desk, basis: "JOED-196 cross-booked AVGO/AMD close, 2026-11-17", date: "2026-11-17",
+    })),
   ]),
   assignments: Object.freeze([
     ...[27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83].map((clientId) => Object.freeze({
@@ -64,6 +76,11 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
 });
 
 export const DESK_HISTORY_REVISION_METHOD = HISTORY_REVISION_METHOD;
+
+// JOED-196: the all-desk calculation's reason when the desks' open lots do not
+// reconcile with the account, contract by contract. Phase B already reports an
+// unreconciled desk under this same name.
+export const LEDGER_UNRECONCILED = "ledger_unreconciled";
 
 function stable(value) {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -407,6 +424,7 @@ export function calculateDeskEquities({
   const diagnostics = { ...(executorClients.length ? { executorClients } : {}),
     ...(executorAttribution?.opsTestExecutionCount ? { opsTestExecutionCount: executorAttribution.opsTestExecutionCount } : {}) };
   let phaseBDesks;
+  let ledgerReconciliation;
   try {
     if (typeof account !== "string" || !account.trim()) throw new Error("target account is invalid");
     const canonical = canonicalPolicy(policy);
@@ -430,6 +448,22 @@ export function calculateDeskEquities({
     const ledgerEconomics = economicHistory({ ...ledger, policy: canonical, cutoff, executorAttribution });
     const ledgerRevision = historyRevision(ledger, canonical, cutoff, true, executorAttribution);
     observedKeep(positions || [], account, canonical);
+    // JOED-196 flat-contract guard, on the classified fills and before any desk
+    // is valued: no mark, FIFO result or sibling desk can make an unreconciled
+    // ledger publishable. The per-desk FIFO counts the same fills from periodStart.
+    const periodEpoch = Date.parse(canonical.periodStart);
+    const reconciliation = reconcileDeskOpenLots({
+      lots: ledgerEconomics.filter((row) => Date.parse(row.execution.time) >= periodEpoch),
+      positions: positions || [],
+      account,
+      excludedSymbols: canonical.excludedSymbols,
+    });
+    if (!reconciliation.ok) {
+      ledgerReconciliation = { accountMismatch: reconciliation.accountMismatch, crossBooked: reconciliation.crossBooked };
+      // An ownership error cannot be isolated to one desk: none stays exact.
+      if (phaseB) phaseBDesks = Object.fromEntries(DESKS.map((id) => [id, { reconciled: false }]));
+      throw new Error(LEDGER_UNRECONCILED);
+    }
 
     const calculate = (desk) => calculateFamily({
       executions: remapForDesk(ledger.rows, canonical, desk, executorAttribution),
@@ -525,8 +559,18 @@ export function calculateDeskEquities({
     };
   } catch (error) {
     return { ok: false, reason: String(error?.message || error), ...diagnostics,
+      ...(ledgerReconciliation ? { ledgerReconciliation } : {}),
       ...(phaseBDesks ? { phaseBDesks } : {}) };
   }
+}
+
+/** JOED-196: the J-family FIFO alone cannot see another desk's opposite lot and
+ * would keep valuing J's half of a cross-booked pair. An unreconciled all-desk
+ * ledger therefore withholds the J result as well, under the same reason.
+ */
+export function publishableFamily(family, deskEquities) {
+  return family?.ok === true && deskEquities?.ok === false && deskEquities.reason === LEDGER_UNRECONCILED
+    ? { ok: false, reason: LEDGER_UNRECONCILED } : family;
 }
 
 /** Revision captured with the live family ledger at a valuation candidate. */

@@ -2,7 +2,7 @@
 /** Synthetic family-ledger tests. No account, journal, or live broker records. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords, reconcileDeskOpenLots } from "./family-ledger.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER-ACCOUNT";
 const OTHER_ACCOUNT = "SYNTHETIC-OTHER-ACCOUNT";
@@ -612,4 +612,100 @@ test("asynchronous mark/position gaps are pending while invalid ledger ownership
   });
   assert.equal(conflict.failureKind, "hard");
   assert.match(conflict.reason, /ambiguous cross-family ownership/);
+});
+
+// JOED-196 flat-contract guard. A lot is a fill plus the desk that owns it.
+let lotSequence = 0;
+function lot(desk, contract, side, shares = 1) {
+  return { desk, ...execution({ contract, execId: `LOT.${++lotSequence}.01`, side, shares }) };
+}
+
+function guard(lots, positions = [], overrides = {}) {
+  return reconcileDeskOpenLots({ lots, positions, account: ACCOUNT, excludedSymbols: [], ...overrides });
+}
+
+const reconciled = (contracts) => ({ ok: true, contracts, accountMismatch: 0, crossBooked: 0 });
+
+test("flat-contract guard passes flat books, exact KEEP, owned positions and same-direction sharing", () => {
+  const acme = stock("ACME", 2001);
+  const keep = [position(stock("SXR8", 2002, "EUR"), 1401), position(stock("TSLA", 2003), 1)];
+  assert.deepEqual(guard([], []), reconciled(0));
+  assert.deepEqual(guard([], keep), reconciled(0), "KEEP stays outside the desks, as in the replay");
+  assert.deepEqual(guard([lot("joel", stock("TSLA", 2003), "BOT", 7)], keep), reconciled(0), "an excluded fill is never a desk lot");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2)], [...keep, position(acme, 2)]), reconciled(1));
+  assert.deepEqual(guard([lot("joe", acme, "SLD", 2)], [position(acme, -2)]), reconciled(1), "a short the account really holds");
+  assert.deepEqual(guard([lot("j", acme, "BOT"), lot("j", acme, "SLD")], keep), reconciled(1), "a closed round trip");
+  assert.deepEqual(guard([lot("j", acme, "BOT"), lot("j", acme, "SLD")], [position(acme, 0)]), reconciled(1), "an explicit zero row");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 1), lot("joe", acme, "BOT", 2)], [position(acme, 3)]), reconciled(1));
+  assert.deepEqual(guard([lot("j", acme, "BOT", 0.1), lot("j", acme, "BOT", 0.2)], [position(acme, 0.3)]), reconciled(1),
+    "the replay's quantity tolerance");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2)], [position(acme, 2), { ...position(acme, 9), account: OTHER_ACCOUNT }]),
+    reconciled(1), "another account's row is not this account's position");
+});
+
+test("flat-contract guard rejects a mirror: opposite desk lots on a contract that is flat in the account", () => {
+  const acme = stock("ACME", 2001);
+  const mirror = [lot("j", acme, "BOT", 2), lot("joe", acme, "SLD", 2)];
+  for (const positions of [[], [position(acme, 0)], [position(stock("SXR8", 2002, "EUR"), 1401)]]) {
+    assert.deepEqual(guard(mirror, positions), { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 });
+  }
+  assert.deepEqual(guard([...mirror].reverse()), { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 });
+  assert.deepEqual(guard([lot("j", acme, "BOT", 5), lot("joe", acme, "SLD", 3), lot("joel", acme, "SLD", 2)]),
+    { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 }, "three desks netting to zero");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 0.3), lot("joe", acme, "SLD", 0.1), lot("joe", acme, "SLD", 0.2)]),
+    { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 }, "fractional lots within the quantity tolerance");
+  // The signed sum alone is blind to the pair: +2 - 2 equals the flat account.
+  // Booking the close to the opening desk is what reconciles it.
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2), lot("j", acme, "SLD", 2)]), reconciled(1));
+});
+
+test("flat-contract guard rejects desk lots that do not add up to the account position", () => {
+  const acme = stock("ACME", 2001);
+  const mismatch = { ok: false, contracts: 1, accountMismatch: 1, crossBooked: 0 };
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2)], [position(acme, 1)]), mismatch, "the account holds less");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2)], [position(acme, 3)]), mismatch, "the account holds more");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2)], [position(acme, -2)]), mismatch, "the opposite direction");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2)], []), mismatch, "a lot the account does not hold is not a mirror");
+  assert.deepEqual(guard([], [position(acme, 1)]), mismatch, "a position no desk owns");
+  assert.deepEqual(guard([lot("j", acme, "BOT", 2), lot("joe", acme, "SLD", 2)], [position(acme, 1)]), mismatch,
+    "offsetting lots against a held position are a mismatch first");
+});
+
+test("flat-contract guard leaves offsetting lots on a contract the account still holds to the sum", () => {
+  // Documented boundary: only a flat contract proves that no desk can hold a lot.
+  const acme = stock("ACME", 2001);
+  assert.deepEqual(guard([lot("j", acme, "BOT", 4), lot("joe", acme, "SLD", 1)], [position(acme, 3)]), reconciled(1));
+});
+
+test("flat-contract guard counts contracts independently and returns counts only", () => {
+  const [acme, bolt, core, dune] = ["ACME", "BOLT", "CORE", "DUNE"].map((symbol, index) => stock(symbol, 2010 + index));
+  const lots = [
+    lot("j", acme, "BOT", 2), lot("joe", acme, "SLD", 2),
+    lot("joe", bolt, "BOT", 3), lot("j", bolt, "SLD", 3),
+    lot("j", core, "BOT", 1),
+    lot("joel", dune, "BOT", 4),
+  ];
+  const positions = [position(core, 2), position(dune, 4)];
+  const saved = structuredClone({ lots, positions });
+  const result = guard(lots, positions);
+  assert.deepEqual(result, { ok: false, contracts: 4, accountMismatch: 1, crossBooked: 2 });
+  assert.deepEqual({ lots, positions }, saved, "inputs are not modified");
+  assert.equal(/ACME|BOLT|CORE|DUNE|LOT\.|201\d/.test(JSON.stringify(result)), false);
+});
+
+test("flat-contract guard fails closed on malformed lots and positions", () => {
+  const acme = stock("ACME", 2001);
+  assert.throws(() => guard(undefined), /desk lots must be an array/);
+  assert.throws(() => guard([{ ...lot("j", acme, "BOT"), desk: "" }]), /desk lot owner is missing/);
+  assert.throws(() => guard([{ ...lot("j", acme, "BOT"), desk: undefined }]), /desk lot owner is missing/);
+  assert.throws(() => guard([null]), /desk lot owner is missing/);
+  assert.throws(() => guard([{ desk: "j", execution: lot("j", acme, "BOT").execution }]), /contract symbol is missing/);
+  assert.throws(() => guard([lot("j", { ...acme, secType: "OPT" }, "BOT")]), /unsupported family secType/);
+  assert.throws(() => guard([lot("j", acme, "HOLD")]), /execution side is unsupported/);
+  assert.throws(() => guard([lot("j", acme, "BOT", 0)]), /execution quantity must be positive/);
+  assert.throws(() => guard([lot("j", acme, "BOT"), lot("joe", { ...acme, symbol: "OTHER" }, "SLD")]), /conflicting contract identity/);
+  assert.throws(() => guard([], [position(acme, 1), position(acme, 1)]), /duplicate observed position contract/);
+  assert.throws(() => guard([], [position(acme, Number.NaN)]), /observed position quantity/);
+  assert.throws(() => guard([], "none"), /positions must be an array/);
+  assert.throws(() => guard([], [], { account: " " }), /account config is missing/);
 });

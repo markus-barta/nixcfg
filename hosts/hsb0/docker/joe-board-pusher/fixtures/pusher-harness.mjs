@@ -58,7 +58,7 @@ export async function runPusher(moduleURL, options = {}) {
     worker.once("exit", code => { if (code) reject(new Error("pusher_fixture_failed")); });
   });
 }
-async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0, pushSchema, flatNetFailures } = {}) {
+async function executePusher(moduleURL, { variant = "normal", stageState = "busy", fetchError, bodyError, cycles = 1, httpStatus = 200, refreshTicks = 0, pushSchema, flatNetFailures, family, deskEquities } = {}) {
   const { createStageHandoff } = await import("../v2-stage-handoff.mjs");
   class Socket extends EventEmitter {
     writable = true; writableLength = 0; destroyed = false; connecting = false;
@@ -72,6 +72,8 @@ async function executePusher(moduleURL, { variant = "normal", stageState = "busy
   if (["nonzero-exit", "OOM", "corrupt-state"].includes(stageState)) { transport.emit("error", new Error("synthetic")); transport.emit("close"); }
   const state = syntheticState(variant);
   state.flatNetFailures = flatNetFailures;
+  // Optional producer results; the default stays the shared synthetic failure.
+  Object.assign(state, { family, deskEquities });
   const before = JSON.stringify({ book: state.book, retained: state.retained });
   const requests = [], observations = [], trace = [], errors = [], logs = [], warnings = [], timers = [];
   state.handoff = { offer(source) { trace.push("handoff"); observations.push(source.book.ts); state.observation = copyObservation(source); state.cycle = source.v1Cycle; state.v1Body = source.v1Body; return socket?.offer(source); }, stop() {} };

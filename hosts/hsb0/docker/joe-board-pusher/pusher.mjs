@@ -32,6 +32,7 @@ import {
   buildDeskDayBoundaryEvidence,
   calculateDeskEquities,
   deskOwnershipPolicyContract,
+  publishableFamily,
 } from "./desk-ledger.mjs";
 import {
   createDeskDayPnlProducer,
@@ -353,9 +354,9 @@ async function pushOnce(stageObservation) {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker snapshot incomplete" }));
     return { ok: false, error: "broker snapshot incomplete" };
   }
-  const family = familyAdapter.project(book);
-  if (!family.ok) {
-    console.warn(JSON.stringify({ event: "family_projection_unavailable", reason: family.reason }));
+  const projectedFamily = familyAdapter.project(book);
+  if (!projectedFamily.ok) {
+    console.warn(JSON.stringify({ event: "family_projection_unavailable", reason: projectedFamily.reason }));
   }
   const familyHistory = familyHistoryAdapter.project();
   if (!familyHistory.ok) {
@@ -368,8 +369,12 @@ async function pushOnce(stageObservation) {
   });
   equityCloseRecorder.observe({ book, deskEquities });
   if (!deskEquities.ok) {
-    console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
+    // JOED-196: ledger_unreconciled adds contract counts only, never identities.
+    console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason,
+      ...(deskEquities.ledgerReconciliation ? { ledgerReconciliation: deskEquities.ledgerReconciliation } : {}) }));
   }
+  // JOED-196: an unreconciled all-desk ledger withholds the J-family result too.
+  const family = publishableFamily(projectedFamily, deskEquities);
   const dayPnl = dayPnlProducer.observe(deskEquities);
   const retainedDeskEquity = dayPnlProducer.inspectState()?.latest || null;
   if (!dayPnl.ok) {

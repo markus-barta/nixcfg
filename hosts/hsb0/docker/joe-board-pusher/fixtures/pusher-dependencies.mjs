@@ -3,7 +3,7 @@
 import { EventEmitter } from "node:events";
 export { createDeskStateReporter } from "../desk-activity.mjs";
 export { J_DATED_CLIENT_ASSIGNMENTS } from "../execution-history.mjs";
-export { CURRENT_DESK_OWNERSHIP_POLICY, deskOwnershipPolicyContract } from "../desk-ledger.mjs";
+export { CURRENT_DESK_OWNERSHIP_POLICY, deskOwnershipPolicyContract, publishableFamily } from "../desk-ledger.mjs";
 export { EXECUTOR_CLIENT_IDS, createExecutorAttribution } from "../executor-attribution.mjs";
 export { HEALTH_INTERVAL_MS, HEALTH_TIMEOUT_MS } from "../pusher-recovery.mjs";
 export const readExecutorAttribution = () => null;
@@ -70,7 +70,8 @@ export function createBrokerSessionAdapter() {
 }
 export function createFamilySessionAdapter() {
   const current = state;
-  return { requestInFlight: false, inspectState: () => ({}), activitySnapshot: () => null, project: () => current.failure, projectDeskEquities: () => current.failure, retire: noop };
+  return { requestInFlight: false, inspectState: () => ({}), activitySnapshot: () => null,
+    project: () => current.family ?? current.failure, projectDeskEquities: () => current.deskEquities ?? current.failure, retire: noop };
 }
 export function createFamilyHistorySessionAdapter() {
   const current = state;
