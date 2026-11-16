@@ -1152,10 +1152,11 @@ Every desk finishes flat on AVGO and AMD; no residual mark is needed.
 
 A changed desk decision is one line per fill in `desk-ledger.mjs`. It also
 changes the two rows of that pair in `replay-joed196.mjs`, in this table and in
-the pinned table test in `desk-ledger.test.mjs`, plus the policy hash there, the
-basis in `history-basis.test.mjs` and both values below. Either decision leaves
-every desk flat on both contracts. It only moves that pair's realised result
-between J and Joe; the three-desk total is unchanged.
+the pinned table test in `desk-ledger.test.mjs`, plus the policy hash and the
+two per-desk realised amounts there, the basis in `history-basis.test.mjs` and
+both values below. Either decision leaves every desk flat on both contracts. It
+only moves that pair's realised result between J and Joe; the three-desk total
+is unchanged.
 
 The policy hash is
 `cb3aa48a186a8274f59d09386a7899cee347ec827cea28a5eabce7136e80b2bf`, basis
@@ -1170,19 +1171,23 @@ them both mirrored pairs; that image has no guard. This change alters no pair,
 contract, attribution-memory or state-file format.
 
 `fixtures/joed196-avgo-amd.json` is a synthetic regression fixture. It carries
-the four reviewed identities; its quantities and prices are synthetic.
+the four reviewed identities; its quantities and prices are synthetic. The two
+pairs realise different amounts, so the per-desk test fails when a pair is
+booked to the other desk.
 
 **Flat-contract guard.** `calculateDeskEquities` now runs
 `reconcileDeskOpenLots` (`family-ledger.mjs`) after every fill is classified and
 exact KEEP is confirmed, and before any desk is valued. Per contract, with the
-replay's instrument key (conId), quantity tolerance and KEEP exclusion:
+replay's instrument key (conId), quantity tolerance and KEEP exclusion, it
+applies two rules of different strength:
 
-1. the desks' open owned quantities must add up to the account's position;
-2. a contract that is **flat in the account must be flat on every desk**.
+1. **Fail-closed.** The desks' open owned quantities must add up to the
+   account's position.
+2. **Alert-only.** A contract that is flat in the account should be flat on
+   every desk.
 
-Rule 2 is what the net check could never see: J +N and Joe -N also add up to
-zero. It would have caught the NVDA, AVGO and AMD pairs. When either rule fails
-the whole all-desk calculation returns
+When **rule 1** fails there is no desk result and no equity vector. The whole
+all-desk calculation returns
 
 ```js
 {
@@ -1192,46 +1197,83 @@ the whole all-desk calculation returns
 }
 ```
 
-- There is no desk result and no equity vector. With Phase B every desk is
-  `reconciled: false`, so v2 withholds equity, OPEN, since-start and DAY for all
-  three desks and the totals under `ledger_unreconciled`. An ownership error
-  cannot be isolated to one desk, so no sibling stays exact.
-- `ledgerReconciliation` counts contracts only. Symbols, quantities and
-  execution identities are never returned or logged. The pusher adds the two
-  counts to its `all_desk_equity_unavailable` event.
-- `crossBooked` counts flat contracts with an open desk lot. It needs an
-  attribution decision and never clears by itself. No mark can make it
-  publishable: the guard runs before the per-desk FIFO.
-- `accountMismatch` counts contracts whose desk lots do not add up to the
-  account. That is a fill whose position callback has not arrived yet, which
-  clears on a later cycle, or a non-KEEP position no desk owns. This case
-  already failed closed; only its all-desk reason is new.
-- KEEP is handled as before. SXR8/TSLA are outside both sides of the comparison
-  and exact KEEP is still enforced first. A KEEP mismatch, an unclaimed fill and
-  an unmatched override keep their own reasons.
-- The J-family FIFO alone cannot see another desk's lot and would keep valuing
-  J's half of a pair. `publishableFamily` therefore withholds the J result
-  under the same reason whenever the all-desk ledger is unreconciled: v1 shows
-  `J accounting unavailable: ledger_unreconciled` without J positions, and no
-  desk state is taken from that lot. Every other all-desk failure leaves J's own
-  accounting as it was.
+- With Phase B every desk is `reconciled: false`, so v2 withholds equity, OPEN,
+  since-start and DAY for all three desks and the totals under
+  `ledger_unreconciled`. Desk lots that do not add up cannot be isolated to one
+  desk, so no sibling stays exact. No mark can make it publishable: the guard
+  runs before the per-desk FIFO.
+- `accountMismatch` counts those contracts. That is a fill whose position
+  callback has not arrived yet, which clears on a later cycle, or a non-KEEP
+  position no desk owns. This case already failed closed; only its all-desk
+  reason is new. J's own FIFO replays every fill on the account against the
+  same positions, so it fails on the same book with its own pending reason.
+  Nothing more is withheld from it.
 - Household POSTs continue, as for the other fail-closed reasons. A retained
   proven vector may still be carried and marked as carried; aggregate money is
   never a partial sum. An observation in this state gives the OPS-556 close
   recorder no exact equity.
 
+**Rule 2** is what the sum can never see: J +N and Joe -N also add up to zero.
+It counts the NVDA, AVGO and AMD pairs. It is an **invariant backed by the
+executor's anti-piling rule**, not a broker fact. The paper-desk executor
+refuses a new order on a symbol the account already holds or has an order
+working on (`evaluatePlacement` in `modules/paper-desk-executor/policy.mjs`,
+"piling is refused"), and it flattens only a desk's own lots. Orders routed
+through it therefore cannot leave two desks with opposite lots on one contract.
+Direct desk clients bypass that check; NVDA, AVGO and AMD all came through
+them. The fills themselves cannot tell a cross-booked close from J long N while
+Joe is independently short N, a book the shared account supports (#751).
+JOED therefore decided that breaking rule 2 **never blanks the board and
+never stops money publishing**:
+
+- The valuation continues. Every desk keeps its equity, OPEN, since-start and
+  DAY as before this change, the pair included, and with Phase B both desks
+  stay `reconciled: true`. The alert changes no field of a v1 body, a v2 pair
+  or the pusher-to-stager observation.
+- `ledgerReconciliation: { accountMismatch: 0, crossBooked: N }` is added to
+  the result, whether it is `ok: true` or fails later for another reason, such
+  as a missing mark for the phantom lot. `crossBooked` counts the flat
+  contracts with an open desk lot.
+- The health reason is `desk_lot_on_flat_contract`. While the count is not zero
+  the pusher logs one `desk_ledger_alert` line per publish cycle, shown below.
+  This is the signal for JOED's checks. Any such line means a flat contract
+  carries a desk lot that someone has to explain. A reviewed, real opposite
+  book logs it too, for as long as it stands.
+- The count **clears silently once the account holds the contract again; a
+  cleared count is not proof of correction**. Rule 2 only applies while the
+  account is flat on the contract. If any desk trades it again, which
+  anti-piling allows while the account is flat, rule 1 holds and the phantom
+  pair is published without a signal. Only an attribution decision (an
+  exact-fill row, as above) or the desks really closing their lots removes
+  the pair.
+
+The health line carries the reason and the contract count, nothing else:
+
+```text
+{"event":"desk_ledger_alert","reason":"desk_lot_on_flat_contract","crossBooked":2}
+```
+
+Both counts are contracts only. Symbols, quantities and execution identities
+are never returned or logged. On a rule 1 failure the pusher adds both counts
+to its `all_desk_equity_unavailable` event. KEEP is handled as before: SXR8/TSLA
+are outside both sides of the comparison and exact KEEP is still enforced
+first. A KEEP mismatch, an unclaimed fill and an unmatched override keep their
+own reasons.
+
 Limits, stated plainly:
 
-- Opposite lots on a contract the account **still holds** satisfy both rules and
-  stay accepted, for example J +4 and Joe -1 against an account position of +3.
-  Desks may keep sharing a contract. Rejecting those too would need a JOED
-  decision; it is not part of this change.
+- Opposite lots on a contract the account **still holds** satisfy rule 1 and
+  are not counted by rule 2, for example J +4 and Joe -1 against an account
+  position of +3. Desks may keep sharing a contract.
 - A position opened through the wrong desk's client and still held by the
-  account cannot be told apart from a correct one. The guard fires when the
+  account cannot be told apart from a correct one. Rule 2 counts it when the
   account goes flat and a desk does not.
+- The health reason is a pusher log event. No field of the published board
+  carries it: the vendored contract's reason codes are closed, and
+  `ledger_unreconciled` there means withheld money.
 - The guard needs the account's positions, so it lives in the valuation only.
   History revisions and day-boundary proofs carry no positions; a boundary
-  candidate comes from an accepted, guarded valuation.
+  candidate comes from an accepted valuation.
 
 #### JOED-196 pre-deploy replay gate
 
@@ -1267,21 +1309,47 @@ Every line must say `PASS` and the exit status must be zero. Required evidence:
 - `PASS other-symbol lots unchanged count=...` and
   `PASS other-symbol realised unchanged count=...` across J, Joe and Joel, NVDA
   included.
-- `PASS flat-contract guard rejects before state count=2` and
-  `PASS flat-contract guard passes after state`: the production guard on both
-  replayed states. Any other count means the live ledger holds a cross-booked
-  contract this table does not cover.
+- `PASS flat-contract alert before count=2` and
+  `PASS flat-contract alert after count=0`: the production guard's `crossBooked`
+  count on both replayed history states. Production only alerts on that count;
+  the gate requires it exactly. Any other count means a flat contract carries a
+  desk lot that this table does not cover, whether another cross-booked close
+  or a real opposite book. Explain it before activation.
+- `PASS ledger economics and commissions match history`: production's own
+  comparison of the two sources, the one whose failure reads "live ledger
+  historical economics do not match authoritative all-account history". The
+  FIFO replay reads history, while production values the family ledger. Both
+  must hold identical fills (contract, client, side, quantity, price and time),
+  desks and commissions for every day before the ledger's current New York day.
+  The ledger must also pass the valuation's source checks: one account, no
+  pending price revision, a commission for every fill and no fill after
+  `coverageThrough`. A price or commission changed in only one of the two
+  copies fails here.
+- `PASS ledger merged flat-contract alert before count=2` and
+  `PASS ledger merged flat-contract alert after count=0`: the same two counts
+  on a replay of the merged, KEEP-filtered family-ledger rows. Fills of the
+  current New York day can be in the ledger before history holds them, and
+  production values them from the ledger alone. This is where they pass the
+  flat-contract count.
+- `PASS OPS-557 deploy gate on the same copies`: the complete OPS-557 gate,
+  with its fill quantities and NVDA expectations, on the same four copies.
 - `PASS FIFO replay` and `PASS JOED-196 deploy gate`.
 
 The four copies hold no broker positions. The gate therefore takes the replayed
 net of every desk's fills as the account position, which production reconciles
-to the broker separately, and proves the flat-contract rule on it. It reuses the
+to the broker separately, and proves the flat-contract count on it. It reuses the
 OPS-557 FIFO replay, with internal neutral marks and FX, and attests no market
-valuation. Output is value-free: fixed check names, the two symbols, counts and
-PASS/FAIL. It never prints quantities, prices, monetary results, input
-identities or exception text. **Any FAIL or nonzero exit = do not deploy.** Save
-the output as deploy evidence. This offline builder session has no host copies;
-the live gate remains a deployment prerequisite.
+valuation. The ledger comparison is production's: `deskLedgerMatchesHistory` in
+`desk-ledger.mjs` runs the same source checks and the same comparison function
+as `calculateDeskEquities`. It covers the days before the ledger's current New
+York day, as production does. Production values the current day from the
+ledger's own direct coverage, and the gate replays those ledger rows for the
+flat-contract count only. Production's coverage and official-receipt proofs are
+not part of the gate. Output is value-free: fixed check names, the two symbols,
+counts and PASS/FAIL. It never prints quantities, prices, monetary results,
+input identities or exception text. **Any FAIL or nonzero exit = do not
+deploy.** Save the output as deploy evidence. This offline builder session has
+no host copies; the live gate remains a deployment prerequisite.
 
 `replay-ops557.mjs` now proves the OPS-557 rows alone, whatever later rows the
 table holds. Activating or rolling forward to this runtime uses
@@ -1296,9 +1364,10 @@ another desk are both open on that contract. The J projection and each desk
 valuation pass `ownershipMode: "virtual-shared-account"`. In that mode FIFO
 lots come only from the target desk, another desk's fills on the same contract
 are not an ownership failure, and the broker net is reconciled to the sum of
-every desk's non-KEEP fills. One desk's open lots may differ from that net, as
-long as the account still holds the contract: the all-desk calculation rejects
-a desk lot on a contract that is flat in the account (JOED-196, above). An
+every desk's non-KEEP fills. One desk's open lots may differ from that net. The
+all-desk calculation fails closed when the desks' lots do not add up to it, and
+only counts and alerts on a desk lot on a contract that is flat in the account
+(JOED-196, above); such a lot is still valued. An
 open virtual lot still needs a current portfolio mark, including a zero-quantity
 row when the account itself is flat. Account-portfolio callbacks omit that
 contract once the broker net is zero, so the paper session requests delayed-frozen
@@ -1309,14 +1378,16 @@ After the first accepted last/close tick the market-data subscription is cancell
 KEEP names are never requested. Exact KEEP stays SXR8×1401 and TSLA×1. A
 client ID outside the dated ownership policy still fails loud.
 
-OPS-555 is closed by the JOED-196 flat-contract guard. A cross-desk close on a
-flat account used to leave opposite virtual lots while both desks reported
-reconciled, as soon as a flat-net mark arrived. The synthetic
+OPS-555 is mitigated, not closed, by the JOED-196 flat-contract guard. A marked
+flat-account cross-desk close can still leave opposite virtual lots while both
+desks report reconciled, and those lots are still valued and published. What
+changed is that the pair is no longer silent: it is counted and raises the
+`desk_lot_on_flat_contract` health event on every cycle. The synthetic
 `desk-ledger.test.mjs` reproduction opens ACME on client 27 and closes it on
-client 22: J +1 / Joe -1 is now `ledger_unreconciled` with or without that mark;
-assigning the exact close to J makes both flat. A flat-net mark still lets the
-J-family FIFO alone value such a lot, but that result is withheld with the
-all-desk ledger and never published.
+client 22: an explicit flat-net mark permits J +1 / Joe -1 with
+`crossBooked: 1`; assigning the exact close to J makes both flat and clears the
+count. Missing marks fail loud and keep the count. The count also clears,
+without any correction, once the account holds the contract again.
 
 An unclaimed non-KEEP executor fill blocks the **whole all-desk calculation**;
 it is never silently skipped or isolated to one desk. `executor-attribution.mjs`

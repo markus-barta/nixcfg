@@ -39,13 +39,24 @@ function owner(row, policy, attribution) {
 // Identical owned fills and fees also prove identical opening FIFO lots, which
 // calculateFamily intentionally does not expose in its public position rows.
 export function replayDeskHistory(history, attribution, policy = POLICY) {
+  return replayDeskRows({ rows: effectiveExecutionRecords(history), commissions: history.commissions,
+    account: history.account, observedAt: history.updatedAt }, attribution, policy);
+}
+
+// The same replay over any complete accounting source: its effective rows
+// (corrections already merged), fees, account and observation clock. JOED-196
+// also replays the merged family ledger, which production values directly.
+export function replayDeskRows({ rows, commissions, account, observedAt }, attribution, policy = POLICY) {
   const byContract = new Map();
-  for (const raw of effectiveExecutionRecords(history)) {
+  for (const raw of rows) {
     const row = normalizeEconomicExecution(raw);
     if (policy.excludedSymbols.includes(row.contract.symbol)) continue;
     if (raw.execution.pendingPriceRevision === true || row.execution.time < new Date(policy.periodStart).toISOString()) {
       throw new Error("replay history unavailable");
     }
+    // A row's own order key feeds the executor intent join, as in production's
+    // normalizeDeskExecution. Normalized history rows carry none.
+    if (Number.isSafeInteger(raw.execution.orderId) && raw.execution.orderId > 0) row.execution.orderId = raw.execution.orderId;
     const desk = owner(row, policy, attribution);
     // A proven, flat OPS-test group is the runtime's explicit exclusion.
     if (desk === null) continue;
@@ -61,21 +72,21 @@ export function replayDeskHistory(history, attribution, policy = POLICY) {
     const contract = group[0].row.contract;
     if (group.some(({ row }) => !isDeepStrictEqual(row.contract, contract))) throw new Error("replay contract unavailable");
     const ids = new Set(group.map(({ row }) => row.execution.execId));
-    const fees = history.commissions.filter(fee => ids.has(fee.execId));
+    const fees = commissions.filter(fee => ids.has(fee.execId));
     const currencies = new Set(["EUR", contract.currency, ...fees.map(fee => fee.currency)]);
     const quantity = group.reduce((sum, { row }) => sum + (row.execution.side === "BUY" ? 1 : -1) * row.execution.shares, 0);
-    const portfolio = [{ contract, pos: quantity, marketPrice: 1, markObservedAt: history.updatedAt }];
-    const positions = [{ contract, pos: quantity, account: history.account }];
+    const portfolio = [{ contract, pos: quantity, marketPrice: 1, markObservedAt: observedAt }];
+    const positions = [{ contract, pos: quantity, account }];
     for (const desk of DESKS) {
       const owned = group.filter(fill => fill.desk === desk).map(fill => fill.row);
       const ownedIds = new Set(owned.map(row => row.execution.execId));
       const result = calculateFamily({
         executions: group.map(({ row, desk: owner }) => ({ contract: row.contract,
           execution: { ...row.execution, clientId: owner === desk ? 1 : 2 } })),
-        commissions: fees, account: history.account, familyClientIds: [1],
+        commissions: fees, account, familyClientIds: [1],
         excludedSymbols: policy.excludedSymbols, periodStart: policy.periodStart,
-        portfolio, positions, observedAt: history.updatedAt,
-        fx: { baseCurrency: "EUR", observedAt: history.updatedAt,
+        portfolio, positions, observedAt,
+        fx: { baseCurrency: "EUR", observedAt,
           rates: Object.fromEntries([...currencies].map(currency => [currency, 1])) },
         ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
       });

@@ -643,20 +643,26 @@ test("flat-contract guard passes flat books, exact KEEP, owned positions and sam
     reconciled(1), "another account's row is not this account's position");
 });
 
-test("flat-contract guard rejects a mirror: opposite desk lots on a contract that is flat in the account", () => {
+test("flat-contract guard counts a mirror without failing: opposite desk lots on a contract that is flat in the account", () => {
+  // Alert-only (JOED decision): the fills cannot tell a cross-booked close from
+  // J long N against Joe short N, so the count never withholds money.
   const acme = stock("ACME", 2001);
   const mirror = [lot("j", acme, "BOT", 2), lot("joe", acme, "SLD", 2)];
+  const counted = { ok: true, contracts: 1, accountMismatch: 0, crossBooked: 1 };
   for (const positions of [[], [position(acme, 0)], [position(stock("SXR8", 2002, "EUR"), 1401)]]) {
-    assert.deepEqual(guard(mirror, positions), { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 });
+    assert.deepEqual(guard(mirror, positions), counted);
   }
-  assert.deepEqual(guard([...mirror].reverse()), { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 });
+  assert.deepEqual(guard([...mirror].reverse()), counted);
   assert.deepEqual(guard([lot("j", acme, "BOT", 5), lot("joe", acme, "SLD", 3), lot("joel", acme, "SLD", 2)]),
-    { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 }, "three desks netting to zero");
+    counted, "three desks netting to zero");
   assert.deepEqual(guard([lot("j", acme, "BOT", 0.3), lot("joe", acme, "SLD", 0.1), lot("joe", acme, "SLD", 0.2)]),
-    { ok: false, contracts: 1, accountMismatch: 0, crossBooked: 1 }, "fractional lots within the quantity tolerance");
+    counted, "fractional lots within the quantity tolerance");
   // The signed sum alone is blind to the pair: +2 - 2 equals the flat account.
-  // Booking the close to the opening desk is what reconciles it.
+  // Booking the close to the opening desk is what clears the count.
   assert.deepEqual(guard([lot("j", acme, "BOT", 2), lot("j", acme, "SLD", 2)]), reconciled(1));
+  // The count clears as soon as the account holds the contract again, although
+  // the pair is still there: a cleared count is not proof of correction.
+  assert.deepEqual(guard([...mirror, lot("j", acme, "BOT", 1)], [position(acme, 1)]), reconciled(1));
 });
 
 test("flat-contract guard rejects desk lots that do not add up to the account position", () => {
@@ -691,6 +697,9 @@ test("flat-contract guard counts contracts independently and returns counts only
   assert.deepEqual(result, { ok: false, contracts: 4, accountMismatch: 1, crossBooked: 2 });
   assert.deepEqual({ lots, positions }, saved, "inputs are not modified");
   assert.equal(/ACME|BOLT|CORE|DUNE|LOT\.|201\d/.test(JSON.stringify(result)), false);
+  // Only the sum decides `ok`: with CORE held as owned, both mirrors remain counted.
+  assert.deepEqual(guard(lots, [position(core, 1), position(dune, 4)]),
+    { ok: true, contracts: 4, accountMismatch: 0, crossBooked: 2 });
 });
 
 test("flat-contract guard fails closed on malformed lots and positions", () => {

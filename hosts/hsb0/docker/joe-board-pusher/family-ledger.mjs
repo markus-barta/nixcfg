@@ -424,12 +424,17 @@ function assertReconciled(replayed, observed) {
 /** JOED-196 flat-contract guard for desks that share one account.
  * `lots` attribute every counted fill to exactly one desk. Per contract, with
  * the same instrument key, quantity tolerance and KEEP exclusion as the replay:
- * - the desks' open quantities must add up to the observed account position;
- * - a contract that is flat in the account must be flat on every desk.
- * The second rule is not implied by the first. One desk's long and another
- * desk's equal short also add up to zero, which is exactly the lot pair a
- * cross-booked close leaves behind. Same-direction lots, and lots on a
- * contract the account still holds, stay governed by the sum alone.
+ * 1. the desks' open quantities must add up to the observed account position.
+ *    This rule alone decides `ok`; `accountMismatch` counts its failures.
+ * 2. a contract that is flat in the account should be flat on every desk.
+ *    `crossBooked` counts the contracts where it is not. It never changes `ok`.
+ * Rule 2 is not implied by rule 1: one desk's long and another desk's equal
+ * short also add up to zero. A cross-booked close leaves exactly that pair
+ * behind, and so do two desks that really trade against each other, which the
+ * fills cannot tell apart. Only the executor's anti-piling rule keeps the
+ * second case from arising, so rule 2 is an invariant to alert on, not a
+ * reason to withhold money. Same-direction lots, and lots on a contract the
+ * account still holds, are governed by the sum alone.
  * Malformed input throws. The result carries counts only: never quantities,
  * symbols or execution identities.
  */
@@ -463,7 +468,7 @@ export function reconcileDeskOpenLots({ lots, positions, account, excludedSymbol
     if (!quantitiesEqual(quantities.reduce((sum, quantity) => sum + quantity, 0), held)) accountMismatch += 1;
     else if (held === 0 && quantities.some((quantity) => quantity !== 0)) crossBooked += 1;
   }
-  return { ok: accountMismatch === 0 && crossBooked === 0, contracts: keys.size, accountMismatch, crossBooked };
+  return { ok: accountMismatch === 0, contracts: keys.size, accountMismatch, crossBooked };
 }
 
 /** Calculate the verified-period J-family ledger from complete broker evidence.

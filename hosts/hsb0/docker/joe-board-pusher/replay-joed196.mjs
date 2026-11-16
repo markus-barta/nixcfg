@@ -4,13 +4,13 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { CURRENT_DESK_OWNERSHIP_POLICY } from "./desk-ledger.mjs";
+import { CURRENT_DESK_OWNERSHIP_POLICY, deskLedgerMatchesHistory } from "./desk-ledger.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { assertFillAttributionOverrides, normalizeEconomicExecution } from "./execution-history.mjs";
 import { createExecutorAttribution, validatedExecutionTime } from "./executor-attribution.mjs";
 import { createExecutorAttributionMemory } from "./executor-attribution-memory.mjs";
 import { mergeExecutionRecords, reconcileDeskOpenLots } from "./family-ledger.mjs";
-import { MAX_COPY_AGE_MS, ops557ReplayGate, replayDeskHistory, runReplayGate } from "./replay-ops557.mjs";
+import { MAX_COPY_AGE_MS, ops557ReplayGate, replayDeskHistory, replayDeskRows, runReplayGate } from "./replay-ops557.mjs";
 
 const POLICY = CURRENT_DESK_OWNERSHIP_POLICY;
 const DESKS = ["j", "joe", "joel"];
@@ -68,7 +68,7 @@ export function checkReplayResults(before, after) {
 // The production guard on a replayed state. The four copies hold no broker
 // positions, so the account position is the replayed net of every desk's
 // fills, which production reconciles to the broker separately. That leaves
-// exactly the flat-contract rule to prove here.
+// exactly the flat-contract count (`crossBooked`) to prove here.
 export function replayFlatContractGuard(report, account, policy = POLICY) {
   const lots = [];
   const held = new Map();
@@ -83,6 +83,20 @@ export function replayFlatContractGuard(report, account, policy = POLICY) {
     }
   }
   return reconcileDeskOpenLots({ lots, positions: [...held.values()], account, excludedSymbols: policy.excludedSymbols });
+}
+
+// Production only alerts on a desk lot on a flat contract. The deploy gate is
+// stricter: before, exactly the table's contracts raise that alert; after,
+// none does. Any other count is a flat contract with an open desk lot that
+// this table does not cover, to be explained before activation.
+function flatContractChecks(prefix, before, after, account) {
+  const [counted, cleared] = [before, after].map(report => replayFlatContractGuard(report, account));
+  return [
+    { name: `${prefix}flat-contract alert before count=${counted.crossBooked}`,
+      pass: counted.ok && counted.crossBooked === CONTRACTS.length },
+    { name: `${prefix}flat-contract alert after count=${cleared.crossBooked}`,
+      pass: cleared.ok && cleared.crossBooked === 0 },
+  ];
 }
 
 export function joed196ReplayGate({ history, executorLedger, memoryState, familyLedger, deployDate }) {
@@ -138,10 +152,22 @@ export function joed196ReplayGate({ history, executorLedger, memoryState, family
     const before = replayDeskHistory(history, attribution, BEFORE_POLICY);
     const after = replayDeskHistory(history, attribution, POLICY);
     checks.push({ name: "FIFO replay", pass: true }, ...checkReplayResults(before, after));
-    const caught = replayFlatContractGuard(before, history.account);
-    checks.push({ name: `flat-contract guard rejects before state count=${caught.crossBooked}`,
-      pass: !caught.ok && caught.crossBooked === CONTRACTS.length && caught.accountMismatch === 0 });
-    checks.push({ name: "flat-contract guard passes after state", pass: replayFlatContractGuard(after, history.account).ok });
+    checks.push(...flatContractChecks("", before, after, history.account));
+    // Codex gate r2 (P2): the replay above reads history alone, while production
+    // values the family ledger. Run production's own comparison of the two:
+    // identical fill economics, desks and fees for every day before the ledger's
+    // current New York day, on sources that pass its account, pending-correction
+    // and coverage-boundary checks. The reason is never printed.
+    checks.push({ name: "ledger economics and commissions match history",
+      pass: deskLedgerMatchesHistory({ ledgerState: familyLedger, verifiedHistoryState: history,
+        account: history.account, policy: POLICY, executorAttribution: attribution }).ok });
+    // JOED Opus r1 (L1): fills of the current day can be in the family ledger
+    // before they reach history. Replay the merged, KEEP-filtered ledger rows
+    // as well, so those fills pass the flat-contract counts too.
+    const ledger = { rows: mergeExecutionRecords([], familyLedger.executions), commissions: familyLedger.commissions,
+      account: familyLedger.account, observedAt: familyLedger.coverageThrough };
+    checks.push(...flatContractChecks("ledger merged ", replayDeskRows(ledger, attribution, BEFORE_POLICY),
+      replayDeskRows(ledger, attribution, POLICY), familyLedger.account));
     // Codex gate r1 (P2): the older OPS-557 rows must keep their full validation on
     // the same copies (fill metadata, quantities, NVDA expectations), not only cardinality.
     checks.push({ name: "OPS-557 deploy gate on the same copies",

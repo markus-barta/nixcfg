@@ -10,7 +10,8 @@ import { EXECUTION_CAPTURE_SCHEMA, reconcileExecutionCapture } from "./execution
 import { ATTRIBUTION_MEMORY_SCHEMA, createExecutorAttributionMemory } from "./executor-attribution-memory.mjs";
 import { createExecutorAttribution } from "./executor-attribution.mjs";
 import { CURRENT_DESK_OWNERSHIP_POLICY as POLICY } from "./desk-ledger.mjs";
-import { MAX_COPY_AGE_MS, ops557ReplayGate, replayDeskHistory } from "./replay-ops557.mjs";
+import { mergeExecutionRecords } from "./family-ledger.mjs";
+import { MAX_COPY_AGE_MS, ops557ReplayGate, replayDeskHistory, replayDeskRows } from "./replay-ops557.mjs";
 import { checkReplayResults, joed196ReplayGate, replayFlatContractGuard, runJoed196ReplayGate } from "./replay-joed196.mjs";
 import nvdaFixture from "./fixtures/ops557-nvda.json" with { type: "json" };
 import crossBookedFixture from "./fixtures/joed196-avgo-amd.json" with { type: "json" };
@@ -18,7 +19,7 @@ import crossBookedFixture from "./fixtures/joed196-avgo-amd.json" with { type: "
 const JOED196 = POLICY.fillAttributionOverrides.filter(rule => rule.basis.startsWith("JOED-196 "));
 const BEFORE_POLICY = { ...POLICY, fillAttributionOverrides: POLICY.fillAttributionOverrides.filter(rule => !JOED196.includes(rule)) };
 // Rows 0-5 NVDA (OPS-557), 6-7 AVGO, 8-9 AMD, 10-11 an unrelated instrument.
-const AVGO_BUY = 6, AVGO_SELL = 7, AMD_SELL = 8, AMD_BUY = 9;
+const AVGO_BUY = 6, AVGO_SELL = 7, AMD_SELL = 8, AMD_BUY = 9, OTHER_OPEN = 10, OTHER_CLOSE = 11;
 
 function fixture(change = () => {}) {
   const nvda = structuredClone(nvdaFixture), cross = structuredClone(crossBookedFixture);
@@ -54,13 +55,17 @@ function fixture(change = () => {}) {
 }
 
 const check = (result, name) => result.checks.find(check => check.name.startsWith(name));
+const failed = result => result.checks.filter(check => !check.pass).map(check => check.name);
+const ECONOMICS = "ledger economics and commissions match history";
 const RESULT_CHECKS = ["AVGO before J long and Joe equal short", "AVGO after flat on every desk",
   "AMD before J long and Joe equal short", "AMD after flat on every desk",
   "other-symbol lots unchanged count=6", "other-symbol realised unchanged count=6",
-  "flat-contract guard rejects before state count=2", "flat-contract guard passes after state",
+  "flat-contract alert before count=2", "flat-contract alert after count=0",
+  ECONOMICS,
+  "ledger merged flat-contract alert before count=2", "ledger merged flat-contract alert after count=0",
   "OPS-557 deploy gate on the same copies"];
 
-test("deploy replay proves both mirrors, their closure and the guard, and leaves all four inputs unchanged", () => {
+test("deploy replay proves both mirrors, their closure and the flat-contract counts on history and ledger, and leaves all four inputs unchanged", () => {
   const input = fixture(), saved = structuredClone(input);
   const result = joed196ReplayGate(input);
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -73,8 +78,8 @@ test("deploy replay proves both mirrors, their closure and the guard, and leaves
       assert.equal(names.includes(`${prefix}override[${index}] quantity matches history`), prefix !== "");
     }
   }
-  assert.deepEqual(names.slice(-10), ["FIFO replay", ...RESULT_CHECKS]);
-  assert.equal(names.length, 4 + 4 * (2 + 3 + 3) + 10);
+  assert.deepEqual(names.slice(-13), ["FIFO replay", ...RESULT_CHECKS]);
+  assert.equal(names.length, 4 + 4 * (2 + 3 + 3) + 13);
   assert.deepEqual(input, saved);
 });
 
@@ -180,22 +185,85 @@ test("a missing OPS-557 fill fails the whole-table cardinality guard, as product
   assert.equal(check(result, "FIFO replay"), undefined);
 });
 
+// A synthetic pair opened through J's client and closed through Joe's.
+function thirdPair(rows, time) {
+  return [["third.open.01", 27, "BOT"], ["third.close.01", 22, "SLD"]].map(([execId, clientId, side]) => ({
+    contract: { ...rows[0].contract, symbol: "THIRD", conId: 568 },
+    execution: { execId, acctNumber: rows[0].execution.acctNumber, clientId, side, shares: 5, price: 10, time } }));
+}
+
 for (const [name, change, failing] of [
   ["a pair that is not an equal mirror", rows => { rows[AVGO_SELL].execution.shares = 1; },
-    ["AVGO before J long and Joe equal short", "AVGO after flat on every desk", "flat-contract guard rejects before state count=1"]],
+    ["AVGO before J long and Joe equal short", "AVGO after flat on every desk", "flat-contract alert before count=1",
+      "ledger merged flat-contract alert before count=1"]],
   ["a pair whose J leg is not long", rows => { [rows[AMD_SELL].execution.side, rows[AMD_BUY].execution.side] = ["BOT", "SLD"]; },
     ["AMD before J long and Joe equal short"]],
-  ["a third cross-booked contract outside the table", rows => {
-    for (const [execId, clientId, side] of [["third.open.01", 27, "BOT"], ["third.close.01", 22, "SLD"]]) {
-      rows.push({ contract: { ...rows[0].contract, symbol: "THIRD", conId: 568 },
-        execution: { execId, acctNumber: rows[0].execution.acctNumber, clientId, side, shares: 5, price: 10, time: "2026-10-14T12:00:00Z" } });
-    }
-  }, ["flat-contract guard rejects before state count=3", "flat-contract guard passes after state"]],
+  ["a third cross-booked contract outside the table", rows => { rows.push(...thirdPair(rows, "2026-10-14T12:00:00Z")); },
+    ["flat-contract alert before count=3", "flat-contract alert after count=1",
+      "ledger merged flat-contract alert before count=3", "ledger merged flat-contract alert after count=1"]],
 ]) test(`deploy replay rejects ${name}`, () => {
   const result = joed196ReplayGate(fixture(change));
   assert.equal(result.ok, false);
   for (const expected of failing) assert.equal(check(result, expected)?.pass, false, expected);
   assert.equal(check(result, "FIFO replay").pass, true);
+});
+
+// JOED Opus r1 (L1): fills of the current New York day can be in the family
+// ledger before history holds them. coverageThrough is 08:00Z, so 06:00Z is today.
+test("deploy replay counts a same-day cross-booked pair that only the family ledger holds", () => {
+  const input = fixture();
+  const pair = thirdPair(input.familyLedger.executions, "2026-11-17T06:00:00Z");
+  input.familyLedger.executions.push(...pair);
+  input.familyLedger.commissions.push(...pair.map(row => ({ execId: row.execution.execId, commission: 0.1, currency: "USD", realizedPNL: null })));
+  const result = joed196ReplayGate(input);
+  assert.equal(result.ok, false);
+  assert.deepEqual(failed(result), ["ledger merged flat-contract alert before count=3", "ledger merged flat-contract alert after count=1"],
+    "history alone still shows only the table's two contracts");
+  assert.equal(check(result, "flat-contract alert after count=0").pass, true);
+  assert.equal(check(result, ECONOMICS).pass, true, "production compares only the days before the current one");
+});
+
+test("deploy replay accepts a same-day fill that history has not captured yet", () => {
+  const input = fixture();
+  const [open] = thirdPair(input.familyLedger.executions, "2026-11-17T06:00:00Z");
+  input.familyLedger.executions.push(open);
+  input.familyLedger.commissions.push({ execId: open.execution.execId, commission: 0.1, currency: "USD", realizedPNL: null });
+  const result = joed196ReplayGate(input);
+  assert.equal(result.ok, true, JSON.stringify(failed(result)));
+  assert.deepEqual(result.checks.slice(-13).map(row => row.name), ["FIFO replay", ...RESULT_CHECKS],
+    "a lot the account holds is not counted");
+});
+
+// Codex gate r2 (P2): the FIFO replay reads history alone, so a family ledger
+// that disagrees with it must fail on production's own comparison.
+for (const [label, change] of [
+  ["price", input => { input.familyLedger.executions[AVGO_BUY].execution.price += 1; }],
+  ["price outside the corrected contracts", input => { input.familyLedger.executions[OTHER_OPEN].execution.price += 0.01; }],
+  ["quantity outside the corrected contracts", input => { input.familyLedger.executions[OTHER_OPEN].execution.shares += 1; }],
+  ["side outside the corrected contracts", input => { input.familyLedger.executions[OTHER_CLOSE].execution.side = "BOT"; }],
+  ["time", input => { input.familyLedger.executions[OTHER_OPEN].execution.time = "2026-10-13T12:00:01Z"; }],
+  ["commission", input => { input.familyLedger.commissions[AVGO_BUY].commission += 0.01; }],
+  ["commission currency", input => { input.familyLedger.commissions[AMD_SELL].currency = "EUR"; }],
+]) test(`deploy replay rejects a family-ledger ${label} that disagrees with history, on that check alone`, () => {
+  const input = fixture();
+  change(input);
+  const result = joed196ReplayGate(input);
+  assert.equal(result.ok, false);
+  assert.deepEqual(failed(result), [ECONOMICS]);
+});
+
+for (const [label, change] of [
+  ["missing commission", input => { input.familyLedger.commissions.splice(AVGO_BUY, 1); }],
+  ["pending price revision", input => { input.familyLedger.executions[AVGO_BUY].execution.pendingPriceRevision = true; }],
+  ["fill on another account", input => { input.familyLedger.executions[AVGO_BUY].execution.acctNumber = "SYNTHETIC-OTHER"; }],
+  ["fill after its coverage", input => { input.familyLedger.executions[OTHER_OPEN].execution.time = "2026-11-17T08:00:01Z"; }],
+]) test(`deploy replay rejects a family ledger with a ${label}, as the valuation would`, () => {
+  const input = fixture();
+  change(input);
+  const result = joed196ReplayGate(input);
+  assert.equal(result.ok, false);
+  assert.equal(check(result, ECONOMICS).pass, false);
+  assert.equal(check(result, "FIFO replay").pass, true, "the history replay itself is intact");
 });
 
 function replays() {
@@ -206,7 +274,7 @@ function replays() {
     after: replayDeskHistory(history, attribution, POLICY) };
 }
 
-test("the replayed states carry the mirror before and the production guard's verdict on both", () => {
+test("the replayed states carry the mirror before and the production guard's counts on both", () => {
   const { account, before, after } = replays();
   assert.deepEqual(checkReplayResults(before, after).map(row => [row.name, row.pass]), RESULT_CHECKS.slice(0, 6).map(name => [name, true]));
   for (const key of ["conId:313130367", "conId:4391"]) {
@@ -214,9 +282,30 @@ test("the replayed states carry the mirror before and the production guard's ver
     assert.ok(before.j[key].quantity > 0);
     for (const desk of ["j", "joe", "joel"]) assert.equal(after[desk][key].quantity, 0);
   }
-  assert.deepEqual(replayFlatContractGuard(before, account), { ok: false, contracts: 4, accountMismatch: 0, crossBooked: 2 });
+  // Production only counts the two flat contracts (alert-only); the gate requires the exact counts.
+  assert.deepEqual(replayFlatContractGuard(before, account), { ok: true, contracts: 4, accountMismatch: 0, crossBooked: 2 });
   assert.deepEqual(replayFlatContractGuard(after, account), { ok: true, contracts: 4, accountMismatch: 0, crossBooked: 0 });
-  assert.equal(after.j["conId:567"].quantity, 2, "an owned open lot outside the corrected contracts passes the guard");
+  assert.equal(after.j["conId:567"].quantity, 2, "an owned open lot outside the corrected contracts is not counted");
+});
+
+test("the family-ledger replay equals the history replay and resolves an executor fill by its own order key", () => {
+  const { history, executorLedger, memoryState, familyLedger } = fixture();
+  const account = history.account;
+  const ledger = { rows: mergeExecutionRecords([], familyLedger.executions), commissions: familyLedger.commissions,
+    account: familyLedger.account, observedAt: familyLedger.coverageThrough };
+  const attributed = ledgerState => createExecutorAttribution({ ledger: ledgerState, account,
+    memory: createExecutorAttributionMemory({ account, state: memoryState }), executionRows: familyLedger.executions, onEvent() {} });
+  const summary = report => Object.fromEntries(Object.entries(report).map(([desk, contracts]) => [desk,
+    Object.fromEntries(Object.entries(contracts).map(([key, row]) => [key, [row.symbol, row.quantity, row.realizedPnl]]))]));
+  for (const policy of [BEFORE_POLICY, POLICY]) {
+    assert.deepEqual(summary(replayDeskRows(ledger, attributed(executorLedger), policy)),
+      summary(replayDeskHistory(history, attributed(executorLedger), policy)));
+  }
+  // Production's ledger rows keep their order key for the intent join. History
+  // rows carry none and need the executor's own execution record instead.
+  const pruned = { ...executorLedger, executions: [] };
+  assert.equal(replayDeskRows(ledger, attributed(pruned), POLICY).joe["conId:4815747"].quantity, 0);
+  assert.throws(() => replayDeskHistory(history, attributed(pruned), POLICY), /order_key_missing/);
 });
 
 for (const [name, change] of [

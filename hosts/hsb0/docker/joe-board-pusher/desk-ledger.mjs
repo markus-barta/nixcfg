@@ -78,9 +78,13 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
 export const DESK_HISTORY_REVISION_METHOD = HISTORY_REVISION_METHOD;
 
 // JOED-196: the all-desk calculation's reason when the desks' open lots do not
-// reconcile with the account, contract by contract. Phase B already reports an
-// unreconciled desk under this same name.
+// add up to the account's position, contract by contract. Phase B already
+// reports an unreconciled desk under this same name.
 export const LEDGER_UNRECONCILED = "ledger_unreconciled";
+
+// JOED-196 health reason for the alert-only rule: a desk holds a lot on a
+// contract that is flat in the account. Money keeps publishing.
+export const DESK_LOT_ON_FLAT_CONTRACT = "desk_lot_on_flat_contract";
 
 function stable(value) {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -254,6 +258,17 @@ function economicHistory({ rows, commissions, policy, cutoff, inclusive = true, 
 function historyRevision(source, policy, cutoff, inclusive = true, executorAttribution = null) {
   const economics = economicHistory({ ...source, policy, cutoff, inclusive, executorAttribution });
   return digest({ method: HISTORY_REVISION_METHOD, policy, economics });
+}
+
+// The live ledger must hold the same classified economics as authoritative
+// history for every fill before `dayStart`: contract, fill, desk and fee. One
+// comparison serves the valuation and the offline deploy gate.
+function assertHistoricalEconomics(ledger, history, policy, dayStart, executorAttribution) {
+  const priorLedgerRevision = historyRevision(ledger, policy, dayStart, false, executorAttribution);
+  const priorOfficialRevision = historyRevision(history, policy, dayStart, false, executorAttribution);
+  if (priorLedgerRevision !== priorOfficialRevision) {
+    throw new Error("live ledger historical economics do not match authoritative all-account history");
+  }
 }
 
 function assertOfficialIdentities(state, source, policy, cutoff, proofObservedAt, inclusive = true) {
@@ -440,17 +455,12 @@ export function calculateDeskEquities({
     const directCoverage = currentDayDirectCoverage(ledgerState, ledger, canonical, cutoff, executorAttribution);
     completeCoverage(verifiedHistoryState.receipts, canonical.periodStart, directCoverage.dayStart, proofAt);
     assertOfficialIdentities(verifiedHistoryState, history, canonical, directCoverage.dayStart, proofAt, false);
-    const priorLedgerRevision = historyRevision(ledger, canonical, directCoverage.dayStart, false, executorAttribution);
-    const priorOfficialRevision = historyRevision(history, canonical, directCoverage.dayStart, false, executorAttribution);
-    if (priorLedgerRevision !== priorOfficialRevision) {
-      throw new Error("live ledger historical economics do not match authoritative all-account history");
-    }
+    assertHistoricalEconomics(ledger, history, canonical, directCoverage.dayStart, executorAttribution);
     const ledgerEconomics = economicHistory({ ...ledger, policy: canonical, cutoff, executorAttribution });
     const ledgerRevision = historyRevision(ledger, canonical, cutoff, true, executorAttribution);
     observedKeep(positions || [], account, canonical);
     // JOED-196 flat-contract guard, on the classified fills and before any desk
-    // is valued: no mark, FIFO result or sibling desk can make an unreconciled
-    // ledger publishable. The per-desk FIFO counts the same fills from periodStart.
+    // is valued. The per-desk FIFO counts the same fills from periodStart.
     const periodEpoch = Date.parse(canonical.periodStart);
     const reconciliation = reconcileDeskOpenLots({
       lots: ledgerEconomics.filter((row) => Date.parse(row.execution.time) >= periodEpoch),
@@ -458,9 +468,15 @@ export function calculateDeskEquities({
       account,
       excludedSymbols: canonical.excludedSymbols,
     });
-    if (!reconciliation.ok) {
+    // Contract counts only, kept on every outcome from here on. A desk lot on a
+    // flat contract (crossBooked) is alert-only: the valuation continues.
+    if (reconciliation.accountMismatch || reconciliation.crossBooked) {
       ledgerReconciliation = { accountMismatch: reconciliation.accountMismatch, crossBooked: reconciliation.crossBooked };
-      // An ownership error cannot be isolated to one desk: none stays exact.
+    }
+    if (!reconciliation.ok) {
+      // Desk lots that do not add up to the account fail closed. No mark, FIFO
+      // result or sibling desk makes that publishable, and the error cannot be
+      // isolated to one desk: none stays exact.
       if (phaseB) phaseBDesks = Object.fromEntries(DESKS.map((id) => [id, { reconciled: false }]));
       throw new Error(LEDGER_UNRECONCILED);
     }
@@ -542,6 +558,7 @@ export function calculateDeskEquities({
       ok: true,
       ...(phaseBDesks ? { phaseBDesks } : {}),
       ...diagnostics,
+      ...(ledgerReconciliation ? { ledgerReconciliation } : {}),
       desks,
       equity,
       sourceObservedAt: sourceAt,
@@ -564,13 +581,40 @@ export function calculateDeskEquities({
   }
 }
 
-/** JOED-196: the J-family FIFO alone cannot see another desk's opposite lot and
- * would keep valuing J's half of a cross-booked pair. An unreconciled all-desk
- * ledger therefore withholds the J result as well, under the same reason.
+/** JOED-196: the alert-only rule as a health reason with its contract count, or
+ * null. Any all-desk outcome that counted such a contract carries it, so a
+ * later failure cannot hide it. Counts only.
  */
-export function publishableFamily(family, deskEquities) {
-  return family?.ok === true && deskEquities?.ok === false && deskEquities.reason === LEDGER_UNRECONCILED
-    ? { ok: false, reason: LEDGER_UNRECONCILED } : family;
+export function deskLedgerAlert(deskEquities) {
+  const crossBooked = deskEquities?.ledgerReconciliation?.crossBooked;
+  return Number.isSafeInteger(crossBooked) && crossBooked > 0
+    ? { reason: DESK_LOT_ON_FLAT_CONTRACT, crossBooked } : null;
+}
+
+/** The valuation's ledger-versus-history proof on its own, for the offline
+ * deploy gate. Both sources pass the valuation's source checks (account,
+ * pending corrections, override cardinality, coverage boundary) and must hold
+ * identical classified economics and fees for every fill before the ledger's
+ * current New York day, which is the window the valuation compares. Coverage
+ * and official-receipt proofs stay with the valuation. The reason can name an
+ * execution: callers must not print it.
+ */
+export function deskLedgerMatchesHistory({ ledgerState, verifiedHistoryState, account,
+  policy = CURRENT_DESK_OWNERSHIP_POLICY, executorAttribution = null } = {}) {
+  try {
+    if (typeof account !== "string" || !account.trim()) throw new Error("target account is invalid");
+    const canonical = canonicalPolicy(policy);
+    const cutoff = instant(ledgerState?.coverageThrough, "ledger coverageThrough");
+    const ledger = canonicalLedgerSource(ledgerState, account, canonical);
+    const history = canonicalHistorySource(verifiedHistoryState, account, canonical);
+    if (ledger.rows.some((row) => row.execution.time > cutoff)) {
+      throw new Error("live ledger contains an execution after its coverage boundary");
+    }
+    assertHistoricalEconomics(ledger, history, canonical, newYorkPeriodStart(cutoff), executorAttribution);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: String(error?.message || error) };
+  }
 }
 
 /** Revision captured with the live family ledger at a valuation candidate. */
