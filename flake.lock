@@ -468,6 +468,27 @@
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       }
     },
+    "hausnetz-hsb8": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793263040,
+        "narHash": "sha256-RKue1NxotTIJB1WZ3h+aX1gvCctysst9rRiDShXmUNI=",
+        "ref": "refs/heads/main",
+        "rev": "23c5b4581a3909db1749fb66fd201665d5099645",
+        "revCount": 1099,
+        "type": "git",
+        "url": "ssh://git@github.com/inspr-at/hausnetz"
+      },
+      "original": {
+        "rev": "23c5b4581a3909db1749fb66fd201665d5099645",
+        "type": "git",
+        "url": "ssh://git@github.com/inspr-at/hausnetz"
+      }
+    },
     "helium-nix": {
       "inputs": {
         "flake-compat": "flake-compat_2",
@@ -1226,6 +1247,7 @@
         "disko": "disko",
         "git-hooks": "git-hooks",
         "hausnetz": "hausnetz",
+        "hausnetz-hsb8": "hausnetz-hsb8",
         "helium-nix": "helium-nix",
         "home-manager": "home-manager_2",
         "hostdash": "hostdash",

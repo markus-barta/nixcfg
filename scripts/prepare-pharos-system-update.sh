@@ -49,9 +49,9 @@ if ! grep -Fxq "$source_host" "$work_dir/hosts"; then
   fail "source_host_not_active"
 fi
 
-# OPS-207 / OPS-480: private and release-pinned inputs advance only through
+# OPS-207 / OPS-480 / OPS-506: private and release-pinned inputs advance only through
 # explicit reviewed pin changes. Prefetch does not grant tag-resolution access.
-read -r -a update_inputs <<<"$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and .key != "aeon" and .key != "paimos" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)"
+read -r -a update_inputs <<<"$(jq -r '.nodes[.root].inputs | to_entries | map(select(.key != "hausnetz" and .key != "hausnetz-hsb8" and .key != "aeon" and .key != "paimos" and (.value | type == "string")) | .key) | sort | join(" ")' flake.lock)"
 [[ ${#update_inputs[@]} -gt 0 ]] || fail "no_update_inputs"
 if ! nix flake update "${update_inputs[@]}" >"$work_dir/update.log" 2>&1; then
   fail "flake_update_failed"
