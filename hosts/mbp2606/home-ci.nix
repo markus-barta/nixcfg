@@ -47,6 +47,14 @@
     slots = 4;
     slotCpus = 4;
     slotMemoryGiB = 6; # Leave host RAM for remote-test.
+    # AEON-2428: stop taking jobs above a 1-minute load of 28 instead of the
+    # module's 12; 28 matches the maxload of MAC-LEAD's console brake while
+    # mailina is logged in. Resume below 22: a job VM adds up to about
+    # slotCpus = 4 to the load, so a slot claimed right after the gate opens
+    # stays under 28 instead of closing it again (6 = one slot plus margin).
+    # The memory gate keeps its defaults (35 % / 45 % free); both must clear.
+    loadHigh = 28;
+    loadLow = 22;
     # Markus 2026-10-06 (via LEAD): "make it work, remove the security stuff for now".
     # The network-block proof paused the pool (Lima host gateway 192.168.5.2:22 reachable).
     # Re-enable with the proper isolated design (OPS-268).

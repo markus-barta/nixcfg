@@ -33,6 +33,7 @@ CFG = {
     "runnerLabels": ["self-hosted", "Linux", "ARM64", "mbp2606"],
     "classLabels": {"push": "mbp2606-push", "workflow_dispatch": "mbp2606-dispatch",
                     "pull_request": "mbp2606-pr", "merge_group": "mbp2606-mq"},
+    "extraClassLabels": {"pull_request": ["paimos-ci-entry-arm"]},
     "events": ["push", "workflow_dispatch", "pull_request", "merge_group"],
     "workflows": [".github/workflows/ci.yml", ".github/workflows/test-runner-smoke.yml"],
     "branch": "main",
@@ -158,7 +159,9 @@ class HostConfigTests(unittest.TestCase):
           options = module.options.services.aeonBuilder;
         in {
           inherit (host.services.aeonBuilder) enable events cacheWriteEvents slots slotCpus slotMemoryGiB;
+          hostLoad = { inherit (host.services.aeonBuilder) loadHigh loadLow; };
           classLabels = options.classLabels.default;
+          extraClassLabels = options.extraClassLabels.default;
           runnerLabels = options.runnerLabels.default;
           repo = options.repo.default;
           branch = options.branch.default;
@@ -176,6 +179,8 @@ class HostConfigTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         cfg = json.loads(proc.stdout)
         self.assertTrue(cfg.pop("enable"))
+        # AEON-2428: mbp2606 gates at the console brake's load, not the module default.
+        self.assertEqual(cfg.pop("hostLoad"), {"loadHigh": 28, "loadLow": 22})
         expected = {key: CFG[key] for key in cfg}
         expected["busyFile"] = "/Users/Shared/ci-pool-busy"
         expected["busyFileGroup"] = "staff"
@@ -227,6 +232,16 @@ class HostConfigTests(unittest.TestCase):
             [ {} { loadHigh = 14; loadLow = 10; } { loadHigh = 8.0; } { loadHigh = 7; } ];
           memoryAssertions = map (overrides: (builtins.elemAt (evaluate overrides).config.assertions 1).assertion)
             [ {} { memFreeHigh = 50.5; memFreeLow = 40.5; } { memFreeHigh = 35; } { memFreeHigh = 34.5; } ];
+          classAssertions = map (overrides: (builtins.elemAt (evaluate overrides).config.assertions 2).assertion)
+            [ {} { extraClassLabels = {}; }
+              { extraClassLabels = { merge_group = [ "paimos-ci-entry-arm" ]; pull_request = [ "paimos-ci-entry-arm" ]; }; }
+              { extraClassLabels = { push = [ "mbp2606-pr" ]; }; } ];
+          host = let
+            rendered = evaluate (import (root + "/hosts/mbp2606/home-ci.nix") { pkgs = {}; }).services.aeonBuilder;
+          in {
+            assertions = map (item: item.assertion) rendered.config.assertions;
+            command = (builtins.head rendered.config.home.packages).text;
+          };
           memoryTypes = map (name: module.options.services.aeonBuilder.${name}.type.type) [ "memFreeLow" "memFreeHigh" ];
           memoryBounds = map (name: map module.options.services.aeonBuilder.${name}.type.check
             [ (-1) (-0.5) 0 0.5 35 99.5 100 100.5 101 ]) [ "memFreeLow" "memFreeHigh" ];
@@ -314,6 +329,17 @@ class HostConfigTests(unittest.TestCase):
             self.assertEqual(settings[key], CFG[key])
         self.assertEqual(settings["busyFile"], "/Users/Shared/ci-pool-busy")
         self.assertEqual(settings["busyFileGroup"], "staff")
+        self.assertEqual(settings["classLabels"], CFG["classLabels"])
+        self.assertEqual(settings["extraClassLabels"], CFG["extraClassLabels"])
+        self.assertEqual(result["classAssertions"], [True, True, False, False])
+        # AEON-2428: what ci@mbp2606 actually renders, not only the module defaults.
+        self.assertEqual(result["host"]["assertions"], [True, True, True])
+        host = json.loads(result["host"]["command"].split("--config ", 1)[1].split(' "$@"', 1)[0])
+        self.assertEqual((host["loadHigh"], host["loadLow"]), (28, 22))
+        self.assertEqual((host["memFreeLow"], host["memFreeHigh"]), (35, 45), "the memory gate is kept")
+        self.assertEqual(host["classLabels"], CFG["classLabels"], "existing classes are unchanged")
+        self.assertEqual(host["extraClassLabels"], {"pull_request": ["paimos-ci-entry-arm"]})
+        self.assertEqual(host["events"], CFG["events"])
         overrides = json.loads(result["overrideCommand"].split("--config ", 1)[1].split(' "$@"', 1)[0])
         self.assertEqual({key: overrides[key] for key in ("claimSpacingSeconds", "memFreeLow", "memFreeHigh", "busyFile")},
                          {"claimSpacingSeconds": 240, "memFreeLow": 25.5, "memFreeHigh": 40.5, "busyFile": "/tmp/test-busy"})
@@ -333,6 +359,18 @@ class LoadGateTests(unittest.TestCase):
             with self.subTest(load1=load1, previous=gated):
                 gated = ab.load_gate(gated, load1, 12.0, 8.0)
                 self.assertEqual(gated, expected)
+
+    def test_mbp2606_gate_opens_one_slot_below_the_console_brake(self):
+        # AEON-2428: high 28 is the console brake; low 22 leaves room for the job
+        # VM (slotCpus = 4) that a release admits, so that claim does not re-gate.
+        high, low, slot_load = 28.0, 22.0, 4.0
+        gated = False
+        for load1, expected in ((12.1, False), (28.0, False), (28.1, True), (24.0, True), (22.0, True), (21.9, False)):
+            with self.subTest(load1=load1, previous=gated):
+                gated = ab.load_gate(gated, load1, high, low)
+                self.assertEqual(gated, expected)
+        self.assertFalse(ab.load_gate(False, 21.9 + slot_load, high, low))
+        self.assertTrue(ab.load_gate(False, 27.9 + slot_load, high, low), "a release just under the brake would re-gate at once")
 
 
 class MemoryGateTests(unittest.TestCase):
@@ -2798,6 +2836,493 @@ ab.write_busy_file(json.loads(sys.argv[3]), {"slots": {}})
     def test_clone_keeps_filesystem_of_copied_disks(self):
         self.assertIn('"format": false', ab.clone_expression(CFG, 1, "aeon-scratch-1", fresh=False))
         self.assertIn('"format": true', ab.clone_expression(CFG, 1, "aeon-cache-1", fresh=True))
+
+
+class DegradedGitHub(FakeGitHub):
+    """A model of the API on 2026-10-19. Seen in the log: runs/*/jobs answered
+    HTTP 502. Implied by the pause message: a listing that did answer showed no
+    runner for the job. Single-job reads answer throughout."""
+
+    def __init__(self, runs, jobs, failing=0, lag=()):
+        super().__init__(runs, jobs)
+        self.failing = failing  # listings that answer HTTP 502 before any answer
+        self.lag = set(lag)  # jobs whose runner the API has not published yet
+        self.listings = 0
+
+    def job(self, job_id):
+        found = dict(super().job(job_id))
+        if job_id in self.lag:
+            self.lag.discard(job_id)
+            found["runner_name"] = None
+        return found
+
+    def all_jobs(self, run_id):
+        self.listings += 1
+        if self.listings <= self.failing:
+            raise ab.TransientGitHubError(
+                f"GET /repos/{REPO}/actions/runs/{run_id}/jobs?filter=all&per_page=100&page=1: HTTP 502")
+        return [dict(item, runner_name=None) for item in super().all_jobs(run_id)]
+
+
+class PoolAttributionTests(unittest.TestCase):
+    """AEON-2428. GitHub gives a runner any queued job its labels fit, so sibling
+    jobs swap runners. 2026-10-19T15:51Z: slot 0 was minted for job ...584 and
+    slot 1 for job ...597 of paimos run 39279959099. ...584 went to slot 1's
+    runner and ...597 to slot 0's while runs/*/jobs answered HTTP 502, and both
+    slots paused the pool: "hook admitted a job the API cannot attribute"."""
+
+    setUp = ControllerTests.setUp
+    controller = ControllerTests.controller
+
+    RUN = 39279959099
+    J584, J597 = 118154045584, 118154045597
+    S0 = "mbp2606-s0-118154045584-7d21c0"
+    S1 = "mbp2606-s1-118154045597-4029a1"
+
+    @staticmethod
+    def slot(index, job_id, run_id, runner):
+        return {"jobId": job_id, "runId": run_id, "attempt": 1, "event": "pull_request", "phase": "waiting",
+                "vm": f"aeon-job-{index}", "disk": f"aeon-scratch-{index}", "runner": runner}
+
+    @staticmethod
+    def jobs(run_id, runners, status="in_progress"):
+        """One pull_request job per entry of {job id: runner name the API shows}."""
+        labels = ab.mint_labels(CFG, run(event="pull_request"))
+        return [{"id": job_id, "run_id": run_id, "run_attempt": 1, "status": status if runner else "queued",
+                 "labels": labels, "runner_name": runner} for job_id, runner in runners.items()]
+
+    def pool(self, gh, slots, verified):
+        ctl = self.controller(gh)
+        ctl.lima = Mock()
+        ctl.slot_key = lambda slot: "k" * 128
+
+        def seed(data):
+            data.update(mode="on", verifiedRuns=list(verified), slots=copy.deepcopy(slots))
+            data.pop("alert", None)
+        self.state.update(seed)
+        return ctl
+
+    def admit(self, ctl, slot, name, job_id):
+        with patch.object(ab.time, "sleep"):
+            return ctl.admit(slot, f"aeon-job-{slot}", name, {"id": job_id})
+
+    def unlocked(self, ctl):
+        return [call.args[3] for call in ctl.lima.run.call_args_list if "unlock" in call.args]
+
+    def swap(self, **api):
+        """Both slots alive and waiting, each minted for one sibling; the API
+        names the other slot's runner on each job."""
+        r = run(id=self.RUN, event="pull_request", head_branch="work/x", status="in_progress")
+        gh = DegradedGitHub([r], {self.RUN: self.jobs(self.RUN, {self.J584: self.S1, self.J597: self.S0})}, **api)
+        slots = {"0": self.slot(0, self.J584, self.RUN, self.S0), "1": self.slot(1, self.J597, self.RUN, self.S1)}
+        return self.pool(gh, slots, [self.RUN]), gh
+
+    def test_replay_of_the_2026_10_19_swap_admits_both_slots_without_pausing(self):
+        # Slot 1 first looks before the API names a runner on either job; the
+        # listing it then falls back to answers 502, as it did for 13 ticks.
+        # Before the fix this very sequence ended ["unattributed", "unattributed"]:
+        # both slots paused the pool, as they did that day.
+        ctl, gh = self.swap(failing=3, lag=(self.J584, self.J597))
+        with patch.object(ab, "log") as log:
+            verdicts = [self.admit(ctl, 1, self.S1, self.J597), self.admit(ctl, 0, self.S0, self.J584)]
+        lines = [call.args[0] for call in log.call_args_list]
+        self.assertEqual(verdicts, ["ok", "ok"])
+        data = self.state.load()
+        self.assertEqual(data["mode"], "on")
+        self.assertNotIn("alert", data)
+        self.assertEqual(gh.published, [], "no pause: availability was never cleared")
+        self.assertEqual(gh.cancelled, [])
+        self.assertEqual(len(ctl.admission_api_failures), 0)
+        self.assertEqual({key: (info["jobId"], info["ranJob"], info["ranRun"], info["ranAttempt"], info["ranEvent"], info["phase"])
+                          for key, info in data["slots"].items()},
+                         {"0": (self.J584, self.J597, self.RUN, 1, "pull_request", "running"),
+                          "1": (self.J597, self.J584, self.RUN, 1, "pull_request", "running")},
+                         "each slot records the job its runner actually took")
+        self.assertEqual(self.unlocked(ctl), ["aeon-job-1", "aeon-job-0"])
+        transient = [line for line in lines if "transient GitHub error admitting" in line]
+        self.assertEqual(len(transient), 1, "a 502 came before the attribution")
+        self.assertIn(self.S1, transient[0])
+        self.assertIn("HTTP 502", transient[0])
+        self.assertIn(f"slot 1: {self.S1} was minted for job {self.J597} but took job {self.J584} of verified run {self.RUN}; claimed", lines)
+        self.assertIn(f"slot 0: {self.S0} was minted for job {self.J584} but took job {self.J597} of verified run {self.RUN}; claimed", lines)
+        self.assertEqual(gh.listings, 1, "the swap was resolved by single-job reads, not by runs/*/jobs")
+
+        # The post-job twin resolves the same jobs, again without the listing.
+        self.assertTrue(ctl.post_job_check(1, "aeon-job-1", self.S1, {"id": self.J597}))
+        self.assertTrue(ctl.post_job_check(0, "aeon-job-0", self.S0, {"id": self.J584}))
+        self.assertEqual(gh.listings, 1)
+        after = self.state.load()
+        self.assertEqual(after["mode"], "on")
+        self.assertEqual([after["slots"][key]["ranJob"] for key in ("0", "1")], [self.J597, self.J584])
+
+    def test_swap_is_admitted_while_the_listing_stays_down_for_the_whole_window(self):
+        ctl, gh = self.swap(failing=10**6)
+        self.assertEqual([self.admit(ctl, 1, self.S1, self.J597), self.admit(ctl, 0, self.S0, self.J584)], ["ok", "ok"])
+        self.assertEqual(gh.listings, 0)
+        self.assertEqual(self.state.load()["mode"], "on")
+        self.assertEqual(len(ctl.admission_api_failures), 0, "no strike on the API-unavailable breaker either")
+
+    def test_a_job_the_pool_does_not_know_still_pauses_as_on_2026_10_19(self):
+        # No sibling slot and nothing from the tick: only the run scan is left.
+        # It answers 502, then a listing that names no runner. Fail closed.
+        ctl, gh = self.swap(failing=3)
+        self.state.update(lambda d: d["slots"].pop("0"))
+        with patch.object(ctl, "pause", wraps=ctl.pause) as pause:
+            self.assertEqual(self.admit(ctl, 1, self.S1, self.J597), "unattributed")
+        pause.assert_called_once_with(f"slot 1: hook admitted a job the API cannot attribute to {self.S1}")
+        data = self.state.load()
+        self.assertEqual(data["mode"], "paused")
+        self.assertEqual(gh.published, [None], "availability cleared")
+        self.assertEqual(self.unlocked(ctl), [])
+        self.assertNotIn("ranJob", data["slots"]["1"])
+        self.assertEqual(gh.listings, 10)
+
+    def test_swap_with_a_job_of_an_unverified_run_still_pauses(self):
+        # Being the job another slot was minted for is not enough: run 66 is not
+        # (or no longer) in the verified set, so its job never gets a cache key.
+        s0, s1 = "mbp2606-s0-90-abc", "mbp2606-s1-660-def"
+        runs = [run(id=9, event="pull_request", head_branch="work/x", status="in_progress"),
+                run(id=66, event="pull_request", head_branch="work/y", status="in_progress")]
+        gh = DegradedGitHub(runs, {9: self.jobs(9, {90: s1}), 66: self.jobs(66, {660: s0})}, failing=10**6)
+        ctl = self.pool(gh, {"0": self.slot(0, 90, 9, s0), "1": self.slot(1, 660, 66, s1)}, [9])
+        with patch.object(ctl, "pause", wraps=ctl.pause) as pause:
+            self.assertEqual(self.admit(ctl, 0, s0, 90), "unverified")
+        pause.assert_called_once_with(f"slot 0: {s0} took job 660 of unverified run 66 attempt 1")
+        data = self.state.load()
+        self.assertEqual(data["mode"], "paused")
+        self.assertEqual(gh.published, [None], "availability cleared")
+        self.assertEqual(self.unlocked(ctl), [], "no cache key for the unverified job")
+        self.assertNotIn("ranJob", data["slots"]["0"], "an unverified job is never claimed")
+        self.assertEqual(gh.listings, 0)
+        # The sibling's runner took the verified job and keeps its admission;
+        # the pool stays paused.
+        self.assertEqual(self.admit(ctl, 1, s1, 660), "ok")
+        self.assertEqual(self.unlocked(ctl), ["aeon-job-1"])
+        after = self.state.load()
+        self.assertEqual(after["slots"]["1"]["ranJob"], 90)
+        self.assertEqual(after["mode"], "paused")
+
+    def test_two_slots_resolving_to_the_same_job_pause(self):
+        s0, s1 = "mbp2606-s0-90-abc", "mbp2606-s1-91-def"
+        r = run(id=9, event="pull_request", head_branch="work/x", status="in_progress")
+        # The contested job is the one slot 1 was minted for (single-job reads,
+        # listing down), or a third job that only the run scan finds.
+        for contested, api in ((91, lambda runs, jobs: DegradedGitHub(runs, jobs, failing=10**6)), (92, FakeGitHub)):
+            with self.subTest(contested=contested):
+                jobs = {9: self.jobs(9, {90: None, 91: None, 92: None})}
+                target = next(item for item in jobs[9] if item["id"] == contested)
+                target.update(status="in_progress", runner_name=s0)
+                gh = api([r], jobs)
+                ctl = self.pool(gh, {"0": self.slot(0, 90, 9, s0), "1": self.slot(1, 91, 9, s1)}, [9])
+                self.assertEqual(self.admit(ctl, 0, s0, 90), "ok")
+                self.assertEqual(self.state.load()["slots"]["0"]["ranJob"], contested)
+                target["runner_name"] = s1  # the API now names a second runner on the claimed job
+                with patch.object(ctl, "pause", wraps=ctl.pause) as pause:
+                    self.assertEqual(self.admit(ctl, 1, s1, 91), "duplicate")
+                pause.assert_called_once_with(
+                    f"slot 1: {s1} took job {contested} of run 9, but slot 0 ({s0}) already claimed that job")
+                data = self.state.load()
+                self.assertEqual(data["mode"], "paused")
+                self.assertEqual(gh.published, [None], "availability cleared")
+                self.assertEqual(self.unlocked(ctl), ["aeon-job-0"], "the second runner never gets a cache key")
+                self.assertEqual(data["slots"]["0"]["ranJob"], contested)
+                self.assertNotIn("ranJob", data["slots"]["1"])
+                self.assertEqual(data["slots"]["1"]["phase"], "waiting")
+
+    def test_concurrent_claims_of_one_job_admit_exactly_one_slot(self):
+        ctl = self.pool(FakeGitHub([], {}), {str(i): self.slot(i, 90 + i, 9, f"runner-{i}") for i in range(4)}, [9])
+        barrier = threading.Barrier(4)
+        results = {}
+
+        def claim(slot):
+            barrier.wait(5)
+            results[slot] = ctl.claim_job(slot, {"id": 77, "run_id": 9, "run_attempt": 1})
+        threads = [threading.Thread(target=claim, args=(i,)) for i in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        winners = [slot for slot, problem in results.items() if problem is None]
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(winners), 1)
+        for slot, problem in results.items():
+            if slot != winners[0]:
+                self.assertEqual(problem, f"slot {winners[0]} (runner-{winners[0]}) already claimed that job")
+        slots = self.state.load()["slots"]
+        self.assertEqual([key for key, info in slots.items() if info.get("ranJob") == 77], [str(winners[0])])
+        self.assertIsNone(ctl.claim_job(winners[0], {"id": 77, "run_id": 9, "run_attempt": 1}), "the holder may confirm its own claim")
+        self.assertEqual(ctl.claim_job(0, {"run_id": 9}), "the API record has no job id")
+
+    def test_post_job_pauses_when_the_job_is_another_slots_or_not_the_admitted_one(self):
+        s0, s1 = "mbp2606-s0-90-abc", "mbp2606-s1-91-def"
+        r = run(id=9, event="pull_request", head_branch="work/x", status="completed")
+        cases = (
+            ({"0": {"ranJob": 91}}, f"slot 1: runner {s1} ran job 91 of run 9, but slot 0 ({s0}) already claimed that job"),
+            ({"1": {"ranJob": 90}}, f"slot 1: runner {s1} ran job 91 of run 9, but this slot already claimed job 90"),
+        )
+        for claims, message in cases:
+            with self.subTest(claims=claims):
+                gh = DegradedGitHub([r], {9: self.jobs(9, {90: None, 91: s1}, status="completed")}, failing=10**6)
+                slots = {"0": self.slot(0, 90, 9, s0), "1": self.slot(1, 91, 9, s1)}
+                for key, fields in claims.items():
+                    slots[key].update(fields)
+                ctl = self.pool(gh, slots, [9])
+                with patch.object(ctl, "pause", wraps=ctl.pause) as pause:
+                    self.assertFalse(ctl.post_job_check(1, "aeon-job-1", s1, {"id": 91}))
+                pause.assert_called_once_with(message)
+                data = self.state.load()
+                self.assertEqual(data["mode"], "paused")
+                self.assertEqual({key: info.get("ranJob") for key, info in data["slots"].items()},
+                                 {key: slots[key].get("ranJob") for key in slots}, "claims are left as they were")
+
+    def test_runner_that_took_a_queued_sibling_without_a_slot_is_admitted(self):
+        # Claim spacing leaves the second sibling without a slot; GitHub may give
+        # it to the first runner. The tick remembered it as an admitted job.
+        s0 = "mbp2606-s0-90-abc"
+        r = run(id=9, event="pull_request", head_branch="work/x")
+        jobs = {9: self.jobs(9, {90: None, 91: None})}
+        gh = DegradedGitHub([r], jobs, failing=10**6)
+        ctl = self.controller(gh)
+        ctl.lima = Mock()
+        ctl.slot_key = lambda slot: "k" * 128
+        ctl.tick()
+        self.assertEqual(self.served, [(0, 9, 90)])
+        self.assertEqual(list(ctl.admitted_jobs), [90, 91])
+        jobs[9][1].update(status="in_progress", runner_name=s0)
+        self.state.update(lambda d: d["slots"]["0"].update(disk="aeon-scratch-0", runner=s0, phase="waiting"))
+        self.assertEqual(self.admit(ctl, 0, s0, 90), "ok")
+        data = self.state.load()
+        self.assertEqual((data["slots"]["0"]["jobId"], data["slots"]["0"]["ranJob"]), (90, 91))
+        self.assertEqual(data["mode"], "on")
+        self.assertEqual(gh.listings, 0)
+        self.assertEqual(list(ctl.admitted_jobs), [90], "a claimed job is nobody else's candidate")
+
+        # A listing that still shows the taken sibling as queued gets no second
+        # slot, and neither does the job the slot was minted for; others do.
+        jobs[9][1]["status"] = "queued"
+        jobs[9].extend(self.jobs(9, {92: None}))
+        self.clock.return_value += 180
+        ctl.tick()
+        self.assertEqual(self.served, [(0, 9, 90), (1, 9, 92)])
+        self.assertEqual(gh.cancelled, [])
+
+    def test_tick_remembers_only_admitted_queued_jobs_and_keeps_the_newest(self):
+        count = ab.POOL_ATTRIBUTION_JOBS + 3
+        labels = ab.mint_labels(CFG, run(event="pull_request"))
+        runs = [run(id=7, event="pull_request", head_repository={"full_name": "evil/paimos"}),
+                run(id=8, event="pull_request", head_branch="work/y"),
+                run(id=9, event="pull_request", head_branch="work/x")]
+        jobs = {7: [{"id": 70, "status": "queued", "labels": labels}],
+                8: [{"id": 80, "status": "queued", "labels": CFG["runnerLabels"]}],
+                9: [{"id": 900 + i, "status": "queued", "labels": labels} for i in range(count)]}
+        gh = FakeGitHub(runs, jobs)
+        ctl = self.controller(gh)
+        ctl.tick()
+        self.assertEqual(gh.cancelled, [7, 8], "a fork and a job without its class are rejected, not remembered")
+        self.assertEqual(list(ctl.admitted_jobs), [900 + i for i in range(3, count)])
+        # Slot 0 was minted for job 900; slot 1 for 901 and its runner took 77.
+        self.state.update(lambda d: d["slots"].__setitem__("1", {"jobId": 901, "ranJob": 77}))
+        own, others = ctl.attribution_jobs(0, {"id": 900})
+        self.assertEqual(own, [900])
+        self.assertEqual(others, [901, 77] + [900 + i for i in reversed(range(3, count))],
+                         "the other slots' jobs, then the remembered ones, newest first")
+        self.state.update(lambda d: d["slots"]["0"].update(ranJob=904))
+        self.assertEqual(ctl.attribution_jobs(0, {"id": 900})[0], [904, 900], "after admission the claimed job comes first")
+        self.assertNotIn(904, ctl.attribution_jobs(0, {"id": 900})[1])
+        ctl.forget_admitted(900 + count - 1)
+        self.assertNotIn(900 + count - 1, ctl.admitted_jobs)
+
+    def test_a_vanished_neighbour_job_does_not_break_attribution(self):
+        s0 = "mbp2606-s0-90-abc"
+        r = run(id=9, event="pull_request", head_branch="work/x", status="in_progress")
+
+        def pool(errors, slots):
+            gh = DegradedGitHub([r], {9: self.jobs(9, {90: None, 91: s0})}, failing=10**6)
+            read = gh.job
+
+            def job(job_id):
+                if job_id in errors:
+                    raise ab.BuilderError(f"GET /repos/{REPO}/actions/jobs/{job_id}: HTTP {errors[job_id]}")
+                return read(job_id)
+            gh.job = job
+            ctl = self.pool(gh, slots, [9])
+            for job_id in (91, 78):  # 78, the newest, is read before 91
+                ctl.remember_admitted(job_id)
+            return ctl
+
+        neighbours = {"0": self.slot(0, 90, 9, s0), "1": self.slot(1, 77, 8, "mbp2606-s1-77-def")}
+        ctl = pool({77: "404 Not Found", 78: "404 Not Found"}, neighbours)
+        self.assertEqual(self.admit(ctl, 0, s0, 90), "ok", "jobs deleted with their run are skipped")
+        self.assertEqual(self.state.load()["slots"]["0"]["ranJob"], 91)
+        self.assertEqual(list(ctl.admitted_jobs), [], "the vanished job is forgotten, the claimed one too")
+
+        ctl = pool({77: "403 Forbidden"}, neighbours)
+        with self.assertRaisesRegex(ab.BuilderError, "HTTP 403"):
+            self.admit(ctl, 0, s0, 90)
+        self.assertEqual(self.unlocked(ctl), [], "any other error still ends this admission")
+
+        ctl = pool({90: "404 Not Found"}, neighbours)
+        with self.assertRaisesRegex(ab.BuilderError, "HTTP 404"):
+            self.admit(ctl, 0, s0, 90)
+        self.assertEqual(self.unlocked(ctl), [], "the slot's own job must be readable, as before")
+
+        claimed = copy.deepcopy(neighbours)
+        claimed["0"]["ranJob"] = 78
+        ctl = pool({78: "404 Not Found"}, claimed)
+        with self.assertRaisesRegex(ab.BuilderError, "HTTP 404"):
+            ctl.post_job_check(0, "aeon-job-0", s0, {"id": 90})
+        self.assertEqual(self.state.load()["mode"], "on", "an unreadable own job ends the check without a pause, as before")
+
+    def test_serve_treats_a_duplicate_claim_like_every_other_refused_admission(self):
+        r = run(id=9)
+        job = {"id": 90, "status": "queued", "labels": ab.mint_labels(CFG, r)}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.jit = Mock(return_value={"runner": {"id": 123}, "encoded_jit_config": "test-jit"})
+        gh.delete_runner = Mock()
+        ctl = self.controller(gh)
+        ctl.lima = Mock()
+        ctl.prepare_disk = Mock(return_value=("aeon-cache-0", False))
+        ctl.retire_slot = Mock()
+        ctl.wait_for_runner = Mock(return_value="duplicate")
+        ctl.post_job_check = Mock()
+        slot = ctl.claim_slot(job, r)
+        ab.Controller.serve(ctl, slot, r, job)
+        ctl.post_job_check.assert_not_called()
+        self.assertIn(slot, ctl.tainted, "the trusted disk is restored, never kept")
+        self.assertFalse(any("/opt/aeon/cache-lock" in call.args for call in ctl.lima.run.call_args_list))
+        ctl.retire_slot.assert_called_once_with(slot, "aeon-job-0", "aeon-cache-0")
+        gh.delete_runner.assert_called_once_with(123)
+
+    def test_status_shows_the_job_a_swapped_runner_took(self):
+        self.state.update(lambda d: d["slots"].update({
+            "0": {"jobId": 90, "runId": 9, "ranJob": 91, "ranRun": 9, "phase": "running", "event": "pull_request",
+                  "since": "2026-10-19T15:51:00+00:00"},
+            "1": {"jobId": 92, "runId": 9, "ranJob": 92, "ranRun": 9, "phase": "running", "event": "pull_request",
+                  "since": "2026-10-19T15:52:00+00:00"}}))
+        with patch.object(ab, "State", return_value=self.state), \
+                patch.object(ab, "controller_pid", return_value=123), \
+                patch.object(ab, "Lima") as lima, \
+                patch.object(ab, "lab_vms", return_value=[]), \
+                patch.object(ab.subprocess, "run", return_value=Mock(stdout="")), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            lima.return_value.instances.return_value = {}
+            ab.cmd_status(CFG, None)
+        self.assertIn("  slot 0: running run 9 job 90 (runner took job 91 of run 9) pull_request since 2026-10-19T15:51:00\n", output.getvalue())
+        self.assertIn("  slot 1: running run 9 job 92 pull_request since 2026-10-19T15:52:00\n", output.getvalue())
+
+
+class EntryClassTests(unittest.TestCase):
+    """AEON-2428: paimos-ci-entry-arm, a second class of pull_request runs for
+    the short entry jobs of paimos ci.yml. The four AEON-459 classes are as before."""
+
+    setUp = ControllerTests.setUp
+    controller = ControllerTests.controller
+
+    BASE = ["self-hosted", "Linux", "ARM64", "mbp2606"]
+    ENTRY = "paimos-ci-entry-arm"
+
+    def test_entry_label_is_a_class_of_pull_request_runs_only(self):
+        pr = run(event="pull_request", head_branch="work/x")
+        entry = {"id": 1, "labels": self.BASE + [self.ENTRY]}
+        self.assertTrue(ab.class_ok(entry, pr, CFG))
+        self.assertEqual(ab.job_class(entry, pr, CFG), self.ENTRY)
+        self.assertEqual(ab.job_class({"labels": self.BASE + [self.ENTRY.upper()]}, pr, CFG), self.ENTRY)
+        self.assertEqual(ab.mint_labels(CFG, pr, entry), self.BASE + [self.ENTRY])
+        self.assertEqual(ab.event_classes(pr, CFG), ["mbp2606-pr", self.ENTRY])
+        self.assertIn(self.ENTRY, ab.pool_labels(CFG), "a pause sweeps entry jobs too")
+        self.assertFalse(ab.uses_cache_disk(pr, CFG), "entry jobs get a disposable disk like every pull_request job")
+        for event in ("push", "workflow_dispatch", "merge_group"):
+            with self.subTest(event=event):
+                self.assertFalse(ab.class_ok(entry, run(event=event), CFG))
+                with self.assertRaises(ab.BuilderError):
+                    ab.mint_labels(CFG, run(event=event), entry)
+        for labels in (self.BASE + ["mbp2606-pr", self.ENTRY], self.BASE, self.BASE + ["mbp2606-mq"]):
+            self.assertFalse(ab.class_ok({"labels": labels}, pr, CFG), labels)
+
+    def test_existing_classes_are_unchanged(self):
+        without = {key: value for key, value in CFG.items() if key != "extraClassLabels"}
+        for event, label in CFG["classLabels"].items():
+            with self.subTest(event=event):
+                r = run(event=event)
+                job = {"id": 1, "labels": self.BASE + [label]}
+                for cfg in (CFG, without):
+                    self.assertEqual(ab.mint_labels(cfg, r), self.BASE + [label])
+                    self.assertEqual(ab.mint_labels(cfg, r, job), self.BASE + [label])
+                    self.assertTrue(ab.class_ok(job, r, cfg))
+                self.assertFalse(ab.could_take({"labels": self.BASE + [self.ENTRY]}, ab.mint_labels(CFG, r)),
+                                 "an entry job never fits a runner of another class")
+                self.assertFalse(ab.could_take(job, self.BASE + [self.ENTRY]), "and no other class fits an entry runner")
+        self.assertEqual(ab.pool_labels(without), self.BASE + sorted(CFG["classLabels"].values()))
+        self.assertEqual(ab.pool_labels(CFG), self.BASE + sorted([*CFG["classLabels"].values(), self.ENTRY]))
+        self.assertFalse(ab.class_ok({"labels": self.BASE + [self.ENTRY]}, run(event="pull_request"), without),
+                         "without the option the label is no class at all")
+
+    def test_a_class_label_shared_by_two_events_is_never_minted_for(self):
+        shared = {**CFG, "extraClassLabels": {"pull_request": [self.ENTRY], "merge_group": [self.ENTRY.upper()]}}
+        job = {"id": 1, "labels": self.BASE + [self.ENTRY]}
+        for event in ("pull_request", "merge_group"):
+            self.assertFalse(ab.class_ok(job, run(event=event), shared), event)
+        self.assertTrue(ab.class_ok({"labels": self.BASE + ["mbp2606-pr"]}, run(event="pull_request"), shared))
+        self.assertIn(self.ENTRY, [label.lower() for label in ab.pool_labels(shared)], "it is still swept")
+
+    def test_entry_job_gets_an_entry_runner_and_a_disposable_disk(self):
+        r = run(id=9, event="pull_request", head_branch="work/x")
+        labels = self.BASE + [self.ENTRY]
+        job = {"id": 90, "status": "queued", "labels": labels}
+        gh = FakeGitHub([r], {9: [job]})
+        gh.jit = Mock(return_value={"runner": {"id": 123}, "encoded_jit_config": "test-jit"})
+        gh.delete_runner = Mock()
+        ctl = ab.Controller(self.cfg, gh=gh, lima=Mock(), state=self.state, getmemoryfree=lambda: 60)
+        ctl.lima.disks.return_value = []
+        ctl.good_copy = Mock(return_value=self.tmp / "no-known-good-copy")
+        ctl.retire_slot = Mock()
+        ctl.wait_for_runner = Mock(return_value="idle")
+        slot = ctl.claim_slot(job, r)
+        self.assertEqual(slot, 0)
+        ctl.serve(slot, r, job)
+        gh.jit.assert_called_once()
+        self.assertEqual(gh.jit.call_args.args[1], labels)
+        self.assertEqual(gh.cancelled, [])
+        ctl.retire_slot.assert_called_once_with(slot, "aeon-job-0", "aeon-scratch-0")
+
+    def test_tick_serves_both_pull_request_classes_and_rejects_the_entry_label_on_other_events(self):
+        pr = run(id=9, event="pull_request", head_branch="work/x")
+        jobs = {9: [{"id": 90, "status": "queued", "labels": self.BASE + [self.ENTRY]},
+                    {"id": 91, "status": "queued", "labels": self.BASE + ["mbp2606-pr"]}],
+                8: [{"id": 80, "status": "queued", "labels": self.BASE + [self.ENTRY]}]}
+        gh = FakeGitHub([pr, run(id=8)], jobs)
+        ctl = self.controller(gh)
+        with patch.object(ab, "log") as log:
+            ctl.tick()
+            self.clock.return_value += 180
+            ctl.tick()
+        self.assertEqual(self.served, [(0, 9, 90), (1, 9, 91)])
+        self.assertEqual(gh.cancelled, [8])
+        rejects = [call.args[0] for call in log.call_args_list if call.args[0].startswith("reject run 8:")]
+        self.assertEqual(len(rejects), 1)
+        self.assertIn("lack exact class mbp2606-push;", rejects[0])
+
+    def test_class_mismatch_log_names_both_pull_request_classes(self):
+        pr = run(id=9, event="pull_request", head_branch="work/x")
+        gh = FakeGitHub([pr], {9: [{"id": 90, "status": "queued", "labels": self.BASE}]})
+        ctl = self.controller(gh)
+        with patch.object(ab, "log") as log:
+            ctl.tick()
+        self.assertEqual(gh.cancelled, [9])
+        self.assertTrue(any(f"lack exact class mbp2606-pr or {self.ENTRY};" in call.args[0] for call in log.call_args_list))
+
+    def test_sweep_before_an_entry_mint_keeps_entry_jobs_and_cancels_everything_else_that_fits(self):
+        labels = self.BASE + [self.ENTRY]
+        jobs = {9: [{"id": 90, "status": "queued", "labels": labels}],
+                8: [{"id": 80, "status": "queued", "labels": self.BASE}],
+                7: [{"id": 70, "status": "queued", "labels": labels}],
+                6: [{"id": 60, "status": "queued", "labels": self.BASE + ["mbp2606-pr"]}]}
+        runs = [run(id=9, event="pull_request", head_branch="work/x"), run(id=8, event="pull_request", head_branch="work/y"),
+                run(id=7), run(id=6, event="pull_request", head_branch="work/z")]
+        gh = FakeGitHub(runs, jobs)
+        ctl = self.controller(gh)
+        self.assertEqual(ctl.unverified_label_runs(labels), [8, 7])
+        self.assertEqual(gh.cancelled, [8, 7], "a base-only job and a push job with the entry label; the regular PR job cannot take an entry runner")
 
 class RulesetHistoryTests(unittest.TestCase):
     def client(self):

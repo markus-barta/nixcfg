@@ -48,6 +48,7 @@ let
       label
       runnerLabels
       classLabels
+      extraClassLabels
       events
       workflows
       branch
@@ -153,6 +154,26 @@ in
         AEON-459: each runner also gets exactly one class label for its verified
         run's event, and only jobs carrying exactly that class are minted for, so
         jobs from different event classes cannot take each other's runners.
+      '';
+    };
+    # AEON-2428: like `events` below, this only mirrors the paimos ci.yml router
+    # allowlist (AEON-438), and the smaller set wins. The pool mints a runner for
+    # a queued job that asks for a class label; it never creates demand. So until
+    # paimos ci.yml lists `paimos-ci-entry-arm` on its pull_request entry jobs
+    # (a separate paimos PR) no job carries the label and this class stays inert.
+    # Such a job must request the full set, like every other class:
+    # [self-hosted, Linux, ARM64, mbp2606, paimos-ci-entry-arm].
+    extraClassLabels = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+      default = {
+        pull_request = [ "paimos-ci-entry-arm" ];
+      };
+      description = ''
+        AEON-2428: further classes of an event besides its classLabels entry,
+        which stays as it is. A runner still gets exactly one class label, the
+        one its job asks for, and a class belongs to one event only, so AEON-459
+        holds unchanged. `paimos-ci-entry-arm` is the class of the short
+        pull_request entry jobs of paimos ci.yml (ci-plan, runner-route).
       '';
     };
     events = lib.mkOption {
@@ -358,6 +379,24 @@ in
       {
         assertion = cfg.memFreeHigh > cfg.memFreeLow;
         message = "services.aeonBuilder.memFreeHigh must be greater than memFreeLow.";
+      }
+      {
+        # AEON-459: a class label shared by two events, or listed twice, would
+        # let jobs of different events take each other's runners.
+        assertion =
+          let
+            labels =
+              builtins.attrValues cfg.classLabels
+              ++ builtins.concatLists (builtins.attrValues cfg.extraClassLabels);
+            distinct = builtins.listToAttrs (
+              map (label: {
+                name = label;
+                value = true;
+              }) labels
+            );
+          in
+          builtins.length labels == builtins.length (builtins.attrNames distinct);
+        message = "services.aeonBuilder.classLabels and extraClassLabels must not repeat a class label.";
       }
     ];
     home.packages = [

@@ -81,12 +81,33 @@ class: `mbp2606-push`, `mbp2606-dispatch`, `mbp2606-pr`, or `mbp2606-mq`,
 respectively. Only pushes write the persistent cache; other events use a
 disposable clone. The pool has four slots of four CPUs and 6 GiB each, leaving
 host RAM for remote-test.
+Pull-request runs have a second class, `paimos-ci-entry-arm` (AEON-2428,
+`services.aeonBuilder.extraClassLabels`), for the short entry jobs `ci-plan`
+and `runner-route`. They request
+`[self-hosted, Linux, ARM64, mbp2606, paimos-ci-entry-arm]` and only get a
+runner of that class; the four classes above are unchanged. The pool mirrors
+paimos's `ci.yml` and the smaller set wins: until `ci.yml` lists the label on
+those jobs (a separate paimos PR) no job carries it and the class is inert.
+
+GitHub gives a runner any queued job its labels fit, so a runner can take a
+sibling of the job it was minted for. Attribution is therefore pool-level
+(AEON-2428): the controller accepts the job the API names for the runner when
+it belongs to a verified run and no other slot has claimed it, records it in
+the slot (`aeon-builder status` shows `runner took job …`), and looks for it
+first among the jobs the pool itself admitted, through the single-job endpoint
+rather than the `runs/*/jobs` listing. A job the API cannot attribute, a job of
+an unverified run, or a second slot resolving to an already claimed job still
+pauses the pool; an unreachable API retires only that VM, cache locked.
 The `ci` user's `~/.lima` and `~/.local/state/aeon-builder` are excluded from
 Time Machine by default because they are rebuildable and churn heavily
 (OPS-303); set `services.aeonBuilder.timeMachineExclude = false` to opt out.
 
-The host gate stops taking new jobs above a 1-minute load of 12.0 and resumes
-only below 8.0 (`services.aeonBuilder.loadHigh` / `loadLow`). It also gates when
+The host gate stops taking new jobs above a 1-minute load of 28 and resumes
+only below 22 (`services.aeonBuilder.loadHigh` / `loadLow` in `home-ci.nix`;
+the module defaults are 12.0 / 8.0). 28 matches the `maxload` of MAC-LEAD's
+console brake while mailina is logged in (AEON-2428); the gap of 6 is one job
+VM (four CPUs) plus margin, so a slot claimed right after the gate opens does
+not close it again. It also gates when
 macOS reports less than 35% free memory, releasing at 45% or more (`memFreeLow`
 / `memFreeHigh`). Both gates must clear before claims resume. If `memory_pressure`
 has never been readable, the memory gate is disabled and logs once. After a
