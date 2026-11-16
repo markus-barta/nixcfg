@@ -41,40 +41,60 @@ const defaultPlaces = [
   { id: "p3", name: "Hell", rgb: "FFF4E0", bri: 80 },
   { id: "p4", name: "Rot leise", rgb: "FF2A00", bri: 5 },
 ];
-const defaults = { plug: defaultPlaces, round: defaultPlaces };
+const defaults = {
+  plug: defaultPlaces,
+  round: defaultPlaces,
+  kg: defaultPlaces,
+};
+const maxBri = { round: 50, plug: 100, kg: 100 };
 const rules = Object.fromEntries(
-  ["urgent", "regular", "open"]
-    .flatMap((level) =>
-      ["ppm", "pma", "both"].map((desk) => [
-        level + ":" + desk,
-        {
-          rgb: { ppm: "18C2B0", pma: "FFA020", both: "9B6BFF" }[desk],
-          bri: level === "urgent" ? 60 : level === "regular" ? 20 : 0,
-          mode: level === "urgent" ? "blink" : "steady",
-          rgb2: "FFFFFF",
-          takt: 2,
-        },
-      ]),
-    )
-    .concat([
-      [
-        "idle",
-        { rgb: "8FA3B0", bri: 0, mode: "steady", rgb2: "FFFFFF", takt: 2 },
-      ],
-      [
-        "unknown",
-        { rgb: "8FA3B0", bri: 5, mode: "steady", rgb2: "FFFFFF", takt: 2 },
-      ],
-    ]),
+  ["urgent", "regular", "open", "idle", "unknown"].map((level) => [
+    level,
+    {
+      rgb: ["idle", "unknown"].includes(level) ? "8FA3B0" : "18C2B0",
+      bri: { urgent: 60, regular: 20, open: 0, idle: 0, unknown: 5 }[level],
+      mode: level === "urgent" ? "blink" : "steady",
+      rgb2: "FFFFFF",
+      takt: 2,
+    },
+  ]),
 );
+const fakeDesks = [
+  {
+    id: "ppm",
+    short: "PPM",
+    name: "Desk A",
+    url: "https://desk-a.invalid",
+    rgb: "18C2B0",
+    key_set: false,
+    key_set_at: null,
+    override: false,
+    rules,
+  },
+  {
+    id: "pma",
+    short: "PMA",
+    name: "Desk B",
+    url: "https://desk-b.invalid",
+    rgb: "FFA020",
+    key_set: false,
+    key_set_at: null,
+    override: false,
+    rules,
+  },
+];
 const configDefaults = Object.fromEntries(
-  ["plug", "round"].map((h) => [
+  ["plug", "round", "kg"].map((h) => [
     h,
     {
+      version: 33,
       usage: h === "round" ? "desk" : "nightlight",
       rules,
-      thresholds: { ppm: 4, pma: 4 },
+      desks: h === "kg" ? [] : fakeDesks,
+      multiple: { mode: "cycle", rgb: "9B6BFF" },
+      thresholds: h === "kg" ? {} : { ppm: 4, pma: 4 },
       auto_sound: false,
+      history: [],
     },
   ]),
 );
@@ -83,6 +103,17 @@ const response = (value, status = 200) => ({
   status,
   json: async () => value,
 });
+function lightReply(hub, rgb, requested) {
+  const bri = Math.max(0, Math.min(maxBri[hub], requested));
+  return {
+    ok: true,
+    rgb,
+    brightness: bri,
+    bri,
+    capped: requested > maxBri[hub],
+    versuche: 1,
+  };
+}
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => {
@@ -92,6 +123,13 @@ function deferred() {
   return { promise, resolve, reject };
 }
 const DATA_ATTRIBUTES = new Map([
+  ["data-desk-color", "deskColor"],
+  ["data-multiple-color", "multipleColor"],
+  ["data-panel", "panel"],
+  ["data-tab", "tab"],
+  ["data-close", "close"],
+  ["data-multiple", "multiple"],
+  ["data-threshold-desk", "thresholdDesk"],
   ["data-auto-duration", "autoDuration"],
   ["data-color", "color"],
   ["data-color-name", "colorName"],
@@ -114,6 +152,9 @@ const DATA_ATTRIBUTES = new Map([
   ["data-usage", "usage"],
 ]);
 const HTML_ATTRIBUTES = new Set([
+  "aria-selected",
+  "autocomplete",
+  ...DATA_ATTRIBUTES.keys(),
   "aria-atomic",
   "aria-checked",
   "aria-controls",
@@ -227,6 +268,22 @@ class Element {
   getAttribute(key) {
     return this.attrs[key];
   }
+  get className() {
+    return this.attrs.class || "";
+  }
+  set className(value) {
+    for (const old of (this.attrs.class || "").split(/\s+/))
+      this.classList.remove(old);
+    this.attrs.class = value;
+    for (const name of value.split(/\s+/)) this.classList.add(name);
+  }
+  get parentNode() {
+    return this.parent;
+  }
+  get nextSibling() {
+    if (!this.parent) return null;
+    return this.parent.children[this.parent.children.indexOf(this) + 1] || null;
+  }
   addEventListener(key, fn) {
     (this.listeners[key] ||= []).push(fn);
   }
@@ -235,6 +292,7 @@ class Element {
     return Promise.all((this.listeners[key] || []).map((fn) => fn(event)));
   }
   matches(selector) {
+    if (selector === "*") return true;
     if (selector.includes(" ")) {
       const parts = selector.split(/\s+/);
       if (!this.matches(parts.pop())) return false;
@@ -288,21 +346,44 @@ class Element {
     return this.disabled ? Promise.resolve([]) : this.fire(key, attrs);
   }
   replaceChildren(...children) {
-    this.children = children;
+    for (const child of this.children)
+      if (child instanceof Element) child.parent = null;
+    this.children = [];
+    this.append(...children);
   }
   append(...children) {
-    this.children.push(...children);
+    for (const child of children) this.insertBefore(child, null);
+  }
+  insertBefore(child, next) {
+    if (child instanceof Element) {
+      if (child.parent)
+        child.parent.children.splice(child.parent.children.indexOf(child), 1);
+      child.parent = this;
+    }
+    const index =
+      next === null ? this.children.length : this.children.indexOf(next);
+    this.children.splice(index, 0, child);
+  }
+  click() {
+    return this.userFire("click");
   }
   focus() {}
   setPointerCapture() {}
   close() {
+    const wasOpen = this.open;
     this.open = false;
+    if (wasOpen) this.fire("close");
   }
   showModal() {
     this.open = true;
   }
 }
-async function setup(stored = {}, storageFails = false, initial = {}) {
+async function setup(
+  stored = {},
+  storageFails = false,
+  initial = {},
+  viewport = {},
+) {
   const elements = [];
   const stack = [];
   for (const match of html.matchAll(/<(\/?)([\w-]+)\b([^>]*?)>/g)) {
@@ -352,13 +433,14 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       return byId.get(id);
     },
     querySelectorAll: (selector) => {
+      const liveElements = [root, ...root.querySelectorAll("*")];
       if (selector === "button, input, select")
-        return elements.filter((e) =>
+        return liveElements.filter((e) =>
           ["button", "input", "select"].includes(e.tagName),
         );
       const key = selector.match(/^\[([\w-]+)\]$/)?.[1];
       assert.ok(key, `unhandled DOM query ${selector}`);
-      return elements.filter((e) => Object.hasOwn(e.attrs, key));
+      return liveElements.filter((e) => Object.hasOwn(e.attrs, key));
     },
     querySelector: (selector) => {
       const hub = selector.match(/^\[data-hub="([^"]+)"\]$/)?.[1];
@@ -375,6 +457,14 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
   let time = 0,
     timerId = 0;
   const context = vm.createContext({
+    matchMedia(query) {
+      return {
+        matches: query.includes("reduced-motion")
+          ? Boolean(viewport.reducedMotion)
+          : Boolean(viewport.phone),
+        addEventListener() {},
+      };
+    },
     document,
     URLSearchParams,
     AbortController,
@@ -416,7 +506,11 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       if (initial[u.pathname]) return initial[u.pathname](u, options);
       if (u.pathname === "/config")
         return Promise.resolve(
-          response({ ok: true, settings: structuredClone(configDefaults) }),
+          response({
+            ok: true,
+            settings: structuredClone(configDefaults),
+            max_bri: maxBri,
+          }),
         );
       if (u.pathname === "/signal")
         return Promise.resolve(
@@ -449,7 +543,7 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
         return Promise.resolve(
           response(
             p
-              ? { ok: true, rgb: p.rgb, brightness: p.bri, versuche: 1 }
+              ? lightReply(u.searchParams.get("hub"), p.rgb, p.bri)
               : { ok: false, error: "Preset nicht gespeichert" },
           ),
         );
@@ -457,7 +551,7 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
       const rgb = u.searchParams.get("rgb") || "5C0701",
         bri = Number(u.searchParams.get("bri") ?? 44);
       return Promise.resolve(
-        response({ ok: true, rgb, brightness: bri, versuche: 1 }),
+        response(lightReply(u.searchParams.get("hub"), rgb, bri)),
       );
     },
   });
@@ -484,6 +578,158 @@ async function setup(stored = {}, storageFails = false, initial = {}) {
     buttons: (selector) => document.querySelectorAll(selector),
   };
 }
+
+test("per-hub brightness sliders clamp WZ at 50 and preserve KI at 100", async () => {
+  const a = await setup();
+  assert.equal(Number(a.el("bri").max), 100);
+  a.el("bri").value = "100";
+  await a.el("bri").userFire("input");
+  await flush();
+  assert.equal(a.eval("state().last.bri"), 100);
+  await a.buttons("[data-hub]")[1].fire("click");
+  assert.equal(Number(a.el("bri").max), 50);
+  a.tick(1000);
+  a.el("bri").value = "90";
+  await a.el("bri").fire("input");
+  await flush();
+  const sent = a.calls.filter((c) => c.path === "/set").at(-1);
+  assert.equal(sent.params.get("hub"), "round");
+  assert.equal(sent.params.get("bri"), "50");
+  assert.equal(Number(a.el("bri").value), 50);
+  assert.equal(Number(a.el("bri-track").properties.get("--f")), 1);
+  assert.equal(a.eval("state().last.bri"), 50);
+  await a.buttons("[data-hub]")[0].fire("click");
+  assert.equal(Number(a.el("bri").max), 100);
+  assert.equal(Number(a.el("bri").value), 100);
+});
+
+test("WZ keeps its cap before config arrives and honors server max_bri on load", async () => {
+  const config = deferred();
+  const a = await setup({ "nightlight-hub": "WZ-594F" }, false, {
+    "/config": () => config.promise,
+    "/get": async () => response({ ok: true, rgb: "ABCDEF", brightness: 90 }),
+  });
+  assert.equal(Number(a.el("bri").max), 50);
+  assert.equal(Number(a.el("bri").value), 50);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 50\s%$/);
+  config.resolve(
+    response({
+      ok: true,
+      settings: structuredClone(configDefaults),
+      max_bri: { round: 35, plug: 100 },
+    }),
+  );
+  await flush();
+  assert.equal(Number(a.el("bri").max), 35);
+  assert.equal(Number(a.el("bri").value), 35);
+  assert.equal(Number(a.el("bri-track").properties.get("--f")), 1);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 35\s%$/);
+});
+
+test("config retry and settings replies refresh per-hub brightness limits", async () => {
+  let attempt = 0;
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/config": async () => {
+        if (++attempt === 1) throw new Error("offline fixture");
+        return response({
+          ok: true,
+          settings: structuredClone(configDefaults),
+          max_bri: { round: 45, plug: 100 },
+        });
+      },
+    },
+  );
+  assert.equal(Number(a.el("bri").max), 50);
+  await a.el("retry").fire("click");
+  await flush();
+  assert.equal(Number(a.el("bri").max), 45);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 45\s%$/);
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/settings");
+    const settings = structuredClone(configDefaults);
+    settings.round.usage = "nightlight";
+    return Promise.resolve(response({ ok: true, settings, max_bri: maxBri }));
+  });
+  await a.buttons("[data-usage]")[0].fire("click");
+  await flush();
+  assert.equal(Number(a.el("bri").max), 50);
+  assert.match(a.el("light-bri").textContent, /^Helligkeit · max\. 50\s%$/);
+  assert.equal(a.pending.length, 0);
+});
+
+test("applying a bright saved place displays the effective brightness for each hub", async () => {
+  for (const [label, maximum] of [
+    ["WZ-594F", 50],
+    ["KI-18FB", 100],
+    ["KG-5632", 100],
+  ]) {
+    const a = await setup({ "nightlight-hub": label });
+    await a
+      .buttons("[data-preset]")
+      .find((b) => b.dataset.preset === "p3")
+      .fire("click");
+    await flush();
+    assert.equal(a.calls.filter((c) => c.path === "/apply").length, 1);
+    assert.equal(a.eval("state().last.bri"), Math.min(80, maximum));
+    assert.equal(Number(a.el("bri").value), Math.min(80, maximum));
+    assert.equal(Number(a.el("bri").max), maximum);
+    assert.equal(
+      Number(a.el("bri-track").properties.get("--f")),
+      Math.min(80, maximum) / maximum,
+    );
+  }
+});
+
+test("shared and desk rule editors limit brightness without changing the other hub", async () => {
+  for (const [label, expected] of [
+    ["WZ-594F", 50],
+    ["KI-18FB", 90],
+  ]) {
+    for (const desk of [null, "ppm"]) {
+      const a = await setup({
+        "nightlight-mode": "erwachsen",
+        "nightlight-hub": label,
+      });
+      a.eval(`openRule("urgent", ${JSON.stringify(desk)});`);
+      assert.equal(
+        Number(a.el("rule-bri").max),
+        label === "WZ-594F" ? 50 : 100,
+      );
+      assert.equal(a.eval("settings.round.rules.urgent.bri"), 60);
+      a.el("rule-bri").value = "90";
+      await a.el("rule-bri").fire("input");
+      assert.equal(a.eval("ruleDraft.bri"), expected);
+      assert.equal(Number(a.el("rule-bri").value), expected);
+      a.pending.push((url) => {
+        assert.equal(url.pathname, "/signal-test");
+        assert.equal(url.searchParams.get("bri"), String(expected));
+        return Promise.resolve(
+          response({ ok: true, bri: expected, capped: false, seconds: 10 }),
+        );
+      });
+      await a.el("rule-test").fire("click");
+      await flush();
+      assert.equal(a.pending.length, 0);
+      a.pending.push((url) => {
+        assert.equal(url.pathname, "/settings");
+        assert.equal(url.searchParams.get("bri"), String(expected));
+        return Promise.resolve(
+          response({
+            ok: true,
+            settings: structuredClone(configDefaults),
+            max_bri: maxBri,
+          }),
+        );
+      });
+      await a.el("rule-save").fire("click");
+      await flush();
+      assert.equal(a.pending.length, 0);
+    }
+  }
+});
 
 test("DOM harness allowlists attribute writes and isolates map storage", () => {
   const element = new Element(
@@ -827,6 +1073,138 @@ test("hub choice is remembered, validated and safe when storage is disabled", as
   assert.equal(d.eval("selected"), "KI-18FB");
   d.eval('selectHub("WZ-594F")');
   assert.equal(d.eval("selected"), "WZ-594F");
+});
+
+test("KG restores its label, neutral usage, full brightness and inline motif", async () => {
+  const a = await setup({ "nightlight-hub": "KG-5632" });
+  assert.equal(a.eval("selected"), "KG-5632");
+  assert.equal(a.eval("hub()"), "kg");
+  assert.equal(a.eval("usageFor()"), "nightlight");
+  assert.equal(a.eval("settings.kg.desks.length"), 0);
+  assert.equal(a.eval("settings.kg.auto_sound"), false);
+  assert.equal(Number(a.el("bri").max), 100);
+  assert.equal(a.el("status-text").textContent, "Bereit · KG-5632");
+  assert.equal(a.calls.find((c) => c.path === "/get").params.get("hub"), "kg");
+  assert.ok(
+    a.calls.every((c) => ["/get", "/presets", "/config"].includes(c.path)),
+  );
+  assert.equal(
+    a.eval(
+      'document.querySelector(".hubsays .hspic use").getAttribute("href")',
+    ),
+    "#p-kg",
+  );
+  const kg = a.buttons("[data-hub]").find((b) => b.dataset.hub === "KG-5632");
+  assert.equal(kg.querySelector(".k use").getAttribute("href"), "#p-kg");
+  assert.match(html, /<symbol id="p-kg"/);
+  assert.equal(kg.getAttribute("aria-checked"), "true");
+  assert.equal(kg.tabIndex, 0);
+});
+
+test("three-hub arrows wrap both ways and Home/End maintain radio focus", async () => {
+  const a = await setup();
+  assert.deepEqual(
+    a.buttons("[data-hub]").map((b) => b.dataset.hub),
+    ["KI-18FB", "WZ-594F", "KG-5632"],
+  );
+  for (const [key, expected] of [
+    ["ArrowLeft", "KG-5632"],
+    ["ArrowRight", "KI-18FB"],
+    ["ArrowRight", "WZ-594F"],
+    ["ArrowRight", "KG-5632"],
+    ["ArrowRight", "KI-18FB"],
+    ["End", "KG-5632"],
+    ["Home", "KI-18FB"],
+  ]) {
+    const current = a
+      .buttons("[data-hub]")
+      .find((b) => b.dataset.hub === a.eval("selected"));
+    await current.fire("keydown", { key });
+    await flush();
+    assert.equal(a.eval("selected"), expected);
+    assert.equal(a.storage.get("nightlight-hub"), expected);
+    for (const button of a.buttons("[data-hub]")) {
+      assert.equal(button.tabIndex, button.dataset.hub === expected ? 0 : -1);
+      assert.equal(
+        button.getAttribute("aria-checked"),
+        String(button.dataset.hub === expected),
+      );
+    }
+  }
+});
+
+test("KG button remembers the choice and nacht commands use the kg API handle", async () => {
+  const a = await setup();
+  await a.buttons("[data-hub]")[2].fire("click");
+  await flush();
+  assert.equal(a.storage.get("nightlight-hub"), "KG-5632");
+  assert.equal(a.calls.at(-1).params.get("hub"), "kg");
+  await a.el("nightlight").fire("click");
+  await flush();
+  const sent = a.calls.find((c) => c.path === "/apply");
+  assert.equal(sent.params.get("hub"), "kg");
+  assert.equal(sent.params.get("preset"), "nacht");
+  assert.equal(sent.options.method, "POST");
+  assert.equal(a.eval("state().last.rgb"), "5C0701");
+  assert.equal(a.eval("state().last.bri"), 44);
+  const restored = await setup(Object.fromEntries(a.storage));
+  assert.equal(restored.eval("selected"), "KG-5632");
+  const disabled = await setup({ "nightlight-hub": "KG-5632" }, true);
+  assert.equal(disabled.eval("selected"), "KI-18FB");
+});
+
+test("KG save, rename and reset use preset writes without light commands", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "KG-5632",
+  });
+  for (const [query, reset] of [
+    [{ rgb: "ABCDEF", bri: 100 }, false],
+    [{ name: "Schlaflicht" }, false],
+    [{}, true],
+  ]) {
+    a.pending.push((url) => {
+      assert.equal(url.pathname, "/preset");
+      assert.equal(url.searchParams.get("hub"), "kg");
+      assert.equal(url.searchParams.get("id"), "nacht");
+      if (reset) assert.equal(url.searchParams.get("reset"), "1");
+      else
+        for (const [key, value] of Object.entries(query))
+          assert.equal(url.searchParams.get(key), String(value));
+      return Promise.resolve(
+        response({ ok: true, presets: structuredClone(defaults) }),
+      );
+    });
+    if (query.name) {
+      a.el("rename-nacht").value = query.name;
+      await a
+        .buttons("[data-rename-place]")
+        .find((b) => b.dataset.renamePlace === "nacht")
+        .fire("click");
+    } else
+      await a.eval(
+        `persistPreset({label:"KG-5632",id:"nacht",next:{rgb:"ABCDEF",bri:100}}, ${reset})`,
+      );
+    await flush();
+  }
+  assert.equal(a.pending.length, 0);
+  assert.equal(a.calls.filter((c) => c.path === "/preset").length, 3);
+  assert.ok(
+    a.calls.every((c) =>
+      ["/get", "/config", "/presets", "/preset"].includes(c.path),
+    ),
+  );
+});
+
+test("three-hub layout gives the switcher a full row on narrow screens", () => {
+  assert.match(
+    html,
+    /\.top > \.seg\s*\{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/,
+  );
+  assert.match(
+    html,
+    /@media \(max-width: 600px\)\s*\{\s*\.top\s*\{\s*flex-wrap: wrap;\s*justify-content: flex-end;\s*\}\s*\.top > \.seg\s*\{\s*flex-basis: 100%;/,
+  );
 });
 
 test("first readback initializes brightness without selecting or claiming a command", async () => {
@@ -1425,8 +1803,9 @@ test("WZ defaults to Desk-Signal with honest disconnected and unknown copy in bo
   assert.equal(a.el("desk-controls").hidden, false);
   assert.equal(a.el("nightlight-controls").hidden, true);
   assert.match(a.el("desk-lit").textContent, /Unbekannt.*5/);
-  assert.equal(a.el("desk-pma").textContent, "PMA · nicht verbunden");
-  assert.equal(a.el("desk-ppm").textContent, "PPM · nicht verbunden");
+  assert.equal(a.el("desk-signal-rows").children.length, 2);
+  for (const row of a.el("desk-signal-rows").children)
+    assert.match(row.querySelector(".dr-m").textContent, /keine Daten/);
   assert.equal(a.el("desk-kind").textContent, "WZ-594F zeigt den Desk");
   assert.equal(a.el("usage-text").textContent, "Verwendung: Desk-Signal");
   assert.equal(a.el("desk-seen").disabled, true);
@@ -1523,12 +1902,12 @@ test("place rename is inline, deletion needs confirmation, nacht cannot be delet
   assert.equal(a.eval("placesFor().p2"), undefined);
 });
 
-test("matrix editor exposes all 11 rules, preserves takt minimum and saves all desks", async () => {
+test("urgency editor exposes five rules, desk colour, takt minimum and thresholds", async () => {
   const a = await setup({
     "nightlight-mode": "erwachsen",
     "nightlight-hub": "WZ-594F",
   });
-  assert.equal(a.buttons("[data-rule]").length, 11);
+  assert.equal(a.buttons("[data-rule]").length, 5);
   await a.buttons("[data-rule]")[0].fire("click");
   assert.equal(a.el("rule-sheet").open, true);
   assert.equal(a.el("rule-takt").getAttribute("min"), "2");
@@ -1541,9 +1920,11 @@ test("matrix editor exposes all 11 rules, preserves takt minimum and saves all d
     .buttons("[data-rule-color]")
     .find((b) => b.dataset.ruleColor === "FFA020")
     .fire("click");
-  a.el("rule-all").checked = true;
+  assert.equal(a.el("rule-from-desk").hidden, false);
+  assert.equal(a.el("rule-thresholds").hidden, false);
   a.pending.push((url) => {
-    assert.equal(url.searchParams.get("all"), "1");
+    assert.equal(url.searchParams.get("threshold_ppm"), "4");
+    assert.equal(url.searchParams.get("threshold_pma"), "4");
     assert.equal(url.searchParams.get("takt"), "2");
     assert.equal(url.searchParams.get("mode"), "alternate");
     assert.equal(url.searchParams.get("rgb2"), "FFA020");
@@ -1583,8 +1964,10 @@ test("rule color picker rejects black in both slots and sends safe save/test col
     });
     await a
       .buttons("[data-rule]")
-      .find((b) => b.dataset.rule === "regular:ppm")
+      .find((b) => b.dataset.rule === "idle")
       .fire("click");
+    a.el("rule-bri").value = "20";
+    await a.el("rule-bri").fire("input");
     await a
       .buttons("[data-rule-mode]")
       .find((b) => b.dataset.ruleMode === "alternate")
@@ -1607,7 +1990,7 @@ test("rule color picker rejects black in both slots and sends safe save/test col
         action === "rule-save" ? "/settings" : "/signal-test",
       );
       assert.equal(url.searchParams.get("bri"), "20");
-      assert.equal(url.searchParams.get("rgb"), "18C2B0");
+      assert.equal(url.searchParams.get("rgb"), "8FA3B0");
       assert.equal(url.searchParams.get("rgb2"), "FFFFFF");
       return Promise.resolve(
         response({ ok: true, settings: structuredClone(configDefaults) }),
@@ -1627,7 +2010,7 @@ test("black saved places are disabled in the rule editor for both color slots", 
   a.eval('presets.round.p2.rgb="000000";');
   await a
     .buttons("[data-rule]")
-    .find((b) => b.dataset.rule === "regular:ppm")
+    .find((b) => b.dataset.rule === "regular")
     .fire("click");
   await a
     .buttons("[data-rule-mode]")
@@ -1682,7 +2065,7 @@ test("rule save/test refuse a black lit draft in either slot without closing", a
       });
       await a
         .buttons("[data-rule]")
-        .find((b) => b.dataset.rule === "regular:ppm")
+        .find((b) => b.dataset.rule === "regular")
         .fire("click");
       a.eval(`ruleDraft.${slot}="000000";`);
       const before = a.calls.length;
@@ -1702,7 +2085,7 @@ test("HTTP 400 rule validation keeps the server's German error visible", async (
     });
     await a
       .buttons("[data-rule]")
-      .find((b) => b.dataset.rule === "regular:ppm")
+      .find((b) => b.dataset.rule === "regular")
       .fire("click");
     const message = "Bei Helligkeit über 0 % darf keine Farbe Schwarz sein.";
     a.pending.push(() =>
@@ -2009,8 +2392,8 @@ test("matrix motion uses the frozen wave icon with accessible blink and alternat
   const a = await setup({ "nightlight-hub": "WZ-594F" });
   const urgent = a
     .buttons("[data-rule]")
-    .find((b) => b.dataset.rule === "urgent:ppm");
-  assert.match(urgent.querySelector(".cv").textContent, /^60\s%$/);
+    .find((b) => b.dataset.rule === "urgent");
+  assert.match(urgent.querySelector(".cv").textContent, /^50\s%$/);
   assert.equal(
     urgent.querySelector(".cwave").classList.contains("motion-hidden"),
     false,
@@ -2022,14 +2405,14 @@ test("matrix motion uses the frozen wave icon with accessible blink and alternat
   assert.equal(urgent.querySelector("use").getAttribute("href"), "#i-wave");
   assert.match(urgent.querySelector(".rule-motion").textContent, /blinkt/);
   assert.match(urgent.getAttribute("aria-label"), /blinkt.*2 s/);
-  a.eval('settings.round.rules["urgent:ppm"].mode="alternate";renderDesk();');
+  a.eval('settings.round.rules.urgent.mode="alternate";renderDesk();');
   assert.match(urgent.querySelector(".rule-motion").textContent, /wechselt/);
-  a.eval('settings.round.rules["urgent:ppm"].mode="steady";renderDesk();');
+  a.eval('settings.round.rules.urgent.mode="steady";renderDesk();');
   assert.equal(
     urgent.querySelector(".cwave").classList.contains("motion-hidden"),
     true,
   );
-  assert.equal(urgent.querySelector(".rule-motion").textContent, "");
+  assert.equal(urgent.querySelector(".rule-motion").textContent, "ständig");
 });
 
 test("Gesehen appears only for a lit Desk state and hides for unknown, idle and off", async () => {
@@ -2136,7 +2519,7 @@ test("drag deduplication is per hub and is invalidated by intervening tap comman
       ["plug", "100"],
       ["plug", "0"],
       ["plug", "100"],
-      ["round", "100"],
+      ["round", "50"],
     ],
   );
 });
@@ -2182,4 +2565,545 @@ test("Verwendung radio keyboard saves the new selection and respects the sending
     "true",
   );
   assert.equal(a.buttons("[data-usage]")[1].tabIndex, 0);
+});
+
+test("phone tabs remember each hub and keep Kind Desk read-only without a bar", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen" },
+    false,
+    {},
+    { phone: true },
+  );
+  assert.equal(a.el("tabbar").hidden, false);
+  assert.equal(a.eval("tabsByHub.plug"), "light");
+  await a.el("tab-sounds").fire("click");
+  assert.equal(a.storage.get("nightlight-tab-plug"), "sounds");
+  assert.equal(a.el("panel-sounds").classList.contains("active-panel"), true);
+  assert.equal(a.el("panel-light").classList.contains("active-panel"), false);
+  await a.buttons("[data-hub]")[1].fire("click");
+  await flush();
+  await a.el("tab-desks").fire("click");
+  assert.equal(a.storage.get("nightlight-tab-round"), "desks");
+  await a.buttons("[data-hub]")[0].fire("click");
+  assert.equal(a.eval("tabsByHub.plug"), "sounds");
+  const b = await setup(
+    Object.fromEntries(a.storage),
+    false,
+    {},
+    { phone: true },
+  );
+  assert.equal(b.el("tab-sounds").getAttribute("aria-selected"), "true");
+  await b.buttons("[data-hub]")[1].fire("click");
+  await b.el("mode").fire("click");
+  assert.equal(b.el("tabbar").hidden, true);
+  assert.equal(b.el("panel-more").hidden, true);
+  assert.equal(b.el("desk-controls").hidden, false);
+  assert.equal(b.root.dataset.mode, "kind");
+});
+
+test("tab keyboard and desktop columns preserve the selected panel without actuation", async () => {
+  const a = await setup({}, false, {}, { phone: true });
+  a.calls.length = 0;
+  await a.el("tab-light").fire("keydown", { key: "End" });
+  assert.equal(a.eval("tabsByHub.plug"), "sounds");
+  assert.equal(a.el("tab-sounds").tabIndex, 0);
+  await a.el("tab-sounds").fire("keydown", { key: "ArrowRight" });
+  assert.equal(a.eval("tabsByHub.plug"), "light");
+  assert.equal(a.calls.length, 0);
+  const b = await setup({ "nightlight-mode": "erwachsen" });
+  assert.equal(b.el("tabbar").hidden, true);
+  assert.match(html, /@media\s*\(min-width:\s*980px\)/);
+  assert.match(html, /\.cols\s*>\s*\[data-panel\]\s*\{\s*display:\s*block/);
+});
+
+test("phone overflow is contained in a sheet and restores the real panel on close", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen" },
+    false,
+    {},
+    { phone: true },
+  );
+  const panel = a.el("panel-light"),
+    parent = panel.parentNode;
+  await a.el("panel-more").fire("click");
+  assert.equal(a.el("overflow-sheet").open, true);
+  assert.equal(panel.parentNode, a.el("overflow-body"));
+  a.el("overflow-sheet").close();
+  assert.equal(panel.parentNode, parent);
+  assert.equal(a.eval("overflowRestore"), null);
+  assert.match(
+    html,
+    /html,\s*body\s*\{\s*height:\s*100%;\s*overflow:\s*hidden/,
+  );
+  assert.match(html, /height:\s*100dvh/);
+  assert.match(html, /\.tabs\s*\{\s*height:\s*64px/);
+  assert.match(html, /\.sheet\s*\{[^}]*overflow:\s*auto/s);
+});
+
+test("last sent information, loud tones and Kind doorbells open sheets", async () => {
+  const a = await setup({}, false, {}, { phone: true });
+  await a.el("light-info").fire("click");
+  assert.equal(a.el("info-sheet").open, true);
+  assert.equal(a.el("last-light").closest("dialog"), a.el("info-sheet"));
+  await a.el("doorbell-toggle").fire("click");
+  assert.equal(a.el("doorbell-sheet").open, true);
+  assert.equal(a.el("tones-group-2").parentNode, a.el("doorbell-sheet-body"));
+  a.el("doorbell-sheet").close();
+  assert.equal(
+    a.el("tones-group-2").parentNode,
+    a.el("doorbell-toggle").closest(".grp"),
+  );
+  await a.el("loud-toggle").fire("pointerdown");
+  a.tick(999);
+  assert.ok(!a.el("loud-sheet").open);
+  a.tick(1);
+  assert.equal(a.el("loud-sheet").open, true);
+  assert.equal(a.el("alarm-list").closest("dialog"), a.el("loud-sheet"));
+  a.el("loud-sheet").close();
+  assert.equal(a.el("alarm-list").hidden, true);
+  await a.el("sound-options").fire("click");
+  assert.equal(a.el("sound-duration").parentNode, a.el("sound-sheet-body"));
+});
+
+test("preview pause is device-local, persisted, reduced-motion safe and sends no command", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true, reducedMotion: true },
+  );
+  assert.equal(a.el("preview-pause").getAttribute("aria-pressed"), "true");
+  assert.equal(a.el("preview-note").hidden, false);
+  a.calls.length = 0;
+  await a.el("preview-pause").fire("click");
+  assert.equal(a.el("preview-pause").getAttribute("aria-pressed"), "false");
+  assert.equal(a.calls.length, 0);
+  await a.el("preview-pause").fire("click");
+  assert.equal(a.storage.get("nightlight-preview-paused"), "1");
+  const b = await setup(Object.fromEntries(a.storage));
+  assert.equal(b.eval("previewPaused"), true);
+  assert.match(html, /\.lpbtn\s*\{[^}]*width:\s*44px;\s*height:\s*44px/s);
+});
+
+test("preview uses last sent colour/confirmation and cycles all colours only on the page", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true },
+  );
+  a.eval(
+    'signal={hub:"round",key:"regular:both",rule:settings.round.rules.regular,applied:{key:"regular:both",rgb:"FFA020",rgb2:"FFFFFF",bri:20,takt:2,mode:"steady",colors:["18C2B0","FFA020","AABBCC"],at:0,confirmed:true}};renderDesk();',
+  );
+  assert.match(a.el("desk-applied").textContent, /bestätigt/);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), "#FFA020");
+  a.calls.length = 0;
+  a.tick(2000);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), "#AABBCC");
+  a.tick(2000);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), "#18C2B0");
+  await a.el("preview-pause").fire("click");
+  const colour = a.el("lamp-preview").properties.get("--c");
+  a.tick(2000);
+  assert.equal(a.el("lamp-preview").properties.get("--c"), colour);
+  assert.equal(a.calls.length, 0);
+  a.eval("signal.applied.confirmed=false;renderDesk();");
+  assert.match(a.el("desk-applied").textContent, /nicht bestätigt/);
+});
+
+test("zero desks stays Unbekannt and arbitrary desk rows never invent counts", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true },
+  );
+  a.eval("settings.round.desks=[];renderDesk();");
+  assert.equal(a.el("no-desks").hidden, false);
+  assert.equal(a.el("desk-empty").hidden, false);
+  assert.equal(a.el("multiple-settings").hidden, true);
+  assert.match(a.el("desk-lit").textContent, /Unbekannt/);
+  a.eval(
+    'settings.round.desks=Array.from({length:8},(_,i)=>({id:String(i).padStart(32,"0"),short:"D"+i,name:"Example",url:"https://desk.invalid",rgb:"AABBCC",key_set:false,rules:settings.round.rules}));renderDesk();',
+  );
+  assert.equal(a.el("desk-list").children.length, 8);
+  assert.equal(a.el("desk-signal-rows").children.length, 8);
+  for (const row of a.el("desk-signal-rows").children)
+    assert.match(row.querySelector(".dr-m").textContent, /keine Daten/);
+  assert.equal(a.el("multiple-settings").hidden, false);
+});
+
+test("desk key POST is write-only, has an adult assertion and never enters retry/storage state", async () => {
+  const saved = structuredClone(configDefaults);
+  saved.round.desks = [{ ...fakeDesks[0], key_set: true, key_set_at: 1 }];
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/desk": (_url, options) => {
+        const payload = JSON.parse(options.body);
+        assert.equal(payload.key, "FAKE-UI-KEY-DO-NOT-USE");
+        assert.equal(options.headers["X-Nightlight"], "1");
+        assert.equal(options.headers["X-Nightlight-Mode"], "erwachsen");
+        assert.equal(options.headers["Content-Type"], "application/json");
+        return Promise.resolve(
+          response({ ok: true, settings: saved, revoke: false }),
+        );
+      },
+    },
+    { phone: true },
+  );
+  await a.el("add-desk").fire("click");
+  a.el("desk-short").value = "ABC";
+  a.el("desk-name").value = "Example";
+  a.el("desk-url").value = "https://desk.invalid";
+  a.el("desk-key").value = "FAKE-UI-KEY-DO-NOT-USE";
+  await a.el("desk-save").fire("click");
+  await flush();
+  const posted = a.calls.find((c) => c.path === "/desk");
+  assert.equal(posted.options.method, "POST");
+  assert.equal(posted.params.toString(), "");
+  assert.equal(a.el("desk-key").value, "");
+  assert.equal(a.eval("retryCommand"), null);
+  assert.equal(a.eval("undoCommand"), null);
+  assert.doesNotMatch(
+    JSON.stringify(Object.fromEntries(a.storage)),
+    /FAKE-UI-KEY/,
+  );
+  assert.equal(a.el("desk-sheet").open, false);
+});
+
+test("desk key tests refuse safely, clear input and cannot be triggered in Kind", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/desk-test": () =>
+        Promise.resolve(
+          response(
+            { ok: false, error: "untrusted error must not be rendered" },
+            400,
+          ),
+        ),
+    },
+    { phone: true },
+  );
+  await a.el("add-desk").fire("click");
+  a.el("desk-key").value = "FAKE-UI-KEY-DO-NOT-USE";
+  await a.el("desk-test").fire("click");
+  assert.equal(a.el("desk-key").value, "");
+  assert.match(
+    a.el("desk-error").textContent,
+    /mehr als Zählungen|nicht geprüft/,
+  );
+  assert.doesNotMatch(a.el("desk-error").textContent, /untrusted|FAKE/);
+  const before = a.calls.length;
+  await a.el("mode").fire("click");
+  await a.el("desk-test").fire("click");
+  await a.el("desk-save").fire("click");
+  await a.el("add-desk").fire("click");
+  assert.equal(a.calls.length, before);
+  assert.equal(a.el("desk-sheet").open, false);
+});
+
+test("replace/remove require a separate confirm and show revocation help", async () => {
+  const saved = structuredClone(configDefaults);
+  const bodies = [];
+  let failedCommit = false;
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {
+      "/desk": (_url, options) => {
+        bodies.push(JSON.parse(options.body));
+        return Promise.resolve(
+          response({ ok: !failedCommit, settings: saved, revoke: true }),
+        );
+      },
+    },
+    { phone: true },
+  );
+  a.eval('openDesk("ppm");');
+  a.el("desk-key").value = "FAKE-UI-REPLACEMENT-DO-NOT-USE";
+  await a.el("desk-save").fire("click");
+  assert.equal(bodies.length, 0);
+  assert.equal(a.el("desk-confirm").hidden, false);
+  await a.el("desk-confirm-ok").fire("click");
+  await flush();
+  assert.equal(bodies[0].confirm, "replace");
+  assert.equal(a.el("revoke-reminder").hidden, false);
+  await a.el("revoke-how").fire("click");
+  assert.equal(a.el("revoke-sheet").open, true);
+  a.el("revoke-sheet").close();
+  a.eval('openDesk("ppm");');
+  await a.el("desk-remove").fire("click");
+  assert.equal(bodies.length, 1);
+  await a.el("desk-confirm-ok").fire("click");
+  await flush();
+  assert.equal(bodies[1].action, "remove");
+  assert.equal(bodies[1].confirm, "remove");
+  assert.equal(Object.hasOwn(bodies[1], "key"), false);
+  failedCommit = true;
+  a.el("revoke-reminder").hidden = true;
+  a.eval('openDesk("ppm");');
+  a.el("desk-key").value = "FAKE-UI-REPLACEMENT-DO-NOT-USE";
+  await a.el("desk-save").fire("click");
+  await a.el("desk-confirm-ok").fire("click");
+  await flush();
+  assert.equal(a.el("desk-sheet").open, true);
+  assert.equal(a.el("revoke-reminder").hidden, false);
+  assert.doesNotMatch(a.el("desk-error").textContent, /FAKE/);
+});
+
+test("saved keys never populate the password field and restored keys ask for re-entry", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval(
+    'settings.round.desks[0].key_set=true;settings.round.desks[0].key_set_at=1;openDesk("ppm");',
+  );
+  assert.match(a.el("desk-key-state").textContent, /gesetzt seit/);
+  assert.equal(a.el("desk-key").value, "");
+  a.el("desk-key").value = "FAKE-UNSUBMITTED-KEY-DO-NOT-USE";
+  a.el("desk-sheet").close();
+  assert.equal(a.el("desk-key").value, "");
+  a.eval('settings.round.desks[0].key_set=false;openDesk("ppm");');
+  assert.equal(
+    a.el("desk-key-state").textContent,
+    "Schlüssel fehlt · neu eintragen",
+  );
+});
+
+test("shared rules keep primary desk colour and optional overrides save the selected desk", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval('openRule("urgent");');
+  assert.equal(a.el("rule-color-controls").hidden, true);
+  assert.equal(a.el("rule-from-desk").hidden, false);
+  assert.equal(a.el("rule-thresholds").hidden, false);
+  await a
+    .buttons("[data-rule-mode]")
+    .find((b) => b.dataset.ruleMode === "alternate")
+    .fire("click");
+  assert.equal(a.el("rule-color-controls").hidden, false);
+  assert.equal(a.eval("ruleSlot"), "rgb2");
+  a.el("rule-color").value = "#abcdef";
+  await a.el("rule-color").fire("input");
+  assert.equal(a.eval("ruleDraft.rgb"), "18C2B0");
+  assert.equal(a.eval("ruleDraft.rgb2"), "ABCDEF");
+  a.el("rule-sheet").close();
+  a.eval('openDesk("pma");');
+  await a.el("desk-override").fire("click");
+  assert.equal(a.el("desk-own-rules").hidden, false);
+  await a.el("desk-own-rules").children[0].fire("click");
+  assert.equal(a.eval("editingDeskRule"), "pma");
+  a.pending.push((url) => {
+    assert.equal(url.searchParams.get("desk"), "pma");
+    assert.equal(url.searchParams.get("rule"), "urgent");
+    return Promise.resolve(
+      response({ ok: true, settings: structuredClone(configDefaults) }),
+    );
+  });
+  await a.el("rule-save").fire("click");
+  await flush();
+  assert.equal(a.pending.length, 0);
+});
+
+test("overflow button uses measured panel capacity and Kind preserves the adult tab", async () => {
+  const a = await setup(
+    { "nightlight-mode": "erwachsen", "nightlight-hub": "WZ-594F" },
+    false,
+    {},
+    { phone: true },
+  );
+  await a.el("tab-desks").fire("click");
+  const panel = a.el("panel-desks");
+  panel.clientHeight = 500;
+  panel.scrollHeight = 400;
+  a.eval("updateOverflowButton();");
+  assert.equal(a.el("panel-more").hidden, true);
+  panel.scrollHeight = 700;
+  a.eval("updateOverflowButton();");
+  assert.equal(a.el("panel-more").hidden, false);
+  await a.el("mode").fire("click");
+  assert.equal(a.eval("tabsByHub.round"), "desks");
+  await a.el("mode").fire("pointerdown");
+  a.tick(1000);
+  await a.el("mode").fire("pointerup");
+  assert.equal(a.el("tab-desks").getAttribute("aria-selected"), "true");
+});
+
+test("desk and multiple palettes keep unique bindings and an explicit replace entry", async () => {
+  const a = await setup({
+    "nightlight-mode": "erwachsen",
+    "nightlight-hub": "WZ-594F",
+  });
+  a.eval(
+    'settings.round.desks[0].key_set=true;settings.round.desks[0].key_set_at=1;openDesk("ppm");',
+  );
+  assert.equal(a.el("desk-key").hidden, true);
+  assert.equal(a.el("desk-replace").hidden, false);
+  await a.el("desk-replace").fire("click");
+  assert.equal(a.el("desk-key").hidden, false);
+  const colors = a.buttons("[data-desk-color]");
+  assert.equal(colors.length, 6);
+  for (const button of colors) {
+    await button.fire("click");
+    assert.equal(a.el("desk-color").value, "#" + button.dataset.deskColor);
+  }
+  a.el("desk-sheet").close();
+  a.pending.push((url) => {
+    assert.equal(url.pathname, "/settings");
+    assert.equal(url.searchParams.get("multiple_rgb"), "FFA020");
+    return Promise.resolve(
+      response({ ok: true, settings: structuredClone(configDefaults) }),
+    );
+  });
+  await a
+    .buttons("[data-multiple-color]")
+    .find((b) => b.dataset.multipleColor === "FFA020")
+    .fire("click");
+  await flush();
+  assert.equal(a.pending.length, 0);
+  assert.match(html, /\.pkc\.empty\s*\{[^}]*margin:\s*0\s*!important/s);
+});
+
+test("Tick -fix1: every preset puts its name above a single icon/value row", async () => {
+  const a = await setup();
+  for (const card of a.buttons("[data-preset]")) {
+    const kind = card.querySelector(".pre-k");
+    assert.ok(kind, `missing Kind layout for ${card.dataset.preset}`);
+    assert.deepEqual(
+      kind.children.map((e) => e.attrs.class),
+      ["pre-n", "pre-kv"],
+    );
+    const row = kind.querySelector(".pre-kv");
+    assert.deepEqual(
+      row.children.map((e) => e.tagName),
+      ["svg", "span"],
+    );
+    assert.equal(row.children[1].attrs.class, "pre-v");
+    assert.equal(row.children[0].getAttribute("aria-hidden"), "true");
+    assert.ok(card.querySelector(".pre-e"), "adult layout is retained");
+  }
+});
+
+test("Tick -fix2: all tabs have icons over labels and preserve accessible panel bindings", async () => {
+  const a = await setup({}, false, {}, { phone: true });
+  for (const tab of a.buttons("[data-tab]")) {
+    const inner = tab.querySelector(".tab-in");
+    assert.ok(inner, `missing icon/label wrapper for ${tab.dataset.tab}`);
+    assert.ok(inner.querySelector(".tab-l"));
+    const icons = inner.querySelectorAll("svg");
+    assert.ok(icons.length >= 1);
+    for (const icon of icons) {
+      assert.equal(icon.getAttribute("aria-hidden"), "true");
+      assert.ok(a.el(icon.querySelector("use").getAttribute("href").slice(1)));
+    }
+    assert.equal(tab.getAttribute("aria-controls"), `panel-${tab.dataset.tab}`);
+  }
+  assert.match(html, /\.widebtn\s*\{[^}]*padding:\s*0 14px/s);
+});
+
+test("Tick -fix3: light panel has horizontal ring clearance inside the 16px page margin", () => {
+  assert.match(html, /\.cols\s*\{[^}]*margin:\s*0 -16px/s);
+  assert.match(
+    html,
+    /\.cols\s*>\s*\[data-panel\]\s*\{[^}]*padding:\s*4px 16px/s,
+  );
+  assert.match(html, /\.pg\s*\{[^}]*padding:\s*10px 16px 0/s);
+});
+
+test("Tick -fix4: WZ label, preset and rule summaries follow max_bri without changing stored values", async () => {
+  for (const maximum of [50, 35]) {
+    const a = await setup({ "nightlight-hub": "WZ-594F" }, false, {
+      "/config": async () =>
+        response({
+          ok: true,
+          settings: structuredClone(configDefaults),
+          max_bri: { round: maximum, plug: 100 },
+        }),
+    });
+    assert.match(
+      a.el("light-bri").textContent,
+      new RegExp(`^Helligkeit · max\\. ${maximum}\\s%$`),
+    );
+    assert.equal(a.el("bri").getAttribute("aria-labelledby"), "light-bri");
+    for (const card of a.buttons("[data-preset]").filter((b) => !b.hidden)) {
+      const place = defaultPlaces.find((p) => p.id === card.dataset.preset);
+      const expected = Math.min(place.bri, maximum);
+      for (const value of card.querySelectorAll(".pre-v"))
+        assert.match(value.textContent, new RegExp(`^${expected}\\s%$`));
+      assert.match(
+        card.getAttribute("aria-label"),
+        new RegExp(`${expected}\\s%$`),
+      );
+    }
+    const urgent = a
+      .buttons("[data-rule]")
+      .find((b) => b.dataset.rule === "urgent");
+    assert.match(
+      urgent.querySelector(".cv").textContent,
+      new RegExp(`^${maximum}\\s%$`),
+    );
+    assert.match(
+      urgent.getAttribute("aria-label"),
+      new RegExp(`Dringend: ${maximum}\\s%`),
+    );
+    assert.equal(a.eval("settings.round.rules.urgent.bri"), 60);
+    assert.equal(a.eval("placesFor().p3.bri"), 80);
+    await a.buttons("[data-hub]")[0].fire("click");
+    assert.equal(a.el("light-bri").textContent, "Helligkeit");
+    const bright = a
+      .buttons("[data-preset]")
+      .find((b) => b.dataset.preset === "p3");
+    assert.match(bright.querySelector(".pre-v").textContent, /^80\s%$/);
+    assert.match(urgent.querySelector(".cv").textContent, /^60\s%$/);
+    assert.ok(
+      a.calls.every((call) => call.options.method === "GET"),
+      "rendering never actuates a hub",
+    );
+  }
+});
+
+test("Tick -fix5: multiple desks share selected styling and select exactly one saved option", async () => {
+  assert.match(
+    html,
+    /\.mh-seg button\[aria-pressed="true"\],\s*\.seg button\[aria-checked="true"\]\s*\{[^}]*background: var\(--raised\)/s,
+  );
+  for (const theme of ["dark", "light"]) {
+    const a = await setup({
+      "nightlight-mode": "erwachsen",
+      "nightlight-theme": theme,
+      "nightlight-hub": "WZ-594F",
+    });
+    assert.equal(a.el("multiple-settings").hidden, false);
+    const buttons = a.buttons("[data-multiple]");
+    for (const mode of ["own", "cycle"]) {
+      a.pending.push((url) => {
+        assert.equal(url.pathname, "/settings");
+        assert.equal(url.searchParams.get("multiple_mode"), mode);
+        const settings = structuredClone(configDefaults);
+        settings.round.multiple.mode = mode;
+        return Promise.resolve(
+          response({ ok: true, settings, max_bri: maxBri }),
+        );
+      });
+      await buttons.find((b) => b.dataset.multiple === mode).fire("click");
+      await flush();
+      assert.equal(
+        buttons.filter((b) => b.getAttribute("aria-pressed") === "true").length,
+        1,
+      );
+      assert.equal(
+        buttons.find((b) => b.getAttribute("aria-pressed") === "true").dataset
+          .multiple,
+        mode,
+      );
+    }
+    assert.equal(a.pending.length, 0);
+  }
 });

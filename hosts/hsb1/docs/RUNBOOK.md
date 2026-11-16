@@ -21,10 +21,11 @@ ssh mba@hsb1.lan
 Native `aqara-nightlight.service`; UI/API on port **8765** at
 <http://192.168.1.101:8765/>, <http://100.64.0.7:8765/> and loopback on hsb1.
 The [Smart Home entry](SMARTHOME.md#aqara-nightlight-ops-496) documents the API
-and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer) and
-**WZ-594F** = `round` (`192.168.1.108`). The packaged responsive page uses the
-same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on both hubs.
-KI-18FB defaults to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
+and hub labels **KI-18FB** = `plug` (`192.168.1.106`, Kinderzimmer),
+**WZ-594F** = `round` (`192.168.1.108`, Wohnzimmer) and **KG-5632** = `kg` (`192.168.1.107`,
+KG = Kinderzimmer Groß). The packaged responsive page uses the
+same-origin guarded API. The `nacht` place defaults to **5C0701 at 44%** on all three hubs.
+KI-18FB and KG-5632 default to Nachtlicht use; WZ-594F defaults to Desk-Signal use.
 Without a fresh local feed the Desk hub shows **Unbekannt**, never Aus.
 Hub choice, Kind/Erwachsen and Hell/Dunkel persist per device; presets persist on
 the server. On first load no light is marked as commanded: brightness starts
@@ -62,7 +63,7 @@ Never delete/reset these files or restore an older counter after commands have
 been issued. The handshake token stays only in memory; logs contain fixed error
 categories, never library exception bodies.
 
-`last-color-plug.json` and `last-color-round.json` each store a nonblack RRGGBB
+`last-color-plug.json`, `last-color-round.json` and `last-color-kg.json` each store a nonblack RRGGBB
 JSON string. Every acknowledged nonblack `/set` or `/apply` persists it with
 0600 permissions, atomic replace and file/directory fsync; a stable per-hub
 `.json.lock` serializes CLI and HTTP writes. Black commands and failed hub
@@ -86,8 +87,23 @@ Reset keeps the slot's ID and name; deleting a slot never renumbers other slots.
 `nacht` cannot be deleted. The page's Erwachsen-only “Speichern als …” sheet
 provides previews, inline rename, delete confirmation, reset and save-only Undo.
 
+Before activating the three-hub build, stop the service and back up both
+`settings.json` and `presets.json` privately, preserving ownership and permissions;
+record the prior NixOS generation. Existing two-hub v3.3 settings and preset
+arrays load without migration or writes. Missing `kg` defaults exist only in
+memory until the first explicit write to the corresponding file. Background
+sound-generation writes never persist a missing KG entry. Plug/round entries
+are retained. KG starts as Nachtlicht with no desks/keys, empty
+thresholds and generation maps, and automatic sound disabled; the v3.3 schema
+requires its neutral signal-rule fields but creates no automation.
+Once KG is written, rollback to a two-hub build requires restoring these backed-up
+settings and presets while the service is stopped; the older build rejects `kg`.
+Preserve the current shared `msgid` and `msgid.lock` throughout rollback. All
+three hubs use that counter; never create a `msgid-kg` file or reset at 9999.
+
 `settings.json`, serialized by `settings.json.lock` and written atomically, stores
-per-hub use, the 11 signal rules, thresholds, automatic audio settings, Gesehen
+per-hub use, v3.3 desks and five shared signal rules, optional overrides,
+thresholds, automatic audio settings, Gesehen
 and consumed sound-generation high-water marks. Preserve all state files across
 restarts. Corrupt settings fail closed with `settings_corrupt` and the fixed
 journal line `aqara-nightlight: settings state corrupt`.
@@ -105,7 +121,7 @@ sudo systemctl start aqara-nightlight.service
 ```
 
 Confirm the move succeeded before starting; preserve the backup, `msgid` and
-`presets.json.lock`. With no presets file, both hubs use 5C0701 at 44%; recovery
+`presets.json.lock`. With no presets file, all three hubs use 5C0701 at 44%; recovery
 does not call `/apply`. A Desk hub resumes its configured signal on service start.
 Re-save any desired custom presets afterward.
 Do not edit state while the service is running. `AQARA_PAGE_FILE` points at
@@ -115,7 +131,7 @@ and service restart are needed to change the live page.
 The host firewall is **disabled** for HomeKit. Port 8765 in `allowedTCPPorts`
 does not provide protection. The service binds exactly loopback, hsb1's LAN
 address and its tailnet address; systemd IP rules allow loopback,
-`192.168.1.0/24`, `100.64.0.0/10` and both hub IPs, denying other addresses.
+`192.168.1.0/24`, `100.64.0.0/10` and all three hub IPs, denying other addresses.
 The HTTP handler independently rejects peers outside these networks. It
 accepts only Host names `127.0.0.1`, `localhost`, `192.168.1.101`, `hsb1`,
 `hsb1.lan` and `100.64.0.7`, each with or without `:8765`. A present
@@ -124,16 +140,27 @@ match the request's allowed HTTP Host. Invalid Host, Origin or fetch metadata
 returns **403**, including an unlisted tunnel Host or port. These checks are
 defence in depth: browsers can omit Origin and fetch metadata on plain HTTP.
 Every acting endpoint (`/set`, `/tone`, `/stop`, `/preset`, `/apply`, `/settings`,
-`/seen`, `/signal-test`) requires
+`/seen`, `/signal-test`, `/desk`, `/desk-test`) requires
 exactly one
 `X-Nightlight: 1` header, returning **403** if absent, duplicated or invalid.
-With that header, these endpoints accept **GET or POST** in this release.
+With that header, existing endpoints accept **GET or POST**. Desk key routes
+require POST, no query string, exactly one `X-Nightlight-Mode: erwachsen`,
+and an `application/json` body of at most 8192 bytes. They reject duplicated
+length/type headers and transfer encoding. The adult assertion is an interaction
+lock, not user authentication; the LAN/tailnet/Host/Origin boundary still applies.
 **GET-with-header is deprecated** compatibility for HA's existing
 `rest_command`; new callers and the built-in UI use POST. `/`, `/get` and
 `/presets`, `/config` and `/signal` remain plain GETs without the custom header (POST returns 405).
 Loopback `/apply` requires the header but no Origin or extra CSRF token. Its
-JSON includes `ok`, `rgb` (RRGGBB) and `brightness`, as `/set` does. HA callers
-should inspect `.ok`, since invalid/unknown preset requests return HTTP 200
+JSON includes `ok`, `rgb` (RRGGBB) and `brightness`, as `/set` does. Replies
+also carry effective `bri` and `capped` (boolean). WZ (`round`) clamps all
+light-setting paths to **50%**; KI (`plug`) retains **0–100%**. Above-cap
+requests succeed with the clamped brightness. Presets and rules keep their
+stored 0–100 values; the policy applies when sending, including manual/CLI
+sets, preset application, signal tests, desk colour cycles, blink/alternate
+frames and the final static frame when leaving Desk use. Engine animation
+`applied` records also expose effective `bri`, `capped` and `rule_bri`.
+HA callers should inspect `.ok`, since invalid/unknown preset requests return HTTP 200
 with `ok:false`. LOCAL-OPS owns HA's button double-press and Gute-Nacht wiring.
 Cross-origin
 scripts need a CORS preflight to add this header; **OPTIONS returns 403**
@@ -142,8 +169,8 @@ without CORS permission headers. The HTML denies framing with CSP
 by its packaged SHA-256 hash. A 403 in the page offers reload, never retry.
 Tone volume defaults to 15% and is
 clamped to 0–40% in the API and CLI; the UI also caps it at 40%.
-No public reverse proxy is configured. IP rules also govern egress; both hubs
-(`192.168.1.106`, `.108`) remain allowed for miio UDP 54321. Linux
+No public reverse proxy is configured. IP rules also govern egress; all three hubs
+(`192.168.1.106`, `.107`, `.108`) remain allowed for miio UDP 54321. Linux
 `IP_FREEBIND` lets each listener bind before its address is assigned, so an
 unavailable tailnet address does not prevent LAN/loopback access. Tailnet
 access begins when its address is assigned. `AQARA_LISTEN_ADDRESSES` accepts
@@ -166,21 +193,102 @@ caller remains compatible; new clients use `id=nacht`.
 `/apply?hub&preset=<id>` accepts every saved slot with the same HA
 loopback/header/no-Origin contract. No HA configuration is changed here.
 
-`GET /config` reads per-hub settings. `POST /settings?hub&usage=nightlight|desk`
-changes use. Other supported updates are `threshold_ppm=1..48`,
-`threshold_pma=1..48`, `auto_sound=0|1`, `sound_vol=0..15`, and
-`sound_ms=200..3000` (empty value means Ganz). A rule update uses
-`rule=urgent:ppm|urgent:pma|urgent:both|regular:ppm|regular:pma|regular:both|open:ppm|open:pma|open:both|idle|unknown`
-plus `rgb`, `bri`, `mode=steady|blink|alternate`, `rgb2`, `takt=2..5`.
-`all=1` copies a matrix cell to all three desk columns in its row.
-Unbekannt must stay lit: nonzero brightness, nonblack colours, and no blink/off
-mode. The editor warns when Ruhe looks too similar.
-`GET /signal?hub` returns the resolved rule, current counts or null, and the last
-hub ACK separately. `POST /seen?hub` quiets a current generation until a new
-held item arrives; missing/stale data remains Unbekannt.
+`GET /config` reads per-hub settings without any credential or key-file reference.
+Settings responses (`/config`, `/settings`, successful `/desk` changes) include
+`max_bri: {"round": 50, "plug": 100}`. A `/settings` response that finishes a
+Desk animation also carries the effective `bri` and `capped` for that command.
+The page uses these limits for both brightness sliders (WZ max 50, KI max 100)
+and normalizes each track fill to its hub's maximum.
+`POST /settings?hub&usage=nightlight|desk` changes use. Other updates are
+`threshold_<desk-id>=1..48`, `auto_sound=0|1`, `sound_vol=0..15`, and
+`sound_ms=200..3000` (empty means Ganz). A shared rule update uses
+`rule=urgent|regular|open|idle|unknown`, `bri`, `mode=steady|blink|alternate`,
+`rgb2`, `takt=2..5`, plus `rgb` for Ruhe/Unbekannt. For urgency the primary
+colour comes from the configured desk; the old `rgb` field is retained as a
+migration/reference value and is not the source of an active desk's colour.
+`desk=<desk-id>` selects that desk's optional urgency override. The Dringend
+editor contains each desk's threshold and the fixed one-hour approval-expiry
+condition. `multiple_mode=cycle|own` and `multiple_rgb=RRGGBB` set the shared
+colour policy. With one active desk its enabled override applies; multiple
+desks use the shared urgency brightness/mode/Takt. Cycle mode sends one desk
+colour each Takt, superseding blink/second-colour phases for that simultaneous
+state. Own mode retains the urgency's blink/alternate behaviour. Only desks
+at the highest urgency participate. Quiet hours suppress all cycling.
+Unbekannt must remain lit and cannot blink. The editor warns when Ruhe looks
+too similar. Black in either slot of a lit rule is refused, even if that slot
+is currently inactive.
+
+`GET /signal?hub` returns the resolved rule, current counts or null, participating
+desk IDs/colours, last sent command with `confirmed`, and each desk's last sent
+command separately. `POST /seen?hub` quiets a complete current generation until
+a new held item arrives; missing/stale/incomplete data remains Unbekannt.
 `POST /signal-test?hub&rule=<key>` tests a saved rule for ten seconds; the editor
-can supply the same validated rule fields to test an unsaved draft. It returns
-to the live rule. Quiet hours still apply.
+can supply validated draft fields. It then returns to the live rule. Quiet hours
+still apply. The page refreshes this local status every 30 seconds; this fetch
+never contacts a Desk instance. The Signal preview is page-only. Pause is stored
+per device, starts paused under reduced motion, and never sends a hub command.
+Phone tabs do not scroll the page; “Mehr anzeigen” moves overflowing content to
+a scrollable sheet. Desktop keeps columns. Alarm tones and Kind doorbells use
+sheets; the one-second Kind hold stays required for loud tones.
+
+### v3.3 migration and write-only Desk keys
+
+All hubs in a legacy settings file must validate before a single atomic,
+0600/fsynced replacement upgrades them to schema version 33. A later load does
+not rewrite it. Desk colours come from old Regulär cells, shared urgency
+brightness/mode/Takt from PPM; differing PMA behaviour becomes an enabled
+per-desk override. The full validated matrix is retained in `legacy_rules`,
+including old urgency-specific colours and Beide cells which do not map to the
+new model. No values are discarded. Old off/black Regulär or Beide colours get
+a visible nonblack fallback in the active model; their original values remain
+in the archive. Corrupt/partial/new-invalid files fail closed without rewriting.
+An absent settings file starts with zero desks; the lamp remains Unbekannt.
+Old service revisions cannot read schema 33. A rollback needs an owner-reviewed
+settings conversion/backup and must never restore a stale message counter.
+
+`POST /desk` takes JSON string fields `hub`, optional `id`, `short` (2–4 uppercase
+letters/digits), `name` (1–16 characters), `url` (HTTPS instance origin), `rgb`
+(nonblack), optional `key`, and `override=0|1`. `POST /desk-test` takes the same
+candidate and stores nothing. Existing keys are never sent to a changed instance
+URL: a URL change requires a newly supplied key. Replace requires
+`confirm=replace`; removal takes `id`, `action=remove`, `confirm=remove` and
+requires no key. Replace/remove return `revoke:true`: the old key is deleted
+locally but must also be revoked in the Desk. The page offers “Wie?” instructions.
+The password field is never prefilled; test/save/cancel clears it. It does not
+enter localStorage, retry/undo state, URLs, status, errors or history.
+
+**Counts-only verification is currently unavailable.** The supplied design and
+local upstream source do not provide a reviewed capability-introspection
+contract. `check_desk_key` deliberately refuses tests and saves until OPS-502
+implements that contract. A counts-shaped response, client-provided scope flag
+or successful connection cannot prove that a key lacks wider access. No real
+key was used or stored for this change. Offline tests inject an obvious fake
+verifier/key at this boundary to prove the storage and HTTP paths. Removal of
+an existing descriptor still works; it does not contact any instance.
+
+On a verified future save, immutable random key generations are written under
+`/var/lib/aqara-nightlight/desk-keys/`: directory 0700, files 0600, owned by the
+service. The atomic settings pointer is the commit point; failure before its rename
+keeps the previous key/settings and cleans this operation's new file. If a sync
+fails after the pointer rename, the committed key is retained along with the old
+one and the request returns a safe error; no referenced generation is deleted.
+Uncertain replacement/removal writes retain the revocation reminder on the error
+response too; inspect current metadata before repeating an action. Successful
+replace/remove unlinks the previous local key. Crash residue is an unreferenced
+private key file, never an active mixed-generation pointer. Symlinked directories,
+symlinked/hard-linked files and wrong owner/modes are refused. Audit entries in
+`history` contain only action, short name and timestamp (last 100 events); journal
+lines contain only fixed action text. A restored descriptor whose file is absent
+or has unsafe modes reports “Schlüssel fehlt · neu eintragen”.
+
+Off-host backup exclusion is explicit in hsb1's evaluated restic Compose config:
+`RESTIC_EXCLUDE_NIGHTLIGHT_KEYS="*/aqara-nightlight/desk-keys"`, consumed by the
+managed backup script as `--exclude`, with the same safe default. It matches both
+normal and DynamicUser `/var/lib/private` roots. Current restic mounts back up
+`/home`, `/root`, `/etc` and do not expose `/var/lib/aqara-nightlight` at all.
+Keep both protections when adding backup paths. Settings/metadata may be backed
+up; keys must be re-entered after restore. Do not copy keys to the Nix store,
+repository, logs or backup archives.
 
 `/tone` accepts optional `ms=200..3000` and schedules a single stop after the
 play ACK plus that duration. A new tone or explicit Stopp cancels the old timer;
@@ -217,19 +325,20 @@ finishes the old animation before another page command can start. Dedicated
 per-hub daemon workers catch exceptions with the fixed line
 `aqara-nightlight: signal engine tick failed`; they cannot crash the HTTP loop.
 
-### Future poller input (poller is outside OPS-496 round 4)
+### Counts-only input contract for OPS-502
 
-The only feed input is `/var/lib/aqara-nightlight/desk-counts.json`. The service
-makes **no outbound Desk/API calls**. Both desk labels say “nicht verbunden”
-when missing; the signal is Unbekannt, never Aus. The future poller owns fetching,
-credentials, restart/watchdog and cross-context approval. PPM first; PMA access
-still requires the owner's explicit approval. Nothing in this file grants it.
+The input is `/var/lib/aqara-nightlight/desk-counts.json`. This revision makes no
+outbound Desk/API calls. Each configured desk shows **keine Daten** without it;
+the lamp is Unbekannt. OPS-502 owns fetching, capability verification,
+restart/watchdog and cross-context approval. Credentials stay in the on-host
+private directory described above. PPM first; PMA access still requires the
+owner's explicit approval. This implementation grants no cross-context access.
 
-Write UTF-8 JSON atomically beside the target, with a readable private mode for
-the service's DynamicUser/StateDirectory and no titles, content, identities,
-credentials or item IDs. Arrange shared write/read ownership declaratively in
-the poller ticket; do not relax this service's permissions. Maximum input is
-16 KiB. Exact schema (all timestamps are Unix UTC seconds):
+Write UTF-8 JSON atomically beside the target, with a private mode and readable
+by the service's DynamicUser. Arrange writer ownership declaratively; never
+relax StateDirectory/key-directory permissions. Maximum input is 1 MiB. Exact
+schema (timestamps are Unix UTC seconds; IDs below identify local desk
+configuration, never decisions/items):
 
 ```json
 {
@@ -247,33 +356,42 @@ the poller ticket; do not relax this service's permissions. Maximum input is
 }
 ```
 
-`desks` is nonempty and may contain only `ppm` and/or `pma`; omission means not
-connected, never zero counts. No extra fields are allowed. `open` includes held;
-`0 <= held <= open`, both integer counts. `oldest_held_at` is required when held
-is nonzero, otherwise null is allowed. `oldest_expiry_at` is the earliest held
-approval expiry or null. `generation` is a durable monotonic nonnegative integer
-per desk, incremented only for a newly waiting held item, never reset on polling
-or restart and never incremented just because an existing item ages or is read.
-It is a counts-only event watermark, not an item ID; persist it in the poller.
-If the provider cannot supply this semantics, keep automatic sound disabled
-until its poller mapping has been reviewed. All counts/generations are at most 9007199254740991. Poll every 30–60 s. Missing, invalid, future-dated or older than
-**120 s** means Unbekannt. A present desk with zero counts means Ruhe. One
-connected desk is sufficient to resolve that desk's state; an absent second
-desk is shown as not connected and is never included in Beide.
+Desk IDs match the local configured descriptors: migrated `ppm`/`pma` or the
+32-character lowercase hex IDs generated on add. They are stable and unrelated
+to short names or instance URLs. A shared feed can contain desks used by either
+hub. A hub requires **all of its configured desks** to be present and fresh;
+omit failed/stale/unverified desks instead of publishing fake zeroes. An empty
+configuration or missing configured desk resolves Unbekannt, never Ruhe. Extra
+well-formed desk IDs are ignored by that hub. Every counts object must have
+exactly the five fields above; no titles, content, personal identities,
+credentials or item IDs. `0 <= held <= open`, both integers. When held is nonzero,
+`oldest_held_at` must be nonnull and no later than now. `oldest_expiry_at` is the
+earliest held approval expiry or null. `generation` is a durable monotonic
+nonnegative integer, incremented only for a newly waiting held item, never
+reset by polling/restart, and never incremented merely for ageing or readback.
+It is an event watermark, not an item ID. Persist it in the poller; if the
+provider cannot supply these semantics, leave automatic sound disabled until
+its mapping has been reviewed. Counts/generations are at most 9007199254740991.
 
-Mapping: urgent held expiry within one hour or oldest held age at/above the
-per-desk threshold (default four hours) selects Dringend; otherwise held selects
-Regulär; open minus held selects Ohne Eile; neither selects Ruhe. Highest urgency
-wins the row; both desks with held items select Beide even when only one is
-urgent. Ohne Eile is considered only when no desk has held items. Gesehen
-suppresses the current held-generation pair, never a missing feed.
+Poll each approved instance every 30–60 seconds. `updated_at` certifies all
+included counts were fresh at publication; do not refresh this stamp while
+reusing stale data. Missing, malformed, future-dated or older than 120 seconds
+means Unbekannt. Publish explicit zero counts only after a successful verified
+fetch. Unknown/unverified key state must never be presented as no open work.
+
+Urgent means held expiry within one hour or oldest held age at/above that desk's
+threshold (default four hours); otherwise held selects Regulär, open selects
+Ohne Eile, neither selects Ruhe. The highest urgency wins, and only desks at
+that urgency participate in cycling. Gesehen suppresses the current complete
+generation map, never a missing/incomplete feed. Missing data also suppresses
+automatic sound.
 
 Before a future deployment, capture a private state backup and the prior NixOS
 generation. Old service revisions cannot read the new preset arrays. Preserve
 the complete new state when planning a schema rollback; the old rolling-ID
 transport also needs an owner-reviewed compatibility plan. Restoring a stale
-`msgid` is not a safe rollback. No migration, remote backup or deployment was
-performed while preparing this change.
+`msgid` is not a safe rollback. No production state migration, remote backup or deployment was performed
+while preparing this change; migrations were exercised only on fake local state.
 
 For each separately reviewed OPS release:
 
@@ -281,7 +399,7 @@ For each separately reviewed OPS release:
    contain no `xiaomi_aqara` or `xiaomi_miio` entries. Retain that dated
    evidence and recheck live `configuration.yaml` and integration entries if
    ownership changes before activation. That bind-mounted configuration is
-   outside the repo. Do not dump credentials or change HA. If either gateway
+   outside the repo. Do not dump credentials or change HA. If any gateway
    has another miio controller, stop the cutover and report the message-ID
    collision risk to the host owner.
 2. Stop the Mac prototype and its UI process; do not run its CLI concurrently.
@@ -300,9 +418,9 @@ For each separately reviewed OPS release:
    the lamp changed. Play one short tone at volume **10**, stop immediately
    with `/stop`, and confirm silence. Avoid unattended sound tests.
 5. Record `msgid`, restart the unit, issue a request and confirm the counter
-   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm both gateways still respond after the restart. Save a custom
+   advanced past the reserved high-water mark, rather than restarting or wrapping. Confirm all three gateways still respond after the restart. Save a custom
    Nachtlicht for one hub and check that `/presets` and `/apply` retain it
-   across restart while the other hub is unchanged; reset afterwards.
+   across restart while the other hubs are unchanged; reset afterwards.
 6. Tick's design approval remains required before merge: check the actual page
    on hsb1 in Kind/Erwachsen × Hell/Dunkel, at phone and laptop widths. Verify
    holds, fixed status/no layout jumps, the immediate tap lock and throttled drags, low-brightness
@@ -314,6 +432,11 @@ It runs fake-hub/counter/preset and Node script tests, then evaluates the
 scoped NixOS unit plus full
 hsb1 unit/firewall without building. `--module-only` explicitly omits the full
 flake check; a scoped pass alone is not release approval.
+`--local-only` runs the fake-hub brightness-cap and UI slider tests plus Nix
+parse checks, omitting both NixOS evaluations. It still requires Bash 5.
+Deploying these brightness-policy and bundled-page changes is expected to
+restart **`aqara-nightlight.service` only** on hsb1; no deployment is performed
+by the offline implementation task.
 
 ## Tailnet Witness (tailnet-watch, OPS-185)
 
@@ -655,11 +778,16 @@ ssh mba@192.168.1.101 "sudo zfs set refquota=3600G quota=3900G tm/markus && sudo
 ```
 
 `tm-watch.timer` (10 min, Telegram, two-run confirmation) pages when the live
-caps differ from `tm-caps.nix`, snapshots eat half the budget while less than 400G is left under quota, it had to prune
-on two consecutive runs, headroom stays under 150G with nothing left to prune, the
-pool passes 85 %, smbd has no process, or a Mac's last **completed** backup
+caps differ from `tm-caps.nix`, it had to prune on two consecutive runs, pruning
+fails, headroom stays under 150G with nothing left to prune, the pool passes
+85 %, smbd has no process, or a Mac's last **completed** backup
 (from `com.apple.TimeMachine.SnapshotHistory.plist` inside its bundle) is older
-than 5 days.
+than 5 days. Snapshot-held space over half the budget with less than 400G left
+under quota is journal-only (`journalctl -u tm-watch`): normal bundle churn
+needs no owner action (OPS-560, 2026-11-04). `pruned`/`prune`/`headroom` remain
+the paging signals for real capacity trouble. On upgrade, tm-watch silently
+retires old `snapshots` alert state, including queued transitions, so it sends
+no recovery message for the retired signal.
 
 **Changing caps / deploying a cap change** — order matters, or TM sees more
 space than ZFS grants:
