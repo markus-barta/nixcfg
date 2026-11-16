@@ -93,6 +93,29 @@ hosts/csb0/
 
 All services run via Docker Compose with Traefik handling SSL.
 
+### Node-RED startup (OPS-603 / OPS-605)
+
+`docker/compose-spec.nix` pins Node-RED `5.0.9-24` by image index digest and
+generates `/opt/nixcfg/nodered-startup.sh`, mounted read-only. The existing
+`nodered-scripts:/scripts` volume stays mounted; its old `startup.sh` is no longer
+executed.
+
+The wrapper checks `/data/node_modules` for telegrambot `19.0.3`, influxdb `0.7.0`
+and cheerio `1.2.0`. It installs only missing or mismatched versions into the
+persistent `nodered-data:/data` userDir. Once installed, restarts and recreates
+need no npm access. An install failure logs `WARN` and still starts Node-RED;
+flows needing a missing add-on can remain unavailable until installation succeeds.
+
+The first switch must **recreate** the container from the pinned image, discarding
+the old container-layer add-ons under `/usr/src/node-red/node_modules`. Installing
+them only in `/data` avoids duplicate node registration. Verify all three installs
+and affected flows on that first start, then verify a restart without npm access.
+The switch is a separately coordinated operation.
+
+To bump, update the image tag and verified index digest together, update the exact
+add-on versions in the wrapper, and run `python3 tests/T119-nodered-startup.py`
+(updating its expected pins deliberately). Validate affected flows before switching.
+
 ---
 
 ## Common Operations

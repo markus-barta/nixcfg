@@ -22,6 +22,30 @@
 #   pharos-beacon.dns = ['46.38.225.230', '46.38.252.230']
 #   x-host-dns (anchor)
 
+let
+  # OPS-603 / OPS-605: /bin/bash belongs to the image, not the host Nix store.
+  noderedStartup = builtins.toFile "nodered-startup.sh" ''
+    #!/bin/bash
+    set -euo pipefail
+
+    ensure_package() {
+      local package="$1" version="$2" installed
+      installed=$(node -p "require('/data/node_modules/$package/package.json').version" 2>/dev/null) || installed=""
+      if [ "$installed" != "$version" ]; then
+        if ! npm install --prefix /data --save-exact --no-audit --no-update-notifier --no-fund --omit=dev "$package@$version"; then
+          printf 'WARN: Node-RED add-on %s@%s could not be installed in /data; continuing startup (flows using it may be unavailable).\n' "$package" "$version" >&2
+        fi
+      fi
+    }
+
+    # Bump these exact versions deliberately, then run tests/T119-nodered-startup.py.
+    ensure_package node-red-contrib-telegrambot 19.0.3
+    ensure_package node-red-contrib-influxdb 0.7.0
+    ensure_package cheerio 1.2.0
+
+    exec /usr/src/node-red/entrypoint.sh "$@"
+  '';
+in
 {
   name = "csb0";
   services = {
@@ -63,7 +87,8 @@
       ];
     };
     nodered = {
-      image = "nodered/node-red:latest";
+      # OPS-603: bump tag AND verified index digest together; test add-ons before switching.
+      image = "nodered/node-red:5.0.9-24@sha256:2ccd38b4066648bd5e17430c50a2f8102c566a82fd4f2fc5c342e61664d6896f";
       environment = [
         "TZ=Europe/Vienna"
         "NODE_RED_ENABLE_PROJECTS=false"
@@ -75,12 +100,13 @@
       volumes = [
         "nodered-data:/data"
         "nodered-scripts:/scripts"
+        "${noderedStartup}:/opt/nixcfg/nodered-startup.sh:ro"
         "nodered-webserver:/webserver"
         "shared-tmp:/shared-tmp"
       ];
       entrypoint = [
         "/bin/bash"
-        "/scripts/startup.sh"
+        "/opt/nixcfg/nodered-startup.sh"
       ];
       labels = [
         # Traefik config
