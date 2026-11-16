@@ -2178,8 +2178,12 @@ journalctl -u fleet-backup-watch.service --since "1 day ago" --no-pager
 `garage-bot-watch.timer` checks the garage Telegram bot (Node-RED on csb0)
 every five minutes using Telegram's read-only `getWebhookInfo`. A positive
 `pending_update_count` on two consecutive runs pages as `garage-bot:not-polling`:
-the receiver can stop silently while sending still works (OPS-603). A zero
-count clears the alarm. API/network failures page as `garage-bot:unreadable`
+the receiver can stop silently while sending still works (OPS-603). An open
+polling alarm repeats every six hours. A zero count clears the queue observation,
+but does not prove the bot recovered: Telegram retains updates for at most 24 h,
+so queued messages can expire while Node-RED remains dead. With no incoming
+messages, a dead poller also stays at zero and produces no signal. Confirm the
+bot answers after a queue-empty recovery message. API/network failures page as `garage-bot:unreadable`
 only after two runs and keep any announced polling alarm open until readable
 evidence returns. The OPS-107 engine delivers each transition durably to the
 same `csb1-watchtower-env` target as the other pollers; credentials stay in memory.
@@ -2190,10 +2194,85 @@ sudo systemctl start garage-bot-watch.service
 journalctl -u garage-bot-watch.service --since "1 hour ago" --no-pager
 ```
 
-Recovery: drop stale Telegram updates using the operator's credential-safe
-procedure, then restart `csb0-nodered-1` on csb0. The watcher only observes the
-queue; it never consumes or drops updates. Do not put the token or notification
-URL in shell commands or logs.
+Recovery: the Node-RED flow has no message-age guard, so restarting it with
+queued commands can replay stale gate-open requests. **Never restart
+`csb0-nodered-1` before the queue reads 0.** The watcher only observes the queue;
+it never consumes or drops updates.
+
+On csb1, run this Python heredoc as root to discard the stale updates. It reads
+`WATCHTOWER_NOTIFICATION_URL` from `/run/agenix/csb1-watchtower-env` in place,
+keeps the credential in memory, calls `deleteWebhook?drop_pending_updates=true`,
+then verifies `getWebhookInfo` reports an integer `pending_update_count` of 0.
+It prints only `ok` after both checks succeed, or `failure` with exit status 1;
+it never prints the token, URL, response body or exception. Do not put the token
+or notification URL in shell commands or logs.
+
+```bash
+sudo python3 - <<'PY'
+import json
+import re
+import ssl
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+try:
+    target = ""
+    for raw in Path("/run/agenix/csb1-watchtower-env").read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").lstrip()
+        name, separator, value = line.partition("=")
+        if separator and name.strip() == "WATCHTOWER_NOTIFICATION_URL":
+            target = value.strip()
+            if len(target) >= 2 and target[0] == target[-1] and target[0] in {"'", '"'}:
+                target = target[1:-1]
+            break
+    parsed = urllib.parse.urlsplit(target.strip())
+    token = urllib.parse.unquote(parsed.netloc.rsplit("@", 1)[0])
+    if not (
+        parsed.scheme == "telegram"
+        and parsed.netloc.endswith("@telegram")
+        and parsed.path in ("", "/")
+        and not parsed.fragment
+        and re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]+", token)
+    ):
+        raise ValueError
+
+    def call(method):
+        request = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}")
+        with urllib.request.urlopen(request, timeout=15, context=ssl.create_default_context()) as response:
+            data = json.load(response)
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            raise ValueError
+        return data.get("result")
+
+    if call("deleteWebhook?drop_pending_updates=true") is not True:
+        raise ValueError
+    info = call("getWebhookInfo")
+    count = info.get("pending_update_count") if isinstance(info, dict) else None
+    if type(count) is not int or count != 0:
+        raise ValueError
+except Exception:
+    print("failure")
+    sys.exit(1)
+print("ok")
+PY
+```
+
+Only after `ok` (the count was verified as 0), restart the container on csb0:
+
+```bash
+sudo docker restart csb0-nodered-1
+```
+
+If the heredoc prints `failure`, do not restart: resolve the failure and rerun
+the drop-and-verify step until it prints `ok`. Minimize the gap before restarting;
+if new commands may have arrived, repeat the drop-and-verify step first. Then
+confirm the bot answers and the watcher reports an empty queue.
 
 ### HAUSV Graceful Stop Budget
 

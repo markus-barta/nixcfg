@@ -142,7 +142,10 @@ class GarageBotWatchTest(unittest.TestCase):
         self.queued(0)
         self.assertEqual(self.cycle(), engine.EXIT_CLEAN)
         self.assertEqual(len(self.sent), 2)
-        self.assertIn("Cleared — no longer failing", self.sent[-1])
+        self.assertIn("queue empty — either Node-RED resumed", self.sent[-1])
+        self.assertIn("messages expired after Telegram's 24 h retention", self.sent[-1])
+        self.assertIn("confirm the bot answers", self.sent[-1])
+        self.assertNotIn("no longer failing", self.sent[-1])
         self.assertEqual(self.state()["seen"], {})
         self.cycle()
         self.assertEqual(len(self.sent), 2)
@@ -157,6 +160,34 @@ class GarageBotWatchTest(unittest.TestCase):
         self.assertEqual(self.sent, [])
         self.assertEqual(self.state()["seen"][POLLING_KEY]["count"], 1)
 
+    def test_polling_alarm_reminds_at_six_hours_then_stops_when_queue_empties(self):
+        self.confirm_polling_alarm()
+        announced_at = self.state()["seen"][POLLING_KEY]["last_announced_at"]
+        self.now = announced_at + 6 * 3600 - 300
+        self.cycle()
+        self.assertEqual(len(self.sent), 1)
+        self.cycle()
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("Reminder — still failing", self.sent[-1])
+        self.assertIn("3 messages waiting", self.sent[-1])
+        self.cycle()
+        self.assertEqual(len(self.sent), 2)
+        self.queued(0)
+        self.cycle()
+        self.assertEqual(len(self.sent), 3)
+        self.now += 6 * 3600
+        self.cycle()
+        self.assertEqual(len(self.sent), 3)
+
+    def test_unreadable_alarm_has_no_periodic_reminder(self):
+        self.http_error = TimeoutError(API_URL)
+        self.cycle()
+        self.cycle()
+        self.now += 6 * 3600
+        self.cycle()
+        self.assertEqual(len(self.sent), 1)
+        self.assertNotIn("last_announced_at", self.state()["seen"][UNREADABLE_KEY])
+
     def test_api_failure_needs_two_runs_and_then_recovers(self):
         self.http_error = urllib.error.URLError(API_URL)
         self.assertEqual(self.cycle(), engine.EXIT_PROBLEMS)
@@ -168,7 +199,8 @@ class GarageBotWatchTest(unittest.TestCase):
         self.http_error = None
         self.assertEqual(self.cycle(), engine.EXIT_CLEAN)
         self.assertEqual(len(self.sent), 2)
-        self.assertIn("Cleared", self.sent[-1])
+        self.assertIn("Telegram queue readable again", self.sent[-1])
+        self.assertNotIn("queue empty", self.sent[-1])
 
     def test_transient_api_failure_is_silent(self):
         self.http_error = TimeoutError(API_URL)
@@ -181,6 +213,7 @@ class GarageBotWatchTest(unittest.TestCase):
     def test_unreadable_evidence_preserves_announced_polling_problem(self):
         self.confirm_polling_alarm()
         self.http_error = urllib.error.HTTPError(API_URL, 401, TARGET, {}, None)
+        self.addCleanup(self.http_error.close)
         self.cycle()
         self.assertEqual(len(self.sent), 1)
         self.assertTrue(self.state()["seen"][POLLING_KEY]["alerted"])
@@ -191,9 +224,22 @@ class GarageBotWatchTest(unittest.TestCase):
         self.queued(0)
         self.cycle()
         self.assertEqual(len(self.sent), 3)
-        self.assertIn("messages waiting", self.sent[-1])
-        self.assertIn("queue unreadable", self.sent[-1])
+        self.assertIn("queue empty — either Node-RED resumed", self.sent[-1])
+        self.assertIn("Telegram queue readable again", self.sent[-1])
         self.assertEqual(self.state()["seen"], {})
+
+    def test_readable_api_with_backlog_clears_only_the_unreadable_observation(self):
+        self.http_error = TimeoutError(API_URL)
+        self.cycle()
+        self.cycle()
+        self.http_error = None
+        self.queued(2)
+        self.cycle()
+        self.assertIn("Telegram queue readable again", self.sent[-1])
+        self.assertNotIn("queue empty", self.sent[-1])
+        self.assertNotIn("no longer failing", self.sent[-1])
+        self.cycle()
+        self.assertIn("2 messages waiting", self.sent[-1])
 
     def test_failure_breaks_unconfirmed_backlog_sequence(self):
         self.queued(2)
@@ -288,6 +334,98 @@ class GarageBotWatchTest(unittest.TestCase):
             f"# ignored\nexport WATCHTOWER_NOTIFICATION_URL='telegram://{encoded}@telegram?chats=1'\n"
         )
         self.confirm_polling_alarm()
+
+    def test_notification_url_with_trailing_slash_is_supported(self):
+        self.notification.write_text(f"WATCHTOWER_NOTIFICATION_URL=telegram://{TOKEN}@telegram/?chats=1\n")
+        self.confirm_polling_alarm()
+
+
+class GarageBotRecoveryRunbookTest(unittest.TestCase):
+    def setUp(self):
+        runbook = (REPO / "hosts/csb1/docs/RUNBOOK.md").read_text()
+        section = runbook.split("### Garage Telegram Bot Watch", 1)[1].split("### HAUSV", 1)[0]
+        source = section.split("sudo python3 - <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        self.procedure = compile(source, "garage-bot-recovery-runbook", "exec")
+        self.requests = []
+
+    def run_procedure(self, responses, *, contents=f"WATCHTOWER_NOTIFICATION_URL='{TARGET}'\n", read_error=None):
+        replies = iter(responses)
+
+        def http(request, *, timeout, context):
+            self.requests.append(request.full_url)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(timeout, engine.NETWORK_TIMEOUT_SECONDS)
+            self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+            self.assertTrue(context.check_hostname)
+            response = next(replies)
+            if isinstance(response, Exception):
+                raise response
+            body = response if isinstance(response, bytes) else json.dumps(response).encode()
+            return io.BytesIO(body)
+
+        output = io.StringIO()
+        code = 0
+        with (
+            patch.object(Path, "read_text", autospec=True, return_value=contents, side_effect=read_error) as read,
+            patch("urllib.request.urlopen", side_effect=http),
+            contextlib.redirect_stdout(output), contextlib.redirect_stderr(output),
+        ):
+            try:
+                exec(self.procedure, {})  # noqa: S102 -- exact documented heredoc, all I/O faked
+            except SystemExit as error:
+                code = error.code
+        read.assert_called_once_with(Path("/run/agenix/csb1-watchtower-env"), encoding="utf-8")
+        self.assertNotIn(TOKEN, output.getvalue())
+        self.assertNotIn(TARGET, output.getvalue())
+        self.assertEqual(output.getvalue(), "ok\n" if code == 0 else "failure\n")
+        return code
+
+    def test_drop_then_verify_zero_before_reporting_ok(self):
+        self.assertEqual(self.run_procedure([
+            {"ok": True, "result": True},
+            {"ok": True, "result": {"pending_update_count": 0}},
+        ]), 0)
+        self.assertEqual(self.requests, [
+            f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true",
+            API_URL,
+        ])
+
+    def test_failed_drop_stops_before_verification(self):
+        for response in (
+            {"ok": False, "description": TARGET},
+            {"ok": True, "result": False}, {"ok": True, "result": 1},
+            OSError(API_URL), b"invalid JSON " + TOKEN.encode(),
+        ):
+            with self.subTest(response=response):
+                self.requests.clear()
+                self.assertEqual(self.run_procedure([response]), 1)
+                self.assertEqual(len(self.requests), 1)
+
+    def test_nonzero_or_invalid_counts_never_report_ok(self):
+        for count in (1, -1, True, False, 0.0, "0", None, TOKEN):
+            with self.subTest(count=count):
+                self.assertEqual(self.run_procedure([
+                    {"ok": True, "result": True},
+                    {"ok": True, "result": {"pending_update_count": count}},
+                ]), 1)
+
+    def test_verification_errors_are_redacted(self):
+        for response in (
+            TimeoutError(API_URL), b"invalid JSON " + TOKEN.encode(),
+            {"ok": False, "description": TARGET}, {"ok": True, "result": None},
+        ):
+            with self.subTest(response=response):
+                self.assertEqual(self.run_procedure([{"ok": True, "result": True}, response]), 1)
+
+    def test_unusable_credentials_fail_without_http(self):
+        for contents, error in (
+            ("", None), (f"WATCHTOWER_NOTIFICATION_URL=https://{TOKEN}@telegram\n", None),
+            (f"WATCHTOWER_NOTIFICATION_URL='telegram://[{TOKEN}@telegram'\n", None),
+            ("", OSError(TARGET)),
+        ):
+            with self.subTest(contents=contents, error=error):
+                self.assertEqual(self.run_procedure([], contents=contents, read_error=error), 1)
+                self.assertEqual(self.requests, [])
 
 
 if __name__ == "__main__":

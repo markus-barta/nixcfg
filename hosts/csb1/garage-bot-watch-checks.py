@@ -22,6 +22,11 @@ from engine import Problem
 STATE_PATH = "/var/lib/garage-bot-watch/state.json"
 NOTIFICATION_ENV = "@NOTIFICATION_ENV@"
 POLLING_KEY = "garage-bot:not-polling"
+POLLING_REMINDER_SECONDS = 6 * 3600
+
+
+def reminder_interval(key: str) -> int | None:
+    return POLLING_REMINDER_SECONDS if key == POLLING_KEY else None
 
 
 def notification_token(target: str) -> str:
@@ -32,7 +37,7 @@ def notification_token(target: str) -> str:
         if (
             parsed.scheme == "telegram"
             and parsed.netloc.endswith("@telegram")
-            and not parsed.path
+            and parsed.path in ("", "/")
             and not parsed.fragment
             and re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]+", token)
         ):
@@ -94,7 +99,17 @@ def render(announced: list[str], cleared: list[str]) -> str:
     if announced:
         lines += ["🔴 Garage bot watch:"] + [f"• {item}" for item in announced]
     if cleared:
-        lines += ["✅ Cleared — no longer failing:"] + [f"• {item}" for item in cleared]
+        lines.append("✅ Garage bot watch — observation cleared:")
+        # The engine supplies prior problem text, rather than keys, on recovery.
+        for item in cleared:
+            if item.startswith("garage Telegram bot: Telegram queue unreadable;"):
+                lines.append("• garage Telegram bot: Telegram queue readable again.")
+            else:
+                lines.append(
+                    "• garage Telegram bot: queue empty — either Node-RED resumed, "
+                    "or the messages expired after Telegram's 24 h retention; "
+                    "confirm the bot answers."
+                )
     return "\n".join(lines)
 
 
@@ -106,7 +121,10 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         print("notification target missing or unusable")
         return engine.EXIT_UNDELIVERED
-    return engine.run_cycle(STATE_PATH, time.time(), lambda: collect(token), render, sender)
+    return engine.run_cycle(
+        STATE_PATH, time.time(), lambda: collect(token), render, sender,
+        reminder_interval=reminder_interval,
+    )
 
 
 if __name__ == "__main__":
