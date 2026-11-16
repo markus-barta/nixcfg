@@ -154,6 +154,89 @@ generation is deleted. Log: `~/Library/Logs/nix-gc.log`.
   `nix build -o <link>` (an indirect GC root) instead.
 - Enable it for one user per Mac only; the store is shared by every account.
 
+## night-levels (OPS-595)
+
+Home Manager runs the OPS-300 `night-levels.sh` loop every 180 s as
+`org.nix-community.home.night-levels`, with KeepAlive. Its two helpers come
+from the Nix store. The loop writes mbp2606's remote policy and run budget;
+`/Users/markus/.aeon/lead/aeon/host-level.sh`, `HOST-LEVEL` and
+`HOST-LEVEL.heartbeat` belong to LEAD and stay outside nixcfg.
+
+Logs and state are under `~/.local/share/ops-qa/state/`: the loop keeps using
+`brake-night-levels.log`, and the five-minute
+`night-levels-stale` agent uses `night-levels-stale.log` and
+`night-levels-stale.state` (`ok` or `stale`). It sends mac-lead one alert when
+the heartbeat is missing, malformed or over 900 s old, and one on recovery.
+On the transition to stale it logs the alert, attempts one launchd kickstart,
+logs its exit code and includes the attempt in the alert. It does not retry
+while still stale. mbp2606's guard fallback on a stale policy is **maxload 12,
+maxruns 1, level UNKNOWN**.
+
+Cut over in this order on mbp2607:
+
+1. Before switching, find any old loop with these read-only checks; do not
+   trust the pidfile:
+
+   ```sh
+   pgrep -fl '[o]ps-qa/night-levels.sh'
+   ps -p "$(cat ~/.local/share/ops-qa/state/brake-night-levels.pid 2>/dev/null)" -o command= 2>/dev/null
+   ```
+
+   Retire the old start paths before the switch. This is MAC-LEAD's or OPS's
+   step outside nixcfg, tracked on OPS-595: rename
+   `~/.local/share/ops-qa/night-levels.sh` to `night-levels.sh.retired-ops595`,
+   and remove `night-levels` from `brake-mode.sh`'s default `names=`. A running
+   old loop keeps its open file, so renaming is safe while it runs. After the
+   rename, `brake-mode.sh on night-levels` still prints "started pid N", but
+   the job exits 127; the error goes to `brake-night-levels.log`, and the
+   pidfile then holds a dead PID. Never use it.
+
+2. Inspect each candidate with `ps -p <pid> -o pid=,ppid=,command=`. Stop only
+   a PID whose full command line is exactly
+   `/bin/bash /Users/markus/.local/share/ops-qa/night-levels.sh` (or
+   `bash /Users/markus/.local/share/ops-qa/night-levels.sh`) **and whose PPID
+   is 1**: the nohup loop was reparented. Use `kill <pid>` only after both
+   checks. Never stop editors, pagers, grep, or a shell that merely mentions
+   the path. The bash loop has no children worth keeping. Never run
+   `brake-mode.sh off night-levels` against a stale pidfile: on 2026-11-16 it
+   still held a PID from 2026-11-03, and a reused PID would be killed.
+3. Remove the stale pidfile with
+   `trash ~/.local/share/ops-qa/state/brake-night-levels.pid`. A bare
+   `brake-mode.sh off` is safe only after this step. MAC-LEAD or OPS must also
+   switch `brake-mode.sh`'s `status`/`wake` liveness check to the launchd label.
+   `~/.local/share/ops-qa/host-health.sh` around line 62 reads the pidfile and
+   must switch to the launchd label too. These changes are outside nixcfg,
+   tracked on OPS-595.
+4. Run the Home Manager switch.
+5. Verify all three conditions:
+
+   ```sh
+   ps -axo pid,ppid,command | awk '$2==1 && /[n]ight-levels.sh/'
+   launchctl print gui/$(id -u)/org.nix-community.home.night-levels
+   ```
+
+   Count only loop processes with PPID 1: the first command must show exactly
+   one, with the `/nix/store` script path. Its PID must equal the `pid =` line
+   of `launchctl print`, which must show the job running. Command-substitution
+   subshells briefly show extra PIDs with the same command line; they are not
+   additional loops and must not be killed. Finally, the `epoch=` value in
+   `~/.aeon/lead/aeon/HOST-LEVEL.heartbeat` must change within 4 minutes
+   (one cycle is 180 s plus ssh time).
+
+`brake-mode.sh status`, `wake` and the pidfile no longer reflect this loop.
+The only liveness signals are the launchd job and the heartbeat epoch.
+`brake-mode.sh on night-levels` must no longer be used. A duplicate loop is
+harmful: it shares tmp files, halves the swapout delta and causes HOST-LEVEL
+flapping. Its heartbeat also hides the launchd agent's death from the watcher.
+
+Stop the loop with
+`launchctl bootout gui/$(id -u)/org.nix-community.home.night-levels`.
+To stop its watcher too, use
+`launchctl bootout gui/$(id -u)/org.nix-community.home.night-levels-stale`.
+`launchctl bootout` stops an agent only until the next Home Manager switch or
+login. Logout, or a reboot without login, stops both agents; mbp2606's guard
+fallback is the only protection then.
+
 ## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
