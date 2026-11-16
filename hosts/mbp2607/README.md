@@ -162,6 +162,9 @@ from the Nix store. The loop writes mbp2606's remote policy and run budget;
 `/Users/markus/.aeon/lead/aeon/host-level.sh`, `HOST-LEVEL` and
 `HOST-LEVEL.heartbeat` belong to LEAD and stay outside nixcfg.
 
+From OPS-602, mbp2606's policy is maxload 28 every day and blocks only on RED.
+The `WEEKEND-MODE` file is no longer read; MAC-LEAD retires it after the switch.
+
 Logs and state are under `~/.local/share/ops-qa/state/`: the loop keeps using
 `brake-night-levels.log`, and the five-minute
 `night-levels-stale` agent uses `night-levels-stale.log` and

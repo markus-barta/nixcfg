@@ -61,6 +61,7 @@ run_launcher() {
   echo "${uptime}.00 0" >"${work}/uptime"
   echo "${answer_after}" >"${work}/answer-after"
   sed -e "s#/proc/uptime#${work}/uptime#g" \
+    -e "s#/run/user/1001#${work}/runtime#g" \
     -e "s#/run/agenix/hsb1-tapo-c210-env#${work}/env#g" \
     -e "s#/run/current-system/sw/bin/pactl#${work}/bin/pactl#g" \
     -e "s#/var/lib/babycam-watchdog/desired-volume#${work}/none#g" \
