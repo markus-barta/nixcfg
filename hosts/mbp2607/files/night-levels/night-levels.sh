@@ -1,6 +1,6 @@
 #!/bin/bash
 # OPS night protocol (Markus 2026-10-11): mbp2607 + mbp2606 levels every 180 s; writes changes to AEON-LEAD's host-level.sh.
-# WEEKEND MODE (Markus 2026-10-11 08:30 via AEON-LEAD, until Mon 2026-10-12 07:00): RED at load>${RED_LOAD:-28}; set RED_LOAD=22 for the normal night protocol.
+# WEEKEND MODE (Markus 2026-10-11 08:30 via AEON-LEAD, until Mon 2026-10-12 07:00): RED at load>${RED_LOAD:-28}; set RED_LOAD=22 for the normal night protocol. (OPS-602: the weekend rule is permanent)
 # GREEN load<=14 (<=12 after YELLOW/RED), mem>=40%, disk>=100GB, swap<=4GB (or <60% mem) | RED load>22, mem<25%, disk<50GB, swap>8GB with mem<40%, throttled, unreachable.
 # OPS-595: vendored into nixcfg; launchd sets NL_MAC_HEALTH / NL_UNGUARDED to store paths; SSH server-alive probes end a silent peer/network within ~30-45 s (not a remote command hanging while sshd still answers; the stale watcher's kickstart covers that).
 S=${NL_MAC_HEALTH:-$HOME/.local/share/ops-qa/mac-health.sh}
@@ -85,13 +85,9 @@ while true; do
   # Hold (2026-10-31): ~/.hold-mbp2607 reserves this Mac (e.g. gaming); same meaning. The 10-31 20:04 leak: a local ci-static ran here because mbp2607 still read GREEN.
   [ -e "$HOME/.hold-mbp2607" ] && l7=RED
   # OPS-300: mirror the mbp2606 policy for its host-side remote-run guard (~mba/.aeon-remote-policy; stale after 900 s).
-  if [ -f /Users/markus/.aeon/lead/aeon/WEEKEND-MODE ]; then
-    ml=${RED_LOAD:-28}
-    [ "$l6" = RED ] && bl=1 || bl=0
-  else
-    ml=12
-    [ "$l6" = GREEN ] && bl=0 || bl=1
-  fi
+  # OPS-602 (LEAD 2026-11-16, Desk 7e63f179 "use fully"): the former WEEKEND-MODE rule applies every day; the WEEKEND-MODE file is no longer read.
+  ml=${RED_LOAD:-28}
+  [ "$l6" = RED ] && bl=1 || bl=0
   # OPS-341 ramp override (2026-10-16, time-boxed): state/mbp2606-ramp-override = "maxload=N until=EPOCH". While valid, the
   # remote-run guard gets that maxload and blocks only on RED or mem < 40 % (a load-only YELLOW is the ramp itself). The
   # host level reported to LEAD is unchanged, so LEAD's pool still sees YELLOW and backs off. Expired or absent = normal.
