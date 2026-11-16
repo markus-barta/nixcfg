@@ -70,7 +70,7 @@ for options in ['{ endpoint = "http://ingress.example.invalid/joe/inbox/results"
     assert rejected.returncode != 0, options
 host = (repo / "hosts/hsb0/configuration.nix").read_text()
 assert '"d /var/lib/joe-desk-equity-closes 0700 1000 1000 - -"' in host
-assert 'equityCloseFirstDay = null;' in host
+assert 'equityCloseFirstDay = "2026-11-16";' in host
 assert 'JOE_EQUITY_CLOSE_FIRST_DAY=${' in host
 assert 'if config.nixcfg.joeResultsProducer.equityCloseFirstDay == null then' in host
 compose = (repo / "hosts/hsb0/docker/compose-spec.nix").read_text()

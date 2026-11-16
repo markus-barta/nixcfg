@@ -282,7 +282,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ingressAddress = "89.58.63.96";
     # OPS-556: DEVOPS sets a fixed Vienna YYYY-MM-DD at deployment after JOED review.
     # Keep this pin on rollback; null disables recording and admits no earlier days.
-    equityCloseFirstDay = null;
+    equityCloseFirstDay = "2026-11-16";
     # Default KEEP policy and existing household token (systemd LoadCredential).
   };
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results
