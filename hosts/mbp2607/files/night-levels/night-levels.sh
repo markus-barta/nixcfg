@@ -2,7 +2,7 @@
 # OPS night protocol (Markus 2026-10-11): mbp2607 + mbp2606 levels every 180 s; writes changes to AEON-LEAD's host-level.sh.
 # WEEKEND MODE (Markus 2026-10-11 08:30 via AEON-LEAD, until Mon 2026-10-12 07:00): RED at load>${RED_LOAD:-28}; set RED_LOAD=22 for the normal night protocol.
 # GREEN load<=14 (<=12 after YELLOW/RED), mem>=40%, disk>=100GB, swap<=4GB (or <60% mem) | RED load>22, mem<25%, disk<50GB, swap>8GB with mem<40%, throttled, unreachable.
-# OPS-595: vendored into nixcfg; launchd agent night-levels sets NL_MAC_HEALTH / NL_UNGUARDED to store paths.
+# OPS-595: vendored into nixcfg; launchd sets NL_MAC_HEALTH / NL_UNGUARDED to store paths; SSH server-alive probes bound hung connections to ~30 s.
 S=${NL_MAC_HEALTH:-$HOME/.local/share/ops-qa/mac-health.sh}; HL=/Users/markus/.aeon/lead/aeon/host-level.sh
 p7=$(awk '$1=="mbp2607"{print $2}' /Users/markus/.aeon/lead/aeon/HOST-LEVEL 2>/dev/null); p7=${p7:-GREEN}
 p6=$(awk '$1=="mbp2606"{print $2}' /Users/markus/.aeon/lead/aeon/HOST-LEVEL 2>/dev/null); p6=${p6:-GREEN}
@@ -41,10 +41,10 @@ lvl_for(){ local L="$1" last="$2"; case "$L" in *cores=*) ;; *) echo RED; return
   # 45 % free (from GREEN), leave only above 55 % (from YELLOW/RED). Other YELLOW/RED limits unchanged.
   elif [ "$df" -lt 100 ] || [ "$mf" -lt 40 ] || { [ "$sw" -gt 4096 ] && [ "$mf" -lt $sm ] && [ "$act" = 1 ]; } || awk "BEGIN{exit !($l1 > $gl)}"; then echo YELLOW; else echo GREEN; fi; }
 while true; do
-  A=$($S 2>&1); obs7=$(date +%s); B=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' < $S 2>&1 | tail -1)
+  A=$($S 2>&1); obs7=$(date +%s); B=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' < $S 2>&1 | tail -1)
   l7=$(lvl_for "$A" "$p7"); l6=$(lvl_for "$B" "$p6")
   # Hold (2026-10-12): ~mba/.hold-mbp2606 means the machine is reserved (e.g. Mailina gaming); report RED until released.
-  ssh -o ConnectTimeout=8 -o BatchMode=yes -o HostKeyAlias=mbp2606.local mba@100.64.0.13 "test -e .hold-mbp2606" </dev/null 2>/dev/null && l6=RED
+  ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 "test -e .hold-mbp2606" </dev/null 2>/dev/null && l6=RED
   # Hold (2026-10-31): ~/.hold-mbp2607 reserves this Mac (e.g. gaming); same meaning. The 10-31 20:04 leak: a local ci-static ran here because mbp2607 still read GREEN.
   [ -e "$HOME/.hold-mbp2607" ] && l7=RED
   # OPS-300: mirror the mbp2606 policy for its host-side remote-run guard (~mba/.aeon-remote-policy; stale after 900 s).
@@ -62,7 +62,7 @@ while true; do
   # OPS-385 (b), AEON-1490 (Markus go 2026-10-18 via AEON-LEAD): a remote-run budget per level instead of a flat 1.
   # GREEN + load<=8 + mem>=50 % -> 3; other GREEN -> 2; YELLOW (not blocked, e.g. ramp override) -> 1; blocked -> 0.
   # Three or more busy pool slots (4 x 4 CPU) cap it at 1, two cap it at 2. maxruns is written to ~/.aeon-remote-maxruns (see below).
-  ps6=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o HostKeyAlias=mbp2606.local ci@100.64.0.13 '$HOME/.nix-profile/bin/aeon-builder status 2>/dev/null | grep -E "^(mode|slots):"' </dev/null 2>/dev/null)
+  ps6=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local ci@100.64.0.13 '$HOME/.nix-profile/bin/aeon-builder status 2>/dev/null | grep -E "^(mode|slots):"' </dev/null 2>/dev/null)
   busy6=$(echo "$ps6" | sed -nE 's/^slots: +([0-9]+)\/.*/\1/p'); busy6=${busy6:-4}
   l1n=$(echo "$B" | sed -nE 's/.*load="([0-9.]+).*/\1/p'); mfn=$(echo "$B" | sed -nE 's/.*mem_free_pct=([0-9]+).*/\1/p')
   mr=0
@@ -71,7 +71,7 @@ while true; do
     # at 19:26. Now 3 runs only when GREEN, load <= 4, mem >= 50 %, at most 1 pool slot busy and NO static run active;
     # otherwise 2. An unreadable static count counts as active (conservative).
     # Only a successful enumeration counts: the remote prints "st=N" only when the run directory exists and find succeeded.
-    st6r=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' 2>/dev/null <<'STEOF'
+    st6r=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' 2>/dev/null <<'STEOF'
 set -o pipefail
 d=$HOME/ci.noindex/aeon-runs
 [ -d "$d" ] || exit 1
@@ -96,9 +96,9 @@ STEOF
   # maxruns field made it treat the policy as malformed and ignore block=1 + maxload. maxruns goes to its own file until
   # the guard enforces it host-side (OPS-385, LEAD design 12:10Z).
   ts=$(date +%s)
-  if printf 'block=%s maxload=%s level=%s epoch=%s\nmaxruns=%s epoch=%s\n' "$bl" "$ml" "$l6" "$ts" "$mr" "$ts" | ssh -o ConnectTimeout=8 -o BatchMode=yes -o HostKeyAlias=mbp2606.local mba@100.64.0.13 "sh -c 'IFS= read -r p && IFS= read -r m && printf \"%s\\n\" \"\$p\" > .aeon-remote-policy.tmp && printf \"%s\\n\" \"\$m\" > .aeon-remote-maxruns.tmp && mv -f .aeon-remote-policy.tmp .aeon-remote-policy && mv -f .aeon-remote-maxruns.tmp .aeon-remote-maxruns'" 2>/dev/null; then pw=ok; else [ "${pw:-ok}" = ok ] && echo "$(date +%T) WARN policy write to mbp2606 failed (guard falls back to maxload 12 after 900 s)"; pw=fail; fi
+  if printf 'block=%s maxload=%s level=%s epoch=%s\nmaxruns=%s epoch=%s\n' "$bl" "$ml" "$l6" "$ts" "$mr" "$ts" | ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 "sh -c 'IFS= read -r p && IFS= read -r m && printf \"%s\\n\" \"\$p\" > .aeon-remote-policy.tmp && printf \"%s\\n\" \"\$m\" > .aeon-remote-maxruns.tmp && mv -f .aeon-remote-policy.tmp .aeon-remote-policy && mv -f .aeon-remote-maxruns.tmp .aeon-remote-maxruns'" 2>/dev/null; then pw=ok; else [ "${pw:-ok}" = ok ] && echo "$(date +%T) WARN policy write to mbp2606 failed (guard falls back to maxload 12 after 900 s)"; pw=fail; fi
   # OPS-300 follow-up (Markus 2026-10-11 "Detect + report"): heavy mba test runs outside LEAD's guarded run dirs.
-  U=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' < ${NL_UNGUARDED:-$HOME/.local/share/ops-qa/mbp2606-unguarded.sh} 2>/dev/null)
+  U=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' < ${NL_UNGUARDED:-$HOME/.local/share/ops-qa/mbp2606-unguarded.sh} 2>/dev/null)
   if [ -n "$U" ]; then newp=$(echo "$U" | cut -d'|' -f1 | sort | comm -23 - <(printf '%s\n' $seen_unguarded | sort)); [ -n "$newp" ] && echo "$(date +%T) UNGUARDED on mbp2606 (load $(echo "$B" | sed -E 's/.*load="([0-9.]+).*/\1/')): $(echo "$U" | cut -d'|' -f2 | sort | uniq -c | tr '\n' ';')"; seen_unguarded=$(echo "$U" | cut -d'|' -f1 | tr '\n' ' '); else seen_unguarded=""; fi
   # OPS-321 (2026-10-13): a paused mbp2606 pool went unnoticed 1.5 h; report the transition once.
   pm=$(echo "$ps6" | grep "^mode:")  # OPS-385: reuses the status read above

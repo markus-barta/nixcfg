@@ -163,20 +163,58 @@ from the Nix store. The loop writes mbp2606's remote policy and run budget;
 `HOST-LEVEL.heartbeat` belong to LEAD and stay outside nixcfg.
 
 Logs and state are under `~/.local/share/ops-qa/state/`: the loop keeps using
-`brake-night-levels.log` (also read by `brake-mode.sh wake`), and the five-minute
+`brake-night-levels.log`, and the five-minute
 `night-levels-stale` agent uses `night-levels-stale.log` and
 `night-levels-stale.state` (`ok` or `stale`). It sends mac-lead one alert when
 the heartbeat is missing, malformed or over 900 s old, and one on recovery.
+On the transition to stale it logs the alert, attempts one launchd kickstart,
+logs its exit code and includes the attempt in the alert. It does not retry
+while still stale. mbp2606's guard fallback on a stale policy is **maxload 12,
+maxruns 1, level UNKNOWN**.
 
-Cut over by running `~/.local/share/ops-qa/brake-mode.sh off night-levels`
-**before** the Home Manager switch, so two loops do not write at once.
-`brake-mode.sh on night-levels` must no longer be used.
+Cut over in this order on mbp2607:
+
+1. Before switching, find any old loop with these read-only checks; do not
+   trust the pidfile:
+
+   ```sh
+   pgrep -fl 'ops-qa/night-levels.sh'
+   ps -p "$(cat ~/.local/share/ops-qa/state/brake-night-levels.pid 2>/dev/null)" -o command= 2>/dev/null
+   ```
+
+2. Stop only a PID whose command line contains `ops-qa/night-levels.sh`, using
+   `kill <pid>`. The bash loop has no children worth keeping. Never run
+   `brake-mode.sh off night-levels` against a stale pidfile: on 2026-11-16 it
+   still held a PID from 2026-11-03, and a reused PID would be killed.
+3. Remove the stale pidfile with
+   `trash ~/.local/share/ops-qa/state/brake-night-levels.pid`.
+4. Run the Home Manager switch.
+5. Verify all three conditions: `pgrep -fl night-levels.sh` shows exactly one
+   loop, using only the `/nix/store` script path;
+   `launchctl print gui/$(id -u)/org.nix-community.home.night-levels` shows the
+   job running; and the `epoch=` value in
+   `~/.aeon/lead/aeon/HOST-LEVEL.heartbeat` is younger than 200 s compared with
+   `date +%s`.
+6. Retire the old start paths outside nixcfg. This is MAC-LEAD's step on
+   mbp2607, tracked on OPS-595: rename
+   `~/.local/share/ops-qa/night-levels.sh` to `night-levels.sh.retired-ops595`
+   so `brake-mode.sh on` fails loudly; remove `night-levels` from
+   `brake-mode.sh`'s default names; and make its `status`/`wake` liveness check
+   use the launchd label instead of the pidfile.
+
+`brake-mode.sh status`, `wake` and the pidfile no longer reflect this loop.
+The only liveness signals are the launchd job and the heartbeat epoch.
+`brake-mode.sh on night-levels` must no longer be used. A duplicate loop is
+harmful: it shares tmp files, halves the swapout delta and causes HOST-LEVEL
+flapping. Its heartbeat also hides the launchd agent's death from the watcher.
 
 Stop the loop with
 `launchctl bootout gui/$(id -u)/org.nix-community.home.night-levels`.
 To stop its watcher too, use
 `launchctl bootout gui/$(id -u)/org.nix-community.home.night-levels-stale`.
-A Home Manager switch reloads enabled agents.
+`launchctl bootout` stops an agent only until the next Home Manager switch or
+login. Logout, or a reboot without login, stops both agents; mbp2606's guard
+fallback is the only protection then.
 
 ## Coding with Pi
 
