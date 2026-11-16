@@ -189,6 +189,20 @@ class DurableDelivery(unittest.TestCase):
         self.assertNotEqual(engine.EXIT_UNDELIVERED, engine.EXIT_PROBLEMS)
         self.assertNotEqual(engine.EXIT_UNDELIVERED, engine.EXIT_CLEAN)
 
+    def test_pending_commits_when_announced_key_is_missing_from_next_state(self) -> None:
+        pending = {
+            "event_id": "synthetic",
+            "text": "Reminder — still failing: server",
+            "announced_keys": ["silent:server"],
+            "next_state": {"seen": {}, "pending": None},
+        }
+        Path(self.h.state).write_text(json.dumps({"seen": {}, "pending": pending}))
+        self.assertEqual(self.h.run(), engine.EXIT_CLEAN)
+        self.assertEqual(self.h.sent, [(pending["text"], pending["event_id"])])
+        self.assertEqual(self.h.stored(), pending["next_state"])
+        self.assertEqual(self.h.run(), engine.EXIT_CLEAN)
+        self.assertEqual(len(self.h.sent), 1, "committed pending must not replay again")
+
 
 class Reminders(unittest.TestCase):
     INTERVAL = 12 * 3600
@@ -243,6 +257,23 @@ class Reminders(unittest.TestCase):
         self.cycle()
         self.assertEqual(len(self.h.sent), 4)
         self.assertNotIn("Reminder", self.h.sent[-1][0])
+
+    def test_reminders_resume_within_twelve_hours_after_clock_correction(self):
+        self.confirm()
+        corrected_clock = self.h.clock + 3600
+        self.cycle(10 * 24 * 3600)  # forward clock jump sends a reminder
+        self.assertEqual(len(self.h.sent), 2)
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], self.h.clock)
+        self.h.clock = corrected_clock
+        self.cycle(0)
+        self.assertEqual(len(self.h.sent), 2)
+        self.assertEqual(self.h.stored()["seen"][self.SILENT.key]["last_announced_at"], corrected_clock)
+        self.cycle(self.INTERVAL - 1)
+        self.assertEqual(len(self.h.sent), 2)
+        self.cycle(1)
+        self.assertEqual(len(self.h.sent), 3)
+        self.assertIn("Reminder — still failing", self.h.sent[-1][0])
+        self.assertEqual(self.h.clock - corrected_clock, self.INTERVAL)
 
     def test_non_opted_key_never_reminds_or_gains_timestamp(self):
         self.h.problems = [PROBLEM]

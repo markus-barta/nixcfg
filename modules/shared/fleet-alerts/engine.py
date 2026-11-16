@@ -170,6 +170,8 @@ def advance(
         if interval is not None and interval <= 0:
             raise ValueError("reminder interval must be positive")
         last_announced = prior.get("last_announced_at", stamp)
+        if interval is not None:
+            last_announced = min(last_announced, stamp)
         if count >= CONFIRM_RUNS and not alerted:
             to_announce.append(text)
             alerted = True
@@ -318,7 +320,9 @@ def run_cycle(
         # A retry may arrive days later. Start its reminder timer on successful
         # delivery, not the failed attempt, so replay cannot trigger a burst.
         for key in pending.get("announced_keys", []):
-            committed["seen"][key]["last_announced_at"] = stamp
+            entry = committed.get("seen", {}).get(key)
+            if isinstance(entry, dict):
+                entry["last_announced_at"] = stamp
         atomic_write_state(state_path, committed)
         state = load_state(state_path)
 
