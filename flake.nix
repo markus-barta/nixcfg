@@ -58,8 +58,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # HNET pin 61: v261116153538.0.0 (sequence 131; hausnetz main fd85516a = merge of PR #400, tag on
-    # 61ed912a). Contents since 60: GET /api/trends?window=24h (bars + ETag/304), baseline identity limit
-    # 256; nix/module.nix changes only for services.hausnetz.shellyHeal with an interface and mode != off:
+    # 61ed912a). Contents since 60: GET /api/trends?window=24h (bars + ETag/304), baseline identities capped
+    # at 1024 by default (max_baseline_devices, 256-1024); nix/module.nix changes only for services.hausnetz.shellyHeal with an interface and mode != off:
     # the heal-radio drop moves from filter extraCommands to mangle (hausnetz-heal-fwd/-in as rule 1 of
     # mangle FORWARD/INPUT), cleanup runs from firewall postStop, and the per-interface NetworkManager
     # unmanaged entry is skipped when a glob already covers it (one NM restart on the first switch).
