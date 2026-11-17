@@ -369,8 +369,17 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `fd85516a7729dae2732a02ee1bfd5283ece1c89d`
-(`v261116153538.0.0`, HNET pin 61, release sequence 131; HNET-519).
+The private flake input is pinned to `9b6012631801ab5af471dfea03fd77685858ebb4`
+(`v261117222608.0.0`, HNET pin 62, release sequence 132; HNET-528).
+Rollback 62 -> 61 (pin `fd85516a`) has two data caveats (HNET-528 gate):
+pin 61 refuses to start if pin 62 left an interrupted import
+(`/var/lib/private/hausnetz/.import-commit` staging `mesh-follow.json`), and
+pin 61 rejects any pin 62 export ZIP that contains `mesh-follow.json`. So:
+take the `GET /api/export` backup under pin 61 before the switch and keep it
+as the rollback restore artifact; run no imports during the switch window;
+before rolling back, confirm `.import-commit` is absent (if present, finish or
+recover the import under pin 62 first). Completed pin 62 state is safe: pin 61
+leaves `mesh-follow.json` in place and omits it from its exports.
 The existing passive ARP/DHCP listener stays on `enp2s0f0` with `CAP_NET_RAW`
 and `AF_PACKET`; ports, listeners and capabilities are unchanged by this bump.
 The web source and Starlink status keep their approved outgoing-only defaults
