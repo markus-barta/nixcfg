@@ -731,6 +731,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 tests/T107-ib-identifier-guard.py
 
+      - name: Verify pinned Node-RED add-ons and startup during npm failures (OPS-605)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T119-nodered-startup.py
+
       - name: Verify Higgsfield CLI Home Manager contract
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
