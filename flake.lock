@@ -458,7 +458,7 @@
         "narHash": "sha256-QlolReJl+hfR2xMOjdRTaEXqEk56P6N+HCwz/hDsQ1E=",
         "ref": "refs/heads/main",
         "rev": "fd85516a7729dae2732a02ee1bfd5283ece1c89d",
-        "revCount": 1468,
+        "revCount": 1549,
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       },

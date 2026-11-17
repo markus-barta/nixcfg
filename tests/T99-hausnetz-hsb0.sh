@@ -235,6 +235,7 @@ for source in ('locked', 'original'):
     assert node[source]['url'] == 'ssh://git@github.com/inspr-at/hausnetz'
 assert node['locked']['narHash'] == 'sha256-QlolReJl+hfR2xMOjdRTaEXqEk56P6N+HCwz/hDsQ1E='
 assert node['locked']['lastModified'] == 1794846804
+assert node['locked']['revCount'] == 1549  # git rev-list --count of the pin (pin 60: 1468 + 81)
 imports = [p for p in Path('hosts').rglob('*.nix') if 'inputs.hausnetz.nixosModules.default' in p.read_text()]
 assert imports == [Path('hosts/hsb0/configuration.nix')], imports
 
