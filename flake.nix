@@ -57,18 +57,15 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 60: v261109113223.0.0 (sequence 130). Contents since 59: HNET-469 static HTML sheets
-    # in Smarthome (new sheetsDir option: group hausnetz-sheets, tmpfiles dir 2775 root:hausnetz-sheets,
-    # supplementary group and ReadOnlyPaths on the unit); HNET-329 opt-in FRITZ!Box mesh source
-    # (Markus Desk dacb2bcf: outbound to the configured FRITZ!Box only, off until set up in Settings;
-    # state <data>/fritzbox-source.json, 0600, excluded from backups). HNET-448 adds onFailure (empty
-    # by default), unlimited restart retries and 2s..60s backoff in five steps; HNET-452/476 bound the
-    # leases copy to 30s + 5s stop grace and disable its start limit for DHCP bursts. Also topology,
-    # scan/naming, Smarthome filters and probe/save/stream reliability fixes (release notes).
-    # nix/module.nix, nix/module-test.nix and nix/vm-test.nix changed. Existing units changed as above;
-    # no new units, ports, listeners or capabilities; the opt-in FRITZ!Box source adds an outbound path.
+    # HNET pin 61: v261116153538.0.0 (sequence 131; hausnetz main fd85516a = merge of PR #400, tag on
+    # 61ed912a). Contents since 60: GET /api/trends?window=24h (bars + ETag/304), baseline identities capped
+    # at 1024 by default (max_baseline_devices, 256-1024); nix/module.nix changes only for services.hausnetz.shellyHeal with an interface and mode != off:
+    # the heal-radio drop moves from filter extraCommands to mangle (hausnetz-heal-fwd/-in as rule 1 of
+    # mangle FORWARD/INPUT), cleanup runs from firewall postStop, and the per-interface NetworkManager
+    # unmanaged entry is skipped when a glob already covers it (one NM restart on the first switch).
+    # No new units, ports, listeners, outbound paths or capabilities (HNET-519; standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=a4845315324f69617d5319fd47a47dacd7049be1";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=fd85516a7729dae2732a02ee1bfd5283ece1c89d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
