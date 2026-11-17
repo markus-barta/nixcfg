@@ -369,8 +369,8 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `a4845315324f69617d5319fd47a47dacd7049be1`
-(`v261109113223.0.0`, HNET pin 60, release sequence 130; OPS-582).
+The private flake input is pinned to `fd85516a7729dae2732a02ee1bfd5283ece1c89d`
+(`v261116153538.0.0`, HNET pin 61, release sequence 131; HNET-519).
 The existing passive ARP/DHCP listener stays on `enp2s0f0` with `CAP_NET_RAW`
 and `AF_PACKET`; ports, listeners and capabilities are unchanged by this bump.
 The web source and Starlink status keep their approved outgoing-only defaults
