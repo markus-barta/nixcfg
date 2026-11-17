@@ -862,11 +862,17 @@ revision-11 set `c266b39e33e6e15be491263b0ca3575598dd264da3e1a9f6d5a147fc9f1bd49
 and revision 11 configured for pusher and stager. OPS-557/OPS-567 selected
 `household-v2-switch-set-r22-202611102200` from nixcfg
 `0faf0a8d5f276ef15e1487bc01766f79df9a6ffd` (same vendored set and revision);
-OPS-556 now selects `household-v2-switch-set-r23-202611131200` from nixcfg
+OPS-556 selected `household-v2-switch-set-r23-202611131200` from nixcfg
 `5b754845115206c7d8469b1629eb644874f32185`, pusher tree
-`fc9f97db3b022df988bbd473481404611b1df111`; r22 is the shared-image rollback
+`fc9f97db3b022df988bbd473481404611b1df111`; its rollback was r22
 (`sha256:8a768c6551ddc4500c7885bad1a6b71d8375a70b6014383408b9306bf02829b0`).
-This is deploy step 2: the first-day pin remains null. No board field or input changes. Revision 10 is an explicit
+OPS-556 / JOED-196 now select `household-v2-switch-set-r24-202611172230` from nixcfg
+`141676c543ce1f3c0e5fb3f0d24117432fa7c1c4`, pusher tree
+`ff8daede6c668cf60783b0ceea7a9eb77fc0edc4`, executor tree
+`01683d51760c31ed8c2b23668a38649210a3c5ba`; r23 is the shared-image rollback
+(`household-v2-switch-set-r23-202611131200`).
+The reviewed first-day pin is fixed at `2026-11-18` (#1251).
+No board field or input changes. Revision 10 is an explicit
 rollback setting; revision 9 remains the fallback. Image build, host activation
 and live producer sign-off remain separate gates. This pusher-family pin change
 preserves every board entry, the joedesk flake input and csb0 Compose declaration.

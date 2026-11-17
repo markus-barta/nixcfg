@@ -16,7 +16,9 @@ import vendoredDataSchema from "./contracts/data.schema.json" with { type: "json
 
 const at = "2026-11-04T10:00:00.000Z";
 const next = "2026-11-04T10:00:30.000Z";
-const expected = "desk-policy-a7b2b7316e31"; // OPS-567 extends the hashed rollup table.
+// OPS-567 extends the hashed rollup table; JOED-196 adds four fill overrides.
+// A changed desk decision on those rows changes this basis (README, JOED-196).
+const expected = "desk-policy-cb3aa48a186a";
 // Read-only comparison with local JoeDesk contracts/data.schema.json:364
 // confirmed this pinned, vendored field has the board owner's r43 constraints.
 // The pattern is compiled from this constant (CodeQL js/regex-injection); the

@@ -93,7 +93,7 @@ let
                 environment = [ "TRADING_MODE=paper" ];
                 ports = [ "100.64.0.6:4002:4002" ];
               };
-              # OPS-556 shared image (after OPS-557/OPS-567 r22): hsb0-joe-board-pusher:household-v2-switch-set-r23-202611131200.
+              # OPS-556 / JOED-196 shared image (after OPS-556 r23): hsb0-joe-board-pusher:household-v2-switch-set-r24-202611172230.
               # Effective hsb0 runtime: under `previous` (the v1 rollback) hsb0 is the variant B
               # pre-cutover tree, i.e. the recorded `current` (r16d) set; T100 enforces both.
               joe-board-pusher.image =

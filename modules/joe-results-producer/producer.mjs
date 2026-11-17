@@ -45,7 +45,7 @@ export function openProducer(filename, { keepSymbols = ['SXR8', 'TSLA'], now = (
   let historyOnlyIntervals = [], fillGaps = [];
   let historyStart = Infinity, historyEnd = -Infinity;
   let previousCloseDiagnostics = new Set();
-  let closeDiagnostics = [];
+  let closeDiagnostics = null; // No equity-close outcomes have been evaluated yet.
   const positionProofs = new PositionProofIndex();
   function apply(event) {
     if (event.type === 'start') start = event.at;

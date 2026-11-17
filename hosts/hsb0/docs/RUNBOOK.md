@@ -1351,7 +1351,7 @@ tree, and refuse if the selected tag equals the running image while the pinned
 pusher tree differs from the running one. Merge #1228 with a merge
 commit (not squash) so the pinned commit stays reachable from main.
 
-OPS-556 now prepares `household-v2-switch-set-r23-202611131200` from
+OPS-556 prepared `household-v2-switch-set-r23-202611131200` from
 `5b754845115206c7d8469b1629eb644874f32185` (#1249). The v2 pusher pin is tree
 `fc9f97db3b022df988bbd473481404611b1df111`; the executor pin is tree
 `fc279405adfeaf54a7253ebc228542d2015ab77f` at the same revision. The executor
@@ -1380,6 +1380,20 @@ sets a reviewed fixed Vienna first day on or after the r23 activation day and
 switches again; do not derive it from the clock. Preserve recorder state,
 outcomes and pin across rollback. An r22 rollback disables the new recorder;
 never truncate outcomes or move the pin backward.
+
+OPS-556 / JOED-196 now prepare `household-v2-switch-set-r24-202611172230` from
+`141676c543ce1f3c0e5fb3f0d24117432fa7c1c4` (the merge of #1251 and #1260). The v2 pusher pin is tree
+`ff8daede6c668cf60783b0ceea7a9eb77fc0edc4`; the executor pin is tree
+`01683d51760c31ed8c2b23668a38649210a3c5ba` at the same revision. Only README/tests
+change under the pusher path in this release commit; they are excluded from the
+image build context. The executor's image-comment edit changes no runtime source.
+Seed r24 once from `git archive 141676c543ce1f3c0e5fb3f0d24117432fa7c1c4:hosts/hsb0/docker/joe-board-pusher`,
+verify its recorded tree against the release set and new image ID, then switch
+all four services together. Never rebuild a published tag. Retain r23
+`household-v2-switch-set-r23-202611131200` and the asserted pre-switch generation for rollback.
+The first-day pin remains the reviewed fixed `2026-11-18` from #1251; preserve
+recorder state, immutable outcomes and that pin across rollback. Build the system
+from the reviewed merge commit, retaining the pinned source revision's reachability.
 
 The pusher, stager, executor and mailbox share the tag and recreate together;
 the existing compose post-recreation also recreates `hsb0-home`. The exact allowed
@@ -2013,7 +2027,8 @@ corrupt observation file in an owner-only archive and move aside **ONLY that
 state file** under operator control. Retain the pin and current immutable
 outcomes; replay preserves their committed closes. Restart without state starts
 on today's Vienna day, leaving missed days unknown. Restore a matched backup
-pair **ONLY when the outcomes file itself is lost**. An older outcomes backup
+pair **ONLY when the outcomes file itself is lost or corrupt (after preserving
+the corrupt copy)**. An older outcomes backup
 discards later committed closes and can turn previously published exact closes
 into null. Preserve a corrupt outcome stream for operator recovery; do not
 truncate it to make validation pass. Never hand-edit or reconstruct historical
@@ -2039,8 +2054,17 @@ Startup cleans only this writer's stale UUID `.tmp` files. Repeated recorder
 errors log at most once per reason per 15 minutes. Results logs only new/changed
 diagnostics, at most 20 entries plus per-reason counts for the entire new batch
 when truncated. Integrity warnings come first, with newest days first within
-each priority group. The full value-free list is atomically saved locally at
-`/var/lib/joe-results-producer/equity-close-diagnostics.json` (0600).
+each priority group. The first 50 value-free entries in that order are atomically
+saved locally at `/var/lib/joe-results-producer/equity-close-diagnostics.json`
+(0600), as an object with `diagnostics` and `reasonCounts` counting all entries,
+including dropped ones. Writes start only after outcomes evaluation, including
+failed publication attempts after evaluation; an evaluated empty list clears
+old warnings. Unchanged content is not rewritten. Startup removes only matching
+`<filename>.*.tmp` regular files in that directory, ignoring cleanup errors.
+A lost or corrupt diagnostics file is replaced by the next evaluated content;
+the writer does not read or preserve the previous copy. Preserve any corrupt
+copy manually before replacement if needed for investigation. Write failures
+log at most once per 15 minutes and do not stop Results publication.
 Private observations still fsync each tick.
 The side file contains only closes and clock evidence, no ledger or credentials.
 Results strictly rejects malformed records and duplicate keys; missing,
