@@ -57,15 +57,13 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 61: v261116153538.0.0 (sequence 131; hausnetz main fd85516a = merge of PR #400, tag on
-    # 61ed912a). Contents since 60: GET /api/trends?window=24h (bars + ETag/304), baseline identities capped
-    # at 1024 by default (max_baseline_devices, 256-1024); nix/module.nix changes only for services.hausnetz.shellyHeal with an interface and mode != off:
-    # the heal-radio drop moves from filter extraCommands to mangle (hausnetz-heal-fwd/-in as rule 1 of
-    # mangle FORWARD/INPUT), cleanup runs from firewall postStop, and the per-interface NetworkManager
-    # unmanaged entry is skipped when a glob already covers it (one NM restart on the first switch).
-    # No new units, ports, listeners, outbound paths or capabilities (HNET-519; standing go Desk 45df1430).
+    # HNET pin 62: v261117222608.0.0 (sequence 132; hausnetz main 9b601263 = merge of release PR #405, tag on
+    # 1afcf329). Contents since 61: mesh follow choices (PUT/DELETE /api/mesh-follow/{id} on the existing
+    # listener; optional <data>/mesh-follow.json, ignored by r61 on rollback), sheet frame CSP adds
+    # font-src data: (sandbox unchanged). No nix/ or flake changes since 61; no new units, ports, listeners,
+    # outbound paths or capabilities; restarts hausnetz only (HNET-528; standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=fd85516a7729dae2732a02ee1bfd5283ece1c89d";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=9b6012631801ab5af471dfea03fd77685858ebb4";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
