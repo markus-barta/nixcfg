@@ -31,6 +31,7 @@ import {
   DESK_HISTORY_REVISION_METHOD,
   buildDeskDayBoundaryEvidence,
   calculateDeskEquities,
+  deskLedgerAlert,
   deskOwnershipPolicyContract,
 } from "./desk-ledger.mjs";
 import {
@@ -368,8 +369,15 @@ async function pushOnce(stageObservation) {
   });
   equityCloseRecorder.observe({ book, deskEquities });
   if (!deskEquities.ok) {
-    console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
+    // JOED-196: the flat-contract guard adds contract counts only, never identities.
+    console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason,
+      ...(deskEquities.ledgerReconciliation ? { ledgerReconciliation: deskEquities.ledgerReconciliation } : {}) }));
   }
+  // JOED-196 health reason, alert-only: a desk lot on a contract that is flat
+  // in the account. Money keeps publishing; the event repeats every cycle
+  // while the count holds and carries that count alone.
+  const ledgerAlert = deskLedgerAlert(deskEquities);
+  if (ledgerAlert) console.warn(JSON.stringify({ event: "desk_ledger_alert", ...ledgerAlert }));
   const dayPnl = dayPnlProducer.observe(deskEquities);
   const retainedDeskEquity = dayPnlProducer.inspectState()?.latest || null;
   if (!dayPnl.ok) {

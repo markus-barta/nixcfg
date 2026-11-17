@@ -4,8 +4,12 @@ import test from "node:test";
 
 import {
   CURRENT_DESK_OWNERSHIP_POLICY,
+  DESK_LOT_ON_FLAT_CONTRACT,
+  LEDGER_UNRECONCILED,
   buildDeskDayBoundaryEvidence,
   calculateDeskEquities,
+  deskLedgerAlert,
+  deskLedgerMatchesHistory,
   deskOwnershipPolicyContract,
   deskLedgerRevisionAt,
 } from "./desk-ledger.mjs";
@@ -18,7 +22,8 @@ import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily } from "./family-ledg
 import { createExecutorAttribution } from "./executor-attribution.mjs";
 import { createExecutorAttributionMemory } from "./executor-attribution-memory.mjs";
 import { copyObservation } from "./v2-stage-handoff.mjs";
-import { buildCandidate } from "./v2-stage-worker.mjs";
+import { buildCandidate, validObservation } from "./v2-stage-worker.mjs";
+import { validateContract } from "./contracts/index.mjs";
 import { projectBook } from "./project.mjs";
 import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 
@@ -28,6 +33,12 @@ const CUTOFF = "2026-09-11T15:00:00.000Z";
 const OBSERVED = "2026-09-11T15:00:02.000Z";
 // Historical synthetic ledgers predate the OPS-557 fills and use that policy.
 const PRE_OVERRIDE_POLICY = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
+// The NVDA-only fixture holds the OPS-557 fills alone: the policy as deployed
+// before JOED-196. currentFixture() adds the AVGO/AMD fills for the full table.
+const OPS557_POLICY = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides:
+  CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides.filter(rule => rule.basis.startsWith("OPS-557 ")) };
+const JOED196_OVERRIDES = CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides.filter(rule => rule.basis.startsWith("JOED-196 "));
+const UNRECONCILED_DESKS = { j: { reconciled: false }, joe: { reconciled: false }, joel: { reconciled: false } };
 
 function contract(symbol, conId, currency = "USD") {
   return { symbol, conId, currency, secType: "STK", exchange: "SMART", multiplier: 1 };
@@ -139,18 +150,29 @@ function fixture() {
   return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult, policy: PRE_OVERRIDE_POLICY };
 }
 
-function nvdaFixture() {
+function crossBookedFills() {
+  const source = JSON.parse(readFileSync(new URL("./fixtures/joed196-avgo-amd.json", import.meta.url), "utf8"));
+  return source.fills.map(({ symbol, ...fill }) => ({ contract: structuredClone(source.contracts[symbol]),
+    execution: { ...fill, acctNumber: source.account, pendingPriceRevision: false } }));
+}
+
+// NVDA plus the JOED-196 AVGO/AMD fills: every row of the current table matches.
+function currentFixture() {
+  return nvdaFixture({ policy: CURRENT_DESK_OWNERSHIP_POLICY, extra: crossBookedFills() });
+}
+
+function nvdaFixture({ policy = OPS557_POLICY, extra = [] } = {}) {
   const source = JSON.parse(readFileSync(new URL("./fixtures/ops557-nvda.json", import.meta.url), "utf8"));
   const observedAt = "2026-11-04T12:00:00.000Z";
-  const executions = source.fills.map(fill => ({ contract: structuredClone(source.contract),
-    execution: { ...fill, acctNumber: source.account, pendingPriceRevision: false } }));
+  const executions = [...source.fills.map(fill => ({ contract: structuredClone(source.contract),
+    execution: { ...fill, acctNumber: source.account, pendingPriceRevision: false } })), ...extra];
   const commissions = executions.map(row => commission(row.execution.execId));
   const executorAttribution = createExecutorAttribution({ account: ACCOUNT, executionRows: executions,
     ledger: { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT, executions,
       intents: { "ops557-synthetic": { action: "place", desk: "joe",
         result: { bracket: { clientId: 705, parentOrderId: 557, stopOrderId: 558 } } } } } });
   return {
-    account: ACCOUNT, observedAt, executorAttribution,
+    account: ACCOUNT, observedAt, executorAttribution, policy,
     ledgerState: { account: ACCOUNT, periodStart: START, coverageThrough: observedAt,
       coverageTradingDay: "2026-11-04", queryExecutionIdentities: [], executions, commissions },
     verifiedHistoryState: officialHistory(executions, commissions, { toExclusive: observedAt, capturedAt: observedAt }),
@@ -193,7 +215,8 @@ test("absent and similar override identities fail closed without redirecting a f
 test("OPS-557 closes both NVDA desk ledgers and the account without flat-net marks", () => {
   const input = nvdaFixture();
   const before = structuredClone(input.ledgerState);
-  const fillAttributionOverrides = CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides;
+  const { fillAttributionOverrides } = input.policy;
+  assert.equal(fillAttributionOverrides.length, 3);
   const jResult = calculateFamily({ ...input, executions: input.ledgerState.executions,
     commissions: input.ledgerState.commissions, familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
     familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, fillAttributionOverrides,
@@ -229,7 +252,7 @@ test("OPS-557 closes both NVDA desk ledgers and the account without flat-net mar
 });
 
 test("fill override identities, desks, basis and date bind the policy hash and history revision", () => {
-  const input = nvdaFixture();
+  const input = currentFixture();
   const priorPolicy = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides: [] };
   assert.equal(deskOwnershipPolicyContract(priorPolicy).policyHash,
     "0f9071ea04830168c6b83acd61a9bc0a74553d40ec5fd5216dfac4564d8dd877");
@@ -262,7 +285,7 @@ test("fill override identities, desks, basis and date bind the policy hash and h
 });
 
 test("the redundant legacy-route override is a matched guard with unchanged economics", () => {
-  const input = nvdaFixture();
+  const input = currentFixture();
   const result = calculateDeskEquities(input);
   assert.equal(result.ok, true, result.reason);
   const guard = CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides[1];
@@ -296,7 +319,7 @@ test("missing overrides withhold ledger revisions, authoritative boundary proof 
     fillAttributionOverrides: policy.fillAttributionOverrides }), { message: revision.reason });
 });
 
-test("a cross-desk close on a flat account without a mark fails loud until its exact override reconciles both desks", () => {
+test("a cross-desk close on a flat account is counted as an alert, valued once marked, until its exact override clears both desks", () => {
   const input = fixture();
   const executions = [execution("cross.open.01", 27, "ACME", 101),
     execution("cross.close.01", 22, "ACME", 101, { side: "SLD", price: 11 })];
@@ -309,13 +332,18 @@ test("a cross-desk close on a flat account without a mark fails loud until its e
   input.jResult = null;
   assert.equal(executions.reduce((net, row) => net + (row.execution.side === "BOT" ? 1 : -1) * row.execution.shares, 0), 0);
   const calculate = policy => calculateDeskEquities({ ...input, policy, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  const counted = { accountMismatch: 0, crossBooked: 1 };
+  const alert = { reason: DESK_LOT_ON_FLAT_CONTRACT, crossBooked: 1 };
   const crossed = calculate(PRE_OVERRIDE_POLICY);
   assert.equal(crossed.ok, false);
   assert.match(crossed.reason, /J desk calculation unavailable: .*mark/);
   assert.equal(crossed.phaseBDesks.j.reconciled, false);
   assert.equal(crossed.phaseBDesks.joe.reconciled, false);
-  // OPS-555 open question: a real flat-net mark makes the unassigned cross
-  // close value successfully, silently leaving opposite virtual lots open.
+  assert.deepEqual(crossed.ledgerReconciliation, counted, "the count survives the later missing-mark failure");
+  assert.deepEqual(deskLedgerAlert(crossed), alert);
+  // OPS-555, mitigated by JOED-196: a real flat-net mark still values the
+  // unassigned cross close and publishes J +1 / Joe -1. Rule 2 is alert-only,
+  // so the pair is no longer silent, but it is not withheld either.
   input.portfolio = [{ account: ACCOUNT, contract: contract("ACME", 101), symbol: "ACME", pos: 0,
     marketPrice: 11, markObservedAt: OBSERVED }];
   const marked = calculate(PRE_OVERRIDE_POLICY);
@@ -324,12 +352,16 @@ test("a cross-desk close on a flat account without a mark fails loud until its e
   assert.deepEqual(marked.desks.joe.positions.map(({ symbol, quantity }) => ({ symbol, quantity })), [{ symbol: "ACME", quantity: -1 }]);
   assert.equal(marked.phaseBDesks.j.reconciled, true);
   assert.equal(marked.phaseBDesks.joe.reconciled, true);
+  assert.deepEqual(marked.ledgerReconciliation, counted);
+  assert.deepEqual(deskLedgerAlert(marked), alert);
   const policy = { ...PRE_OVERRIDE_POLICY, fillAttributionOverrides: [
     { execId: "cross.close.01", desk: "j", basis: "synthetic cross-desk close", date: "2026-11-04" },
   ] };
   const corrected = calculate(policy);
   assert.equal(corrected.ok, true, corrected.reason);
   for (const desk of ["j", "joe", "joel"]) assert.deepEqual(corrected.desks[desk].positions, []);
+  assert.equal(Object.hasOwn(corrected, "ledgerReconciliation"), false);
+  assert.equal(deskLedgerAlert(corrected), null);
   const before = structuredClone(input.ledgerState);
   for (const change of [
     rows => { rows[1].execution.execId = "cross.near-close.01"; },
@@ -352,8 +384,375 @@ test("a cross-desk close on a flat account without a mark fails loud until its e
   }
 });
 
+test("JOED-196 books each cross-booked AVGO/AMD pair to one desk and leaves the OPS-557 rows untouched", () => {
+  const rows = CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides;
+  const ops557 = { basis: "OPS-557 cross-booked NVDA close, 2026-11-04", date: "2026-11-04" };
+  const joed196 = { basis: "JOED-196 cross-booked AVGO/AMD close, 2026-11-17", date: "2026-11-17" };
+  // The reviewed decision, one row per fill. A changed desk decision edits it
+  // here, in desk-ledger.mjs, in replay-joed196.mjs and in the README table.
+  assert.deepEqual(rows.map(row => ({ ...row })), [
+    { execId: "0000dc8f.6bb0d852.01.01", desk: "j", ...ops557 },
+    { execId: "0000dc8f.6bd3bc59.01.01", desk: "j", ...ops557 },
+    { execId: "00025b45.6ace1f95.01.01", desk: "joe", ...ops557 },
+    { execId: "0000e0d5.6ab27b67.01.01", desk: "j", ...joed196 },
+    { execId: "0000dc8f.6bb12ac9.01.01", desk: "j", ...joed196 },
+    { execId: "0000dc8f.6bb12336.01.01", desk: "joe", ...joed196 },
+    { execId: "0000e0d5.6abb75ef.01.01", desk: "joe", ...joed196 },
+  ]);
+  assert.equal(Object.isFrozen(rows) && rows.every(row => Object.isFrozen(row)), true);
+  assert.deepEqual(OPS557_POLICY.fillAttributionOverrides, rows.slice(0, 3));
+  assert.deepEqual(JOED196_OVERRIDES, rows.slice(3));
+  assert.equal(deskOwnershipPolicyContract(OPS557_POLICY).policyHash,
+    "a7b2b7316e318e78727095d9178df156d5f84a55b7ca801dc9a9aabb12f2591d", "the table deployed before JOED-196");
+  assert.equal(deskOwnershipPolicyContract().policyHash,
+    "cb3aa48a186a8274f59d09386a7899cee347ec827cea28a5eabce7136e80b2bf");
+});
+
+test("JOED-196 closes AVGO and AMD on every desk; the earlier tables leave flat-contract mirrors that are counted", () => {
+  const input = currentFixture();
+  const before = structuredClone(input.ledgerState);
+  const rows = input.ledgerState.executions;
+  const net = symbol => rows.filter(row => row.contract.symbol === symbol).reduce((sum, row) => sum +
+    (row.execution.side === "BOT" ? 1 : -1) * row.execution.shares, 0);
+  for (const symbol of ["NVDA", "AVGO", "AMD"]) assert.equal(net(symbol), 0, `the account is flat on ${symbol}`);
+  for (const rule of JOED196_OVERRIDES) assert.equal(rows.filter(row => row.execution.execId === rule.execId).length, 1);
+  const jFamily = (fillAttributionOverrides, portfolio = input.portfolio) => calculateFamily({ ...input, portfolio,
+    executions: rows, commissions: input.ledgerState.commissions, familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, fillAttributionOverrides,
+    excludedSymbols: J_FAMILY_CLASSIFIER.excludedSymbols, periodStart: START, ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP });
+  const marketData = { fillAttributionOverrides: [], executions: rows,
+    familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds, familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS };
+
+  // The table deployed before JOED-196: J keeps a long, Joe the equal short.
+  const marksAt = (symbols, marketPrice) => symbols.map(symbol => ({ account: ACCOUNT, symbol, pos: 0, marketPrice,
+    contract: rows.find(row => row.contract.symbol === symbol).contract, markObservedAt: input.observedAt }));
+  const marks = marksAt(["AVGO", "AMD"], 77);
+  const mirroredJ = jFamily(OPS557_POLICY.fillAttributionOverrides, marks);
+  assert.equal(mirroredJ.ok, true, mirroredJ.reason);
+  assert.deepEqual(mirroredJ.positions.map(({ symbol, side }) => ({ symbol, side })),
+    [{ symbol: "AMD", side: "Long" }, { symbol: "AVGO", side: "Long" }]);
+  assert.equal(contractsNeedingFlatNetMarks({ ...input, ...marketData,
+    fillAttributionOverrides: OPS557_POLICY.fillAttributionOverrides }).length, 2);
+  // Alert-only: each earlier table is counted, never withheld. Without marks the
+  // phantom lots cannot be valued, and the count survives that failure. With
+  // marks the mirror is published: the two desks move equal and opposite.
+  for (const [policy, symbols] of [[OPS557_POLICY, ["AMD", "AVGO"]], [PRE_OVERRIDE_POLICY, ["AMD", "AVGO", "NVDA"]]]) {
+    const counted = { accountMismatch: 0, crossBooked: symbols.length };
+    const unmarked = calculateDeskEquities({ ...input, policy, portfolio: [], phaseB: true });
+    assert.equal(unmarked.ok, false);
+    assert.match(unmarked.reason, /^J desk calculation unavailable: missing portfolio mark/);
+    assert.deepEqual(unmarked.ledgerReconciliation, counted);
+    const valued = marketPrice => {
+      const mirrored = calculateDeskEquities({ ...input, policy, portfolio: marksAt(symbols, marketPrice), phaseB: true });
+      assert.equal(mirrored.ok, true, mirrored.reason);
+      assert.deepEqual(mirrored.ledgerReconciliation, counted, "NVDA, AVGO and AMD mirrors are counted");
+      assert.deepEqual(deskLedgerAlert(mirrored), { reason: DESK_LOT_ON_FLAT_CONTRACT, crossBooked: symbols.length });
+      assert.deepEqual(mirrored.desks.j.positions.map(({ symbol, side }) => ({ symbol, side })),
+        symbols.map(symbol => ({ symbol, side: "Long" })));
+      assert.deepEqual(mirrored.desks.joe.positions.map(({ symbol, side }) => ({ symbol, side })),
+        symbols.map(symbol => ({ symbol, side: "Short" })));
+      for (const desk of ["j", "joe", "joel"]) assert.equal(mirrored.phaseBDesks[desk].reconciled, true);
+      return mirrored;
+    };
+    const [low, high] = [valued(77), valued(78)];
+    const move = desk => Math.round((high.desks[desk].unrealizedPnl - low.desks[desk].unrealizedPnl) * 100);
+    assert.ok(move("j") > 0, "J's phantom longs gain on a higher mark");
+    assert.equal(move("joe"), -move("j"), "the mirror image JOED-196 reported");
+    assert.equal(high.equity.total, low.equity.total, "the pair never moves the three-desk total");
+  }
+
+  // The current table: each pair is one desk's round trip.
+  const fillAttributionOverrides = input.policy.fillAttributionOverrides;
+  assert.equal(fillAttributionOverrides.length, 7);
+  const jResult = jFamily(fillAttributionOverrides);
+  assert.equal(jResult.ok, true, jResult.reason);
+  const result = calculateDeskEquities({ ...input, jResult, phaseB: true });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(Object.hasOwn(result, "ledgerReconciliation"), false);
+  assert.equal(deskLedgerAlert(result), null);
+  for (const symbol of ["AVGO", "AMD"]) {
+    const desks = new Set(rows.filter(row => row.contract.symbol === symbol)
+      .map(row => fillAttributionOverrides.find(rule => rule.execId === row.execution.execId).desk));
+    assert.equal(desks.size, 1, `both ${symbol} fills belong to one desk`);
+  }
+  // The reviewed decision in money: J realises NVDA 13.76 plus AVGO 5.22, Joe
+  // NVDA 11.30 plus AMD 7.92. The synthetic pairs realise different amounts,
+  // so booking either pair to the other desk fails here. A changed desk
+  // decision changes these two numbers (README, JOED-196).
+  const realized = { j: 18.98, joe: 19.22, joel: 0 };
+  for (const desk of ["j", "joe", "joel"]) {
+    assert.deepEqual(result.desks[desk].positions, [], `${desk} has no residual lots`);
+    assert.equal(result.desks[desk].unrealizedPnl, 0);
+    assert.equal(result.desks[desk].realizedPnl, realized[desk], desk);
+    assert.equal(result.phaseBDesks[desk].reconciled, true);
+  }
+  assert.equal(result.equity.total, 15038.2, "the desk decision moves realised money between desks, never the total");
+  assert.equal(jResult.equity, result.desks.j.equity);
+  assert.deepEqual(contractsNeedingFlatNetMarks({ ...input, ...marketData, fillAttributionOverrides }), []);
+  const history = projectBestAvailableHistory({ state: input.verifiedHistoryState,
+    familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS, fillAttributionOverrides,
+    executorAttribution: input.executorAttribution });
+  assert.deepEqual(history.capturedSubtotal.endingOpenQuantities, []);
+  assert.deepEqual(input.ledgerState, before, "retained economic records remain unchanged");
+});
+
+function crossDeskCloseFixture() {
+  const input = fixture();
+  const executions = [execution("cross.open.01", 27, "ACME", 101),
+    execution("cross.close.01", 22, "ACME", 101, { side: "SLD", price: 11 })];
+  const commissions = executions.map(row => commission(row.execution.execId));
+  Object.assign(input.ledgerState, { executions, commissions,
+    queryExecutionIdentities: executions.map(row => row.execution.execId).sort() });
+  input.verifiedHistoryState = officialHistory(executions, commissions);
+  input.positions = input.positions.filter(row => row.symbol !== "ACME");
+  input.portfolio = [{ account: ACCOUNT, contract: contract("ACME", 101), symbol: "ACME", pos: 0,
+    marketPrice: 11, observedAt: OBSERVED, markObservedAt: OBSERVED }];
+  input.jResult = calculateFamily({ executions, commissions, portfolio: input.portfolio, positions: input.positions,
+    fx: input.fx, account: ACCOUNT, familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
+    excludedSymbols: J_FAMILY_CLASSIFIER.excludedSymbols, periodStart: START, observedAt: OBSERVED,
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP });
+  return input;
+}
+
+// Rule 1 of the flat-contract guard: J owns one ACME, the account holds two.
+function accountMismatchFixture() {
+  const input = fixture();
+  input.positions.find(row => row.symbol === "ACME").pos = 2;
+  input.portfolio[0].pos = 2;
+  input.jResult = calculateFamily({ executions: input.ledgerState.executions, commissions: input.ledgerState.commissions,
+    portfolio: input.portfolio, positions: input.positions, fx: input.fx, account: ACCOUNT,
+    familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds, excludedSymbols: J_FAMILY_CLASSIFIER.excludedSymbols,
+    periodStart: START, observedAt: OBSERVED, ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP });
+  return input;
+}
+
+// The pusher's observation as the v2 stager receives it, validated end to end.
+function stageV2(input, family, deskEquities, revision) {
+  const book = { ts: OBSERVED, gateway: true, gatewayLastSeenAt: OBSERVED, apiReplyCheckedAt: OBSERVED,
+    summary: { NetLiquidation: { value: "170000.25", currency: "EUR" }, TotalCashValue: { value: "1234.56", currency: "EUR" } },
+    summaryObservedAt: { NetLiquidation: OBSERVED, TotalCashValue: OBSERVED },
+    positions: input.positions.map(row => ({ ...row, currency: row.contract.currency })), portfolio: input.portfolio,
+    positionsCoverage: { status: "complete", observedAt: OBSERVED }, openOrders: [], ordersObservedAt: OBSERVED };
+  const observation = copyObservation({ book, family, deskEquities, executions: executionActivity(input.ledgerState) }, revision);
+  assert.equal(validObservation(observation), true);
+  const snapshot = buildCandidate(1, OBSERVED, observation, OBSERVED, null, revision);
+  const checked = validateContract("data", snapshot, { stage: "ingress" });
+  assert.equal(checked.ok, true, JSON.stringify(checked.errors));
+  return snapshot;
+}
+
+test("desk lots that do not add up to the account stage contract-valid v2 with every desk stuck and all money ledger_unreconciled", () => {
+  const input = accountMismatchFixture();
+  // The J FIFO replays every fill on the account and fails on the same book.
+  assert.deepEqual(input.jResult, { ok: false, failureKind: "pending-input",
+    reason: "execution replay does not reconcile with observed broker positions" });
+  const deskEquities = calculateDeskEquities({ ...input, jResult: null, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.deepEqual(deskEquities, { ok: false, reason: LEDGER_UNRECONCILED,
+    ledgerReconciliation: { accountMismatch: 1, crossBooked: 0 }, phaseBDesks: UNRECONCILED_DESKS });
+  assert.equal(deskLedgerAlert(deskEquities), null, "a mismatch is the fail-closed reason, not the alert");
+  const unreconciled = Object.fromEntries(["equity", "dayPnl", "openPnl", "totalPnl"].map(field => [field, LEDGER_UNRECONCILED]));
+  for (const revision of [10, 11]) {
+    const snapshot = stageV2(input, input.jResult, deskEquities, revision);
+    for (const desk of snapshot.desks) {
+      assert.deepEqual(desk.money, { equity: null, dayPnl: null, openPnl: null, totalPnl: null, reasons: unreconciled }, desk.id);
+      assert.equal(desk.state, "stuck", desk.id);
+    }
+    assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, openPnl: null, totalPnl: null, reasons: unreconciled });
+    assert.equal(snapshot.positions.rows.every(row => row.desk === null), true);
+  }
+});
+
+test("a counted mirror stays alert-only: v1 and contract-valid v2 keep publishing every desk's money", () => {
+  const input = crossDeskCloseFixture();
+  assert.equal(input.jResult.ok, true, input.jResult.reason);
+  const deskEquities = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.equal(deskEquities.ok, true, deskEquities.reason);
+  assert.deepEqual(deskEquities.ledgerReconciliation, { accountMismatch: 0, crossBooked: 1 });
+  assert.deepEqual(deskLedgerAlert(deskEquities), { reason: DESK_LOT_ON_FLAT_CONTRACT, crossBooked: 1 });
+  for (const revision of [10, 11]) {
+    const snapshot = stageV2(input, input.jResult, deskEquities, revision);
+    for (const desk of snapshot.desks) {
+      for (const field of ["equity", "openPnl", "totalPnl"]) {
+        assert.equal(desk.money[field].currency, "EUR", `${desk.id} ${field} stays published`);
+      }
+      assert.deepEqual(desk.money.reasons, { dayPnl: "sod_missing" }, `${desk.id}: only DAY waits, for its own reason`);
+    }
+    assert.deepEqual(snapshot.desks.map(desk => desk.state), ["working", "working", "sit-out"]);
+    for (const field of ["equity", "openPnl", "totalPnl"]) assert.equal(snapshot.totals[field].currency, "EUR", field);
+    assert.equal(JSON.stringify(snapshot).includes(LEDGER_UNRECONCILED), false, "nothing is withheld as unreconciled");
+    assert.equal(JSON.stringify(snapshot).includes(DESK_LOT_ON_FLAT_CONTRACT), false, "the alert changes no pair or contract field");
+  }
+  const v1 = projectBook({ ts: OBSERVED, gateway: true, summary: {}, positions: input.positions },
+    { publisherAt: new Date(OBSERVED), familyRuntimeEnabled: true, family: input.jResult, deskEquities,
+      deskOwnershipPolicy: input.policy });
+  for (const id of ["j", "joe", "joel"]) {
+    assert.equal(v1.desks.find(desk => desk.id === id).money.equity, deskEquities.equity[id], id);
+  }
+  assert.equal(v1.totals.equity, deskEquities.equity.total);
+  assert.deepEqual(v1.desks.flatMap(desk => desk.issues), []);
+});
+
+test("flat-contract guard passes owned, flat, exact-KEEP and same-direction shared books", () => {
+  const owned = calculateDeskEquities({ ...fixture(), account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.equal(owned.ok, true, owned.reason);
+  assert.equal(owned.desks.j.positions[0].quantity, 1, "J's lot is the account's position");
+  assert.equal(Object.hasOwn(owned, "ledgerReconciliation"), false);
+
+  const flat = fixture();
+  flat.ledgerState.executions.shift();
+  flat.ledgerState.commissions.shift();
+  flat.ledgerState.queryExecutionIdentities = flat.ledgerState.executions.map(row => row.execution.execId).sort();
+  flat.verifiedHistoryState = officialHistory(flat.ledgerState.executions, flat.ledgerState.commissions);
+  flat.positions = flat.positions.filter(row => row.symbol !== "ACME");
+  assert.deepEqual(flat.positions.map(row => row.symbol), ["SXR8", "TSLA"], "only exact KEEP remains in the account");
+  flat.portfolio = [];
+  const flatResult = calculateDeskEquities({ ...flat, jResult: null, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  assert.equal(flatResult.ok, true, flatResult.reason);
+  for (const desk of ["j", "joe", "joel"]) {
+    assert.deepEqual(flatResult.desks[desk].positions, []);
+    assert.equal(flatResult.phaseBDesks[desk].reconciled, true);
+  }
+
+  const shared = fixture();
+  const joeAlso = execution("joe.acme.01", 22, "ACME", 101, { shares: 2, time: "20260911 10:05:00 US/Eastern" });
+  shared.ledgerState.executions.push(joeAlso);
+  shared.ledgerState.commissions.push(commission(joeAlso.execution.execId));
+  shared.ledgerState.queryExecutionIdentities = shared.ledgerState.executions.map(row => row.execution.execId).sort();
+  shared.verifiedHistoryState = officialHistory(shared.ledgerState.executions, shared.ledgerState.commissions);
+  shared.positions.find(row => row.symbol === "ACME").pos = 3;
+  shared.portfolio[0].pos = 3;
+  const sharedResult = calculateDeskEquities({ ...shared, jResult: null, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(sharedResult.ok, true, sharedResult.reason);
+  assert.equal(sharedResult.desks.j.positions[0].quantity, 1);
+  assert.equal(sharedResult.desks.joe.positions[0].quantity, 2);
+});
+
+test("flat-contract guard leaves an opposite lot on a contract the account still holds to the sum", () => {
+  // Documented boundary (README, JOED-196): J +4 and Joe -1 add up to the
+  // account's +3. Only a flat contract proves that no desk can hold a lot.
+  const input = fixture();
+  input.ledgerState.executions[0].execution.shares = 4;
+  const joeShort = execution("joe.acme.short.01", 22, "ACME", 101, { side: "SLD", time: "20260911 10:05:00 US/Eastern" });
+  input.ledgerState.executions.push(joeShort);
+  input.ledgerState.commissions.push(commission(joeShort.execution.execId));
+  input.ledgerState.queryExecutionIdentities = input.ledgerState.executions.map(row => row.execution.execId).sort();
+  input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  input.positions.find(row => row.symbol === "ACME").pos = 3;
+  input.portfolio[0].pos = 3;
+  const result = calculateDeskEquities({ ...input, jResult: null, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.desks.j.positions[0].quantity, 4);
+  assert.equal(result.desks.joe.positions[0].quantity, -1);
+});
+
+for (const [label, change] of [
+  ["the account holds more than the desks own", input => { input.positions.find(row => row.symbol === "ACME").pos = 2; }],
+  ["the account holds the opposite direction", input => { input.positions.find(row => row.symbol === "ACME").pos = -1; }],
+  ["a desk lot the account does not hold", input => { input.positions = input.positions.filter(row => row.symbol !== "ACME"); }],
+  ["a non-KEEP position no desk owns", input => {
+    input.positions.push({ account: ACCOUNT, contract: contract("OTHER", 103), symbol: "OTHER", pos: 1 });
+  }],
+]) test(`flat-contract guard: ${label} is ledger_unreconciled before any desk is valued`, () => {
+  const input = fixture();
+  const before = structuredClone(input.ledgerState);
+  change(input);
+  for (const jResult of [input.jResult, null]) {
+    assert.deepEqual(calculateDeskEquities({ ...input, jResult, account: ACCOUNT, observedAt: OBSERVED, phaseB: true }), {
+      ok: false, reason: LEDGER_UNRECONCILED,
+      ledgerReconciliation: { accountMismatch: 1, crossBooked: 0 }, phaseBDesks: UNRECONCILED_DESKS,
+    });
+  }
+  const plain = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.deepEqual(plain, { ok: false, reason: LEDGER_UNRECONCILED, ledgerReconciliation: { accountMismatch: 1, crossBooked: 0 } });
+  assert.deepEqual(input.ledgerState, before);
+});
+
+test("KEEP, ownership and input failures keep their own reasons ahead of the flat-contract guard", () => {
+  const mismatch = accountMismatchFixture();
+  const calculate = change => {
+    const input = structuredClone({ ...mismatch, jResult: null });
+    change(input);
+    return calculateDeskEquities({ ...input, policy: PRE_OVERRIDE_POLICY, account: ACCOUNT, observedAt: OBSERVED, phaseB: true });
+  };
+  assert.equal(calculate(() => {}).reason, LEDGER_UNRECONCILED);
+  const keep = calculate(input => { input.positions.find(row => row.symbol === "SXR8").pos = 1400; });
+  assert.match(keep.reason, /KEEP positions do not exactly match/);
+  const unclaimed = calculate(input => {
+    input.ledgerState.executions[1].execution.clientId = 99;
+    input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  });
+  assert.match(unclaimed.reason, /unclaimed by the desk ownership policy/);
+  const duplicateKeep = calculate(input => { input.positions.push(structuredClone(input.positions.find(row => row.symbol === "SXR8"))); });
+  assert.match(duplicateKeep.reason, /KEEP positions do not exactly match/);
+  const duplicate = calculate(input => { input.positions.push(structuredClone(input.positions.find(row => row.symbol === "ACME"))); });
+  assert.match(duplicate.reason, /duplicate observed position contract/);
+  const malformed = calculate(input => { input.positions.push({ account: ACCOUNT, pos: 1 }); });
+  assert.match(malformed.reason, /position contract symbol is missing/);
+  for (const result of [keep, unclaimed, duplicateKeep, duplicate, malformed]) {
+    assert.equal(result.ok, false);
+    assert.equal(Object.hasOwn(result, "ledgerReconciliation"), false);
+    assert.equal(Object.hasOwn(result, "phaseBDesks"), false);
+  }
+});
+
+test("the ledger-versus-history proof is the valuation's own comparison and fails for the valuation's reason", () => {
+  // JOED-196 (Codex gate r2): the offline deploy gate reuses this proof, so a
+  // ledger the valuation would reject cannot pass the gate.
+  assert.deepEqual(deskLedgerMatchesHistory(currentFixture()), { ok: true });
+  assert.equal(calculateDeskEquities(currentFixture()).ok, true);
+  const AVGO_BUY = "0000e0d5.6ab27b67.01.01";
+  const row = input => input.ledgerState.executions.find(item => item.execution.execId === AVGO_BUY);
+  const fee = input => input.ledgerState.commissions.find(item => item.execId === AVGO_BUY);
+  const drifted = "live ledger historical economics do not match authoritative all-account history";
+  for (const [label, change, reason] of [
+    ["price", input => { row(input).execution.price += 1; }, drifted],
+    ["quantity", input => { row(input).execution.shares += 1; }, drifted],
+    ["side", input => { row(input).execution.side = "SLD"; }, drifted],
+    ["time", input => { row(input).execution.time = "2026-09-22T16:08:52Z"; }, drifted],
+    ["client", input => { row(input).execution.clientId = 80; }, drifted],
+    ["commission amount", input => { fee(input).commission += 0.01; }, drifted],
+    ["commission currency", input => { fee(input).currency = "EUR"; }, drifted],
+    ["an extra ledger fill", input => {
+      const extra = execution("extra.ledger.01", 27, "OTHER", 103, { time: "2026-10-01T15:00:00Z" });
+      input.ledgerState.executions.push(extra);
+      input.ledgerState.commissions.push(commission("extra.ledger.01"));
+    }, drifted],
+    ["a history-only price", input => {
+      const executions = structuredClone(input.ledgerState.executions);
+      executions.find(item => item.execution.execId === AVGO_BUY).execution.price += 1;
+      input.verifiedHistoryState = officialHistory(executions, input.ledgerState.commissions,
+        { toExclusive: input.observedAt, capturedAt: input.observedAt });
+    }, drifted],
+    ["missing commission", input => { input.ledgerState.commissions.splice(input.ledgerState.commissions.indexOf(fee(input)), 1); },
+      `missing commission for classified execution ${AVGO_BUY}`],
+    ["pending correction", input => { row(input).execution.pendingPriceRevision = true; },
+      "all-account ledger contains a pending execution correction"],
+    ["foreign account", input => { row(input).execution.acctNumber = "SYNTHETIC-OTHER"; },
+      "execution account does not match the all-desk source"],
+    ["fill after coverage", input => { row(input).execution.time = "2026-11-04T12:00:01Z"; },
+      "live ledger contains an execution after its coverage boundary"],
+  ]) {
+    const input = currentFixture();
+    change(input);
+    const valuation = calculateDeskEquities(input);
+    assert.equal(valuation.ok, false, label);
+    assert.equal(valuation.reason, reason, label);
+    assert.deepEqual(deskLedgerMatchesHistory(input), { ok: false, reason }, label);
+  }
+  assert.equal(deskLedgerMatchesHistory({ ...currentFixture(), account: "SYNTHETIC-OTHER" }).ok, false);
+  assert.equal(deskLedgerMatchesHistory({ ...currentFixture(), ledgerState: undefined }).ok, false);
+  assert.equal(deskLedgerMatchesHistory().ok, false);
+
+  // Fills of the ledger's current New York day lie outside the comparison, here
+  // exactly as in the valuation: direct coverage values them from the ledger.
+  const today = fixture();
+  today.ledgerState.executions[0].execution.price += 1;
+  assert.deepEqual(deskLedgerMatchesHistory({ ...today, account: ACCOUNT }), { ok: true });
+  assert.equal(calculateDeskEquities({ ...today, jResult: null, account: ACCOUNT, observedAt: OBSERVED }).ok, true);
+});
+
 test("NVDA NY boundary evidence uses corrected ownership and rejects a pre-override history revision", () => {
-  const input = nvdaFixture();
+  const input = currentFixture();
   const candidateSourceObservedAt = "2026-11-05T04:59:50.000Z";
   const periodStart = "2026-11-05T05:00:00.000Z";
   const revision = policy => deskLedgerRevisionAt({ ...input, policy,
@@ -939,7 +1338,7 @@ test("Joe ownership claims the 2026-09-23 shared-account order clients and exact
   assert.match(calculateDeskEquities({ ...reader, account: ACCOUNT, observedAt: OBSERVED }).reason, /unclaimed/);
 });
 
-test("J long and Joe short on one contract still produce desk equity and the J family projection", () => {
+test("J long and Joe short on one flat contract still produce desk equity and the J family projection, counted as an alert", () => {
   const input = fixture();
   const jLong = execution("j.nvda.long.01", 83, "NVDA", 5001, {
     shares: 4,
@@ -987,24 +1386,63 @@ test("J long and Joe short on one contract still produce desk equity and the J f
     { contractKey: "conId:5001", symbol: "NVDA", quantity: -4 },
   ]);
 
-  const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
-  assert.equal(result.ok, true, result.reason);
-  assert.equal(result.equity.j, 5004.32);
-  assert.equal(result.equity.joe, 5002.43);
-  assert.equal(result.equity.joel, 5000);
-  assert.equal(result.equity.total, 15006.75);
-  assert.deepEqual(
-    result.desks.j.positions.filter((row) => row.symbol === "NVDA").map(({ side, quantity }) => ({ side, quantity })),
-    [{ side: "Long", quantity: 4 }],
-  );
-  assert.deepEqual(
-    result.desks.joe.positions.map(({ symbol, side, quantity }) => ({ symbol, side, quantity })),
-    [{ symbol: "NVDA", side: "Short", quantity: -4 }],
-  );
-  assert.deepEqual(result.ownershipEvidence.exactKeepPositions, [
-    { symbol: "SXR8", quantity: 1401 },
-    { symbol: "TSLA", quantity: 1 },
-  ]);
+  // JOED decision (JOED-196, M1): the fills cannot tell this legitimate book
+  // from a cross-booked close, so it keeps its money (as before JOED-196) and
+  // is only counted. The executor's anti-piling rule is what keeps it rare.
+  for (const jResult of [input.jResult, null]) {
+    const result = calculateDeskEquities({ ...input, jResult, account: ACCOUNT, observedAt: OBSERVED });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.equity.j, 5004.32);
+    assert.equal(result.equity.joe, 5002.43);
+    assert.equal(result.equity.joel, 5000);
+    assert.equal(result.equity.total, 15006.75);
+    assert.deepEqual(
+      result.desks.j.positions.filter((row) => row.symbol === "NVDA").map(({ side, quantity }) => ({ side, quantity })),
+      [{ side: "Long", quantity: 4 }],
+    );
+    assert.deepEqual(
+      result.desks.joe.positions.map(({ symbol, side, quantity }) => ({ symbol, side, quantity })),
+      [{ symbol: "NVDA", side: "Short", quantity: -4 }],
+    );
+    assert.deepEqual(result.ownershipEvidence.exactKeepPositions, [
+      { symbol: "SXR8", quantity: 1401 },
+      { symbol: "TSLA", quantity: 1 },
+    ]);
+    assert.deepEqual(result.ledgerReconciliation, { accountMismatch: 0, crossBooked: 1 });
+    assert.deepEqual(deskLedgerAlert(result), { reason: DESK_LOT_ON_FLAT_CONTRACT, crossBooked: 1 });
+  }
+  // Once the account holds the contract again the count clears, although both
+  // lots are still open: a cleared count is not proof of correction.
+  const held = execution("j.nvda.add.01", 83, "NVDA", 5001, { shares: 1, price: 11, time: "20260911 10:32:00 US/Eastern" });
+  input.ledgerState.executions.push(held);
+  input.ledgerState.commissions.push(commission(held.execution.execId));
+  input.ledgerState.queryExecutionIdentities.push(held.execution.execId);
+  input.ledgerState.queryExecutionIdentities.sort();
+  input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  input.positions.push({ account: ACCOUNT, contract: contract("NVDA", 5001), symbol: "NVDA", pos: 1 });
+  input.portfolio.find(row => row.symbol === "NVDA").pos = 1;
+  const cleared = calculateDeskEquities({ ...input, jResult: null, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(cleared.ok, true, cleared.reason);
+  assert.deepEqual(cleared.desks.j.positions.filter(row => row.symbol === "NVDA").map(row => row.quantity), [5]);
+  assert.deepEqual(cleared.desks.joe.positions.map(row => row.quantity), [-4]);
+  assert.equal(Object.hasOwn(cleared, "ledgerReconciliation"), false);
+  assert.equal(deskLedgerAlert(cleared), null);
+});
+
+test("the health reason is present exactly while a flat contract is counted, whatever the outcome", () => {
+  const alert = { reason: "desk_lot_on_flat_contract", crossBooked: 2 };
+  assert.equal(DESK_LOT_ON_FLAT_CONTRACT, alert.reason);
+  for (const ok of [true, false]) {
+    assert.deepEqual(deskLedgerAlert({ ok, ledgerReconciliation: { accountMismatch: 0, crossBooked: 2 } }), alert);
+    assert.deepEqual(deskLedgerAlert({ ok, reason: LEDGER_UNRECONCILED, ledgerReconciliation: { accountMismatch: 1, crossBooked: 2 } }), alert);
+  }
+  for (const value of [undefined, null, {}, { ok: true }, { ok: false, reason: LEDGER_UNRECONCILED },
+    { ok: false, ledgerReconciliation: { accountMismatch: 3, crossBooked: 0 } },
+    { ok: true, ledgerReconciliation: { accountMismatch: 0, crossBooked: -1 } },
+    { ok: true, ledgerReconciliation: { accountMismatch: 0, crossBooked: 1.5 } },
+    { ok: true, ledgerReconciliation: { accountMismatch: 0, crossBooked: "2" } }]) {
+    assert.equal(deskLedgerAlert(value), null);
+  }
 });
 
 test("overlapping client ownership policy is rejected before any valuation", () => {

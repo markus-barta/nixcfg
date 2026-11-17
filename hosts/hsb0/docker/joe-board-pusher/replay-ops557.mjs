@@ -10,7 +10,6 @@ import { createExecutorAttribution, validatedExecutionTime } from "./executor-at
 import { createExecutorAttributionMemory, readBoundedJson, MAX_MEMORY_BYTES } from "./executor-attribution-memory.mjs";
 import { calculateFamily, mergeExecutionRecords, VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
 
-const POLICY = CURRENT_DESK_OWNERSHIP_POLICY;
 const DESKS = ["j", "joe", "joel"];
 export const MAX_COPY_AGE_MS = 60 * 60 * 1000;
 // Independent transcription of the reviewed README table; deliberately no prices.
@@ -19,6 +18,10 @@ const EXPECTED = [
   { execId: "0000dc8f.6bd3bc59.01.01", desk: "j", conId: 4815747, symbol: "NVDA", clientId: 229, side: "BUY", shares: 1, time: "2026-10-06T13:40:47.000Z" },
   { execId: "00025b45.6ace1f95.01.01", desk: "joe", conId: 4815747, symbol: "NVDA", clientId: 28, side: "BUY", shares: 4, time: "2026-10-12T19:50:12.000Z" },
 ];
+// This gate proves the OPS-557 rows alone. Rows added by later corrections
+// (JOED-196) have their own gate, replay-joed196.mjs, which covers the whole table.
+const POLICY = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides:
+  CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides.filter(rule => rule.basis.startsWith("OPS-557 ")) };
 
 function owner(row, policy, attribution) {
   const override = policy.fillAttributionOverrides.find(rule => rule.execId === row.execution.execId);
@@ -36,13 +39,24 @@ function owner(row, policy, attribution) {
 // Identical owned fills and fees also prove identical opening FIFO lots, which
 // calculateFamily intentionally does not expose in its public position rows.
 export function replayDeskHistory(history, attribution, policy = POLICY) {
+  return replayDeskRows({ rows: effectiveExecutionRecords(history), commissions: history.commissions,
+    account: history.account, observedAt: history.updatedAt }, attribution, policy);
+}
+
+// The same replay over any complete accounting source: its effective rows
+// (corrections already merged), fees, account and observation clock. JOED-196
+// also replays the merged family ledger, which production values directly.
+export function replayDeskRows({ rows, commissions, account, observedAt }, attribution, policy = POLICY) {
   const byContract = new Map();
-  for (const raw of effectiveExecutionRecords(history)) {
+  for (const raw of rows) {
     const row = normalizeEconomicExecution(raw);
     if (policy.excludedSymbols.includes(row.contract.symbol)) continue;
     if (raw.execution.pendingPriceRevision === true || row.execution.time < new Date(policy.periodStart).toISOString()) {
       throw new Error("replay history unavailable");
     }
+    // A row's own order key feeds the executor intent join, as in production's
+    // normalizeDeskExecution. Normalized history rows carry none.
+    if (Number.isSafeInteger(raw.execution.orderId) && raw.execution.orderId > 0) row.execution.orderId = raw.execution.orderId;
     const desk = owner(row, policy, attribution);
     // A proven, flat OPS-test group is the runtime's explicit exclusion.
     if (desk === null) continue;
@@ -58,21 +72,21 @@ export function replayDeskHistory(history, attribution, policy = POLICY) {
     const contract = group[0].row.contract;
     if (group.some(({ row }) => !isDeepStrictEqual(row.contract, contract))) throw new Error("replay contract unavailable");
     const ids = new Set(group.map(({ row }) => row.execution.execId));
-    const fees = history.commissions.filter(fee => ids.has(fee.execId));
+    const fees = commissions.filter(fee => ids.has(fee.execId));
     const currencies = new Set(["EUR", contract.currency, ...fees.map(fee => fee.currency)]);
     const quantity = group.reduce((sum, { row }) => sum + (row.execution.side === "BUY" ? 1 : -1) * row.execution.shares, 0);
-    const portfolio = [{ contract, pos: quantity, marketPrice: 1, markObservedAt: history.updatedAt }];
-    const positions = [{ contract, pos: quantity, account: history.account }];
+    const portfolio = [{ contract, pos: quantity, marketPrice: 1, markObservedAt: observedAt }];
+    const positions = [{ contract, pos: quantity, account }];
     for (const desk of DESKS) {
       const owned = group.filter(fill => fill.desk === desk).map(fill => fill.row);
       const ownedIds = new Set(owned.map(row => row.execution.execId));
       const result = calculateFamily({
         executions: group.map(({ row, desk: owner }) => ({ contract: row.contract,
           execution: { ...row.execution, clientId: owner === desk ? 1 : 2 } })),
-        commissions: fees, account: history.account, familyClientIds: [1],
+        commissions: fees, account, familyClientIds: [1],
         excludedSymbols: policy.excludedSymbols, periodStart: policy.periodStart,
-        portfolio, positions, observedAt: history.updatedAt,
-        fx: { baseCurrency: "EUR", observedAt: history.updatedAt,
+        portfolio, positions, observedAt,
+        fx: { baseCurrency: "EUR", observedAt,
           rates: Object.fromEntries([...currencies].map(currency => [currency, 1])) },
         ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
       });
@@ -166,7 +180,8 @@ export function ops557ReplayGate({ history, executorLedger, memoryState, familyL
   return { ok: checks.every(check => check.pass), checks };
 }
 
-export function runReplayGate(args, write = line => console.log(line)) {
+// Shared command line: replay-joed196.mjs passes its own gate and label.
+export function runReplayGate(args, write = line => console.log(line), gate = ops557ReplayGate, label = "OPS-557") {
   let result;
   try {
     const files = [...args];
@@ -174,12 +189,12 @@ export function runReplayGate(args, write = line => console.log(line)) {
     if (flag < 0 || files.length !== 6) throw new Error("four input files and deploy date required");
     const [, deployDate] = files.splice(flag, 2);
     if (files.some(file => file.startsWith("--"))) throw new Error("invalid arguments");
-    result = ops557ReplayGate({ history: readBoundedJson(files[0], 64 * 1024 * 1024),
+    result = gate({ history: readBoundedJson(files[0], 64 * 1024 * 1024),
       executorLedger: readBoundedJson(files[1], 16 * 1024 * 1024), memoryState: readBoundedJson(files[2], MAX_MEMORY_BYTES),
       familyLedger: readBoundedJson(files[3], 16 * 1024 * 1024), deployDate });
   } catch { result = { ok: false, checks: [{ name: "four input files and deploy date", pass: false }] }; }
   for (const { name, pass } of result.checks) write(`${pass ? "PASS" : "FAIL"} ${name}`);
-  write(`${result.ok ? "PASS" : "FAIL"} OPS-557 deploy gate`);
+  write(`${result.ok ? "PASS" : "FAIL"} ${label} deploy gate`);
   return result.ok ? 0 : 1;
 }
 
