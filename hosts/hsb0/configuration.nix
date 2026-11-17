@@ -331,8 +331,8 @@ assert joeSet.pusher != null && joeSet.executor != null;
       "joe-board-pusher"
     ]
     ++ lib.optional joeHouseholdV2StageEnabled "joe-household-v2-stage";
-    # OPS-556 r23 (desk equity close recorder, first-day pin remains null): household-v2-switch-set-r23-202611131200, selected
-    # only by the release set. Shared-image rollback retains r22 (OPS-556 step 2); the separate
+    # OPS-556 / JOED-196 r24 (desk equity closes, fixed first day 2026-11-18): household-v2-switch-set-r24-202611172230, selected
+    # only by the release set. Shared-image rollback retains r23 (OPS-556); the separate
     # current v1 set retains household-v2-switch-set-r16d-202610201800. No rebuild on switch.
     spec = lib.recursiveUpdate joeComposeSpec (
       lib.recursiveUpdate

@@ -1351,7 +1351,7 @@ tree, and refuse if the selected tag equals the running image while the pinned
 pusher tree differs from the running one. Merge #1228 with a merge
 commit (not squash) so the pinned commit stays reachable from main.
 
-OPS-556 now prepares `household-v2-switch-set-r23-202611131200` from
+OPS-556 prepared `household-v2-switch-set-r23-202611131200` from
 `5b754845115206c7d8469b1629eb644874f32185` (#1249). The v2 pusher pin is tree
 `fc9f97db3b022df988bbd473481404611b1df111`; the executor pin is tree
 `fc279405adfeaf54a7253ebc228542d2015ab77f` at the same revision. The executor
@@ -1380,6 +1380,20 @@ sets a reviewed fixed Vienna first day on or after the r23 activation day and
 switches again; do not derive it from the clock. Preserve recorder state,
 outcomes and pin across rollback. An r22 rollback disables the new recorder;
 never truncate outcomes or move the pin backward.
+
+OPS-556 / JOED-196 now prepare `household-v2-switch-set-r24-202611172230` from
+`141676c543ce1f3c0e5fb3f0d24117432fa7c1c4` (the merge of #1251 and #1260). The v2 pusher pin is tree
+`ff8daede6c668cf60783b0ceea7a9eb77fc0edc4`; the executor pin is tree
+`01683d51760c31ed8c2b23668a38649210a3c5ba` at the same revision. Only README/tests
+change under the pusher path in this release commit; they are excluded from the
+image build context. The executor's image-comment edit changes no runtime source.
+Seed r24 once from `git archive 141676c543ce1f3c0e5fb3f0d24117432fa7c1c4:hosts/hsb0/docker/joe-board-pusher`,
+verify its recorded tree against the release set and new image ID, then switch
+all four services together. Never rebuild a published tag. Retain r23
+`household-v2-switch-set-r23-202611131200` and the asserted pre-switch generation for rollback.
+The first-day pin remains the reviewed fixed `2026-11-18` from #1251; preserve
+recorder state, immutable outcomes and that pin across rollback. Build the system
+from the reviewed merge commit, retaining the pinned source revision's reachability.
 
 The pusher, stager, executor and mailbox share the tag and recreate together;
 the existing compose post-recreation also recreates `hsb0-home`. The exact allowed
