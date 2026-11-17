@@ -57,7 +57,8 @@ preserve the bad state in an owner-only archive and move aside ONLY that state
 file under operator control. Retain the pin and current immutable outcomes;
 replay preserves their committed closes. Restart without state starts today
 and leaves unrecorded days unknown. Restore a matched backup pair ONLY when
-the outcomes file itself is lost. An older outcomes backup loses later
+the outcomes file itself is lost or corrupt (after preserving the corrupt copy).
+An older outcomes backup loses later
 committed closes and can turn previously published exact closes into null.
 Preserve a corrupt outcomes stream for operator recovery; never truncate it
 to make validation pass. Never invent historical observations.
@@ -101,11 +102,19 @@ outcome gets no_record, even if it has no activity row. Producer logs include
 only newly changed diagnostics, at most 20 plus a summary with per-reason
 counts for the entire new batch when truncated. Integrity reasons (stream
 errors, duplicates, conflicts, invalid data and open days) come first; each
-priority group is newest-day first. The complete value-free list is atomically
-written to /var/lib/joe-results-producer/equity-close-diagnostics.json (0600)
-after attempted ticks, including failed publication attempts. Unchanged lists
-are not rewritten; write failures log at most once per 15 minutes and do not
-stop Results publication. The outcomes reader caps its input at
+priority group is newest-day first. The first 50 value-free entries in that
+order are atomically written to
+/var/lib/joe-results-producer/equity-close-diagnostics.json (0600), as an object
+with diagnostics and reasonCounts counting all entries, including dropped ones.
+Writes start only after outcomes evaluation, including failed publication
+attempts after evaluation; an evaluated empty list clears old warnings.
+Unchanged content is not rewritten. Startup removes only matching
+<filename>.*.tmp regular files in that directory, ignoring cleanup errors.
+A lost or corrupt diagnostics file is replaced by the next evaluated content;
+the writer does not read or preserve the previous copy. Preserve any corrupt
+copy manually before replacement if needed for investigation. Write failures
+log at most once per 15 minutes and do not stop Results publication.
+The outcomes reader caps its input at
 64 MiB; exceeding it fails closed.
 
 Offline validation (local cached nixpkgs, no NixOS build):

@@ -19,11 +19,26 @@ export function readJson(filename) {
 }
 
 // Derived, value-free operator diagnostics; persistence must not stop Results.
+export const EQUITY_CLOSE_DIAGNOSTICS_LIMIT = 50;
 export function createEquityCloseDiagnosticsWriter(filename = '/var/lib/joe-results-producer/equity-close-diagnostics.json',
   { io = fs, diagnostic = event => console.error(JSON.stringify(event)) } = {}) {
+  const directory = path.dirname(filename), prefix = `${path.basename(filename)}.`;
+  try {
+    for (const entry of io.readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.startsWith(prefix) || !entry.name.slice(prefix.length).endsWith('.tmp')) continue;
+      try { io.unlinkSync(path.join(directory, entry.name)); } catch { /* Best-effort crash cleanup. */ }
+    }
+  } catch { /* Missing/unreadable diagnostics storage must not stop Results. */ }
   let previous, nextWarning = -Infinity;
   return diagnostics => {
-    const bytes = JSON.stringify(diagnostics) + '\n';
+    // null means no outcomes evaluation yet; an evaluated empty list clears old warnings.
+    if (diagnostics === null) return;
+    const reasonCounts = {};
+    for (const { reason } of diagnostics) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+    const integrity = reason => reason.startsWith('stream_') || /duplicate_outcome|conflict|invalid|day_not_closed/.test(reason);
+    const entries = [...diagnostics].sort((a, b) => Number(integrity(b.reason)) - Number(integrity(a.reason))
+      || (b.day || '').localeCompare(a.day || '')).slice(0, EQUITY_CLOSE_DIAGNOSTICS_LIMIT);
+    const bytes = JSON.stringify({ diagnostics: entries, reasonCounts }) + '\n';
     if (bytes === previous) return;
     const temp = `${filename}.${randomUUID()}.tmp`;
     try {

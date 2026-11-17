@@ -281,8 +281,10 @@ assert joeSet.pusher != null && joeSet.executor != null;
     # csb0's declarative public IPv4: hosts/csb0/configuration.nix, ens3.
     ingressAddress = "89.58.63.96";
     # OPS-556: DEVOPS sets a fixed Vienna YYYY-MM-DD at deployment after JOED review.
+    # JOED-196 (JOED Opus gate H1, 2026-11-16): 2026-11-18, the first day fully after the
+    # JOED-196 activation (Tue 11-17 22:30), so no mirrored J/Joe close is ever recorded.
     # Keep this pin on rollback; null disables recording and admits no earlier days.
-    equityCloseFirstDay = null;
+    equityCloseFirstDay = "2026-11-18";
     # Default KEEP policy and existing household token (systemd LoadCredential).
   };
   # JOED-43 capture-only (Amy 2026-10-18, Markus Desk 0da0c361): durable Results

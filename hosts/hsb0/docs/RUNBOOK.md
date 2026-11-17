@@ -2013,7 +2013,8 @@ corrupt observation file in an owner-only archive and move aside **ONLY that
 state file** under operator control. Retain the pin and current immutable
 outcomes; replay preserves their committed closes. Restart without state starts
 on today's Vienna day, leaving missed days unknown. Restore a matched backup
-pair **ONLY when the outcomes file itself is lost**. An older outcomes backup
+pair **ONLY when the outcomes file itself is lost or corrupt (after preserving
+the corrupt copy)**. An older outcomes backup
 discards later committed closes and can turn previously published exact closes
 into null. Preserve a corrupt outcome stream for operator recovery; do not
 truncate it to make validation pass. Never hand-edit or reconstruct historical
@@ -2039,8 +2040,17 @@ Startup cleans only this writer's stale UUID `.tmp` files. Repeated recorder
 errors log at most once per reason per 15 minutes. Results logs only new/changed
 diagnostics, at most 20 entries plus per-reason counts for the entire new batch
 when truncated. Integrity warnings come first, with newest days first within
-each priority group. The full value-free list is atomically saved locally at
-`/var/lib/joe-results-producer/equity-close-diagnostics.json` (0600).
+each priority group. The first 50 value-free entries in that order are atomically
+saved locally at `/var/lib/joe-results-producer/equity-close-diagnostics.json`
+(0600), as an object with `diagnostics` and `reasonCounts` counting all entries,
+including dropped ones. Writes start only after outcomes evaluation, including
+failed publication attempts after evaluation; an evaluated empty list clears
+old warnings. Unchanged content is not rewritten. Startup removes only matching
+`<filename>.*.tmp` regular files in that directory, ignoring cleanup errors.
+A lost or corrupt diagnostics file is replaced by the next evaluated content;
+the writer does not read or preserve the previous copy. Preserve any corrupt
+copy manually before replacement if needed for investigation. Write failures
+log at most once per 15 minutes and do not stop Results publication.
 Private observations still fsync each tick.
 The side file contains only closes and clock evidence, no ledger or credentials.
 Results strictly rejects malformed records and duplicate keys; missing,
