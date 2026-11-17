@@ -176,6 +176,10 @@
         # OPS-512: Zitadel issues a refresh token only for offline_access; without it
         # the session dies when the 12 h token expires, despite --cookie-expire.
         "--scope=openid email profile offline_access"
+        # OPS-512 addendum (Markus Desk 53ffa0cc): after a refresh, oauth2-proxy fetched a missing
+        # "groups" claim from Zitadel's userinfo URL, got 401 and discarded the refreshed session.
+        # Claims come from the ID token only (hostdash app: user info inside ID token); no groups used.
+        "--skip-claims-from-profile-url=true"
         "--redirect-url=https://cs0.barta.cm/oauth2/callback"
         "--email-domain=barta.com"
         "--cookie-domain=.barta.cm"
