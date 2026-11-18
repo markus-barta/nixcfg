@@ -26,11 +26,9 @@ in
     # Its kernelModuleAttribute selects linuxPackages_6_18.zfs_2_4 from
     # the same kpkgs; 2.4 supports this kernel without a ZFS downgrade.
     # supportedFilesystems is normalized by NixOS to an attribute set of booleans.
-    boot.zfs.package = lib.mkIf (
-      builtins.elem "zfs" (
-        lib.attrNames (lib.filterAttrs (_: enabled: enabled) config.boot.supportedFilesystems)
-      )
-    ) (lib.mkForce kpkgs.zfs);
+    boot.zfs.package = lib.mkIf (builtins.elem "zfs" (
+      lib.attrNames (lib.filterAttrs (_: enabled: enabled) config.boot.supportedFilesystems)
+    )) (lib.mkForce kpkgs.zfs);
 
     assertions = [
       {
