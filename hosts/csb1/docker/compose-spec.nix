@@ -1812,10 +1812,13 @@ in
       ];
     };
     zitadel = {
-      # IdP at auth.inspr.at. Digest = the image observed live 2026-08-04
-      # (created 2024-07-31; `:stable` had never been re-pulled). Upgrading
-      # is a separate ticket with its own DB-migration plan.
-      image = "ghcr.io/zitadel/zitadel:stable@sha256:5fb493fdb73204667cdd05715ef5f140049bf2781e10fd8ca407ce5aaa29f3df";
+      # IdP at auth.inspr.at. OPS-618: v2.54.8 (stable@sha256:5fb493fd…, 2024)
+      # → v4.20.4 (≥ 4.17.3: 4 critical account-takeover advisories). Direct
+      # jump rehearsed on a copy of this DB (154 migrations, 0 failed); the
+      # migrations run inside `start-from-init` below. v4 switches on web keys:
+      # the JWKS is rebuilt (old v2 key no longer published). Rollback =
+      # revert this line + restore the pre-switch pg_dump (OPS-618 plan).
+      image = "ghcr.io/zitadel/zitadel:v4.20.4@sha256:2133708c00930ba90e2deb38eddc671fe40a2aaff06fa3a09b99d54f89e34be6";
       container_name = "zitadel";
       restart = "unless-stopped";
       depends_on = {
