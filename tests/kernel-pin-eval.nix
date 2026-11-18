@@ -1,5 +1,5 @@
-# OPS-617: applied to the complete csb0 config in CI, including upstream defaults.
-{ config, lib, ... }:
+# OPS-617: applied to the complete host config in CI, including upstream defaults.
+{ config, lib, host ? "csb0", ... }:
 let
   fixed = {
     "6.12" = "6.12.117";
@@ -11,13 +11,13 @@ let
   zfsPkg = "${config.boot.zfs.package}/";
 in
 {
-  csb0PinEnabled = config.fleet.kernelPin.enable;
-  csb0KernelFixed = fixed ? ${mm} && lib.versionAtLeast v fixed.${mm};
-  csb0ZfsVersionsMatch = config.boot.zfs.package.version == config.boot.zfs.modulePackage.version;
-  csb0InitrdUsesPinnedZfs = lib.hasPrefix zfsPkg (
-    config.boot.initrd.systemd.services.csb0-zpool-import-after-network.serviceConfig.ExecStart
+  pinEnabled = config.fleet.kernelPin.enable;
+  kernelFixed = fixed ? ${mm} && lib.versionAtLeast v fixed.${mm};
+  zfsVersionsMatch = config.boot.zfs.package.version == config.boot.zfs.modulePackage.version;
+  initrdUsesPinnedZfs = lib.hasPrefix zfsPkg (
+    config.boot.initrd.systemd.services."${host}-zpool-import-after-network".serviceConfig.ExecStart
   );
-  csb0InitrdZpoolUsesPinnedZfs = lib.hasPrefix zfsPkg (
+  initrdZpoolUsesPinnedZfs = lib.hasPrefix zfsPkg (
     config.boot.initrd.systemd.extraBin.zpool or zfsPkg
   );
 }

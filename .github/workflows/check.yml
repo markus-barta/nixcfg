@@ -877,8 +877,15 @@ jobs:
         if: matrix.host == 'csb0'
         run: |
           nix eval --impure --no-update-lock-file --json .#nixosConfigurations.csb0 \
-            --apply 'system: import ./tests/kernel-pin-eval.nix { inherit (system) config lib; }' \
+            --apply 'system: import ./tests/kernel-pin-eval.nix { inherit (system) config lib; host = "csb0"; }' \
             | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-617 full csb0 evaluation: OK")'
+
+      - name: Verify kernel pin in the full csb1 configuration (OPS-617)
+        if: matrix.host == 'csb1'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.csb1 \
+            --apply 'system: import ./tests/kernel-pin-eval.nix { inherit (system) config lib; host = "csb1"; }' \
+            | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-617 full csb1 evaluation: OK")'
 
       - name: Verify hausnetz in the full hsb0 configuration (OPS-207)
         if: matrix.host == 'hsb0'
