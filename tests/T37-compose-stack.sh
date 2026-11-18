@@ -4,6 +4,7 @@
 # The equivalence gate is the safety property the whole epic rests on: it proves
 # each host's Nix spec parses to exactly the same structure as the compose YAML
 # it replaces, so a migration is a reviewable no-op rather than a rewrite.
+# After retiring that YAML, it checks rendering against the authored Nix spec.
 #
 # Everything asserted below has already failed at least once in a controlled
 # test, so none of it is theoretical:
@@ -24,6 +25,8 @@ fi
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="${repo}/modules/shared/compose-stack/default.nix"
 gate="${repo}/tests/compose_stack_gate.py"
+
+python3 -B -m unittest discover -s "${repo}/tests" -p test_compose_stack_gate.py
 
 nix-instantiate --parse "${module}" >/dev/null
 
