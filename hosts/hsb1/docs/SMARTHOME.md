@@ -241,6 +241,7 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 | **opusweb**             | 3102       | OPUS web application                                   | 🟡 Med   |
 | **pharos-beacon**       | N/A        | Fleet observation reporter                             | 🟡 Med   |
 | **pixdcon**             | 10829      | Pixoo display control                                  | 🟡 Med   |
+| **pixdcon2-edge**       | 8082       | Pixdcon 2 shadow previews                              | 🟢 Low   |
 | **plex**                | 32400      | Media server                                           | 🟡 Med   |
 | **restic-cron-hetzner** | N/A        | Backups                                                | 🟠 High  |
 | **scrypted**            | 10443      | Camera/HomeKit bridge                                  | 🔴 Yes   |

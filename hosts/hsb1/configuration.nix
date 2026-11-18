@@ -279,6 +279,8 @@ in
     project = "docker";
     stackName = "hsb1";
     reconcile = true;
+    # Wants + After: a failed edge seed must not prevent v1's reconciliation.
+    extraAfter = [ "pixdcon2-edge-seed.service" ];
     # OPS-141: restic-cron builds from ./restic-cron and binds its scripts
     # relatively (repo is truth per hsb1 doctrine) — without this the build
     # context resolves against the /nix/store compose-file dir (hsb8 lesson).
@@ -325,6 +327,39 @@ in
             svc;
       in
       s // { services = lib.mapAttrs withBundle s.services; };
+  };
+
+  # PIXD-103: seed only a NEW edge config. v1's live file is read-only.
+  # composeStack.extraAfter uses Wants, never Requires. If migration fails,
+  # the edge container has no config and logs that error; v1 is unaffected.
+  systemd.services.pixdcon2-edge-seed = {
+    description = "Seed pixdcon2-edge from the live pixdcon v1 config in shadow mode";
+    wantedBy = [ "compose-hsb1.service" ];
+    before = [ "compose-hsb1.service" ];
+    after = [
+      "docker.service"
+      "systemd-tmpfiles-setup.service"
+    ];
+    wants = [
+      "docker.service"
+      "systemd-tmpfiles-setup.service"
+    ];
+    unitConfig.ConditionPathExists = "!/home/mba/docker/mounts/pixdcon2-edge/config.json";
+    serviceConfig = {
+      Type = "oneshot";
+      # Bound a stalled image pull too; v1 must eventually proceed.
+      TimeoutStartSec = "300";
+    };
+    script = ''
+      ${config.virtualisation.docker.package}/bin/docker run --rm \
+        --mount type=bind,src=/home/mba/docker/mounts/pixdcon/config.json,dst=/seed/v1-config.json,readonly \
+        --volume /home/mba/docker/mounts/pixdcon2-edge:/data \
+        --volume /home/mba/docker/mounts/pixdcon/scenes:/data/scenes:ro \
+        --volume /home/mba/docker/mounts/pixdcon/generated-scenes:/data/generated-scenes:ro \
+        ${lib.escapeShellArg config.nixcfg.composeStack.spec.services.pixdcon2-edge.image} \
+        node src/config/migrate-v1.js /seed/v1-config.json /data \
+          --output shadow --status-base-topic home/hsb1/pixdcon2-edge
+    '';
   };
 
   # Enable FLIRC IR-USB-Module
@@ -850,7 +885,10 @@ in
 
   # OPS-461: /kig/ on hsb1-home (Kinderzimmer 3D sketch). Snippet + content dir, as hsb0's /videos/.
   environment.etc."hsb1-home-kig.conf".source = ./docker/hsb1-home-kig.conf;
-  systemd.tmpfiles.rules = [ "d /var/lib/kig 0755 mba users - -" ];
+  systemd.tmpfiles.rules = [
+    "d /var/lib/kig 0755 mba users - -"
+    "d /home/mba/docker/mounts/pixdcon2-edge 0755 mba users -"
+  ];
 
   # ============================================================================
   # OPUS SmartHome Stream to MQTT Bridge
