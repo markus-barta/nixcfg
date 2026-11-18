@@ -1,5 +1,5 @@
 # OPS-617: pin the NoisyTCP (CVE-2026-99288) fix without moving the system package set.
-# Temporary: drop when the main nixpkgs pin carries >= 6.18.63.
+# Temporary: drop the pin once the host passes fleet.kernelCveGuard without it.
 {
   config,
   lib,
@@ -9,7 +9,7 @@
 }:
 let
   kpkgs = import inputs.nixpkgs-kernel {
-    system = pkgs.stdenv.hostPlatform.system;
+    localSystem = pkgs.stdenv.hostPlatform;
     config = config.nixpkgs.config;
   };
 in
@@ -21,19 +21,20 @@ in
   };
 
   config = lib.mkIf config.fleet.kernelPin.enable {
+    # This security pin deliberately overrides host kernel settings.
     boot.kernelPackages = lib.mkForce kpkgs.linuxPackages_6_18;
     # kpkgs.zfs is ZFS 2.4.4, matching the main pin's userland version.
     # Its kernelModuleAttribute selects linuxPackages_6_18.zfs_2_4 from
     # the same kpkgs; 2.4 supports this kernel without a ZFS downgrade.
-    # supportedFilesystems is normalized by NixOS to an attribute set of booleans.
-    boot.zfs.package = lib.mkIf (builtins.elem "zfs" (
-      lib.attrNames (lib.filterAttrs (_: enabled: enabled) config.boot.supportedFilesystems)
-    )) (lib.mkForce kpkgs.zfs);
+    # mkForce overrides hokage's normal-priority ZFS package setting.
+    boot.zfs.package = lib.mkForce kpkgs.zfs;
 
     assertions = [
       {
-        assertion = lib.versionAtLeast config.boot.kernelPackages.kernel.version "6.18.63";
-        message = "OPS-617: fleet.kernelPin requires kernel >= 6.18.63 for the NoisyTCP fix.";
+        # supportedFilesystems is normalized by NixOS to an attribute set of booleans.
+        assertion =
+          !(config.boot.supportedFilesystems.zfs or false) || pkgs.zfs.version == kpkgs.zfs.version;
+        message = "OPS-617: the main pin's ZFS userland (sanoid/syncoid) differs from the pinned kernel module; bump nixpkgs-kernel or drop the pin";
       }
     ];
   };

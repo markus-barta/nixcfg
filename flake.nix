@@ -9,7 +9,8 @@
     # OPS-617 (CVE-2026-99288 NoisyTCP): kernel-only package source. Used ONLY for
     # boot.kernelPackages / boot.zfs.package on hosts that enable modules/kernel-pin.nix,
     # so the fixed LTS kernel lands without moving the rest of the OS. nixos-unstable (2026-11-17) at this
-    # rev carries linuxPackages_6_18 = 6.18.63. Drop once the main nixpkgs pin carries >= 6.18.63.
+    # rev carries linuxPackages_6_18 = 6.18.63;
+    # drop the pin once the host passes fleet.kernelCveGuard without it.
     nixpkgs-kernel.url = "github:nixos/nixpkgs/04906337b6d53e8bb0eaf0470ae9f070a4d4eb55";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";

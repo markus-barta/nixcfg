@@ -18,6 +18,7 @@ assert inputs.joedesk.rev == joeSet.board.rev;
 {
   imports = [
     ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -103,6 +104,7 @@ assert inputs.joedesk.rev == joeSet.board.rev;
   # BOOTLOADER CONFIGURATION
   # ============================================================================
   fleet.kernelPin.enable = true; # OPS-617: NoisyTCP fix, csb0 rollout only.
+  fleet.kernelCveGuard.enable = true;
   boot.supportedFilesystems = [ "zfs" ];
 
   boot.loader.grub = {
