@@ -23,8 +23,11 @@ for host in csb0 csb1; do
   grep -Fq 'wants = [ "network-online.target" ];' "$config"
   grep -Fq 'before = [ "sysroot.mount" ];' "$config"
   # The expression intentionally verifies the literal Nix interpolation.
+  # OPS-617: a host on the kernel pin imports with boot.zfs.package, because the
+  # initrd only carries the pinned ZFS package; other hosts keep pkgs.zfs.
   # shellcheck disable=SC2016
-  grep -Fq 'ExecStart = "${pkgs.zfs}/bin/zpool import -a";' "$config"
+  grep -Fq 'ExecStart = "${pkgs.zfs}/bin/zpool import -a";' "$config" ||
+    grep -Fq 'ExecStart = "${config.boot.zfs.package}/bin/zpool import -a";' "$config"
 done
 
 printf 'ok: host-platform and systemd-initrd migrations are explicit\n'
