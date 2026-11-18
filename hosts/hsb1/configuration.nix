@@ -19,6 +19,8 @@ let
 in
 {
   imports = [
+    ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./media-pool.nix # external 4TB USB — Plex media ZFS pool
@@ -147,6 +149,9 @@ in
       "noperm" # Don't check permissions on client side
     ];
   };
+
+  fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
+  fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
 
   # Accept the route-information option in router adverts, so the Thread
   # network (Matter, IKEA) is reachable via the Apple border routers
