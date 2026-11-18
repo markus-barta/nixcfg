@@ -44,8 +44,8 @@
 # ── carried from the retired docker-compose.yml ──
 # name: miniserver24
 let
-  # pinned after E2 (PIXD-76) publishes the image
-  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:PIN-ME@sha256:0000000000000000000000000000000000000000000000000000000000000000";
+  # pixdcon main d3c5d853c (PIXD-76 E2, CI run 44337418491); updated only by PR
+  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:sha-d3c5d85@sha256:a9b9beba4a229ce280f3f933f9d44e0e9719e7fa3c8dc1db0c4912b100e19d2c";
 in
 {
   services = {

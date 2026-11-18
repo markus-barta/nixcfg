@@ -677,7 +677,7 @@ so config saves can replace `config.json` atomically. v1's `scenes` and
 `generated-scenes`, plus funkeykid images, are mounted read-only. Both
 controllers use `/run/agenix/hsb1-pixdcon-env`; its revision label recreates
 both after a secret rotation. The edge image is pinned by digest and updated
-only through a PR; replace the draft `PIN-ME` pin after E2 (PIXD-76) publishes.
+only through a PR.
 
 Before `compose-hsb1.service`, the best-effort `pixdcon2-edge-seed.service`
 runs the same image's `migrate-v1.js` against a read-only mount of v1's live
