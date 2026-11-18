@@ -1,5 +1,10 @@
 # OPS-617: applied to the complete host config in CI, including upstream defaults.
-{ config, lib, host ? "csb0", ... }:
+{
+  config,
+  lib,
+  host ? "csb0",
+  ...
+}:
 let
   fixed = {
     "6.12" = "6.12.117";
