@@ -17,6 +17,7 @@ in
 assert inputs.joedesk.rev == joeSet.board.rev;
 {
   imports = [
+    ../../modules/kernel-pin.nix
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -101,6 +102,7 @@ assert inputs.joedesk.rev == joeSet.board.rev;
   # ============================================================================
   # BOOTLOADER CONFIGURATION
   # ============================================================================
+  fleet.kernelPin.enable = true; # OPS-617: NoisyTCP fix, csb0 rollout only.
   boot.supportedFilesystems = [ "zfs" ];
 
   boot.loader.grub = {
@@ -129,7 +131,7 @@ assert inputs.joedesk.rev == joeSet.board.rev;
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.zfs}/bin/zpool import -a";
+      ExecStart = "${config.boot.zfs.package}/bin/zpool import -a"; # OPS-617: match the pinned module.
     };
   };
 
