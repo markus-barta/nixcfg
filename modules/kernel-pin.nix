@@ -22,6 +22,10 @@ in
 
   config = lib.mkIf config.fleet.kernelPin.enable {
     boot.kernelPackages = lib.mkForce kpkgs.linuxPackages_6_18;
+    # The main pin's NixOS modules read kernel.buildDTBs, which the nixos-26.05 kernel
+    # package doesn't carry. Device trees only matter on ARM boards; on x86 turn them off
+    # explicitly so evaluation doesn't reach the missing attribute.
+    hardware.deviceTree.enable = lib.mkIf pkgs.stdenv.hostPlatform.isx86 (lib.mkForce false);
     # kpkgs.zfs is ZFS 2.4.4, matching the main pin's userland version.
     # Its kernelModuleAttribute selects linuxPackages_6_18.zfs_2_4 from
     # the same kpkgs; 2.4 supports this kernel without a ZFS downgrade.
