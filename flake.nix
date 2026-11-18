@@ -6,6 +6,11 @@
     # (environment.corePackages doesn't exist in stable)
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
+    # OPS-617 (CVE-2026-99288 NoisyTCP): kernel-only package source. Used ONLY for
+    # boot.kernelPackages / boot.zfs.package on hosts that enable modules/kernel-pin.nix,
+    # so the fixed LTS kernel lands without moving the rest of the OS. nixos-26.05 at this
+    # rev carries linuxPackages_6_18 = 6.18.63. Drop once the main nixpkgs pin carries >= 6.18.63.
+    nixpkgs-kernel.url = "github:nixos/nixpkgs/f68407657ad294471eb4b2e65d193df26edf729f";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
     agenix.url = "github:ryantm/agenix";
