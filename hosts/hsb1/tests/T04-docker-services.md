@@ -41,7 +41,7 @@ Run: `./T04-docker-services.sh`
 
 **Expected Results:**
 
-All 17 services currently declared by `compose-spec.nix` are running:
+All 19 services currently declared by `compose-spec.nix` are running:
 
 - apprise
 - fritz-tripwire
@@ -55,6 +55,7 @@ All 17 services currently declared by `compose-spec.nix` are running:
 - opusweb
 - pharos-beacon
 - pixdcon
+- pixdcon2-edge
 - plex
 - restic-cron-hetzner
 - scrypted

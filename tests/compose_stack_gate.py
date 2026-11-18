@@ -5,7 +5,9 @@ The safety property the whole of OPS-116 rests on. Without it, converting a
 1000-line compose file to Nix is an unreviewable rewrite. With it, each host
 migration is a *provable no-op*: the rendered spec must parse to exactly the
 same data structure as the YAML it replaced, modulo the DNS keys the module now
-supplies on purpose.
+supplies on purpose. Once the retired YAML is removed, compare the authored
+composeStack.spec option with renderedSpec instead. This retains the rendering
+and DNS contract for later service additions such as pixdcon2-edge (PIXD-103).
 
 It compares parsed data, not text — key order, quoting style and YAML-vs-JSON
 scalar spelling are all irrelevant and would only produce noise.
@@ -60,7 +62,13 @@ def known_hosts() -> list[str]:
     py/command-line-injection), and it also turns a typo into a clear error
     instead of an obscure Nix failure.
     """
-    found = sorted(p.parent.parent.name for p in REPO.glob("hosts/*/docker/docker-compose.yml"))
+    found = sorted(
+        {
+            p.parent.parent.name
+            for pattern in ("hosts/*/docker/docker-compose.yml", "hosts/*/docker/compose-spec.nix")
+            for p in REPO.glob(pattern)
+        }
+    )
     return [h for h in found if HOSTNAME_OK.match(h)]
 
 
@@ -74,7 +82,10 @@ def run(cmd: list[str]) -> str:
 def original_spec(host: str) -> dict:
     path = REPO / "hosts" / host / "docker" / "docker-compose.yml"
     if not path.exists():
-        raise FileNotFoundError(f"no compose file for {host} at {path}")
+        # The spec option includes intentional host additions (e.g. the system
+        # CA bind mounts). Importing compose-spec.nix directly would omit them.
+        attr = f".#nixosConfigurations.{host}.config.nixcfg.composeStack.spec"
+        return json.loads(run(["nix", "eval", "--json", attr]))
     spec = json.loads(run(["yq", "-o=json", ".", str(path)]))
     # The x-host-dns anchors are the interim OPS-113 pinning that composeStack
     # replaces. They are extension fields, invisible to compose itself.
@@ -178,7 +189,9 @@ def check(host: str) -> bool:
             print(f"       … and {len(failures) - 20} more")
         return False
 
-    print(f"{GREEN}OK{OFF}   {label} spec is semantically identical")
+    has_yaml = (REPO / "hosts" / host / "docker/docker-compose.yml").exists()
+    baseline = "legacy YAML" if has_yaml else "authored Nix spec"
+    print(f"{GREEN}OK{OFF}   {label} spec is semantically identical to {baseline}")
     for note in notes:
         print(f"       {YELLOW}expected delta{OFF}: {note}")
     return True

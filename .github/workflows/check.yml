@@ -307,6 +307,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T118-hsb1-boot-race.sh
 
+      - name: Verify hsb1 pixdcon2 edge shadow contract (PIXD-103)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 --run "bash tests/T120-pixdcon2-edge.sh"
+
       - name: Keep Traefik ACME bind sources boot-safe
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh

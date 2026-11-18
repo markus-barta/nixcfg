@@ -43,6 +43,10 @@
 
 # ── carried from the retired docker-compose.yml ──
 # name: miniserver24
+let
+  # pixdcon main d3c5d853c (PIXD-76 E2, CI run 44337418491); updated only by PR
+  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:sha-d3c5d85@sha256:a9b9beba4a229ce280f3f933f9d44e0e9719e7fa3c8dc1db0c4912b100e19d2c";
+in
 {
   services = {
     zigbee2mqtt = {
@@ -95,6 +99,37 @@
         "com.centurylinklabs.watchtower.scope=weekly"
         # PIXD-52: env_file content changes do not change the compose definition;
         # this hash recreates pixdcon exactly when the encrypted env rotates.
+        ("pixdcon.env-rev=" + builtins.hashFile "sha256" ../../../secrets/hsb1-pixdcon-env.age)
+      ];
+    };
+    # PIXD-103: shadow only (FORCE_SHADOW=1), so a config mistake cannot drive
+    # a display. v1's scenes stay read-only; controller status has its own
+    # topic home/hsb1/pixdcon2-edge. UI on :8082 next to v1's :8080.
+    # Digest-pinned, updated only by PR. Rollback: remove this service; its
+    # data directory stays for inspection or a later restart.
+    pixdcon2-edge = {
+      image = pixdcon2EdgeImage;
+      container_name = "pixdcon2-edge";
+      network_mode = "host";
+      restart = "unless-stopped";
+      environment = [
+        "TZ=Europe/Vienna"
+        "MQTT_PORT=1883"
+        "LOG_LEVEL=info"
+        "PIXDCON_CONFIG_PATH=/data/config.json"
+        "WEB_PORT=8082"
+        "PIXDCON2_INSTANCE=pixdcon2-edge"
+        "PIXDCON2_FORCE_SHADOW=1"
+      ];
+      env_file = [ "/run/agenix/hsb1-pixdcon-env" ];
+      volumes = [
+        "/home/mba/docker/mounts/pixdcon2-edge:/data" # directory: v2 replaces config.json atomically
+        "/home/mba/docker/mounts/pixdcon/scenes:/data/scenes:ro"
+        "/home/mba/docker/mounts/pixdcon/generated-scenes:/data/generated-scenes:ro"
+        "/home/mba/docker/mounts/funkeykid/images:/app/assets/pixoo/funkeykid:ro"
+      ];
+      labels = [
+        # Same revision as v1: rotating the shared env recreates both.
         ("pixdcon.env-rev=" + builtins.hashFile "sha256" ../../../secrets/hsb1-pixdcon-env.age)
       ];
     };
