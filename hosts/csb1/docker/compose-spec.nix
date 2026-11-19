@@ -268,6 +268,9 @@ in
         "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
         "AEON_DOCTRINE_GUARD_KEY_FILE=/run/secrets/aeon-doctrine-guard-key"
         "AEON_PHONE_PUSH_VAPID_FILE=/run/secrets/aeon-phone-push-vapid.json" # OPS-271: AEON-455 phone push
+        # OPS-528 step 0 / AEON-2122: admit app push subscriptions through the INSPR push relay on csb0.
+        # Exact DNS host only, no relay credentials; empty leaves relay subscriptions disabled.
+        "AEON_PHONE_PUSH_RELAY_HOST=push.inspr.at"
         # OPS-269: AEON review GitHub App (paimos-delivery-inspr-at), release 126 webhook route
         "AEON_REVIEW_APP_ID=5223951"
         "AEON_REVIEW_INSTALLATION_ID=168865053"
