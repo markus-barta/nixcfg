@@ -45,6 +45,7 @@ EXPECTED_SERVICES=(
   "opusweb"
   "pharos-beacon"
   "pixdcon"
+  "pixdcon2-edge"
   "plex"
   "restic-cron-hetzner"
   "scrypted"

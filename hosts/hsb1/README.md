@@ -256,6 +256,7 @@ Services use host or bridge networking as declared in `docker/compose-spec.nix`:
 | **opusweb**             | OPUS web application                                   | 3102       |
 | **pharos-beacon**       | Fleet observation reporter                             | -          |
 | **pixdcon**             | Pixoo display control                                  | 10829      |
+| **pixdcon2-edge**       | Pixdcon 2 shadow previews                              | 8082       |
 | **plex**                | Media server                                           | 32400      |
 | **restic-cron-hetzner** | Backups to Hetzner                                     | -          |
 | **scrypted**            | Camera/NVR/HomeKit bridge                              | 10443      |
