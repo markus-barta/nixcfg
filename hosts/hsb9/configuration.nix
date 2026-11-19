@@ -47,6 +47,8 @@ let
 in
 {
   imports = [
+    ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
@@ -157,7 +159,9 @@ in
   # Pin kernel 6.18 (matches msbp's stable Mac mini 2009 config). Kernel
   # 6.12.x had a forcedeth (NVIDIA MCP79 NIC) regression on this hardware
   # that was a contributing factor to the install-day boot hangs.
-  boot.kernelPackages = pkgs.linuxPackages_6_18;
+  # OPS-617: kernel now comes from fleet.kernelPin.
+  fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
+  fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
 
   # NIX-138 root cause workaround: `dhcpcd`'s broadcast-before-link-up
   # races forcedeth's TX-queue init on this NIC, wedging the queue and
