@@ -19,9 +19,11 @@ in
   pinEnabled = config.fleet.kernelPin.enable;
   kernelFixed = fixed ? ${mm} && lib.versionAtLeast v fixed.${mm};
   zfsVersionsMatch = config.boot.zfs.package.version == config.boot.zfs.modulePackage.version;
-  initrdUsesPinnedZfs = lib.hasPrefix zfsPkg (
-    config.boot.initrd.systemd.services."${host}-zpool-import-after-network".serviceConfig.ExecStart
-  );
+  initrdUsesPinnedZfs =
+    !(config.boot.initrd.systemd.services ? "${host}-zpool-import-after-network")
+    || lib.hasPrefix zfsPkg (
+      config.boot.initrd.systemd.services."${host}-zpool-import-after-network".serviceConfig.ExecStart
+    );
   initrdZpoolUsesPinnedZfs = lib.hasPrefix zfsPkg (
     config.boot.initrd.systemd.extraBin.zpool or zfsPkg
   );
