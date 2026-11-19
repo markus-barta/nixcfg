@@ -62,6 +62,8 @@ let
 in
 {
   imports = [
+    ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
@@ -80,6 +82,9 @@ in
     ../../modules/shared/ssh-authorized-nixos.nix
     ../../modules/pharos-guarded-deploy
   ];
+
+  fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
+  fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
