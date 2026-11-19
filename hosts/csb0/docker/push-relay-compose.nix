@@ -7,7 +7,7 @@
 {
   name = "paimos-push-relay";
   services.relay = {
-    image = "ghcr.io/inspr-at/paimos-push-relay:261118114308.0.0@sha256:2b4e5b6c744b0d0431c5455199f6c2f5f746f73dee6945765a78563fdbdcff03";
+    image = "ghcr.io/inspr-at/paimos-push-relay:261119063751.0.0@sha256:185fe4d9a9d402dd98d9b9a1c5fdd6b66c1de8e3b4ffc33a9d6b2dcb72e6819f";
     platform = "linux/amd64";
     user = "65532:65532";
     read_only = true;
