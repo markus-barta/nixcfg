@@ -252,6 +252,8 @@ let
 in
 {
   imports = [
+    ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./peer-watch.nix # OPS-107: watch csb0's poller so its silence is noticed
     ./tailnet-watch.nix # OPS-181: page when this host's tailnet view is persistently broken
@@ -949,6 +951,8 @@ in
   # ============================================================================
   # BOOTLOADER CONFIGURATION
   # ============================================================================
+  fleet.kernelPin.enable = true; # OPS-617: NoisyTCP fix, csb1 rollout.
+  fleet.kernelCveGuard.enable = true; # OPS-617: guard the pinned kernel.
   boot.supportedFilesystems = [ "zfs" ];
 
   boot.loader.grub = {
@@ -978,7 +982,7 @@ in
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.zfs}/bin/zpool import -a";
+      ExecStart = "${config.boot.zfs.package}/bin/zpool import -a"; # OPS-617: match the pinned module.
     };
   };
 
