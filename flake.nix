@@ -63,13 +63,11 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 62: v261117222608.0.0 (sequence 132; hausnetz main 9b601263 = merge of release PR #405, tag on
-    # 1afcf329). Contents since 61: mesh follow choices (PUT/DELETE /api/mesh-follow/{id} on the existing
-    # listener; optional <data>/mesh-follow.json, ignored by r61 on rollback), sheet frame CSP adds
-    # font-src data: (sandbox unchanged). No nix/ or flake changes since 61; no new units, ports, listeners,
-    # outbound paths or capabilities; restarts hausnetz only (HNET-528; standing go Desk 45df1430).
+    # HNET pin 63: v261118180947.0.0 (sequence 133; hausnetz main 41ce2681 = merge of release PR #411, tag on
+    # 50b9f569). Contents since 62: UI only (web/, scripts/, .gitignore). No nix/, flake, Go or persisted-format change;
+    # no new listener, outbound call or capability; restarts hausnetz only (HNET-532; standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=9b6012631801ab5af471dfea03fd77685858ebb4";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=41ce26811e44b6d0294adb8abbd0af1773506ff8";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {

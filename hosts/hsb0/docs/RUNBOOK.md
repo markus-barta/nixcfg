@@ -369,8 +369,8 @@ hausnetz reads only that copy via a supplementary group. Limits: 512M memory, 50
 The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
-The private flake input is pinned to `9b6012631801ab5af471dfea03fd77685858ebb4`
-(`v261117222608.0.0`, HNET pin 62, release sequence 132; HNET-528).
+The private flake input is pinned to `41ce26811e44b6d0294adb8abbd0af1773506ff8`
+(`v261118180947.0.0`, HNET pin 63, release sequence 133; HNET-532).
 Rollback 62 -> 61 (pin `fd85516a`) has two data caveats (HNET-528 gate):
 pin 61 refuses to start if pin 62 left an interrupted import
 (`/var/lib/private/hausnetz/.import-commit` staging `mesh-follow.json`), and
