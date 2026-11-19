@@ -279,10 +279,28 @@ test("dated J client 229 waits for its fee and reaches the family calculator wit
   assert.deepEqual(session.store.state.classifier, CLASSIFIER, "retained capture metadata is unchanged");
 });
 
-test("OPS-557 replays retained NVDA under the fill policy, reconciles all desks and survives restart", () => {
+// The NVDA-only ledger carries the OPS-557 fills alone (the table before
+// JOED-196). The second ledger adds the AVGO/AMD fills for the current table.
+const OPS557_POLICY = { ...CURRENT_DESK_OWNERSHIP_POLICY, fillAttributionOverrides:
+  CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides.filter(rule => rule.basis.startsWith("OPS-557 ")) };
+
+for (const [label, policy, crossBooked] of [
+  ["OPS-557 replays retained NVDA under the fill policy", OPS557_POLICY, false],
+  ["JOED-196 replays retained NVDA, AVGO and AMD under the current fill policy", CURRENT_DESK_OWNERSHIP_POLICY, true],
+]) test(`${label}, reconciles all desks and survives restart`, () => {
   const source = JSON.parse(fs.readFileSync(new URL("./fixtures/ops557-nvda.json", import.meta.url), "utf8"));
   const rows = source.fills.map(fill => ({ contract: structuredClone(source.contract),
     execution: { ...fill, acctNumber: ACCOUNT } }));
+  let jFills = 4;
+  if (crossBooked) {
+    const extra = JSON.parse(fs.readFileSync(new URL("./fixtures/joed196-avgo-amd.json", import.meta.url), "utf8"));
+    for (const { symbol, ...fill } of extra.fills) {
+      rows.push({ contract: structuredClone(extra.contracts[symbol]), execution: { ...fill, acctNumber: ACCOUNT } });
+      // Either desk decision leaves every desk flat; only J's fill count follows it.
+      if (policy.fillAttributionOverrides.find(rule => rule.execId === fill.execId).desk === "j") jFills += 1;
+    }
+    assert.equal(rows.length, 10);
+  }
   const fees = rows.map(row => commission(row.execution.execId));
   const executorAttribution = createExecutorAttribution({ account: ACCOUNT, executionRows: rows,
     ledger: { schema: "barta.paper-desk-executor-state.v1", account: ACCOUNT, executions: rows,
@@ -294,7 +312,7 @@ test("OPS-557 replays retained NVDA under the fill policy, reconciles all desks 
   const historyBefore = structuredClone(history);
   const options = { store: shared, calculate: calculateFamily,
     familyClientAssignments: J_DATED_CLIENT_ASSIGNMENTS,
-    fillAttributionOverrides: CURRENT_DESK_OWNERSHIP_POLICY.fillAttributionOverrides,
+    fillAttributionOverrides: policy.fillAttributionOverrides,
     getExecutorAttribution: () => executorAttribution, getVerifiedHistoryState: () => history };
   const flatBook = {
     summary: { NetLiquidation: { account: ACCOUNT, value: "10000", currency: "EUR" } },
@@ -311,15 +329,15 @@ test("OPS-557 replays retained NVDA under the fill policy, reconciles all desks 
     emitFx(api, "EUR", 1); emitFx(api, "USD", 0.9);
     const result = session.adapter.project(flatBook);
     assert.equal(result.ok, true, result.reason);
-    assert.equal(result.executionCount, 4);
+    assert.equal(result.executionCount, jFills);
     assert.deepEqual(result.positions, []);
-    const desks = session.adapter.projectDeskEquities(flatBook, { calculateDeskEquities, policy: CURRENT_DESK_OWNERSHIP_POLICY });
+    const desks = session.adapter.projectDeskEquities(flatBook, { calculateDeskEquities, policy });
     assert.equal(desks.ok, true, desks.reason);
     assert.equal(desks.desks.j.equity, result.equity);
-    assert.deepEqual(desks.desks.joe.positions, []);
+    for (const desk of ["j", "joe", "joel"]) assert.deepEqual(desks.desks[desk].positions, [], desk);
     assert.deepEqual(shared.state.classifier, CLASSIFIER, "existing capture classifier remains usable");
-    assert.equal(shared.state.executions.length, 6);
-    assert.equal(shared.state.commissions.length, 6);
+    assert.equal(shared.state.executions.length, rows.length);
+    assert.equal(shared.state.commissions.length, rows.length);
     session.adapter.retire();
   }
   assert.deepEqual(history, historyBefore, "trusted historical captures are never rewritten");

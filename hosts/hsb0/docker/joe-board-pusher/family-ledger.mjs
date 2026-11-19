@@ -421,6 +421,56 @@ function assertReconciled(replayed, observed) {
   }
 }
 
+/** JOED-196 flat-contract guard for desks that share one account.
+ * `lots` attribute every counted fill to exactly one desk. Per contract, with
+ * the same instrument key, quantity tolerance and KEEP exclusion as the replay:
+ * 1. the desks' open quantities must add up to the observed account position.
+ *    This rule alone decides `ok`; `accountMismatch` counts its failures.
+ * 2. a contract that is flat in the account should be flat on every desk.
+ *    `crossBooked` counts the contracts where it is not. It never changes `ok`.
+ * Rule 2 is not implied by rule 1: one desk's long and another desk's equal
+ * short also add up to zero. A cross-booked close leaves exactly that pair
+ * behind, and so do two desks that really trade against each other, which the
+ * fills cannot tell apart. Only the executor's anti-piling rule keeps the
+ * second case from arising, so rule 2 is an invariant to alert on, not a
+ * reason to withhold money. Same-direction lots, and lots on a contract the
+ * account still holds, are governed by the sum alone.
+ * Malformed input throws. The result carries counts only: never quantities,
+ * symbols or execution identities.
+ */
+export function reconcileDeskOpenLots({ lots, positions, account, excludedSymbols } = {}) {
+  const accountId = targetAccount(account);
+  const configuredExcluded = configSet(excludedSymbols, "excludedSymbols", (value) => symbolCode(value, "excluded symbol"));
+  const excluded = new Set([...ALWAYS_EXCLUDED, ...configuredExcluded]);
+  if (!Array.isArray(lots)) fail("desk lots must be an array");
+  const registry = new Map();
+  const open = new Map();
+  for (const lot of lots) {
+    if (!lot || typeof lot !== "object" || typeof lot.desk !== "string" || lot.desk === "") {
+      fail("desk lot owner is missing");
+    }
+    if (excluded.has(symbolCode(lot.contract?.symbol))) continue;
+    const contract = registerContract(registry, contractDescription(lot.contract));
+    let desks = open.get(contract.key);
+    if (!desks) {
+      desks = new Map();
+      open.set(contract.key, desks);
+    }
+    desks.set(lot.desk, normalizedQuantity((desks.get(lot.desk) || 0) + sideQuantity(lot.execution)));
+  }
+  const observed = observedPositionMap(positions, accountId, excluded, registry);
+  const keys = new Set([...open.keys(), ...observed.keys()]);
+  let accountMismatch = 0;
+  let crossBooked = 0;
+  for (const key of keys) {
+    const quantities = [...(open.get(key)?.values() || [])];
+    const held = observed.get(key) || 0;
+    if (!quantitiesEqual(quantities.reduce((sum, quantity) => sum + quantity, 0), held)) accountMismatch += 1;
+    else if (held === 0 && quantities.some((quantity) => quantity !== 0)) crossBooked += 1;
+  }
+  return { ok: accountMismatch === 0, contracts: keys.size, accountMismatch, crossBooked };
+}
+
 /** Calculate the verified-period J-family ledger from complete broker evidence.
  * The default exclusive mode rejects a contract held by both the target desk
  * and another desk. `virtual-shared-account` values only the target desk's lots.

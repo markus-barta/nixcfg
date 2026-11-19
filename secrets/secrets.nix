@@ -656,7 +656,7 @@ in
   # Encrypted by the agent straight from agm1's runtime key file (no editor session, never in clear on disk).
   "agents/host/mbp2607/START_OPENROUTER.age".publicKeys = markus ++ mbp2607;
 
-  # PHAROS-344: read-only Pharos CLI token, used through PHAROS_OPERATOR_TOKEN_FILE. Raw token, not KEY=value.
+  # PHAROS-344: read-only Pharos CLI token. One line PHAROS_OPERATOR_TOKEN=<token> (OPS-612), safe to source.
   "agents/host/mbp2607/PHAROS_OPERATOR.age".publicKeys = markus ++ mbp2607;
   # inspr-uxqa test identity for the family live-UI harnesses (NIX-579,
   # INSPR-479). Consumer: pharos scripts/family-live-ui.mjs (signed-in live

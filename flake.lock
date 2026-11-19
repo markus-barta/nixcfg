@@ -454,16 +454,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1794846804,
-        "narHash": "sha256-QlolReJl+hfR2xMOjdRTaEXqEk56P6N+HCwz/hDsQ1E=",
+        "lastModified": 1794958289,
+        "narHash": "sha256-BkZuTHCHPuf2b30nx2rrgo3kq/UwTrdffNYPxn5ivK8=",
         "ref": "refs/heads/main",
-        "rev": "fd85516a7729dae2732a02ee1bfd5283ece1c89d",
-        "revCount": 1549,
+        "rev": "9b6012631801ab5af471dfea03fd77685858ebb4",
+        "revCount": 1586,
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       },
       "original": {
-        "rev": "fd85516a7729dae2732a02ee1bfd5283ece1c89d",
+        "rev": "9b6012631801ab5af471dfea03fd77685858ebb4",
         "type": "git",
         "url": "ssh://git@github.com/inspr-at/hausnetz"
       }
@@ -965,6 +965,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-kernel": {
+      "locked": {
+        "lastModified": 1794890597,
+        "narHash": "sha256-lME2lHoDHAaSHP3/okgiVoJ0icVEvsQH8LeU3We7tcc=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "04906337b6d53e8bb0eaf0470ae9f070a4d4eb55",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "04906337b6d53e8bb0eaf0470ae9f070a4d4eb55",
+        "type": "github"
+      }
+    },
     "nixpkgs-stable": {
       "locked": {
         "lastModified": 1789885152,
@@ -1242,6 +1258,7 @@
         "nixos-anywhere": "nixos-anywhere",
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_7",
+        "nixpkgs-kernel": "nixpkgs-kernel",
         "nixpkgs-stable": "nixpkgs-stable_2",
         "opus-stream": "opus-stream",
         "paimos": "paimos",

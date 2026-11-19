@@ -307,6 +307,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T118-hsb1-boot-race.sh
 
+      - name: Verify hsb1 pixdcon2 edge shadow contract (PIXD-103)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p bash python3 --run "bash tests/T120-pixdcon2-edge.sh"
+
       - name: Keep Traefik ACME bind sources boot-safe
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T30-traefik-acme-storage.sh
@@ -731,6 +735,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: python3 tests/T107-ib-identifier-guard.py
 
+      - name: Verify pinned Node-RED add-ons and startup during npm failures (OPS-605)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: python3 tests/T119-nodered-startup.py
+
       - name: Verify Higgsfield CLI Home Manager contract
         if: steps.pin.outputs.pin_only != 'true'
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
@@ -868,6 +876,13 @@ jobs:
           nix eval --impure --no-update-lock-file --json .#nixosConfigurations.${{ matrix.host }} \
             --apply 'system: import ./tests/adguard-users-full-host-eval.nix { inherit (system) config lib; }' \
             | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-372 full host evaluation: OK")'
+
+      - name: Verify kernel pin in the full csb0 configuration (OPS-617)
+        if: matrix.host == 'csb0'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.csb0 \
+            --apply 'system: import ./tests/kernel-pin-eval.nix { inherit (system) config lib; }' \
+            | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-617 full csb0 evaluation: OK")'
 
       - name: Verify hausnetz in the full hsb0 configuration (OPS-207)
         if: matrix.host == 'hsb0'

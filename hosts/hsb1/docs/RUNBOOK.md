@@ -665,6 +665,34 @@ ssh mba@192.168.1.101 "zpool status"
 
 ## Docker Services
 
+### pixdcon2-edge (PIXD-103)
+
+`pixdcon2-edge` runs pixdcon 2 alongside v1 with live inputs and shadow output
+only. `PIXDCON2_FORCE_SHADOW=1` prevents a config mistake from driving a
+display. Its UI is at `http://hsb1.lan:8082`, next to v1 on `:8080`; controller
+status uses `home/hsb1/pixdcon2-edge`.
+
+Its own directory `/home/mba/docker/mounts/pixdcon2-edge` is mounted at `/data`
+so config saves can replace `config.json` atomically. v1's `scenes` and
+`generated-scenes`, plus funkeykid images, are mounted read-only. Both
+controllers use `/run/agenix/hsb1-pixdcon-env`; its revision label recreates
+both after a secret rotation. The edge image is pinned by digest and updated
+only through a PR.
+
+Before `compose-hsb1.service`, the best-effort `pixdcon2-edge-seed.service`
+runs the same image's `migrate-v1.js` against a read-only mount of v1's live
+config. It creates a new `/data/config.json` with `--output shadow` and
+`--status-base-topic home/hsb1/pixdcon2-edge`, plus the `lib` and `assets`
+links needed by mounted scenes. An existing edge config skips the seed, and
+the tool also refuses to overwrite one. Check the seed's change report with
+`sudo journalctl -u pixdcon2-edge-seed.service`. If seeding fails, the edge
+container logs its missing config; the Wants dependency lets v1 proceed.
+
+Rollback: remove the edge service, its seed unit/dependency and tmpfiles rule
+through a PR, then reconcile `compose-hsb1.service`. The stack removes the
+edge container as an orphan; keep the data directory for inspection. v1
+continues with its own config and scenes.
+
 ### View All Containers
 
 ```bash
@@ -688,7 +716,7 @@ ssh mba@192.168.1.101 "docker logs -f mosquitto --tail 100"
 
 ### Restart All Docker Services
 
-This deliberately interrupts all 17 services. Use the closure-pinned compose file and the repository directory only to resolve retained relative paths; never run Compose from `~/docker`:
+This deliberately interrupts all 19 services. Use the closure-pinned compose file and the repository directory only to resolve retained relative paths; never run Compose from `~/docker`:
 
 ```bash
 ssh mba@hsb1.lan \
@@ -1213,6 +1241,7 @@ ssh mba@192.168.1.101 "journalctl -f"
 | opusweb             | OPUS web application                                   |
 | pharos-beacon       | Fleet observation reporter                             |
 | pixdcon             | Pixoo display control                                  |
+| pixdcon2-edge       | Pixdcon 2 shadow previews on port 8082                 |
 | plex                | Media server                                           |
 | restic-cron-hetzner | Daily backups to Hetzner                               |
 | scrypted            | Camera/NVR/HomeKit bridge                              |
