@@ -704,13 +704,16 @@ pixoo-159's plug, home3's history file quiet), puts the original entry back
 into v1's file at its original position and restarts v1, which republishes
 v1's Home Assistant discovery. Re-running it after an interruption is safe.
 Afterwards check in Home Assistant (Settings → Devices → the pixdcon device →
-MQTT INFO) that the discovery payloads use `home/hsb1/pixdcon/...`
-availability and the telemetry is fresh; if not, restart v1 again with MQTT
-connected.
+MQTT INFO) that no discovery payload references `pixdcon2-edge` (v1's Pixoo
+payloads carry no availability at all; Ulanzi payloads use v1's topics) and
+the telemetry is fresh. If a payload still references `pixdcon2-edge`,
+`docker restart pixdcon` with MQTT connected and check again; repeat the check
+after every v1 restart.
 
-**Whole rollback:** first run `rollback` for EVERY display that is not in
-v1's `config.json` (`status` lists both sides; this also catches an
-interrupted step), then revert the PIXD-115 PR (`PIXDCON2_FORCE_SHADOW=1`
+**Whole rollback:** first run `rollback` for EVERY display that v2 does not
+drive while v1 does not run it, and for every display v2 drives (`status`
+lists both sides; `rollback` is safe to repeat and also recovers an
+interrupted step whose entry is already back in v1's file), then revert the PIXD-115 PR (`PIXDCON2_FORCE_SHADOW=1`
 back) and switch, or switch to the recorded previous generation. Restoring
 FORCE_SHADOW alone leaves the handed-over displays dark.
 

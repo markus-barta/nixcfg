@@ -90,11 +90,17 @@ v2_shadows() {
   d=$(v2_device "$1") || return 2
   py 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d["health"]["state"]=="shadow" and d["desired"]["output"]=="shadow" else 1)' "$d"
 }
-# v2_held <device>: output drive requested, but the interlock still holds it in shadow.
+# v2_held <device>: output drive requested in v2's config, but the interlock still holds it in shadow.
+# (desired.output in the device API is the RESOLVED mode, so the request is read from the config.)
 v2_held() {
-  local d
+  local d r
   d=$(v2_device "$1") || return 2
-  py 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d["desired"]["output"]=="drive" and d["health"]["state"]=="shadow" else 1)' "$d"
+  r=$(cg "$V2/api/v2/config/raw") || return 2
+  py '
+import json,sys
+d=json.loads(sys.argv[1]); c=json.loads(json.loads(sys.argv[2])["text"]); dev=sys.argv[3]
+req=[x.get("output") for x in c["devices"] if x["name"]==dev]
+sys.exit(0 if req==["drive"] and d["desired"]["output"]=="shadow" and d["health"]["state"]=="shadow" else 1)' "$d" "$r" "$1"
 }
 # v2_drives <device>: output drive, no output problem, health online/idle, panel mode play, scene active.
 v2_drives() {
@@ -104,7 +110,8 @@ v2_drives() {
 import json,sys
 d=json.loads(sys.argv[1]); de=d["desired"]
 ok=(de["output"]=="drive" and not de.get("outputProblem") and d["health"]["state"] in ("online","idle")
-    and (de.get("mode") or {}).get("value")=="play" and d["effective"]["phase"] in ("running","builtin"))
+    and (de.get("mode") or {}).get("value")=="play" and d["effective"]["phase"] in ("running","builtin")
+    and (d["effective"].get("scene") or "") not in ("builtin:black","builtin:off"))
 sys.exit(0 if ok else 1)' "$d"
 }
 # frames_advance <device>: for a running scene, frames and device contact move within 6 s.
@@ -120,21 +127,23 @@ if b["effective"]["phase"]=="builtin": sys.exit(0)  # built-in channel: no frame
 age=(dt.datetime.now(dt.timezone.utc)-dt.datetime.fromisoformat(b["health"]["lastContactAt"].replace("Z","+00:00"))).total_seconds()
 sys.exit(0 if b["effective"]["frameCount"]>a["effective"]["frameCount"] and age<15 else 1)' "$a" "$b"
 }
-# plug_settled <device>: no v2 plug OFF (or unconfirmed/failed ON) without a later plug ON in the last 24 h.
+# plug_settled <device>: v2's last plug event for this device in the last 24 h is "plug ON confirmed"
+# (or there is none). OFF, ON offline/timeout/error/failed and "ON unconfirmed" all mean ON is still owed.
 plug_settled() {
   local last
   last=$(docker logs --since 24h pixdcon2-edge 2>&1 | grep -E "\[(PlugRecovery|RenderLoop)\] $1: (plug (OFF|ON)|stop deadline reached with plug ON unconfirmed)" | tail -1 || true)
+  [ -z "$last" ] && return 0
   case "$last" in
-  *"plug OFF"* | *"plug ON unconfirmed"* | *"plug ON failed"*) return 1 ;;
-  *) return 0 ;;
+  *"plug ON confirmed"*) return 0 ;;
+  *) return 1 ;;
   esac
 }
-# history_quiet: home3's shared history file has not changed for 15 s (no writer left).
+# history_quiet: home3's shared history file has not changed for 60 s (no writer left, final flush done).
 history_quiet() {
   local f="$STATE_DIR/home3-boiler.json" m1 m2
   [ -e "$f" ] || return 0
   m1=$(stat -c %Y "$f")
-  sleep 15
+  sleep 60
   m2=$(stat -c %Y "$f")
   [ "$m1" = "$m2" ]
 }
@@ -223,7 +232,7 @@ print("v1 file already has",dev,":",any(d["name"]==dev for d in cur["devices"]))
   set_v2_output "$dev" shadow || die "v2 refused output=shadow; nothing else changed, re-run: rollback $dev"
   wait_for 60 "v2 let go of $dev (shadow)" v2_shadows "$dev"
   wait_for 120 "no plug ON owed by v2 for $dev" plug_settled "$dev"
-  wait_for 120 "home3 history file quiet" history_quiet
+  wait_for 240 "home3 history file quiet for 60 s" history_quiet
   say "step 2: put $dev back into v1's config.json at its original position"
   v1_file | py '
 import json,sys
@@ -234,12 +243,24 @@ cur["devices"].sort(key=lambda d: order.index(d["name"]) if d["name"] in order e
 json.dump(cur,sys.stdout)' "$ORIGINAL" "$dev" |
     cg -X POST -H 'Content-Type: application/json' --data-binary @- "$V1/api/config/file" >/dev/null ||
     die "v1 refused the restore: $dev is dark now (v2 shadow, not in v1). Fix and re-run: rollback $dev"
-  wait_for 30 "v1 runs $dev again" v1_runs "$dev"
-  say "step 3: restart v1 so its Home Assistant discovery replaces v2's retained one"
-  docker restart pixdcon >/dev/null
-  wait_for 90 "v1 runs $dev after restart" v1_runs "$dev"
+  t0=$(date +%s)
+  until v1_runs "$dev"; do
+    if [ $(($(date +%s) - t0)) -ge 30 ]; then
+      say "v1's hot reload did not start $dev within 30 s; the entry is on disk, the restart below recovers it"
+      break
+    fi
+    sleep 2
+  done
+  say "step 3: restart v1 so it runs $dev and its Home Assistant discovery replaces v2's retained one"
+  docker restart pixdcon >/dev/null || die "docker restart pixdcon failed: $dev is in v1's file but may be dark. Recover: docker restart pixdcon; then re-run: rollback $dev"
+  t0=$(date +%s)
+  until v1_runs "$dev"; do
+    [ $(($(date +%s) - t0)) -ge 90 ] && die "v1 does not run $dev after the restart (entry is on disk; v2 is shadow). Recover: check docker logs pixdcon, fix, docker restart pixdcon, re-run: rollback $dev"
+    sleep 2
+  done
+  say "ok: v1 runs $dev after restart"
   wait_for 60 "v2's current v1 list contains $dev" v2_v1list "$dev" with
-  say "DONE rollback $dev. Check Home Assistant: the device's MQTT discovery uses home/hsb1/pixdcon availability and its telemetry is fresh"
+  say "DONE rollback $dev. Check Home Assistant: none of the device's MQTT discovery payloads references pixdcon2-edge, and its telemetry is fresh"
   ;;
 *) die "unknown command $cmd" ;;
 esac
