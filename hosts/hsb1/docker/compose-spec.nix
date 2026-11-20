@@ -44,8 +44,8 @@
 # ── carried from the retired docker-compose.yml ──
 # name: miniserver24
 let
-  # pixdcon main d3c5d853c (PIXD-76 E2, CI run 44337418491); updated only by PR
-  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:sha-d3c5d85@sha256:a9b9beba4a229ce280f3f933f9d44e0e9719e7fa3c8dc1db0c4912b100e19d2c";
+  # pixdcon main 6ca33cfa8 (PIXD-113 re-pin: PIXD-104/105/109/111; CI run 44648683046); updated only by PR
+  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:sha-6ca33cf@sha256:e1e2e746e9bb196b2c8ecbf65ef8381ca30b1b8f99e128008cff904b1dbe149f";
 in
 {
   services = {
