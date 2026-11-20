@@ -665,16 +665,62 @@ ssh mba@192.168.1.101 "zpool status"
 
 ## Docker Services
 
-### pixdcon2-edge (PIXD-103)
+### pixdcon2-edge (PIXD-103, PIXD-115)
 
-`pixdcon2-edge` runs pixdcon 2 alongside v1 with live inputs and shadow output
-only. `PIXDCON2_FORCE_SHADOW=1` prevents a config mistake from driving a
-display. Its UI is at `http://hsb1.lan:8082`, next to v1 on `:8080`; controller
-status uses `home/hsb1/pixdcon2-edge`.
+`pixdcon2-edge` runs pixdcon 2 alongside v1 with live inputs. Since PIXD-115 it
+may drive displays (no `PIXDCON2_FORCE_SHADOW`). Which displays it drives is
+decided per device by `output` in its own `config.json` plus the v1 interlock:
+while controller status stays on `home/hsb1/pixdcon2-edge` (the transition),
+v2 never drives a display that v1 still lists, and it never writes the
+overlay blob. Its UI is at `http://hsb1.lan:8082`, next to v1 on `:8080`.
+
+**Handover, one display at a time** (from the nixcfg checkout on a workstation;
+order used in PIXD-115: ulanzi-56, ulanzi-57, pixoo-189, pixoo-159):
+
+```bash
+ssh mba@hsb1.lan 'bash -s' -- status             < hosts/hsb1/bin/pixdcon-handover.sh
+ssh mba@hsb1.lan 'bash -s' -- handover ulanzi-56 < hosts/hsb1/bin/pixdcon-handover.sh
+ssh mba@hsb1.lan 'bash -s' -- rollback ulanzi-56 < hosts/hsb1/bin/pixdcon-handover.sh
+```
+
+`handover` refuses to start unless v2 runs without FORCE_SHADOW with the
+transition on, is not the blob writer, has v1's device list from its current
+MQTT connection, the device is enabled with mode `play` in v2, the addresses
+match, and no retained overlay blob or `enabled` overlay exists. It saves the
+pre-cutover v1 config once to
+`/home/mba/backups/pixdcon/pixd115-original-v1-config.json`, backs up both
+configs per step, sets v2 `output=drive` (v2 stays shadow while v1 lists the
+device), then removes the device from v1's `config.json`. Removing it, not
+`enabled:false`, keeps v1 from driving it in every path, also when v1 starts
+without MQTT. It finishes only when v2 drives the device with the panel on and
+frames advance. Never use the MQTT `overlay/device/<n>/enabled` topic for
+this: v2 reads it too. Keep the overlay blob unused while v1 and v2 share the
+displays: a blob with full device entries would add a device back into v1.
+
+**Rollback of one display:** `rollback <device>`. It checks the device's
+entry in the original v1 config before it changes anything, sets v2
+`output=shadow`, waits until v2 has let go (shadow, no plug ON still owed for
+pixoo-159's plug, home3's history file quiet), puts the original entry back
+into v1's file at its original position and restarts v1, which republishes
+v1's Home Assistant discovery. Re-running it after an interruption is safe.
+Afterwards check in Home Assistant (Settings → Devices → the pixdcon device →
+MQTT INFO) that no discovery payload references `pixdcon2-edge` (v1's Pixoo
+payloads carry no availability at all; Ulanzi payloads use v1's topics) and
+the telemetry is fresh. If a payload still references `pixdcon2-edge`,
+`docker restart pixdcon` with MQTT connected and check again; repeat the check
+after every v1 restart.
+
+**Whole rollback:** first run `rollback` for EVERY display that v2 does not
+drive while v1 does not run it, and for every display v2 drives (`status`
+lists both sides; `rollback` is safe to repeat and also recovers an
+interrupted step whose entry is already back in v1's file), then revert the PIXD-115 PR (`PIXDCON2_FORCE_SHADOW=1`
+back) and switch, or switch to the recorded previous generation. Restoring
+FORCE_SHADOW alone leaves the handed-over displays dark.
 
 Its own directory `/home/mba/docker/mounts/pixdcon2-edge` is mounted at `/data`
 so config saves can replace `config.json` atomically. v1's `scenes` and
-`generated-scenes`, plus funkeykid images, are mounted read-only. Both
+`generated-scenes`, plus funkeykid images, are mounted read-only, except
+`scenes/pixoo/.state` (read-write: home3's boiler history on pixoo-159). Both
 controllers use `/run/agenix/hsb1-pixdcon-env`; its revision label recreates
 both after a secret rotation. The edge image is pinned by digest and updated
 only through a PR.
@@ -688,10 +734,10 @@ the tool also refuses to overwrite one. Check the seed's change report with
 `sudo journalctl -u pixdcon2-edge-seed.service`. If seeding fails, the edge
 container logs its missing config; the Wants dependency lets v1 proceed.
 
-Rollback: remove the edge service, its seed unit/dependency and tmpfiles rule
-through a PR, then reconcile `compose-hsb1.service`. The stack removes the
-edge container as an orphan; keep the data directory for inspection. v1
-continues with its own config and scenes.
+Removing the edge service (PIXD-103 rollback) is only safe once every display
+is back in v1 (whole rollback above). Then remove the service, its seed
+unit/dependency and tmpfiles rule through a PR and reconcile
+`compose-hsb1.service`; keep the data directory for inspection.
 
 ### View All Containers
 
