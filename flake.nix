@@ -102,7 +102,7 @@
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
     # NIX-588/589: release 12 (stable107) brings `aeon-agentd pair`; its signed
     # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
-    aeon.url = "github:inspr-at/paimos/v261005070923.0.0"; # 770d6b2ba52ff873adccd42abe09aafa4b9576b2
+    aeon.url = "github:inspr-at/paimos/v261120104759.0.0"; # d5267224d0a9a76d3a098e4da0fd2aac2db6cc9a (R152, OPS-641)
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
@@ -153,14 +153,9 @@
           config.allowUnfree = true;
         };
       };
-      # Release 123 (v261005070923.0.0) shipped its flake with a stale Go vendorHash
-      # (nix build: specified sha256-J60v..., got sha256-JsIS...). Override it here
-      # until the upstream flake carries the right hash (release 124); then drop this.
-      aeonPackage =
-        system:
-        inputs.aeon.packages.${system}.aeon.overrideAttrs (_: {
-          vendorHash = "sha256-JsIS5JaePz2VcseoqRYnUZ9Ac8/eYuK3lcVpuJoMRjE=";
-        });
+      # OPS-641: the release-123 vendorHash override is gone; the pinned upstream
+      # flake carries the right hash again.
+      aeonPackage = system: inputs.aeon.packages.${system}.aeon;
       # OPS-231 / NIX-584: Aeon client. `aeon-cli` is `aeon` only; `aeon-paimos`
       # is the upstream package including bin/paimos (argv0 compat).
       aeonCli =
