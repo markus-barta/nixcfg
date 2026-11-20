@@ -243,7 +243,7 @@ in
     # host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:261115101403.0.0@sha256:28eb40d28a93f7a049994374dfa09b2ca46e03984282c55046817897ad2067d5"; # release 151 Auric Ascent (AEON-2412): see the release notes
+      image = "ghcr.io/inspr-at/aeon:261120104759.0.0@sha256:4edccdd784a79d177f911382b708480cb03f3cd1b5b4c87751b0141880298744"; # release 152 Bright Bond (AEON-2462): see the release notes
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
