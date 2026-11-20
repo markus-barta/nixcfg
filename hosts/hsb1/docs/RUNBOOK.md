@@ -678,29 +678,41 @@ overlay blob. Its UI is at `http://hsb1.lan:8082`, next to v1 on `:8080`.
 order used in PIXD-115: ulanzi-56, ulanzi-57, pixoo-189, pixoo-159):
 
 ```bash
-ssh mba@hsb1.lan 'bash -s' -- status                 < hosts/hsb1/bin/pixdcon-handover.sh
-ssh mba@hsb1.lan 'bash -s' -- handover ulanzi-56     < hosts/hsb1/bin/pixdcon-handover.sh
-ssh mba@hsb1.lan 'bash -s' -- rollback ulanzi-56 DIR < hosts/hsb1/bin/pixdcon-handover.sh
+ssh mba@hsb1.lan 'bash -s' -- status             < hosts/hsb1/bin/pixdcon-handover.sh
+ssh mba@hsb1.lan 'bash -s' -- handover ulanzi-56 < hosts/hsb1/bin/pixdcon-handover.sh
+ssh mba@hsb1.lan 'bash -s' -- rollback ulanzi-56 < hosts/hsb1/bin/pixdcon-handover.sh
 ```
 
-`handover` checks its preconditions, backs up both configs to
-`/home/mba/backups/pixdcon/<time>-pixd115-<device>`, sets v2 `output=drive`
-(v2 stays shadow while v1 lists the device), then removes the device from
-v1's `config.json`. Removing it, not `enabled:false`, keeps v1 from driving it
-in every path, also when v1 starts without MQTT. Never use the MQTT
-`overlay/device/<n>/enabled` topic for this: v2 reads it too.
+`handover` refuses to start unless v2 runs without FORCE_SHADOW with the
+transition on, is not the blob writer, has v1's device list from its current
+MQTT connection, the device is enabled with mode `play` in v2, the addresses
+match, and no retained overlay blob or `enabled` overlay exists. It saves the
+pre-cutover v1 config once to
+`/home/mba/backups/pixdcon/pixd115-original-v1-config.json`, backs up both
+configs per step, sets v2 `output=drive` (v2 stays shadow while v1 lists the
+device), then removes the device from v1's `config.json`. Removing it, not
+`enabled:false`, keeps v1 from driving it in every path, also when v1 starts
+without MQTT. It finishes only when v2 drives the device with the panel on and
+frames advance. Never use the MQTT `overlay/device/<n>/enabled` topic for
+this: v2 reads it too. Keep the overlay blob unused while v1 and v2 share the
+displays: a blob with full device entries would add a device back into v1.
 
-**Rollback of one display:** `rollback <device> <backup-dir>`. It sets v2
-`output=shadow` first, waits until v2 has stopped driving the display, then
-puts the device back into v1's file at its old place. The reverse order would
-let both controllers drive it for a few seconds. Then check that the device's
-`pixdcon_*` entities in Home Assistant are available and telemetry is fresh;
-if not, `docker restart pixdcon` re-publishes v1's discovery.
+**Rollback of one display:** `rollback <device>`. It checks the device's
+entry in the original v1 config before it changes anything, sets v2
+`output=shadow`, waits until v2 has let go (shadow, no plug ON still owed for
+pixoo-159's plug, home3's history file quiet), puts the original entry back
+into v1's file at its original position and restarts v1, which republishes
+v1's Home Assistant discovery. Re-running it after an interruption is safe.
+Afterwards check in Home Assistant (Settings → Devices → the pixdcon device →
+MQTT INFO) that the discovery payloads use `home/hsb1/pixdcon/...`
+availability and the telemetry is fresh; if not, restart v1 again with MQTT
+connected.
 
-**Whole rollback:** run the one-display rollback for every display v2 drives
-FIRST, then revert the PIXD-115 PR (`PIXDCON2_FORCE_SHADOW=1` back) and switch,
-or switch to the recorded previous generation. Restoring FORCE_SHADOW alone
-leaves the handed-over displays dark: v1's file no longer contains them.
+**Whole rollback:** first run `rollback` for EVERY display that is not in
+v1's `config.json` (`status` lists both sides; this also catches an
+interrupted step), then revert the PIXD-115 PR (`PIXDCON2_FORCE_SHADOW=1`
+back) and switch, or switch to the recorded previous generation. Restoring
+FORCE_SHADOW alone leaves the handed-over displays dark.
 
 Its own directory `/home/mba/docker/mounts/pixdcon2-edge` is mounted at `/data`
 so config saves can replace `config.json` atomically. v1's `scenes` and

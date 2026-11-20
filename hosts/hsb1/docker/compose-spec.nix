@@ -108,8 +108,9 @@ in
     # display that v1 still lists as enabled. v1 stays as the fallback.
     # UI on :8082 next to v1's :8080. v1's scenes stay read-only, except the
     # home3 history in scenes/pixoo/.state (written by the scene that drives).
-    # Digest-pinned, updated only by PR. Rollback: per display set v2 output
-    # shadow then v1 enabled true; whole: put PIXDCON2_FORCE_SHADOW=1 back.
+    # Digest-pinned, updated only by PR. Handover/rollback per display with
+    # hosts/hsb1/bin/pixdcon-handover.sh; whole rollback = roll back every
+    # display first, then put PIXDCON2_FORCE_SHADOW=1 back (docs/RUNBOOK.md).
     pixdcon2-edge = {
       image = pixdcon2EdgeImage;
       container_name = "pixdcon2-edge";
