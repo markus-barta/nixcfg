@@ -102,11 +102,14 @@ in
         ("pixdcon.env-rev=" + builtins.hashFile "sha256" ../../../secrets/hsb1-pixdcon-env.age)
       ];
     };
-    # PIXD-103: shadow only (FORCE_SHADOW=1), so a config mistake cannot drive
-    # a display. v1's scenes stay read-only; controller status has its own
-    # topic home/hsb1/pixdcon2-edge. UI on :8082 next to v1's :8080.
-    # Digest-pinned, updated only by PR. Rollback: remove this service; its
-    # data directory stays for inspection or a later restart.
+    # PIXD-115 cutover: v2 may drive. Which display it drives is per device
+    # (`output` in its config.json) plus the v1 interlock: while the controller
+    # status stays on its own topic home/hsb1/pixdcon2-edge, v2 never drives a
+    # display that v1 still lists as enabled. v1 stays as the fallback.
+    # UI on :8082 next to v1's :8080. v1's scenes stay read-only, except the
+    # home3 history in scenes/pixoo/.state (written by the scene that drives).
+    # Digest-pinned, updated only by PR. Rollback: per display set v2 output
+    # shadow then v1 enabled true; whole: put PIXDCON2_FORCE_SHADOW=1 back.
     pixdcon2-edge = {
       image = pixdcon2EdgeImage;
       container_name = "pixdcon2-edge";
@@ -119,12 +122,12 @@ in
         "PIXDCON_CONFIG_PATH=/data/config.json"
         "WEB_PORT=8082"
         "PIXDCON2_INSTANCE=pixdcon2-edge"
-        "PIXDCON2_FORCE_SHADOW=1"
       ];
       env_file = [ "/run/agenix/hsb1-pixdcon-env" ];
       volumes = [
         "/home/mba/docker/mounts/pixdcon2-edge:/data" # directory: v2 replaces config.json atomically
         "/home/mba/docker/mounts/pixdcon/scenes:/data/scenes:ro"
+        "/home/mba/docker/mounts/pixdcon/scenes/pixoo/.state:/data/scenes/pixoo/.state" # rw: home3 boiler history once v2 drives pixoo-159
         "/home/mba/docker/mounts/pixdcon/generated-scenes:/data/generated-scenes:ro"
         "/home/mba/docker/mounts/funkeykid/images:/app/assets/pixoo/funkeykid:ro"
       ];
