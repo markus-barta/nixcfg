@@ -5,16 +5,16 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1791201146,
-        "narHash": "sha256-Y3SfPcVWU60GB5CZy2gvYJQiRSxQLIIX8JCWjAujf3o=",
+        "lastModified": 1795175809,
+        "narHash": "sha256-oGQMa8Ejuy/FTSezMAivvLYraKbxWAL0kJ/YrGfe/FA=",
         "owner": "inspr-at",
         "repo": "paimos",
-        "rev": "770d6b2ba52ff873adccd42abe09aafa4b9576b2",
+        "rev": "d5267224d0a9a76d3a098e4da0fd2aac2db6cc9a",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "v261005070923.0.0",
+        "ref": "v261120104759.0.0",
         "repo": "paimos",
         "type": "github"
       }
@@ -663,17 +663,17 @@
     "joedesk": {
       "flake": false,
       "locked": {
-        "lastModified": 1794466485,
-        "narHash": "sha256-S9OW3KuNl8IkUudg8hT+GIx1lFqggFc/8JRVr6de/qQ=",
+        "lastModified": 1795134141,
+        "narHash": "sha256-jvrb3Biuem/VNav9ho07YrVxn7lOB7gTLES0J4gSiCE=",
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7",
+        "rev": "dad48e07f331562164da192106d2d11645b3c074",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "6d5d25708206abeb0e4cb1e9bade7c11ed6f51b7",
+        "rev": "dad48e07f331562164da192106d2d11645b3c074",
         "type": "github"
       }
     },

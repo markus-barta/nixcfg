@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PIXD-103: hsb1's digest-pinned edge lane must remain shadow-only.
+# PIXD-103/PIXD-115: hsb1's digest-pinned edge lane; may drive per device behind the v1 interlock.
 set -euo pipefail
 
 # macOS bash 3.2 can falsely pass failed bare [[ ]] assertions (see T08).
@@ -63,9 +63,10 @@ for key, value in {
     "PIXDCON_CONFIG_PATH": "/data/config.json",
     "WEB_PORT": "8082",
     "PIXDCON2_INSTANCE": "pixdcon2-edge",
-    "PIXDCON2_FORCE_SHADOW": "1",
 }.items():
     require(env.get(key) == value, f"{key} must be {value}")
+# PIXD-115: v2 may drive; per-device output + the v1 interlock decide.
+require("PIXDCON2_FORCE_SHADOW" not in env, "PIXDCON2_FORCE_SHADOW must be gone after the PIXD-115 cutover")
 require(len(env) == len(service["environment"]), "duplicate environment keys")
 require(service["container_name"] == "pixdcon2-edge", "edge container name")
 require(service["network_mode"] == "host", "host networking")
@@ -76,9 +77,10 @@ data = "/home/mba/docker/mounts/pixdcon2-edge:/data"
 scenes = "/home/mba/docker/mounts/pixdcon/scenes:/data/scenes:ro"
 generated = "/home/mba/docker/mounts/pixdcon/generated-scenes:/data/generated-scenes:ro"
 images = "/home/mba/docker/mounts/funkeykid/images:/app/assets/pixoo/funkeykid:ro"
-require(set(service["volumes"]) == {data, scenes, generated, images},
-        "/data must be a directory mount and scenes/generated-scenes/images must be read-only")
-require(len(service["volumes"]) == 4, "unexpected duplicate mounts")
+state = "/home/mba/docker/mounts/pixdcon/scenes/pixoo/.state:/data/scenes/pixoo/.state"
+require(set(service["volumes"]) == {data, scenes, state, generated, images},
+        "/data must be a directory mount, scenes/generated-scenes/images read-only, only scenes/pixoo/.state read-write")
+require(len(service["volumes"]) == 5, "unexpected duplicate mounts")
 require(re.fullmatch(r"ghcr\.io/markus-barta/pixdcon2:[^@]+@sha256:[0-9a-f]{64}",
                      service["image"]), "edge image must be pinned by @sha256:")
 require(len(re.findall(r"\bpixdcon2EdgeImage\s*=", compose)) == 1, "one image pin binding")
@@ -120,5 +122,5 @@ require(all(mount in words for mount in (data, scenes, generated)), "seed data a
 require(words[-8:] == ["node", "src/config/migrate-v1.js", "/seed/v1-config.json", "/data",
                        "--output", "shadow", "--status-base-topic", "home/hsb1/pixdcon2-edge"],
         "seed must migrate to shadow output with an isolated status base topic")
-print("T120 passed: pixdcon2-edge is pinned, shadow-only, read-only for v1 data and seeded best-effort")
+print("T120 passed: pixdcon2-edge is pinned, may drive (no FORCE_SHADOW; v1 interlock), read-only for v1 data except scenes/pixoo/.state, seeded best-effort")
 PY
