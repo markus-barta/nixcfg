@@ -47,6 +47,8 @@ let
 in
 {
   imports = [
+    ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/shared/smartd.nix # OPS-485 — SMART disk-health monitoring (bare metal)
     ./hardware-configuration.nix
@@ -157,7 +159,31 @@ in
   # Pin kernel 6.18 (matches msbp's stable Mac mini 2009 config). Kernel
   # 6.12.x had a forcedeth (NVIDIA MCP79 NIC) regression on this hardware
   # that was a contributing factor to the install-day boot hangs.
-  boot.kernelPackages = pkgs.linuxPackages_6_18;
+  # OPS-617: kernel now comes from fleet.kernelPin.
+  fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
+  fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
+
+  # OPS-617: unattended-reboot insurance (offsite, often nobody on site). A
+  # kernel panic, a hard lockup (NMI watchdog) or an RCU stall (how the NIX-138
+  # forcedeth wedge ends) reboots the box after 10 s instead of hanging until
+  # someone power-cycles it. nv_tco (MCP79) is a working hardware watchdog:
+  # systemd pets it, so a full freeze resets the box after 30 s. Loading it in
+  # the initrd makes /dev/watchdog exist when stage-2 systemd starts (~10.4 s),
+  # so it is armed before the point where the 2026-10-31 boot froze (10.86 s);
+  # udev alone loads it only at ~14 s. It also covers runtime freezes like the
+  # silent 2026-11-11 hang that stayed down until 11-15. nv_tco accepts 3-38 s,
+  # so the shutdown watchdog is set to 30 s too (systemd's 10 min default is
+  # rejected by the driver).
+  boot.kernelParams = [
+    "panic=10"
+    "nmi_watchdog=panic"
+    "sysctl.kernel.panic_on_rcu_stall=1"
+  ];
+  boot.initrd.kernelModules = [ "nv_tco" ];
+  systemd.settings.Manager = {
+    RuntimeWatchdogSec = "30s";
+    RebootWatchdogSec = "30s";
+  };
 
   # NIX-138 root cause workaround: `dhcpcd`'s broadcast-before-link-up
   # races forcedeth's TX-queue init on this NIC, wedging the queue and
