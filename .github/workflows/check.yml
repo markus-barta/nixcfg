@@ -905,6 +905,13 @@ jobs:
             --apply 'system: import ./tests/kernel-pin-eval.nix { inherit (system) config lib; host = "hsb0"; }' \
             | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-617 full hsb0 evaluation: OK")'
 
+      - name: Verify kernel pin in the full hsb8 configuration (OPS-617)
+        if: matrix.host == 'hsb8'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.hsb8 \
+            --apply 'system: import ./tests/kernel-pin-eval.nix { inherit (system) config lib; host = "hsb8"; }' \
+            | python3 -c 'import json, sys; checks = json.load(sys.stdin); failed = [k for k, v in checks.items() if v is not True]; assert not failed, failed; print("OPS-617 full hsb8 evaluation: OK")'
+
       - name: Verify hausnetz in the full hsb0 configuration (OPS-207)
         if: matrix.host == 'hsb0'
         run: |
