@@ -163,6 +163,18 @@ in
   fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
   fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
 
+  # OPS-617: unattended-reboot insurance (offsite, often nobody on site). A
+  # kernel panic, a hard lockup (NMI watchdog) or an RCU stall (how the NIX-138
+  # forcedeth wedge ends) reboots the box after 10 s instead of hanging until
+  # someone power-cycles it. nv_tco (MCP79) is a working hardware watchdog:
+  # systemd pets it, so a full freeze resets the box after 30 s.
+  boot.kernelParams = [
+    "panic=10"
+    "nmi_watchdog=panic"
+    "sysctl.kernel.panic_on_rcu_stall=1"
+  ];
+  systemd.settings.Manager.RuntimeWatchdogSec = "30s";
+
   # NIX-138 root cause workaround: `dhcpcd`'s broadcast-before-link-up
   # races forcedeth's TX-queue init on this NIC, wedging the queue and
   # cascading into a CPU#1 RCU stall. Static IP (below) avoids it.
