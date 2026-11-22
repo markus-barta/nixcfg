@@ -86,6 +86,17 @@ in
   fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
   fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
 
+  # OPS-617: unattended-reboot insurance (offsite, often nobody on site). A
+  # kernel panic, a hard lockup (NMI watchdog) or an RCU stall reboots the box
+  # after 10 s instead of hanging until someone power-cycles it. The iTCO
+  # hardware watchdog is disabled by this Mac mini's firmware, so there is no
+  # hardware watchdog to arm.
+  boot.kernelParams = [
+    "panic=10"
+    "nmi_watchdog=panic"
+    "sysctl.kernel.panic_on_rcu_stall=1"
+  ];
+
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
   # 🟡 reconcile = false while this host is prepared: the spec lands in /etc and
