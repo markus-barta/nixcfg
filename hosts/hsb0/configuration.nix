@@ -102,6 +102,8 @@ in
 assert joeSet.pusher != null && joeSet.executor != null;
 {
   imports = [
+    ../../modules/kernel-pin.nix
+    ../../modules/kernel-cve-guard.nix
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
     ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
@@ -124,6 +126,9 @@ assert joeSet.pusher != null && joeSet.executor != null;
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
   ];
+
+  fleet.kernelPin.enable = true; # OPS-617: pin the fixed kernel.
+  fleet.kernelCveGuard.enable = true; # OPS-617: guard against vulnerable kernels.
 
   # OPS-207: bridged HostDash reaches the host; TCP 8377 stays closed on the LAN.
   # Options: hausnetz@41063ad3 nix/module.nix:44-278.
