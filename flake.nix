@@ -5,7 +5,8 @@
     # Using unstable because pbek's hokage requires unstable-only features
     # (environment.corePackages doesn't exist in stable)
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
+    # OPS-652: the nixos-25.05 `nixpkgs-stable` input (out of support) and its unused
+    # `pkgs.stable` overlay attribute were removed; no module used them.
     # OPS-617 (CVE-2026-99288 NoisyTCP): kernel-only package source. Used ONLY for
     # boot.kernelPackages / boot.zfs.package on hosts that enable modules/kernel-pin.nix,
     # so the fixed LTS kernel lands without moving the rest of the OS. nixos-unstable (2026-11-17) at this
@@ -125,7 +126,6 @@
       self,
       home-manager,
       nixpkgs,
-      nixpkgs-stable,
       agenix,
       disko,
       ...
@@ -138,14 +138,8 @@
         nixpkgs = inputs.nixpkgs;
         lockFile = ./flake.lock;
       };
-      # Overlay providing pkgs.stable and pkgs.unstable attributes
+      # Overlay providing the pkgs.unstable attribute
       overlays-nixpkgs = _final: _prev: {
-        stable = import nixpkgs-stable {
-          localSystem = {
-            system = linuxSystem;
-          };
-          config.allowUnfree = true;
-        };
         unstable = import nixpkgs {
           localSystem = {
             system = linuxSystem;
