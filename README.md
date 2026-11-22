@@ -73,7 +73,7 @@ flake.nix
 │   │           ├── Starship prompt (per-host colors)
 │   │           ├── Zellij config (Tokyo Night)     │ │
 │   │           └── Eza theme                       │ │
-│   ├── nixpkgs.overlays (stable, unstable, local)  │ │
+│   ├── nixpkgs.overlays (unstable, local)          │ │
 │   └── agenix.nixosModules.age                     │ │
 │                                                   │ │
 ├─▶ inputs.nixcfg.nixosModules.hokage  ◀────────────┘ │
