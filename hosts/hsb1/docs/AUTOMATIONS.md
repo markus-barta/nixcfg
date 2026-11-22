@@ -102,15 +102,15 @@ nothing watched it (OPS-113).
 
 ### The chain
 
-| #   | Hop                                                                                                                      | Where                                                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| 1   | Telegram bot receives `/zufahrt` (pulse) or `/zufahrt5` (hold open 5 min), checks the sender against the permission list | Node-RED on **csb0**                                                                          |
-| 2   | Publishes the whole message to `scom/jhw22/smarthome`                                                                    | mosquitto on **csb0**, reached at `mosquitto.barta.cm:8883` (TLS, Traefik `HostSNI`)          |
-| 3   | Subscribes to that topic on the csb0 broker (`csb0+`), plus a second subscriber on the local broker                      | Node-RED on **hsb1**, tab `🏠 Smarthome`, group _Telegram bot and (local) smarthome commands_ |
-| 4   | `/zufahrt` → `link out 133` → `link in 57 (open accessgate)`                                                             | hsb1, tab `🚘 Zufahrt`                                                                        |
-| 5   | `do open` → `send Shelly command` → rate limiter (1 per 10 s, excess dropped)                                            | same tab                                                                                      |
-| 6   | Publishes `{"method":"Switch.Set","params":{"id":0,"on":true}}` to `home/gz/zufahrt/rpc`                                 | mosquitto on **hsb1** (localhost)                                                             |
-| 7   | Relay pulses; `auto_off` returns it after 2 s                                                                            | Shelly Plus 1 `wz-shp1-zufahrt`, `192.168.1.175`, topic prefix `home/gz/zufahrt`              |
+| #   | Hop                                                                                                                      | Where                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| 1   | Telegram bot receives `/zufahrt` (pulse) or `/zufahrt5` (hold open 5 min), checks the sender against the permission list | Node-RED on **csb0**                                                                                 |
+| 2   | Publishes the whole message to `scom/jhw22/smarthome`                                                                    | mosquitto on **csb0**, reached at `mosquitto.barta.cm:8883` (TLS, Traefik `HostSNI`)                 |
+| 3   | Subscribes to that topic on the csb0 broker (`csb0+`), plus a second subscriber on the local broker                      | Node-RED on **hsb1**, tab `🏠 Smarthome`, group _Telegram bot and (local) smarthome commands_        |
+| 4   | `/zufahrt` → `link out 133` → `link in 57 (open accessgate)`                                                             | hsb1, tab `🚘 Zufahrt`                                                                               |
+| 5   | `do open` → `send Shelly command` → rate limiter (1 per 10 s, excess dropped)                                            | same tab                                                                                             |
+| 6   | Publishes `{"method":"Switch.Set","params":{"id":0,"on":true}}` to `home/kg/zufahrt/rpc`                                 | mosquitto on **hsb1** (localhost)                                                                    |
+| 7   | Relay pulses; `auto_off` returns it after 2 s                                                                            | Shelly Plus 1 `kg-shp1-zufahrt` (Kinderzimmer Groß), `192.168.1.175`, topic prefix `home/kg/zufahrt` |
 
 Two other sources feed step 4 — the HomeKit accessory `n2h2n accessgate`
 (a `GarageDoorOpener` on the Node-RED HomeKit bridge `nrhkb ms24`), and a long
@@ -158,7 +158,7 @@ ssh mba@hsb1.lan 'docker logs nodered 2>&1 | grep "mqtt-broker:csb0+" | tail -3'
 # Watch the last two hops live (a real open shows rpc -> ack -> output true -> timer false)
 # sudo: the env file is 0400 owner=kiosk since NIX-356 (same shape as NUKI-RUNBOOK)
 ssh mba@hsb1.lan 'sudo bash -c "( set -a; source /run/agenix/hsb1-mqtt-client-env; set +a; \
-  mosquitto_sub -h localhost -u \$MQTT_USER -P \$MQTT_PASS -v -t home/gz/zufahrt/# -t nodered-hsb1/# )"'
+  mosquitto_sub -h localhost -u \$MQTT_USER -P \$MQTT_PASS -v -t home/kg/zufahrt/# -t nodered-hsb1/# )"'
 
 # Is the Shelly itself healthy? (read-only)
 ssh mba@hsb1.lan 'curl -s http://192.168.1.175/rpc/MQTT.GetStatus; curl -s http://192.168.1.175/rpc/Switch.GetConfig?id=0'
