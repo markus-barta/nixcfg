@@ -44,8 +44,8 @@
 # ── carried from the retired docker-compose.yml ──
 # name: miniserver24
 let
-  # pixdcon main 8f132e2 (PIXD-114 P1 start page = remote control, #41 + #42 no row Undo until PIXD-118; CI run 44775026459); updated only by PR
-  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:sha-8f132e2@sha256:d5eb708c3e7534c41e88f9ff5c5bc3f2d6ceec70d6e26403467e08715241764f";
+  # pixdcon main f93c611 (PIXD-121 AWTRIX NG driver, #43; for the KG Ulanzi on AWTRIX NG, OPS-653); updated only by PR
+  pixdcon2EdgeImage = "ghcr.io/markus-barta/pixdcon2:sha-f93c611@sha256:fef22de9464dbb93883ec1cca3aeb0d87885833a4c505ab411ec65bed9588713";
 in
 {
   services = {
