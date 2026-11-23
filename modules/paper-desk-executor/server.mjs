@@ -39,6 +39,16 @@ import { createBook } from "./book.mjs";
 import { attributionConfig } from "./attribution.mjs";
 
 const BODY_LIMIT = 65_536;
+export const HEALTH_QUEUE_WAIT_MS = 100;
+const HEALTH_QUEUE_STALL_MS = 120_000;
+
+class LedgerHealthUnavailable extends Error {
+  constructor(reason, details, statusCode = 503) {
+    super(reason);
+    this.body = { status: "degraded", reason, ...details };
+    this.statusCode = statusCode;
+  }
+}
 
 const PUBLIC_ERRORS = new Map([
   ["invalid_schema", "intent schema is invalid"],
@@ -197,14 +207,21 @@ export function createServer(options) {
   const staticPeers = Object.fromEntries(allowlist.map((ip) => [ip, "ops"]));
   const currentAllowlist = () => [...readPeers(peersFile, staticPeers, peerIdentities, adminAllowlist).keys()];
   const attribution = attributionConfig(options.attributionConfig);
-  const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state", { reconRetentionMs: options.reconRetentionMs, beforePrune: options.beforePrune });
+  const ledger = openLedger(options.stateDir ?? process.env.PAPER_DESK_STATE_DIR ?? "/state", {
+    reconRetentionMs: options.reconRetentionMs, beforePrune: options.beforePrune, onHealthChange: refreshHealthSnapshot,
+  });
   const execute = options.execute ?? null;
   const gatewayReachable = options.gatewayReachable ?? (() => probeGateway(gatewayHost, gatewayPort));
   const marketData = createMarketData({ ...options.marketData, bookClientId: options.book?.clientId });
   const book = createBook({ ...options.book, marketDataClientId: marketData.clientId, readLedger: options.book?.readLedger || (() => ledger.load({ initialize: false, readOnly: true, migrate: false })) });
   const marketDataAudit = options.marketDataAudit ?? ((row) => console.log(JSON.stringify(row)));
   let chain = Promise.resolve();
-  const alertDelivery = createAlertDelivery({ socketPath: mailboxSocket, ledger, exclusive, ...options.alertDelivery });
+  let activeJob, healthSnapshot, healthWaitEpisode;
+  let healthReadPending = false, healthErrorLogged = false;
+  const healthWaiters = new Set();
+  const alertDelivery = createAlertDelivery({
+    socketPath: mailboxSocket, ledger, exclusive: work => exclusive("alert_delivery", work), ...options.alertDelivery,
+  });
   alertDelivery.start();
 
   function logError(error) {
@@ -214,39 +231,139 @@ export function createServer(options) {
     } catch (auditError) { console.error(auditError); }
   }
 
-  function exclusive(work) {
-    const run = chain.then(work, work);
+  function exclusive(kind, work) {
+    const run = chain.then(async () => {
+      const startedAt = performance.now();
+      const job = { kind, startedAt, lastProgressAt: startedAt };
+      activeJob = job;
+      try { return await work(() => { job.lastProgressAt = performance.now(); }); }
+      finally { activeJob = undefined; }
+    });
     chain = run.then(() => {}, () => {});
     return run;
   }
 
+  function projectLedgerHealth(state, observedAt) {
+    const degraded = !!ledger.beforePrune && state.resultsCapture?.ok === false;
+    const { revision: _revision, ...captureDiagnostics } = ledger.captureDiagnostics();
+    return {
+      status: degraded ? "degraded" : "ok", gatewayHost, gatewayPort, account: ACCOUNT,
+      brakes: brakeUsage(state, observedAt, { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
+      ...(state.resultsCapture || ledger.beforePrune ? { resultsCapture: {
+        ...state.resultsCapture, degraded, ...captureDiagnostics,
+        state: degraded ? "degraded" : "ok",
+        admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES, ledgerCapBytes: MAX_STATE_BYTES,
+        ...deliveryHealth(state, !!mailboxSocket && !!ledger.beforePrune),
+      } } : {}),
+    };
+  }
+
+  function ledgerHealthReadFailed() {
+    const code = "ledger_health_read_failed";
+    if (!healthErrorLogged) {
+      healthErrorLogged = true;
+      try { console.error(JSON.stringify({ event: "health_error", code })); }
+      catch { /* Diagnostics cannot block the queue or the reply. */ }
+    }
+    return new LedgerHealthUnavailable(code, undefined, 500);
+  }
+
+  function recordHealthReadFailure() {
+    healthSnapshot = { error: ledgerHealthReadFailed() };
+  }
+
+  function refreshHealthSnapshot(publishedState) {
+    try {
+      // Project retained diagnostics over the published orders without adopting receipts.
+      const state = publishedState ?? ledger.loadHealth();
+      const observedAt = Date.now();
+      healthSnapshot = {
+        body: projectLedgerHealth(state, observedAt), generation: ledger.healthGeneration(state),
+        observedAt, observedMonotonic: performance.now(),
+      };
+    } catch { recordHealthReadFailure(); }
+  }
+
+  function finishHealthRead() {
+    healthReadPending = false;
+    for (const complete of healthWaiters) complete(true);
+  }
+
+  function startHealthRead() {
+    healthReadPending = true;
+    void exclusive("health", () => {
+      if (healthWaitEpisode) {
+        const { firstQueuedAt, jobKind, staleReplies } = healthWaitEpisode;
+        healthWaitEpisode = undefined;
+        console.warn(JSON.stringify({
+          event: "health_queue_wait", waitedMs: Math.round(performance.now() - firstQueuedAt), jobKind, staleReplies,
+        }));
+      }
+      // Health polling must not retry failed capture/compaction or resolve it.
+      refreshHealthSnapshot(ledger.load({ migrate: !ledger.beforePrune }));
+    }).then(finishHealthRead, () => {
+      recordHealthReadFailure();
+      finishHealthRead();
+    });
+  }
+
+  async function boundedLedgerHealth() {
+    const queuedAt = performance.now();
+    if (!healthReadPending) startHealthRead();
+    // Timeouts detach even if the one shared read never reaches the queue head.
+    const fresh = await new Promise(resolve => {
+      const complete = (fresh) => {
+        healthWaiters.delete(complete);
+        clearTimeout(timer);
+        resolve(fresh);
+      };
+      const timer = setTimeout(complete, HEALTH_QUEUE_WAIT_MS, false);
+      healthWaiters.add(complete);
+    });
+    if (fresh) return {};
+
+    const now = performance.now();
+    const jobKind = activeJob?.kind ?? null;
+    const queueHeldMs = activeJob ? Math.ceil(now - activeJob.startedAt) : 0;
+    healthWaitEpisode ??= { firstQueuedAt: queuedAt, jobKind, staleReplies: 0 };
+    if (activeJob && now - activeJob.lastProgressAt > HEALTH_QUEUE_STALL_MS) {
+      throw new LedgerHealthUnavailable("ledger_queue_stalled", { queueHeldMs, jobKind });
+    }
+    if (!healthSnapshot) throw new LedgerHealthUnavailable("ledger_snapshot_unavailable");
+    if (healthSnapshot.error) throw healthSnapshot.error;
+    healthWaitEpisode.staleReplies++;
+    return { stale: true, queueHeldMs, queueWaitMs: Math.round(now - queuedAt) };
+  }
+
   async function readHealth() {
-    const [reachable, body] = await Promise.all([
+    const [reachable, queue] = await Promise.all([
       Promise.resolve().then(() => gatewayReachable()).then((value) => value === true).catch(() => false),
-      exclusive(() => {
-        // Health polling must not retry failed capture/compaction or resolve it.
-        const state = ledger.load({ migrate: !ledger.beforePrune });
-        const usage = ledger.usage();
-        const degraded = !!ledger.beforePrune && state.resultsCapture?.ok === false;
-        const newAdmissionsBlocked = degraded && usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES;
-        const { revision: _revision, ...captureDiagnostics } = ledger.captureDiagnostics();
-        return {
-          status: degraded ? "degraded" : "ok", gatewayReachable: false, gatewayHost, gatewayPort,
-          account: ACCOUNT, ...usage, halt: activeHalt(ledger.haltBody()),
-          brakes: brakeUsage(state, Date.now(), { blockOnInitDay: process.env.PAPER_DESK_BLOCK_ON_INIT_DAY === "true" }),
-          ...(state.resultsCapture || ledger.beforePrune ? { resultsCapture: {
-            ...state.resultsCapture, degraded, ...captureDiagnostics,
-            state: degraded ? "degraded" : "ok",
-            ...(degraded ? { reason: newAdmissionsBlocked ? "ledger_size_limit" : "results_capture_failed" } : {}),
-            ...usage, admissionThresholdBytes: CAPTURE_DEGRADED_ADMISSION_BYTES,
-            ledgerCapBytes: MAX_STATE_BYTES, newAdmissionsBlocked,
-            ...deliveryHealth(state, !!mailboxSocket && !!ledger.beforePrune),
-          } } : {}),
-        };
-      }),
+      boundedLedgerHealth(),
     ]);
-    body.gatewayReachable = reachable;
-    return body;
+    const snapshot = healthSnapshot;
+    if (snapshot.error) throw snapshot.error;
+    let live, halt;
+    try {
+      live = ledger.healthUsage();
+      halt = activeHalt(ledger.haltBody());
+    } catch { throw ledgerHealthReadFailed(); }
+    healthErrorLogged = false;
+    const { body, generation, observedAt, observedMonotonic } = snapshot;
+    const verified = generation !== undefined && generation === live.generation;
+    const capture = body.resultsCapture;
+    const newAdmissionsBlocked = !!capture?.degraded && live.usage.ledgerBytes >= CAPTURE_DEGRADED_ADMISSION_BYTES;
+    return {
+      ...body, ...live.usage, halt, gatewayReachable: reachable, ...queue,
+      ...(!verified ? { status: "degraded", reason: "ledger_snapshot_unverified" } : {}),
+      ...(capture ? { resultsCapture: {
+        ...capture, ...live.usage, newAdmissionsBlocked,
+        ...(capture.degraded ? { reason: newAdmissionsBlocked ? "ledger_size_limit" : "results_capture_failed" } : {}),
+      } } : {}),
+      ...(queue.stale || !verified ? {
+        stale: true, snapshotAt: new Date(observedAt).toISOString(),
+        snapshotAgeMs: Math.ceil(performance.now() - observedMonotonic),
+      } : {}),
+    };
   }
 
   async function handle(request, response) {
@@ -286,7 +403,7 @@ export function createServer(options) {
       const pathname = url.pathname;
       if (request.method === "POST" && pathname === "/v1/admin/capture-alerts/rearm") {
         await readBody(request);
-        send(response, 200, await exclusive(() => ledger.rearmCaptureDelivery()));
+        send(response, 200, await exclusive("capture_alert_rearm", () => ledger.rearmCaptureDelivery()));
         return;
       }
       if (dataUrl) {
@@ -318,7 +435,7 @@ export function createServer(options) {
           if (error.statusCode) throw error;
           throw Object.assign(new Error("attribution JSON is invalid"), { statusCode: 400, publicCode: "attribution_refused", publicReason: "attribution JSON is invalid" });
         }
-        const result = await exclusive(() => ledger.reattribute(parsed, { peer, config: attribution }));
+        const result = await exclusive("attribution", () => ledger.reattribute(parsed, { peer, config: attribution }));
         send(response, 200, result);
         return;
       }
@@ -364,7 +481,7 @@ export function createServer(options) {
           send(response, 400, { status: "rejected", ...publicFailure(error) });
           return;
         }
-        const body = await exclusive(() => {
+        const body = await exclusive("intent_lookup", () => {
           const state = ledger.load();
           const record = state.intents.get(intentId);
           if (!record) return { missing: true, intentId };
@@ -402,8 +519,10 @@ export function createServer(options) {
           send(response, 400, { status: "rejected", ...publicFailure(error) });
           return;
         }
-        const outcome = await exclusive(async () => {
+        const outcome = await exclusive("intent", async (markProgress) => {
           const state = ledger.load();
+          // Cache the latest published state before claiming the intent.
+          refreshHealthSnapshot(state);
           const claimed = claimRecord(state, intent, ledger);
           if (claimed.replay) return claimed.replay;
           ledger.save(state);
@@ -433,7 +552,7 @@ export function createServer(options) {
           let result;
           try {
             assertSideEffect(intent, { getHalt: () => activeHalt(ledger.haltBody()) });
-            result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign });
+            result = await runner(intent, state, { halt, getHalt: () => activeHalt(ledger.haltBody()), saveState: ledger.save, audit: ledger.audit, alertForeign: options.alertForeign, markProgress });
           } catch (error) {
             // The visible claim/result is authoritative even when its crash
             // durability is uncertain. Never replace it with an execution failure.
@@ -467,6 +586,10 @@ export function createServer(options) {
 
       send(response, 404, { status: "not_found", reason: "unknown route" });
     } catch (error) {
+      if (error instanceof LedgerHealthUnavailable) {
+        send(response, error.statusCode, error.statusCode === 500 ? { status: "rejected", ...publicFailure(error) } : error.body);
+        return;
+      }
       const status = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
       if (error.publicCode === "results_capture_degraded_ledger_cap") {
         send(response, status, { status: "rejected", ...publicFailure(error) });
@@ -503,8 +626,9 @@ export function createServer(options) {
     server,
     handle,
     readHealth,
+    ...(testMode ? { exclusive, healthWaiterCount: () => healthWaiters.size } : {}),
     initializeCapture() {
-      return exclusive(() => {
+      return exclusive("capture_initialize", () => {
         try { ledger.save(ledger.load()); }
         catch (error) {
           if (error?.published === true) return;
@@ -603,7 +727,10 @@ export function createHealthServer(readHealth) {
   return createHttpServer((request, response) => {
     request.resume();
     if (request.method !== "GET" || request.url !== "/v1/health") { send(response, 404, { status: "not_found" }); return; }
-    Promise.resolve().then(readHealth).then(body => send(response, 200, body)).catch(() => send(response, 503, { status: "unavailable" }));
+    Promise.resolve().then(readHealth).then(body => send(response, 200, body)).catch(error => {
+      const body = error instanceof LedgerHealthUnavailable && error.statusCode === 503 ? error.body : { status: "unavailable" };
+      send(response, 503, body);
+    });
   });
 }
 

@@ -750,6 +750,7 @@ async function cancelOwnedOrders(orders, options) {
         const cancellationOffset = session.state.cancellations.length;
         if (history && (intent.action !== "cancel" || clientId !== executorClientId)) freshExecutionSnapshot(session, history.coverage);
         for (const order of candidates.filter((row) => row.clientId === clientId)) {
+          guard.markProgress?.();
           const current = session.state.openOrders.find((row) => row.orderId === order.orderId && row.clientId === clientId);
           if (!current || !working(current) || !belongsToDesk(current, desk, ownershipClientIds, executorClientId, attribution) || normalizeOrderRef(current.orderRef) !== normalizeOrderRef(order.orderRef)) throw new Error("cancel ownership/order changed during reconciliation");
           const resolved = await resolveStock(session, current.symbol);
@@ -764,6 +765,7 @@ async function cancelOwnedOrders(orders, options) {
           cancelled.push({ orderId: order.orderId, symbol: order.symbol, clientId, orderRef: order.orderRef });
         }
         await session.wait(2_000);
+        guard.markProgress?.();
         const requested = cancelled.filter((row) => row.clientId === clientId);
         // A parent can auto-cancel its child before our child request reaches IB.
         // Defer these target-only errors until every cancellation below is proven;
@@ -796,8 +798,9 @@ async function cancelOwnedOrders(orders, options) {
   } catch (error) { if (sent) throw uncertain(error); throw error; }
 }
 
-async function preflightOrders(session, orders) {
+async function preflightOrders(session, orders, guard) {
   for (const order of orders) {
+    guard.markProgress?.();
     assertContract(order, order);
     const resolved = await resolveStock(session, order.symbol);
     assertContract(resolved.contract, order);
@@ -815,7 +818,7 @@ async function cancelDeskOrders(options) {
     cleanSnapshot(recon);
     selected = recon.state.openOrders.filter((row) => (!intent.symbol || row.symbol === intent.symbol) && (intent.orderId ? row.orderId === intent.orderId : normalizeOrderRef(row.orderRef) === intent.orderRef));
     if (!selected.length || selected.some((row) => !working(row) || !belongsToDesk(row, desk, ownershipClientIds, clientId, attribution))) throw new Error("cancel target is not this desk's working order");
-    await preflightOrders(recon, selected);
+    await preflightOrders(recon, selected, guard);
   } finally { recon.close(); }
   // Only legacy cancellations need position history. Client 705 ownership is
   // established by the live order's desk tag and explicit zero-filled status.
@@ -866,8 +869,9 @@ export async function flattenOwned(options) {
     if (intent.symbol) targetConId = (await resolveStock(recon, intent.symbol)).contract.conId;
     owned = reconcile(recon);
     orders = recon.state.openOrders.filter(inScope);
-    await preflightOrders(recon, orders.filter((row) => belongsToDesk(row, desk, ownershipClientIds, clientId, attribution) && working(row) && !KEEP.includes(row.symbol)));
+    await preflightOrders(recon, orders.filter((row) => belongsToDesk(row, desk, ownershipClientIds, clientId, attribution) && working(row) && !KEEP.includes(row.symbol)), guard);
     for (const position of owned) {
+      guard.markProgress?.();
       assertContract(position, position);
       const resolved = await resolveStock(recon, position.symbol);
       assertContract(resolved.contract, position);
@@ -894,6 +898,7 @@ export async function flattenOwned(options) {
         let nextId = session.state.nextId;
         if (!Number.isSafeInteger(nextId) || nextId <= 0 || nextId + owned.length > 2147483647) throw new Error("broker order IDs unavailable");
         for (const position of owned) {
+          guard.markProgress?.();
           const resolved = await resolveStock(session, position.symbol);
           const expected = { symbol: position.symbol, conId: position.conId };
           freshExecutionSnapshot(session, history.coverage);
@@ -904,6 +909,7 @@ export async function flattenOwned(options) {
           session.api.placeOrder(orderId, resolved.contract, { account: ACCOUNT, action: position.quantity > 0 ? "SELL" : "BUY", totalQuantity: Math.abs(position.quantity), orderType: "MKT", tif: "DAY", outsideRth: false, orderRef: intent.orderRef, transmit: true });
           placed.push({ orderId, symbol: position.symbol, quantity: Math.abs(position.quantity), clientId });
         }
+        guard.markProgress?.();
         await session.wait(4_000);
         statuses.push(...acceptance(session, placed.map((row) => row.orderId), { filledOnly: true, quantities: Object.fromEntries(placed.map((row) => [row.orderId, row.quantity])) }));
         const evidence = ownershipEvidence(session, history, options);

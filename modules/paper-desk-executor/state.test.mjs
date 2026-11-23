@@ -1,7 +1,9 @@
 import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import fs, { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -519,4 +521,56 @@ test('save invokes capture exactly once before compaction and retention', () => 
     assert.equal(calls, i + 1);
     assert.equal(state.intents.has('expired-recon'), false);
   }
+});
+
+test("capture outage identity uses the numeric ledger mtime on publication and load", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "joed198-mtime-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.mock.method(console, "error", () => {});
+
+  // One nanosecond below the boundary. Pin both stat views so the test does
+  // not depend on the filesystem's precision when setting mtimes.
+  const mtimeNs = 1_795_421_400_000_999_999n;
+  const mtimeMs = Number(mtimeNs / 1_000_000_000n) * 1000 + Number(mtimeNs % 1_000_000_000n) / 1_000_000;
+  const at = new Date(mtimeMs).toISOString();
+  assert.equal(at, "2026-11-23T08:10:00.001Z");
+  const stat = fs.fstatSync, rename = fs.renameSync;
+  const full = Object.assign(new Error("synthetic write failure"), { code: "ENOSPC" });
+  let failPublish = false;
+  const options = { beforePrune() { if (failPublish) throw full; } };
+  const publisher = openLedger(root, options);
+  const state = publisher.load();
+  t.mock.method(fs, "fstatSync", (fd, options) => {
+    const info = stat(fd, options);
+    if (info.isFile()) {
+      if (options?.bigint) Object.assign(info, { mtimeNs, mtimeMs: mtimeNs / 1_000_000n });
+      else info.mtimeMs = mtimeMs;
+    }
+    return info;
+  });
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (failPublish && to === publisher.statePath) throw full;
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+
+  // Publish a healthy ledger, then verify the outage anchor both before and
+  // after a restart. Keep the failed state in hand to avoid another load.
+  publisher.save(state);
+  const body = readFileSync(publisher.statePath);
+  const anchor = createHash("sha256").update(`${at}\n`).update(body).digest("hex");
+  const outageId = digest({ event: "unpersisted_capture_failure", code: "ENOSPC", anchor });
+  const reader = openLedger(root, options);
+  const reopened = reader.load();
+  failPublish = true;
+  function outageAfterFailedSave(writer, loaded) {
+    assert.throws(() => writer.save(loaded), { code: "ENOSPC", published: false });
+    const { at, outageId } = loaded.resultsCaptureAlerts[0];
+    return { at, outageId };
+  }
+  assert.deepEqual({
+    publication: outageAfterFailedSave(publisher, state),
+    load: outageAfterFailedSave(reader, reopened),
+  }, { publication: { at, outageId }, load: { at, outageId } });
 });

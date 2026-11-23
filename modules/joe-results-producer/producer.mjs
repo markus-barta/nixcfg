@@ -10,17 +10,27 @@ import { readEquityCloses } from './equity-closes.mjs';
 
 export const CADENCE_MS = 25_000; // room for source/transport time inside 30 s
 export const MIDNIGHT_RETRIES = 1;
+const EXECUTOR_SNAPSHOT_MAX_AGE_MS = 30_000;
 
 // Local executor loopback diagnostics, never a household health/account input
 // and never proof for the broker Results comparison.
 export function executorHealth(health, checkedAt, disagreement = false) {
   if (!validInstant(checkedAt)) throw unavailable();
+  const hasFreshness = ['stale', 'snapshotAgeMs', 'snapshotAt'].some(key => Object.hasOwn(health ?? {}, key));
+  let staleDegraded = false;
+  if (hasFreshness) {
+    const { stale, snapshotAgeMs, snapshotAt } = health;
+    const ageAtReceipt = Date.parse(checkedAt) - (validInstant(snapshotAt) ? Date.parse(snapshotAt) : NaN);
+    const validStale = stale === true && Number.isFinite(snapshotAgeMs) && snapshotAgeMs >= 0 && ageAtReceipt >= 0;
+    staleDegraded = !validStale || Math.max(snapshotAgeMs, ageAtReceipt) > EXECUTOR_SNAPSHOT_MAX_AGE_MS;
+    if (validStale) checkedAt = snapshotAt;
+  }
   const valid = ['ok', 'degraded'].includes(health?.status) && typeof health.halt?.active === 'boolean' && health.brakes && typeof health.gatewayReachable === 'boolean';
   const ledgerCap = health?.resultsCapture?.newAdmissionsBlocked === true || health?.resultsCapture?.reason === 'ledger_size_limit';
   const captureFailed = health?.resultsCapture?.ok === false || health?.resultsCapture?.state === 'degraded' || health?.resultsCapture?.reason === 'results_capture_failed';
   const captureDegraded = ledgerCap || captureFailed || health?.status === 'degraded';
   const brakes = valid && !health.brakes.placementBlockedOnInitDay && Number.isFinite(health.brakes.newPerDay) && Number.isFinite(health.brakes.notionalEur) && health.brakes.newPerDay > 0 && health.brakes.notionalEur > 0;
-  const result = { status: !valid ? 'down' : captureDegraded || disagreement || !brakes || !health.gatewayReachable ? 'degraded' : 'running', halt: health?.halt?.active === true, brakes: !!brakes, gatewayReachable: health?.gatewayReachable === true, checkedAt };
+  const result = { status: !valid ? 'down' : staleDegraded || captureDegraded || disagreement || !brakes || !health.gatewayReachable ? 'degraded' : 'running', halt: health?.halt?.active === true, brakes: !!brakes, gatewayReachable: health?.gatewayReachable === true, checkedAt };
   if (disagreement) result.reason = 'executor_broker_disagreement';
   else if (ledgerCap) result.reason = 'ledger_size_limit';
   else if (captureFailed) result.reason = 'results_capture_failed';

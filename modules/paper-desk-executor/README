@@ -41,3 +41,37 @@ reserved request IDs, retention and FX-SAMPLER-OFF are unchanged. Failed IB
 requests may record an integer code with the existing reason. Broker messages
 and account IDs are never logged or persisted by the sampler. Old state files
 without source or code remain readable; unknown sample sources fail closed.
+
+Executor health (JOED-198)
+
+GET /v1/health on 8470 and the Results loopback listener on 8472 give the
+ledger queue 100 ms to start a fresh read. While a job holds the queue, both
+listeners can return HTTP 200 with stale: true and the latest ledger snapshot.
+The snapshot refreshes before each claim, on ledger publication, and when a
+capture failure is retained in memory. queueWaitMs measures the probe's wait
+and queueHeldMs measures how long the active job has held the queue. Stale
+replies include the UTC observation time (snapshotAt) and monotonic age
+(snapshotAgeMs). Both listeners sample live HALT and ledger usage after the
+queue wait and gateway probe finish. Capture admission diagnostics use that
+live usage. An unverified ledger generation yields a degraded reply.
+
+Both listeners return HTTP 503 with reason ledger_queue_stalled, queueHeldMs,
+and jobKind when the active job has gone more than 120 seconds without
+progress. Intents mark broker session attempts and completions, and mark
+progress between orders and positions during cancellation and flattening.
+In ib.mjs a session attempt has a 20-second timeout, contract and FX lookups
+allow 10 seconds each, and quote snapshots and acknowledgements take up to
+4 seconds per wait. The 120-second no-progress limit gives those bounded
+steps and local ledger work room to finish. Sequential recon replay attempts
+each renew the deadline.
+
+A missing snapshot also returns HTTP 503. A failed health read returns an
+HTTP error and logs one value-free health_error code until health recovers.
+When the shared fresh read starts, it writes one value-free health_queue_wait
+line with waitedMs from the first timed-out probe's arrival, the jobKind
+that held the queue, and the staleReplies count for the episode. Timed-out
+probes detach from the shared read.
+
+The gateway TCP probe runs in parallel and can take up to two seconds. Keep
+the watchdog's client timeout comfortably above 2.1 seconds.
+Synchronous disk or CPU work can delay the Node event loop and its timers.

@@ -1870,6 +1870,29 @@ test("real runner publication: flatten preserves the error from a closing plan a
   assert.equal(h.broker.live.size, 0);
 });
 
+test("recon marks each broker session attempt and completion, including unavailable legacy replay", async () => {
+  const h = harness();
+  const state = ledger();
+  const legacyClients = [28, 29, 30, 31, 32];
+  state.intents.set("pending-legacy-cancel", { action: "cancel", status: "uncertain",
+    claimedAt: new Date().toISOString(), brokerPlan: {
+      cancellationTargets: legacyClients.map(clientId => ({ clientId, orderId: 30, quantity: 2 })),
+    },
+  });
+  const progress = [];
+  const result = await executeIntent(intent("recon"), state, { markProgress: () => progress.push("progress") }, {
+    ...h.runtime,
+    connect: async (clientId, options) => {
+      progress.push(clientId);
+      if (legacyClients.includes(clientId)) throw new Error("synthetic replay timeout");
+      return h.connect(clientId, options);
+    },
+  });
+  assert.equal(result.status, "ok");
+  assert.deepEqual(progress, [Number(h.config.clientIds.recon), Number(h.config.clientIds.executor), ...legacyClients]
+    .flatMap(clientId => ["progress", clientId, "progress"]));
+});
+
 test("real runner publication: legacy recon replay propagates a published attribution save", async t => {
   const foreign = { contract: contract("AMD", 2), execution: fill({ execId: "legacy-replay-foreign.01", clientId: 28, orderRef: "" }).execution };
   const h = harness({ onSnapshot(session) { if (session.api.clientId === 28) session.state.executions.push(foreign); } });

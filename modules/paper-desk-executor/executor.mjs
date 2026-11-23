@@ -123,7 +123,13 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     delete state.resultsFx; delete state.resultsHistoryCoverage; delete state.resultsFxSampler;
     if (state.ownershipSnapshot) delete state.ownershipSnapshot.observedAt;
   }
-  const connect = runtime.connect || ((id, options) => openSession(id, 20_000, options));
+  const openBrokerSession = runtime.connect || ((id, options) => openSession(id, 20_000, options));
+  const markProgress = context.markProgress || (() => {});
+  const connect = async (id, options) => {
+    markProgress();
+    try { return await openBrokerSession(id, options); }
+    finally { markProgress(); }
+  };
   const readHistory = runtime.readHistory || readPusherExecutions;
   validateConfig(config);
   const clientId = Number(config.clientIds.executor);
@@ -135,7 +141,7 @@ export async function executeIntent(intent, state, context = {}, runtime = {}) {
     state.executions = keepAttribution(mergeExecutions(...collections), ...collections);
     reconcileAttribution(state, attribution, { ...context, saveState });
   };
-  const guard = { getHalt: context.getHalt || (() => context.halt || { active: false }), now: context.now || Date.now };
+  const guard = { getHalt: context.getHalt || (() => context.halt || { active: false }), now: context.now || Date.now, markProgress };
   const ownershipClientIds = config.ownership[intent.desk];
   if (!Array.isArray(ownershipClientIds) || !ownershipClientIds.length) throw new Error("desk has no ownership client IDs");
   const result = (body) => ({ status: "ok", intentId: intent.intentId, desk: intent.desk, action: intent.action, observedAt: new Date().toISOString(), ...body });
