@@ -123,3 +123,13 @@ Offline validation (local cached nixpkgs, no NixOS build):
 The close tests run six mutation controls: age, start guard, conflict
 rejection, exactness, null-map filtering and synthetic row creation.
 verify-contracts checks both untouched wire closures.
+
+Executor health (JOED-198)
+
+Loopback health replies with no freshness fields are treated as fresh.
+A stale reply must supply stale: true, a finite non-negative snapshotAgeMs,
+and a valid UTC snapshotAt. The producer uses snapshotAt as checkedAt and
+degrades the observation if either the supplied age or the elapsed time at
+receipt exceeds 30 seconds. Malformed freshness metadata also degrades
+health. A loopback HTTP 503 records unavailable executor health while the
+producer continues to publish independently validated Results.

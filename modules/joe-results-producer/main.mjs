@@ -72,13 +72,7 @@ async function main() {
   });
   const runner = createRunner({ producer, transport,
     readSource: () => '/var/lib/paper-desk-executor/results-input.jsonl',
-    readHealth: async () => {
-      const response = await fetch(health, { redirect: 'error', signal: AbortSignal.timeout(3000) });
-      if (!response.ok) { await response.body?.cancel(); throw new Error('executor_unavailable'); }
-      const text = await response.text();
-      if (Buffer.byteLength(text) > 65536) throw new Error('executor_unavailable');
-      return JSON.parse(text);
-    },
+    readHealth: () => readExecutorHealth(health),
   });
   const writeCloseDiagnostics = createEquityCloseDiagnosticsWriter();
   let stopping = false;
@@ -103,4 +97,17 @@ export function executorHealthUrl(value) {
   if (value !== 'http://127.0.0.1:8472/v1/health') throw new Error('executor_loopback_only');
   // Fixed loopback URL: no network destination is taken from settings/state.
   return new URL('http://127.0.0.1:8472/v1/health');
+}
+
+export async function readExecutorHealth(url, request = fetch) {
+  const response = await request(url, { redirect: 'error', signal: AbortSignal.timeout(3000) });
+  if (response.status === 503) {
+    // The runner records unavailable diagnostics and sends validated Results.
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!response.ok) { await response.body?.cancel(); throw new Error('executor_unavailable'); }
+  const text = await response.text();
+  if (Buffer.byteLength(text) > 65536) throw new Error('executor_unavailable');
+  return JSON.parse(text);
 }

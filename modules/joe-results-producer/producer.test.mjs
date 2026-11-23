@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { roundTrips, dayCloses, viennaDate } from './fifo.mjs';
 import { openProducer, createRunner, executorHealth, CADENCE_MS } from './producer.mjs';
+import { executorHealthUrl, readExecutorHealth } from './main.mjs';
 import { hash, openJournal, readJournal } from './journal.mjs';
 import { verifyContracts } from './verify-contracts.mjs';
 import { fixtureIngress, httpTransport } from './transport.mjs';
@@ -167,6 +168,71 @@ test('true fill/broker mismatch emits exact disagreement code; gateway flaps do 
   assert.deepEqual(reconciliationEvidence(state, config, floor, dependencies), []);
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).reason, undefined);
   assert.equal(executorHealth({ ...health, gatewayReachable: false }, at).status, 'degraded');
+});
+
+test('executor health backdates stale observations and degrades snapshots older than 30 seconds', () => {
+  const running = executorHealth(health, at);
+  assert.equal(running.status, 'running');
+  assert.equal(running.checkedAt, at);
+  const snapshotAt = '2026-10-16T13:59:30.000Z';
+  const stale = { ...health, stale: true, snapshotAgeMs: 29_999.5, snapshotAt };
+  assert.deepEqual(executorHealth(stale, at), { ...running, checkedAt: snapshotAt });
+  assert.deepEqual(executorHealth({ ...stale, snapshotAgeMs: 30_001 }, at), {
+    ...running, status: 'degraded', checkedAt: snapshotAt,
+  });
+  assert.deepEqual(executorHealth(stale, '2026-10-16T14:00:00.001Z'), {
+    ...running, status: 'degraded', checkedAt: snapshotAt,
+  });
+  assert.deepEqual(executorHealth({ ...stale, snapshotAgeMs: 0, snapshotAt: at }, at), running);
+});
+
+test('executor health degrades malformed or incomplete freshness metadata', () => {
+  const snapshotAt = '2026-10-16T13:59:59.000Z';
+  const stale = { stale: true, snapshotAgeMs: 1000, snapshotAt };
+  for (const metadata of [
+    { ...stale, stale: 'true' }, { ...stale, stale: false }, { stale: false }, { snapshotAgeMs: 1000 },
+    { stale: true, snapshotAt }, { stale: true, snapshotAgeMs: 1000 }, { snapshotAt },
+    { ...stale, snapshotAgeMs: -1 }, { ...stale, snapshotAgeMs: Infinity }, { ...stale, snapshotAgeMs: NaN },
+    { ...stale, snapshotAgeMs: '1000' }, { ...stale, snapshotAgeMs: null },
+    { ...stale, snapshotAt: 'invalid' }, { ...stale, snapshotAt: '2026-10-16T14:00:00.001Z' },
+  ]) {
+    const result = executorHealth({ ...health, ...metadata }, at);
+    assert.equal(result.status, 'degraded', JSON.stringify(metadata));
+    assert.equal(result.checkedAt, at);
+  }
+});
+
+test('loopback 503 is journaled as unavailable and validated Results still reach ingress', async () => {
+  const dir = temp();
+  const producer = open(dir);
+  const ingress = fixtureIngress({ now: () => at });
+  const url = executorHealthUrl('http://127.0.0.1:8472/v1/health');
+  const readHealth = () => readExecutorHealth(url, async () =>
+    Response.json({ status: 'degraded', reason: 'ledger_queue_stalled' }, { status: 503 }));
+  const runner = createRunner({ producer, now: () => Date.parse(at), readSource: source, readHealth, transport: ingress });
+  try {
+    assert.equal(await runner.tick(), true);
+    const expected = { status: 'down', halt: false, brakes: false, gatewayReachable: false,
+      checkedAt: at, captureRefusals: 0, portionExclusions: 0 };
+    assert.deepEqual(producer.latestHealth, expected);
+    assert.deepEqual(readJournal(path.join(dir, 'results.jsonl')).find(row => row.type === 'health')?.value, expected);
+    assert.deepEqual(ingress.accepted.value.trades, roundTrips(fills, start, floor));
+  } finally { producer.close(); }
+});
+
+test('stale executor observation time reaches the producer journal unchanged', async () => {
+  const dir = temp();
+  const producer = open(dir);
+  const ingress = fixtureIngress({ now: () => at });
+  const snapshotAt = '2026-10-16T13:59:29.500Z';
+  const runner = createRunner({ producer, now: () => Date.parse(at), readSource: source, transport: ingress,
+    readHealth: () => ({ ...health, stale: true, snapshotAgeMs: 30_000, snapshotAt }) });
+  try {
+    assert.equal(await runner.tick(), true);
+    const observation = readJournal(path.join(dir, 'results.jsonl')).find(row => row.type === 'health')?.value;
+    assert.equal(observation.status, 'degraded');
+    assert.equal(observation.checkedAt, snapshotAt);
+  } finally { producer.close(); }
 });
 
 test('capture degradation projects the rev-9 reason and bytes without changing trading brakes', () => {

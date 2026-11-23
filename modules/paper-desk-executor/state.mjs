@@ -198,12 +198,20 @@ export function admitIntent(state, action, options) {
 
 const STATE_SCHEMA = "barta.paper-desk-executor-state.v1";
 
+function fileIdentity(info) {
+  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}`;
+}
+
+function fileGeneration(info) {
+  return `${fileIdentity(info)}:${info.ctimeNs}`;
+}
+
 // Every caller gets the same publication contract. A pre-publication error
 // throws with published=false; visible bytes always return an
 // outcome, even if their crash durability could not be confirmed afterward.
-function writeAtomic(filePath, body, { exclusive = false } = {}) {
+function writeAtomic(filePath, body, { exclusive = false, trackGeneration = false } = {}) {
   const temporary = `${filePath}.${randomUUID()}.new`;
-  let publishedAt, error, created = false, published = false;
+  let publishedAt, error, generationHandle, generation, writtenIdentity, created = false, published = false;
   try {
     const handle = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     created = true;
@@ -211,6 +219,13 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
       writeFileSync(handle, body);
       fsyncSync(handle);
       publishedAt = new Date(fstatSync(handle).mtimeMs).toISOString();
+      // Keep a descriptor for these exact bytes through rename/link and cleanup.
+      if (trackGeneration) {
+        try {
+          writtenIdentity = fileIdentity(fstatSync(handle, { bigint: true }));
+          generationHandle = openSync(temporary, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        } catch { /* Health can report an unverified generation. */ }
+      }
     } finally { closeSync(handle); }
     // The exclusive link never replaces a concurrently published winner.
     if (exclusive) linkSync(temporary, filePath);
@@ -220,6 +235,16 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
   if (created) {
     try { unlinkSync(temporary); }
     catch (caught) { if (caught.code !== "ENOENT") error ??= caught; }
+  }
+  if (generationHandle !== undefined) {
+    try {
+      if (published) {
+        const info = fstatSync(generationHandle, { bigint: true });
+        if (fileIdentity(info) === writtenIdentity) generation = fileGeneration(info);
+      }
+    } catch { /* Health can report an unverified generation. */ }
+    try { closeSync(generationHandle); }
+    catch { generation = undefined; }
   }
   if (published && !error) {
     try {
@@ -231,12 +256,12 @@ function writeAtomic(filePath, body, { exclusive = false } = {}) {
   if (!published) {
     throw Object.assign(error, { published: false, errorClass });
   }
-  const outcome = { published: true, durability: error ? "uncertain" : "ok", errorClass, publishedAt };
+  const outcome = { published: true, durability: error ? "uncertain" : "ok", errorClass, publishedAt, generation };
   if (error) Object.assign(error, { published: true, durability: "uncertain", errorClass });
   return { ...outcome, error };
 }
 
-export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune } = {}) {
+export function openLedger(root, { reconRetentionMs = reconRetention(), beforePrune, onHealthChange } = {}) {
   reconRetentionMs = reconRetention(reconRetentionMs);
   const resolvedRoot = path.resolve(root);
   const statePath = confinedPath(resolvedRoot, path.join(resolvedRoot, "ledger.json"), "state path");
@@ -252,6 +277,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
   let durableCaptureOutages = new Set();
   let durableCaptureAlerts = [];
   const publishedLedgerErrors = new WeakSet();
+  const stateGenerations = new WeakMap();
   let durabilityRevision = 0;
 
   function publish(file, body, options) {
@@ -316,6 +342,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     pendingCaptureFailure = { resultsCapture: state.resultsCapture, resultsCaptureAlerts: state.resultsCaptureAlerts };
     pendingCaptureAnchor = durableCaptureAnchor;
     captureRevision++;
+    onHealthChange?.();
   }
 
   function captureDiagnostics() {
@@ -392,12 +419,16 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     for (const [intentId, record] of changes) state.intents.set(intentId, record);
   }
 
-  function usage() {
+  function healthGeneration(file) {
+    if (file !== undefined) return `${file}:${captureRevision}:${durabilityRevision}:${!!pendingCaptureFailure}`;
+  }
+
+  function healthUsage() {
     const handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
-      const info = fstatSync(handle);
+      const info = fstatSync(handle, { bigint: true });
       if (!info.isFile()) throw new Error("executor ledger is not a regular file");
-      return headroom(info.size);
+      return { usage: headroom(Number(info.size)), generation: healthGeneration(fileGeneration(info)) };
     } finally { closeSync(handle); }
   }
 
@@ -463,7 +494,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     try {
       const body = `${serializeState(state)}\n`;
       if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("ledger size limit reached; evidence retained");
-      const outcome = publish(statePath, body, { exclusive });
+      const outcome = publish(statePath, body, { exclusive, trackGeneration: !!onHealthChange });
       published = outcome.published;
       // Adopt visible bytes before propagating a ledger durability warning.
       // In particular, a claim stays visible but cannot reach the broker.
@@ -472,6 +503,8 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       pendingCaptureFailure = pendingCaptureAnchor = undefined;
       if (durabilityRevision === warningSince) durabilityWarning = undefined;
       captureRevision++;
+      stateGenerations.set(target, outcome.generation);
+      onHealthChange?.(target);
       if (outcome.durability === "uncertain") {
         throw outcome.error;
       }
@@ -536,13 +569,16 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     return { status: "ok", rearmed };
   }
 
-  function load({ initialize = true, readOnly = false, migrate = true } = {}) {
+  function load({ initialize = true, readOnly = false, migrate = true, healthOnly = false } = {}) {
     let handle;
     try {
       handle = openSync(statePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      if (!initialize || readOnly) return initialState();
+      if (!initialize || readOnly) {
+        const initial = initialState();
+        return healthOnly ? structuredClone(initial) : initial;
+      }
       const initial = initialState();
       let initialized = false;
       try {
@@ -560,9 +596,13 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
       const info = fstatSync(handle);
       if (!info.isFile() || info.size > MAX_STATE_BYTES) throw new Error("executor ledger exceeds size limit or is not a regular file");
       loadedBytes = info.size;
+      let generation;
+      try { generation = fileGeneration(fstatSync(handle, { bigint: true })); }
+      catch { /* Health can report an unverified generation. */ }
       original = readFileSync(handle, "utf8");
       value = JSON.parse(original);
-      rememberDurableCapture(original, value, new Date(info.mtimeMs).toISOString());
+      if (!healthOnly) rememberDurableCapture(original, value, new Date(info.mtimeMs).toISOString());
+      if (value && typeof value === "object") stateGenerations.set(value, generation);
     } finally { closeSync(handle); }
     if (value?.schema !== STATE_SCHEMA || value?.account !== ACCOUNT
         || !Number.isFinite(Date.parse(value.initializedAt)) || !value.intents
@@ -574,6 +614,7 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     value.intents = dictionary(value.intents, "intentId");
     delete value.attributionConfig;
     rememberFirstOrders(value);
+    if (healthOnly) return Object.assign(value, structuredClone(pendingCaptureFailure));
     if (pendingCaptureFailure) {
       Object.assign(value, pendingCaptureFailure);
       adoptPublishedCapture(value, { adoptDelivery: pendingCaptureAnchor !== durableCaptureAnchor });
@@ -651,5 +692,8 @@ export function openLedger(root, { reconRetentionMs = reconRetention(), beforePr
     return planned.result;
   }
 
-  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save, usage, audit, haltBody, setHalt, reattribute, updateCaptureDelivery, noteCaptureFailure, captureDiagnostics, rearmCaptureDelivery };
+  return { root: resolvedRoot, statePath, auditPath, haltPath, reconEvidencePath, backupPath, reconRetentionMs, beforePrune, load, save,
+    loadHealth: () => load({ initialize: false, readOnly: true, healthOnly: true }),
+    usage: () => healthUsage().usage, healthUsage, healthGeneration: state => healthGeneration(stateGenerations.get(state)),
+    audit, haltBody, setHalt, reattribute, updateCaptureDelivery, noteCaptureFailure, captureDiagnostics, rearmCaptureDelivery };
 }

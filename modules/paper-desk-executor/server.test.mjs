@@ -1,15 +1,15 @@
 import "../../tests/paper-desk-account-fixture.mjs";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import fs, { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runClient } from "./client/paper-intent.mjs";
 
-import { digest, parseIntent } from "./policy.mjs";
-import { createServer, createResultsSampler } from "./server.mjs";
+import { digest, newYorkDay, parseIntent } from "./policy.mjs";
+import { createHealthServer, createServer, createResultsSampler, HEALTH_QUEUE_WAIT_MS } from "./server.mjs";
 import { createCapture } from "../joe-results-producer/capture.mjs";
 import { createFxSampler } from "./fx-sampler.mjs";
 import { MAX_STATE_BYTES, CAPTURE_DEGRADED_ADMISSION_BYTES, openLedger } from "./state.mjs";
@@ -105,6 +105,10 @@ async function start(t, overrides = {}) {
   handlers.set(`http://127.0.0.1:${address.port}`, created.handle);
   const ctx = {
     calls: () => calls,
+    exclusive: created.exclusive,
+    healthWaiterCount: created.healthWaiterCount,
+    ledger: created.ledger,
+    readHealth: created.readHealth,
     stateDir,
     url: `http://127.0.0.1:${address.port}`,
   };
@@ -122,6 +126,22 @@ async function post(url, body) {
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
+}
+
+function healthProbes(ctx) {
+  const loopback = createHealthServer(ctx.readHealth);
+  return [
+    async () => {
+      const response = await fetch(`${ctx.url}/v1/health`);
+      return { status: response.status, body: await response.json() };
+    },
+    () => new Promise(resolve => {
+      loopback.emit("request", { method: "GET", url: "/v1/health", resume() {} }, {
+        writeHead(status) { this.status = status; },
+        end(raw) { resolve({ status: this.status, body: JSON.parse(raw) }); },
+      });
+    }),
+  ];
 }
 
 async function runCli(args, origin) {
@@ -155,6 +175,450 @@ test("peer allowlist rejects every source that is not listed", async (t) => {
   assert.equal(body.ledgerBytes, statSync(openLedger(allowed.stateDir).statePath).size);
   assert.equal(body.ledgerPercent, body.ledgerBytes / MAX_STATE_BYTES * 100);
   assert.equal(body.ledgerMaxBytes, MAX_STATE_BYTES);
+});
+
+test("both health listeners use a bounded ledger snapshot while intents stay serialized", async (t) => {
+  const warnings = t.mock.method(console, "warn", () => {});
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const firstId = "health-test-first", secondId = "health-test-second";
+  const executed = [];
+  const observation = new Date().toISOString();
+  const ctx = await start(t, {
+    gatewayReachable: async () => false,
+    execute: async (intent, state) => {
+      executed.push(intent.intentId);
+      if (intent.intentId === firstId) {
+        entered.resolve();
+        await release.promise;
+        state.concurrentObservedAt = observation;
+      }
+      return okResult(intent);
+    },
+  });
+  const probes = healthProbes(ctx);
+  const loads = t.mock.method(ctx.ledger, "load");
+
+  const original = valid({ intentId: firstId });
+  const first = post(ctx.url, original);
+  await entered.promise; // No health request has primed the cache.
+  const second = post(ctx.url, valid({ intentId: secondId }));
+  const replay = post(ctx.url, original);
+  let timer;
+  let staleReplies;
+  const probeStartedAt = performance.now();
+  let releasedAt;
+  try {
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("health waited for the blocked intent")), HEALTH_QUEUE_WAIT_MS + 400);
+    });
+    const requests = [...probes, ...probes, ...probes];
+    staleReplies = requests.length;
+    const replies = await Promise.race([deadline, Promise.all(requests.map(probe => probe()))]);
+    for (const { status, body } of replies) {
+      assert.equal(status, 200);
+      assert.equal(body.stale, true);
+      assert.ok(body.queueWaitMs >= HEALTH_QUEUE_WAIT_MS - 1);
+      assert.ok(body.queueHeldMs >= body.queueWaitMs);
+      assert.ok(body.snapshotAgeMs >= body.queueWaitMs);
+      assert.equal(body.ledgerBytes, statSync(ctx.ledger.statePath).size);
+      assert.equal(body.brakes.concurrentObservedAt, null);
+      assert.equal(body.gatewayReachable, false);
+    }
+    assert.deepEqual(executed, [firstId]);
+    assert.equal(loads.mock.calls.length, 1, "only the active intent has loaded the ledger");
+    assert.equal(warnings.mock.calls.length, 0, "the episode is still ongoing");
+  } finally {
+    clearTimeout(timer);
+    releasedAt = performance.now();
+    release.resolve();
+    await Promise.all([first, second, replay]);
+  }
+
+  await ctx.exclusive("test_barrier", () => {});
+  assert.equal(loads.mock.calls.filter(call => call.arguments[0]?.migrate === true).length, 1,
+    "only one fresh health read ran for the entire episode");
+  assert.equal(warnings.mock.calls.length, 1);
+  const [line] = warnings.mock.calls[0].arguments;
+  const logged = JSON.parse(line);
+  assert.deepEqual(logged, { event: "health_queue_wait", waitedMs: logged.waitedMs, jobKind: "intent", staleReplies });
+  assert.ok(logged.waitedMs >= Math.floor(releasedAt - probeStartedAt) - 1);
+
+  assert.equal((await first).status, 200);
+  assert.equal((await second).status, 200);
+  assert.equal((await replay).body.idempotentReplay, true);
+  assert.deepEqual(executed, [firstId, secondId]);
+  const fresh = await fetch(`${ctx.url}/v1/health`);
+  assert.equal(fresh.status, 200);
+  const body = await fresh.json();
+  assert.equal(body.stale, undefined);
+  assert.equal(body.queueWaitMs, undefined);
+  assert.equal(body.brakes.concurrentObservedAt, observation);
+  assert.equal(warnings.mock.calls.length, 1);
+});
+
+test("both health listeners return 503 once the active queue hold exceeds 120 seconds", async (t) => {
+  let now = 1_000;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(console, "warn", () => {});
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const ctx = await start(t, {
+    execute: async (intent) => {
+      entered.resolve();
+      await release.promise;
+      return okResult(intent);
+    },
+  });
+  const probes = healthProbes(ctx);
+  const intent = post(ctx.url, valid());
+  await entered.promise;
+  try {
+    now += 120_000;
+    const withinBound = await Promise.all(probes.map(probe => probe()));
+    assert.ok(withinBound.every(({ status, body }) => status === 200 && body.stale && body.queueHeldMs === 120_000));
+    now += 1;
+    const replies = await Promise.all(probes.map(probe => probe()));
+    for (const reply of replies) {
+      assert.deepEqual(reply, {
+        status: 503, body: { status: "degraded", reason: "ledger_queue_stalled", queueHeldMs: 120_001, jobKind: "intent" },
+      });
+    }
+  } finally {
+    release.resolve();
+    await intent;
+  }
+});
+
+test("broker progress resets the stall deadline without resetting the queue hold time", async (t) => {
+  let now = 1_000;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(console, "warn", () => {});
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const ctx = await start(t, {
+    execute: async (intent, _state, { markProgress }) => {
+      for (let attempt = 0; attempt < 7; attempt++) {
+        now += 20_000;
+        markProgress();
+      }
+      entered.resolve();
+      await release.promise;
+      return okResult(intent);
+    },
+  });
+  const probes = healthProbes(ctx);
+  const job = post(ctx.url, valid({ action: "recon", order: undefined }));
+  await entered.promise;
+  try {
+    now += 120_000;
+    for (const { status, body } of await Promise.all(probes.map(probe => probe()))) {
+      assert.equal(status, 200);
+      assert.equal(body.stale, true);
+      assert.equal(body.queueHeldMs, 260_000);
+    }
+    now++;
+    for (const { status, body } of await Promise.all(probes.map(probe => probe()))) {
+      assert.equal(status, 503);
+      assert.equal(body.reason, "ledger_queue_stalled");
+    }
+  } finally {
+    release.resolve();
+    await job;
+  }
+  assert.ok((await Promise.all(probes.map(probe => probe()))).every(reply => reply.status === 200 && !reply.body.stale));
+});
+
+test("timed-out probes remove every waiter before the shared read can run", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const ctx = await start(t);
+  const probes = healthProbes(ctx);
+  assert.equal((await probes[0]()).status, 200);
+  const loads = t.mock.method(ctx.ledger, "load");
+  const release = Promise.withResolvers();
+  const hold = ctx.exclusive("intent", () => release.promise);
+  const count = 30;
+  try {
+    const requests = Array.from({ length: count }, (_, index) => probes[index % probes.length]());
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(ctx.healthWaiterCount(), count);
+    t.mock.timers.tick(HEALTH_QUEUE_WAIT_MS);
+    const replies = await Promise.all(requests);
+    assert.ok(replies.every(({ status, body }) => status === 200 && body.stale));
+    assert.equal(ctx.healthWaiterCount(), 0);
+    assert.equal(loads.mock.callCount(), 0);
+  } finally {
+    release.resolve();
+    await hold;
+    await ctx.exclusive("test_barrier", () => {});
+  }
+  assert.equal(loads.mock.callCount(), 1);
+});
+
+for (const stale of [false, true]) test(`both ${stale ? "stale" : "fresh"} health replies sample HALT and usage after a slow gateway probe`, async (t) => {
+  t.mock.method(console, "warn", () => {});
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const gateway = Promise.withResolvers();
+  const ctx = await start(t, { gatewayReachable: () => gateway.promise });
+  const ledger = openLedger(ctx.stateDir);
+  const state = ledger.load();
+  // Prime the snapshot without waiting on the gateway.
+  const prime = ctx.readHealth();
+  await ctx.exclusive("test_barrier", () => {});
+  const release = Promise.withResolvers();
+  const hold = stale ? ctx.exclusive("intent", () => release.promise) : undefined;
+  const replies = Promise.all(healthProbes(ctx).map(probe => probe()));
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    if (stale) t.mock.timers.tick(HEALTH_QUEUE_WAIT_MS);
+    else await ctx.exclusive("test_barrier", () => {});
+    assert.equal(ctx.healthWaiterCount(), 0);
+    const halt = await fetch(`${ctx.url}/v1/halt`, { method: "POST", body: '{"reason":"slow gateway test"}' });
+    assert.equal(halt.status, 200);
+    // An independent writer publishes a different generation during the probe.
+    state.concurrentObservedAt = new Date().toISOString();
+    ledger.save(state);
+    const ledgerBytes = statSync(ledger.statePath).size;
+    gateway.resolve(true);
+    for (const { status, body } of await replies) {
+      assert.equal(status, 200);
+      assert.equal(body.halt.active, true);
+      assert.equal(body.ledgerBytes, ledgerBytes);
+      assert.equal(body.status, "degraded");
+      assert.equal(body.reason, "ledger_snapshot_unverified");
+      assert.equal(typeof body.queueWaitMs, stale ? "number" : "undefined");
+    }
+  } finally {
+    gateway.resolve(true);
+    release.resolve();
+    await Promise.allSettled([hold, prime, replies]);
+  }
+});
+
+for (const retained of [false, true]) test(`stale replies show ${retained ? "retained" : "published"} capture failure during an intent`, async (t) => {
+  t.mock.method(console, "warn", () => {});
+  t.mock.method(console, "error", () => {});
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let captureFails = false, failPublish = false;
+  const ctx = await start(t, {
+    beforePrune() {
+      if (captureFails) throw Object.assign(new Error("synthetic capture failure"), { code: "EIO" });
+    },
+    async execute(intent, state, { saveState }) {
+      state.placements.push({
+        intentId: intent.intentId, desk: intent.desk, symbol: "AAPL", day: newYorkDay(Date.now()),
+        riskEur: 2, status: "reserved",
+      });
+      captureFails = true;
+      failPublish = retained;
+      if (retained) assert.throws(() => saveState(state), { code: "ENOSPC", published: false });
+      else saveState(state);
+      entered.resolve();
+      await release.promise;
+      return okResult(intent);
+    },
+  });
+  const rename = fs.renameSync;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (failPublish && to === ctx.ledger.statePath) throw Object.assign(new Error("synthetic write failure"), { code: "ENOSPC" });
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const probes = healthProbes(ctx);
+  assert.equal((await probes[0]()).body.status, "ok");
+  const job = post(ctx.url, valid());
+  await Promise.race([entered.promise, job.then(() => assert.fail("intent left before broker wait"))]);
+  try {
+    for (const { status, body } of await Promise.all(probes.map(probe => probe()))) {
+      assert.equal(status, 200);
+      assert.equal(body.stale, true);
+      assert.equal(new Date(body.snapshotAt).toISOString(), body.snapshotAt);
+      assert.equal(body.status, "degraded");
+      assert.equal(body.reason, undefined);
+      assert.equal(body.resultsCapture.ok, false);
+      assert.equal(body.resultsCapture.persisted, !retained);
+      assert.equal(body.resultsCapture.newAdmissionsBlocked, false);
+      assert.equal(body.resultsCapture.reason, "results_capture_failed");
+      assert.equal(body.brakes.newToday, retained ? 0 : 1);
+      assert.equal(body.brakes.dailyRiskEur, retained ? 0 : 2);
+    }
+    const originalBytes = statSync(ctx.ledger.statePath).size;
+    try {
+      truncateSync(ctx.ledger.statePath, CAPTURE_DEGRADED_ADMISSION_BYTES);
+      for (const { body } of await Promise.all(probes.map(probe => probe()))) {
+        assert.equal(body.status, "degraded");
+        assert.equal(body.reason, "ledger_snapshot_unverified");
+        assert.equal(body.resultsCapture.newAdmissionsBlocked, true);
+        assert.equal(body.resultsCapture.reason, "ledger_size_limit");
+      }
+    } finally {
+      truncateSync(ctx.ledger.statePath, originalBytes);
+    }
+  } finally {
+    failPublish = false;
+    release.resolve();
+    await job;
+    await ctx.exclusive("test_barrier", () => {});
+  }
+});
+
+test("retained capture health refresh preserves the in-flight delivery and retry bytes", async (t) => {
+  const at = "2026-11-23T08:10:00.000Z";
+  t.mock.method(Date, "now", () => Date.parse(at));
+  const full = Object.assign(new Error("synthetic write failure"), { code: "ENOSPC" });
+  const beforePrune = () => { throw full; };
+  const ctx = await start(t, { beforePrune });
+  const controlRoot = tempDir();
+  t.after(() => removeTemp(controlRoot));
+  const controlLedger = openLedger(controlRoot, { beforePrune });
+  let failedStatePath;
+  const rename = fs.renameSync;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (to === failedStatePath) throw full;
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+
+  function retry(ledger) {
+    const publisher = openLedger(ledger.root);
+    const published = publisher.load();
+    published.initializedAt = at;
+    published.resultsCapture = { ok: false, since: at, lastErrorAt: at, code: "ENOSPC", count: 1 };
+    const outageId = "synthetic-outage";
+    published.resultsCaptureAlerts = [{
+      outageId, code: "ENOSPC", at, lastSeenAt: at, count: 1,
+      delivery: { failure: { attempts: 1, status: "pending" } },
+    }];
+    publisher.save(published);
+
+    const state = ledger.load();
+    assert.equal(state.resultsCaptureAlerts[0].delivery.failure.status, "pending");
+    publisher.updateCaptureDelivery(outageId, "failure", (delivery) => ({ ...delivery, status: "delivered" }));
+    const secondPublication = readLedgerSnapshot(ledger.statePath);
+    assert.equal(JSON.parse(secondPublication).resultsCaptureAlerts[0].delivery.failure.status, "delivered");
+
+    failedStatePath = ledger.statePath;
+    try {
+      // On the server ledger, retaining the failure triggers the health refresh.
+      assert.throws(() => ledger.save(state), { code: "ENOSPC", published: false });
+    } finally {
+      failedStatePath = undefined;
+    }
+    assert.deepEqual(readLedgerSnapshot(ledger.statePath), secondPublication);
+    const inFlight = state.resultsCaptureAlerts[0].delivery.failure.status;
+    ledger.save(state);
+    return { inFlight, bytes: readLedgerSnapshot(ledger.statePath) };
+  }
+
+  const control = retry(controlLedger);
+  const refreshed = await ctx.exclusive("test_capture_retry", () => retry(ctx.ledger));
+  assert.deepEqual({
+    sameBytes: refreshed.bytes.equals(control.bytes),
+    inFlight: refreshed.inFlight,
+    persisted: JSON.parse(refreshed.bytes).resultsCaptureAlerts[0].delivery.failure.status,
+  }, { sameBytes: true, inFlight: "pending", persisted: "pending" });
+});
+
+test("stale health shows live HALT and usage and refreshes the snapshot at the next intent", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const observation = new Date().toISOString();
+  const ctx = await start(t, {
+    beforePrune() {},
+    execute: async (intent, state) => {
+      if (intent.intentId === "health-first") state.concurrentObservedAt = observation;
+      else {
+        entered.resolve();
+        await release.promise;
+      }
+      return okResult(intent);
+    },
+  });
+  const probes = healthProbes(ctx);
+  const { body: initial } = await probes[0]();
+  assert.equal(initial.halt.active, false);
+  assert.equal(initial.brakes.concurrentObservedAt, null);
+  assert.equal((await post(ctx.url, valid({ intentId: "health-first" }))).status, 200);
+  const intent = post(ctx.url, valid({ intentId: "health-second" }));
+  await entered.promise;
+  try {
+    const halt = await fetch(`${ctx.url}/v1/halt`, { method: "POST", body: '{"reason":"test pause"}' });
+    assert.equal(halt.status, 200);
+    const usage = ctx.ledger.usage();
+    for (const { status, body } of await Promise.all(probes.map(probe => probe()))) {
+      assert.equal(status, 200);
+      assert.equal(body.stale, true);
+      assert.deepEqual(body.halt, { active: true, source: "local" });
+      assert.equal(body.brakes.concurrentObservedAt, observation);
+      for (const [key, value] of Object.entries(usage)) {
+        assert.equal(body[key], value);
+        assert.equal(body.resultsCapture[key], value);
+      }
+    }
+  } finally {
+    release.resolve();
+    await intent;
+  }
+});
+
+test("both health listeners return 503 while a job holds the queue before any snapshot", async (t) => {
+  const warnings = t.mock.method(console, "warn", () => {});
+  const errors = t.mock.method(console, "error", () => {});
+  const ctx = await start(t);
+  const probes = healthProbes(ctx);
+  await ctx.exclusive("intent_lookup", () => {});
+  const release = Promise.withResolvers();
+  const hold = ctx.exclusive("capture_initialize", () => release.promise);
+  try {
+    const replies = await Promise.all(probes.map(probe => probe()));
+    for (const reply of replies) {
+      assert.deepEqual(reply, { status: 503, body: { status: "degraded", reason: "ledger_snapshot_unavailable" } });
+    }
+    assert.equal(errors.mock.calls.length, 0);
+  } finally {
+    release.resolve();
+    await hold;
+  }
+  const reply = await probes[0]();
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.stale, undefined);
+  assert.equal(warnings.mock.calls.length, 1);
+  const episode = JSON.parse(warnings.mock.calls[0].arguments[0]);
+  assert.equal(episode.jobKind, "capture_initialize");
+  assert.equal(episode.staleReplies, 0);
+});
+
+test("cached health read errors stay unavailable and log one value-free code", async (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  t.mock.method(console, "warn", () => {});
+  const ctx = await start(t);
+  const probes = healthProbes(ctx);
+  assert.equal((await probes[0]()).status, 200);
+  const original = readLedgerSnapshot(ctx.ledger.statePath);
+  const audit = readFileSync(ctx.ledger.auditPath);
+  writeFileSync(ctx.ledger.statePath, '{"account":synthetic-private-value}');
+  assert.equal((await probes[0]()).status, 500);
+  assert.equal((await probes[1]()).status, 503);
+  const release = Promise.withResolvers();
+  const hold = ctx.exclusive("capture_initialize", () => release.promise);
+  try {
+    const replies = await Promise.all([...probes, ...probes].map(probe => probe()));
+    assert.deepEqual(replies.map(reply => reply.status), [500, 503, 500, 503]);
+    assert.deepEqual(errors.mock.calls.map(call => call.arguments), [
+      [JSON.stringify({ event: "health_error", code: "ledger_health_read_failed" })],
+    ]);
+    assert.deepEqual(readFileSync(ctx.ledger.auditPath), audit);
+  } finally {
+    writeFileSync(ctx.ledger.statePath, original);
+    release.resolve();
+    await hold;
+  }
+  assert.equal((await probes[0]()).status, 200);
 });
 
 test("recon returns the full first snapshot and compact replay/lookup receipts after restart without broker calls", async (t) => {
@@ -600,6 +1064,7 @@ test("internal errors are recorded in audit and journal while clients receive st
   assert.equal(replay.body.code, "executor_error");
   const broken = await start(t);
   const ledger = openLedger(broken.stateDir);
+  assert.equal((await fetch(`${broken.url}/v1/health`)).status, 200);
   // Force a persistence failure with invalid JSON, without depending on permissions.
   writeFileSync(ledger.statePath, "private invalid JSON");
   const health = await fetch(`${broken.url}/v1/health`);
