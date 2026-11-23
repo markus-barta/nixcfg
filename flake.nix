@@ -64,11 +64,12 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 63: v261118180947.0.0 (sequence 133; hausnetz main 41ce2681 = merge of release PR #411, tag on
-    # 50b9f569). Contents since 62: UI only (web/, scripts/, .gitignore). No nix/, flake, Go or persisted-format change;
-    # no new listener, outbound call or capability; restarts hausnetz only (HNET-532; standing go Desk 45df1430).
+    # HNET pin 64: v261123075451.0.0 (sequence 134; hausnetz main 9431bd2d = merge of release PR #417, tag on
+    # 4e6da917). Contents since 63: UI and QA scripts only (web/, scripts/, plus the release files). No nix/, flake,
+    # Go or persisted-format change; no new listener, outbound call or capability; restarts hausnetz only
+    # (HNET-539; standing go Desk 45df1430).
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=41ce26811e44b6d0294adb8abbd0af1773506ff8";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=9431bd2da3348d87e400ecda95bdcad029221c3d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
