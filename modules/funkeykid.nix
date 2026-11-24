@@ -67,15 +67,23 @@ in
     # Keeps ACME BK03 events out of X11/logind/host, prevents power key shutdowns.
     # Required whether running as NixOS service OR Docker container.
     (mkIf cfg.hardwareIsolation {
-      services.udev.extraRules = ''
-        # OPS-667: every node of the funkeykid keyboard is hidden from the host. A Bluetooth HID keyboard
-        # registers extra nodes ("<name> Consumer Control", "<name> System Control" with sleep/power keys);
-        # the old exact-name match missed them. Two rules: the exact name, and "<name> <suffix>" (a bare
-        # "<name>*" glob would also catch unrelated names like "ACME BK030"). The former
-        # ENV{KEYBOARD_KEY_*}="reserved" was a no-op (udev does not expand globs in assignment keys).
-        SUBSYSTEM=="input", ATTRS{name}=="${cfg.keyboardName}", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEY}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
-        SUBSYSTEM=="input", ATTRS{name}=="${cfg.keyboardName} *", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEY}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
-      '';
+      # OPS-667 gate r1 LOW: a packaged 72-funkeykid.rules runs after 70-power-switch/71-seat (which add the tags) and
+      # before 73-seat-late's uaccess ACL helper, so the tag removal also stops the ACL; extraRules (99-local) is too late.
+      services.udev.packages = [
+        (pkgs.writeTextFile {
+          name = "funkeykid-udev-rules";
+          destination = "/etc/udev/rules.d/72-funkeykid.rules";
+          text = ''
+            # OPS-667: every node of the funkeykid keyboard is hidden from the host. A Bluetooth HID keyboard
+            # registers extra nodes ("<name> Consumer Control", "<name> System Control" with sleep/power keys);
+            # the old exact-name match missed them. Two rules: the exact name, and "<name> <suffix>" (a bare
+            # "<name>*" glob would also catch unrelated names like "ACME BK030"). The former
+            # ENV{KEYBOARD_KEY_*}="reserved" was a no-op (udev does not expand globs in assignment keys).
+            SUBSYSTEM=="input", ATTRS{name}=="${cfg.keyboardName}", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEY}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
+            SUBSYSTEM=="input", ATTRS{name}=="${cfg.keyboardName} *", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEY}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
+          '';
+        })
+      ];
 
       # Defense-in-depth: udev TAG- can lose the race on BT reconnect (2026-04-11
       # incident: logind re-watched event9 and accidental power key press triggered
