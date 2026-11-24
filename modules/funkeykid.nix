@@ -25,16 +25,22 @@ in
   options.services.funkeykid = {
     enable = mkEnableOption "funkeykid NixOS systemd service (disable if using Docker container)";
 
+    keyboardName = mkOption {
+      type = types.str;
+      default = "ACME BK03";
+      description = "evdev name of the kids' keyboard. Every input node named exactly this or '<name> <suffix>' (Consumer Control, System Control) is hidden from the host; hsb1 also passes it to the container as FUNKEYKID_KEYBOARD (OPS-667).";
+    };
+
     hardwareIsolation = mkOption {
       type = types.bool;
       default = true;
-      description = "udev rules + logind to isolate ACME BK03 from host. Keep enabled even with Docker.";
+      description = "udev rules + logind to isolate the funkeykid keyboard from the host. Keep enabled even with Docker.";
     };
 
     bluetoothReconnect = mkOption {
       type = types.bool;
       default = true;
-      description = "Auto-reconnect ACME BK03 on boot.";
+      description = "Auto-reconnect the funkeykid keyboard on boot (looked up by name, no MAC in the config).";
     };
 
     scriptPath = mkOption {
@@ -62,8 +68,13 @@ in
     # Required whether running as NixOS service OR Docker container.
     (mkIf cfg.hardwareIsolation {
       services.udev.extraRules = ''
-        # ACME BK03 Bluetooth Keyboard — isolated for funkeykid only
-        SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{KEYBOARD_KEY_*}="reserved", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
+        # OPS-667: every node of the funkeykid keyboard is hidden from the host. A Bluetooth HID keyboard
+        # registers extra nodes ("<name> Consumer Control", "<name> System Control" with sleep/power keys);
+        # the old exact-name match missed them. Two rules: the exact name, and "<name> <suffix>" (a bare
+        # "<name>*" glob would also catch unrelated names like "ACME BK030"). The former
+        # ENV{KEYBOARD_KEY_*}="reserved" was a no-op (udev does not expand globs in assignment keys).
+        SUBSYSTEM=="input", ATTRS{name}=="${cfg.keyboardName}", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEY}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
+        SUBSYSTEM=="input", ATTRS{name}=="${cfg.keyboardName} *", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEY}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
       '';
 
       # Defense-in-depth: udev TAG- can lose the race on BT reconnect (2026-04-11
@@ -75,13 +86,14 @@ in
         HandlePowerKeyLongPress = "poweroff";
         HandleSuspendKey = "ignore";
         HandleHibernateKey = "ignore";
+        HandleRebootKey = "ignore"; # OPS-667: default would reboot on a keyboard reboot key
       };
     })
 
     # ── Bluetooth auto-reconnect (always on by default) ───────────────────
     (mkIf cfg.bluetoothReconnect {
       systemd.services.acme-bk03-reconnect = {
-        description = "Auto-reconnect ACME BK03 Bluetooth Keyboard";
+        description = "Auto-reconnect the funkeykid Bluetooth keyboard";
         wantedBy = [ "multi-user.target" ];
         after = [ "bluetooth.target" ];
         serviceConfig = {
@@ -90,15 +102,22 @@ in
         };
         script = ''
           sleep 3
+          # OPS-667: look the address up by name among known devices instead of hardcoding the MAC.
+          name=${lib.escapeShellArg cfg.keyboardName}
+          addr=$(${pkgs.bluez}/bin/bluetoothctl devices | ${pkgs.gawk}/bin/awk -v n="$name" '$1=="Device" && substr($0, index($0, $3)) == n { print $2; exit }')
+          if [ -z "$addr" ]; then
+            echo "Warning: no known Bluetooth device named $name"
+            exit 0
+          fi
           for i in {1..5}; do
-            echo "Attempt $i: Connecting to ACME BK03..."
-            if ${pkgs.bluez}/bin/bluetoothctl connect 20:73:00:04:21:4F; then
-              echo "ACME BK03 connected successfully!"
+            echo "Attempt $i: connecting to $name..."
+            if ${pkgs.bluez}/bin/bluetoothctl connect "$addr"; then
+              echo "$name connected"
               exit 0
             fi
             sleep 2
           done
-          echo "Warning: Could not connect to ACME BK03 (keyboard may be off or out of range)"
+          echo "Warning: could not connect to $name (keyboard may be off or out of range)"
           exit 0
         '';
       };

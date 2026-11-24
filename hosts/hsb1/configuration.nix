@@ -330,8 +330,21 @@ in
             svc // { volumes = svc.volumes ++ [ "${caBundle}:${certifiTargets.${name}}:ro" ]; }
           else
             svc;
+        # OPS-667: the module owns the keyboard name; funkeykid gets the same one (locks its UI setting),
+        # so udev and the container can never disagree.
+        withKeyboard =
+          name: svc:
+          if name == "funkeykid" then
+            svc
+            // {
+              environment = svc.environment ++ [
+                "FUNKEYKID_KEYBOARD=${config.services.funkeykid.keyboardName}"
+              ];
+            }
+          else
+            svc;
       in
-      s // { services = lib.mapAttrs withBundle s.services; };
+      s // { services = lib.mapAttrs (name: svc: withKeyboard name (withBundle name svc)) s.services; };
   };
 
   # PIXD-103: seed only a NEW edge config. v1's live file is read-only.
