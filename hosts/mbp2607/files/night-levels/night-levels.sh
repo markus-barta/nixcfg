@@ -89,7 +89,7 @@ while true; do
   # Hold (2026-10-31): ~/.hold-mbp2607 reserves this Mac (e.g. gaming); same meaning. The 10-31 20:04 leak: a local ci-static ran here because mbp2607 still read GREEN.
   [ -e "$HOME/.hold-mbp2607" ] && l7=RED
   if [ "$retired6" = 1 ]; then
-    B="retired (NL_RETIRED)"
+    B="mbp2606 level=RED retired (NL_RETIRED, OPS-595)"
     l6=RED
   else
     B=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o HostKeyAlias=mbp2606.local mba@100.64.0.13 'bash -s' <"$S" 2>&1 | tail -1)
