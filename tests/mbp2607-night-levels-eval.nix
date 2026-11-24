@@ -60,6 +60,9 @@ let
     bash = builtins.head loop.ProgramArguments == "/bin/bash";
     script = lib.hasSuffix "night-levels.sh" (builtins.elemAt loop.ProgramArguments 1);
     redLoad = env.RED_LOAD == "28";
+    retiredMbp2606 = env.NL_RETIRED == "mbp2606";
+    retiredSwitch = lib.hasInfix ''case " ''${NL_RETIRED:-} " in *" mbp2606 "*) retired6=1 ;; esac'' loopScript;
+    noTestHooksInLaunchd = !(env ? NL_ONCE) && !(env ? NL_LEAD_DIR);
     macHealth = lib.hasSuffix "mac-health.sh" env.NL_MAC_HEALTH;
     unguarded = lib.hasSuffix "mbp2606-unguarded.sh" env.NL_UNGUARDED;
     home = env.HOME == "/Users/markus" && watcher.EnvironmentVariables.HOME == env.HOME;

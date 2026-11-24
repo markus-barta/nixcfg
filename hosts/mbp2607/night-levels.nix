@@ -17,6 +17,9 @@
 let
   home = config.home.homeDirectory;
   stateDir = "${home}/.local/share/ops-qa/state";
+  # OPS-595 (2026-11-24, LEAD ask): Macs that are off for good. Markus 2026-11-06: "we keep mbp2606 off until
+  # further notice". The loop reports a retired mbp2606 as RED without any ssh to it (no probe, no policy write, no WARN).
+  retiredHosts = [ "mbp2606" ];
   stale = pkgs.writeShellScript "night-levels-stale" ''
     set -u
     heartbeat=''${NL_HEARTBEAT:-/Users/markus/.aeon/lead/aeon/HOST-LEVEL.heartbeat}
@@ -92,6 +95,7 @@ in
       ];
       EnvironmentVariables = {
         RED_LOAD = "28";
+        NL_RETIRED = lib.concatStringsSep " " retiredHosts;
         NL_MAC_HEALTH = "${./files/night-levels/mac-health.sh}";
         NL_UNGUARDED = "${./files/night-levels/mbp2606-unguarded.sh}";
         HOME = home;
