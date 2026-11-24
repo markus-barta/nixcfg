@@ -1405,6 +1405,19 @@ assert joeSet.pusher != null && joeSet.executor != null;
     chown -R 1000:1000 /var/lib/ib-gateway
   '';
 
+  # OPS-521: boot race. ib-gateway publishes its port on the tailnet address
+  # (100.64.0.6:4002, compose-spec.nix). At boot dockerd restores the container
+  # before tailscaled has assigned that address; the journal of the 2026-11-22
+  # boot shows "failed to bind host port 100.64.0.6:4002/tcp: cannot assign
+  # requested address" -> "failed to set up container networking", and the
+  # container then sits Up with no network until someone recreates it (every
+  # hsb0 reboot reproduced it). Allowing IPv4 binds to a not-yet-present local
+  # address lets Docker publish the port at once; it starts answering as soon
+  # as tailscale brings 100.64.0.6 up. No boot-order coupling between docker
+  # and tailscaled. Side effect: a service bound to a wrong IPv4 address no
+  # longer fails loudly at bind time.
+  boot.kernel.sysctl."net.ipv4.ip_nonlocal_bind" = 1;
+
   # HOSTD-58/59: recovery remains paper-only and lock/budget guarded. Alerts
   # use the managed house mail relay and Aeon inbox (NIX-584). Addresses are
   # encrypted; the inbox sender key is enrolled separately.
