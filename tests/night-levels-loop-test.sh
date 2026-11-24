@@ -17,7 +17,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 loop="$root/hosts/mbp2607/files/night-levels/night-levels.sh"
 mkdir -p "$root/.tmp"
 work=$(mktemp -d "$root/.tmp/night-levels-loop-test.XXXXXXXX")
-trap 'rm -rf "$work"' EXIT
+# Cleanup via trash (macOS); on CI without trash the runner is discarded anyway. Never rm -rf.
+trap 'trash "$work" >/dev/null 2>&1 || true' EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
