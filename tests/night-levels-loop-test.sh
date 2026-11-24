@@ -7,6 +7,11 @@
 #            (proves the stub sees ssh, so "zero calls" in the retired case means something).
 #   mutant   the retired switch disabled in a copy of the script -> the retired expectations must FAIL.
 set -euo pipefail
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run under bash 5: nix run nixpkgs#bash -- %s\n' \
+    "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 loop="$root/hosts/mbp2607/files/night-levels/night-levels.sh"
