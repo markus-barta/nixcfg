@@ -232,6 +232,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/T99-hausnetz-hsb0.sh
 
+      - name: Verify night-levels retired-host loop (OPS-595)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: bash tests/night-levels-loop-test.sh
+
   pharos-contracts-2:
     name: Pharos contract suite — shard 2/4
     runs-on: ubuntu-latest
