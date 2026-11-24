@@ -188,6 +188,11 @@
         RESTIC_REPOSITORY = "sftp:u387549-sub1@u387549.your-storagebox.de:23/hsb8";
         CRON_BACKUP_EXPRESSION = "30 2 * * *";
         PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
+        # OPS-661: family servers report via the Pharos status file only (OPS-137), no mail.
+        # The shared restic-hetzner-env sets MAIL_TO for the mail-reporting hosts; blank it here
+        # (compose environment overrides env_file) so the scripts skip their ssmtp attempt
+        # instead of failing on "Cannot open smtp:25" (no relay on this host by design).
+        MAIL_TO = "";
       };
       env_file = [
         "/run/agenix/restic-hetzner-env"
