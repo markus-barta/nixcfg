@@ -1,4 +1,5 @@
 # HAUSV-406 / NIX-332: external, transition-based operations monitoring.
+# HAUSV-918 / OPS-675: the active mode watches the retirement placeholder.
 {
   config,
   pkgs,
@@ -40,7 +41,7 @@ in
   ];
 
   systemd.services.hausv-alerts = {
-    description = "Check HAUSV snapshot freshness, health and critical application signals";
+    description = "Check both legacy HAUSV placeholder health markers after handoff";
     after = [
       "docker.service"
       "network-online.target"
@@ -54,7 +55,7 @@ in
       pkgs.systemd
     ];
     serviceConfig = commonServiceConfig // {
-      ExecStart = poller;
+      ExecStart = "${poller} --placeholder";
       StateDirectory = "hausv-alerts";
       StateDirectoryMode = "0700";
       SuccessExitStatus = [

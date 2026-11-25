@@ -771,6 +771,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: tests/T40-hausv-postgres.sh
 
+      - name: Verify legacy HAUSV placeholder and must-fail mutants (OPS-675)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: tests/T122-hausv-pause.sh
+
   # Keep the branch-protection context stable, including failed, skipped or
   # cancelled shards. A skipped required job would otherwise permit merging.
   pharos-rollout:
@@ -874,6 +878,12 @@ jobs:
       - name: Verify csb1 Docker image GC r34 and actual toplevel names (OPS-327)
         if: matrix.host == 'csb1'
         run: bash tests/T115-docker-image-gc.sh
+
+      - name: Verify legacy HAUSV retirement in the full csb1 configuration (OPS-675)
+        if: matrix.host == 'csb1'
+        run: |
+          nix eval --impure --no-update-lock-file --json .#nixosConfigurations.csb1.config \
+            --apply 'config: import ./tests/hausv-pause-eval.nix { inherit config; }'
 
       - name: Verify LG renewal in the full hsb0 configuration (OPS-309)
         if: matrix.host == 'hsb0'

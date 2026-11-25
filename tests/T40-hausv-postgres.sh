@@ -85,14 +85,16 @@ grep -Fq 'OnCalendar = "*-*-* 01:10:00";' "${host}"
 grep -Fq '/usr/local/bin/hausv-dump-as-backup-role' "${host}"
 grep -Fq 'pg_restore --list' "${host}"
 grep -Fq '/var/lib/csb1-docker/hausv-postgres-backup-snapshot' "${host}"
-grep -Fq -- "--exclude '/backup/var/lib/csb1-docker/hausv-org'" "${backup}"
-
-# The live SQLite/blob path is deliberately unchanged and remains independently
-# protected by its original snapshot script and timer.
-grep -Fq 'hausvBackupSnapshot = pkgs.writeShellScript "hausv-backup-snapshot"' "${host}"
-grep -Fq 'source_dir=/var/lib/csb1-docker/hausv-org' "${host}"
-grep -Fq 'PRAGMA integrity_check;' "${host}"
-grep -Fq 'OnCalendar = "*-*-* 01:20:00";' "${host}"
+# HAUSV-918: PostgreSQL keeps its existing dump job. The retired app's
+# snapshot and frozen data stay in Restic, without a nightly stop/start.
+if grep -Fq -- "--exclude '/backup/var/lib/csb1-docker/hausv-org'" "${backup}"; then
+  echo 'FAIL: retired HAUSV data must remain in Restic' >&2
+  exit 1
+fi
+if grep -Eq 'systemd\.(services|timers)\.hausv-backup-snapshot =' "${host}"; then
+  echo 'FAIL: retired HAUSV snapshot schedule returned' >&2
+  exit 1
+fi
 
 grep -Fq 'Phase-2 migration gate — CLOSED' "${runbook}"
 grep -Fq 'combined off-site drill' "${runbook}"

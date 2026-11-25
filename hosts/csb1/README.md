@@ -85,17 +85,18 @@ hosts/csb1/
 
 ## Services (Docker)
 
-| Service            | Domain                            | Purpose                                                                                           |
-| ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------- |
-| barta-public       | barta.cm / www.barta.cm           | Personal mailbridge homepage and privacy                                                          |
-| bytepoets-memorial | bytepoets.com / www.bytepoets.com | Memorial page: BYTEPOETS logo, 2011–2026 (OPS-337)                                                |
-| jhw22-wp           | jhw22-wp.hausv.org                | Public WEG heat-pump page (content in /var/lib/csb1-docker/jhw22-wp), PIN only, noindex (OPS-343) |
-| PAIMOS (ppm)       | pm.barta.cm                       | Project management (paimos v1.x)                                                                  |
-| Docmost            | docmost.barta.cm                  | Documentation/wiki                                                                                |
-| Paperless-ngx      | paperless.barta.cm                | Document management                                                                               |
-| Hedgedoc           | hdoc.barta.cm                     | Collaborative markdown                                                                            |
-| HostDash           | cs1.barta.cm                      | Zitadel-gated service dashboard                                                                   |
-| Traefik            | cs1.barta.cm/api                  | Reverse proxy & SSL                                                                               |
+| Service            | Domain                                  | Purpose                                                                                                            |
+| ------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| barta-public       | barta.cm / www.barta.cm                 | Personal mailbridge homepage and privacy                                                                           |
+| bytepoets-memorial | bytepoets.com / www.bytepoets.com       | Memorial page: BYTEPOETS logo, 2011–2026 (OPS-337)                                                                 |
+| jhw22-wp           | jhw22-wp.hausv.org                      | Public WEG heat-pump page (content in /var/lib/csb1-docker/jhw22-wp), PIN only, noindex (OPS-343)                  |
+| hausv-pause        | hausv-legacy.barta.cm / jhw22.hausv.org | Approved static retirement page, immutable Nix content, priority-1 fallback behind hausv-org (HAUSV-918 / OPS-675) |
+| PAIMOS (ppm)       | pm.barta.cm                             | Project management (paimos v1.x)                                                                                   |
+| Docmost            | docmost.barta.cm                        | Documentation/wiki                                                                                                 |
+| Paperless-ngx      | paperless.barta.cm                      | Document management                                                                                                |
+| Hedgedoc           | hdoc.barta.cm                           | Collaborative markdown                                                                                             |
+| HostDash           | cs1.barta.cm                            | Zitadel-gated service dashboard                                                                                    |
+| Traefik            | cs1.barta.cm/api                        | Reverse proxy & SSL                                                                                                |
 
 All services run via Docker Compose with Traefik handling SSL (15 containers).
 
