@@ -210,7 +210,10 @@ there is no mutable content directory or copy deployment. nginx uses uid/gid
 
 Every GET path (including old deep links and asset URLs) returns the approved
 HTML with status **200**, `Content-Type: text/html; charset=utf-8`,
-`X-Robots-Tag: noindex` and `Cache-Control: no-store`. The 200 is deliberate:
+`X-Robots-Tag: noindex` and `Cache-Control: no-store, no-transform`.
+nginx hides its version (`server_tokens off`); POSTs to retired forms or API
+paths also return the same page with status 200 (`error_page 405 =200 /index.html`).
+The 200 is deliberate:
 visitors receive the pause notice at their existing URL. Exact `/healthz`
 instead returns `hausv-pause ok\n` as plain text with status 200. Docker checks
 that marker internally; `hausv-alerts --placeholder` checks both public hosts
@@ -224,20 +227,110 @@ also has priority 1 and matches both hosts; either fallback HTTP router upgrades
 to HTTPS. The TLS router retains `hausv-hsts@file`. No route for the new
 Hausvogt at `hausv.org`, its database, or `hausv-next` changes.
 
-Operator order: merge the reviewed PR, evaluate/build remotely and switch csb1,
-verify the healthy placeholder while `hausv-org` still owns the public routes,
-take and validate a PostgreSQL dump plus app-data safety snapshot, then stop
-only `hausv-org` with `-t 30` under `/run/lock/compose-hausv.lock`. Repeat the
-dump and data snapshot while stopped for an exact final recovery point; check
-both HTTPS hosts, deep links, headers, page hash and health markers. Keep all
-volumes and `/var/lib/csb1-docker/hausv-org-backup-snapshot`. Complete the handoff
-before Restic's next 01:30 run, since the frozen app directory is now included.
+Operator order (not an authorization to deploy):
+
+1. Merge the reviewed PR and record the prior checkout revision, system path
+   and active container IDs/images. Evaluate/build remotely, review the closure
+   and Compose dry run, then switch csb1 **outside the 01:30 backup run**.
+   `ops.run-backup-sha256` hashes the single-file-mounted `run_backup.sh`;
+   switch reconciliation recreates `restic-cron-hetzner` when that hash changes.
+   A checkout fast-forward alone leaves the running container on its old inode.
+   Confirm the dry run predicts that recreation and the running container ID
+   changes at switch; do not interrupt an active backup. Complete the app stop
+   and final checkpoint before the next 01:30 run now including its directory.
+2. Verify the healthy placeholder while `hausv-org` still serves both legacy
+   hosts. Before stopping it, use the container-loopback Traefik API below;
+   review the filtered router names/rules against the private project's router
+   label names, including aliases. Require **no hausv-org router for `hausv.org`
+   or `www.hausv.org`** and default effective priority (rule length) for every
+   legacy app router. An unmapped router or failed check blocks the stop.
+   The new Hausvogt must retain independent routers. Do not dump labels, raw API
+   responses, environment variables, or use `docker inspect`.
+3. Require `/var/lib/hausv-alerts/rollback-allowed` absent. Take and validate a
+   PostgreSQL dump plus app-data safety snapshot, then stop only `hausv-org`
+   with `-t 30` under `/run/lock/compose-hausv.lock`. Repeat the dump and data
+   snapshot while stopped for an exact final recovery point. Keep all volumes
+   and `/var/lib/csb1-docker/hausv-org-backup-snapshot`. Check both HTTPS hosts,
+   deep links, POSTs, headers, page hash and health markers. Verify the next
+   successful Restic snapshot contains both directories and the checkpoint.
+
+Run on csb1 before the stop; only selected router names/rules are emitted.
+Default priorities and forbidden new-host matches are checked in memory.
+
+```bash
+python3 - <<'PY'
+import json, re, subprocess
+
+result = subprocess.run([
+    "docker", "exec", "csb1-traefik-1", "busybox", "wget", "-q", "-O", "-",
+    "http://127.0.0.1:8099/api/http/routers",
+], capture_output=True, text=True)
+if result.returncode:
+    raise SystemExit("Traefik router query failed; output suppressed")
+routers = [r for r in json.loads(result.stdout) if r.get("provider") == "docker"]
+related = [r for r in routers if re.search(
+    r"hausv|jhw22", r.get("name", "") + " " + r.get("service", "") + " " + r.get("rule", "")
+)]
+print(json.dumps([{k: r[k] for k in ("name", "rule")} for r in related], indent=2))
+legacy = [r for r in related if not r["name"].startswith("hausv-pause") and (
+    "hausv-org" in r["name"] + " " + r.get("service", "")
+    or any(h in r["rule"] for h in ("hausv-legacy.barta.cm", "jhw22.hausv.org"))
+)]
+if not legacy:
+    raise SystemExit("Legacy app routers could not be identified: stop")
+for router in legacy:
+    rule = router["rule"]
+    if re.search(r'[`"](?:www\.)?hausv\.org[`"]', rule):
+        raise SystemExit("Legacy app routes a new Hausvogt host: stop")
+    if router.get("priority") != len(rule.encode("utf-8")):
+        raise SystemExit("Legacy app router does not use default effective priority: stop")
+PY
+```
+
+For live acceptance, fetch without following HTTPS redirects and require normal
+TLS verification. For each host, test GET `/`, `/login`, `/old/deep/link`,
+`/assets/retired.js?check=1`, `/robots.txt` and `/healthz/`, plus POST `/login`
+and `/api/retired` with a harmless body. Every body must be 1312 bytes with the
+approved SHA-256 above and status 200; check these headers on every response:
+
+```bash
+tr -d '\r' <"$hausv_qa_dir/headers" | grep -Eiq '^Content-Type: text/html; charset=utf-8$'
+tr -d '\r' <"$hausv_qa_dir/headers" | grep -Eiq '^X-Robots-Tag: noindex$'
+tr -d '\r' <"$hausv_qa_dir/headers" | grep -Eiq '^Cache-Control: no-store, no-transform$'
+if tr -d '\r' <"$hausv_qa_dir/headers" | grep -Eiq '^Server:.*nginx/[0-9]'; then exit 1; fi
+```
+
+Exact GET `/healthz` still requires 200 and `hausv-pause ok\n`; HTTP deep links
+must upgrade to the same HTTPS host/path. If a proxy transforms the page despite
+`no-transform`, resolve that through its owner and repeat the byte check.
 
 `hausv-backup-snapshot.service` and its 01:20 timer are retired. The PostgreSQL
-dump timer remains. Rollback starts only `hausv-org` in its private project;
-its higher-priority routers win immediately. Before leaving a writer running
-through another backup, restore the reviewed pre-retirement Nix generation
-and Restic exclusion. Do not restore or delete data as part of routing rollback.
+dump timer remains. For an intentional routing rollback, **before** starting
+only `hausv-org` under its private-project lock, create the explicit marker:
+
+```bash
+sudo install -m 0600 /dev/null /var/lib/hausv-alerts/rollback-allowed
+sudo flock -w 300 /run/lock/compose-hausv.lock \
+  docker compose --project-directory /home/mba/Code/hausv-jhw22 \
+    -p hausv-jhw22 -f /home/mba/Code/hausv-jhw22/compose.yml start hausv-org
+```
+
+Its higher-priority routers regain both legacy hosts; verify their old health
+contract. The marker authorizes monitor standby only; it does not reset the
+persisted handoff flag or repair backup coverage. Before another backup while
+the app writes, make a reviewed **source revert** restoring the Restic exclusion
+and required snapshot workflow, refresh the checkout and **switch** outside an
+active backup. The changed script hash recreates Restic again to bind the reverted
+bytes. A Nix-generation rollback alone leaves the relative checkout mount
+unchanged, and a source revert without switch leaves the running bind unchanged.
+Do not restore/delete data or broadly rewind unrelated releases for routing
+rollback. To resume retirement, stop the app again, validate the frozen checkpoint
+and archive the marker so return detection is armed again:
+
+```bash
+sudo mv /var/lib/hausv-alerts/rollback-allowed \
+  "/var/lib/hausv-alerts/rollback-allowed.cleared-$(date -u +%Y%m%dT%H%M%SZ)"
+```
 
 Pharos 2's nixcfg file `docker/pharos/host-probes.json` contains only host
 TCP/ICMP reachability; there is no csb1 legacy-app probe or manifest left to
@@ -1891,8 +1984,11 @@ keeping the same archived release, run `ssh csb1 sudo hausv-next reset`.
 ### HAUSV Snapshot And Restore
 
 HAUSV-918 retired the old host snapshot script, service and 01:20 timer.
-The existing snapshot directory and its tmpfiles rule remain, and Restic
-includes both it and the frozen application directory. The operator takes the
+The existing snapshot directory and its tmpfiles rule remain. Restic includes
+both it and the frozen application directory **after the reviewed checkout is
+activated by switch**: the script-hash label recreates the container to refresh
+its single-file bind. A fast-forward alone does not activate this inclusion.
+The operator takes the
 final PostgreSQL dump and data snapshot during retirement; there is no nightly
 stop/start after that. The SQLite checks and restore drill below are retained
 for historical snapshots, when `hausv.db` exists in that recovery point.
@@ -2029,15 +2125,28 @@ window has explicitly closed.
 ### HAUSV Snapshot, Health And Application Alerts
 
 After HAUSV-918, `hausv-alerts.timer` selects `--placeholder` every five
-minutes. While an exact-name `docker ps` check finds `hausv-org` running,
-public checks wait for the operator handoff. Once stopped, both
+minutes. Before the first observed stop, an exact-name `docker ps` check finding
+`hausv-org` running waits quietly for handoff. The first observed stop persists
+`pause_handoff_seen: true` in `/var/lib/hausv-alerts/state.json` (also preserved
+through pending delivery and state reloads). A running `hausv-org` after that
+alerts on the first observed cycle, unless the explicit root-owned regular file
+`/var/lib/hausv-alerts/rollback-allowed` exists for intentional rollback. The flag
+is never cleared by that marker; archive it after a renewed stop as above.
+Once stopped, both
 `https://hausv-legacy.barta.cm/healthz` and `https://jhw22.hausv.org/healthz`
 must return status 200 and exactly `hausv-pause ok\n`; redirects fail. Two
 consecutive failures alert; recovery clears the corresponding host signal.
-An unreadable Docker state alerts immediately and holds existing health alarms.
+An unreadable Docker state also needs two consecutive failures and holds existing
+placeholder-health or returned-app alarms; one daemon restart stays quiet.
+The first placeholder cycle drops retired snapshot/application keys quietly,
+without declaring that those old signals recovered.
 This mode never queries the retired timer, snapshot freshness, app logs,
 database, or the new Hausvogt at `hausv.org`. Fleet backup freshness remains
-owned by the separate `fleet-backup-watch` monitor.
+owned by the separate `fleet-backup-watch` monitor. **New Hausvogt monitoring:
+no replacement application-health monitor for `hausv.org` is configured in
+nixcfg.** The old URL belongs only to the inactive historical evaluator. The
+Pharos host probes and fleet backup/drift checks do not cover its application
+health; the coordinator must identify or commission that separate coverage.
 
 The monitor consumes existing signals only. It neither creates another backup
 nor duplicates HAUSV retention. It reads only `WATCHTOWER_NOTIFICATION_URL`
