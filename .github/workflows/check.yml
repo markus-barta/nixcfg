@@ -236,6 +236,10 @@ jobs:
         if: steps.pin.outputs.pin_only != 'true'
         run: bash tests/night-levels-loop-test.sh
 
+      - name: Verify capped on-demand CI VM and dispatcher (OPS-669)
+        if: steps.pin.outputs.pin_only != 'true'
+        run: nix-shell -p jq python3 --run 'bash tests/ci-vm-dispatcher-test.sh'
+
   pharos-contracts-2:
     name: Pharos contract suite — shard 2/4
     runs-on: ubuntu-latest
