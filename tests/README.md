@@ -47,7 +47,7 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
-## Retired csb1 HAUSV runner (T121 / OPS-678)
+## Retired csb1 HAUSV runner (T123 / OPS-678)
 
 ```bash
 bash tests/T123-csb1-hausv-runner.sh
