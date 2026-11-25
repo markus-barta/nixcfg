@@ -3,6 +3,7 @@
 
 import argparse
 import contextlib
+from dataclasses import dataclass
 import fcntl
 import hashlib
 import hmac
@@ -26,6 +27,19 @@ HA_FILES = {"configuration.yaml", "automations.yaml", "scripts.yaml", "scenes.ya
 REGISTRIES = {"core." + name + "_registry" for name in ("area", "floor", "device", "entity", "label")}
 YAML_DIRS = {"themes", "blueprints", "packages"}
 STEM = r"[A-Za-z0-9_-]+"
+
+
+@dataclass(frozen=True)
+class Settings:
+    # Production paths are fixed. The internal API accepts synthetic fixture
+    # directories; no root-facing CLI option can redirect reads or writes.
+    repo: Path = Path("/home/mba/home-config")
+    runtime: Path = Path("/run/hsb1-home-config")
+    nodered: Path = Path("/home/mba/docker/mounts/nodered/data")
+    homeassistant: Path = Path("/home/mba/docker/mounts/homeassistant")
+    scanner_config: Path = Path("/etc/hsb1-home-config/gitleaks.toml")
+    git: str = "git"
+    gitleaks: str = "gitleaks"
 
 
 class Refused(Exception):
@@ -348,13 +362,13 @@ def scan_tree(args, tree):
             raise Refused("secret gate rejected tree; no commit")
 
 
-def snapshot(args):
+def snapshot(args, verify_only=False, debounce_seconds=20):
     roots = {"nodered": args.nodered, "homeassistant": args.homeassistant}
-    prepare_repo(args, args.verify_only)
-    contents, guard = candidate(roots, args.debounce_seconds)
+    prepare_repo(args, verify_only)
+    contents, guard = candidate(roots, debounce_seconds)
     with tempfile.TemporaryDirectory(prefix="snapshot-", dir=args.runtime) as temporary:
         scratch = Path(temporary)
-        if args.verify_only:
+        if verify_only:
             staged = index_contents(args, "HEAD")
             check_settings(staged["nodered/settings.js"], guard)
             write_tree(scratch, staged)
@@ -391,17 +405,7 @@ def snapshot(args):
         log("committed " + sources + ": " + ", ".join(names))
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    for option in ("repo", "runtime", "nodered", "homeassistant", "scanner-config"):
-        parser.add_argument("--" + option, required=True, type=Path)
-    parser.add_argument("--git", default="git")
-    parser.add_argument("--gitleaks", default="gitleaks")
-    parser.add_argument("--debounce-seconds", type=float, default=20)
-    parser.add_argument("--verify-only", action="store_true")
-    args = parser.parse_args()
-    if not 0 <= args.debounce_seconds <= 60:
-        parser.error("debounce must be between zero and sixty seconds")
+def run(args, verify_only=False, debounce_seconds=20):
     os.umask(0o027)
     try:
         args.runtime.mkdir(mode=0o700, exist_ok=True)
@@ -413,9 +417,11 @@ def main():
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
+                if verify_only:
+                    raise Refused("verification busy; retry after the snapshot completes") from None
                 log("snapshot already running")
                 return 0
-            snapshot(args)
+            snapshot(args, verify_only, debounce_seconds)
         return 0
     except Refused as error:
         log(str(error))
@@ -423,6 +429,13 @@ def main():
         # Library error bodies may contain source text, credentials or process arguments.
         log("I/O, format or subprocess failure; no commit")
     return 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--verify-only", action="store_true")
+    options = parser.parse_args()
+    return run(Settings(), verify_only=options.verify_only)
 
 
 if __name__ == "__main__":

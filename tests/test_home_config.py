@@ -1,7 +1,9 @@
 """OPS-158: real local Git + Gitleaks against synthetic service directories."""
 
+import contextlib
 import fcntl
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -14,12 +16,13 @@ from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[1]
-SCRIPT = Path(os.environ.get("HOME_CONFIG_TEST_SCRIPT", REPO / "hosts/hsb1/home-config-snapshot.py"))
+SCRIPT = REPO / "hosts/hsb1/home-config-snapshot.py"
 SCANNER_CONFIG = REPO / "hosts/hsb1/home-config-gitleaks.toml"
-GITLEAKS = shutil.which(os.environ.get("HOME_CONFIG_TEST_GITLEAKS", "gitleaks"))
+GITLEAKS = shutil.which("gitleaks")
 GIT = shutil.which("git")
 spec = importlib.util.spec_from_file_location("home_config", SCRIPT)
 implementation = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = implementation
 spec.loader.exec_module(implementation)
 
 
@@ -41,10 +44,10 @@ class SnapshotTests(unittest.TestCase):
         self.runtime.mkdir(mode=0o700)
         self.nr = self.root / "nodered"
         self.ha = self.root / "homeassistant"
-        self.credential = "fixture-" + "credential-" + "fortytwo"
-        self.fake_secret = "fixture" + "Q7tX4aK2vR9pL6zN8bC5wH3sJ1dF0yE"
+        self.setting_value = "fixture-" + "credential-" + "fortytwo"
+        self.planted_value = "fixture" + "Q7tX4aK2vR9pL6zN8bC5wH3sJ1dF0yE"
         put(self.nr, "flows.json", '[{"id":"tab","type":"tab","label":"fixture"}]\n')
-        put(self.nr, "settings.js", '// settings fixture\nmodule.exports = {\n    credentialSecret: "' + self.credential + '",\n    flowFile: "flows.json",\n};\n')
+        put(self.nr, "settings.js", '// settings fixture\nmodule.exports = {\n    credentialSecret: "' + self.setting_value + '",\n    flowFile: "flows.json",\n};\n')
         put(self.nr, "package.json", '{"name":"fixture","dependencies":{"node-red-node-test":"1.0.0"}}\n')
         for name in ("configuration", "automations", "scripts", "scenes", "customize"):
             put(self.ha, name + ".yaml", "# fixture\n{}\n")
@@ -65,17 +68,21 @@ class SnapshotTests(unittest.TestCase):
                      "packages/.hidden.yaml", "unknown.yaml", "themes/README.txt"):
             put(self.ha, name, "{}\n")
 
-    def command(self, *extra):
-        return [sys.executable, str(SCRIPT), "--repo", str(self.repo), "--runtime", str(self.runtime),
-                "--nodered", str(self.nr), "--homeassistant", str(self.ha), "--git", GIT,
-                "--gitleaks", GITLEAKS, "--scanner-config", str(SCANNER_CONFIG), "--debounce-seconds", "0", *extra]
-
-    def run_snapshot(self, *extra, ok=True):
-        result = subprocess.run(self.command(*extra), capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0 if ok else 1, result.stdout + result.stderr)
-        self.assertNotIn(self.credential, result.stdout + result.stderr)
-        self.assertNotIn(self.fake_secret, result.stdout + result.stderr)
-        return result.stdout
+    def run_snapshot(self, *, ok=True, git=None, gitleaks=None, verify_only=False):
+        configuration = implementation.Settings(repo=self.repo, runtime=self.runtime, nodered=self.nr,
+                                                homeassistant=self.ha, git=git or GIT, gitleaks=gitleaks or GITLEAKS,
+                                                scanner_config=SCANNER_CONFIG)
+        output = io.StringIO()
+        previous_mask = os.umask(0o027)
+        try:
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                result = implementation.run(configuration, verify_only=verify_only, debounce_seconds=0)
+        finally:
+            os.umask(previous_mask)
+        self.assertEqual(result, 0 if ok else 1, output.getvalue())
+        self.assertNotIn(self.setting_value, output.getvalue())
+        self.assertNotIn(self.planted_value, output.getvalue())
+        return output.getvalue()
 
     def git(self, *arguments, check=True):
         result = subprocess.run([GIT, "-C", str(self.repo), *arguments], capture_output=True,
@@ -100,10 +107,10 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(self.tree(), self.expected)
         filtered = self.git("show", "HEAD:nodered/settings.js").decode()
         self.assertIn('credentialSecret: "[REDACTED]"', filtered)
-        self.assertNotIn(self.credential, filtered)
+        self.assertNotIn(self.setting_value, filtered)
         # Search every object, including unreachable blobs: the real credential never entered Git.
         objects = self.git("cat-file", "--batch-all-objects", "--batch")
-        self.assertNotIn(self.credential.encode(), objects)
+        self.assertNotIn(self.setting_value.encode(), objects)
         self.assertEqual(self.git("log", "-1", "--format=%an <%ae>|%cn <%ce>").decode().strip(),
                          "hsb1-home-config <root@hsb1>|hsb1-home-config <root@hsb1>")
         message = self.git("log", "-1", "--format=%B").decode()
@@ -132,12 +139,12 @@ class SnapshotTests(unittest.TestCase):
     def test_planted_secret_aborts_before_any_git_blob_or_source_write(self):
         self.run_snapshot()
         first = self.head()
-        put(self.ha, "automations.yaml", 'api_key: "' + self.fake_secret + '" # gitleaks:allow\n')
+        put(self.ha, "automations.yaml", 'api_key: "' + self.planted_value + '" # gitleaks:allow\n')
         before = self.source_state()
         output = self.run_snapshot(ok=False)
         self.assertRegex(output, r"rule=[a-z0-9-]+ file=homeassistant/automations.yaml line=1")
         self.assertEqual(self.head(), first)
-        self.assertNotIn(self.fake_secret.encode(), self.git("cat-file", "--batch-all-objects", "--batch"))
+        self.assertNotIn(self.planted_value.encode(), self.git("cat-file", "--batch-all-objects", "--batch"))
         self.assertFalse(self.git("status", "--porcelain"))
         self.assertEqual(self.source_state(), before)
 
@@ -155,7 +162,7 @@ class SnapshotTests(unittest.TestCase):
             with self.subTest(name=name):
                 previous = (root / name).read_text()
                 # Larger than the live 4.2 MB flows file: no scanner size skip.
-                content = {"padding": " " * 4_300_000, "api_key": self.fake_secret}
+                content = {"padding": " " * 4_300_000, "api_key": self.planted_value}
                 put(root, name, json.dumps(content))
                 output = self.run_snapshot(ok=False)
                 self.assertIn("file=" + ("nodered/" if root == self.nr else "homeassistant/") + name, output)
@@ -169,7 +176,7 @@ class SnapshotTests(unittest.TestCase):
                            + "with open(" + repr(str(record)) + ", 'a') as log:\n    log.write(sys.argv[2] + '\\n')\n"
                            + "os.execv(" + repr(GITLEAKS) + ", [" + repr(GITLEAKS) + "] + sys.argv[1:])\n")
         wrapper.chmod(0o700)
-        self.run_snapshot("--gitleaks", str(wrapper))
+        self.run_snapshot(gitleaks=str(wrapper))
         targets = [Path(name) for name in record.read_text().splitlines()]
         self.assertEqual(len(targets), 2)
         self.assertTrue(targets[0].name.startswith("snapshot-"))
@@ -191,7 +198,7 @@ class SnapshotTests(unittest.TestCase):
                 selected = self.ha / "automations.yaml"
                 selected.unlink()
                 target = self.root / "outside-file"
-                target.write_text(self.fake_secret)
+                target.write_text(self.planted_value)
                 if kind == "symlink":
                     selected.symlink_to(target)
                 else:
@@ -227,9 +234,9 @@ class SnapshotTests(unittest.TestCase):
 
     def test_scanner_failure_never_echoes_output(self):
         scanner = self.root / "broken-scanner"
-        scanner.write_text("#!/bin/sh\nprintf '%s\\n' '" + self.fake_secret + "' >&2\nexit 2\n")
+        scanner.write_text("#!/bin/sh\nprintf '%s\\n' '" + self.planted_value + "' >&2\nexit 2\n")
         scanner.chmod(0o700)
-        self.assertIn("secret scanner failed", self.run_snapshot("--gitleaks", str(scanner), ok=False))
+        self.assertIn("secret scanner failed", self.run_snapshot(gitleaks=str(scanner), ok=False))
         self.assertFalse(self.head())
 
     def test_exact_staged_tree_cannot_differ_from_scanned_candidate(self):
@@ -241,18 +248,18 @@ class SnapshotTests(unittest.TestCase):
                            + "if 'add' in sys.argv and result.returncode == 0:\n"
                            + "    from pathlib import Path\n"
                            + "    target = Path(" + repr(str(self.repo / "homeassistant/automations.yaml")) + ")\n"
-                           + "    target.write_text(" + repr('api_key: "' + self.fake_secret + '"\n') + ")\n"
+                           + "    target.write_text(" + repr('api_key: "' + self.planted_value + '"\n') + ")\n"
                            + "    subprocess.run([" + repr(GIT) + ", '-C', " + repr(str(self.repo)) + ", 'add', '--', str(target)], check=True)\n"
                            + "sys.exit(result.returncode)\n")
         wrapper.chmod(0o700)
-        self.assertIn("staged tree differs", self.run_snapshot("--git", str(wrapper), ok=False))
+        self.assertIn("staged tree differs", self.run_snapshot(git=str(wrapper), ok=False))
         self.assertFalse(self.head())
 
     def test_verify_only_scans_head_and_hash_checks_live_credential(self):
         self.run_snapshot()
         first = self.head()
         before = self.source_state()
-        self.assertIn("verified HEAD", self.run_snapshot("--verify-only"))
+        self.assertIn("verified HEAD", self.run_snapshot(verify_only=True))
         self.assertEqual(self.head(), first)
         self.assertEqual(self.source_state(), before)
 
@@ -279,6 +286,7 @@ class SnapshotTests(unittest.TestCase):
         with (self.runtime / "snapshot.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.assertIn("already running", self.run_snapshot())
+            self.assertIn("verification busy", self.run_snapshot(verify_only=True, ok=False))
             self.assertFalse((self.repo / ".git").exists())
 
 
@@ -323,12 +331,17 @@ def mutation_checks():
         for name, (old, new) in mutations.items():
             if source.count(old) != 1:
                 raise SystemExit("mutation did not apply exactly once: " + name)
-            mutant = Path(temporary) / (name + ".py")
+            mutant_root = Path(temporary) / name
+            mutant = mutant_root / "hosts/hsb1/home-config-snapshot.py"
+            mutant.parent.mkdir(parents=True)
             mutated_source = source.replace(old, new, 1)
             compile(mutated_source, str(mutant), "exec")
             mutant.write_text(mutated_source)
-            child_environment = dict(os.environ, HOME_CONFIG_TEST_SCRIPT=str(mutant), PYTHONDONTWRITEBYTECODE="1")
-            result = subprocess.run([sys.executable, __file__, *checks], env=child_environment, capture_output=True, timeout=60)
+            mutant_test = mutant_root / "tests/test_home_config.py"
+            mutant_test.parent.mkdir()
+            shutil.copyfile(__file__, mutant_test)
+            shutil.copyfile(SCANNER_CONFIG, mutant.parent / SCANNER_CONFIG.name)
+            result = subprocess.run([sys.executable, str(mutant_test), *checks], capture_output=True, timeout=60)
             if result.returncode == 0:
                 raise SystemExit("must-fail mutant survived: " + name)
             if b"FAILED (" not in result.stderr:

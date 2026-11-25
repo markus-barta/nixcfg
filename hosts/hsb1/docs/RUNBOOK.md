@@ -1287,7 +1287,9 @@ dashboard edits that directory watches miss. systemd and a shared lock
 serialize runs. Unchanged content creates no commit. Commit messages list
 the source (`nodered`/`homeassistant`) and changed paths; the author is
 `hsb1-home-config <root@hsb1>`. The sandbox makes sources read-only, denies
-network access and runs with idle I/O scheduling and Nice 19.
+network access and runs with idle I/O scheduling and Nice 19. The production
+command has fixed source, destination and tool paths; its only option is
+`--verify-only`.
 
 ```bash
 git -C /home/mba/home-config log --oneline
@@ -1296,7 +1298,7 @@ systemctl status hsb1-home-config.path hsb1-home-config.timer --no-pager
 journalctl -u hsb1-home-config.service --since today --no-pager
 sudo systemctl start hsb1-home-config.service
 # Value-free HEAD verification: allowlist, scanner, live credential hash gate, no remote.
-sudo hsb1-home-config --verify-only --debounce-seconds 0
+sudo hsb1-home-config --verify-only
 # This must print nothing. The service refuses every run if any remote exists.
 git -C /home/mba/home-config remote
 ```
