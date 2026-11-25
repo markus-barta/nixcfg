@@ -5,10 +5,36 @@ import ctypes
 import fcntl
 import os
 from pathlib import Path
+import signal
 import shlex
 import struct
 import subprocess
 import sys
+
+
+def bounded(seconds, command):
+    """Bound our CLI process group, including SSH children, without a shell."""
+    with subprocess.Popen(command, start_new_session=True) as proc:
+        try:
+            return proc.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            print(f"ci-vm: command timed out after {seconds}s: {command[0]}", file=sys.stderr)
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            # A CLI can exit on TERM while a child ignores it and holds pipes
+            # open. Kill remaining members even when the leader already exited.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+            return 124
 
 
 def lock(path, command):
@@ -106,6 +132,8 @@ if __name__ == "__main__":
             sys.exit(lock(sys.argv[2], sys.argv[3:]))
         elif sys.argv[1] == "qos":
             qos(sys.argv[2])
+        elif sys.argv[1] == "run":
+            sys.exit(bounded(float(sys.argv[2]), sys.argv[3:]))
         else:
             raise RuntimeError("unknown ci-vm host operation")
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:

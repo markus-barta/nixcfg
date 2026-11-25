@@ -390,13 +390,25 @@ blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
 Provisioning waits for Ubuntu DNS and bounds apt operations with retries.
 
 The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.
-It sources the workstation agent token **only in a request subshell**, passes
-the curl authorization header on stdin, and scans queued/in-progress runs and
-their paginated jobs. Every job label must be offered by the corresponding
-runner (case-insensitive). Matching demand starts `ci`; 20 minutes of confirmed
-idle time stops it. API/auth/response errors reset the idle grace and leave
-the VM unchanged. Known matching demand in another repository can still start
-the VM. Backward clocks and missing/corrupt state begin a new grace period.
+It sources the workstation agent token **only in a request subshell**, removes
+its export attribute, and passes the curl authorization header on stdin; curl
+never inherits `GH_TOKEN`. The scan has a 45-second API budget. Queued jobs
+must match every offered label (case-insensitive); in-progress jobs count only
+when `runner_name` is this runner. Matching demand starts `ci`. Idle shutdown
+requires 20 minutes without demand or a local `Runner.Worker`. Before stopping,
+the guest freezes listeners, checks again for a worker, and drains idle units.
+
+API/auth/response failures and a missing token use a bounded, API-free guest
+worker check. They stop `ci` after 20 minutes without a verified worker, with
+an absolute 60-minute cap on continuous unknown state even if a worker remains.
+Queued-only demand that picks up no job for 10 minutes stops `ci`, logs
+`UNSERVABLE` and backs off. Startup, provisioning and readiness failures persist
+exponential backoff in `~/.local/state/ci-vm/backoff` (60 seconds to one hour);
+unservable queues start at five minutes. An existing `.runner` whose name has
+disappeared from GitHub requires coordinator-led re-enrollment and backs off
+for one hour. Known demand in another repo can still be served when an API
+fails. Backward clocks and missing/corrupt timestamps begin a new grace period.
+Colima status/start/SSH/stop and QoS checks all have process-group deadlines.
 The dispatcher lock remains in a parent process so detached Lima daemons cannot
 inherit it. Logs: `~/.local/share/ops-qa/state/ci-vm-dispatcher.log`.
 
@@ -434,10 +446,12 @@ command refuses to replace it; retire an expired token explicitly first.
   set +x
   set -euo pipefail
   umask 077
-  set -a
-  source "$HOME/.inspr/secrets/agents/GH_TOKEN.env"
   set +a
+  unset GH_TOKEN
+  source "$HOME/.inspr/secrets/agents/GH_TOKEN.env"
   [ -n "${GH_TOKEN:-}" ]
+  set +a
+  export -n GH_TOKEN
   ci_state="$HOME/.local/state/ci-vm"
   install -d -m 0700 "$ci_state" "$ci_state/secrets"
   [ ! -e "$ci_state/secrets/hausnetz.token" ]
@@ -482,24 +496,33 @@ colima --profile ci ssh -- sudo systemctl is-active ci-runner-hausnetz.service
 colima --profile ci ssh -- sudo -u ci-hausnetz test -f /var/lib/ci-runners/hausnetz/.runner
 ```
 
-Confirm the runner name and six labels in GitHub, then use `trash` on the
-host's one-shot token and retained response file. Enrollment persists across
+The host automatically uses `trash` on the mounted one-shot token once `.runner`
+exists, including when a later service start fails. Confirm the runner name and
+six labels in GitHub, then use `trash` on the retained response file. Enrollment persists across
 boots; an already configured runner never rereads the registration token.
 Switch hausnetz workflows in its owning repository, verify a green Mac run,
 and retire the old agm2 runner in that repository's separate lane.
 
 Operation: `ci-vm`/`ci-vm tick` performs one poll; `ci-vm start` and `ci-vm stop`
-are explicit operator overrides; `ci-vm prepare` only refreshes a stopped
-profile's config. To disable automatic dispatch, set `services.ciVm.enable =
+are explicit operator overrides. `ci-vm start --provision-only` boots and checks
+provisioning/QoS/firewall without opening the runner activation gate, for
+pre-enrollment inspection. `ci-vm prepare` only refreshes a stopped profile's
+config. To disable automatic dispatch, set `services.ciVm.enable =
 false` through the reviewed Home Manager path and stop `ci` when its jobs
 finish. Keep the VM disk/enrollment for rollback. No other profile is managed.
 
 Offline tests (Bash 5 is required by the test's false-pass guard):
 
 ```bash
-nix-shell -p bash jq python3 --run 'bash tests/ci-vm-dispatcher-test.sh'
+nix-shell -p bash jq python3 coreutils --run 'bash tests/ci-vm-dispatcher-test.sh'
 ```
 
-The test evaluates the actual module, checks demand/pagination/failure/grace
-behavior against stubs, checks daemon-lock isolation, and kills deliberately
-weakened label/grace mutants. CI runs it in `.github/workflows/check.yml`.
+The test evaluates the actual module, executes guest helpers and the rendered
+service start path in filesystem fixtures, and checks demand, pagination,
+uptime caps, backoff, token retirement, deadlines and daemon-lock isolation.
+Mutants cover labels, timing, the runner path, nixbld KVM access, token isolation,
+archive verification and the Colima home. CI runs it in
+`.github/workflows/check.yml`. Live proof additionally requires the real cached
+archive, `systemd-analyze verify`/`security`, a sandboxed KVM derivation, and a
+Mac-loopback positive control alongside denied CI/nixbld connections and working
+guest DNS. It does not require a registration token.

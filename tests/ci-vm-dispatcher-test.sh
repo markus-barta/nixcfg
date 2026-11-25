@@ -21,7 +21,10 @@ jq -e '.checks | all' "$work/module.json" >/dev/null || fail 'module evaluation'
 jq .colima "$work/module.json" >"$work/declared.yaml"
 jq .repos "$work/module.json" >"$work/repos.json"
 echo "ok module: $(jq '.checks | length' "$work/module.json") evaluated contracts"
+python3 "$root/tests/ci-vm-guest-test.py" "$root" "$work" "$work/module.json"
 mkdir -p "$work/bin"
+export CI_TEST_REAL_JQ
+CI_TEST_REAL_JQ=$(command -v jq)
 
 cat >"$work/bin/curl" <<'STUB'
 #!/usr/bin/env python3
@@ -31,6 +34,7 @@ args = sys.argv[1:]
 assert args[0] == "-q", "curl must ignore implicit user config"
 assert "--config" in args and args[args.index("--config") + 1] == "-"
 assert not any("fixture-agent-value" in a for a in args), "token in argv"
+assert "GH_TOKEN" not in os.environ, "token in curl environment"
 assert sys.stdin.read() == 'header = "Authorization: Bearer fixture-agent-value"\n', "token not transported on stdin"
 url = args[-1]
 with open(os.environ["CI_TEST_CALLS"], "a") as f:
@@ -45,14 +49,19 @@ query = parse_qs(parsed.query)
 page = int(query["page"][0])
 is_jobs = parsed.path.endswith("/jobs")
 repo = "extra" if "/extra/" in url else "hausnetz"
+if parsed.path.endswith("/runners"):
+    runners = [] if scenario == "stale-runner" else [{"name": "mbp2607-" + repo}]
+    print(json.dumps({"runners": runners, "total_count": len(runners)}))
+    sys.exit()
 labels = ["self-hosted", "Linux", "ARM64", "mbp2607", repo, "kvm"]
 if not is_jobs:
     if scenario == "malformed": print('{}'); sys.exit()
     if scenario == "truncated": print('{"workflow_runs": [], "total_count": 101}'); sys.exit()
     if scenario == "short-runs": print('{"workflow_runs": [], "total_count": 1}'); sys.exit()
     if scenario == "negative-count": print('{"workflow_runs": [], "total_count": -1}'); sys.exit()
+    if scenario == "huge-count": print('{"workflow_runs": [], "total_count": 1e100}'); sys.exit()
     status = query["status"][0]
-    active = status == ("in_progress" if scenario == "progress" else "queued")
+    active = status == ("in_progress" if scenario in {"progress", "foreign-progress"} else "queued")
     active = active and scenario != "empty"
     if scenario == "multiple" and repo == "hausnetz": active = False
     if active and scenario == "run-pages":
@@ -68,8 +77,8 @@ else:
     if scenario == "wrong-arch": labels[2] = "X64"
     if scenario == "wrong-host": labels[3] = "agm2"
     if scenario == "no-labels": labels = []
-    status = "in_progress" if scenario == "progress" else "completed" if scenario == "completed" else "queued"
-    jobs = [{"status": status, "labels": labels, "runner_name": "mbp2607-hausnetz"}]
+    status = "in_progress" if scenario in {"progress", "foreign-progress"} else "completed" if scenario == "completed" else "queued"
+    jobs = [{"status": status, "labels": labels, "runner_name": "another-runner" if scenario == "foreign-progress" else "mbp2607-" + repo}]
     total = 1
     if scenario == "run-pages" and not parsed.path.endswith("/101/jobs"): jobs, total = [], 0
     if scenario == "job-pages":
@@ -84,9 +93,19 @@ set -euo pipefail
 [[ "${LIMA_HOME:-}" == "$COLIMA_HOME/_lima" ]] || exit 89
 printf 'colima %s\n' "$*" >>"$CI_TEST_CALLS"
 if [[ "$1" == --profile ]]; then
-  [[ "$*" == '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready' ]] || exit 86
   if [[ "${CI_TEST_REQUIRE_CLOSED_STDIN:-0}" == 1 ]] && IFS= read -r ignored; then exit 87; fi
-  exit "${CI_TEST_READY_FAIL:-0}"
+  case "$*" in
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready') exit "${CI_TEST_READY_FAIL:-0}" ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready --provision-only') exit 0 ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control worker-active') exit "${CI_TEST_WORKER:-1}" ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control enrolled') printf '%s' "${CI_TEST_ENROLLED:-}" ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control drain')
+      if [[ "${CI_TEST_WORKER:-1}" == 0 ]]; then exit 3; fi
+      exit "${CI_TEST_DRAIN:-0}"
+      ;;
+    *) exit 86 ;;
+  esac
+  exit 0
 fi
 [[ "$2" == ci ]] || exit 80
 case "$1" in
@@ -101,6 +120,7 @@ case "$1" in
   start)
     [[ "$*" == 'start ci --activate=false --ssh-config=false' ]] || exit 81
     [[ ! -L "$COLIMA_HOME/ci/colima.yaml" ]] || exit 82
+    if [[ "${CI_TEST_START_FAIL:-0}" == 1 ]]; then exit 1; fi
     cmp -s "$CI_VM_CONFIG" "$COLIMA_HOME/ci/colima.yaml" || exit 83
     printf '\n# rewritten by Colima\n' >>"$COLIMA_HOME/ci/colima.yaml"
     echo running >"$CI_TEST_VM"
@@ -108,6 +128,20 @@ case "$1" in
   stop) echo stopped >"$CI_TEST_VM" ;;
   *) exit 84 ;;
 esac
+STUB
+cat >"$work/bin/jq" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${CI_TEST_JQ_FAIL:-}" == offered && "$*" == *'ascii_downcase) | unique'* ]] ||
+   [[ "${CI_TEST_JQ_FAIL:-}" == match && "$*" == *'if any(.jobs[];'* ]]; then exit 5; fi
+exec "$CI_TEST_REAL_JQ" "$@"
+STUB
+cat >"$work/bin/trash" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == "$CI_VM_STATE_DIR"/secrets/*.token && -f "$1" && ! -L "$1" ]] || exit 1
+printf 'trash token\n' >>"$CI_TEST_CALLS"
+mkdir -p "$CI_VM_STATE_DIR/trashed"
+mv "$1" "$CI_VM_STATE_DIR/trashed/"
 STUB
 cat >"$work/bin/limactl" <<'STUB'
 #!/usr/bin/env bash
@@ -147,10 +181,13 @@ new_case() {
   export HOME="$case_dir/home" PATH="$work/bin:$PATH"
   export XDG_CONFIG_HOME="$HOME/.config"
   export COLIMA_HOME="$XDG_CONFIG_HOME/colima" LIMA_HOME="$XDG_CONFIG_HOME/colima/_lima"
+  mkdir -p "$COLIMA_HOME/ci"
+  touch "$COLIMA_HOME/ci/.nixcfg-ci-vm"
   export CI_VM_STATE_DIR="$case_dir/state" CI_VM_CONFIG="$work/declared.yaml"
   export CI_VM_REPOSITORIES="$case_dir/repos.json" CI_VM_AGENT_TOKEN_FILE="$case_dir/agent.env"
   export CI_VM_HOST_HELPER="$root/hosts/mbp2607/files/ci-vm/host.py" CI_VM_QOS="$work/bin/qos"
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
+  export CI_TEST_WORKER=1 CI_TEST_DRAIN=0 CI_TEST_START_FAIL=0 CI_TEST_ENROLLED='' CI_TEST_JQ_FAIL=''
 }
 run_tick() { /bin/bash "${1:-$dispatcher}" tick >"$case_dir/out" 2>&1; }
 calls() { grep -c "$1" "$case_dir/calls" || true; }
@@ -198,7 +235,7 @@ run_tick
 started && [[ -f "$COLIMA_HOME/ci/colima.yaml" && ! -e "$HOME/.colima" ]] || fail 'custom XDG home was ignored'
 echo 'ok custom XDG: ci config and CLI share the explicitly configured home'
 
-for scenario in wrong-arch wrong-host no-labels completed empty; do
+for scenario in wrong-arch wrong-host no-labels completed empty foreign-progress; do
   new_case
   export CI_TEST_SCENARIO=$scenario
   run_tick
@@ -218,6 +255,14 @@ echo stopped >"$case_dir/vm"
 run_tick
 [[ "$(calls 'colima start')" == 2 ]] || fail 'copied config did not survive a Colima rewrite'
 echo 'ok demand: queued jobs start ci under background QoS; writable config is refreshed for each start'
+
+new_case
+printf 'export GH_TOKEN=fixture-agent-value\n' >"$case_dir/agent.env"
+export GH_TOKEN=fixture-inherited-value CI_TEST_SCENARIO=queued
+run_tick
+started || fail 'exported/inherited GH_TOKEN leaked to curl'
+unset GH_TOKEN
+echo 'ok token environment: even exported/inherited GH_TOKEN never reaches curl'
 
 new_case
 echo running >"$case_dir/vm"
@@ -256,20 +301,75 @@ run_tick
 [[ "$(calls 'colima stop')" == 1 && "$(<"$case_dir/vm")" == stopped ]] || fail 'did not stop at 20-minute grace'
 echo 'ok idle: retains ci at 1199 s, stops at 1200 s'
 
-for scenario in failure malformed malformed-jobs truncated short-runs short-jobs negative-count; do
+for scenario in failure malformed malformed-jobs truncated short-runs short-jobs negative-count huge-count missing-token; do
   new_case
   echo running >"$case_dir/vm"
   echo 1 >"$case_dir/state/last-demand"
   export CI_TEST_SCENARIO=$scenario CI_TEST_NOW=5000
+  if [[ "$scenario" == missing-token ]]; then export CI_VM_AGENT_TOKEN_FILE="$case_dir/absent.env"; fi
   run_tick
-  unchanged && [[ "$(<"$case_dir/state/last-demand")" == 5000 ]] || fail "$scenario treated as idle"
+  unchanged && [[ "$(<"$case_dir/state/last-demand")" == 1 ]] || fail "$scenario reset actual-demand timestamp"
+  [[ "$(<"$case_dir/state/unknown-since")" == 5000 ]] || fail "$scenario lost unknown-state timer"
+  export CI_TEST_NOW=6199
+  run_tick
+  unchanged || fail "$scenario stopped before 20 minutes without work"
+  export CI_TEST_NOW=6200
+  run_tick
+  [[ "$(calls 'colima stop')" == 1 ]] || fail "$scenario ran indefinitely without a worker"
 done
 new_case
 echo running >"$case_dir/vm"
-export CI_VM_AGENT_TOKEN_FILE="$case_dir/absent.env"
+export CI_TEST_SCENARIO=failure CI_TEST_WORKER=0
 run_tick
-unchanged || fail 'missing agent token changed ci'
-echo 'ok uncertainty: API/auth/schema/pagination errors preserve VM and reset grace'
+for time in 2000 3000 4599; do
+  export CI_TEST_NOW=$time
+  run_tick
+  unchanged || fail 'unknown-state cap interrupted local work too early'
+done
+export CI_TEST_NOW=4600
+run_tick
+[[ "$(calls 'colima stop')" == 1 ]] || fail 'unknown-state worker bypassed absolute 60-minute cap'
+echo 'ok uncertainty: API/auth/schema/missing-token errors stop after 20 minutes without a worker; active workers have a 60-minute absolute cap'
+
+new_case
+echo running >"$case_dir/vm"
+echo 1000 >"$case_dir/state/unknown-since"
+echo 1000 >"$case_dir/state/no-worker-since"
+export CI_TEST_SCENARIO=failure CI_TEST_WORKER=124 CI_TEST_DRAIN=124 CI_TEST_NOW=2200
+run_tick
+[[ "$(calls 'colima stop')" == 1 ]] || fail 'unreachable worker/drain bypassed uptime bound'
+
+for part in offered match; do
+  new_case
+  export CI_TEST_SCENARIO=queued CI_TEST_JQ_FAIL=$part
+  run_tick
+  unchanged || fail "unchecked $part jq failure changed VM state"
+  grep -q 'demand unknown' "$case_dir/out" || fail "unchecked $part jq failure"
+done
+echo 'ok parsing: expression failures inside a conditional demand scan stay unknown'
+
+new_case
+export CI_TEST_SCENARIO=queued
+run_tick
+export CI_TEST_NOW=1599
+run_tick
+[[ "$(calls 'colima stop')" == 0 ]] || fail 'queued demand stopped too early'
+export CI_TEST_NOW=1600
+run_tick
+[[ "$(calls 'colima stop')" == 1 ]] || fail 'unservable queue kept ci up'
+grep -q 'UNSERVABLE' "$case_dir/out" || fail 'unservable queue not reported'
+export CI_TEST_NOW=1660
+run_tick
+[[ "$(calls 'colima start')" == 1 ]] || fail 'unservable queue ignored backoff'
+echo 'ok queued demand: no pickup for 10 minutes stops ci and backs off'
+
+new_case
+echo running >"$case_dir/vm"
+echo 1 >"$case_dir/state/last-demand"
+export CI_TEST_NOW=5000 CI_TEST_DRAIN=3
+run_tick
+unchanged || fail 'drain race killed a newly assigned job'
+echo 'ok drain: a worker found after the API scan prevents idle shutdown'
 
 for value in missing corrupt 9999999; do
   new_case
@@ -280,16 +380,51 @@ for value in missing corrupt 9999999; do
 done
 echo 'ok recovery: absent/corrupt/future timestamps begin a fresh grace period'
 
+for failure in qos ready start; do
+  new_case
+  export CI_TEST_SCENARIO=queued
+  case "$failure" in
+  qos) export CI_TEST_QOS_FAIL=1 ;;
+  ready) export CI_TEST_READY_FAIL=1 ;;
+  start) export CI_TEST_START_FAIL=1 ;;
+  esac
+  if run_tick; then fail "$failure failure passed"; fi
+  [[ "$(calls 'colima start')" == 1 && "$(calls 'colima stop')" == 1 ]] || fail "$failure failure left ci running"
+  [[ "$(<"$case_dir/state/backoff")" == '1 1060' ]] || fail "$failure failure not persisted"
+  export CI_TEST_NOW=1059
+  run_tick
+  [[ "$(calls 'colima start')" == 1 ]] || fail "$failure failure booted again before backoff"
+  export CI_TEST_NOW=1060
+  if run_tick; then fail "$failure retry failure passed"; fi
+  [[ "$(<"$case_dir/state/backoff")" == '2 1180' ]] || fail "$failure backoff did not double"
+done
+echo 'ok failures: start/QoS/readiness failures persist and double retry backoff'
+
 new_case
-export CI_TEST_SCENARIO=queued CI_TEST_QOS_FAIL=1
-if run_tick; then fail 'unverified QoS passed'; fi
-[[ "$(calls 'colima start')" == 1 && "$(calls 'colima stop')" == 1 ]] || fail 'QoS failure left ci running'
+export CI_TEST_SCENARIO=stale-runner CI_TEST_ENROLLED=hausnetz
+if run_tick; then fail 'stale local enrollment passed'; fi
+grep -q 'needs re-enrollment' "$case_dir/out" || fail 'stale enrollment not reported'
+[[ "$(calls 'colima stop')" == 1 && "$(<"$case_dir/state/backoff")" == '1 4600' ]] || fail 'stale enrollment loop not contained'
+
+for ready_failure in 0 1; do
+  new_case
+  mkdir -p "$CI_VM_STATE_DIR/secrets"
+  printf 'fixture-registration-value\n' >"$CI_VM_STATE_DIR/secrets/hausnetz.token"
+  chmod 0600 "$CI_VM_STATE_DIR/secrets/hausnetz.token"
+  export CI_TEST_SCENARIO=queued CI_TEST_ENROLLED=hausnetz CI_TEST_READY_FAIL=$ready_failure
+  if run_tick; then [[ "$ready_failure" == 0 ]] || fail 'failed ready passed'; fi
+  [[ ! -e "$CI_VM_STATE_DIR/secrets/hausnetz.token" && "$(calls 'trash token')" == 1 ]] || fail 'enrolled runner retained host token'
+done
+echo 'ok enrollment: stale .runner requires re-enrollment; host trashes token once .runner exists, including after a later service failure'
+
 new_case
-export CI_TEST_SCENARIO=queued CI_TEST_READY_FAIL=1
-if run_tick; then fail 'failed provisioning passed'; fi
-[[ "$(calls 'colima start')" == 1 && "$(calls 'colima stop')" == 1 ]] || fail 'provision failure left ci running'
+export CI_TEST_READY_FAIL=1
+/bin/bash "$dispatcher" start --provision-only >"$case_dir/out" 2>&1
+started && [[ "$(calls 'host-ready --provision-only')" == 1 ]] || fail 'provision-only inspection tried to activate a runner'
+
 new_case
 mkdir -p "$COLIMA_HOME/ci"
+mv "$COLIMA_HOME/ci/.nixcfg-ci-vm" "$case_dir/owned-marker"
 echo unrelated >"$COLIMA_HOME/ci/colima.yaml"
 export CI_TEST_SCENARIO=queued
 if run_tick; then fail 'unowned ci profile was adopted'; fi
@@ -331,6 +466,9 @@ import sys
 source = Path(sys.argv[1]).read_text()
 for name, old, new in [('labels', 'all(.labels[]; ascii_downcase', 'any(.labels[]; ascii_downcase'),
                        ('grace', '-ge 1200', '-ge 1199'),
+                       ('unknown-cap', 'read_stamp unknown-since', 'stamp unknown-since\n    read_stamp unknown-since'),
+                       ('queue-cap', '-ge 600', '-ge 601'),
+                       ('token-retirement', 'trash "$token" || return 1', ': "$token" || return 1'),
                        ('colima-home', '# Keep the CLI', 'export COLIMA_HOME="$HOME/.colima"\n# Keep the CLI')]:
     assert old in source
     Path(sys.argv[2], name + '-mutant.sh').write_text(source.replace(old, new))
@@ -351,4 +489,35 @@ if run_tick "$work/colima-home-mutant.sh"; then fail 'legacy Colima home mutant 
 grep -q 'requires the module XDG Colima and Lima homes' "$case_dir/out" || fail 'legacy home mutant failed for the wrong reason'
 [[ ! -s "$case_dir/calls" && ! -e "$HOME/.colima" ]] || fail 'legacy home mutant caused side effects'
 echo 'ok mutants: weakened labels, early shutdown and legacy Colima home fail their contracts'
+new_case
+echo running >"$case_dir/vm"
+echo 1000 >"$case_dir/state/unknown-since"
+export CI_TEST_SCENARIO=failure CI_TEST_WORKER=0 CI_TEST_NOW=4600
+run_tick "$work/unknown-cap-mutant.sh"
+if [[ "$(calls 'colima stop')" != 0 ]]; then fail 'unknown-cap mutant did not exercise the uptime bound'; fi
+new_case
+echo running >"$case_dir/vm"
+echo 1000 >"$case_dir/state/queue-since"
+export CI_TEST_SCENARIO=queued CI_TEST_NOW=1600
+run_tick "$work/queue-cap-mutant.sh"
+if [[ "$(calls 'colima stop')" != 0 ]]; then fail 'queue-cap mutant did not exercise the pickup bound'; fi
+echo 'ok uptime mutants: resetting the unknown timer and delaying the pickup cap violate the stop contracts'
+
+new_case
+mkdir -p "$CI_VM_STATE_DIR/secrets"
+printf 'fixture-registration-value\n' >"$CI_VM_STATE_DIR/secrets/hausnetz.token"
+export CI_TEST_ENROLLED=hausnetz CI_TEST_SCENARIO=queued
+run_tick "$work/token-retirement-mutant.sh"
+[[ -f "$CI_VM_STATE_DIR/secrets/hausnetz.token" ]] || fail 'token-retirement mutant did not violate lifecycle contract'
+echo 'ok token mutant: omitted host retirement violates the enrolled-token contract'
+
+python3 - "$CI_VM_HOST_HELPER" <<'PY'
+import subprocess, sys, time
+start = time.monotonic()
+child = 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print("ready",flush=True); time.sleep(30)'
+parent = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(30)'
+result = subprocess.run([sys.executable, sys.argv[1], 'run', '.5', sys.executable, '-c', parent], capture_output=True, timeout=7)
+assert result.returncode == 124 and time.monotonic() - start < 7, 'CLI timeout did not terminate its process group'
+PY
+echo 'ok timeout: host CLI process groups have a real deadline'
 echo 'ci-vm dispatcher test: PASS'
