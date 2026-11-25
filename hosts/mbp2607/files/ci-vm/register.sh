@@ -11,7 +11,7 @@ dir="/var/lib/ci-runners/$id"
 if [ -f "$dir/.runner" ]; then
   exit 0
 fi
-secret="/etc/ci-vm-secrets/$id.token"
+secret="/etc/ci-vm-private/secrets/$id.token"
 if [ ! -f "$secret" ] || [ -L "$secret" ]; then
   printf 'ci-vm: registration token missing or unsafe for %s\n' "$id" >&2
   exit 1

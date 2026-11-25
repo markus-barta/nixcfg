@@ -163,12 +163,27 @@ assert kvm_contract(kvm), "independent nixbld UIDs cannot read/write KVM"
 assert not kvm_contract(kvm.replace("0666", "0660")), "nixbld KVM mutant survived"
 print("ok guest KVM: execute device permissions and udev rule; supplementary-group-only mutant killed")
 
+parent_guard = provision.split(": >/var/lib/ci-vm/ready\n", 1)[1].split("\n# Ubuntu repositories", 1)[0]
+
+
+def private_parent_contract(source):
+    base = fixture()
+    # The fixture is unprivileged; root ownership is verified in the live guest.
+    result = run("set -e\n" + source.replace("-o root -g root ", ""), base)
+    assert result.returncode == 0, result.stderr
+    return (base / "etc/ci-vm-private").stat().st_mode & 0o777 == 0o700
+
+
+assert private_parent_contract(parent_guard), "guest mount parent permits job-user traversal"
+assert not private_parent_contract(parent_guard.replace("0700", "0755")), "public mount-parent mutant survived"
+print("ok guest mount: execute private parent permissions; public-parent mutant killed")
+
 
 def registration_case(source, readable=False):
     base = fixture()
     write(base / "etc/ci-vm-repositories.json", json.dumps([{
         "id": "hausnetz", "repository": "inspr-at/hausnetz", "runnerName": "mbp2607-hausnetz", "labels": ["kvm"]}]))
-    write(base / "etc/ci-vm-secrets/hausnetz.token", "fixture-registration-value\n", 0o600)
+    write(base / "etc/ci-vm-private/secrets/hausnetz.token", "fixture-registration-value\n", 0o600)
     write(base / "var/lib/ci-runners/hausnetz/config.sh", "#!/bin/bash\nset -eu\n[ \"$ACTIONS_RUNNER_INPUT_URL\" = https://github.com/inspr-at/hausnetz ]\n[ \"$ACTIONS_RUNNER_INPUT_DISABLEUPDATE\" = true ]\nprintf '{}' >.runner\n")
     result = run(source, base, "hausnetz", TOKEN_READABLE="1" if readable else "0")
     return result, base
@@ -177,7 +192,7 @@ def registration_case(source, readable=False):
 result, base = registration_case(register)
 assert result.returncode == 0, result.stderr
 assert (base / "var/lib/ci-runners/hausnetz/.runner").exists()
-(base / "etc/ci-vm-secrets/hausnetz.token").rename(base / "retired-token")
+(base / "etc/ci-vm-private/secrets/hausnetz.token").rename(base / "retired-token")
 assert run(register, base, "hausnetz").returncode == 0, "configured runner reread a retired token"
 result, base = registration_case(register, readable=True)
 assert result.returncode != 0 and not (base / "var/lib/ci-runners/hausnetz/.runner").exists(), "readable token reached config.sh"

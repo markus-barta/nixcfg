@@ -359,7 +359,8 @@ Only Colima profile `ci` is managed. It uses VZ, nested virtualization,
 **6 vCPUs, 16 GiB RAM and one 150 GiB disk** (`runtime: none`, no container
 engine). Nix stores and runner workspaces live inside that disk. The only
 host mount is `~/.local/state/ci-vm/secrets`, mode 0700, mounted read-only at
-`/etc/ci-vm-secrets`; `/Users/markus` is not shared. SSH-agent forwarding,
+`/etc/ci-vm-private/secrets`; its root-owned guest parent is 0700 so virtiofs
+cannot expose host-owned token files to job users. `/Users/markus` is not shared. SSH-agent forwarding,
 Docker/Kubernetes context activation, Rosetta and application port forwarding
 are disabled. The starter copies the declared config into
 `~/.config/colima/ci/colima.yaml` before each stopped start; Colima may rewrite this
@@ -386,7 +387,7 @@ uses `NoNewPrivileges`, a read-only system with its runner directory writable,
 The Nix daemon and its builds have separate limits of 10 GiB / 4096 tasks and
 low CPU/I/O weights, leaving room for sshd and the guest agent. Guest nftables
 blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
-`192.168.5.2` (`host.lima.internal`); the DNS forwarder at `.3` remains usable.
+`192.168.5.2` (`host.lima.internal`), while leaving guest DNS destinations allowed.
 Provisioning waits for Ubuntu DNS and bounds apt operations with retries.
 
 The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.

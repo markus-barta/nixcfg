@@ -7,6 +7,10 @@ export DEBIAN_FRONTEND=noninteractive
 cache=/var/cache/ci-vm
 install -d -m 0755 "$cache" /usr/local/libexec/ci-vm /etc/nix /var/lib/ci-runners /var/lib/ci-vm
 : >/var/lib/ci-vm/ready
+# VZ virtiofs can report host-owned 0600 files readable to guest users. Put
+# the mount beneath a root-only directory on the GUEST filesystem as well.
+test ! -L /etc/ci-vm-private
+install -d -o root -g root -m 0700 /etc/ci-vm-private
 
 # Ubuntu repositories only. Avoid repeating apt work on every on-demand boot.
 if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then
@@ -135,7 +139,7 @@ After=network-online.target nix-daemon.socket ci-vm-firewall.service
 # Skip enrollment and execution entirely until configuration or a token exists.
 ConditionPathExists=/run/ci-vm-host-qos-ready
 ConditionPathExists=|$dir/.runner
-ConditionPathExists=|/etc/ci-vm-secrets/$id.token
+ConditionPathExists=|/etc/ci-vm-private/secrets/$id.token
 
 [Service]
 Type=exec

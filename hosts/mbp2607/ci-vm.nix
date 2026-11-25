@@ -68,7 +68,7 @@ let
       mounts = [
         {
           location = secretsDir;
-          mountPoint = "/etc/ci-vm-secrets";
+          mountPoint = "/etc/ci-vm-private/secrets";
           writable = false;
         }
       ];

@@ -128,7 +128,7 @@ let
       colima.mounts == [
         {
           location = "/Users/markus/.local/state/ci-vm/secrets";
-          mountPoint = "/etc/ci-vm-secrets";
+          mountPoint = "/etc/ci-vm-private/secrets";
           writable = false;
         }
       ];
@@ -167,6 +167,7 @@ let
     activationOrdering =
       activation.before == [ "setupLaunchAgents" ] && activation.after == [ "writeBoundary" ];
     privateMountDirectory = lib.hasInfix "chmod 0700" activation.data;
+    privateGuestMountParent = lib.hasInfix "install -d -o root -g root -m 0700 /etc/ci-vm-private" provision;
     noActivationStart = !lib.hasInfix "colima start" activation.data;
     nixPinned =
       lib.hasInfix "nix_version=2.31.2" provision
