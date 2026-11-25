@@ -1237,7 +1237,9 @@ setgid mode **2750** and Git uses `core.sharedRepository=0640`: directories are
 2750, metadata/refs 0640 and objects 0440. The group can read history but cannot
 write any repository path, including `.git`. New files inherit the reader group,
 including after GC; manual verification preserves permissions. Every service Git
-command disables hooks and fsyncs new loose objects before publishing a ref.
+command disables hooks and uses `core.fsync=loose-object,reference`, including
+reference updates made by GC. Before Git reads local configuration, the service
+requires `.git/config` to be a regular root-owned file with mode 0640.
 The declarative system Git configuration trusts exactly this root-owned
 path so normal history commands work for `mba`. Reconnect after deployment to
 pick up the new group membership.
@@ -1293,7 +1295,9 @@ scanner stdout/stderr and credential values never enter the journal. Inline
 the gate. The unquoted-YAML rule covers compound keys such as `wifi_password`,
 `client_secret`, `api_password` and `access_token`, including inline mappings.
 YAML `!secret`/`!env_var` references are excluded from that rule. Scanner failure
-aborts too. A failed pre-scan leaves history unchanged and
+aborts too. This rule only scans `.yaml`/`.yml` files, so JavaScript expressions
+inside Node-RED function nodes are accepted; quoted literal credentials remain
+covered by the other rules. A failed pre-scan leaves history unchanged and
 creates no Git objects. File I/O failures identify a validated path and errno;
 each run logs only counts of ignored entries and skipped YAML files. A skipped
 directory counts as one entry; its unvisited descendants are not inventoried.
@@ -1313,6 +1317,12 @@ Only the fully scanned commit is published by atomically replacing the complete
 Git ref lock is left by interruption. Reserved stale runtime directories and
 temporary refs are cleared at the next full run; unknown operator files, shared
 indexes and conventional ref locks are preserved and cause refusal.
+An unborn HEAD is accepted only while there is no `snapshot-success` marker and
+the Git object store contains no files. A missing `main` after history exists
+refuses snapshots and GC without refreshing the success marker; the existing
+freshness witness then pages. Preserve the object store and backups for an
+explicit operator recovery rather than starting a new root history. An
+interrupted first snapshot that already wrote objects also requires review.
 Commit messages list
 the source (`nodered`/`homeassistant`) and changed paths; the author is
 `hsb1-home-config <root@hsb1>`. The sandbox makes sources read-only, denies

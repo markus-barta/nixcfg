@@ -28,6 +28,7 @@ secretGroup = 1
 [[rules]]
 id = "home-config-yaml-credential"
 description = "Unquoted password-like YAML value"
+path = '''(?i)\.ya?ml$'''
 # Capture the assignment so inherited placeholder allowlists cannot hide a
 # short literal such as x. Delimit inline values before scanning the next key.
 regex = '''(?im)(?:^[ \t]*(?:-[ \t]+)?|[,{][ \t]*)([\w-]*(?:password|passwd|pass|secret|token|api_key)[ \t]*:[ \t]*[^ \t\r\n"'#,}][^,\r\n}]*)'''

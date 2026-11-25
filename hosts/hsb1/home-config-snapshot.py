@@ -348,7 +348,7 @@ def git(args, *arguments, data=None, check=True, index=None, timeout=60):
     try:
         result = subprocess.run(
             [args.git, "-c", "protocol.allow=never", "-c", "core.autocrlf=false",
-             "-c", "core.hooksPath=/dev/null", "-c", "core.fsync=loose-object",
+             "-c", "core.hooksPath=/dev/null", "-c", "core.fsync=loose-object,reference",
              "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-C", str(args.repo), *arguments],
             input=data, capture_output=True, env=environment, timeout=operation_timeout(args, timeout),
         )
@@ -398,6 +398,12 @@ def prepare_repo(args, verify):
         info = git_dir.stat()
         if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o2750:
             raise Refused("Git directory must be owned by the service user and mode 2750: " + safe_path(git_dir))
+        # The production service user is root. Check before Git reads local
+        # config: hooksPath alone cannot disable commands such as GC hooks.
+        info = (git_dir / "config").lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o640):
+            raise Refused("Git config must be a service-owned regular file with mode 0640")
         if (git(args, "rev-parse", "--absolute-git-dir").stdout.decode().strip() != str(git_dir)
                 or git(args, "rev-parse", "--is-bare-repository").stdout.strip() != b"true"):
             raise Refused("expected a history-only bare repository; preserve existing worktrees for operator review")
@@ -414,6 +420,15 @@ def prepare_repo(args, verify):
         raise Refused("repository has pending changes; preserve them for operator review")
     if any(path.exists() or path.is_symlink() for path in (git_dir / "index", git_dir / "refs/heads/main.lock")):
         raise Refused("repository has unexpected index or ref lock; preserve operator work")
+    if current_head(args) is None:
+        success = git_dir / "snapshot-success"
+        objects = git_dir / "objects"
+        with directory(objects):
+            populated = any(not path.is_dir() or path.is_symlink() for path in objects.rglob("*"))
+        if success.exists() or success.is_symlink() or populated:
+            # Check before writing the first blob. Publication rechecks HEAD
+            # after creating objects, so it must retain its normal None result.
+            raise Refused("snapshot HEAD missing from existing history; preserve repository for operator recovery")
 
 
 def index_contents(args, revision=None, index=None):

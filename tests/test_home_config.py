@@ -35,6 +35,17 @@ def put(root, name, content):
     target.write_text(content)
 
 
+def alert_modules():
+    engine_spec = importlib.util.spec_from_file_location("engine", REPO / "modules/shared/fleet-alerts/engine.py")
+    engine = importlib.util.module_from_spec(engine_spec)
+    sys.modules["engine"] = engine
+    engine_spec.loader.exec_module(engine)
+    witness_spec = importlib.util.spec_from_file_location("home_config_watch", REPO / "hosts/hsb1/home-config-watch.py")
+    witness = importlib.util.module_from_spec(witness_spec)
+    witness_spec.loader.exec_module(witness)
+    return engine, witness
+
+
 class SnapshotTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(GITLEAKS, "Gitleaks is required; no mock scanner substitutes for the secret gate")
@@ -161,6 +172,144 @@ class SnapshotTests(unittest.TestCase):
                        env=implementation.private_environment(self.runtime) | {"GIT_INDEX_FILE": str(self.runtime / "control-index")},
                        timeout=10)
         self.assertTrue(marker.exists(), "control did not exercise the planted hook")
+
+    def test_every_git_operation_fsyncs_objects_and_references_despite_local_config(self):
+        wrapper = self.root / "git-fsync-check"
+        record = self.root / "git-operations"
+        wrapper.write_text("#!" + sys.executable + "\nimport os, subprocess, sys\n"
+                           "arguments = sys.argv[1:]\nend = arguments.index('-C') + 2\n"
+                           + "result = subprocess.run([" + repr(GIT) + "] + arguments[:end] + ['config', '--get', 'core.fsync'], capture_output=True)\n"
+                           "if result.returncode or result.stdout.strip() != b'loose-object,reference':\n    sys.exit(18)\n"
+                           + "with open(" + repr(str(record)) + ", 'a') as log:\n    log.write(arguments[end] + '\\n')\n"
+                           + "os.execv(" + repr(GIT) + ", [" + repr(GIT) + "] + arguments)\n")
+        wrapper.chmod(0o700)
+        self.run_snapshot(git=str(wrapper))
+        self.git("config", "core.fsync", "none")
+        put(self.ha, "automations.yaml", "# fsync fixture\n[]\n")
+        self.run_snapshot(git=str(wrapper))
+        self.run_snapshot(git=str(wrapper), verify_only=True)
+        self.run_snapshot(git=str(wrapper), gc_only=True)
+        self.assertTrue({"init", "hash-object", "commit-tree", "gc"} <= set(record.read_text().splitlines()))
+
+    def test_group_writable_config_is_refused_before_git_for_every_mode(self):
+        self.run_snapshot()
+        first = self.head()
+        config = self.repo / ".git/config"
+        config.chmod(0o660)
+        before = (config.read_bytes(), config.stat().st_mtime_ns)
+        stamp = self.repo / ".git/snapshot-success"
+        stamp_time = stamp.stat().st_mtime_ns
+        for mode in ({}, {"verify_only": True}, {"gc_only": True}):
+            with self.subTest(mode=mode), mock.patch.object(implementation, "git", wraps=implementation.git) as commands:
+                self.assertIn("Git config must be a service-owned regular file with mode 0640", self.run_snapshot(ok=False, **mode))
+                commands.assert_not_called()
+        self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o660)
+        self.assertEqual((config.read_bytes(), config.stat().st_mtime_ns), before)
+        self.assertEqual(stamp.stat().st_mtime_ns, stamp_time)
+        self.assertEqual(self.head(), first)
+
+    def test_config_symlink_and_wrong_owner_are_refused_before_git(self):
+        self.run_snapshot()
+        config = self.repo / ".git/config"
+        original_lstat = Path.lstat
+
+        def wrong_owner(path, *args, **kwargs):
+            info = original_lstat(path, *args, **kwargs)
+            if path == config:
+                fields = list(info)
+                fields[4] = os.geteuid() + 1
+                return os.stat_result(fields)
+            return info
+
+        with (mock.patch.object(Path, "lstat", wrong_owner),
+              mock.patch.object(implementation, "git", wraps=implementation.git) as commands):
+            self.assertIn("Git config must be a service-owned regular file", self.run_snapshot(ok=False))
+            commands.assert_not_called()
+        saved = self.root / "saved-config"
+        config.rename(saved)
+        config.symlink_to(saved)
+        before = saved.read_bytes()
+        with mock.patch.object(implementation, "git", wraps=implementation.git) as commands:
+            self.assertIn("Git config must be a service-owned regular file", self.run_snapshot(ok=False))
+            commands.assert_not_called()
+        self.assertTrue(config.is_symlink())
+        self.assertEqual(saved.read_bytes(), before)
+
+    def test_empty_initialized_repository_can_publish_its_first_root(self):
+        configuration = implementation.Settings(repo=self.repo, runtime=self.runtime, git=GIT)
+        implementation.prepare_repo(configuration, False)
+        self.assertFalse(self.head())
+        self.assertFalse((self.repo / ".git/snapshot-success").exists())
+        self.assertFalse(self.git("cat-file", "--batch-all-objects", "--batch-check"))
+        self.run_snapshot()
+        self.assertEqual(len(self.git("rev-list", "--parents", "HEAD").split()), 1)
+        self.assertTrue((self.repo / ".git/snapshot-success").is_file())
+
+    def test_unborn_head_with_objects_but_no_success_stamp_is_refused(self):
+        configuration = implementation.Settings(repo=self.repo, runtime=self.runtime, git=GIT)
+        implementation.prepare_repo(configuration, False)
+        self.git("hash-object", "-w", "--stdin", data=b"synthetic interrupted first snapshot\n")
+        objects = self.git("cat-file", "--batch-all-objects", "--batch")
+        with mock.patch.object(implementation, "candidate", wraps=implementation.candidate) as sources:
+            self.assertIn("snapshot HEAD missing from existing history", self.run_snapshot(ok=False))
+            sources.assert_not_called()
+        self.assertFalse(self.head())
+        self.assertFalse((self.repo / ".git/snapshot-success").exists())
+        self.assertEqual(self.git("cat-file", "--batch-all-objects", "--batch"), objects)
+
+    def test_unborn_head_with_success_stamp_but_no_objects_is_refused(self):
+        configuration = implementation.Settings(repo=self.repo, runtime=self.runtime, git=GIT)
+        implementation.prepare_repo(configuration, False)
+        stamp = self.repo / ".git/snapshot-success"
+        stamp.touch(mode=0o640)
+        before = stamp.stat().st_mtime_ns
+        self.assertIn("snapshot HEAD missing from existing history", self.run_snapshot(ok=False))
+        self.assertFalse(self.head())
+        self.assertFalse(self.git("cat-file", "--batch-all-objects", "--batch-check"))
+        self.assertEqual(stamp.stat().st_mtime_ns, before)
+
+    def test_lost_loose_or_packed_main_refuses_and_pages_without_replacing_history(self):
+        engine, witness = alert_modules()
+        self.run_snapshot()
+        for packed in (False, True):
+            with self.subTest(packed=packed):
+                if packed:
+                    self.run_snapshot(gc_only=True)
+                    self.assertFalse((self.repo / ".git/refs/heads/main").exists())
+                    self.assertIn(b"refs/heads/main", (self.repo / ".git/packed-refs").read_bytes())
+                first = self.head().decode().strip()
+                objects = self.git("cat-file", "--batch-all-objects", "--batch")
+                self.git("update-ref", "-d", "refs/heads/main")
+                stamp = self.repo / ".git/snapshot-success"
+                now = time.time()
+                os.utime(stamp, (now - witness.MAX_AGE - 1,) * 2)
+                before = stamp.stat().st_mtime_ns
+                for mode in ({}, {"verify_only": True}, {"gc_only": True}):
+                    with self.subTest(mode=mode):
+                        self.assertIn("snapshot HEAD missing from existing history", self.run_snapshot(ok=False, **mode))
+                self.assertFalse(self.head())
+                self.assertEqual(stamp.stat().st_mtime_ns, before)
+                self.assertEqual(self.git("cat-file", "--batch-all-objects", "--batch"), objects)
+                sent = []
+
+                def sender(text, event_id):
+                    sent.append(text)
+                    return True
+
+                state = str(self.root / ("lost-head-alert-" + str(packed) + ".json"))
+                with mock.patch.object(witness, "SUCCESS", stamp), mock.patch.object(witness.time, "time", return_value=now):
+                    self.assertEqual([problem.key for problem in witness.collect()], ["home-config:stale"])
+                    for observed in (now, now + 1, now + 2):
+                        engine.run_cycle(state, observed, witness.collect, witness.render, sender)
+                    self.assertEqual(len(sent), 1)
+                    # Explicit fixture-only operator recovery, never automatic service repair.
+                    self.git("update-ref", "refs/heads/main", first)
+                    self.run_snapshot()
+                with mock.patch.object(witness, "SUCCESS", stamp), mock.patch.object(witness.time, "time", return_value=now + 3):
+                    engine.run_cycle(state, now + 3, witness.collect, witness.render, sender)
+                self.assertEqual(self.head().decode().strip(), first)
+                self.assertEqual(len(sent), 2)
+                self.assertIn("Cleared:", sent[1])
 
     def test_no_commit_when_unchanged_and_single_source_message(self):
         self.run_snapshot()
@@ -381,6 +530,17 @@ class SnapshotTests(unittest.TestCase):
         self.run_snapshot(verify_only=True)
         self.assertNotIn(bcrypt.encode(), self.git("cat-file", "--batch-all-objects", "--batch"))
 
+    def test_node_red_function_credential_expressions_pass_real_scanner(self):
+        expressions = ('node.send({payload: msg.payload, token: msg.token})',
+                       '{grant_type: "refresh_token", refresh_token: flow.get("rt")}',
+                       '{user: u, pass: p}', '{password: env.get("PW")}')
+        flows = json.dumps([{"id": str(index), "type": "function", "func": expression}
+                            for index, expression in enumerate(expressions)]) + "\n"
+        put(self.nr, "flows.json", flows)
+        self.run_snapshot()
+        self.assertEqual(self.git("show", "HEAD:nodered/flows.json"), flows.encode())
+        self.run_snapshot(verify_only=True)
+
     def test_redacted_auth_passwords_and_comment_bcrypt_pass_real_scanner(self):
         bcrypt = "$" + "2b$08$" + "A" * 53
         for key in ("adminAuth", "httpNodeAuth", "httpStaticAuth"):
@@ -589,13 +749,7 @@ class SettingsTests(unittest.TestCase):
 class WitnessTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        engine_spec = importlib.util.spec_from_file_location("engine", REPO / "modules/shared/fleet-alerts/engine.py")
-        cls.engine = importlib.util.module_from_spec(engine_spec)
-        sys.modules["engine"] = cls.engine
-        engine_spec.loader.exec_module(cls.engine)
-        witness_spec = importlib.util.spec_from_file_location("home_config_watch", REPO / "hosts/hsb1/home-config-watch.py")
-        cls.witness = importlib.util.module_from_spec(witness_spec)
-        witness_spec.loader.exec_module(cls.witness)
+        cls.engine, cls.witness = alert_modules()
 
     def test_fresh_missing_stale_future_and_symlink_witness(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -718,6 +872,10 @@ def mutation_checks():
         "follow-selected-symlinks": ('follow_symlinks=False', 'follow_symlinks=True'),
         "enable-git-hooks": ('"-c", "core.hooksPath=/dev/null", ', ''),
         "drop-unit-guard": ('if not verify_only and not in_service_unit(gc_only):', 'if False:'),
+        "drop-reference-fsync": ('core.fsync=loose-object,reference', 'core.fsync=loose-object'),
+        "allow-unborn-existing-history": ('if success.exists() or success.is_symlink() or populated:', 'if False:'),
+        "allow-unsafe-git-config": ('if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()\n'
+                                    '                or stat.S_IMODE(info.st_mode) != 0o640):', 'if False:'),
     }
     checks = ["SnapshotTests.test_allowlist_redaction_author_and_read_only_sources", "SnapshotTests.test_planted_secret_aborts_before_any_git_blob_or_source_write",
               "SnapshotTests.test_remote_guard_also_runs_when_sources_unchanged",
@@ -725,6 +883,9 @@ def mutation_checks():
               "SnapshotTests.test_symlinks_and_hardlinks_fail_without_reading_their_target",
               "SnapshotTests.test_planted_index_hook_is_disabled_even_with_local_hooks_override",
               "SnapshotTests.test_full_run_outside_unit_is_refused_before_any_state_change",
+              "SnapshotTests.test_every_git_operation_fsyncs_objects_and_references_despite_local_config",
+              "SnapshotTests.test_group_writable_config_is_refused_before_git_for_every_mode",
+              "SnapshotTests.test_unborn_head_with_objects_but_no_success_stamp_is_refused",
               "SettingsTests.test_hash_gate_detects_other_copy_and_escaped_source_spelling",
               "SettingsTests.test_hash_gate_also_decodes_differently_escaped_duplicate"]
     with tempfile.TemporaryDirectory(prefix="ops158-mutants-") as temporary:
