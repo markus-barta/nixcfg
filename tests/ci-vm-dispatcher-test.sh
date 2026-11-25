@@ -89,6 +89,8 @@ STUB
 cat >"$work/bin/colima" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
+# Real Colima 0.10.3 preserves stdout but collapses every nonzero exit to 1.
+trap 'rc=$?; if [[ "$rc" != 0 ]]; then exit 1; fi' EXIT
 [[ "${COLIMA_HOME:-}" == "${XDG_CONFIG_HOME:?}/colima" ]] || exit 88
 [[ "${LIMA_HOME:-}" == "$COLIMA_HOME/_lima" ]] || exit 89
 printf 'colima %s\n' "$*" >>"$CI_TEST_CALLS"
@@ -104,14 +106,30 @@ if [[ "$1" == --profile ]]; then
       exit "${CI_TEST_READY_FAIL:-0}"
       ;;
     '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready --provision-only') exit 0 ;;
-    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control worker-active') exit "${CI_TEST_WORKER:-1}" ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control worker-active')
+      if [[ "${CI_TEST_WORKER_NUL:-0}" == 1 ]]; then printf 'CI_VM_STATUS=no-worker\000\n'; exit 0; fi
+      if [[ ${CI_TEST_WORKER_OUTPUT+x} ]]; then printf '%s' "$CI_TEST_WORKER_OUTPUT"; exit "${CI_TEST_STATUS_EXIT:-0}"; fi
+      case "${CI_TEST_WORKER:-1}" in
+      0) printf 'CI_VM_STATUS=worker-busy\n' ;;
+      1) printf 'CI_VM_STATUS=no-worker\n' ;;
+      2) printf 'CI_VM_STATUS=unknown\n' ;;
+      *) exit "$CI_TEST_WORKER" ;;
+      esac
+      ;;
     '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control enrolled')
       if [[ "${CI_TEST_ENROLLED_FAIL:-0}" == 1 ]]; then exit 255; fi
-      if [[ -e "$CI_VM_STATE_DIR/enrolled" ]]; then printf 'hausnetz\n'; else printf '%s' "${CI_TEST_ENROLLED:-}"; fi
+      if [[ ${CI_TEST_ENROLLED_OUTPUT+x} ]]; then printf '%s' "$CI_TEST_ENROLLED_OUTPUT"; exit "${CI_TEST_STATUS_EXIT:-0}"; fi
+      if [[ -e "$CI_VM_STATE_DIR/enrolled" ]]; then printf 'CI_VM_STATUS=enrolled:hausnetz\n'; else printf 'CI_VM_STATUS=enrolled:%s\n' "${CI_TEST_ENROLLED:-}"; fi
       ;;
     '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control drain')
-      if [[ "${CI_TEST_WORKER:-1}" == 0 ]]; then exit 3; fi
-      exit "${CI_TEST_DRAIN:-0}"
+      if [[ ${CI_TEST_DRAIN_OUTPUT+x} ]]; then printf '%s' "$CI_TEST_DRAIN_OUTPUT"; exit "${CI_TEST_STATUS_EXIT:-0}"; fi
+      if [[ "${CI_TEST_WORKER:-1}" == 0 ]]; then printf 'CI_VM_STATUS=worker-busy\n'; exit 0; fi
+      case "${CI_TEST_DRAIN:-0}" in
+      0) printf 'CI_VM_STATUS=drained\n' ;;
+      3) printf 'CI_VM_STATUS=worker-busy\n' ;;
+      2) printf 'CI_VM_STATUS=unknown\n' ;;
+      *) exit "$CI_TEST_DRAIN" ;;
+      esac
       ;;
     *) exit 86 ;;
   esac
@@ -213,6 +231,9 @@ new_case() {
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
   export CI_TEST_WORKER=1 CI_TEST_DRAIN=0 CI_TEST_START_FAIL=0 CI_TEST_ENROLLED='' CI_TEST_JQ_FAIL=''
   export CI_TEST_SSH_FAIL_ONCE=0 CI_TEST_ENROLL_ON_READY=0 CI_TEST_ENROLLED_FAIL=0
+  export CI_TEST_STATUS_EXIT=0
+  export CI_TEST_WORKER_NUL=0
+  unset CI_TEST_WORKER_OUTPUT CI_TEST_DRAIN_OUTPUT CI_TEST_ENROLLED_OUTPUT
   render_host_helper "$dispatcher"
 }
 run_tick() {
@@ -584,6 +605,83 @@ export CI_TEST_WORKER=0
 [[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 0 ]] || fail 'explicit force stop did not skip drain'
 echo 'ok local-only work: known-idle/queued/drain workers have an absolute 60-minute cap; operator stop enforces it and supports --force'
 
+status_protocol_contract() {
+  new_case
+  echo running >"$case_dir/vm"
+  echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+  export CI_TEST_NOW=1059
+  run_tick "$1"
+  [[ ! -s "$case_dir/state/worker-without-api-demand-since" ]] || return 1
+  new_case
+  echo running >"$case_dir/vm"
+  export CI_TEST_WORKER=0
+  render_host_helper "$1"
+  if /bin/bash "$1" stop >"$case_dir/out" 2>&1; then return 1; else rc=$?; fi
+  [[ "$rc" == 3 && "$(calls 'colima stop')" == 0 ]]
+}
+status_protocol_contract "$dispatcher" || fail 'stdout status protocol failed verified-exit or drain-busy contract'
+for output in '' $'CI_VM_STATUS=no-worker' $'CI_VM_STATUS=no-worker\n\n' \
+  $'noise\nCI_VM_STATUS=no-worker\n' $'CI_VM_STATUS=no-worker\nCI_VM_STATUS=worker-busy\n' \
+  $'CI_VM_STATUS=drained\n' $'CI_VM_STATUS=unknown\n'; do
+  new_case
+  echo running >"$case_dir/vm"
+  echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+  export CI_TEST_WORKER_OUTPUT="$output" CI_TEST_NOW=4599
+  run_tick
+  [[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 1000 ]] || fail 'missing/malformed worker record cleared the local-worker cap'
+  export CI_TEST_NOW=4600
+  run_tick
+  [[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 0 ]] || fail 'unknown worker record bypassed the absolute cap'
+done
+new_case
+echo running >"$case_dir/vm"
+echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+export CI_TEST_WORKER_NUL=1 CI_TEST_NOW=4599
+run_tick
+[[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 1000 ]] || fail 'NUL-corrupted worker record counted as verified exit'
+for code in 2 3 255; do
+  new_case
+  export CI_TEST_WORKER_OUTPUT=$'CI_VM_STATUS=no-worker\n' CI_TEST_STATUS_EXIT=$code
+  if colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/control worker-active >"$case_dir/out"; then fail 'stub lost transport failure'; else rc=$?; fi
+  [[ "$rc" == 1 && "$(<"$case_dir/out")" == 'CI_VM_STATUS=no-worker' ]] || fail 'stub did not preserve stdout and collapse nonzero status'
+  echo running >"$case_dir/vm"
+  echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+  export CI_TEST_NOW=4599
+  run_tick
+  [[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 1000 ]] || fail 'failed SSH with a valid stdout token cleared the cap'
+done
+for code in 2 255; do
+  new_case
+  echo running >"$case_dir/vm"
+  echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+  export CI_TEST_WORKER=$code CI_TEST_NOW=4599
+  run_tick
+  [[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 1000 ]] || fail 'guest unknown/SSH failure counted as verified worker exit'
+done
+for output in '' $'hausnetz\n' $'CI_VM_STATUS=enrolled:foreign\n' \
+  $'CI_VM_STATUS=enrolled:hausnetz,hausnetz\n' $'CI_VM_STATUS=enrolled:hausnetz\n\n' \
+  $'CI_VM_STATUS=unknown\n'; do
+  new_case
+  mkdir -p "$CI_VM_STATE_DIR/secrets"
+  printf 'fixture-registration-value\n' >"$CI_VM_STATE_DIR/secrets/hausnetz.token"
+  export CI_TEST_SCENARIO=queued CI_TEST_ENROLLED_OUTPUT="$output"
+  if run_tick; then fail 'invalid enrollment record passed activation'; fi
+  [[ "$(calls 'trash token')" == 0 && "$(calls '/actions/runners?')" == 0 ]] || fail 'invalid enrollment record reached maintenance'
+done
+new_case
+export CI_TEST_SCENARIO=queued CI_TEST_ENROLLED=extra,hausnetz
+jq '. + [{id:"extra", repository:"inspr-at/extra", runnerName:"mbp2607-extra", labels:["mbp2607","extra","kvm"]}]' "$work/repos.json" >"$case_dir/repos.json"
+run_tick
+[[ "$(calls '/actions/runners?')" == 2 ]] || fail 'valid multi-repo enrollment record lost a repository'
+new_case
+echo running >"$case_dir/vm"
+echo 1 >"$case_dir/state/last-demand"
+export CI_TEST_NOW=5000 CI_TEST_DRAIN_OUTPUT=$'CI_VM_STATUS=worker-busy\nextra\n'
+run_tick
+[[ "$(calls 'colima stop')" == 1 ]] || fail 'unknown drain record bypassed shutdown bound'
+grep -q 'guest drain unavailable' "$case_dir/out" || fail 'malformed drain record was not unknown'
+echo 'ok status protocol: collapsed nonzero exits, exact stdout records, transport failures, cap preservation and validated enrollment'
+
 for value in missing corrupt 9999999; do
   new_case
   echo running >"$case_dir/vm"
@@ -692,6 +790,7 @@ for name, old, new in [('labels', 'all(.labels[]; ascii_downcase', 'any(.labels[
                        ('queue-cap', '-ge 600', '-ge 601'),
                        ('active-ssh', 'if [ "$running" = true ] && [ "$qos_failed" = false ]; then', 'if false; then'),
                        ('worker-cap', '-ge 3600 ]\n}', '-ge 3601 ]\n}'),
+                       ('guest-exit-code', 'status=$(guest_status 150 drain)', 'if guest 150 drain; then status=drained; else rc=$?; if [ "$rc" -eq 3 ]; then status=worker-busy; else status=unknown; fi; fi'),
                        ('token-retirement', 'trash "$token" || return 1', ': "$token" || return 1'),
                        ('colima-home', '# Keep the CLI', 'export COLIMA_HOME="$HOME/.colima"\n# Keep the CLI')]:
     assert old in source
@@ -729,7 +828,9 @@ echo 'ok uptime mutants: resetting the unknown timer and delaying the pickup cap
 
 if active_ssh_contract "$work/active-ssh-mutant.sh"; then fail 'active SSH mutant survived the active-job retention contract'; fi
 if worker_cap_contract "$work/worker-cap-mutant.sh" empty; then fail 'local-only worker cap mutant survived the absolute-cap contract'; fi
+if status_protocol_contract "$work/guest-exit-code-mutant.sh"; then fail 'guest exit-code parsing mutant survived the status protocol contract'; fi
 echo 'ok regression mutants: direct stop on a single active-job SSH failure and an extended local-worker cap violate their contracts'
+echo 'ok Colima mutant: parsing guest exit codes instead of stdout loses drain retention and violates the shared protocol contract'
 
 new_case
 mkdir -p "$CI_VM_STATE_DIR/secrets"

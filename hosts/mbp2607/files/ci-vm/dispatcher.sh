@@ -22,6 +22,40 @@ action=${1:-tick}
 log() { printf '%s ci-vm: %s\n' "$(date '+%F %T')" "$*"; }
 bounded() { python3 "$helper" run "$@"; }
 guest() { bounded "$1" "$2" </dev/null; }
+# Colima collapses every nonzero guest exit to 1. Only a successful transport
+# with exactly one recognized stdout record is evidence of guest state.
+guest_status() {
+  local output ids
+  # Bash cannot retain NUL bytes; translate them to a rejected control byte.
+  if output=$(guest "$1" "$2" | LC_ALL=C tr '\000' '\001' && printf '.'); then
+    case "$2:$output" in
+    worker-active:$'CI_VM_STATUS=worker-busy\n.' | drain:$'CI_VM_STATUS=worker-busy\n.')
+      printf 'worker-busy\n'
+      return
+      ;;
+    worker-active:$'CI_VM_STATUS=no-worker\n.')
+      printf 'no-worker\n'
+      return
+      ;;
+    drain:$'CI_VM_STATUS=drained\n.')
+      printf 'drained\n'
+      return
+      ;;
+    enrolled:CI_VM_STATUS=enrolled:*$'\n.')
+      ids=${output#CI_VM_STATUS=enrolled:}
+      ids=${ids%$'\n.'}
+      if [[ "$ids" =~ ^([a-z][a-z0-9-]{0,23}(,[a-z][a-z0-9-]{0,23})*)?$ ]] &&
+        jq -e --arg ids "$ids" '. as $repos | ($ids | if . == "" then [] else split(",") end) as $enrolled |
+          ($enrolled | length) == ($enrolled | unique | length) and
+          all($enrolled[]; . as $id | any($repos[]; .id == $id))' "$CI_VM_REPOSITORIES" >/dev/null; then
+        printf 'enrolled:%s\n' "$ids"
+        return
+      fi
+      ;;
+    esac
+  fi
+  printf 'unknown\n'
+}
 scan_started=$SECONDS
 failure_delay=60
 qos_failed=false
@@ -81,16 +115,20 @@ picked_up() {
   printf '0 0\n' >"$state/backoff"
 }
 local_worker_active() {
-  local rc
-  if guest 15 worker-active; then
+  local status
+  status=$(guest_status 15 worker-active)
+  case "$status" in
+  worker-busy)
     if [ "$active" != true ]; then read_stamp worker-without-api-demand-since; fi
     return 0
-  else
-    rc=$?
-  fi
+    ;;
+  no-worker)
+    clear_stamp worker-without-api-demand-since
+    return 1
+    ;;
+  esac
   # An unreachable guest cannot reset an already established absolute cap.
-  if [ "$rc" -eq 1 ]; then clear_stamp worker-without-api-demand-since; fi
-  return "$rc"
+  return 2
 }
 worker_cap_reached() {
   [ "$active" != true ] && [ -s "$state/worker-without-api-demand-since" ] || return 1
@@ -128,18 +166,19 @@ failed_vm() {
   return 1
 }
 stop_if_idle() {
-  local rc
+  local status
   log "$1"
   if [ "${2:-false}" != true ] && ! worker_cap_reached; then
-    if guest 150 drain; then :; else
-      rc=$?
-      if [ "$rc" -eq 3 ]; then
-        log 'drain found a Runner.Worker; retaining ci'
-        picked_up
-        return 3
-      fi
-      log 'guest drain unavailable; enforcing the bounded uptime policy'
-    fi
+    status=$(guest_status 150 drain)
+    case "$status" in
+    worker-busy)
+      log 'drain found a Runner.Worker; retaining ci'
+      picked_up
+      return 3
+      ;;
+    drained) ;;
+    *) log 'guest drain unavailable; enforcing the bounded uptime policy' ;;
+    esac
   fi
   stop_now
 }
@@ -244,7 +283,14 @@ activate_runners() {
   # ExecStartPre may have enrolled successfully even if ExecStart then failed.
   # Fetch once, after activation, and keep maintenance off busy runners.
   if [ "$maintenance" = true ]; then
-    enrolled=$(guest 20 enrolled) || return 1
+    enrolled=$(guest_status 20 enrolled)
+    case "$enrolled" in
+    enrolled:*)
+      enrolled=${enrolled#enrolled:}
+      enrolled=${enrolled//,/ }
+      ;;
+    *) return 1 ;;
+    esac
     cleanup_tokens "$enrolled" || return 1
     check_enrollments "$enrolled" || return 1
   fi

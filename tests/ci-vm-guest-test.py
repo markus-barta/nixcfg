@@ -53,9 +53,6 @@ if command == "systemctl":
     if args[0] == "is-active":
         name = "FIREWALL_ACTIVE" if "ci-vm-firewall.service" in args else "RUNNER_ACTIVE"
         sys.exit(0 if os.environ.get(name, "1") == "1" else 3)
-    if args[0] == "show":
-        assert args[1:] == ["ci-runner-hausnetz.service", "--property=InvocationID", "--value"]
-        print("a" * 32)
     if args[0] == "freeze":
         (base / "frozen").write_text("yes")
         if os.environ.get("RACE_WORKER") == "1": (base / "worker").touch()
@@ -70,9 +67,7 @@ elif command == "pgrep":
     assert args[:2] == ["-u", "1234"] and "Runner[.]Worker" in args[-1]
     sys.exit(0 if (base / "worker").exists() else int(os.environ.get("WORKER_RC", "1")))
 elif command == "journalctl":
-    current = "_SYSTEMD_INVOCATION_ID=" + "a" * 32
-    if os.environ.get("STALE_RUNNER") == "1" or (os.environ.get("OLD_STALE_RUNNER") == "1" and current not in args):
-        print("The runner registration has been deleted from the server.")
+    raise AssertionError("readiness must use service state and host inventory, not immediate journal timing")
 elif command == "stat":
     assert args[:2] == ["-c", "%a"]
     print(oct(pathlib.Path(args[-1]).stat().st_mode & 0o777)[2:])
@@ -125,24 +120,32 @@ assert run(control, base, "ready", RUNNER_ACTIVE="0").returncode != 0, "skipped 
 assert run(control, base, "ready", FIREWALL_ACTIVE="0").returncode != 0, "failed firewall was called ready"
 assert run(control, base, "ready").returncode == 0
 write(base / "var/lib/ci-runners/hausnetz/.runner", "{}")
-result = run(control, base, "ready", STALE_RUNNER="1")
-assert result.returncode != 0 and "needs re-enrollment" in result.stderr
 assert run(control, base, "ready", OLD_STALE_RUNNER="1").returncode == 0, "old invocation rejected a fresh enrollment"
-mutant = control.replace('"_SYSTEMD_INVOCATION_ID=$invocation" ', '')
-assert mutant != control
-assert run(mutant, base, "ready", OLD_STALE_RUNNER="1").returncode != 0, "whole-boot journal mutant survived"
-assert run(control, base, "enrolled").stdout == "hausnetz\n"
-print("ok guest readiness: skipped/failed units and current stale registration rejected; old invocation ignored and journal mutant killed")
+assert "journalctl" not in (base / "calls").read_text()
+assert run(control, base, "enrolled").stdout == "CI_VM_STATUS=enrolled:hausnetz\n"
+print("ok guest readiness: skipped/failed units rejected; host inventory owns stale-registration detection without journal timing")
 
-for settings, expected in [({}, 0), ({"WORKER_RC": "0"}, 3), ({"RACE_WORKER": "1"}, 3), ({"WORKER_RC": "2"}, 2)]:
+for settings, expected in [({}, "drained"), ({"WORKER_RC": "0"}, "worker-busy"), ({"RACE_WORKER": "1"}, "worker-busy"), ({"WORKER_RC": "2"}, "unknown")]:
     base = fixture()
     result = run(control, base, "drain", **settings)
-    assert result.returncode == expected, result.stderr
+    assert result.returncode == 0 and result.stdout == f"CI_VM_STATUS={expected}\n", result.stderr
     calls = (base / "calls").read_text()
     assert calls.index("systemctl freeze") < calls.index("pgrep"), "final worker check raced the listener"
-    assert ("systemctl stop" in calls) == (expected == 0), "drain stopped a busy/unknown runner"
+    assert ("systemctl stop" in calls) == (expected == "drained"), "drain stopped a busy/unknown runner"
     assert (base / "frozen").read_text() == "", "drain left a listener frozen"
 print("ok guest drain: freeze before worker check; busy, newly assigned and unknown work is retained/thawed")
+
+for worker_rc, expected in [("0", "worker-busy"), ("1", "no-worker"), ("2", "unknown"), ("255", "unknown")]:
+    base = fixture()
+    result = run(control, base, "worker-active", WORKER_RC=worker_rc)
+    assert result.returncode == 0 and result.stdout == f"CI_VM_STATUS={expected}\n", result.stderr
+base = fixture()
+assert run(control, base, "enrolled").stdout == "CI_VM_STATUS=enrolled:\n"
+write(base / "etc/ci-vm-repositories.json", "malformed fixture")
+for action in ["worker-active", "enrolled", "drain"]:
+    result = run(control, base, action)
+    assert result.returncode == 0 and result.stdout == "CI_VM_STATUS=unknown\n", (action, result.stderr)
+print("ok guest protocol: busy/absent/unknown workers, empty enrollment and malformed inventory emit a single zero-exit status record")
 
 unit_template = re.search(r'cat >"/etc/systemd/system/ci-runner-\$id.service" <<UNIT\n(.*?)\nUNIT', provision, re.S)[1]
 

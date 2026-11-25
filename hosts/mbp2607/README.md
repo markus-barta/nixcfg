@@ -423,6 +423,14 @@ path. A failed QoS check still stops immediately.
 Known demand in another repo can still be served when an API
 fails. Backward clocks and missing/corrupt timestamps begin a new grace period.
 Colima status/start/SSH/stop and QoS checks all have process-group deadlines.
+Colima 0.10.3 collapses nonzero guest exit codes to 1. The guest instead emits
+one `CI_VM_STATUS` stdout record and exits 0: `worker-busy`, `no-worker`,
+`drained`, `unknown`, or `enrolled:` followed by comma-separated repository IDs
+(an empty suffix means none). The host requires exactly that one newline-ended
+record, the expected status for the operation, and configured, unique enrollment
+IDs. SSH failure, missing/extra output and malformed records mean unknown;
+among guest responses, only a verified `no-worker` record can clear the local-worker cap. Unknown drain
+state still follows the bounded shutdown policy and never claims verified idle.
 The host helper selects named operations from fixed command arrays scoped to
 `ci`. The module pins its lock, hostagent PID and dispatcher script paths in
 the immutable helper, including the configured XDG home.
@@ -444,9 +452,12 @@ write the current Linux boot ID to `/var/lib/ci-vm/ready`. After verifying QoS,
 the host calls the declared `host-ready` helper, which checks that boot ID,
 opens a gate in `/run`, and starts the repo services. Registration and jobs
 cannot start before that gate. Each service must pass `systemctl is-active`;
-a condition-skipped or failed service is not ready. The helper reports known
-deleted-registration diagnostics from the current service invocation as
-"needs re-enrollment"; older invocations do not reject a fresh registration.
+a condition-skipped or failed service is not ready. The host's GitHub runner
+inventory detects deleted registrations. There is no immediate post-start
+journal scan: it cannot reliably cover the listener's first failure or restart.
+If the inventory API is unavailable, the 10-minute unservable-queue limit and
+the worker/unknown-state caps still bound uptime. Historical journal lines
+cannot reject a fresh registration.
 Activation installs the agent and directories;
 it never starts a VM directly. Login with an empty queue leaves `ci` stopped.
 
@@ -527,7 +538,11 @@ and retire the old agm2 runner in that repository's separate lane.
 Before minting a replacement token, remove the old `.runner` and `.credentials*`
 from the guest runner directory. Otherwise registration is skipped and host
 cleanup treats the new token as already consumed. Retire any expired host token
-explicitly, then wait for current jobs to finish and run:
+explicitly, then wait for current jobs to finish. Pause the loaded dispatcher
+with `launchctl bootout "gui/$(id -u)/org.nix-community.home.ci-vm-dispatcher"`
+(leave it unloaded if already paused), and keep it paused throughout reset and
+enrollment. This prevents queued demand from opening the activation gate during
+the provision-only window. Then run:
 
 ```bash
 ci-vm stop
@@ -547,13 +562,16 @@ remain in place. It never contacts GitHub or reads credential contents.
 
 Now use the enrollment snippet above to mint and publish a fresh token, then
 run `ci-vm start` before expiry. Explicit start retries immediately despite an
-earlier failure backoff. The new service invocation excludes the old deleted
-registration journal line, so the reset does not cost another failure cycle.
+earlier failure backoff. Readiness does not scan old registration diagnostics,
+so the reset does not cost another failure cycle. After enrollment and runner
+verification, resume dispatch with
+`launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/org.nix-community.home.ci-vm-dispatcher.plist"`.
 Changing repository, runner name or labels uses this same reviewed procedure.
 
 Operation: `ci-vm`/`ci-vm tick` performs one poll; `ci-vm start` and `ci-vm stop`
-are explicit operator overrides. Normal stop drains and retains an active worker
-(exit 3), unless its local-only 60-minute cap has expired. `ci-vm stop --force`
+are explicit operator overrides. Normal stop parses the guest's `worker-busy`
+record, retains the VM and returns host exit 3, unless its local-only 60-minute
+cap has expired. It does not expect guest exit 3 to survive Colima. `ci-vm stop --force`
 skips drain for an explicit forced shutdown, including a stuck worker after the
 cap. `ci-vm start --provision-only` boots and checks
 provisioning/QoS/firewall without opening the runner activation gate, for
@@ -571,6 +589,8 @@ nix-shell -p bash jq python3 coreutils --run 'bash tests/ci-vm-dispatcher-test.s
 The test evaluates the actual module, executes guest helpers and the rendered
 service start path in filesystem fixtures, and checks demand, pagination,
 uptime caps, backoff, token retirement, deadlines and daemon-lock isolation.
+The Colima stub preserves stdout and maps every nonzero exit to 1; a mutant
+that restores guest exit-code parsing fails the drain-retention contract.
 Mutants cover labels, timing, the runner path, nixbld KVM access, token isolation,
 archive verification and the Colima home. CI runs it in
 `.github/workflows/check.yml`. Live proof additionally requires the real cached

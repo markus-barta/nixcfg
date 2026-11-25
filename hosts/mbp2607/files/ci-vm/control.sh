@@ -3,10 +3,11 @@
 set -euo pipefail
 repositories=/etc/ci-vm-repositories.json
 runners=/var/lib/ci-runners
+status() { printf 'CI_VM_STATUS=%s\n' "$1"; }
 
 worker_active() {
   local users
-  users=$(jq -r '.[].id | "ci-" + .' "$repositories") || return 2
+  users=$(jq -er '.[].id | "ci-" + .' "$repositories") || return 2
   local user uid rc
   for user in $users; do
     uid=$(id -u "$user") || return 2
@@ -21,11 +22,25 @@ worker_active() {
 }
 
 case "${1:-}" in
-worker-active) worker_active ;;
+worker-active)
+  if worker_active; then status worker-busy; else
+    rc=$?
+    if [ "$rc" -eq 1 ]; then status no-worker; else status unknown; fi
+  fi
+  ;;
 enrolled)
+  ids=$(jq -er '.[].id' "$repositories") || {
+    status unknown
+    exit 0
+  }
+  enrolled=()
   while IFS= read -r id; do
-    if [ -f "$runners/$id/.runner" ]; then printf '%s\n' "$id"; fi
-  done < <(jq -r '.[].id' "$repositories")
+    if [ -f "$runners/$id/.runner" ]; then enrolled+=("$id"); fi
+  done <<<"$ids"
+  status "enrolled:$(
+    IFS=,
+    printf '%s' "${enrolled[*]}"
+  )"
   ;;
 ready)
   # Colima can report READY even if provision failed. Require this boot's marker.
@@ -41,37 +56,53 @@ ready)
       printf 'ci-vm: %s is not active; check enrollment, runner pin and unit health\n' "$unit" >&2
       exit 1
     fi
-    # A deleted registration can briefly reach active before Listener exits.
-    # Use only this invocation so old diagnostics cannot reject re-enrollment.
-    if [ -f "$runners/$id/.runner" ]; then
-      invocation=$(systemctl show "$unit" --property=InvocationID --value)
-      [[ "$invocation" =~ ^[a-f0-9]{32}$ ]] || exit 1
-      if journalctl -b -u "$unit" "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager -o cat |
-        grep -Ei 'runner registration (has been |was )?(deleted|removed)|runner (.* )?not found|needs re-enrollment' >/dev/null; then
-        printf 'ci-vm: %s needs re-enrollment; GitHub registration is stale\n' "$id" >&2
-        exit 1
-      fi
-    fi
+    # Inventory on the host detects deleted registrations. An immediate journal
+    # scan cannot reliably observe the listener's first failure/restart.
   done < <(jq -r '.[].id' "$repositories")
   ;;
 drain)
+  ids=$(jq -er '.[].id' "$repositories") || {
+    status unknown
+    exit 0
+  }
   units=()
   while IFS= read -r id; do
     unit="ci-runner-$id.service"
     if systemctl is-active --quiet "$unit"; then units+=("$unit"); fi
-  done < <(jq -r '.[].id' "$repositories")
+  done <<<"$ids"
   # Freeze the listeners AND descendants before the final worker check. They
   # cannot pick up a job between that check and systemd stopping the units.
   if [ "${#units[@]}" -gt 0 ]; then
-    systemctl freeze "${units[@]}" || exit 2
     trap 'systemctl thaw "${units[@]}" >/dev/null 2>&1 || true' EXIT
+    systemctl freeze "${units[@]}" || {
+      status unknown
+      exit 0
+    }
   fi
-  if worker_active; then exit 3; else rc=$?; fi
-  [ "$rc" -eq 1 ] || exit 2
-  if [ "${#units[@]}" -gt 0 ]; then systemctl stop "${units[@]}"; fi
+  if worker_active; then
+    status worker-busy
+    exit 0
+  else rc=$?; fi
+  [ "$rc" -eq 1 ] || {
+    status unknown
+    exit 0
+  }
+  if [ "${#units[@]}" -gt 0 ]; then
+    systemctl stop "${units[@]}" || {
+      status unknown
+      exit 0
+    }
+  fi
   # Also catch any worker outside the stopped service cgroups.
-  if worker_active; then exit 3; else rc=$?; fi
-  [ "$rc" -eq 1 ] || exit 2
+  if worker_active; then
+    status worker-busy
+    exit 0
+  else rc=$?; fi
+  [ "$rc" -eq 1 ] || {
+    status unknown
+    exit 0
+  }
+  status drained
   ;;
 reset-enrollment)
   id=${2:?repository id required}
