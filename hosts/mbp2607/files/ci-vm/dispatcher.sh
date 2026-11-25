@@ -58,7 +58,7 @@ background_vm() {
 }
 
 activate_runners() {
-  if ! colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready; then
+  if ! colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready </dev/null; then
     log 'ci provisioning or runner readiness failed; stopping ci'
     colima stop ci
     return 1
@@ -70,7 +70,7 @@ start_vm() {
   log 'starting ci (6 CPUs, 16 GiB RAM, 150 GiB disk)'
   # The launchd agent and every child start in background QoS; the explicit
   # PID pass also covers the separately launched Virtualization XPC service.
-  if ! taskpolicy -b -c background colima start ci --activate=false --ssh-config=false; then
+  if ! taskpolicy -b -c background colima start ci --activate=false --ssh-config=false </dev/null; then
     log 'ci startup failed; stopping any partially started ci instance'
     colima stop ci || true
     return 1
@@ -89,7 +89,7 @@ api_get() (
   set +a
   [ -n "${GH_TOKEN:-}" ] || exit 1
   printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
-    curl --config - --fail --silent --show-error --max-time 20 --proto '=https' \
+    curl -q --config - --fail --silent --show-error --max-time 20 --proto '=https' \
       --header 'Accept: application/vnd.github+json' \
       --header 'X-GitHub-Api-Version: 2022-11-28' "$1"
 )

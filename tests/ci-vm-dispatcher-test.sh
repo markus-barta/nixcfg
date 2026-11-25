@@ -28,6 +28,7 @@ cat >"$work/bin/curl" <<'STUB'
 import json, os, sys
 from urllib.parse import parse_qs, urlparse
 args = sys.argv[1:]
+assert args[0] == "-q", "curl must ignore implicit user config"
 assert "--config" in args and args[args.index("--config") + 1] == "-"
 assert not any("fixture-agent-value" in a for a in args), "token in argv"
 assert sys.stdin.read() == 'header = "Authorization: Bearer fixture-agent-value"\n', "token not transported on stdin"
@@ -82,6 +83,7 @@ set -euo pipefail
 printf 'colima %s\n' "$*" >>"$CI_TEST_CALLS"
 if [[ "$1" == --profile ]]; then
   [[ "$*" == '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready' ]] || exit 86
+  if [[ "${CI_TEST_REQUIRE_CLOSED_STDIN:-0}" == 1 ]] && IFS= read -r ignored; then exit 87; fi
   exit "${CI_TEST_READY_FAIL:-0}"
 fi
 [[ "$2" == ci ]] || exit 80
@@ -136,7 +138,7 @@ new_case() {
   export CI_VM_STATE_DIR="$case_dir/state" CI_VM_CONFIG="$work/declared.yaml"
   export CI_VM_REPOSITORIES="$case_dir/repos.json" CI_VM_AGENT_TOKEN_FILE="$case_dir/agent.env"
   export CI_VM_HOST_HELPER="$root/hosts/mbp2607/files/ci-vm/host.py" CI_VM_QOS="$work/bin/qos"
-  export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0
+  export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
 }
 run_tick() { /bin/bash "${1:-$dispatcher}" tick >"$case_dir/out" 2>&1; }
 calls() { grep -c "$1" "$case_dir/calls" || true; }
@@ -174,9 +176,10 @@ echo 'ok active: in-progress jobs reset grace without restarting ci'
 
 new_case
 echo running >"$case_dir/vm"
-/bin/bash "$dispatcher" start >"$case_dir/out" 2>&1
+export CI_TEST_REQUIRE_CLOSED_STDIN=1
+printf 'caller input must not reach guest SSH\n' | /bin/bash "$dispatcher" start >"$case_dir/out" 2>&1
 unchanged && [[ "$(calls 'host-ready')" == 1 ]] || fail 'manual start did not retry readiness on a running VM'
-echo 'ok enrollment retry: manual start activates runners even if ci is already running'
+echo 'ok enrollment retry: manual start activates runners on running ci without forwarding caller stdin'
 
 for scenario in job-pages run-pages multiple mixed; do
   new_case

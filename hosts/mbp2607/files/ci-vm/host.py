@@ -82,7 +82,9 @@ def qos(pidfile):
         ):
             continue
         files = subprocess.check_output(
-            ["/usr/sbin/lsof", "-n", "-P", "-a", "-p", str(candidate), "-Fn"], text=True
+            # -b avoids potentially blocking stat/readlink on unrelated mounted
+            # filesystems; -w suppresses those skipped-filesystem warnings.
+            ["/usr/sbin/lsof", "-n", "-P", "-b", "-w", "-a", "-p", str(candidate), "-Fn"], text=True
         ).splitlines()
         if any("n" + str(pidfile.parent / disk) in files for disk in ("disk", "diffdisk")):
             targets.append((candidate, "ci-virtualization-xpc"))

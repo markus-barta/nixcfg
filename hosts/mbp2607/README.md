@@ -426,7 +426,7 @@ command refuses to replace it; retire an expired token explicitly first.
   ci_response=$(mktemp "$ci_state/hausnetz-registration.XXXXXXXX")
   chmod 0600 "$ci_response"
   printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
-    curl --config - --request POST --fail --silent --show-error \
+    curl -q --config - --request POST --fail --silent --show-error \
       --max-time 30 --proto '=https' \
       --header 'Accept: application/vnd.github+json' \
       --header 'X-GitHub-Api-Version: 2022-11-28' \
