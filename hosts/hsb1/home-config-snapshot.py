@@ -58,7 +58,7 @@ def allowed_path(name):
                 or (parts[0] == "homeassistant" and parts[1] in HA_FILES))
     if len(parts) == 3 and parts[:2] == ("homeassistant", ".storage"):
         return (parts[2] in REGISTRIES or parts[2] in {"lovelace", "lovelace_resources", "lovelace_dashboards"}
-                or re.fullmatch(r"lovelace\." + STEM, parts[2]) is not None)
+                or re.fullmatch(r"lovelace\.(?!(?i:bak))" + STEM, parts[2]) is not None)
     return (len(parts) >= 3 and parts[0] == "homeassistant" and parts[1] in YAML_DIRS
             and all(re.fullmatch(STEM, part) for part in parts[2:-1])
             and re.fullmatch(STEM + r"\.ya?ml", parts[-1]) is not None)

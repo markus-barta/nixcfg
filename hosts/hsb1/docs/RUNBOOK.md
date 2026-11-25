@@ -1253,7 +1253,8 @@ The positive allowlist in `hosts/hsb1/home-config-snapshot.py` is:
   entries, `!archiv`, and other file types never match.
 - `.storage/core.{area,floor,device,entity,label}_registry`, `.storage/lovelace`,
   `.storage/lovelace_resources`, `.storage/lovelace_dashboards`, and
-  `.storage/lovelace.<dashboard>` with the same ASCII dashboard stem rule.
+  `.storage/lovelace.<dashboard>` with the same ASCII dashboard stem rule;
+  the reserved `bak` prefix (case-insensitive) is never a dashboard stem.
   Multi-dot names such as `lovelace.dashboard_main.bak.20260101` never match.
 
 Other files are never read or copied: this includes `flows_cred.json`,

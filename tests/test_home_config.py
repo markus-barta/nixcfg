@@ -63,6 +63,7 @@ class SnapshotTests(unittest.TestCase):
             put(self.nr, name, "{}\n")
         for name in ("secrets.yaml", ".storage/auth", ".storage/auth_provider.homeassistant", ".storage/core.config_entries", ".storage/onboarding",
                      ".storage/core.category_registry", ".storage/lovelace.dashboard_main.bak.20260101", ".storage/lovelace.dashboard_main.bak",
+                     ".storage/lovelace.bak", ".storage/lovelace.bak-20260101", ".storage/lovelace.BAK",
                      ".storage/lovelace_backup", "home-assistant_v2.db", "home-assistant.log", ".cloud/data", "tts/voice.mp3",
                      "configuration.yaml.bak", "!archiv/automation.yaml", "themes/!archiv/old.yaml", "themes/sample.bak.yaml", "blueprints/test.yaml.bak",
                      "packages/.hidden.yaml", "unknown.yaml", "themes/README.txt"):
