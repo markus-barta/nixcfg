@@ -225,5 +225,13 @@ FIREWALL_UNIT
 systemctl daemon-reload
 systemctl enable ci-vm-firewall.service
 systemctl restart ci-vm-firewall.service
+# Chromium/Playwright needs its unprivileged user-namespace sandbox in this
+# capped CI guest. Persist and reapply the policy on every provisioned boot.
+install -d -m 0755 /etc/sysctl.d
+cat >/etc/sysctl.d/99-ci-vm-userns.conf <<'USERNS_SYSCTL'
+kernel.apparmor_restrict_unprivileged_userns = 0
+USERNS_SYSCTL
+sysctl --system
+test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
 cat /proc/sys/kernel/random/boot_id >/var/lib/ci-vm/ready
 printf 'ci-vm provisioning complete: Nix %s; runner %s sha256 verified; KVM ready\n' "$nix_version" "$runner_version"

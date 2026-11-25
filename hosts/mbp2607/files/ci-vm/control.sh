@@ -45,6 +45,7 @@ enrolled)
 ready)
   # Colima can report READY even if provision failed. Require this boot's marker.
   test "$(cat /var/lib/ci-vm/ready)" = "$(cat /proc/sys/kernel/random/boot_id)"
+  test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
   systemctl is-active --quiet ci-vm-firewall.service
   if [ "${2:-}" = --provision-only ]; then exit 0; fi
   # This gate is never opened by the provision-only inspection path.

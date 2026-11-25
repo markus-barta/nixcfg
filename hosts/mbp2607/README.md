@@ -397,6 +397,21 @@ blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
 Provisioning waits for Ubuntu DNS, bounds apt operations with retries, and runs
 `dpkg --configure -a` before installation to recover interrupted package setup.
 
+Chromium/Playwright's namespace sandbox needs unprivileged user namespaces;
+Ubuntu's AppArmor restriction otherwise prevents the nixpkgs `headless_shell`
+from mapping its sandbox UID. As on GitHub's hosted `ubuntu-24.04` images,
+the guest sets `kernel.apparmor_restrict_unprivileged_userns = 0` using
+`/etc/sysctl.d/99-ci-vm-userns.conf` (see
+[Ubuntu's description of the persistent override](https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890)).
+Every provisioned boot rewrites this drop-in idempotently, applies it immediately
+with `sysctl --system`, and requires a read-back value of `0` before writing the
+boot readiness marker. The readiness helper checks the live value again before
+opening the runner gate, including during provision-only inspection. A failed
+apply, missing sysctl or value other than `0` refuses readiness. This relaxation
+applies only inside the capped **6-vCPU, 16-GiB CI guest**; the runner unit,
+firewall, resource limits, host-mount isolation and Mac configuration retain
+their existing hardening.
+
 The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.
 It sources the workstation agent token **only in a request subshell**, removes
 its export attribute, and passes the curl authorization header on stdin; curl
@@ -596,7 +611,8 @@ uptime caps, backoff, token retirement, deadlines and daemon-lock isolation.
 The Colima stub preserves stdout and maps every nonzero exit to 1; a mutant
 that restores guest exit-code parsing fails the drain-retention contract.
 Mutants cover labels, timing, the runner path, nixbld KVM access, token isolation,
-archive verification and the Colima home. CI runs it in
+archive verification, the Colima home, and missing, restrictive or unapplied
+user-namespace policy. CI runs it in
 `.github/workflows/check.yml`. Live proof additionally requires the real cached
 archive, `systemd-analyze verify`/`security`, a sandboxed KVM derivation, and a
 Mac-loopback positive control alongside denied CI/nixbld connections and working
