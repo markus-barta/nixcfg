@@ -340,17 +340,18 @@ leftover; its retirement is separate work.
 
 ### GitHub Actions Runner
 
-csb1 runs a declarative GitHub Actions runner for `hausv-org` deployments via NixOS `services.github-runners`. The runner is configured in `hosts/csb1/hausv-github-runner.nix` and uses the existing GHCR token (`csb1-hausv-ghcr-pull`) for repo-scoped registration.
+`csb1-hausv` retired from configuration **2026-11-25 (OPS-678)**; it served the
+archived `inspr-at/hausv-org` repository. After the approved csb1 switch, confirm
+`github-runner-csb1-hausv.service` has `LoadState=not-found` and
+`ActiveState=inactive` before trashing `/var/lib/github-runner/csb1-hausv`.
+Keep `csb1-hausv-ghcr-pull` (`root:users`, `0440`) for the independent GHCR pull
+path, together with the shared operator account, sudo access, Compose lock and
+scheduled backups. The GitHub runner registration is retained and will show
+offline after the switch.
 
-**Legacy tarball cleanup:** The previous tarball+patchelf+user-unit installation at `/home/mba/actions-runner` is leftover and should be removed after `just switch` applies the declarative configuration. The declarative runner takes over the same runner name (`csb1-hausv`) via the `replace = true` setting.
-
-```bash
-# Check runner status
-systemctl status github-runner-csb1-hausv.service
-
-# View runner logs
-journalctl -u github-runner-csb1-hausv.service --since today
-```
+**Rollback:** revert the retirement PR and apply an approved csb1 switch. The
+restored module uses `replace = true` and re-registers with the same name.
+Do not delete the GitHub registration or revoke the shared pull token.
 
 ### All Containers (15 running)
 

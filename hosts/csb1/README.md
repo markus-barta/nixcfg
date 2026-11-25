@@ -11,21 +11,22 @@
 
 ## Quick Reference
 
-| Item              | Value                                   |
-| ----------------- | --------------------------------------- |
-| **Hostname**      | csb1                                    |
-| **Domain**        | cs1.barta.cm                            |
-| **Dashboard**     | https://cs1.barta.cm/ (Zitadel-gated)   |
-| **Dashboard IPs** | Redirect to canonical HTTPS dashboard   |
-| **IP (v4)**       | 152.53.64.166                           |
-| **Tailscale**     | 100.64.0.4                              |
-| **IP (v6)**       | 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7    |
-| **SSH**           | `ssh -p 2222 mba@cs1.barta.cm` or `qc1` |
-| **Provider**      | Netcup VPS 1000 G11                     |
-| **Location**      | Vienna (VIE)                            |
-| **Server ID**     | 646294                                  |
-| **FQDN**          | v2202407214994279426.bestsrv.de         |
-| **Exposure**      | Internet-exposed (ports 80, 443, 2222)  |
+| Item              | Value                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| **Hostname**      | csb1                                                                                         |
+| **Domain**        | cs1.barta.cm                                                                                 |
+| **Dashboard**     | https://cs1.barta.cm/ (Zitadel-gated)                                                        |
+| **Dashboard IPs** | Redirect to canonical HTTPS dashboard                                                        |
+| **IP (v4)**       | 152.53.64.166                                                                                |
+| **Tailscale**     | 100.64.0.4                                                                                   |
+| **IP (v6)**       | 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7                                                         |
+| **SSH**           | `ssh -p 2222 mba@cs1.barta.cm` or `qc1`                                                      |
+| **GitHub runner** | `csb1-hausv` retired 2026-11-25 (OPS-678); [rollback](docs/RUNBOOK.md#github-actions-runner) |
+| **Provider**      | Netcup VPS 1000 G11                                                                          |
+| **Location**      | Vienna (VIE)                                                                                 |
+| **Server ID**     | 646294                                                                                       |
+| **FQDN**          | v2202407214994279426.bestsrv.de                                                              |
+| **Exposure**      | Internet-exposed (ports 80, 443, 2222)                                                       |
 
 ---
 
