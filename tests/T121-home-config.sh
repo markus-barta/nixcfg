@@ -59,6 +59,7 @@ def verify(result):
     assert set(unit["ReadWritePaths"]) == {destination, "/run/hsb1-home-config"}
     assert set(unit["ReadOnlyPaths"]) == {nr, ha}
     assert unit["PrivateNetwork"] is True and unit["IPAddressDeny"] == "any"
+    assert unit["RestrictSUIDSGID"] is True
     assert unit["RestrictAddressFamilies"] == ["AF_UNIX"]
     assert unit["CapabilityBoundingSet"] == ["CAP_DAC_READ_SEARCH"]
     assert unit["Nice"] == 19 and unit["IOSchedulingClass"] == "idle"
@@ -83,6 +84,7 @@ def verify(result):
     gc = result["maintenance"]["serviceConfig"]
     assert gc["ExecStart"].endswith("/bin/hsb1-home-config --gc")
     assert gc["TimeoutStartSec"] == "30min" and gc["PrivateNetwork"] is True
+    assert gc["RestrictSUIDSGID"] is True
     assert gc["ProtectSystem"] == "strict" and gc["ProtectHome"] == "read-only"
     assert gc["Group"] == "home-config" and gc["UMask"] == "0027"
     assert gc["CapabilityBoundingSet"] == []
@@ -100,13 +102,14 @@ def verify(result):
     assert "/home:/backup/home:ro" in result["backup"]["volumes"]
     assert "/backup/home /backup/root /backup/etc" in result["backup"]["script"]
     assert "home-config" not in result["backup"]["script"], "new backup exclusion must be reviewed"
-    for marker in ("ProtectSystem=strict", "ProtectHome=read-only", "PrivateNetwork=true", "Nice=19", "IOSchedulingClass=idle"):
+    for marker in ("ProtectSystem=strict", "ProtectHome=read-only", "PrivateNetwork=true", "RestrictSUIDSGID=true", "Nice=19", "IOSchedulingClass=idle"):
         assert marker in result["units"]["service"], marker
     assert "PathChanged=" + nr + "/flows.json" in result["units"]["path"]
     assert "OnUnitInactiveSec=15min" in result["units"]["timer"]
     assert "X-RestartIfChanged=false" in result["units"]["service"]
     assert "systemd-tmpfiles-setup.service" in next(line for line in result["units"]["service"].splitlines() if line.startswith("After="))
     assert "TimeoutStartSec=30min" in result["units"]["gc"]
+    assert "RestrictSUIDSGID=true" in result["units"]["gc"]
     assert "OnCalendar=weekly" in result["units"]["gcTimer"]
     assert "StateDirectory=home-config-watch" in result["units"]["witness"]
     assert "OnUnitActiveSec=10min" in result["units"]["witnessTimer"]

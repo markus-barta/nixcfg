@@ -1237,6 +1237,10 @@ setgid mode **2750** and Git uses `core.sharedRepository=0640`: directories are
 2750, metadata/refs 0640 and objects 0440. The group can read history but cannot
 write any repository path, including `.git`. New files inherit the reader group,
 including after GC; manual verification preserves permissions. Every service Git
+directory inherits setgid from the 2750 parent: initialization requests only
+0750, so `RestrictSUIDSGID=yes` never sees an explicit setgid mode argument.
+Under umask 0027, Git's `0640` shared-directory adjustment finds mode 2750
+already correct and skips chmod. Every service Git
 command disables hooks and uses `core.fsync=loose-object,reference`, including
 reference updates made by GC. Before Git reads local configuration, the service
 requires `.git/config` to be a regular root-owned file with mode 0640.
