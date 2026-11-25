@@ -2048,7 +2048,7 @@ journalctl -u hausvogt-health-watch.service --since "1 hour ago" --no-pager
 For planned maintenance, stop `hausvogt-health-watch.timer` and allow any
 in-flight check to finish; start the timer to resume. Remove the
 `./hausvogt-health-watch.nix` import to remove the watch declaratively.
-Validation: `bash tests/T121-hausvogt-health-watch.sh` (fixtures, content-check
+Validation: `bash tests/T124-hausvogt-health-watch.sh` (fixtures, content-check
 mutant, real fleet engine and csb1 evaluation only; no NixOS build).
 
 ### Tailnet Witness (tailnet-watch, OPS-181)

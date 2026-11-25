@@ -484,7 +484,7 @@ jobs:
 
       - name: Verify new Hausvogt public health watch (OPS-675)
         if: steps.pin.outputs.pin_only != 'true'
-        run: bash tests/T121-hausvogt-health-watch.sh
+        run: bash tests/T124-hausvogt-health-watch.sh
 
       - name: Verify mailbridge authorization, queue and alert failure handling (OPS-196)
         if: steps.pin.outputs.pin_only != 'true'

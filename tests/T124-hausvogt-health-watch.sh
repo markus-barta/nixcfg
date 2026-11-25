@@ -84,7 +84,7 @@ else:
 PY
 
 if [ "$mode" = full ]; then
-  echo "T121 ok"
+  echo "T124 ok"
 else
-  echo "T121 module-only checks ok; full flake evaluation remains required"
+  echo "T124 module-only checks ok; full flake evaluation remains required"
 fi
