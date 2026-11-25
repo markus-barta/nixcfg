@@ -338,3 +338,147 @@ switch again; app preferences remain managed in MTPLX.
 - **SSH identity**: `~/.ssh/id_ed25519` (`markus@mbp2607`, in ssh-keyring
   `personalHosts`; 1Password backup "mbp2607 id_ed25519"). Distinct from the
   atelier `mbp2607-personal-userkey` (git only) — deliberate separation.
+
+## On-demand Linux CI VM (OPS-669)
+
+`ci-vm.nix` declares `services.ciVm`, enabled here for `inspr-at/hausnetz`.
+Each `repositories.<id>` has `repository`, `runnerName` and `labels` options;
+it gets Unix user `ci-<id>` and systemd unit `ci-runner-<id>.service` in the VM.
+Changing an existing enrollment's repository, name or labels requires
+coordinator-led re-enrollment; already configured runners skip the token read.
+The hausnetz identity is `mbp2607-hausnetz`. Its workflow selector is:
+
+```yaml
+runs-on: [self-hosted, Linux, ARM64, mbp2607, hausnetz, kvm]
+```
+
+The hausnetz owner must also change explicitly selected `checks.x86_64-linux.*`
+to `checks.aarch64-linux.*`. That repository's workflows are maintained there.
+
+Only Colima profile `ci` is managed. It uses VZ, nested virtualization,
+**6 vCPUs, 16 GiB RAM and one 150 GiB disk** (`runtime: none`, no container
+engine). Nix stores and runner workspaces live inside that disk. The only
+host mount is `~/.local/state/ci-vm/secrets`, mode 0700, mounted read-only at
+`/etc/ci-vm-secrets`; `/Users/markus` is not shared. SSH-agent forwarding,
+Docker/Kubernetes context activation, Rosetta and application port forwarding
+are disabled. The starter copies the declared config into
+`~/.colima/ci/colima.yaml` before each stopped start; Colima may rewrite this
+regular writable file. An existing profile without `.nixcfg-ci-vm` is refused.
+
+Every boot verifies the pinned Nix 2.31.2 installer archive and Actions runner
+2.338.2 archive against the SHA256 literals in `ci-vm.nix`. Nix enables flakes
+and `nixos-test benchmark big-parallel kvm`, with two build jobs and three
+cores per build. Runner users join `kvm`; `/dev/kvm` is group-accessible 0660.
+The runner has automatic updates disabled so upgrades require a reviewed pin
+and digest update. Keep that pin current with GitHub's runner update deadlines.
+
+The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.
+It sources the workstation agent token **only in a request subshell**, passes
+the curl authorization header on stdin, and scans queued/in-progress runs and
+their paginated jobs. Every job label must be offered by the corresponding
+runner (case-insensitive). Matching demand starts `ci`; 20 minutes of confirmed
+idle time stops it. API/auth/response errors reset the idle grace and leave
+the VM unchanged. Known matching demand in another repository can still start
+the VM. Backward clocks and missing/corrupt state begin a new grace period.
+The dispatcher lock remains in a parent process so detached Lima daemons cannot
+inherit it. Logs: `~/.local/share/ops-qa/state/ci-vm-dispatcher.log`.
+
+The agent uses `ProcessType=Background`, low-priority I/O, and
+`taskpolicy -b -c background` for the starter. `host.py` verifies the ci
+hostagent's PID, owner and executable, finds its Virtualization XPC service
+in **that PID's launchd domain**, and requires that service to hold **that
+instance's disk** open. It applies `taskpolicy -b -p` only to those two PIDs
+and verifies Darwin's background flags with `proc_pidinfo`. Failure stops
+`ci`. Background QoS lets macOS favor efficiency cores; it is a scheduler
+policy, not a hard CPU-affinity mask. Runner services also use `Nice=10`,
+`CPUWeight=10` and `IOWeight=10` inside the VM.
+
+Colima can say READY after a failed provision, so a successful provision must
+write the current Linux boot ID to `/var/lib/ci-vm/ready`. After verifying QoS,
+the host calls the declared `host-ready` helper, which checks that boot ID,
+opens a gate in `/run`, and starts the repo services. Registration and jobs
+cannot start before that gate. Activation installs the agent and directories;
+it never starts a VM directly. Login with an empty queue leaves `ci` stopped.
+
+### Coordinator-only enrollment
+
+The builder never mints a token or registers a runner. After review, activate
+the Home Manager generation through the normal operator path. With `ci`
+stopped, run this **once** in Bash. It makes one POST, saves the complete JSON
+response outside the mount as a 0600 file, prints only its expiry and filename,
+and atomically publishes the one-shot token as `secrets/hausnetz.token` (0600).
+No token goes into argv or the Nix store. If a token file already exists, this
+command refuses to replace it; retire an expired token explicitly first.
+
+```bash
+(
+  set +x
+  set -euo pipefail
+  umask 077
+  set -a
+  source "$HOME/.inspr/secrets/agents/GH_TOKEN.env"
+  set +a
+  [ -n "${GH_TOKEN:-}" ]
+  ci_state="$HOME/.local/state/ci-vm"
+  install -d -m 0700 "$ci_state" "$ci_state/secrets"
+  [ ! -e "$ci_state/secrets/hausnetz.token" ]
+  [ ! -L "$ci_state/secrets/hausnetz.token" ]
+  ci_response=$(mktemp "$ci_state/hausnetz-registration.XXXXXXXX")
+  chmod 0600 "$ci_response"
+  printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
+    curl --config - --request POST --fail --silent --show-error \
+      --max-time 30 --proto '=https' \
+      --header 'Accept: application/vnd.github+json' \
+      --header 'X-GitHub-Api-Version: 2022-11-28' \
+      --output "$ci_response" \
+      https://api.github.com/repos/inspr-at/hausnetz/actions/runners/registration-token
+  unset GH_TOKEN
+  jq -er '.expires_at | select(type == "string" and length > 0)' "$ci_response"
+  ci_token_stage=$(mktemp "$ci_state/secrets/.hausnetz.token.XXXXXXXX")
+  jq -er '.token | select(type == "string" and length > 0)' "$ci_response" >"$ci_token_stage"
+  chmod 0600 "$ci_token_stage"
+  mv "$ci_token_stage" "$ci_state/secrets/hausnetz.token"
+  printf 'registration response retained at %s\n' "$ci_response"
+)
+```
+
+Then run `ci-vm start` before the printed expiry. The root pre-start helper
+reads that token only if `.runner` is absent, then runs `config.sh` as the
+dedicated user with `ACTIONS_RUNNER_INPUT_URL`, `_TOKEN`, `_NAME`, `_LABELS`,
+`_UNATTENDED`, `_REPLACE` and `_DISABLEUPDATE`. This mechanism was checked
+against [the pinned runner's CommandSettings.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Listener/CommandSettings.cs)
+(constructor, `GetArg`, `TestFlag`); the constructor registers TOKEN with its
+secret masker and removes the input environment variables. The exchanged
+runner credentials remain in the guest's private runner directory; the
+registration token is never copied there.
+The pinned runner's `env.sh` persists PATH and an explicit build-environment
+allowlist; it does not persist any `ACTIONS_RUNNER_INPUT_*` variable.
+
+Verify without printing credentials:
+
+```bash
+colima --profile ci ssh -- sudo systemctl is-active ci-runner-hausnetz.service
+colima --profile ci ssh -- sudo -u ci-hausnetz test -f /var/lib/ci-runners/hausnetz/.runner
+```
+
+Confirm the runner name and six labels in GitHub, then use `trash` on the
+host's one-shot token and retained response file. Enrollment persists across
+boots; an already configured runner never rereads the registration token.
+Switch hausnetz workflows in its owning repository, verify a green Mac run,
+and retire the old agm2 runner in that repository's separate lane.
+
+Operation: `ci-vm`/`ci-vm tick` performs one poll; `ci-vm start` and `ci-vm stop`
+are explicit operator overrides; `ci-vm prepare` only refreshes a stopped
+profile's config. To disable automatic dispatch, set `services.ciVm.enable =
+false` through the reviewed Home Manager path and stop `ci` when its jobs
+finish. Keep the VM disk/enrollment for rollback. No other profile is managed.
+
+Offline tests (Bash 5 is required by the test's false-pass guard):
+
+```bash
+nix-shell -p bash jq python3 --run 'bash tests/ci-vm-dispatcher-test.sh'
+```
+
+The test evaluates the actual module, checks demand/pagination/failure/grace
+behavior against stubs, checks daemon-lock isolation, and kills deliberately
+weakened label/grace mutants. CI runs it in `.github/workflows/check.yml`.
