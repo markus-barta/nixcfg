@@ -895,6 +895,9 @@ in
         "/run/agenix/csb1-restic-cron-hetzner-env"
       ];
       labels = [
+        # OPS-675 / OPS-338: git replaces this single-file bind's inode.
+        # Recreate at switch when the backup script changes, including rollback.
+        "ops.run-backup-sha256=${builtins.hashFile "sha256" ./restic-cron/hetzner/run_backup.sh}"
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
