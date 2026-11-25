@@ -237,6 +237,62 @@ in
         "traefik.http.middlewares.jhw22-wp-https.redirectscheme.scheme=https"
       ];
     };
+    # HAUSV-918 / OPS-675: retirement fallback for the private hausv-jhw22
+    # project. Priority 1 stays below its running app's default rule-length
+    # priority; stopping only hausv-org hands both hosts over without a gap.
+    # Unlike jhw22-wp's copy deployments, the approved bytes live in the closure.
+    hausv-pause = {
+      image = "nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576";
+      restart = "unless-stopped";
+      user = "101:101";
+      read_only = true;
+      cap_drop = [ "ALL" ];
+      security_opt = [ "no-new-privileges:true" ];
+      mem_limit = "32m";
+      pids_limit = 32;
+      # One worker, an unprivileged listener, and no writable persistent state.
+      entrypoint = [ "nginx" ];
+      command = [
+        "-g"
+        "daemon off;"
+      ];
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=8m,mode=1777"
+        "/var/cache/nginx:rw,noexec,nosuid,nodev,size=8m,uid=101,gid=101,mode=0700"
+      ];
+      volumes = [
+        "${./hausv-pause/index.html}:/usr/share/nginx/html/index.html:ro"
+        "${./hausv-pause/nginx.conf}:/etc/nginx/nginx.conf:ro"
+      ];
+      networks = [ "traefik" ];
+      healthcheck = {
+        test = [
+          "CMD-SHELL"
+          "wget -q -O - http://127.0.0.1:8080/healthz | grep -Fxq 'hausv-pause ok'"
+        ];
+        interval = "30s";
+        timeout = "3s";
+        retries = 3;
+        start_period = "5s";
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=true"
+        "traefik.docker.network=traefik"
+        "traefik.http.routers.hausv-pause.rule=Host(`hausv-legacy.barta.cm`) || Host(`jhw22.hausv.org`)"
+        "traefik.http.routers.hausv-pause.priority=1"
+        "traefik.http.routers.hausv-pause.entrypoints=web-secure"
+        "traefik.http.routers.hausv-pause.tls=true"
+        "traefik.http.routers.hausv-pause.tls.certresolver=default"
+        "traefik.http.routers.hausv-pause.middlewares=hausv-hsts@file"
+        "traefik.http.services.hausv-pause.loadbalancer.server.port=8080"
+        "traefik.http.routers.hausv-pause-http.rule=Host(`hausv-legacy.barta.cm`) || Host(`jhw22.hausv.org`)"
+        "traefik.http.routers.hausv-pause-http.priority=1"
+        "traefik.http.routers.hausv-pause-http.entrypoints=web"
+        "traefik.http.routers.hausv-pause-http.middlewares=hausv-pause-https@docker"
+        "traefik.http.middlewares.hausv-pause-https.redirectscheme.scheme=https"
+      ];
+    };
     # AEON-13: PAIMOS AEON app (https://aeon.barta.cm). The release is the image pin below;
     # a release pin changes that one line only (NIX-591 fast lane).
     # Database password, session key, messaging key and the AEON-319 doctrine guard key are

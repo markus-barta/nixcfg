@@ -91,6 +91,94 @@ class Fixture:
 
 
 class HausvAlertTests(unittest.TestCase):
+    def test_placeholder_stays_quiet_before_operator_handoff(self) -> None:
+        calls = []
+
+        def runner(args):
+            calls.append(args)
+            return poller.CommandResult(0, "hausv-org\n", "")
+
+        def health_reader(url):
+            self.fail("public placeholder must not be checked behind the running app")
+
+        problems, state = poller.evaluate_pause(
+            poller.safe_state({}, NOW), NOW, runner, health_reader
+        )
+        self.assertEqual(problems, {})
+        self.assertEqual(state["failure_counts"], {})
+        self.assertEqual(calls, [[
+            "docker", "ps", "--filter", "name=^/hausv-org$", "--format", "{{.Names}}"
+        ]])
+
+    def test_placeholder_mode_never_reads_retired_signals_or_new_hausvogt(self) -> None:
+        urls = []
+
+        def runner(args):
+            self.assertEqual(args[:2], ["docker", "ps"])
+            return poller.CommandResult(0, "", "")
+
+        def forbidden_read(*args):
+            self.fail("placeholder mode read an old snapshot, log, timer or health URL")
+
+        def pause_health_reader(url):
+            urls.append(url)
+            return b"hausv-pause ok\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            result, counts = poller.run_cycle(
+                str(Path(directory) / "state.json"), NOW,
+                lambda *_: self.fail("healthy placeholder sent an alert"),
+                runner, forbidden_read, forbidden_read,
+                placeholder=True, pause_health_reader=pause_health_reader,
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(counts, {"active": 0, "new": 0, "recovered": 0})
+        self.assertEqual(set(urls), {
+            "https://hausv-legacy.barta.cm/healthz",
+            "https://jhw22.hausv.org/healthz",
+        })
+        with self.assertRaises(ValueError):
+            poller.read_pause_health("https://hausv.org/healthz")
+
+    def test_placeholder_wrong_marker_debounces_alerts_and_recovers(self) -> None:
+        runner = lambda _: poller.CommandResult(0, "", "")
+        state = poller.safe_state({}, NOW)
+        for cycle in range(2):
+            problems, state = poller.evaluate_pause(
+                state, NOW + cycle * 300, runner,
+                lambda _: b"private response must never be repeated",
+            )
+            self.assertEqual(len(problems), 0 if cycle == 0 else 2)
+        self.assertEqual(set(problems), set(poller.PAUSE_HEALTH_URLS))
+        text = poller.transition_text(
+            NOW, problems, sorted(problems), [], "test", placeholder=True
+        )
+        self.assertIn("csb1 / hausv-pause", text)
+        self.assertNotIn("private response", text)
+        self.assertNotIn("private response", json.dumps(state))
+        recovered, next_state = poller.evaluate_pause(
+            state, NOW + 600, runner, lambda _: poller.PAUSE_HEALTH_BODY
+        )
+        self.assertEqual(recovered, {})
+        self.assertEqual(next_state["failure_counts"], {})
+
+    def test_placeholder_connection_failure_and_daemon_failure_are_observable(self) -> None:
+        def unavailable(url):
+            raise OSError("private error must not escape")
+
+        state = poller.safe_state({}, NOW)
+        runner = lambda _: poller.CommandResult(0, "", "")
+        _, state = poller.evaluate_pause(state, NOW, runner, unavailable)
+        problems, state = poller.evaluate_pause(state, NOW + 300, runner, unavailable)
+        self.assertEqual(set(problems), set(poller.PAUSE_HEALTH_URLS))
+        problems, _ = poller.evaluate_pause(
+            state, NOW + 600,
+            lambda _: poller.CommandResult(1, "", "private daemon error"), unavailable,
+        )
+        self.assertIn("pause-container-state", problems)
+        self.assertTrue(set(poller.PAUSE_HEALTH_URLS).issubset(problems))
+        self.assertNotIn("private", repr(problems))
+
     def test_healthy_cycle_has_no_alert(self) -> None:
         fixture = Fixture()
         sent: list[tuple[str, str]] = []

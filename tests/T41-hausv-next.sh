@@ -84,11 +84,10 @@ if grep -Fq 'git' "${module}"; then
   exit 1
 fi
 
-# Production remains on its original private project and original paths. The
-# preview is outside the Restic source tree, so no backup rule changes are due.
-grep -Fq 'hausvComposeDir = "/home/mba/Code/hausv-jhw22";' "${host}"
-grep -Fq 'source_dir=/var/lib/csb1-docker/hausv-org' "${host}"
-grep -Fq -- "--exclude '/backup/var/lib/csb1-docker/hausv-org'" "${backup}"
+# HAUSV-918: legacy data stays at its original path after retirement. The
+# preview remains outside that tree and outside the production backup set.
+# shellcheck disable=SC2016 # literal Nix interpolation
+grep -Fq '"d ${dockerRoot}/hausv-org 0750 65532 65532 -"' "${host}"
 if grep -Fq '/var/lib/hausv-next' "${backup}"; then
   echo 'FAIL: fixture preview must not join the production backup set' >&2
   exit 1
