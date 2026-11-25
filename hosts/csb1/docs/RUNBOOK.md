@@ -2014,6 +2014,43 @@ file. Restore capability itself is already proven by the isolated
 `persistence-store-pattern`; do not repeat that restore drill merely to accept
 an alerting change.
 
+### Hausvogt Public Health Watch (OPS-675)
+
+| Unit                          | Target and healthy content                                                              | Interval                                                                  | Alerts and recovery                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `hausvogt-health-watch.timer` | GET `https://hausv.org/healthz`, HTTP 200 and exactly the JSON object `{"status":"ok"}` | Every 5 minutes with up to 30 seconds jitter; starts 2 minutes after boot | Existing csb1 operator Telegram channel; two consecutive failures, one alarm, one recovery after a healthy check |
+
+This independent watch covers the **new Hausvogt** and stays active when the
+legacy `hausv-alerts` monitor is paused. The `hausvogt` container exposes no
+host loopback port; HostDash's loopback probe checks HTTP status only, and
+Pharos 2 sends no alerts. The shared fleet alert engine provides confirmation,
+atomic state and durable notification retries. A failed delivery exits 2 and
+fails the unit; clean checks exit 0 and observed health problems exit 1.
+
+The request verifies TLS, rejects redirects, times out after 10 seconds and
+reads at most 513 bytes (bodies over 512 bytes fail). HTTP errors, missing or
+wrong markers, invalid JSON and connection/TLS failures use the same problem
+key, so changing failure modes still counts as consecutive failures. A single
+bad check followed by a healthy check sends neither alarm nor recovery.
+
+The dynamic service user has no Docker access. Only monitor state is written,
+in `/var/lib/hausvogt-health-watch/state.json` (directory 0700, file 0600).
+Systemd credentials copy the existing `csb1-watchtower-env` target; the poller
+selects only `WATCHTOWER_NOTIFICATION_URL` through a fixed credential path.
+Response bodies and exception messages are never stored or sent. The watch
+does not restart the app, change its image, or manage its Compose stack.
+
+```bash
+systemctl status hausvogt-health-watch.timer hausvogt-health-watch.service --no-pager
+journalctl -u hausvogt-health-watch.service --since "1 hour ago" --no-pager
+```
+
+For planned maintenance, stop `hausvogt-health-watch.timer` and allow any
+in-flight check to finish; start the timer to resume. Remove the
+`./hausvogt-health-watch.nix` import to remove the watch declaratively.
+Validation: `bash tests/T121-hausvogt-health-watch.sh` (fixtures, content-check
+mutant, real fleet engine and csb1 evaluation only; no NixOS build).
+
 ### Tailnet Witness (tailnet-watch, OPS-181)
 
 `tailnet-watch.timer` runs every ten minutes and reads **this host's** view of
