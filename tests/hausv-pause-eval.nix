@@ -150,7 +150,9 @@ let
     snapshotRetired =
       !(host.systemd.services ? hausv-backup-snapshot)
       && !(host.systemd.timers ? hausv-backup-snapshot)
-      && !(contains "hausv-backup-snapshot.service" (builtins.toJSON host.systemd.timers));
+      && builtins.all (timer: (timer.timerConfig.Unit or "") != "hausv-backup-snapshot.service") (
+        builtins.attrValues host.systemd.timers
+      );
     dataKept = builtins.all (rule: builtins.elem rule host.systemd.tmpfiles.rules) [
       "d /var/lib/csb1-docker/hausv-org 0750 65532 65532 -"
       "d /var/lib/csb1-docker/hausv-org-backup-snapshot 0700 root root -"
