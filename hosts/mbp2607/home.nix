@@ -36,6 +36,7 @@ in
     ./pi-local.nix
     ./mbp2606-trash-purge.nix # OPS-489: weekly purge of mbp2606's /Users/mba/.Trash (> 3 days, Sun 04:30)
     ./night-levels.nix # OPS-595: OPS-300 policy loop as a launchd agent (KeepAlive) + stale alert
+    ./ci-vm.nix # OPS-669: on-demand, memory-capped Linux runner for private CI
     ./yue2-comfyui # NIX-518: `yue2` command + stack tooling (runtime stays in ~/Code/yue2-comfyui)
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
@@ -166,6 +167,11 @@ in
   home.stateVersion = "24.11";
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;
+
+  services.ciVm = {
+    enable = true;
+    repositories.hausnetz.repository = "inspr-at/hausnetz";
+  };
 
   # ============================================================================
   # Fish Shell Configuration
