@@ -43,6 +43,26 @@
 
 ---
 
+## Email Routing (Cloudflare, receive-only)
+
+Inbound mail for `@barta.cm` runs through Cloudflare Email Routing (MX `route1/2/3.mx.cloudflare.net`,
+SPF `include:_spf.mx.cloudflare.net`). There are no mailboxes: each address only forwards. Managed
+manually in the Cloudflare dashboard/API (not declarative yet). Outbound `@barta.cm` mail for the
+fleet goes through Resend (team `barta`, `send.barta.cm`), not through these rules.
+
+| Address            | Forwards to                                                     | Since                |
+| ------------------ | --------------------------------------------------------------- | -------------------- |
+| `markus@barta.cm`  | `markus.barta@gmail.com` (until 2026-11-25: `markus@barta.com`) | —                    |
+| `mailina@barta.cm` | `mailina.barta@gmail.com`                                       | 2026-11-25 (OPS-691) |
+| `maurice@barta.cm` | `maurice.barta@gmail.com`                                       | 2026-11-25 (OPS-691) |
+| `mateo@barta.cm`   | `mateo.ci.barta@gmail.com`                                      | 2026-11-25 (OPS-691) |
+| `gerhard@barta.cm` | `markus.barta@gmail.com`                                        | 2026-11-25 (OPS-691) |
+| `ingrid@barta.cm`  | `markus.barta@gmail.com`                                        | 2026-11-25 (OPS-691) |
+
+Catch-all: off (drop). A new destination must be verified once by its owner (Cloudflare sends a
+"Verify email address" mail); Cloudflare refuses a rule for an unverified destination. Sending _as_
+`@barta.cm` from Gmail is not set up.
+
 ## Server Service Distribution
 
 ### csb0 (89.58.63.96)
