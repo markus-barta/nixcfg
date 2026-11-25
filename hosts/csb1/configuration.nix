@@ -196,6 +196,7 @@ in
     ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
     ./fleet-backup-watch.nix # OPS-485: page when a fleet backup has not succeeded within its schedule (reads pharosd's store)
     ./garage-bot-watch.nix # OPS-604: page when the garage Telegram bot (Node-RED on csb0) stops polling
+    ./hausvogt-health-watch.nix # OPS-675: read-only public health witness for the new Hausvogt
     ./docker-image-gc.nix # OPS-327: daily GC of unused release images + old build cache (never prune -a)
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
