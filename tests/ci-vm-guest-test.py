@@ -39,6 +39,7 @@ def fixture():
     write(base / "etc/ci-vm-repositories.json", '[{"id":"hausnetz"}]')
     write(base / "var/lib/ci-vm/ready", "fixture-boot\n")
     write(base / "proc/sys/kernel/random/boot_id", "fixture-boot\n")
+    write(base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns", "0\n")
     (base / "var/lib/ci-runners/hausnetz").mkdir(parents=True)
     (base / "run").mkdir()
     stub = f"#!{sys.executable}\n" + r'''
@@ -93,16 +94,29 @@ elif command == "apt-get":
         assert (base / "dpkg-configured").exists(), "interrupted dpkg was not repaired before install"
 elif command == "getent":
     assert args == ["ahostsv4", "ports.ubuntu.com"]
+elif command == "sysctl":
+    key = "kernel.apparmor_restrict_unprivileged_userns"
+    value = base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+    if args == ["--system"]:
+        if os.environ.get("USERNS_APPLY_FAIL") == "1": sys.exit(1)
+        config = base / "etc/sysctl.d/99-ci-vm-userns.conf"
+        if config.exists() and os.environ.get("USERNS_APPLY_IGNORED") != "1":
+            setting, configured = config.read_text().strip().split("=")
+            assert setting.strip() == key
+            value.write_text(configured.strip() + "\n")
+    else:
+        assert args == ["-n", key]
+        print(value.read_text().strip())
 elif command not in {"modprobe", "groupadd", "chgrp"}:
     raise AssertionError(command)
 '''
-    for name in ["systemctl", "id", "pgrep", "journalctl", "stat", "runuser", "tar", "modprobe", "groupadd", "chgrp", "dpkg", "apt-get", "getent"]:
+    for name in ["systemctl", "id", "pgrep", "journalctl", "stat", "runuser", "tar", "modprobe", "groupadd", "chgrp", "dpkg", "apt-get", "getent", "sysctl"]:
         write(bindir / name, stub, 0o755)
     return base
 
 
 def adapt(source, base):
-    for prefix in ["/etc/ci-vm", "/etc/systemd/system", "/var/lib/ci-runners", "/var/lib/ci-vm", "/proc/", "/run/ci-vm-host-qos-ready", "/etc/udev", "/dev/kvm", "/nix/"]:
+    for prefix in ["/etc/ci-vm", "/etc/systemd/system", "/etc/sysctl.d", "/var/lib/ci-runners", "/var/lib/ci-vm", "/proc/", "/run/ci-vm-host-qos-ready", "/etc/udev", "/dev/kvm", "/nix/"]:
         source = source.replace(prefix, str(base) + prefix)
     return source.replace("/usr/sbin/runuser", str(base / "bin/runuser"))
 
@@ -120,6 +134,12 @@ def run(source, base, *args, **settings):
 base = fixture()
 assert run(control, base, "ready", "--provision-only").returncode == 0
 assert not (base / "run/ci-vm-host-qos-ready").exists(), "inspection opened the activation gate"
+write(base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1\n")
+for args in [("ready",), ("ready", "--provision-only")]:
+    assert run(control, base, *args).returncode != 0, "restricted user namespaces were called ready"
+assert not (base / "run/ci-vm-host-qos-ready").exists(), "failed userns readiness opened the activation gate"
+assert "systemctl start" not in (base / "calls").read_text(), "failed userns readiness started a runner"
+write(base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns", "0\n")
 assert run(control, base, "ready", RUNNER_ACTIVE="0").returncode != 0, "skipped unit was called ready"
 assert run(control, base, "ready", FIREWALL_ACTIVE="0").returncode != 0, "failed firewall was called ready"
 assert run(control, base, "ready").returncode == 0
@@ -128,6 +148,41 @@ assert run(control, base, "ready", OLD_STALE_RUNNER="1").returncode == 0, "old i
 assert "journalctl" not in (base / "calls").read_text()
 assert run(control, base, "enrolled").stdout == "CI_VM_STATUS=enrolled:hausnetz\n"
 print("ok guest readiness: skipped/failed units rejected; host inventory owns stale-registration detection without journal timing")
+
+userns = provision[provision.index("# Chromium/Playwright"):provision.index("\nprintf 'ci-vm provisioning complete")]
+
+
+def userns_case(source, **settings):
+    base = fixture()
+    write(base / "var/lib/ci-vm/ready", "")
+    write(base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1\n")
+    result = run("set -euo pipefail\n" + source, base, **settings)
+    return result, base
+
+
+result, base = userns_case(userns)
+assert result.returncode == 0, result.stderr
+assert (base / "etc/sysctl.d/99-ci-vm-userns.conf").read_text() == "kernel.apparmor_restrict_unprivileged_userns = 0\n"
+assert (base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns").read_text() == "0\n"
+assert (base / "var/lib/ci-vm/ready").read_text() == "fixture-boot\n"
+# A subsequent boot must repair both stale persistent policy and runtime state.
+write(base / "etc/sysctl.d/99-ci-vm-userns.conf", "kernel.apparmor_restrict_unprivileged_userns = 1\n")
+write(base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1\n")
+assert run("set -euo pipefail\n" + userns, base).returncode == 0
+assert (base / "etc/sysctl.d/99-ci-vm-userns.conf").read_text() == "kernel.apparmor_restrict_unprivileged_userns = 0\n"
+assert (base / "proc/sys/kernel/apparmor_restrict_unprivileged_userns").read_text() == "0\n"
+missing_dropin = re.sub(r"cat >/etc/sysctl.d/99-ci-vm-userns.conf <<'USERNS_SYSCTL'\n.*?\nUSERNS_SYSCTL\n", "", userns, flags=re.S)
+restricted_dropin = userns.replace("kernel.apparmor_restrict_unprivileged_userns = 0", "kernel.apparmor_restrict_unprivileged_userns = 1")
+missing_apply = userns.replace("sysctl --system", ":")
+for mutant in [missing_dropin, restricted_dropin, missing_apply]:
+    assert mutant != userns
+    result, base = userns_case(mutant)
+    assert result.returncode != 0, "missing/restricted/unapplied userns drop-in mutant survived"
+    assert not (base / "var/lib/ci-vm/ready").read_text(), "failed userns provision wrote a ready marker"
+for settings in [{"USERNS_APPLY_FAIL": "1"}, {"USERNS_APPLY_IGNORED": "1"}]:
+    result, base = userns_case(userns, **settings)
+    assert result.returncode != 0 and not (base / "var/lib/ci-vm/ready").read_text(), "ineffective sysctl apply was called ready"
+print("ok guest userns: persistent and idempotent policy, immediate apply, fail-closed boot/readiness; missing/restricted/unapplied drop-in mutants killed")
 
 for settings, expected in [({}, "drained"), ({"WORKER_RC": "0"}, "worker-busy"), ({"RACE_WORKER": "1"}, "worker-busy"), ({"WORKER_RC": "2"}, "unknown")]:
     base = fixture()

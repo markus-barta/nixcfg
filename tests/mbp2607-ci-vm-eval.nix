@@ -179,6 +179,11 @@ let
       && lib.hasInfix "670adb2f268fe21dcbb58b3db0e0aa9d5b3bddfe2c651481336e561ff86de945" provision;
     archiveHashCheck = lib.hasInfix "sha256sum --check --status" provision;
     provisioningHealthGate = lib.hasInfix "cat /proc/sys/kernel/random/boot_id >/var/lib/ci-vm/ready" provision;
+    persistentUserNamespaces =
+      lib.hasInfix "/etc/sysctl.d/99-ci-vm-userns.conf" provision
+      && lib.hasInfix "kernel.apparmor_restrict_unprivileged_userns = 0" provision
+      && lib.hasInfix "sysctl --system" provision;
+    userNamespaceReadiness = lib.hasInfix ''test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0'' provision;
     qosBeforeRunner = lib.hasInfix "ConditionPathExists=/run/ci-vm-host-qos-ready" provision;
     nixFeatures = lib.hasInfix "system-features = nixos-test benchmark big-parallel kvm" provision;
     perRepositoryUser =
