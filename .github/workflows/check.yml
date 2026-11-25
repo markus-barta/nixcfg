@@ -317,7 +317,13 @@ jobs:
 
       - name: Verify hsb1 local home-config allowlist and secret gate (OPS-158)
         if: steps.pin.outputs.pin_only != 'true'
-        run: nix-shell -p bash python3 git gitleaks --run "bash tests/T121-home-config.sh"
+        # The fixture child installs a real mode-argument seccomp filter inherited
+        # by Git; it requires neither a systemd manager nor a privileged namespace.
+        run: >-
+          nix-shell -E 'with import <nixpkgs> {}; mkShell {
+          packages = [ bash python3 git gitleaks ];
+          HOME_CONFIG_TEST_SECCOMP_LIBRARY = "${libseccomp.lib}/lib/libseccomp.so.2";
+          }' --run "bash tests/T121-home-config.sh"
 
       - name: Verify hsb1 pixdcon2 edge shadow contract (PIXD-103)
         if: steps.pin.outputs.pin_only != 'true'

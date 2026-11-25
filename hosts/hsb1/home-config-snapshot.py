@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -387,13 +388,20 @@ def prepare_repo(args, verify):
         # Keep .git/ so existing backup and reader paths remain unchanged.
         # Initialize beside the final directory and publish only a complete
         # repository. An interrupted init cannot strand config.lock in .git/.
-        with tempfile.TemporaryDirectory(prefix=".snapshot-init-", dir=args.repo) as temporary:
-            initializing = Path(temporary)
+        # RestrictSUIDSGID rejects even chmod of an already-set setgid bit.
+        # mkdir(0750) inherits 02750 from the repository under UMask=0027;
+        # Git's shared-permission adjustment then needs no directory chmod.
+        initializing = args.repo / (".snapshot-init-" + secrets.token_hex(4))
+        with path_errors(initializing):
+            os.mkdir(initializing, 0o750)
+        try:
             git(args, "init", "--quiet", "--bare", "--shared=0640", "--initial-branch=main",
                 "--template=" + str(template), str(initializing))
             git(args, "config", "--file", str(initializing / "config"), "core.sharedRepository", "0640")
-            initializing.chmod(0o2750)
             os.replace(initializing, git_dir)
+        finally:
+            if initializing.exists():
+                shutil.rmtree(initializing)  # Only the directory created by this invocation.
     with directory(git_dir):
         info = git_dir.stat()
         if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o2750:

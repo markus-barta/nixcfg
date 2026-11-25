@@ -1,6 +1,8 @@
 """OPS-158: real local Git + Gitleaks against synthetic service directories."""
 
 import contextlib
+import ctypes
+import errno
 import fcntl
 import importlib.util
 import io
@@ -44,6 +46,76 @@ def alert_modules():
     witness = importlib.util.module_from_spec(witness_spec)
     witness_spec.loader.exec_module(witness)
     return engine, witness
+
+
+@contextlib.contextmanager
+def restrict_suid_sgid():
+    """Emulate mode-argument rejection; subprocesses need the Linux test below."""
+    def guard(function, mode_index, default=None):
+        def checked(*args, **kwargs):
+            mode = kwargs.get("mode", args[mode_index] if len(args) > mode_index else default)
+            if mode & (stat.S_ISUID | stat.S_ISGID):
+                raise PermissionError(errno.EPERM, "RestrictSUIDSGID mode argument")
+            return function(*args, **kwargs)
+        return checked
+
+    with contextlib.ExitStack() as patches:
+        for name, index, default in (("chmod", 1, None), ("fchmod", 1, None), ("mkdir", 1, 0o777), ("open", 2, 0o777)):
+            patches.enter_context(mock.patch.object(os, name, guard(getattr(os, name), index, default)))
+        yield
+
+
+def install_linux_suid_sgid_filter():
+    """Native seccomp inherited across exec, without root, systemd or preloads.
+
+    Match systemd's seccomp_restrict_sxid mode checks, including open's O_CREAT
+    condition and the openat2 ENOSYS fallback. Only this fixture child is filtered.
+    """
+    class Comparison(ctypes.Structure):
+        _fields_ = [("arg", ctypes.c_uint), ("op", ctypes.c_int),
+                    ("mask", ctypes.c_uint64), ("value", ctypes.c_uint64)]
+
+    library = ctypes.CDLL(os.environ.get("HOME_CONFIG_TEST_SECCOMP_LIBRARY", "libseccomp.so.2"))
+    library.seccomp_init.argtypes = [ctypes.c_uint32]
+    library.seccomp_init.restype = ctypes.c_void_p
+    library.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]
+    library.seccomp_syscall_resolve_name.restype = ctypes.c_int
+    library.seccomp_rule_add_array.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int,
+                                              ctypes.c_uint, ctypes.POINTER(Comparison)]
+    library.seccomp_rule_add_array.restype = ctypes.c_int
+    library.seccomp_load.argtypes = [ctypes.c_void_p]
+    library.seccomp_load.restype = ctypes.c_int
+    library.seccomp_release.argtypes = [ctypes.c_void_p]
+    library.seccomp_release.restype = None
+    context = library.seccomp_init(0x7fff0000)  # SCMP_ACT_ALLOW
+    if not context:
+        raise RuntimeError("seccomp_init failed")
+    try:
+        for name, mode_index, flags_index in (("chmod", 1, None), ("fchmod", 1, None),
+                                              ("fchmodat", 2, None), ("fchmodat2", 2, None),
+                                              ("mkdir", 1, None), ("mkdirat", 2, None),
+                                              ("mknod", 1, None), ("mknodat", 2, None),
+                                              ("creat", 1, None), ("open", 2, 1), ("openat", 3, 2),
+                                              ("openat2", None, None)):
+            syscall = library.seccomp_syscall_resolve_name(name.encode("ascii"))
+            if syscall == -1:
+                if name in {"fchmodat2", "openat2"}:
+                    continue  # Not known by older libseccomp releases.
+                raise RuntimeError("unknown required syscall: " + name)
+            for bit in (stat.S_ISUID, stat.S_ISGID) if mode_index is not None else (0,):
+                checks = [] if mode_index is None else [Comparison(mode_index, 7, bit, bit)]  # SCMP_CMP_MASKED_EQ
+                if flags_index is not None:
+                    checks.append(Comparison(flags_index, 7, os.O_CREAT, os.O_CREAT))
+                arguments = (Comparison * len(checks))(*checks)
+                action = 0x00050000 | (errno.ENOSYS if mode_index is None else errno.EPERM)
+                result = library.seccomp_rule_add_array(context, action, syscall, len(checks), arguments)
+                if result < 0:
+                    raise RuntimeError("seccomp rule failed: " + name + " errno=" + str(-result))
+        result = library.seccomp_load(context)  # libseccomp also sets no_new_privs.
+        if result < 0:
+            raise RuntimeError("seccomp_load failed: errno=" + str(-result))
+    finally:
+        library.seccomp_release(context)
 
 
 class SnapshotTests(unittest.TestCase):
@@ -127,6 +199,63 @@ class SnapshotTests(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(info.st_mode), 0o2750, str(path))
             else:
                 self.assertIn(stat.S_IMODE(info.st_mode), (0o440, 0o640), str(path))
+
+    def restricted_permission_flow(self):
+        before = self.source_state()
+        stale = self.repo / ".snapshot-init-deadbeef"
+        stale.mkdir(mode=0o750)
+        put(stale, "config.lock", "synthetic interrupted initialization\n")
+        self.assertIn("removed stale service initialization", self.run_snapshot())
+        self.assert_history_permissions()
+        first = self.head()
+        self.assertTrue(first)
+        self.assertEqual(self.git("config", "core.sharedRepository").strip(), b"0640")
+        self.assertIn("unchanged", self.run_snapshot())
+        self.assertEqual(self.head(), first)
+        put(self.ha, "automations.yaml", "# restricted changed snapshot\n[]\n")
+        self.run_snapshot()
+        second = self.head()
+        self.assertNotEqual(second, first)
+        self.run_snapshot(gc_only=True)
+        self.assertEqual(self.head(), second)
+        self.assertTrue((self.repo / ".git/gc-success").is_file())
+        self.assertTrue(any((self.repo / ".git/objects/pack").glob("*.pack")))
+        put(self.ha, "scripts.yaml", "# restricted after GC\n{}\n")
+        self.run_snapshot()
+        self.run_snapshot(verify_only=True)
+        self.assert_history_permissions()
+        self.assertEqual(self.tree(), self.expected)
+        self.assertFalse(list(self.repo.glob(".snapshot-init-*")))
+        # Only the two intentional fixture edits above may change source state.
+        for name in ("homeassistant/automations.yaml", "homeassistant/scripts.yaml"):
+            before.pop(name)
+        after = self.source_state()
+        for name in ("homeassistant/automations.yaml", "homeassistant/scripts.yaml"):
+            after.pop(name)
+        self.assertEqual(before, after)
+
+    def test_restrict_suid_sgid_covers_first_repeat_changed_gc_and_verify(self):
+        with restrict_suid_sgid():
+            self.restricted_permission_flow()
+
+    def test_restrict_suid_sgid_emulator_rejects_each_mode_api(self):
+        target = self.root / "mode-control"
+        target.touch()
+        with target.open("rb") as handle, restrict_suid_sgid():
+            for bit in (stat.S_ISUID, stat.S_ISGID):
+                for function, arguments in ((os.chmod, (target, bit | 0o640)),
+                                            (os.fchmod, (handle.fileno(), bit | 0o640)),
+                                            (os.mkdir, (self.root / "forbidden-dir", bit | 0o750)),
+                                            (os.open, (self.root / "forbidden-file", os.O_CREAT | os.O_WRONLY, bit | 0o640))):
+                    with self.subTest(function=function, bit=bit), self.assertRaises(PermissionError) as raised:
+                        function(*arguments)
+                    self.assertEqual(raised.exception.errno, errno.EPERM)
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux seccomp/Git syscall proof runs in check.yml; macOS uses the Python emulator")
+    def test_linux_seccomp_covers_real_git_subprocesses(self):
+        result = subprocess.run([sys.executable, __file__, "--seccomp-flow"], capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, (result.stdout + result.stderr).decode())
+        self.assertIn(b"real Git first/repeat/changed/GC/post-GC/verify passed under seccomp", result.stdout)
 
     def test_allowlist_redaction_author_and_read_only_sources(self):
         before = self.source_state()
@@ -876,6 +1005,8 @@ def mutation_checks():
         "allow-unborn-existing-history": ('if success.exists() or success.is_symlink() or populated:', 'if False:'),
         "allow-unsafe-git-config": ('if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()\n'
                                     '                or stat.S_IMODE(info.st_mode) != 0o640):', 'if False:'),
+        "restore-setgid-chmod": ('            os.replace(initializing, git_dir)',
+                                '            initializing.chmod(0o2750)\n            os.replace(initializing, git_dir)'),
     }
     checks = ["SnapshotTests.test_allowlist_redaction_author_and_read_only_sources", "SnapshotTests.test_planted_secret_aborts_before_any_git_blob_or_source_write",
               "SnapshotTests.test_remote_guard_also_runs_when_sources_unchanged",
@@ -886,6 +1017,7 @@ def mutation_checks():
               "SnapshotTests.test_every_git_operation_fsyncs_objects_and_references_despite_local_config",
               "SnapshotTests.test_group_writable_config_is_refused_before_git_for_every_mode",
               "SnapshotTests.test_unborn_head_with_objects_but_no_success_stamp_is_refused",
+              "SnapshotTests.test_restrict_suid_sgid_covers_first_repeat_changed_gc_and_verify",
               "SettingsTests.test_hash_gate_detects_other_copy_and_escaped_source_spelling",
               "SettingsTests.test_hash_gate_also_decodes_differently_escaped_duplicate"]
     with tempfile.TemporaryDirectory(prefix="ops158-mutants-") as temporary:
@@ -913,5 +1045,28 @@ def mutation_checks():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--mutants"]:
         mutation_checks()
+    elif sys.argv[1:] == ["--seccomp-flow"]:
+        if sys.platform != "linux":
+            raise SystemExit("seccomp fixture requires Linux")
+        fixture = SnapshotTests()
+        try:
+            fixture.setUp()  # Provision the setgid repository before entering the sandbox.
+            install_linux_suid_sgid_filter()
+            # Negative controls prove native calls, not Python mocks, are denied.
+            target = fixture.root / "seccomp-control"
+            target.touch()
+            with target.open("rb") as handle:
+                for bit in (stat.S_ISUID, stat.S_ISGID):
+                    for function, arguments in ((os.chmod, (target, bit | 0o640)),
+                                                (os.fchmod, (handle.fileno(), bit | 0o640)),
+                                                (os.mkdir, (fixture.root / "forbidden-dir", bit | 0o750)),
+                                                (os.open, (fixture.root / "forbidden-file", os.O_CREAT | os.O_WRONLY, bit | 0o640))):
+                        with fixture.assertRaises(PermissionError) as raised:
+                            function(*arguments)
+                        fixture.assertEqual(raised.exception.errno, errno.EPERM)
+            fixture.restricted_permission_flow()
+            print("T121: real Git first/repeat/changed/GC/post-GC/verify passed under seccomp")
+        finally:
+            fixture.doCleanups()
     else:
         unittest.main(verbosity=2)
