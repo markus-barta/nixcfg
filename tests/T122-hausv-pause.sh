@@ -41,8 +41,27 @@ must_fail 'changed page byte' '
       (builtins.readFile ./hosts/csb1/docker/hausv-pause/index.html) + " ";
   }'
 
-must_fail 'unrelated container removed' '
+must_fail 'retired snapshot unit restored' '
   let spec = import ./hosts/csb1/docker/compose-spec.nix;
   in import ./tests/hausv-pause-eval.nix {
-    spec = spec // { services = builtins.removeAttrs spec.services ["docmost"]; };
+    config = {
+      nixcfg.composeStack.spec = spec;
+      systemd.services.hausv-backup-snapshot = {};
+      systemd.timers = {};
+    };
   }'
+
+# Unrelated service changes and lazy timer definitions must not be pinned or
+# forced by this standing contract. Inventory proof belongs in review evidence.
+nix-instantiate --eval --strict --json --expr '
+  let spec = import ./hosts/csb1/docker/compose-spec.nix;
+  in import ./tests/hausv-pause-eval.nix {
+    config = {
+      nixcfg.composeStack.spec = spec // {
+        services = builtins.removeAttrs spec.services ["docmost"];
+      };
+      systemd.services.unrelated = throw "unrelated service forced";
+      systemd.timers.unrelated = throw "unrelated timer forced";
+    };
+  }'
+printf '\nHAUSV contract ignores unrelated services and timer values: OK\n'

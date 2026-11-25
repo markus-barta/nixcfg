@@ -769,7 +769,7 @@ jobs:
 
       - name: Verify legacy HAUSV placeholder and must-fail mutants (OPS-675)
         if: steps.pin.outputs.pin_only != 'true'
-        run: tests/T121-hausv-pause.sh
+        run: tests/T122-hausv-pause.sh
 
   # Keep the branch-protection context stable, including failed, skipped or
   # cancelled shards. A skipped required job would otherwise permit merging.
