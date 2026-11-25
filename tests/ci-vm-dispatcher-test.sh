@@ -94,11 +94,21 @@ set -euo pipefail
 printf 'colima %s\n' "$*" >>"$CI_TEST_CALLS"
 if [[ "$1" == --profile ]]; then
   if [[ "${CI_TEST_REQUIRE_CLOSED_STDIN:-0}" == 1 ]] && IFS= read -r ignored; then exit 87; fi
+  if [[ "${CI_TEST_SSH_FAIL_ONCE:-0}" == 1 && "$*" == *'/host-ready' && ! -e "$CI_VM_STATE_DIR/ssh-failed" ]]; then
+    touch "$CI_VM_STATE_DIR/ssh-failed"
+    exit 255
+  fi
   case "$*" in
-    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready') exit "${CI_TEST_READY_FAIL:-0}" ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready')
+      if [[ "${CI_TEST_ENROLL_ON_READY:-0}" == 1 ]]; then touch "$CI_VM_STATE_DIR/enrolled"; fi
+      exit "${CI_TEST_READY_FAIL:-0}"
+      ;;
     '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready --provision-only') exit 0 ;;
     '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control worker-active') exit "${CI_TEST_WORKER:-1}" ;;
-    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control enrolled') printf '%s' "${CI_TEST_ENROLLED:-}" ;;
+    '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control enrolled')
+      if [[ "${CI_TEST_ENROLLED_FAIL:-0}" == 1 ]]; then exit 255; fi
+      if [[ -e "$CI_VM_STATE_DIR/enrolled" ]]; then printf 'hausnetz\n'; else printf '%s' "${CI_TEST_ENROLLED:-}"; fi
+      ;;
     '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/control drain')
       if [[ "${CI_TEST_WORKER:-1}" == 0 ]]; then exit 3; fi
       exit "${CI_TEST_DRAIN:-0}"
@@ -188,6 +198,7 @@ new_case() {
   export CI_VM_HOST_HELPER="$root/hosts/mbp2607/files/ci-vm/host.py" CI_VM_QOS="$work/bin/qos"
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
   export CI_TEST_WORKER=1 CI_TEST_DRAIN=0 CI_TEST_START_FAIL=0 CI_TEST_ENROLLED='' CI_TEST_JQ_FAIL=''
+  export CI_TEST_SSH_FAIL_ONCE=0 CI_TEST_ENROLL_ON_READY=0 CI_TEST_ENROLLED_FAIL=0
 }
 run_tick() { /bin/bash "${1:-$dispatcher}" tick >"$case_dir/out" 2>&1; }
 calls() { grep -c "$1" "$case_dir/calls" || true; }
@@ -271,6 +282,48 @@ export CI_TEST_SCENARIO=progress CI_TEST_NOW=5000
 run_tick
 unchanged && [[ "$(<"$case_dir/state/last-demand")" == 5000 ]] || fail 'in-progress job failed to retain ci'
 echo 'ok active: in-progress jobs reset grace without restarting ci'
+
+active_ssh_contract() {
+  new_case
+  echo running >"$case_dir/vm"
+  export CI_TEST_SCENARIO=progress CI_TEST_SSH_FAIL_ONCE=1 CI_TEST_ENROLLED=hausnetz
+  if run_tick "$1"; then fail 'single SSH failure passed readiness'; fi
+  unchanged || return 1
+  [[ "$(calls 'control drain')" == 0 && "$(calls 'control enrolled')" == 0 && "$(calls '/actions/runners?')" == 0 ]] || return 1
+  grep -q 'retrying next tick' "$case_dir/out" || return 1
+  export CI_TEST_NOW=1060
+  run_tick "$1"
+  unchanged && [[ "$(calls '/host-ready')" == 2 ]]
+}
+active_ssh_contract "$dispatcher" || fail 'single SSH failure stopped an API-active job or prevented the next tick retry'
+for failure in ready enrolled stale; do
+  new_case
+  echo running >"$case_dir/vm"
+  export CI_TEST_SCENARIO=queued CI_TEST_WORKER=0 CI_TEST_ENROLLED=hausnetz
+  case "$failure" in
+  ready) export CI_TEST_READY_FAIL=1 ;;
+  enrolled) export CI_TEST_ENROLLED_FAIL=1 ;;
+  stale) export CI_TEST_SCENARIO=stale-runner ;;
+  esac
+  if run_tick; then [[ "$failure" != ready ]] || fail 'failed readiness passed'; fi
+  unchanged && [[ "$(calls 'control enrolled')" == 0 && "$(calls '/actions/runners?')" == 0 ]] || fail "$failure disturbed a local worker"
+done
+new_case
+echo running >"$case_dir/vm"
+export CI_TEST_SCENARIO=queued CI_TEST_READY_FAIL=1 CI_TEST_DRAIN=3
+if run_tick; then fail 'failed readiness passed'; fi
+unchanged && [[ "$(calls 'control drain')" == 1 ]] || fail 'reactivation failure skipped drain or killed a newly assigned worker'
+new_case
+echo running >"$case_dir/vm"
+export CI_TEST_SCENARIO=queued CI_TEST_READY_FAIL=1
+if run_tick; then fail 'failed readiness passed'; fi
+[[ "$(calls 'control drain')" == 1 && "$(calls 'colima stop')" == 1 ]] || fail 'idle reactivation failure did not drain before stop'
+new_case
+echo running >"$case_dir/vm"
+export CI_TEST_SCENARIO=progress CI_TEST_WORKER=0 CI_TEST_QOS_FAIL=1
+if run_tick; then fail 'QoS failure passed'; fi
+[[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 0 ]] || fail 'QoS failure retained an unsafe active VM'
+echo 'ok reactivation: transient failures retain API/local work, idle failures drain, and QoS failures stop immediately'
 
 new_case
 echo running >"$case_dir/vm"
@@ -371,6 +424,67 @@ run_tick
 unchanged || fail 'drain race killed a newly assigned job'
 echo 'ok drain: a worker found after the API scan prevents idle shutdown'
 
+worker_cap_contract() {
+  new_case
+  echo running >"$case_dir/vm"
+  export CI_TEST_SCENARIO="$2" CI_TEST_WORKER=0
+  run_tick "$1"
+  [[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 1000 ]] || return 1
+  export CI_TEST_NOW=4599
+  run_tick "$1"
+  unchanged || return 1
+  export CI_TEST_NOW=4600
+  run_tick "$1"
+  [[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 0 ]]
+}
+for scenario in empty queued; do
+  worker_cap_contract "$dispatcher" "$scenario" || fail "$scenario local worker bypassed the absolute 60-minute cap"
+done
+new_case
+echo running >"$case_dir/vm"
+echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+export CI_TEST_SCENARIO=progress CI_TEST_WORKER=0 CI_TEST_NOW=4600
+run_tick
+unchanged && [[ ! -s "$case_dir/state/worker-without-api-demand-since" ]] || fail 'API-confirmed active work did not clear the local-only cap'
+export CI_TEST_SCENARIO=empty CI_TEST_NOW=5000
+run_tick
+[[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 5000 ]] || fail 'local-only cap failed to restart after API-confirmed work'
+export CI_TEST_WORKER=1 CI_TEST_NOW=5100
+run_tick
+[[ ! -s "$case_dir/state/worker-without-api-demand-since" ]] || fail 'confirmed worker exit did not clear the local-only cap'
+new_case
+echo running >"$case_dir/vm"
+echo 1000 >"$case_dir/state/worker-without-api-demand-since"
+export CI_TEST_SCENARIO=queued CI_TEST_WORKER=124 CI_TEST_NOW=4599
+run_tick
+[[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 1000 ]] || fail 'SSH uncertainty reset the absolute local-worker cap'
+export CI_TEST_NOW=4600
+run_tick
+[[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 0 ]] || fail 'SSH uncertainty bypassed the absolute local-worker cap'
+new_case
+echo running >"$case_dir/vm"
+echo 1 >"$case_dir/state/last-demand"
+export CI_TEST_DRAIN=3 CI_TEST_NOW=5000
+run_tick
+[[ "$(<"$case_dir/state/worker-without-api-demand-since")" == 5000 ]] || fail 'drain worker did not start the absolute local-only cap'
+export CI_TEST_NOW=8600
+run_tick
+[[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 1 ]] || fail 'drain worker bypassed the absolute local-only cap'
+new_case
+echo running >"$case_dir/vm"
+export CI_TEST_WORKER=0
+if /bin/bash "$dispatcher" stop >"$case_dir/out" 2>&1; then fail 'normal operator stop ignored a worker'; else rc=$?; fi
+[[ "$rc" == 3 && "$(calls 'colima stop')" == 0 ]] || fail 'normal operator stop failed to retain work'
+export CI_TEST_NOW=4600
+/bin/bash "$dispatcher" stop >"$case_dir/out" 2>&1
+[[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 1 ]] || fail 'operator stop could not enforce the expired worker cap'
+new_case
+echo running >"$case_dir/vm"
+export CI_TEST_WORKER=0
+/bin/bash "$dispatcher" stop --force >"$case_dir/out" 2>&1
+[[ "$(calls 'colima stop')" == 1 && "$(calls 'control drain')" == 0 ]] || fail 'explicit force stop did not skip drain'
+echo 'ok local-only work: known-idle/queued/drain workers have an absolute 60-minute cap; operator stop enforces it and supports --force'
+
 for value in missing corrupt 9999999; do
   new_case
   echo running >"$case_dir/vm"
@@ -414,7 +528,14 @@ for ready_failure in 0 1; do
   export CI_TEST_SCENARIO=queued CI_TEST_ENROLLED=hausnetz CI_TEST_READY_FAIL=$ready_failure
   if run_tick; then [[ "$ready_failure" == 0 ]] || fail 'failed ready passed'; fi
   [[ ! -e "$CI_VM_STATE_DIR/secrets/hausnetz.token" && "$(calls 'trash token')" == 1 ]] || fail 'enrolled runner retained host token'
+  [[ "$(calls 'control enrolled')" == 1 && "$(calls '/actions/runners?')" == 1 ]] || fail 'enrollment was fetched more than once'
 done
+new_case
+mkdir -p "$CI_VM_STATE_DIR/secrets"
+printf 'fixture-registration-value\n' >"$CI_VM_STATE_DIR/secrets/hausnetz.token"
+export CI_TEST_SCENARIO=queued CI_TEST_ENROLL_ON_READY=1
+run_tick
+[[ "$(calls 'trash token')" == 1 && "$(calls 'control enrolled')" == 1 ]] || fail 'new enrollment did not retire its token in the same tick'
 echo 'ok enrollment: stale .runner requires re-enrollment; host trashes token once .runner exists, including after a later service failure'
 
 new_case
@@ -468,6 +589,8 @@ for name, old, new in [('labels', 'all(.labels[]; ascii_downcase', 'any(.labels[
                        ('grace', '-ge 1200', '-ge 1199'),
                        ('unknown-cap', 'read_stamp unknown-since', 'stamp unknown-since\n    read_stamp unknown-since'),
                        ('queue-cap', '-ge 600', '-ge 601'),
+                       ('active-ssh', 'if [ "$running" = true ] && [ "$qos_failed" = false ]; then', 'if false; then'),
+                       ('worker-cap', '-ge 3600 ]\n}', '-ge 3601 ]\n}'),
                        ('token-retirement', 'trash "$token" || return 1', ': "$token" || return 1'),
                        ('colima-home', '# Keep the CLI', 'export COLIMA_HOME="$HOME/.colima"\n# Keep the CLI')]:
     assert old in source
@@ -502,6 +625,10 @@ export CI_TEST_SCENARIO=queued CI_TEST_NOW=1600
 run_tick "$work/queue-cap-mutant.sh"
 if [[ "$(calls 'colima stop')" != 0 ]]; then fail 'queue-cap mutant did not exercise the pickup bound'; fi
 echo 'ok uptime mutants: resetting the unknown timer and delaying the pickup cap violate the stop contracts'
+
+if active_ssh_contract "$work/active-ssh-mutant.sh"; then fail 'active SSH mutant survived the active-job retention contract'; fi
+if worker_cap_contract "$work/worker-cap-mutant.sh" empty; then fail 'local-only worker cap mutant survived the absolute-cap contract'; fi
+echo 'ok regression mutants: direct stop on a single active-job SSH failure and an extended local-worker cap violate their contracts'
 
 new_case
 mkdir -p "$CI_VM_STATE_DIR/secrets"

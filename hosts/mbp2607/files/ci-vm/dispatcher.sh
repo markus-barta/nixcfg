@@ -24,6 +24,8 @@ bounded() { python3 "$helper" run "$@"; }
 guest() { bounded "$1" colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/control "${@:2}" </dev/null; }
 scan_started=$SECONDS
 failure_delay=60
+qos_failed=false
+active=false
 
 stamp() { printf '%s\n' "$now" >"$state/$1"; }
 clear_stamp() { : >"$state/$1"; }
@@ -71,16 +73,53 @@ picked_up() {
   stamp last-demand
   stamp queue-since
   stamp no-worker-since
+  if [ "$active" = true ]; then
+    clear_stamp worker-without-api-demand-since
+  else
+    read_stamp worker-without-api-demand-since
+  fi
   printf '0 0\n' >"$state/backoff"
+}
+local_worker_active() {
+  local rc
+  if guest 15 worker-active; then
+    if [ "$active" != true ]; then read_stamp worker-without-api-demand-since; fi
+    return 0
+  else
+    rc=$?
+  fi
+  # An unreachable guest cannot reset an already established absolute cap.
+  if [ "$rc" -eq 1 ]; then clear_stamp worker-without-api-demand-since; fi
+  return "$rc"
+}
+worker_cap_reached() {
+  [ "$active" != true ] && [ -s "$state/worker-without-api-demand-since" ] || return 1
+  read_stamp worker-without-api-demand-since
+  [ "$((now - last))" -ge 3600 ]
 }
 stop_now() {
   bounded 180 colima stop ci || return 1
   clear_stamp unknown-since
   clear_stamp no-worker-since
   clear_stamp queue-since
+  clear_stamp worker-without-api-demand-since
   stamp last-demand
 }
 failed_vm() {
+  local rc
+  if [ "$running" = true ] && [ "$qos_failed" = false ]; then
+    if [ "$active" = true ] || local_worker_active; then
+      log "RETRY: $1; active work retained, retrying next tick"
+      picked_up
+      return 1
+    fi
+    record_failure "$1" "$failure_delay"
+    if stop_if_idle 'reactivation failed; draining the already-running ci instance'; then :; else
+      rc=$?
+      if [ "$rc" -ne 3 ]; then log 'ci stop failed or timed out; next poll must retry'; fi
+    fi
+    return 1
+  fi
   record_failure "$1" "$failure_delay"
   log 'stopping any partially started or unhealthy ci instance'
   if [ -f "$profile/.nixcfg-ci-vm" ] && [ ! -L "$profile" ]; then
@@ -91,7 +130,7 @@ failed_vm() {
 stop_if_idle() {
   local rc
   log "$1"
-  if [ "${2:-false}" != true ]; then
+  if [ "${2:-false}" != true ] && ! worker_cap_reached; then
     if guest 150 drain; then :; else
       rc=$?
       if [ "$rc" -eq 3 ]; then
@@ -142,13 +181,15 @@ prepare() {
 }
 
 background_vm() {
-  bounded 30 "$CI_VM_QOS"
+  if ! bounded 30 "$CI_VM_QOS"; then
+    qos_failed=true
+    return 1
+  fi
 }
 
 cleanup_tokens() {
-  local enrolled id token
-  enrolled=$(guest 20 enrolled) || return 1
-  for id in $enrolled; do
+  local id token
+  for id in $1; do
     jq -e --arg id "$id" 'any(.[]; .id == $id)' "$CI_VM_REPOSITORIES" >/dev/null || return 1
     token="$secrets/$id.token"
     if [ -e "$token" ] || [ -L "$token" ]; then
@@ -163,10 +204,9 @@ cleanup_tokens() {
 }
 
 check_enrollments() {
-  local enrolled id repo name response page count total found
-  enrolled=$(guest 20 enrolled) || return 1
+  local id repo name response page count total found
   scan_started=$SECONDS
-  for id in $enrolled; do
+  for id in $1; do
     repo=$(jq -er --arg id "$id" '.[] | select(.id == $id) | .repository' "$CI_VM_REPOSITORIES") || return 1
     name=$(jq -er --arg id "$id" '.[] | select(.id == $id) | .runnerName' "$CI_VM_REPOSITORIES") || return 1
     page=1 found=false
@@ -194,14 +234,20 @@ check_enrollments() {
 }
 
 activate_runners() {
-  local ready=true
-  cleanup_tokens || return 1
-  check_enrollments || return 1
+  local ready=true maintenance=false enrolled
+  if [ "$running" = false ] || { [ "$active" != true ] && ! local_worker_active; }; then
+    maintenance=true
+  fi
   if ! bounded 150 colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready </dev/null; then
     ready=false
   fi
   # ExecStartPre may have enrolled successfully even if ExecStart then failed.
-  cleanup_tokens || return 1
+  # Fetch once, after activation, and keep maintenance off busy runners.
+  if [ "$maintenance" = true ]; then
+    enrolled=$(guest 20 enrolled) || return 1
+    cleanup_tokens "$enrolled" || return 1
+    check_enrollments "$enrolled" || return 1
+  fi
   [ "$ready" = true ]
 }
 
@@ -215,6 +261,7 @@ ensure_vm() {
     stamp queue-since
     clear_stamp unknown-since
     clear_stamp no-worker-since
+    clear_stamp worker-without-api-demand-since
   fi
   background_vm || return 1
   if [ "${1:-}" = --provision-only ]; then
@@ -307,7 +354,10 @@ start)
   exit
   ;;
 stop)
-  stop_if_idle 'operator requested ci shutdown'
+  if [ -n "${2:-}" ] && [ "$2" != --force ]; then exit 2; fi
+  force=false
+  if [ "${2:-}" = --force ]; then force=true; fi
+  stop_if_idle 'operator requested ci shutdown (force or expired worker cap skips drain)' "$force"
   exit
   ;;
 prepare)
@@ -321,12 +371,11 @@ prepare)
   ;;
 tick) ;;
 *)
-  log 'usage: ci-vm [tick|start|stop|prepare]'
+  log 'usage: ci-vm [tick|start [--provision-only]|stop [--force]|prepare]'
   exit 2
   ;;
 esac
 
-active=false
 queued=false
 unknown=false
 repositories=$(jq -c '.[]' "$CI_VM_REPOSITORIES")
@@ -349,13 +398,20 @@ while IFS= read -r repo; do
 done <<<"$repositories"
 now=$(date +%s)
 vm_status
+if [ "$active" = true ] || [ "$running" = false ]; then
+  clear_stamp worker-without-api-demand-since
+elif worker_cap_reached; then
+  stop_if_idle 'absolute 60-minute local worker cap without API-confirmed active work reached; stopping ci' true
+  record_failure 'local worker has no API-confirmed active work for 60 minutes' 300
+  exit 0
+fi
 if [ "$active" = true ] || [ "$queued" = true ]; then
   clear_stamp unknown-since
   clear_stamp no-worker-since
   if [ "$running" = false ] && backoff_pending; then exit 0; fi
   if ! ensure_vm; then failed_vm 'startup, provisioning, QoS or runner readiness failed'; fi
   now=$(date +%s)
-  if [ "$active" = true ] || guest 15 worker-active; then
+  if [ "$active" = true ] || local_worker_active; then
     picked_up
   else
     read_stamp queue-since
@@ -378,7 +434,7 @@ elif [ "$running" = true ]; then
       exit 0
     fi
     # Local, bounded, API-free signal. Failed SSH is not evidence of work.
-    if guest 15 worker-active; then
+    if local_worker_active; then
       stamp no-worker-since
       log 'GitHub demand unknown; local Runner.Worker active (60-minute absolute cap applies)'
     else
@@ -397,7 +453,7 @@ elif [ "$running" = true ]; then
     clear_stamp unknown-since
     clear_stamp no-worker-since
     clear_stamp queue-since
-    if guest 15 worker-active; then picked_up; else
+    if local_worker_active; then picked_up; else
       read_stamp last-demand
       if [ "$((now - last))" -ge 1200 ]; then
         if stop_if_idle 'no matching demand or local worker for 20 minutes; stopping ci'; then :; else

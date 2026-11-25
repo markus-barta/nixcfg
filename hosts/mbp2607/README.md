@@ -403,11 +403,21 @@ API/auth/response failures and a missing token use a bounded, API-free guest
 worker check. They stop `ci` after 20 minutes without a verified worker, with
 an absolute 60-minute cap on continuous unknown state even if a worker remains.
 Queued-only demand that picks up no job for 10 minutes stops `ci`, logs
-`UNSERVABLE` and backs off. Startup, provisioning and readiness failures persist
+`UNSERVABLE` and backs off. A local worker without API-confirmed active work
+starts `worker-without-api-demand-since`; it has an absolute 60-minute cap,
+including during queued-only demand or when discovered during drain. The cap
+skips drain, clears on API-confirmed active work or a verified worker exit,
+and cannot be reset by an SSH failure.
+Startup, provisioning and readiness failures persist
 exponential backoff in `~/.local/state/ci-vm/backoff` (60 seconds to one hour);
 unservable queues start at five minutes. An existing `.runner` whose name has
 disappeared from GitHub requires coordinator-led re-enrollment and backs off
-for one hour. Known demand in another repo can still be served when an API
+for one hour. Enrollment state is fetched once after activation; token retirement
+and runner inventory checks run only at startup or when no active work is
+verified. On an already-running VM, a transient activation failure retains
+API-confirmed or local work and retries next tick; idle failures use the drain
+path. A failed QoS check still stops immediately.
+Known demand in another repo can still be served when an API
 fails. Backward clocks and missing/corrupt timestamps begin a new grace period.
 Colima status/start/SSH/stop and QoS checks all have process-group deadlines.
 The dispatcher lock remains in a parent process so detached Lima daemons cannot
@@ -505,7 +515,10 @@ Switch hausnetz workflows in its owning repository, verify a green Mac run,
 and retire the old agm2 runner in that repository's separate lane.
 
 Operation: `ci-vm`/`ci-vm tick` performs one poll; `ci-vm start` and `ci-vm stop`
-are explicit operator overrides. `ci-vm start --provision-only` boots and checks
+are explicit operator overrides. Normal stop drains and retains an active worker
+(exit 3), unless its local-only 60-minute cap has expired. `ci-vm stop --force`
+skips drain for an explicit forced shutdown, including a stuck worker after the
+cap. `ci-vm start --provision-only` boots and checks
 provisioning/QoS/firewall without opening the runner activation gate, for
 pre-enrollment inspection. `ci-vm prepare` only refreshes a stopped profile's
 config. To disable automatic dispatch, set `services.ciVm.enable =
