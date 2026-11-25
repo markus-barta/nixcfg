@@ -383,12 +383,15 @@ and digest update. Keep that pin current with GitHub's runner update deadlines.
 
 The runner executes the archive's `bin/runsvc.sh` with `Type=exec`. Its unit
 uses `NoNewPrivileges`, a read-only system with its runner directory writable,
-`ProtectHome`, `PrivateTmp`, `RestrictSUIDSGID`, and limits of 4 GiB / 2048 tasks.
+`ProtectHome`, `PrivateTmp` and `RestrictSUIDSGID`.
+The runner uses `MemoryHigh=5G` / `MemoryMax=6G` with 2048 tasks, allowing room
+for Nix evaluation in the client process.
 The Nix daemon and its builds have separate limits of 10 GiB / 4096 tasks and
 low CPU/I/O weights, leaving room for sshd and the guest agent. Guest nftables
 blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
 `192.168.5.2` (`host.lima.internal`), while leaving guest DNS destinations allowed.
-Provisioning waits for Ubuntu DNS and bounds apt operations with retries.
+Provisioning waits for Ubuntu DNS, bounds apt operations with retries, and runs
+`dpkg --configure -a` before installation to recover interrupted package setup.
 
 The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.
 It sources the workstation agent token **only in a request subshell**, removes
@@ -439,7 +442,9 @@ the host calls the declared `host-ready` helper, which checks that boot ID,
 opens a gate in `/run`, and starts the repo services. Registration and jobs
 cannot start before that gate. Each service must pass `systemctl is-active`;
 a condition-skipped or failed service is not ready. The helper reports known
-deleted-registration diagnostics as "needs re-enrollment". Activation installs the agent and directories;
+deleted-registration diagnostics from the current service invocation as
+"needs re-enrollment"; older invocations do not reject a fresh registration.
+Activation installs the agent and directories;
 it never starts a VM directly. Login with an empty queue leaves `ci` stopped.
 
 ### Coordinator-only enrollment
@@ -513,6 +518,35 @@ six labels in GitHub, then use `trash` on the retained response file. Enrollment
 boots; an already configured runner never rereads the registration token.
 Switch hausnetz workflows in its owning repository, verify a green Mac run,
 and retire the old agm2 runner in that repository's separate lane.
+
+### Coordinator-only re-enrollment
+
+Before minting a replacement token, remove the old `.runner` and `.credentials*`
+from the guest runner directory. Otherwise registration is skipped and host
+cleanup treats the new token as already consumed. Retire any expired host token
+explicitly, then wait for current jobs to finish and run:
+
+```bash
+ci-vm stop
+ci-vm start --provision-only
+COLIMA_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/colima" \
+  LIMA_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/colima/_lima" \
+  colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/control reset-enrollment hausnetz
+ci-vm stop
+```
+
+Require each command to succeed before continuing. The fresh provision-only
+boot keeps the activation gate closed. `reset-enrollment` validates the repo ID,
+freezes an active listener, refuses active or uncertain local work, stops its
+unit, and moves only `.runner` / `.credentials*` to the printed root-only
+0700 rollback directory under `/var/lib/ci-vm`. Workspaces and runner binaries
+remain in place. It never contacts GitHub or reads credential contents.
+
+Now use the enrollment snippet above to mint and publish a fresh token, then
+run `ci-vm start` before expiry. Explicit start retries immediately despite an
+earlier failure backoff. The new service invocation excludes the old deleted
+registration journal line, so the reset does not cost another failure cycle.
+Changing repository, runner name or labels uses this same reviewed procedure.
 
 Operation: `ci-vm`/`ci-vm tick` performs one poll; `ci-vm start` and `ci-vm stop`
 are explicit operator overrides. Normal stop drains and retains an active worker

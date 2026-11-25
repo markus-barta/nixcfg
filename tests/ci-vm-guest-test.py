@@ -53,12 +53,16 @@ if command == "systemctl":
     if args[0] == "is-active":
         name = "FIREWALL_ACTIVE" if "ci-vm-firewall.service" in args else "RUNNER_ACTIVE"
         sys.exit(0 if os.environ.get(name, "1") == "1" else 3)
+    if args[0] == "show":
+        assert args[1:] == ["ci-runner-hausnetz.service", "--property=InvocationID", "--value"]
+        print("a" * 32)
     if args[0] == "freeze":
         (base / "frozen").write_text("yes")
         if os.environ.get("RACE_WORKER") == "1": (base / "worker").touch()
     if args[0] == "thaw": (base / "frozen").write_text("")
     if args[0] == "stop":
-        assert (base / "frozen").read_text() == "yes", "listeners were not frozen before stop"
+        if os.environ.get("RUNNER_ACTIVE", "1") == "1":
+            assert (base / "frozen").read_text() == "yes", "listeners were not frozen before stop"
 elif command == "id":
     assert args == ["-u", "ci-hausnetz"]
     print("1234")
@@ -66,7 +70,9 @@ elif command == "pgrep":
     assert args[:2] == ["-u", "1234"] and "Runner[.]Worker" in args[-1]
     sys.exit(0 if (base / "worker").exists() else int(os.environ.get("WORKER_RC", "1")))
 elif command == "journalctl":
-    if os.environ.get("STALE_RUNNER") == "1": print("The runner registration has been deleted from the server.")
+    current = "_SYSTEMD_INVOCATION_ID=" + "a" * 32
+    if os.environ.get("STALE_RUNNER") == "1" or (os.environ.get("OLD_STALE_RUNNER") == "1" and current not in args):
+        print("The runner registration has been deleted from the server.")
 elif command == "stat":
     assert args[:2] == ["-c", "%a"]
     print(oct(pathlib.Path(args[-1]).stat().st_mode & 0o777)[2:])
@@ -79,10 +85,19 @@ elif command == "runuser":
     sys.exit(subprocess.call([os.environ["FIXTURE_BASH"], "./config.sh"]))
 elif command == "tar":
     (base / "extracted").touch()
+elif command == "dpkg":
+    assert args == ["--configure", "-a"]
+    if os.environ.get("DPKG_FAIL") == "1": sys.exit(1)
+    (base / "dpkg-configured").touch()
+elif command == "apt-get":
+    if "install" in args:
+        assert (base / "dpkg-configured").exists(), "interrupted dpkg was not repaired before install"
+elif command == "getent":
+    assert args == ["ahostsv4", "ports.ubuntu.com"]
 elif command not in {"modprobe", "groupadd", "chgrp"}:
     raise AssertionError(command)
 '''
-    for name in ["systemctl", "id", "pgrep", "journalctl", "stat", "runuser", "tar", "modprobe", "groupadd", "chgrp"]:
+    for name in ["systemctl", "id", "pgrep", "journalctl", "stat", "runuser", "tar", "modprobe", "groupadd", "chgrp", "dpkg", "apt-get", "getent"]:
         write(bindir / name, stub, 0o755)
     return base
 
@@ -112,8 +127,12 @@ assert run(control, base, "ready").returncode == 0
 write(base / "var/lib/ci-runners/hausnetz/.runner", "{}")
 result = run(control, base, "ready", STALE_RUNNER="1")
 assert result.returncode != 0 and "needs re-enrollment" in result.stderr
+assert run(control, base, "ready", OLD_STALE_RUNNER="1").returncode == 0, "old invocation rejected a fresh enrollment"
+mutant = control.replace('"_SYSTEMD_INVOCATION_ID=$invocation" ', '')
+assert mutant != control
+assert run(mutant, base, "ready", OLD_STALE_RUNNER="1").returncode != 0, "whole-boot journal mutant survived"
 assert run(control, base, "enrolled").stdout == "hausnetz\n"
-print("ok guest readiness: provision-only gate, skipped/failed units, stale registration and enrollment state")
+print("ok guest readiness: skipped/failed units and current stale registration rejected; old invocation ignored and journal mutant killed")
 
 for settings, expected in [({}, 0), ({"WORKER_RC": "0"}, 3), ({"RACE_WORKER": "1"}, 3), ({"WORKER_RC": "2"}, 2)]:
     base = fixture()
@@ -201,6 +220,57 @@ assert mutant != register
 result, _ = registration_case(mutant, readable=True)
 assert result.returncode == 0, "token-isolation mutant did not exercise enrollment"
 print("ok guest token lifecycle: negative user read, environment-only config, persistent enrollment; readable-token mutant killed")
+
+result, base = registration_case(register)
+assert result.returncode == 0
+directory = base / "var/lib/ci-runners/hausnetz"
+(base / "etc/ci-vm-private/secrets/hausnetz.token").rename(base / "consumed-token")
+for name in [".credentials", ".credentials_rsaparams", "_work/keep"]:
+    write(directory / name, "nonsecret fixture\n")
+for settings, expected in [({"WORKER_RC": "0"}, 3), ({"WORKER_RC": "2"}, 2)]:
+    result = run(control, base, "reset-enrollment", "hausnetz", **settings)
+    assert result.returncode == expected and (directory / ".runner").exists(), "reset interrupted active/unknown work"
+result = run(control, base, "reset-enrollment", "unknown")
+assert result.returncode != 0 and (directory / ".runner").exists(), "reset accepted an unconfigured repository"
+(directory / ".credentials-unexpected").mkdir()
+result = run(control, base, "reset-enrollment", "hausnetz")
+assert result.returncode != 0 and (directory / ".runner").exists(), "reset accepted a non-file enrollment path"
+(directory / ".credentials-unexpected").rename(base / "unexpected-directory")
+result = run(control, base, "reset-enrollment", "hausnetz", RUNNER_ACTIVE="0")
+assert result.returncode == 0, result.stderr
+assert not any((directory / name).exists() for name in [".runner", ".credentials", ".credentials_rsaparams"])
+assert (directory / "_work/keep").exists(), "reset touched the workspace"
+backup, = (base / "var/lib/ci-vm").glob("retired-enrollment.*")
+assert backup.stat().st_mode & 0o777 == 0o700
+assert {path.name for path in backup.iterdir()} == {".runner", ".credentials", ".credentials_rsaparams"}
+# A fresh one-shot token now reaches config.sh rather than being skipped.
+write(base / "etc/ci-vm-private/secrets/hausnetz.token", "fixture-registration-value\n", 0o600)
+assert run(register, base, "hausnetz").returncode == 0
+assert (directory / ".runner").exists(), "reset prevented re-enrollment"
+assert run(control, base, "ready", OLD_STALE_RUNNER="1").returncode == 0, "re-enrollment lost a cycle to old journal diagnostics"
+print("ok guest re-enrollment: refuses active/unknown work, privately retires only registration files, and accepts a fresh enrollment immediately")
+
+dependencies = provision[provision.index('if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then'):provision.index("\ndownload_verified()")]
+
+
+def dependencies_contract(source, **settings):
+    base = fixture()
+    cache = base / "cache"
+    cache.mkdir()
+    result = run(f'set -euo pipefail\ncache="{cache}"\n' + source, base, **settings)
+    return result, base
+
+
+result, base = dependencies_contract(dependencies)
+assert result.returncode == 0 and (base / "cache/ubuntu-dependencies-v2").exists(), result.stderr
+calls = (base / "calls").read_text()
+assert calls.index("dpkg --configure -a") < calls.index(" install ")
+mutant = dependencies.replace("timeout 300 dpkg --configure -a", ":")
+assert mutant != dependencies and dependencies_contract(mutant)[0].returncode != 0, "interrupted-dpkg mutant survived"
+result, base = dependencies_contract(dependencies, DPKG_FAIL="1")
+assert result.returncode != 0 and not (base / "cache/ubuntu-dependencies-v2").exists()
+assert " install " not in (base / "calls").read_text(), "failed dpkg repair reached install"
+print("ok guest apt: repairs interrupted dpkg before install, aborts on repair failure; omitted-repair mutant killed")
 
 # Execute the real verification/extraction sequence with a corrupt cached Nix
 # archive. A hash failure must prevent tar and the installer from running.

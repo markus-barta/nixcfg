@@ -23,6 +23,7 @@ if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then
   timeout 5 getent ahostsv4 ports.ubuntu.com >/dev/null
   apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
   timeout 300 apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update -qq
+  timeout 300 dpkg --configure -a
   timeout 300 apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl xz-utils git jq sudo \
     nftables procps python3 libicu-dev libkrb5-3 zlib1g libssl-dev
   touch "$cache/ubuntu-dependencies-v2"
@@ -171,8 +172,8 @@ ProtectControlGroups=true
 RestrictRealtime=true
 LockPersonality=true
 CapabilityBoundingSet=
-MemoryHigh=3G
-MemoryMax=4G
+MemoryHigh=5G
+MemoryMax=6G
 TasksMax=2048
 
 [Install]

@@ -184,7 +184,11 @@ let
     executableRunnerUnit =
       lib.hasInfix "ExecStart=$dir/bin/runsvc.sh" provision && lib.hasInfix "Type=exec" provision;
     sandboxKvm = lib.hasInfix "chmod 0666 /dev/kvm" provision;
-    serviceLimits = lib.hasInfix "MemoryMax=4G" provision && lib.hasInfix "MemoryMax=10G" provision;
+    serviceLimits =
+      lib.hasInfix "MemoryHigh=5G" provision
+      && lib.hasInfix "MemoryMax=6G" provision
+      && lib.hasInfix "MemoryHigh=8G" provision
+      && lib.hasInfix "MemoryMax=10G" provision;
     guestFirewall =
       lib.hasInfix "meta skuid { $uids } ip daddr 192.168.5.2" provision
       && lib.hasInfix "Requires=ci-vm-firewall.service" provision;
