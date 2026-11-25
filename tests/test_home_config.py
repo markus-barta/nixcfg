@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -72,7 +73,7 @@ class SnapshotTests(unittest.TestCase):
                      "packages/.hidden.yaml", "unknown.yaml", "themes/README.txt"):
             put(self.ha, name, "{}\n")
 
-    def run_snapshot(self, *, ok=True, git=None, gitleaks=None, verify_only=False):
+    def run_snapshot(self, *, ok=True, git=None, gitleaks=None, verify_only=False, gc_only=False):
         configuration = implementation.Settings(repo=self.repo, runtime=self.runtime, nodered=self.nr,
                                                 homeassistant=self.ha, git=git or GIT, gitleaks=gitleaks or GITLEAKS,
                                                 scanner_config=SCANNER_CONFIG)
@@ -80,8 +81,8 @@ class SnapshotTests(unittest.TestCase):
         previous_mask = os.umask(0o027)
         try:
             with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
-                with mock.patch.dict(os.environ, {"INVOCATION_ID": "0" * 32}):
-                    result = implementation.run(configuration, verify_only=verify_only, debounce_seconds=0)
+                with mock.patch.object(implementation, "in_service_unit", return_value=True):
+                    result = implementation.run(configuration, verify_only=verify_only, gc_only=gc_only, debounce_seconds=0)
         finally:
             os.umask(previous_mask)
         self.assertEqual(result, 0 if ok else 1, output.getvalue())
@@ -106,6 +107,16 @@ class SnapshotTests(unittest.TestCase):
         return {str(path.relative_to(self.root)): (path.stat().st_mode, path.read_bytes())
                 for root in (self.nr, self.ha) for path in root.rglob("*") if path.is_file()}
 
+    def assert_history_permissions(self):
+        for path in (self.repo, *self.repo.rglob("*")):
+            info = path.stat()
+            self.assertFalse(info.st_mode & 0o027, str(path))
+            self.assertEqual(info.st_gid, self.repo.stat().st_gid, str(path))
+            if path.is_dir():
+                self.assertEqual(stat.S_IMODE(info.st_mode), 0o2750, str(path))
+            else:
+                self.assertIn(stat.S_IMODE(info.st_mode), (0o440, 0o640), str(path))
+
     def test_allowlist_redaction_author_and_read_only_sources(self):
         before = self.source_state()
         self.run_snapshot()
@@ -124,15 +135,32 @@ class SnapshotTests(unittest.TestCase):
             self.assertIn(name, message)
         self.assertEqual(self.source_state(), before)
         self.assertFalse(self.git("remote"))
-        self.assertEqual(self.git("config", "core.sharedRepository").strip(), b"group")
+        self.assertEqual(self.git("config", "core.sharedRepository").strip(), b"0640")
         self.assertEqual(self.repo.stat().st_mode & 0o7777, 0o2750)
         self.assertEqual(self.git("rev-parse", "--is-bare-repository").strip(), b"true")
         self.assertFalse((self.repo / ".git/index").exists())
-        for path in self.repo.rglob("*"):
-            self.assertFalse(path.stat().st_mode & 0o007, str(path))
-            self.assertEqual(path.stat().st_gid, self.repo.stat().st_gid, str(path))
-            if path.is_file():
-                self.assertTrue(path.stat().st_mode & 0o040, str(path))
+        self.assert_history_permissions()
+
+    def test_planted_index_hook_is_disabled_even_with_local_hooks_override(self):
+        self.run_snapshot()
+        hooks = self.repo / ".git/hooks"
+        marker = self.root / "hook-ran"
+        put(hooks, "post-index-change", "#!/bin/sh\ntouch '" + str(marker) + "'\n")
+        (hooks / "post-index-change").chmod(0o750)
+        for configured in (False, True):
+            with self.subTest(configured=configured):
+                if configured:
+                    self.git("config", "core.hooksPath", str(hooks))
+                put(self.ha, "automations.yaml", "# hook fixture " + str(configured) + "\n[]\n")
+                first = self.head()
+                self.run_snapshot()
+                self.assertNotEqual(self.head(), first)
+                self.assertFalse(marker.exists(), "snapshot Git executed a planted hook")
+        # Prove that this executable hook really fires when the override is absent.
+        subprocess.run([GIT, "-C", str(self.repo), "read-tree", "HEAD"], check=True, capture_output=True,
+                       env=implementation.private_environment(self.runtime) | {"GIT_INDEX_FILE": str(self.runtime / "control-index")},
+                       timeout=10)
+        self.assertTrue(marker.exists(), "control did not exercise the planted hook")
 
     def test_no_commit_when_unchanged_and_single_source_message(self):
         self.run_snapshot()
@@ -289,6 +317,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual({str(path.relative_to(self.repo)): (path.stat().st_mode, path.stat().st_gid, path.stat().st_mtime_ns, path.read_bytes())
                           for path in self.repo.rglob("*") if path.is_file()}, metadata)
         self.assertEqual(self.repo.stat().st_mode & 0o7777, 0o2750)
+        self.assert_history_permissions()
 
     def test_harmless_non_directory_entries_are_skipped_and_counted(self):
         put(self.ha, "themes/catppuccin/catppuccin-accents.zip", "synthetic ZIP payload\n")
@@ -324,12 +353,33 @@ class SnapshotTests(unittest.TestCase):
                 self.assertFalse(self.head())
 
     def test_yaml_credential_keys_and_reference_exclusions(self):
-        for key in ("password", "passwd", "pass", "token", "api_key", "secret"):
+        for key in ("password", "passwd", "pass", "token", "api_key", "secret", "wifi_password",
+                    "client_secret", "api_password", "access_token", "wifi-password", "clientSecret"):
             with self.subTest(key=key):
                 put(self.ha, "automations.yaml", key + ": very short!\n")
                 self.assertIn("rule=home-config-yaml-credential ", self.run_snapshot(ok=False))
-        put(self.ha, "automations.yaml", "password: !secret fixture_password\ntoken: !env_var FIXTURE_TOKEN\n")
+        for payload in ("{password: x}\n", "wifi: {wifi_password: x}\n",
+                        "wifi: {password: !secret fixture_password, access_token: x}\n",
+                        "- wifi_password: x\n", "credentials: {client_secret: x, api_password: y}\n"):
+            with self.subTest(payload=payload):
+                put(self.ha, "automations.yaml", payload)
+                self.assertIn("rule=home-config-yaml-credential ", self.run_snapshot(ok=False))
+        put(self.ha, "automations.yaml", "wifi_password: !secret fixture_password\naccess_token: !env_var FIXTURE_TOKEN\n"
+            "wifi: {password: !secret fixture_password, client_secret: !env_var FIXTURE_SECRET}\n")
         self.run_snapshot()
+
+    def test_known_settings_template_comments_and_ha_include_shapes_pass(self):
+        bcrypt = "$" + "2b$08$" + "A" * 53
+        put(self.nr, "settings.js", 'module.exports = {\ncredentialSecret: "' + self.setting_value + '",\n'
+            '// adminAuth: {users: [{username: "admin", password: "' + bcrypt + '"}]},\n'
+            '// httpNodeAuth: {user: "user", pass: "' + bcrypt + '"},\n'
+            '// httpStaticAuth: {user: "user", pass: "' + bcrypt + '"},\n};\n')
+        put(self.ha, "configuration.yaml", "automation: !include automations.yaml\nscript: !include scripts.yaml\n"
+            "scene: !include scenes.yaml\nhomeassistant:\n  customize: !include customize.yaml\n"
+            "frontend:\n  themes: !include_dir_merge_named themes\n")
+        self.run_snapshot()
+        self.run_snapshot(verify_only=True)
+        self.assertNotIn(bcrypt.encode(), self.git("cat-file", "--batch-all-objects", "--batch"))
 
     def test_redacted_auth_passwords_and_comment_bcrypt_pass_real_scanner(self):
         bcrypt = "$" + "2b$08$" + "A" * 53
@@ -348,10 +398,28 @@ class SnapshotTests(unittest.TestCase):
                                                homeassistant=self.ha, git=GIT, gitleaks=GITLEAKS,
                                                scanner_config=SCANNER_CONFIG)
         for gc_only in (False, True):
-            with mock.patch.dict(os.environ, {"INVOCATION_ID": ""}), contextlib.redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(implementation.run(configuration, gc_only=gc_only, debounce_seconds=0), 1)
-                self.assertIn("require the systemd unit", output.getvalue())
+            for invocation in ("", "0" * 32):
+                with (mock.patch.dict(os.environ, {"INVOCATION_ID": invocation}),
+                      mock.patch.object(implementation.Path, "read_text", return_value="0::/user.slice/manual.scope\n"),
+                      contextlib.redirect_stdout(io.StringIO()) as output):
+                    self.assertEqual(implementation.run(configuration, gc_only=gc_only, debounce_seconds=0), 1)
+                    self.assertIn("require the systemd unit", output.getvalue())
         self.assertFalse((self.repo / ".git").exists())
+        self.assertEqual(list(self.runtime.iterdir()), [])
+
+    def test_unit_guard_requires_the_correct_complete_cgroup_component(self):
+        for gc_only in (False, True):
+            unit = "hsb1-home-config-gc.service" if gc_only else "hsb1-home-config.service"
+            other = "hsb1-home-config.service" if gc_only else "hsb1-home-config-gc.service"
+            for prefix in ("0::", "7:memory:"):
+                for path, expected in (("/system.slice/" + unit, True), ("/system.slice/" + unit + "/child", True),
+                                       ("/system.slice/" + other, False), ("/system.slice/prefix-" + unit, False),
+                                       ("/system.slice/" + unit + "-suffix", False), ("/user.slice/manual.scope", False)):
+                    with self.subTest(gc_only=gc_only, prefix=prefix, path=path):
+                        with mock.patch.object(implementation.Path, "read_text", return_value=prefix + path + "\n"):
+                            self.assertEqual(implementation.in_service_unit(gc_only), expected)
+        with mock.patch.object(implementation.Path, "read_text", side_effect=FileNotFoundError):
+            self.assertFalse(implementation.in_service_unit(False))
 
     def test_sigkill_during_scan_or_ref_publication_does_not_block_next_run(self):
         for phase in ("init", "scan", "publish"):
@@ -363,7 +431,7 @@ class SnapshotTests(unittest.TestCase):
                     "import importlib.util, os, signal, sys\nfrom pathlib import Path\n"
                     "spec = importlib.util.spec_from_file_location('home_config', " + repr(str(SCRIPT)) + ")\n"
                     "module = importlib.util.module_from_spec(spec)\nsys.modules[spec.name] = module\nspec.loader.exec_module(module)\n"
-                    "os.environ['INVOCATION_ID'] = '0' * 32\n"
+                    "module.in_service_unit = lambda gc_only: True\n"
                     "original_scan, original_replace, original_git = module.scan_tree, module.os.replace, module.git\ncount = 0\n"
                     "def pause():\n    Path(" + repr(str(ready)) + ").touch()\n    signal.pause()\n"
                     "def git(*args, **kwargs):\n    result = original_git(*args, **kwargs)\n"
@@ -445,14 +513,35 @@ class SnapshotTests(unittest.TestCase):
     def test_periodic_gc_is_separate_and_preserves_snapshot_head(self):
         self.run_snapshot()
         first = self.head()
-        configuration = implementation.Settings(repo=self.repo, runtime=self.runtime, nodered=self.nr,
-                                               homeassistant=self.ha, git=GIT, gitleaks=GITLEAKS,
-                                               scanner_config=SCANNER_CONFIG)
-        with mock.patch.dict(os.environ, {"INVOCATION_ID": "0" * 32}), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(implementation.run(configuration, gc_only=True), 0)
+        self.assertFalse((self.repo / ".git/gc-success").exists())
+        self.run_snapshot(gc_only=True)
+        self.assertTrue((self.repo / ".git/gc-success").is_file())
         self.assertEqual(self.head(), first)
         self.assertTrue((self.repo / ".git/objects/pack").is_dir())
+        put(self.ha, "automations.yaml", "# after packed refs\n[]\n")
+        self.run_snapshot()
         self.run_snapshot(verify_only=True)
+        self.assert_history_permissions()
+
+    def test_failed_gc_and_successful_snapshots_never_refresh_gc_witness(self):
+        self.run_snapshot()
+        self.run_snapshot(gc_only=True)
+        put(self.ha, "automations.yaml", "# create a loose ref that GC must pack\n[]\n")
+        self.run_snapshot()
+        stamp = self.repo / ".git/gc-success"
+        os.utime(stamp, (100, 100))
+        put(self.repo, ".git/packed-refs.lock", "synthetic abandoned GC lock\n")
+        before = (stamp.read_bytes(), stamp.stat().st_mtime_ns)
+        wrapper = self.root / "failing-gc"
+        wrapper.write_text("#!" + sys.executable + "\nimport os, sys\n"
+                           "if 'gc' in sys.argv[1:]:\n    sys.exit(17)\n"
+                           + "os.execv(" + repr(GIT) + ", [" + repr(GIT) + "] + sys.argv[1:])\n")
+        wrapper.chmod(0o700)
+        self.assertIn("Git operation failed: gc", self.run_snapshot(git=str(wrapper), gc_only=True, ok=False))
+        self.assertEqual((stamp.read_bytes(), stamp.stat().st_mtime_ns), before)
+        self.run_snapshot()
+        self.assertEqual((stamp.read_bytes(), stamp.stat().st_mtime_ns), before)
+        self.assertTrue((self.repo / ".git/packed-refs.lock").is_file())
 
 
 class SettingsTests(unittest.TestCase):
@@ -521,6 +610,79 @@ class WitnessTests(unittest.TestCase):
             link.symlink_to(path)
             self.assertEqual(self.witness.check_freshness(link, 101)[0].key, "home-config:stale")
 
+    def test_gc_witness_grace_expiry_success_and_invalid_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            git_dir = Path(temporary)
+            self.assertEqual(self.witness.check_gc(git_dir, 101)[0].key, "home-config:gc-missing")
+            config = git_dir / "config"
+            config.touch()
+            os.utime(config, (100, 100))
+            self.assertEqual(self.witness.check_gc(git_dir, 101), [])
+            self.assertEqual(self.witness.check_gc(git_dir, 100 + self.witness.GC_MAX_AGE), [])
+            self.assertEqual(self.witness.check_gc(git_dir, 101 + self.witness.GC_MAX_AGE)[0].key, "home-config:gc-stale")
+            success = git_dir / "gc-success"
+            success.touch()
+            os.utime(success, (100 + self.witness.GC_MAX_AGE, 100 + self.witness.GC_MAX_AGE))
+            self.assertEqual(self.witness.check_gc(git_dir, 101 + self.witness.GC_MAX_AGE), [])
+            self.assertEqual(self.witness.check_gc(git_dir, 99)[0].key, "home-config:gc-stale")
+            success.unlink()
+            success.symlink_to(config)
+            self.assertEqual(self.witness.check_gc(git_dir, 101)[0].key, "home-config:gc-stale")
+
+    def test_stale_gc_locks_alert_without_deleting_or_reading_them(self):
+        for name in self.witness.GC_LOCKS:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                git_dir = Path(temporary)
+                success = git_dir / "gc-success"
+                success.touch()
+                os.utime(success, (100, 100))
+                put(git_dir, name, "synthetic lock preserved for operator inspection\n")
+                lock = git_dir / name
+                os.utime(lock, (100, 100))
+                self.assertEqual(self.witness.check_gc(git_dir, 101), [])
+                metadata = (lock.stat().st_ino, lock.stat().st_size, lock.stat().st_mtime_ns)
+                with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("metadata-only witness")):
+                    self.assertEqual([problem.key for problem in self.witness.check_gc(git_dir, 101 + self.witness.GC_LOCK_MAX_AGE)],
+                                     ["home-config:gc-lock:" + name])
+                self.assertEqual((lock.stat().st_ino, lock.stat().st_size, lock.stat().st_mtime_ns), metadata)
+                lock.unlink()
+                lock.symlink_to(success)
+                self.assertEqual(self.witness.check_gc(git_dir, 101)[0].key, "home-config:gc-lock:" + name)
+
+    def test_gc_problems_page_and_clear_through_the_real_alert_engine(self):
+        for problem in ("gc-stale", "gc-lock:packed-refs.lock"):
+            with self.subTest(problem=problem), tempfile.TemporaryDirectory() as temporary:
+                git_dir = Path(temporary)
+                snapshot = git_dir / "snapshot-success"
+                success = git_dir / "gc-success"
+                snapshot.touch()
+                success.touch()
+                now = 100 + self.witness.GC_MAX_AGE + 1
+                os.utime(snapshot, (now, now))
+                os.utime(success, (100 if problem == "gc-stale" else now,) * 2)
+                lock = git_dir / "packed-refs.lock"
+                if problem.startswith("gc-lock"):
+                    lock.touch()
+                    os.utime(lock, (100, 100))
+                state = str(git_dir / "state.json")
+                sent = []
+
+                def sender(text, event_id):
+                    sent.append(text)
+                    return True
+
+                with mock.patch.object(self.witness, "SUCCESS", snapshot), mock.patch.object(self.witness.time, "time", return_value=now):
+                    self.assertEqual([item.key for item in self.witness.collect()], ["home-config:" + problem])
+                    for observed in (now, now + 1, now + 2):
+                        self.engine.run_cycle(state, observed, self.witness.collect, self.witness.render, sender)
+                    self.assertEqual(len(sent), 1)
+                    if lock.exists():
+                        lock.unlink()
+                    os.utime(success, (now, now))
+                    self.engine.run_cycle(state, now + 3, self.witness.collect, self.witness.render, sender)
+                self.assertEqual(len(sent), 2)
+                self.assertIn("Cleared:", sent[1])
+
     def test_real_engine_confirms_alert_and_announces_recovery(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "success"
@@ -554,11 +716,15 @@ def mutation_checks():
         "drop-hash-gate": ('for value in values:', 'for value in []:'),
         "drop-second-scan": ('scan_tree(args, exported)', 'pass'),
         "follow-selected-symlinks": ('follow_symlinks=False', 'follow_symlinks=True'),
+        "enable-git-hooks": ('"-c", "core.hooksPath=/dev/null", ', ''),
+        "drop-unit-guard": ('if not verify_only and not in_service_unit(gc_only):', 'if False:'),
     }
     checks = ["SnapshotTests.test_allowlist_redaction_author_and_read_only_sources", "SnapshotTests.test_planted_secret_aborts_before_any_git_blob_or_source_write",
               "SnapshotTests.test_remote_guard_also_runs_when_sources_unchanged",
               "SnapshotTests.test_candidate_and_exact_index_export_are_both_scanned",
               "SnapshotTests.test_symlinks_and_hardlinks_fail_without_reading_their_target",
+              "SnapshotTests.test_planted_index_hook_is_disabled_even_with_local_hooks_override",
+              "SnapshotTests.test_full_run_outside_unit_is_refused_before_any_state_change",
               "SettingsTests.test_hash_gate_detects_other_copy_and_escaped_source_spelling",
               "SettingsTests.test_hash_gate_also_decodes_differently_escaped_duplicate"]
     with tempfile.TemporaryDirectory(prefix="ops158-mutants-") as temporary:

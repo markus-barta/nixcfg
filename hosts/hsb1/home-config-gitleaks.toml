@@ -28,11 +28,13 @@ secretGroup = 1
 [[rules]]
 id = "home-config-yaml-credential"
 description = "Unquoted password-like YAML value"
-regex = '''(?im)^[ \t]*(?:-[ \t]+)?(?:password|passwd|pass|token|api_key|secret)[ \t]*:[ \t]*([^ \t\r\n"'#][^\r\n]*)'''
+# Capture the assignment so inherited placeholder allowlists cannot hide a
+# short literal such as x. Delimit inline values before scanning the next key.
+regex = '''(?im)(?:^[ \t]*(?:-[ \t]+)?|[,{][ \t]*)([\w-]*(?:password|passwd|pass|secret|token|api_key)[ \t]*:[ \t]*[^ \t\r\n"'#,}][^,\r\n}]*)'''
 secretGroup = 1
 [[rules.allowlists]]
 regexTarget = "secret"
-regexes = ['''^!(?:secret|env_var)(?:[ \t]+|$)''', '''^\[REDACTED\]$''']
+regexes = ['''(?i)^[\w-]+[ \t]*:[ \t]*!(?:secret|env_var)(?:[ \t]+|$)''', '''^[\w-]+[ \t]*:[ \t]*\[REDACTED\][ \t]*$''']
 
 [[rules]]
 id = "home-config-query-token"

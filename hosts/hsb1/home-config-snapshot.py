@@ -348,6 +348,7 @@ def git(args, *arguments, data=None, check=True, index=None, timeout=60):
     try:
         result = subprocess.run(
             [args.git, "-c", "protocol.allow=never", "-c", "core.autocrlf=false",
+             "-c", "core.hooksPath=/dev/null", "-c", "core.fsync=loose-object",
              "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-C", str(args.repo), *arguments],
             input=data, capture_output=True, env=environment, timeout=operation_timeout(args, timeout),
         )
@@ -388,17 +389,20 @@ def prepare_repo(args, verify):
         # repository. An interrupted init cannot strand config.lock in .git/.
         with tempfile.TemporaryDirectory(prefix=".snapshot-init-", dir=args.repo) as temporary:
             initializing = Path(temporary)
-            git(args, "init", "--quiet", "--bare", "--shared=group", "--initial-branch=main",
+            git(args, "init", "--quiet", "--bare", "--shared=0640", "--initial-branch=main",
                 "--template=" + str(template), str(initializing))
-            git(args, "config", "--file", str(initializing / "config"), "core.sharedRepository", "group")
-            initializing.chmod(0o2770)
+            git(args, "config", "--file", str(initializing / "config"), "core.sharedRepository", "0640")
+            initializing.chmod(0o2750)
             os.replace(initializing, git_dir)
     with directory(git_dir):
+        info = git_dir.stat()
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o2750:
+            raise Refused("Git directory must be owned by the service user and mode 2750: " + safe_path(git_dir))
         if (git(args, "rev-parse", "--absolute-git-dir").stdout.decode().strip() != str(git_dir)
                 or git(args, "rev-parse", "--is-bare-repository").stdout.strip() != b"true"):
             raise Refused("expected a history-only bare repository; preserve existing worktrees for operator review")
-    if git(args, "config", "--local", "--get", "core.sharedRepository").stdout.strip() != b"group":
-        raise Refused("repository core.sharedRepository must be group")
+    if git(args, "config", "--local", "--get", "core.sharedRepository").stdout.strip() != b"0640":
+        raise Refused("repository core.sharedRepository must be 0640")
     if git(args, "symbolic-ref", "HEAD").stdout.strip() != b"refs/heads/main":
         raise Refused("repository HEAD must name refs/heads/main")
     no_remote(args)
@@ -616,10 +620,22 @@ def snapshot(args, verify_only=False, debounce_seconds=20):
         log("committed " + sources + ": " + ", ".join(names))
 
 
+def in_service_unit(gc_only):
+    expected = "hsb1-home-config-gc.service" if gc_only else "hsb1-home-config.service"
+    try:
+        cgroups = Path("/proc/self/cgroup").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError):
+        return False
+    # Match a complete cgroup path component, for both cgroup v1 and v2.
+    # INVOCATION_ID can be inherited or supplied by a manual shell.
+    return any(len(fields := line.split(":", 2)) == 3 and expected in fields[2].split("/")
+               for line in cgroups)
+
+
 def run(args, verify_only=False, gc_only=False, debounce_seconds=20):
     os.umask(0o027)
     try:
-        if not verify_only and not re.fullmatch(r"[0-9a-fA-F]{32}", os.environ.get("INVOCATION_ID", "")):
+        if not verify_only and not in_service_unit(gc_only):
             raise Refused("full snapshot and maintenance require the systemd unit; use --verify-only manually")
         args = replace(args, deadline=time.monotonic() + (28 * 60 if gc_only else 8 * 60))
         args.runtime.mkdir(mode=0o700, exist_ok=True)
@@ -642,6 +658,8 @@ def run(args, verify_only=False, gc_only=False, debounce_seconds=20):
                 prepare_repo(args, True)
                 clean_stale(args, False)
                 git(args, "gc", "--prune=2.weeks.ago", timeout=27 * 60)
+                with path_errors(args.repo / ".git/gc-success"):
+                    (args.repo / ".git/gc-success").touch(mode=0o640)
                 log("periodic Git maintenance complete")
             else:
                 snapshot(args, verify_only, debounce_seconds)

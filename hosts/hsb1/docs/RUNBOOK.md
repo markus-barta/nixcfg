@@ -1233,8 +1233,11 @@ remote. It only reads the live directories and never calls Docker or restarts
 either service. This is a **history-only bare repository inside `.git/`**;
 there are no checked-out snapshot files or shared Git index. Root owns the
 repository; the `home-config` group lets `mba` read it. The top directory is
-setgid mode **2750** and Git uses `core.sharedRepository=group`, so newly created
-objects and refs inherit the reader group, including after manual verification.
+setgid mode **2750** and Git uses `core.sharedRepository=0640`: directories are
+2750, metadata/refs 0640 and objects 0440. The group can read history but cannot
+write any repository path, including `.git`. New files inherit the reader group,
+including after GC; manual verification preserves permissions. Every service Git
+command disables hooks and fsyncs new loose objects before publishing a ref.
 The declarative system Git configuration trusts exactly this root-owned
 path so normal history commands work for `mba`. Reconnect after deployment to
 pick up the new group membership.
@@ -1287,8 +1290,10 @@ Git receives its contents, then scans an export of the exact staged blobs
 before each commit. Findings log **rule, relative filename and line only**;
 scanner stdout/stderr and credential values never enter the journal. Inline
 `gitleaks:allow` comments and source-side scanner configuration cannot bypass
-the gate. YAML `!secret`/`!env_var` references are excluded from the unquoted-value
-rule. Scanner failure aborts too. A failed pre-scan leaves history unchanged and
+the gate. The unquoted-YAML rule covers compound keys such as `wifi_password`,
+`client_secret`, `api_password` and `access_token`, including inline mappings.
+YAML `!secret`/`!env_var` references are excluded from that rule. Scanner failure
+aborts too. A failed pre-scan leaves history unchanged and
 creates no Git objects. File I/O failures identify a validated path and errno;
 each run logs only counts of ignored entries and skipped YAML files. A skipped
 directory counts as one entry; its unvisited descendants are not inventoried.
@@ -1313,12 +1318,15 @@ the source (`nodered`/`homeassistant`) and changed paths; the author is
 `hsb1-home-config <root@hsb1>`. The sandbox makes sources read-only, denies
 network access and runs with idle I/O scheduling and Nice 19. The production
 command has fixed source, destination and tool paths. A full snapshot or `--gc`
-requires a systemd invocation; use `--verify-only` manually. Verification reads
+requires its matching systemd unit cgroup (`hsb1-home-config.service` or
+`hsb1-home-config-gc.service`); an inherited `INVOCATION_ID` is insufficient.
+Use `--verify-only` manually. Verification reads
 HEAD without modifying repository metadata, permissions or an index. Existing
 non-bare pilot repositories are preserved and refused; the coordinator must
 review/migrate one explicitly rather than deleting its worktree.
 
-The snapshot unit has `restartIfChanged=false`, an eight-minute worker budget
+The snapshot unit starts after `systemd-tmpfiles-setup.service`, with
+`restartIfChanged=false`, an eight-minute worker budget
 and a ten-minute systemd timeout. Automatic Git GC/maintenance is disabled in
 snapshot commands. `hsb1-home-config-gc.timer` performs weekly GC in a separate
 network-denied sandbox with a thirty-minute timeout, using the same lock.
@@ -1326,7 +1334,18 @@ network-denied sandbox with a thirty-minute timeout, using the same lock.
 minutes. A missing success marker, a non-regular marker or one older than
 45 minutes is a problem; two consecutive observations page, and recovery clears
 the alert. Successful changed **and unchanged** snapshots refresh this
-metadata-only witness; manual verification and GC do not.
+metadata-only witness; manual verification and GC do not. Successful GC alone
+refreshes `.git/gc-success`. The same witness pages if GC has not succeeded for
+15 days; until the first GC, the initial Git config timestamp provides a
+15-day grace period. A snapshot never refreshes that timestamp. Known GC locks
+(`packed-refs.lock`, `gc.pid`, `gc.pid.lock`, `gc.log.lock` and commit-graph locks)
+older than one hour, with future timestamps, or with invalid types also page
+through the same confirmation/recovery flow. Locks are preserved for operator
+inspection rather than removed automatically. Inspect GC status and journal,
+confirm that no GC is active, then follow an explicitly approved recovery.
+Existing pilot histories with group-write permissions are refused; review and
+correct their ownership, directory/file modes and `core.sharedRepository`
+explicitly before enabling this revision.
 
 ```bash
 git -C /home/mba/home-config log --oneline

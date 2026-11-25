@@ -64,6 +64,7 @@ def verify(result):
     assert unit["Nice"] == 19 and unit["IOSchedulingClass"] == "idle"
     assert unit["TimeoutStartSec"] == "10min"
     assert result["service"]["restartIfChanged"] is False
+    assert "systemd-tmpfiles-setup.service" in result["service"]["after"]
     assert unit["ExecStart"].endswith("/bin/hsb1-home-config")
     assert set(result["service"]["mounts"]) == {destination, nr, ha}
     assert not any("docker" in name or "compose" in name for name in result["service"]["wants"])
@@ -104,6 +105,7 @@ def verify(result):
     assert "PathChanged=" + nr + "/flows.json" in result["units"]["path"]
     assert "OnUnitInactiveSec=15min" in result["units"]["timer"]
     assert "X-RestartIfChanged=false" in result["units"]["service"]
+    assert "systemd-tmpfiles-setup.service" in next(line for line in result["units"]["service"].splitlines() if line.startswith("After="))
     assert "TimeoutStartSec=30min" in result["units"]["gc"]
     assert "OnCalendar=weekly" in result["units"]["gcTimer"]
     assert "StateDirectory=home-config-watch" in result["units"]["witness"]

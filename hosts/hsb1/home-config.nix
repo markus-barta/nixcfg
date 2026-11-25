@@ -80,6 +80,7 @@ in
   systemd.services.hsb1-home-config = {
     description = "Secret-gated local Node-RED and Home Assistant configuration history (OPS-158)";
     restartIfChanged = false;
+    after = [ "systemd-tmpfiles-setup.service" ];
     unitConfig.RequiresMountsFor = [
       repo
       nodered
