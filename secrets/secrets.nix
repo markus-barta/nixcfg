@@ -525,6 +525,12 @@ in
   "hsb0-openclaw-opus-gateway.age".publicKeys = markus ++ hsb0;
   "hsb0-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
 
+  # OPS-673 (HNET-556 0b): long-lived token of the Home Assistant user "hausnetz" on hsb1
+  # (group system-read-only, local_only, no password credential). Generated in memory on
+  # hsb0 and sealed straight into age; never stored in clear. Not wired to any service yet:
+  # the hausnetz service picks it up with HNET-304/HNET-557.
+  "hsb0-hausnetz-ha-token.age".publicKeys = markus ++ hsb0;
+
   # hsb0 emergency recovery password — the yescrypt VERIFIER, not plaintext.
   # Format: single line, `$y$...`, exactly as `mkpasswd -m yescrypt` emits.
   # Edit: agenix -e secrets/hsb0-recovery-password.age
