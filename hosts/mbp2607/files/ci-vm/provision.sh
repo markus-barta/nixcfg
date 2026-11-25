@@ -9,17 +9,26 @@ install -d -m 0755 "$cache" /usr/local/libexec/ci-vm /etc/nix /var/lib/ci-runner
 : >/var/lib/ci-vm/ready
 
 # Ubuntu repositories only. Avoid repeating apt work on every on-demand boot.
-if [ ! -f "$cache/ubuntu-dependencies-v1" ]; then
-  apt-get update -qq
-  apt-get install -y --no-install-recommends ca-certificates curl xz-utils git jq sudo \
-    libicu-dev libkrb5-3 zlib1g libssl-dev
-  touch "$cache/ubuntu-dependencies-v1"
+if [ ! -f "$cache/ubuntu-dependencies-v2" ]; then
+  # DNS can lag the guest agent on a cold VZ boot. Bound both DNS and apt.
+  for attempt in $(seq 1 12); do
+    if timeout 5 getent ahostsv4 ports.ubuntu.com >/dev/null; then break; fi
+    printf 'ci-vm: waiting for Ubuntu DNS (%s/12)\n' "$attempt" >&2
+    sleep 5
+  done
+  timeout 5 getent ahostsv4 ports.ubuntu.com >/dev/null
+  apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+  timeout 300 apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update -qq
+  timeout 300 apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl xz-utils git jq sudo \
+    nftables procps python3 libicu-dev libkrb5-3 zlib1g libssl-dev
+  touch "$cache/ubuntu-dependencies-v2"
 fi
 
 download_verified() {
   local url=$1 path=$2 digest=$3
   if [ ! -f "$path" ]; then
     curl --fail --silent --show-error --location --proto '=https' --retry 3 \
+      --connect-timeout 10 --max-time 180 --retry-max-time 300 \
       --output "$path.partial" "$url"
     printf '%s  %s\n' "$digest" "$path.partial" | sha256sum --check --status
     mv "$path.partial" "$path"
@@ -32,6 +41,10 @@ nix_archive="$cache/nix-$nix_version-aarch64-linux.tar.xz"
 download_verified "https://releases.nixos.org/nix/nix-$nix_version/nix-$nix_version-aarch64-linux.tar.xz" \
   "$nix_archive" @nixSha256@
 if [ ! -x /nix/var/nix/profiles/default/bin/nix ]; then
+  if [ -e /nix/var/nix/db/db.sqlite ]; then
+    printf 'ci-vm: partial Nix installation needs operator repair; refusing to overwrite it\n' >&2
+    exit 1
+  fi
   tar -xJf "$nix_archive" -C "$cache"
   HOME=/root "$cache/nix-$nix_version-aarch64-linux/install" --daemon --yes --no-channel-add
 fi
@@ -46,7 +59,20 @@ sandbox = true
 extra-sandbox-paths = /dev/kvm
 trusted-users = root
 allowed-users = *
+min-free = 5368709120
+max-free = 10737418240
 NIX_CONFIG
+install -d -m 0755 /etc/systemd/system/nix-daemon.service.d
+cat >/etc/systemd/system/nix-daemon.service.d/ci-vm.conf <<'DAEMON_UNIT'
+[Service]
+MemoryHigh=8G
+MemoryMax=10G
+TasksMax=4096
+Nice=10
+CPUWeight=10
+IOWeight=10
+DAEMON_UNIT
+systemctl daemon-reload
 systemctl enable --now nix-daemon.socket
 systemctl restart nix-daemon.service
 
@@ -54,8 +80,9 @@ modprobe kvm
 test -c /dev/kvm
 groupadd -f kvm
 chgrp kvm /dev/kvm
-chmod 0660 /dev/kvm
-printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0660"' >/etc/udev/rules.d/70-ci-vm-kvm.rules
+# As on NixOS, sandboxed nixbld users need access without supplementary groups.
+chmod 0666 /dev/kvm
+printf '%s\n' 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' >/etc/udev/rules.d/70-ci-vm-kvm.rules
 
 cat >/etc/ci-vm-repositories.json <<'REPOSITORIES'
 @repositories@
@@ -64,17 +91,13 @@ cat >/usr/local/libexec/ci-vm/register <<'REGISTER_SCRIPT'
 @register@
 REGISTER_SCRIPT
 chmod 0755 /usr/local/libexec/ci-vm/register
+cat >/usr/local/libexec/ci-vm/control <<'CONTROL_SCRIPT'
+@control@
+CONTROL_SCRIPT
+chmod 0755 /usr/local/libexec/ci-vm/control
 cat >/usr/local/libexec/ci-vm/host-ready <<'HOST_READY'
 #!/bin/bash
-set -euo pipefail
-# Colima can report READY even if a provision failed. Require this boot's marker.
-test "$(cat /var/lib/ci-vm/ready)" = "$(cat /proc/sys/kernel/random/boot_id)"
-# No runner (including enrollment) may start before the host verifies both QoS
-# policies. /run is cleared at reboot and this file is root-owned.
-touch /run/ci-vm-host-qos-ready
-while IFS= read -r id; do
-  systemctl start "ci-runner-$id.service"
-done < <(jq -r '.[].id' /etc/ci-vm-repositories.json)
+exec /usr/local/libexec/ci-vm/control ready "$@"
 HOST_READY
 chmod 0755 /usr/local/libexec/ci-vm/host-ready
 
@@ -99,6 +122,7 @@ while IFS= read -r id; do
     touch "$cache/$id-$runner_version.installed"
   fi
   test -x "$dir/bin/Runner.Listener"
+  test -x "$dir/bin/runsvc.sh"
   # runsvc.sh/config.sh load .path; no host paths or agent tokens enter it.
   printf '%s\n' '/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin' >"$dir/.path"
   chown "$user:$user" "$dir/.path"
@@ -106,13 +130,15 @@ while IFS= read -r id; do
 [Unit]
 Description=GitHub Actions runner $id (OPS-669)
 Wants=network-online.target nix-daemon.socket
-After=network-online.target nix-daemon.socket
+Requires=ci-vm-firewall.service
+After=network-online.target nix-daemon.socket ci-vm-firewall.service
 # Skip enrollment and execution entirely until configuration or a token exists.
 ConditionPathExists=/run/ci-vm-host-qos-ready
 ConditionPathExists=|$dir/.runner
 ConditionPathExists=|/etc/ci-vm-secrets/$id.token
 
 [Service]
+Type=exec
 User=$user
 Group=$user
 SupplementaryGroups=kvm
@@ -120,7 +146,7 @@ WorkingDirectory=$dir
 Environment=HOME=$dir
 Environment=PATH=/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin
 ExecStartPre=+/usr/local/libexec/ci-vm/register $id
-ExecStart=$dir/runsvc.sh
+ExecStart=$dir/bin/runsvc.sh
 Restart=on-failure
 RestartSec=60
 TimeoutStopSec=120
@@ -129,6 +155,21 @@ UMask=0077
 Nice=10
 CPUWeight=10
 IOWeight=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=$dir
+ProtectHome=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+MemoryHigh=3G
+MemoryMax=4G
+TasksMax=2048
 
 [Install]
 WantedBy=multi-user.target
@@ -136,5 +177,34 @@ UNIT
   systemctl daemon-reload
   systemctl enable "ci-runner-$id.service"
 done < <(jq -r '.[].id' /etc/ci-vm-repositories.json)
+
+# Lima's .2 alias exposes Mac localhost, including other profiles' services.
+# Block job/build UIDs only; leave the .3 DNS forwarder and root guest agent.
+uids=$(getent passwd | awk -F: '$1 ~ /^ci-/ || $1 ~ /^nixbld[0-9]+$/ {print $3}' | paste -sd, -)
+test -n "$uids"
+install -d -m 0755 /etc/nftables.d
+cat >/etc/nftables.d/ci-vm.nft <<NFTABLES
+add table inet ci_vm
+delete table inet ci_vm
+table inet ci_vm {
+  chain output {
+    type filter hook output priority -10; policy accept;
+    meta skuid { $uids } ip daddr 192.168.5.2 counter reject
+  }
+}
+NFTABLES
+cat >/etc/systemd/system/ci-vm-firewall.service <<'FIREWALL_UNIT'
+[Unit]
+Description=Block CI job access to Mac localhost (OPS-669)
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/ci-vm.nft
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+FIREWALL_UNIT
+systemctl daemon-reload
+systemctl enable ci-vm-firewall.service
+systemctl restart ci-vm-firewall.service
 cat /proc/sys/kernel/random/boot_id >/var/lib/ci-vm/ready
 printf 'ci-vm provisioning complete: Nix %s; runner %s sha256 verified; KVM ready\n' "$nix_version" "$runner_version"

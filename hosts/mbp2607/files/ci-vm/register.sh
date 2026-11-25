@@ -17,6 +17,11 @@ if [ ! -f "$secret" ] || [ -L "$secret" ]; then
   exit 1
 fi
 test "$(stat -c %a "$secret")" = 600
+# virtiofs must preserve the host's 0600 boundary before any job can start.
+if /usr/sbin/runuser -u "ci-$id" -- test -r "$secret"; then
+  printf 'ci-vm: refusing enrollment: ci-%s can read the mounted token\n' "$id" >&2
+  exit 1
+fi
 repo=$(jq -er --arg id "$id" '.[] | select(.id == $id)' /etc/ci-vm-repositories.json)
 ACTIONS_RUNNER_INPUT_URL="https://github.com/$(jq -r .repository <<<"$repo")"
 ACTIONS_RUNNER_INPUT_NAME=$(jq -r .runnerName <<<"$repo")
@@ -34,7 +39,9 @@ export PATH=/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin
 # Never pass a token through argv, tee, a temporary file or a journal message.
 # The pinned runner masks its own diagnostics; suppress enrollment console too.
 cd "$dir"
-if ! runuser --preserve-environment -u "ci-$id" -- ./config.sh >/dev/null 2>&1; then
+if ! /usr/sbin/runuser --preserve-environment -u "ci-$id" -- ./config.sh >/dev/null 2>&1; then
   printf 'ci-vm: registration failed for %s; coordinator must check token expiry\n' "$id" >&2
   exit 1
 fi
+unset ACTIONS_RUNNER_INPUT_TOKEN
+test -f "$dir/.runner"

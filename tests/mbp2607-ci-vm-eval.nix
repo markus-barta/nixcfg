@@ -174,12 +174,20 @@ let
     runnerPinned =
       lib.hasInfix "runner_version=2.338.2" provision
       && lib.hasInfix "670adb2f268fe21dcbb58b3db0e0aa9d5b3bddfe2c651481336e561ff86de945" provision;
-    verifyBeforeExtract = lib.hasInfix "sha256sum --check --status" provision;
+    archiveHashCheck = lib.hasInfix "sha256sum --check --status" provision;
     provisioningHealthGate = lib.hasInfix "cat /proc/sys/kernel/random/boot_id >/var/lib/ci-vm/ready" provision;
     qosBeforeRunner = lib.hasInfix "ConditionPathExists=/run/ci-vm-host-qos-ready" provision;
     nixFeatures = lib.hasInfix "system-features = nixos-test benchmark big-parallel kvm" provision;
     perRepositoryUser =
       lib.hasInfix ''user="ci-$id"'' provision && lib.hasInfix "SupplementaryGroups=kvm" provision;
+    executableRunnerUnit =
+      lib.hasInfix "ExecStart=$dir/bin/runsvc.sh" provision && lib.hasInfix "Type=exec" provision;
+    sandboxKvm = lib.hasInfix "chmod 0666 /dev/kvm" provision;
+    serviceLimits = lib.hasInfix "MemoryMax=4G" provision && lib.hasInfix "MemoryMax=10G" provision;
+    guestFirewall =
+      lib.hasInfix "meta skuid { $uids } ip daddr 192.168.5.2" provision
+      && lib.hasInfix "Requires=ci-vm-firewall.service" provision;
+    nixDiskReserve = lib.hasInfix "min-free = 5368709120" provision;
     enrollmentEnvironment = lib.all (name: lib.hasInfix "ACTIONS_RUNNER_INPUT_${name}" provision) [
       "URL"
       "TOKEN"
@@ -193,6 +201,7 @@ let
     noUnexpandedInputs =
       !lib.hasInfix "@repositories@" provision
       && !lib.hasInfix "@register@" provision
+      && !lib.hasInfix "@control@" provision
       && !lib.hasInfix "@nixVersion@" provision;
   };
 in

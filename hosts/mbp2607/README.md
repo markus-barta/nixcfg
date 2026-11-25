@@ -374,9 +374,20 @@ homes before calling Colima or creating directories. The QoS pidfile is
 Every boot verifies the pinned Nix 2.31.2 installer archive and Actions runner
 2.338.2 archive against the SHA256 literals in `ci-vm.nix`. Nix enables flakes
 and `nixos-test benchmark big-parallel kvm`, with two build jobs and three
-cores per build. Runner users join `kvm`; `/dev/kvm` is group-accessible 0660.
+cores per build. `/dev/kvm` is 0666, as on NixOS, so sandboxed `nixbld*`
+users can open it without supplementary groups. Nix starts garbage collection
+below 5 GiB free and targets 10 GiB free (`min-free`/`max-free`).
 The runner has automatic updates disabled so upgrades require a reviewed pin
 and digest update. Keep that pin current with GitHub's runner update deadlines.
+
+The runner executes the archive's `bin/runsvc.sh` with `Type=exec`. Its unit
+uses `NoNewPrivileges`, a read-only system with its runner directory writable,
+`ProtectHome`, `PrivateTmp`, `RestrictSUIDSGID`, and limits of 4 GiB / 2048 tasks.
+The Nix daemon and its builds have separate limits of 10 GiB / 4096 tasks and
+low CPU/I/O weights, leaving room for sshd and the guest agent. Guest nftables
+blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
+`192.168.5.2` (`host.lima.internal`); the DNS forwarder at `.3` remains usable.
+Provisioning waits for Ubuntu DNS and bounds apt operations with retries.
 
 The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.
 It sources the workstation agent token **only in a request subshell**, passes
@@ -403,7 +414,9 @@ Colima can say READY after a failed provision, so a successful provision must
 write the current Linux boot ID to `/var/lib/ci-vm/ready`. After verifying QoS,
 the host calls the declared `host-ready` helper, which checks that boot ID,
 opens a gate in `/run`, and starts the repo services. Registration and jobs
-cannot start before that gate. Activation installs the agent and directories;
+cannot start before that gate. Each service must pass `systemctl is-active`;
+a condition-skipped or failed service is not ready. The helper reports known
+deleted-registration diagnostics as "needs re-enrollment". Activation installs the agent and directories;
 it never starts a VM directly. Login with an empty queue leaves `ci` stopped.
 
 ### Coordinator-only enrollment
@@ -457,6 +470,8 @@ against [the pinned runner's CommandSettings.cs](https://github.com/actions/runn
 secret masker and removes the input environment variables. The exchanged
 runner credentials remain in the guest's private runner directory; the
 registration token is never copied there.
+Enrollment also refuses to proceed if a negative read test shows that the
+runner user can read the mounted token.
 The pinned runner's `env.sh` persists PATH and an explicit build-environment
 allowlist; it does not persist any `ACTIONS_RUNNER_INPUT_*` variable.
 

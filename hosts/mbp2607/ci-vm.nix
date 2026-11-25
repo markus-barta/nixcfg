@@ -28,10 +28,19 @@ let
   # Runner digest: GitHub release asset digest, actions/runner v2.338.2.
   provision =
     lib.replaceStrings
-      [ "@repositories@" "@register@" "@nixVersion@" "@nixSha256@" "@runnerVersion@" "@runnerSha256@" ]
+      [
+        "@repositories@"
+        "@register@"
+        "@control@"
+        "@nixVersion@"
+        "@nixSha256@"
+        "@runnerVersion@"
+        "@runnerSha256@"
+      ]
       [
         reposJson
         (builtins.readFile ./files/ci-vm/register.sh)
+        (builtins.readFile ./files/ci-vm/control.sh)
         "2.31.2"
         "64db528412096d718b4bf8f78f85e5ac2b714b774e5005500dee37d23f560456"
         "2.338.2"
