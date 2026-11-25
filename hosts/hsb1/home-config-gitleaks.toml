@@ -8,7 +8,36 @@ useDefault = true
 [[rules]]
 id = "home-config-literal-credential"
 description = "Quoted literal home automation credential"
-regex = '''(?i)(?:api[_-]?key|access[_-]?token|password|credentialSecret)[\s"']*[:=]\s*["']([A-Za-z0-9_+/=.\-]{16,})["']'''
+regex = '''(?i)(?:api[_-]?key|access[_-]?token|token|password|passwd|pass|secret|credentialSecret)[\s"']*[:=][ \t]*["']([^"'\r\n]+)["']'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^\[REDACTED\]$''']
+
+[[rules]]
+id = "home-config-bcrypt"
+description = "Bcrypt password verifier, including commented examples"
+regex = '''\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}'''
+
+[[rules]]
+id = "home-config-url-credentials"
+description = "Password in URL user information"
+regex = '''(?i)[a-z][a-z0-9+.-]*://[^/\s:@]+:([^@\s/]+)@'''
+secretGroup = 1
+
+[[rules]]
+id = "home-config-yaml-credential"
+description = "Unquoted password-like YAML value"
+regex = '''(?im)^[ \t]*(?:-[ \t]+)?(?:password|passwd|pass|token|api_key|secret)[ \t]*:[ \t]*([^ \t\r\n"'#][^\r\n]*)'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^!(?:secret|env_var)(?:[ \t]+|$)''', '''^\[REDACTED\]$''']
+
+[[rules]]
+id = "home-config-query-token"
+description = "Token in a URL query, terminated by ampersand or fragment"
+regex = '''(?i)[?&]token=([^&#\s"'<>]+)'''
 secretGroup = 1
 
 [[rules]]
