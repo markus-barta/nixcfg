@@ -4,10 +4,14 @@ set +x
 set -euo pipefail
 umask 077
 # Keep the CLI and the explicitly scoped profile/PID paths in the same home.
-export COLIMA_HOME="$HOME/.colima"
+if [ "${COLIMA_HOME:-}" != "${XDG_CONFIG_HOME:-$HOME/.config}/colima" ] ||
+  [ "${LIMA_HOME:-}" != "${COLIMA_HOME:-}/_lima" ]; then
+  printf 'ci-vm: requires the module XDG Colima and Lima homes\n' >&2
+  exit 1
+fi
 state=${CI_VM_STATE_DIR:-$HOME/.local/state/ci-vm}
 secrets="$state/secrets"
-profile="$HOME/.colima/ci"
+profile="$COLIMA_HOME/ci"
 helper=${CI_VM_HOST_HELPER:-$(dirname "$0")/host.py}
 mkdir -p "$state"
 if [ "${1:-}" != --locked ]; then

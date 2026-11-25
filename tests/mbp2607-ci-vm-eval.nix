@@ -19,12 +19,26 @@ let
     jq = "/fixture/jq";
     python3 = "/fixture/python3";
     writeText = write;
-    writeShellScript = write;
+    writeShellScript =
+      name: text:
+      assert lib.assertMsg (
+        name != "ci-vm-qos"
+        || (
+          lib.hasInfix "export COLIMA_HOME=" text
+          && lib.hasInfix ''export LIMA_HOME="$COLIMA_HOME/_lima"'' text
+          && lib.hasInfix ''qos "$COLIMA_HOME/_lima/colima-ci/ha.pid"'' text
+        )
+      ) "QoS helper must explicitly share the module Colima/Lima homes";
+      write name text;
     writeShellScriptBin = write;
   };
   fixture = {
     options = {
       home.homeDirectory = lib.mkOption { type = lib.types.str; };
+      xdg.configHome = lib.mkOption {
+        type = lib.types.str;
+        default = "/Users/markus/.config";
+      };
       home.packages = lib.mkOption { type = lib.types.listOf lib.types.anything; };
       home.file = lib.mkOption { type = lib.types.attrs; };
       home.activation = lib.mkOption { type = lib.types.attrs; };
@@ -79,8 +93,33 @@ let
     };
   };
   activation = host.home.activation.ciVmDirectories;
+  command = (builtins.head module.home.packages).text;
+  customXdg = evaluate {
+    xdg.configHome = "/Users/markus/ci-xdg-test";
+    services.ciVm = {
+      enable = true;
+      repositories.hausnetz.repository = "inspr-at/hausnetz";
+    };
+  };
+  ciFiles = root + "/hosts/mbp2607/files/ci-vm";
+  moduleSource = builtins.readFile (root + "/hosts/mbp2607/ci-vm.nix");
+  sources = [
+    moduleSource
+    (builtins.readFile (root + "/hosts/mbp2607/README.md"))
+  ]
+  ++ map (name: builtins.readFile (ciFiles + "/${name}")) (
+    builtins.attrNames (builtins.readDir ciFiles)
+  );
   checks = {
     enabled = agent.enable && host.services.ciVm.enable;
+    explicitColimaHome =
+      lib.hasInfix "export XDG_CONFIG_HOME=/Users/markus/.config" command
+      && lib.hasInfix "export COLIMA_HOME=/Users/markus/.config/colima" command;
+    explicitLimaHome = lib.hasInfix ''export LIMA_HOME="$COLIMA_HOME/_lima"'' command;
+    configurableXdgHome = lib.hasInfix "export COLIMA_HOME=/Users/markus/ci-xdg-test/colima" (builtins.head customXdg.home.packages)
+    .text;
+    qosColimaHome = lib.hasInfix ''qos "$COLIMA_HOME/_lima/colima-ci/ha.pid"'' moduleSource;
+    noLegacyColimaHome = lib.all (source: !lib.hasInfix "/.colima" source) sources;
     hardCaps = colima.cpu == 6 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
     linuxKvm = colima.arch == "aarch64" && colima.vmType == "vz" && colima.nestedVirtualization;
     singleDisk = colima.runtime == "none";

@@ -80,6 +80,8 @@ STUB
 cat >"$work/bin/colima" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "${COLIMA_HOME:-}" == "${XDG_CONFIG_HOME:?}/colima" ]] || exit 88
+[[ "${LIMA_HOME:-}" == "$COLIMA_HOME/_lima" ]] || exit 89
 printf 'colima %s\n' "$*" >>"$CI_TEST_CALLS"
 if [[ "$1" == --profile ]]; then
   [[ "$*" == '--profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready' ]] || exit 86
@@ -98,14 +100,22 @@ case "$1" in
     ;;
   start)
     [[ "$*" == 'start ci --activate=false --ssh-config=false' ]] || exit 81
-    [[ ! -L "$HOME/.colima/ci/colima.yaml" ]] || exit 82
-    cmp -s "$CI_VM_CONFIG" "$HOME/.colima/ci/colima.yaml" || exit 83
-    printf '\n# rewritten by Colima\n' >>"$HOME/.colima/ci/colima.yaml"
+    [[ ! -L "$COLIMA_HOME/ci/colima.yaml" ]] || exit 82
+    cmp -s "$CI_VM_CONFIG" "$COLIMA_HOME/ci/colima.yaml" || exit 83
+    printf '\n# rewritten by Colima\n' >>"$COLIMA_HOME/ci/colima.yaml"
     echo running >"$CI_TEST_VM"
     ;;
   stop) echo stopped >"$CI_TEST_VM" ;;
   *) exit 84 ;;
 esac
+STUB
+cat >"$work/bin/limactl" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${COLIMA_HOME:-}" == "${XDG_CONFIG_HOME:?}/colima" ]] || exit 88
+[[ "${LIMA_HOME:-}" == "$COLIMA_HOME/_lima" ]] || exit 89
+[[ "$*" == list ]] || exit 90
+printf 'limactl %s\n' "$*" >>"$CI_TEST_CALLS"
 STUB
 cat >"$work/bin/taskpolicy" <<'STUB'
 #!/usr/bin/env bash
@@ -135,6 +145,8 @@ new_case() {
   chmod 0600 "$case_dir/agent.env"
   cp "$work/repos.json" "$case_dir/repos.json"
   export HOME="$case_dir/home" PATH="$work/bin:$PATH"
+  export XDG_CONFIG_HOME="$HOME/.config"
+  export COLIMA_HOME="$XDG_CONFIG_HOME/colima" LIMA_HOME="$XDG_CONFIG_HOME/colima/_lima"
   export CI_VM_STATE_DIR="$case_dir/state" CI_VM_CONFIG="$work/declared.yaml"
   export CI_VM_REPOSITORIES="$case_dir/repos.json" CI_VM_AGENT_TOKEN_FILE="$case_dir/agent.env"
   export CI_VM_HOST_HELPER="$root/hosts/mbp2607/files/ci-vm/host.py" CI_VM_QOS="$work/bin/qos"
@@ -144,6 +156,47 @@ run_tick() { /bin/bash "${1:-$dispatcher}" tick >"$case_dir/out" 2>&1; }
 calls() { grep -c "$1" "$case_dir/calls" || true; }
 unchanged() { [[ "$(calls 'colima start')" == 0 && "$(calls 'colima stop')" == 0 ]]; }
 started() { [[ "$(calls 'colima start')" == 1 && "$(<"$case_dir/vm")" == running ]]; }
+
+new_case
+for cli in colima limactl; do
+  args=(list)
+  if [[ "$cli" == colima ]]; then args=(status ci --json); fi
+  if (
+    unset COLIMA_HOME
+    "$cli" "${args[@]}"
+  ) >"$case_dir/out" 2>&1; then
+    fail "$cli stub accepted an unset Colima home"
+  fi
+  if COLIMA_HOME="$HOME/.colima" "$cli" "${args[@]}" >"$case_dir/out" 2>&1; then
+    fail "$cli stub accepted the legacy Colima home"
+  fi
+  if (
+    unset LIMA_HOME
+    "$cli" "${args[@]}"
+  ) >"$case_dir/out" 2>&1; then
+    fail "$cli stub accepted an unset Lima home"
+  fi
+done
+[[ ! -s "$case_dir/calls" ]] || fail 'invalid homes reached a CLI stub'
+limactl list
+[[ "$(calls 'limactl list')" == 1 ]] || fail 'Lima stub rejected the XDG home'
+new_case
+if (
+  unset COLIMA_HOME
+  /bin/bash "$dispatcher" prepare
+) >"$case_dir/out" 2>&1; then
+  fail 'dispatcher accepted an unset Colima home'
+fi
+[[ ! -s "$case_dir/calls" && ! -e "$HOME/.colima" ]] || fail 'missing home caused side effects'
+echo 'ok homes: every Colima/Lima stub requires the XDG homes; dispatcher refuses a missing home'
+
+new_case
+export XDG_CONFIG_HOME="$HOME/custom-xdg"
+export COLIMA_HOME="$XDG_CONFIG_HOME/colima" LIMA_HOME="$XDG_CONFIG_HOME/colima/_lima"
+export CI_TEST_SCENARIO=queued
+run_tick
+started && [[ -f "$COLIMA_HOME/ci/colima.yaml" && ! -e "$HOME/.colima" ]] || fail 'custom XDG home was ignored'
+echo 'ok custom XDG: ci config and CLI share the explicitly configured home'
 
 for scenario in wrong-arch wrong-host no-labels completed empty; do
   new_case
@@ -236,11 +289,11 @@ export CI_TEST_SCENARIO=queued CI_TEST_READY_FAIL=1
 if run_tick; then fail 'failed provisioning passed'; fi
 [[ "$(calls 'colima start')" == 1 && "$(calls 'colima stop')" == 1 ]] || fail 'provision failure left ci running'
 new_case
-mkdir -p "$HOME/.colima/ci"
-echo unrelated >"$HOME/.colima/ci/colima.yaml"
+mkdir -p "$COLIMA_HOME/ci"
+echo unrelated >"$COLIMA_HOME/ci/colima.yaml"
 export CI_TEST_SCENARIO=queued
 if run_tick; then fail 'unowned ci profile was adopted'; fi
-unchanged && [[ "$(<"$HOME/.colima/ci/colima.yaml")" == unrelated ]] || fail 'unowned profile modified'
+unchanged && [[ "$(<"$COLIMA_HOME/ci/colima.yaml")" == unrelated ]] || fail 'unowned profile modified'
 echo 'ok containment: failed QoS/provisioning stops only ci; unowned ci data is refused'
 
 new_case
@@ -277,7 +330,8 @@ from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
 for name, old, new in [('labels', 'all(.labels[]; ascii_downcase', 'any(.labels[]; ascii_downcase'),
-                       ('grace', '-ge 1200', '-ge 1199')]:
+                       ('grace', '-ge 1200', '-ge 1199'),
+                       ('colima-home', '# Keep the CLI', 'export COLIMA_HOME="$HOME/.colima"\n# Keep the CLI')]:
     assert old in source
     Path(sys.argv[2], name + '-mutant.sh').write_text(source.replace(old, new))
 PY
@@ -291,5 +345,10 @@ echo 1000 >"$case_dir/state/last-demand"
 export CI_TEST_NOW=2199
 run_tick "$work/grace-mutant.sh"
 if unchanged; then fail 'grace mutant survived boundary assertion'; fi
-echo 'ok mutants: weakened label matching and early shutdown both fail their contracts'
+new_case
+export CI_TEST_SCENARIO=queued
+if run_tick "$work/colima-home-mutant.sh"; then fail 'legacy Colima home mutant survived'; fi
+grep -q 'requires the module XDG Colima and Lima homes' "$case_dir/out" || fail 'legacy home mutant failed for the wrong reason'
+[[ ! -s "$case_dir/calls" && ! -e "$HOME/.colima" ]] || fail 'legacy home mutant caused side effects'
+echo 'ok mutants: weakened labels, early shutdown and legacy Colima home fail their contracts'
 echo 'ci-vm dispatcher test: PASS'

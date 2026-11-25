@@ -362,8 +362,14 @@ host mount is `~/.local/state/ci-vm/secrets`, mode 0700, mounted read-only at
 `/etc/ci-vm-secrets`; `/Users/markus` is not shared. SSH-agent forwarding,
 Docker/Kubernetes context activation, Rosetta and application port forwarding
 are disabled. The starter copies the declared config into
-`~/.colima/ci/colima.yaml` before each stopped start; Colima may rewrite this
+`~/.config/colima/ci/colima.yaml` before each stopped start; Colima may rewrite this
 regular writable file. An existing profile without `.nixcfg-ci-vm` is refused.
+The module explicitly sets `COLIMA_HOME` to `${config.xdg.configHome}/colima`
+and `LIMA_HOME` to `$COLIMA_HOME/_lima` for the command, dispatcher and QoS
+helper. With this host's XDG configuration, `ci` lives alongside the other
+profiles in `~/.config/colima`; the dispatcher refuses missing or mismatched
+homes before calling Colima or creating directories. The QoS pidfile is
+`$COLIMA_HOME/_lima/colima-ci/ha.pid`.
 
 Every boot verifies the pinned Nix 2.31.2 installer archive and Actions runner
 2.338.2 archive against the SHA256 literals in `ci-vm.nix`. Nix enables flakes

@@ -9,6 +9,12 @@
 let
   cfg = config.services.ciVm;
   home = config.home.homeDirectory;
+  colimaHome = "${config.xdg.configHome}/colima";
+  colimaEnvironment = ''
+    export XDG_CONFIG_HOME=${lib.escapeShellArg config.xdg.configHome}
+    export COLIMA_HOME=${lib.escapeShellArg colimaHome}
+    export LIMA_HOME="$COLIMA_HOME/_lima"
+  '';
   stateDir = "${home}/.local/state/ci-vm";
   secretsDir = "${stateDir}/secrets";
   logDir = "${home}/.local/share/ops-qa/state";
@@ -67,9 +73,11 @@ let
   );
   hostHelper = ./files/ci-vm/host.py;
   qos = pkgs.writeShellScript "ci-vm-qos" ''
-    exec ${pkgs.python3}/bin/python3 ${hostHelper} qos "$HOME/.colima/_lima/colima-ci/ha.pid"
+    ${colimaEnvironment}
+    exec ${pkgs.python3}/bin/python3 ${hostHelper} qos "$COLIMA_HOME/_lima/colima-ci/ha.pid"
   '';
   dispatcher = pkgs.writeShellScriptBin "ci-vm" ''
+    ${colimaEnvironment}
     export PATH=${
       lib.makeBinPath [
         pkgs.colima
