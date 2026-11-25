@@ -58,11 +58,14 @@ write_pharos_backup_status() {
 }
 
 echo 'Do backup...'
+# HAUSV-918: the retired application's data is static after the operator stop.
+# Retain both hausv-org and hausv-org-backup-snapshot via the parent include.
+# Complete the handoff before the next 01:30 run; restore the live-directory
+# exclusion before any rollback that leaves the application writing again.
 message_file="$(mktemp)"
 set +e
 /usr/local/bin/restic ${RESTIC_BACKUP_OPTIONS} --host csb1 backup \
   --exclude '*/cache/*' --exclude '*.log*' \
-  --exclude '/backup/var/lib/csb1-docker/hausv-org' \
   /backup/var/lib/docker/volumes /backup/var/lib/csb1-docker /backup/home /backup/root /backup/etc \
   >"$message_file" 2>&1
 RESTIC_STATUS="$?"
