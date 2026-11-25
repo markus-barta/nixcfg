@@ -71,13 +71,27 @@ install -d -m 0755 /etc/systemd/system/nix-daemon.service.d
 cat >/etc/systemd/system/nix-daemon.service.d/ci-vm.conf <<'DAEMON_UNIT'
 [Service]
 MemoryHigh=8G
-MemoryMax=10G
+MemoryMax=9G
 TasksMax=4096
 Nice=10
 CPUWeight=10
 IOWeight=10
 DAEMON_UNIT
+# Protect the control path during a guest-wide OOM. Apply to existing main
+# processes too: restarting the guest agent here would interrupt provisioning.
+for unit in ssh.service lima-guestagent.service; do
+  install -d -m 0755 "/etc/systemd/system/$unit.d"
+  cat >"/etc/systemd/system/$unit.d/ci-vm.conf" <<'CONTROL_UNIT'
+[Service]
+OOMScoreAdjust=-900
+CONTROL_UNIT
+done
 systemctl daemon-reload
+for unit in ssh.service lima-guestagent.service; do
+  pid=$(systemctl show "$unit" --property=MainPID --value)
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]]
+  printf '%s\n' -900 >"/proc/$pid/oom_score_adj"
+done
 systemctl enable --now nix-daemon.socket
 systemctl restart nix-daemon.service
 

@@ -386,8 +386,12 @@ uses `NoNewPrivileges`, a read-only system with its runner directory writable,
 `ProtectHome`, `PrivateTmp` and `RestrictSUIDSGID`.
 The runner uses `MemoryHigh=5G` / `MemoryMax=6G` with 2048 tasks, allowing room
 for Nix evaluation in the client process.
-The Nix daemon and its builds have separate limits of 10 GiB / 4096 tasks and
-low CPU/I/O weights, leaving room for sshd and the guest agent. Guest nftables
+The Nix daemon and its builds use `MemoryHigh=8G` / `MemoryMax=9G`, 4096 tasks
+and low CPU/I/O weights, leaving 1 GiB outside the combined runner/daemon caps.
+`ssh.service` and `lima-guestagent.service` use `OOMScoreAdjust=-900` to protect
+the control path during guest-wide OOM. Provisioning applies the adjustment to
+their running main processes and saves systemd drop-ins for future starts,
+without restarting either service. Guest nftables
 blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
 `192.168.5.2` (`host.lima.internal`), while leaving guest DNS destinations allowed.
 Provisioning waits for Ubuntu DNS, bounds apt operations with retries, and runs

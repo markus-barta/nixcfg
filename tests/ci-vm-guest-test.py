@@ -53,6 +53,10 @@ if command == "systemctl":
     if args[0] == "is-active":
         name = "FIREWALL_ACTIVE" if "ci-vm-firewall.service" in args else "RUNNER_ACTIVE"
         sys.exit(0 if os.environ.get(name, "1") == "1" else 3)
+    if args[0] == "show":
+        assert args[1] in {"ssh.service", "lima-guestagent.service"}
+        assert args[2:] == ["--property=MainPID", "--value"]
+        print(os.environ.get("CONTROL_MAINPID", "2345" if args[1] == "ssh.service" else "2346"))
     if args[0] == "freeze":
         (base / "frozen").write_text("yes")
         if os.environ.get("RACE_WORKER") == "1": (base / "worker").touch()
@@ -98,7 +102,7 @@ elif command not in {"modprobe", "groupadd", "chgrp"}:
 
 
 def adapt(source, base):
-    for prefix in ["/etc/ci-vm", "/var/lib/ci-runners", "/var/lib/ci-vm", "/proc/sys/kernel/random/boot_id", "/run/ci-vm-host-qos-ready", "/etc/udev", "/dev/kvm", "/nix/"]:
+    for prefix in ["/etc/ci-vm", "/etc/systemd/system", "/var/lib/ci-runners", "/var/lib/ci-vm", "/proc/", "/run/ci-vm-host-qos-ready", "/etc/udev", "/dev/kvm", "/nix/"]:
         source = source.replace(prefix, str(base) + prefix)
     return source.replace("/usr/sbin/runuser", str(base / "bin/runuser"))
 
@@ -146,6 +150,19 @@ for action in ["worker-active", "enrolled", "drain"]:
     result = run(control, base, action)
     assert result.returncode == 0 and result.stdout == "CI_VM_STATUS=unknown\n", (action, result.stderr)
 print("ok guest protocol: busy/absent/unknown workers, empty enrollment and malformed inventory emit a single zero-exit status record")
+
+protection = provision.split("# Protect the control path", 1)[1].split("systemctl enable --now nix-daemon.socket", 1)[0]
+base = fixture()
+for pid in [2345, 2346]:
+    write(base / f"proc/{pid}/oom_score_adj", "0\n")
+result = run("set -euo pipefail\n# Protect the control path" + protection, base)
+assert result.returncode == 0, result.stderr
+for unit, pid in [("ssh.service", 2345), ("lima-guestagent.service", 2346)]:
+    assert (base / f"etc/systemd/system/{unit}.d/ci-vm.conf").read_text() == "[Service]\nOOMScoreAdjust=-900\n"
+    assert (base / f"proc/{pid}/oom_score_adj").read_text() == "-900\n"
+assert "systemctl restart" not in (base / "calls").read_text(), "control protection restarted its own transport"
+assert run("set -euo pipefail\n# Protect the control path" + protection, base, CONTROL_MAINPID="0").returncode != 0
+print("ok guest OOM: persistent sshd/guest-agent protection applied to running main processes without restart; missing PID refuses readiness")
 
 unit_template = re.search(r'cat >"/etc/systemd/system/ci-runner-\$id.service" <<UNIT\n(.*?)\nUNIT', provision, re.S)[1]
 

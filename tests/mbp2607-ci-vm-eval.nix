@@ -190,7 +190,11 @@ let
       lib.hasInfix "MemoryHigh=5G" provision
       && lib.hasInfix "MemoryMax=6G" provision
       && lib.hasInfix "MemoryHigh=8G" provision
-      && lib.hasInfix "MemoryMax=10G" provision;
+      && lib.hasInfix "MemoryMax=9G" provision;
+    protectedControlPath =
+      lib.hasInfix "for unit in ssh.service lima-guestagent.service" provision
+      && lib.hasInfix "OOMScoreAdjust=-900" provision
+      && lib.hasInfix ''>"/proc/$pid/oom_score_adj"'' provision;
     guestFirewall =
       lib.hasInfix "meta skuid { $uids } ip daddr 192.168.5.2" provision
       && lib.hasInfix "Requires=ci-vm-firewall.service" provision;
