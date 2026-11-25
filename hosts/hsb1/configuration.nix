@@ -33,6 +33,7 @@ in
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ./ir-bridge-watch.nix # OPS-223: pages when the FLIRC is gone, the bridge is down or the TV's Sony API answers 404
     ./aqara-nightlight.nix # OPS-496: LAN/tailnet Aqara light + quiet built-in sounds
+    ./home-config.nix # OPS-158: local-only, secret-gated history; live config stays read-only
     ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
     ./mailbridge-watch.nix # OPS-196: OAuth/queue health, independently watched by tailnet-watch
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch

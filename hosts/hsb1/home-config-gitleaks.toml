@@ -1,0 +1,50 @@
+title = "hsb1 local home-config gate (OPS-158)"
+
+[extend]
+useDefault = true
+
+# Literal passwords also matter when they do not meet an entropy threshold.
+# !secret references and process.env/env.get expressions are not literals.
+[[rules]]
+id = "home-config-literal-credential"
+description = "Quoted literal home automation credential"
+regex = '''(?i)(?:api[_-]?key|access[_-]?token|token|password|passwd|pass|secret|credentialSecret)[\s"']*[:=][ \t]*["']([^"'\r\n]+)["']'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^\[REDACTED\]$''']
+
+[[rules]]
+id = "home-config-bcrypt"
+description = "Bcrypt password verifier, including commented examples"
+regex = '''\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}'''
+
+[[rules]]
+id = "home-config-url-credentials"
+description = "Password in URL user information"
+regex = '''(?i)[a-z][a-z0-9+.-]*://[^/\s:@]+:([^@\s/]+)@'''
+secretGroup = 1
+
+[[rules]]
+id = "home-config-yaml-credential"
+description = "Unquoted password-like YAML value"
+path = '''(?i)\.ya?ml$'''
+# Capture the assignment so inherited placeholder allowlists cannot hide a
+# short literal such as x. Delimit inline values before scanning the next key.
+regex = '''(?im)(?:^[ \t]*(?:-[ \t]+)?|[,{][ \t]*)([\w-]*(?:password|passwd|pass|secret|token|api_key)[ \t]*:[ \t]*[^ \t\r\n"'#,}][^,\r\n}]*)'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''(?i)^[\w-]+[ \t]*:[ \t]*!(?:secret|env_var)(?:[ \t]+|$)''', '''^[\w-]+[ \t]*:[ \t]*\[REDACTED\][ \t]*$''']
+
+[[rules]]
+id = "home-config-query-token"
+description = "Token in a URL query, terminated by ampersand or fragment"
+regex = '''(?i)[?&]token=([^&#\s"'<>]+)'''
+secretGroup = 1
+
+[[rules]]
+id = "home-config-authorization-literal"
+description = "Literal HTTP authorization credential"
+regex = '''(?i)(?:basic|bearer)\s+([A-Za-z0-9_+/=\-]{16,})'''
+secretGroup = 1
