@@ -27,6 +27,7 @@ from typing import Callable
 STATE_SCHEMA = "inspr.hausv.ops-alert-state.v1"
 ALERT_SCHEMA = "inspr.hausv.ops-alert.v1"
 DEFAULT_STATE_PATH = "/var/lib/hausv-alerts/state.json"
+DEFAULT_ROLLBACK_MARKER = "/var/lib/hausv-alerts/rollback-allowed"
 DEFAULT_NOTIFICATION_ENV = "/run/agenix/csb1-watchtower-env"
 SNAPSHOT_MARKER = "/var/lib/csb1-docker/hausv-org-backup-snapshot/SNAPSHOT-CREATED-UTC"
 RESTIC_STATUS = "/var/lib/csb1-docker/pharos-backup-status/restic-cron-hetzner.json"
@@ -81,11 +82,15 @@ BASE_PROBLEM_LABELS = {
     "container-restart": "unerwarteter Container-Neustart",
     "public-health": "öffentliches HAUSV-Healthsignal",
     "pause-container-state": "HAUSV-Übergabezustand",
+    "pause-app-returned": "unerwartete Rückkehr der alten HAUSV-Anwendung",
     "pause-legacy-health": "Pausenseite am Legacy-Host",
     "pause-tenant-health": "Pausenseite am bisherigen Hausportal",
 }
 
-DEBOUNCED_KEYS = {"container-health", "public-health", *PAUSE_HEALTH_URLS}
+PAUSE_PROBLEM_KEYS = {"pause-container-state", "pause-app-returned", *PAUSE_HEALTH_URLS}
+DEBOUNCED_KEYS = {
+    "container-health", "public-health", "pause-container-state", *PAUSE_HEALTH_URLS
+}
 
 
 @dataclass(frozen=True)
@@ -281,6 +286,7 @@ def safe_state(raw: object, now: float) -> dict:
         "runtime_last_seen": {},
         "log_cursor": now - INITIAL_LOG_LOOKBACK_SECONDS,
         "container_restarts": None,
+        "pause_handoff_seen": False,
     }
     if not isinstance(raw, dict) or raw.get("schema") != STATE_SCHEMA:
         return empty
@@ -311,6 +317,7 @@ def safe_state(raw: object, now: float) -> dict:
     }
     empty["log_cursor"] = min(float(log_cursor), now)
     empty["container_restarts"] = container_restarts
+    empty["pause_handoff_seen"] = raw.get("pause_handoff_seen") is True
     pending = raw.get("pending")
     pending_next = pending.get("next_state") if isinstance(pending, dict) else None
     if (
@@ -670,6 +677,7 @@ def evaluate(
         "runtime_last_seen": runtime_last_seen,
         "log_cursor": log_cursor,
         "container_restarts": restarts,
+        "pause_handoff_seen": state.get("pause_handoff_seen", False),
     }
     return problems, next_state
 
@@ -686,27 +694,36 @@ def evaluate_pause(
     now: float,
     runner: Runner = run_command,
     health_reader: Callable[[str], bytes] = read_pause_health,
+    *,
+    rollback_marker: str = DEFAULT_ROLLBACK_MARKER,
 ) -> tuple[dict[str, Problem], dict]:
     immediate: dict[str, Problem] = {}
     candidates: dict[str, Problem] = {}
+    handoff_seen = state.get("pause_handoff_seen", False)
     running = runner(
         ["docker", "ps", "--filter", "name=^/hausv-org$", "--format", "{{.Names}}"]
     )
     if running.returncode != 0:
-        immediate["pause-container-state"] = Problem(
+        candidates["pause-container-state"] = Problem(
             "Der Übergabezustand der alten Anwendung ist nicht prüfbar.",
             "Docker-Erreichbarkeit auf csb1 prüfen; keine Anwendung starten.",
         )
-        for key in PAUSE_HEALTH_URLS:
+        for key in PAUSE_PROBLEM_KEYS - {"pause-container-state"}:
             if key in state.get("active", []):
                 immediate[key] = Problem(
-                    "Das zuvor gemeldete Pausenseiten-Healthsignal ist noch nicht prüfbar.",
+                    "Der zuvor gemeldete HAUSV-Pausenzustand ist noch nicht prüfbar.",
                     "Docker-Erreichbarkeit wiederherstellen und beide Hosts erneut prüfen.",
                 )
+        # An unknown Docker state must not break a public-health failure streak.
+        # The next successful Docker check will either probe or reset it.
+        held_counts = {
+            key: value for key, value in state.get("failure_counts", {}).items()
+            if key in PAUSE_HEALTH_URLS
+        }
     elif "hausv-org" not in running.stdout.splitlines():
-        # While hausv-org runs, its higher-priority routers still own both
-        # public hosts. Stay quiet until the operator stops it. No snapshot,
-        # retired timer, app log, database or new Hausvogt endpoint is read.
+        handoff_seen = True
+        # No snapshot, retired timer, app log, database or new Hausvogt
+        # endpoint is read. Stopping the app records the handoff durably.
         for key, url in PAUSE_HEALTH_URLS.items():
             try:
                 if health_reader(url) != PAUSE_HEALTH_BODY:
@@ -716,7 +733,14 @@ def evaluate_pause(
                     "Die freigegebene HAUSV-Pausenseite ist nicht erreichbar.",
                     "hausv-pause, Traefik-Priorität und /healthz auf beiden Hosts prüfen.",
                 )
+    elif handoff_seen and not Path(rollback_marker).is_file():
+        immediate["pause-app-returned"] = Problem(
+            "Die alte HAUSV-Anwendung läuft nach der Übergabe wieder.",
+            "Unbeabsichtigten Start untersuchen; bewussten Rollback laut Runbook markieren.",
+        )
     problems, failure_counts = apply_debounce(immediate, candidates, state, False)
+    if running.returncode != 0:
+        failure_counts.update(held_counts)
     return problems, {
         "schema": STATE_SCHEMA,
         "active": sorted(problems),
@@ -724,6 +748,7 @@ def evaluate_pause(
         "runtime_last_seen": {},
         "log_cursor": now,
         "container_restarts": None,
+        "pause_handoff_seen": handoff_seen,
     }
 
 
@@ -883,6 +908,7 @@ def run_cycle(
     *,
     placeholder: bool = False,
     pause_health_reader: Callable[[str], bytes] = read_pause_health,
+    rollback_marker: str = DEFAULT_ROLLBACK_MARKER,
 ) -> tuple[int, dict[str, int]]:
     state = load_state(state_path, now)
     state, delivered = retry_pending(state_path, state, sender)
@@ -890,10 +916,16 @@ def run_cycle(
         return 2, {"active": len(state.get("active", [])), "new": 0, "recovered": 0}
 
     if placeholder:
-        problems, next_state = evaluate_pause(state, now, runner, pause_health_reader)
+        problems, next_state = evaluate_pause(
+            state, now, runner, pause_health_reader, rollback_marker=rollback_marker
+        )
     else:
         problems, next_state = evaluate(state, now, runner, reader, health_reader)
     previous = set(state.get("active", []))
+    if placeholder:
+        # Retired snapshot/log/application alarms did not recover: this mode
+        # stopped observing them. Discard those keys without an Entwarnung.
+        previous.intersection_update(PAUSE_PROBLEM_KEYS)
     current = set(problems)
     new = sorted(current - previous)
     recovered = sorted(previous - current)

@@ -106,6 +106,7 @@ class HausvAlertTests(unittest.TestCase):
         )
         self.assertEqual(problems, {})
         self.assertEqual(state["failure_counts"], {})
+        self.assertFalse(state["pause_handoff_seen"])
         self.assertEqual(calls, [[
             "docker", "ps", "--filter", "name=^/hausv-org$", "--format", "{{.Names}}"
         ]])
@@ -175,9 +176,138 @@ class HausvAlertTests(unittest.TestCase):
             state, NOW + 600,
             lambda _: poller.CommandResult(1, "", "private daemon error"), unavailable,
         )
-        self.assertIn("pause-container-state", problems)
+        self.assertNotIn("pause-container-state", problems)
         self.assertTrue(set(poller.PAUSE_HEALTH_URLS).issubset(problems))
         self.assertNotIn("private", repr(problems))
+
+    def test_returning_app_alerts_immediately_after_persisted_handoff(self) -> None:
+        running = False
+        sent = []
+
+        def runner(_):
+            return poller.CommandResult(0, "hausv-org\n" if running else "", "")
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = str(Path(directory) / "state.json")
+            marker = str(Path(directory) / "rollback-allowed")
+
+            def cycle(now):
+                return poller.run_cycle(
+                    state_path, now, lambda text, _: sent.append(text) or True,
+                    runner, placeholder=True,
+                    pause_health_reader=lambda _: poller.PAUSE_HEALTH_BODY,
+                    rollback_marker=marker,
+                )
+
+            self.assertEqual(cycle(NOW)[0], 0)
+            saved = poller.load_state(state_path, NOW + 300)
+            self.assertTrue(saved["pause_handoff_seen"])
+            running = True
+            result, counts = cycle(NOW + 300)
+            self.assertEqual((result, counts["new"]), (1, 1))
+            self.assertEqual(cycle(NOW + 600)[1]["new"], 0)
+            self.assertEqual(len(sent), 1)
+            self.assertEqual(
+                poller.load_state(state_path, NOW + 600)["active"],
+                ["pause-app-returned"],
+            )
+
+    def test_rollback_marker_suppresses_return_without_forgetting_handoff(self) -> None:
+        state = poller.safe_state({}, NOW)
+        state["pause_handoff_seen"] = True
+        running = lambda _: poller.CommandResult(0, "hausv-org\n", "")
+
+        def no_public_probe(_):
+            self.fail("public placeholder must not be checked behind a rolled-back app")
+
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "rollback-allowed"
+            marker.touch(mode=0o600)
+            problems, state = poller.evaluate_pause(
+                state, NOW, running, no_public_probe, rollback_marker=str(marker)
+            )
+            self.assertEqual(problems, {})
+            state = poller.safe_state(state, NOW + 300)
+            self.assertTrue(state["pause_handoff_seen"])
+            marker.rename(marker.with_suffix(".cleared"))
+            problems, _ = poller.evaluate_pause(
+                state, NOW + 300, running, no_public_probe, rollback_marker=str(marker)
+            )
+            self.assertEqual(set(problems), {"pause-app-returned"})
+
+    def test_mode_change_drops_retired_alarms_without_false_recovery(self) -> None:
+        state = poller.safe_state({}, NOW)
+        state["active"] = ["snapshot-marker", "public-health", "runtime:mail"]
+        state["failure_counts"] = {"public-health": 2}
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = str(Path(directory) / "state.json")
+            poller.atomic_write_state(state_path, state)
+            result, counts = poller.run_cycle(
+                state_path, NOW,
+                lambda *_: self.fail("retired alarms emitted a false recovery"),
+                lambda _: poller.CommandResult(0, "", ""),
+                placeholder=True,
+                pause_health_reader=lambda _: poller.PAUSE_HEALTH_BODY,
+            )
+            self.assertEqual(result, 0)
+            self.assertEqual(counts, {"active": 0, "new": 0, "recovered": 0})
+            self.assertEqual(poller.load_state(state_path, NOW)["active"], [])
+
+    def test_docker_failure_needs_two_consecutive_cycles_and_recovers_once(self) -> None:
+        sent = []
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = str(Path(directory) / "state.json")
+            for cycle, failed in enumerate((True, False, True, True, False, False)):
+                result, counts = poller.run_cycle(
+                    state_path, NOW + cycle * 300,
+                    lambda text, _: sent.append(text) or True,
+                    lambda _: poller.CommandResult(1 if failed else 0, "", ""),
+                    placeholder=True,
+                    pause_health_reader=lambda _: poller.PAUSE_HEALTH_BODY,
+                )
+                self.assertEqual(result, 1 if cycle == 3 else 0)
+                self.assertEqual(counts["new"], 1 if cycle == 3 else 0)
+                self.assertEqual(counts["recovered"], 1 if cycle == 4 else 0)
+        self.assertEqual(len(sent), 2)
+        self.assertIn("Neuer Alarm", sent[0])
+        self.assertIn("Entwarnung", sent[1])
+
+    def test_unknown_docker_state_holds_returned_app_alarm(self) -> None:
+        state = poller.safe_state({}, NOW)
+        state["active"] = ["pause-app-returned"]
+        state["pause_handoff_seen"] = True
+        problems, state = poller.evaluate_pause(
+            state, NOW, lambda _: poller.CommandResult(1, "", ""),
+            lambda _: self.fail("unknown Docker state must not probe public health"),
+        )
+        self.assertEqual(set(problems), {"pause-app-returned"})
+        self.assertTrue(poller.safe_state(state, NOW)["pause_handoff_seen"])
+
+    def test_pending_delivery_preserves_handoff_flag(self) -> None:
+        sent = []
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = str(Path(directory) / "state.json")
+            state = poller.safe_state({}, NOW)
+            state["failure_counts"] = {key: 1 for key in poller.PAUSE_HEALTH_URLS}
+            poller.atomic_write_state(state_path, state)
+            result, _ = poller.run_cycle(
+                state_path, NOW, lambda *_: False,
+                lambda _: poller.CommandResult(0, "", ""),
+                placeholder=True, pause_health_reader=lambda _: b"wrong marker",
+            )
+            self.assertEqual(result, 2)
+            state = poller.load_state(state_path, NOW)
+            self.assertTrue(state["pending"]["next_state"]["pause_handoff_seen"])
+            result, _ = poller.run_cycle(
+                state_path, NOW + 300, lambda text, _: sent.append(text) or True,
+                lambda _: poller.CommandResult(0, "hausv-org\n", ""),
+                placeholder=True, rollback_marker=str(Path(directory) / "absent"),
+            )
+            self.assertEqual(result, 1)
+            state = poller.load_state(state_path, NOW + 300)
+            self.assertTrue(state["pause_handoff_seen"])
+            self.assertEqual(state["active"], ["pause-app-returned"])
+            self.assertEqual(len(sent), 2)
 
     def test_healthy_cycle_has_no_alert(self) -> None:
         fixture = Fixture()
@@ -206,6 +336,7 @@ class HausvAlertTests(unittest.TestCase):
                 "runtime_last_seen",
                 "log_cursor",
                 "container_restarts",
+                "pause_handoff_seen",
             },
         )
 
