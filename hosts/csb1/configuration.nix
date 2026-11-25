@@ -47,13 +47,6 @@ let
   # cutover attempt failed). flock -w 300, not blocking forever: a stuck
   # holder must surface as a failure, not a hang.
   composeLock = "${pkgs.util-linux}/bin/flock -w 300 /run/lock/compose-csb1.lock";
-  # HAUSV is reconciled from its private per-instance repository. Keep its
-  # independent project lock aligned with the product release script so a
-  # snapshot and a release can never transition the container concurrently.
-  hausvComposeDir = "/home/mba/Code/hausv-jhw22";
-  hausvComposeFile = "${hausvComposeDir}/compose.yml";
-  hausvComposeLock = "${pkgs.util-linux}/bin/flock -w 300 /run/lock/compose-hausv.lock";
-  hausvCompose = "${hausvComposeLock} ${pkgs.docker}/bin/docker compose --project-directory ${hausvComposeDir} -p hausv-jhw22 -f ${hausvComposeFile}";
   janusManagedComposeFile = "/etc/janus/managed/docker-compose.yml";
   # NOTE: transactiond's ExecStart is a LONG-RUNNING attached `up`, so it must
   # NOT hold the lock (it would starve every other writer forever). It gets
@@ -109,64 +102,6 @@ let
     [ ! -L /var/lib/janus-role-authorization-csb1 ]
     [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-role-authorization-csb1)" = "65532:65532" ]
     [ "$(${pkgs.coreutils}/bin/stat -c %a /var/lib/janus-role-authorization-csb1)" = "700" ]
-  '';
-  hausvBackupSnapshot = pkgs.writeShellScript "hausv-backup-snapshot" ''
-    set -eu
-
-    source_dir=/var/lib/csb1-docker/hausv-org
-    snapshot_dir=/var/lib/csb1-docker/hausv-org-backup-snapshot
-    staging_dir=/var/lib/csb1-docker/.hausv-org-backup-snapshot.staging
-    previous_dir=/var/lib/csb1-docker/.hausv-org-backup-snapshot.previous
-    stopped=0
-
-    restart_hausv() {
-      if [ "$stopped" -eq 1 ]; then
-        ${hausvCompose} start hausv-org
-      fi
-    }
-    trap restart_hausv EXIT HUP INT TERM
-
-    running="$(${pkgs.docker}/bin/docker inspect --format '{{.State.Running}}' hausv-org 2>/dev/null || true)"
-    if [ "$running" != true ]; then
-      echo "hausv-org is not running; refusing to publish a stale backup snapshot" >&2
-      exit 1
-    fi
-
-    # Quiesce the application so SQLite, its WAL, and filesystem blobs are one
-    # recovery point. The data set is small, so this normally takes <1 second.
-    ${hausvCompose} stop -t 30 hausv-org
-    stopped=1
-
-    ${pkgs.coreutils}/bin/install -d -m 0700 "$staging_dir"
-    ${pkgs.rsync}/bin/rsync --archive --delete "$source_dir/" "$staging_dir/"
-    if [ "$(${pkgs.sqlite}/bin/sqlite3 "$staging_dir/hausv.db" "PRAGMA integrity_check;")" != ok ]; then
-      echo "hausv-org SQLite integrity check failed; keeping the previous snapshot" >&2
-      exit 1
-    fi
-    ${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$staging_dir/SNAPSHOT-CREATED-UTC"
-    ${pkgs.coreutils}/bin/sync "$staging_dir"
-
-    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
-    if [ -e "$snapshot_dir" ]; then
-      ${pkgs.coreutils}/bin/mv "$snapshot_dir" "$previous_dir"
-    fi
-    ${pkgs.coreutils}/bin/mv "$staging_dir" "$snapshot_dir"
-    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
-
-    ${hausvCompose} start hausv-org
-    stopped=0
-
-    # A published snapshot is useful only if the service also came back.
-    for attempt in $(${pkgs.coreutils}/bin/seq 1 18); do
-      health="$(${pkgs.docker}/bin/docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' hausv-org 2>/dev/null || true)"
-      if [ "$health" = healthy ]; then
-        echo "hausv-org backup snapshot published and service is healthy"
-        exit 0
-      fi
-      ${pkgs.coreutils}/bin/sleep 5
-    done
-    echo "hausv-org did not become healthy after snapshot" >&2
-    exit 1
   '';
   # NIX-367 / HAUSV-495 / HAUSV-559: transactionally consistent logical dump.
   # Runs as hausv_backup (BYPASSRLS, not superuser) because FORCE ROW LEVEL
@@ -261,13 +196,13 @@ in
     ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
     ./fleet-backup-watch.nix # OPS-485: page when a fleet backup has not succeeded within its schedule (reads pharosd's store)
     ./garage-bot-watch.nix # OPS-604: page when the garage Telegram bot (Node-RED on csb0) stops polling
+    ./hausvogt-health-watch.nix # OPS-675: read-only public health witness for the new Hausvogt
     ./docker-image-gc.nix # OPS-327: daily GC of unused release images + old build cache (never prune -a)
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./hausv-alerts.nix
     ./hausv-next.nix # NIX-368 / HAUSV-513: isolated tailnet fixture preview
-    ./hausv-github-runner.nix # Declarative GitHub Actions runner for hausv-org
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
@@ -1132,7 +1067,7 @@ in
       # source with a directory during an automated stack recreation.
       "f ${composeRoot}/traefik/acme.json 0600 root root -"
       "f ${composeRoot}/traefik/acme-http.json 0600 root root -"
-      # Shared by the root-run snapshot unit and mba-run product deploys.
+      # Retained for private product deploys, the final snapshot and image GC.
       "f /run/lock/compose-hausv.lock 0660 root users -"
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
@@ -1186,29 +1121,9 @@ in
   # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate
   # (OPS-116/122): hostdash-auth → hostdash → traefik, same order.
 
-  # Restic must never live-walk the SQLite database and its blob directories.
-  # This timer briefly quiesces HAUSV and atomically publishes one coherent
-  # recovery point before the container's 01:30 off-site backup.
-  systemd.services.hausv-backup-snapshot = {
-    description = "Publish a consistent HAUSV SQLite and blob backup snapshot";
-    requires = [ "docker.service" ];
-    after = [ "docker.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = hausvBackupSnapshot;
-      TimeoutStartSec = "180";
-    };
-  };
-
-  systemd.timers.hausv-backup-snapshot = {
-    description = "Snapshot HAUSV before the daily restic backup";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "*-*-* 01:20:00";
-      Persistent = true;
-      Unit = "hausv-backup-snapshot.service";
-    };
-  };
+  # HAUSV-918 / OPS-675: hausv-backup-snapshot's script, unit and 01:20
+  # timer are retired. Keep both data directories and their tmpfiles rules;
+  # Restic retains the final snapshot and the stopped application's data.
 
   # PostgreSQL is not yet an application dependency. Its logical dump runs
   # before the unchanged SQLite/blob snapshot and the unchanged Restic job.
@@ -1862,9 +1777,9 @@ in
         mode = "0440";
       };
 
-  # GHCR pull token for hausv-org private image. Used by hausv-org/scripts/deploy.sh
-  # and deploy-from-ci-image.sh for `docker login ghcr.io --username x-access-token
-  # --password-stdin`. Also used as github-runners tokenFile (repo-scoped registration).
+  # Retained GHCR pull token for independent HAUSV Compose pulls (OPS-678).
+  # Manual deploy tooling can use `docker login ghcr.io --username x-access-token
+  # --password-stdin`; this credential does not depend on the retired runner.
   # Contents: raw GitHub fine-grained token (single line). Janus capability name
   # (when enrolled): ghcr.pull.inspr-at/hausv-org.
   # 0440 root:users so mba (the SSH deploy user) can read it; docker runs as root but
