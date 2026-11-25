@@ -27,16 +27,16 @@
 }:
 
 let
-  version = "261120104759.0.0";
+  version = "261125091704.0.0";
   teamID = "P66J39QV6V";
   assets = {
     aarch64-darwin = {
       arch = "arm64";
-      hash = "sha256-bH3aSodsaq8fDjF33vw7/cZDLHwAYvkumimQtlvSiTI=";
+      hash = "sha256-p5W2JVae4zlwzYOAyw852cA0fn2e3xiQEsy0Nz8+U18=";
     };
     x86_64-darwin = {
       arch = "amd64";
-      hash = "sha256-ENez6xiJyPD2Ng3zk4REFOL7BGbRUnyjBJqHP1prsMg=";
+      hash = "sha256-NXNSQZI76Oes/3UkeSkTCgTqPYms3ha8uncAkJBFoy4=";
     };
   };
   system = stdenvNoCC.hostPlatform.system;
