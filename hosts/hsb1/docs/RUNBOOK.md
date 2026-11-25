@@ -1225,6 +1225,112 @@ docker start nodered
 
 ---
 
+## Local home configuration history (OPS-158)
+
+`hsb1-home-config.service` snapshots approved Node-RED and Home Assistant
+configuration into **`/home/mba/home-config`**, a local Git repository with no
+remote. It only reads the live directories and never calls Docker or restarts
+either service. Root owns the repository; the `home-config` group lets `mba`
+read it. The declarative system Git configuration trusts exactly this root-owned
+path so normal history commands work for `mba`. Reconnect after deployment to
+pick up the new group membership.
+
+The repository, including `.git`, is inside the existing restic backup set:
+`compose-spec.nix` binds `/home:/backup/home:ro`, and
+`restic-cron/hetzner/run_backup.sh` backs up `/backup/home` daily at 01:30.
+Its cache/log/nightlight-key exclusions do not match this repository. The
+restic path is `/backup/home/mba/home-config`; no extra bind or container
+recreation is needed for this feature.
+
+The positive allowlist in `hosts/hsb1/home-config-snapshot.py` is:
+
+- `nodered/flows.json`, `nodered/settings.js` (filtered), and optional
+  `nodered/package.json`.
+- `homeassistant/{configuration,automations,scripts,scenes,customize}.yaml`;
+  YAML files under `themes/`, `blueprints/`, and `packages/`, when present.
+  Nested directory names and filename stems use ASCII letters, digits, `_`
+  and `-`; extensions are `.yaml` or `.yml`. Dotted backup names, hidden
+  entries, `!archiv`, and other file types never match.
+- `.storage/core.{area,floor,device,entity,label}_registry`, `.storage/lovelace`,
+  `.storage/lovelace_resources`, `.storage/lovelace_dashboards`, and
+  `.storage/lovelace.<dashboard>` with the same ASCII dashboard stem rule.
+  Multi-dot names such as `lovelace.dashboard_main.bak.20260101` never match.
+
+Other files are never read or copied: this includes `flows_cred.json`,
+`.flows_cred*`, `.config.users.json`, context, `secrets.yaml`, auth/config-entry
+storage, databases, logs, cloud/tts data, and backup files. Required inputs are
+`flows.json`, `settings.js` and `configuration.yaml`; their absence aborts
+without deleting history. Selected symlinks, hardlinks, non-regular files,
+oversized files and malformed JSON also fail closed.
+
+`settings.js` is parsed as text, never executed. Exactly one literal
+`credentialSecret` property is required. Its value is replaced in memory with
+`"[REDACTED]"` before any snapshot file or Git blob is written. A hard gate
+checks the placeholder and compares SHA-256 fingerprints of the original
+decoded value and original literal spelling against the filtered copy,
+including decoded string literals. Unsupported expressions or another copy of
+the credential refuse the snapshot. Gitleaks (default rules plus literal
+credential/authorization rules) scans a private candidate directory before
+Git receives its contents, then scans an export of the exact staged blobs
+before each commit. Findings log **rule, relative filename and line only**;
+scanner stdout/stderr and credential values never enter the journal. Inline
+`gitleaks:allow` comments and source-side scanner configuration cannot bypass
+the gate. Scanner failure aborts too. A failed pre-scan leaves history and the
+repository worktree unchanged.
+
+The path unit watches source files and their parent directories to catch
+atomic replacements. Each run waits for **20 seconds of quiet** in the
+allowlisted file metadata; ongoing edits defer the snapshot for at most two
+minutes, then fail for a later retry. A timer runs two minutes after boot and
+15 minutes after the previous run finishes. It also catches nested YAML and
+dashboard edits that directory watches miss. systemd and a shared lock
+serialize runs. Unchanged content creates no commit. Commit messages list
+the source (`nodered`/`homeassistant`) and changed paths; the author is
+`hsb1-home-config <root@hsb1>`. The sandbox makes sources read-only, denies
+network access and runs with idle I/O scheduling and Nice 19.
+
+```bash
+git -C /home/mba/home-config log --oneline
+git -C /home/mba/home-config diff HEAD~1 HEAD -- homeassistant/automations.yaml
+systemctl status hsb1-home-config.path hsb1-home-config.timer --no-pager
+journalctl -u hsb1-home-config.service --since today --no-pager
+sudo systemctl start hsb1-home-config.service
+# Value-free HEAD verification: allowlist, scanner, live credential hash gate, no remote.
+sudo hsb1-home-config --verify-only --debounce-seconds 0
+# This must print nothing. The service refuses every run if any remote exists.
+git -C /home/mba/home-config remote
+```
+
+If the gate finds a secret, preserve the failed status and fix/rotate the
+credential through the normal authorized live-config workflow. Never add a
+scanner exception merely to get a snapshot. If the repository has untracked,
+modified or staged operator work, the service preserves it and stops; inspect
+it privately before retrying. Do not commit directly in this repository:
+`mba` has read access, and the snapshot service owns the commit gate.
+
+To restore a file **by hand**, first export it to a private review directory:
+
+```bash
+install -d -m 0700 /home/mba/home-config-restore
+git -C /home/mba/home-config show COMMIT:homeassistant/automations.yaml \
+  > /home/mba/home-config-restore/automations.yaml
+```
+
+Review the diff against the live file privately, take a backup, validate the
+configuration and use the host's normal approved HA reload or Node-RED deploy
+procedure. This snapshot service never applies a restore. **Do not overwrite
+live `settings.js` with the filtered copy**: retain/recover the real
+`credentialSecret` separately or encrypted Node-RED credentials become
+unreadable. Live secrets and full disaster recovery remain in the encrypted
+restic backup, not this filtered history.
+
+To add an input, change the positive rules in `home-config-snapshot.py`, add a
+source watch in `home-config.nix` when appropriate, and extend the fixtures and
+eval assertions. Validate with `nix-shell -p bash python3 git gitleaks --run
+"bash tests/T121-home-config.sh"` (evaluation only, no NixOS build). Apply via
+the normal reviewed nixcfg deployment. Never broaden this into copying an
+entire source directory.
+
 ## Maintenance
 
 ### Clean Up Disk Space

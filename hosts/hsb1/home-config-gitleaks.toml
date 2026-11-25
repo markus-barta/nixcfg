@@ -1,0 +1,18 @@
+title = "hsb1 local home-config gate (OPS-158)"
+
+[extend]
+useDefault = true
+
+# Literal passwords also matter when they do not meet an entropy threshold.
+# !secret references and process.env/env.get expressions are not literals.
+[[rules]]
+id = "home-config-literal-credential"
+description = "Quoted literal home automation credential"
+regex = '''(?i)(?:api[_-]?key|access[_-]?token|password|credentialSecret)[\s"']*[:=]\s*["']([A-Za-z0-9_+/=.\-]{16,})["']'''
+secretGroup = 1
+
+[[rules]]
+id = "home-config-authorization-literal"
+description = "Literal HTTP authorization credential"
+regex = '''(?i)(?:basic|bearer)\s+([A-Za-z0-9_+/=\-]{16,})'''
+secretGroup = 1
