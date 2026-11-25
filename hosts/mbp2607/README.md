@@ -338,3 +338,266 @@ switch again; app preferences remain managed in MTPLX.
 - **SSH identity**: `~/.ssh/id_ed25519` (`markus@mbp2607`, in ssh-keyring
   `personalHosts`; 1Password backup "mbp2607 id_ed25519"). Distinct from the
   atelier `mbp2607-personal-userkey` (git only) — deliberate separation.
+
+## On-demand Linux CI VM (OPS-669)
+
+`ci-vm.nix` declares `services.ciVm`, enabled here for `inspr-at/hausnetz`.
+Each `repositories.<id>` has `repository`, `runnerName` and `labels` options;
+it gets Unix user `ci-<id>` and systemd unit `ci-runner-<id>.service` in the VM.
+Changing an existing enrollment's repository, name or labels requires
+coordinator-led re-enrollment; already configured runners skip the token read.
+The hausnetz identity is `mbp2607-hausnetz`. Its workflow selector is:
+
+```yaml
+runs-on: [self-hosted, Linux, ARM64, mbp2607, hausnetz, kvm]
+```
+
+The hausnetz owner must also change explicitly selected `checks.x86_64-linux.*`
+to `checks.aarch64-linux.*`. That repository's workflows are maintained there.
+
+Only Colima profile `ci` is managed. It uses VZ, nested virtualization,
+**6 vCPUs, 16 GiB RAM and one 150 GiB disk** (`runtime: none`, no container
+engine). Nix stores and runner workspaces live inside that disk. The only
+host mount is `~/.local/state/ci-vm/secrets`, mode 0700, mounted read-only at
+`/etc/ci-vm-private/secrets`; its root-owned guest parent is 0700 so virtiofs
+cannot expose host-owned token files to job users. `/Users/markus` is not shared. SSH-agent forwarding,
+Docker/Kubernetes context activation, Rosetta and application port forwarding
+are disabled. The starter copies the declared config into
+`~/.config/colima/ci/colima.yaml` before each stopped start; Colima may rewrite this
+regular writable file. An existing profile without `.nixcfg-ci-vm` is refused.
+The module explicitly sets `COLIMA_HOME` to `${config.xdg.configHome}/colima`
+and `LIMA_HOME` to `$COLIMA_HOME/_lima` for the command, dispatcher and QoS
+helper. With this host's XDG configuration, `ci` lives alongside the other
+profiles in `~/.config/colima`; the dispatcher refuses missing or mismatched
+homes before calling Colima or creating directories. The QoS pidfile is
+`$COLIMA_HOME/_lima/colima-ci/ha.pid`.
+
+Every boot verifies the pinned Nix 2.31.2 installer archive and Actions runner
+2.338.2 archive against the SHA256 literals in `ci-vm.nix`. Nix enables flakes
+and `nixos-test benchmark big-parallel kvm`, with two build jobs and three
+cores per build. `/dev/kvm` is 0666, as on NixOS, so sandboxed `nixbld*`
+users can open it without supplementary groups. Nix starts garbage collection
+below 5 GiB free and targets 10 GiB free (`min-free`/`max-free`).
+The runner has automatic updates disabled so upgrades require a reviewed pin
+and digest update. Keep that pin current with GitHub's runner update deadlines.
+
+The runner executes the archive's `bin/runsvc.sh` with `Type=exec`. Its unit
+uses `NoNewPrivileges`, a read-only system with its runner directory writable,
+`ProtectHome`, `PrivateTmp` and `RestrictSUIDSGID`.
+The runner uses `MemoryHigh=5G` / `MemoryMax=6G` with 2048 tasks, allowing room
+for Nix evaluation in the client process.
+The Nix daemon and its builds use `MemoryHigh=8G` / `MemoryMax=9G`, 4096 tasks
+and low CPU/I/O weights, leaving 1 GiB outside the combined runner/daemon caps.
+`ssh.service` and `lima-guestagent.service` use `OOMScoreAdjust=-900` to protect
+the control path during guest-wide OOM. Provisioning applies the adjustment to
+their running main processes and saves systemd drop-ins for future starts,
+without restarting either service. Guest nftables
+blocks the `ci-*` and `nixbld*` UIDs from Lima's Mac-localhost alias
+`192.168.5.2` (`host.lima.internal`), while leaving guest DNS destinations allowed.
+Provisioning waits for Ubuntu DNS, bounds apt operations with retries, and runs
+`dpkg --configure -a` before installation to recover interrupted package setup.
+
+The launchd agent `org.nix-community.home.ci-vm-dispatcher` polls every 60 s.
+It sources the workstation agent token **only in a request subshell**, removes
+its export attribute, and passes the curl authorization header on stdin; curl
+never inherits `GH_TOKEN`. The scan has a 45-second API budget. Queued jobs
+must match every offered label (case-insensitive); in-progress jobs count only
+when `runner_name` is this runner. Matching demand starts `ci`. Idle shutdown
+requires 20 minutes without demand or a local `Runner.Worker`. Before stopping,
+the guest freezes listeners, checks again for a worker, and drains idle units.
+
+API/auth/response failures and a missing token use a bounded, API-free guest
+worker check. They stop `ci` after 20 minutes without a verified worker, with
+an absolute 60-minute cap on continuous unknown state even if a worker remains.
+Queued-only demand that picks up no job for 10 minutes stops `ci`, logs
+`UNSERVABLE` and backs off. A local worker without API-confirmed active work
+starts `worker-without-api-demand-since`; it has an absolute 60-minute cap,
+including during queued-only demand or when discovered during drain. The cap
+skips drain, clears on API-confirmed active work or a verified worker exit,
+and cannot be reset by an SSH failure.
+Startup, provisioning and readiness failures persist
+exponential backoff in `~/.local/state/ci-vm/backoff` (60 seconds to one hour);
+unservable queues start at five minutes. An existing `.runner` whose name has
+disappeared from GitHub requires coordinator-led re-enrollment and backs off
+for one hour. Enrollment state is fetched once after activation; token retirement
+and runner inventory checks run only at startup or when no active work is
+verified. On an already-running VM, a transient activation failure retains
+API-confirmed or local work and retries next tick; idle failures use the drain
+path. A failed QoS check still stops immediately.
+Known demand in another repo can still be served when an API
+fails. Backward clocks and missing/corrupt timestamps begin a new grace period.
+Colima status/start/SSH/stop and QoS checks all have process-group deadlines.
+Colima 0.10.3 collapses nonzero guest exit codes to 1. The guest instead emits
+one `CI_VM_STATUS` stdout record and exits 0: `worker-busy`, `no-worker`,
+`drained`, `unknown`, or `enrolled:` followed by comma-separated repository IDs
+(an empty suffix means none). The host requires exactly that one newline-ended
+record, the expected status for the operation, and configured, unique enrollment
+IDs. SSH failure, missing/extra output and malformed records mean unknown;
+among guest responses, only a verified `no-worker` record can clear the local-worker cap. Unknown drain
+state still follows the bounded shutdown policy and never claims verified idle.
+The host helper selects named operations from fixed command arrays scoped to
+`ci`. The module pins its lock, hostagent PID and dispatcher script paths in
+the immutable helper, including the configured XDG home.
+The dispatcher lock remains in a parent process so detached Lima daemons cannot
+inherit it. Logs: `~/.local/share/ops-qa/state/ci-vm-dispatcher.log`.
+
+The agent uses `ProcessType=Background`, low-priority I/O, and
+`taskpolicy -b -c background` for the starter. `host.py` verifies the ci
+hostagent's PID, owner and executable, finds its Virtualization XPC service
+in **that PID's launchd domain**, and requires that service to hold **that
+instance's disk** open. It applies `taskpolicy -b -p` only to those two PIDs
+and verifies Darwin's background flags with `proc_pidinfo`. Failure stops
+`ci`. Background QoS lets macOS favor efficiency cores; it is a scheduler
+policy, not a hard CPU-affinity mask. Runner services also use `Nice=10`,
+`CPUWeight=10` and `IOWeight=10` inside the VM.
+
+Colima can say READY after a failed provision, so a successful provision must
+write the current Linux boot ID to `/var/lib/ci-vm/ready`. After verifying QoS,
+the host calls the declared `host-ready` helper, which checks that boot ID,
+opens a gate in `/run`, and starts the repo services. Registration and jobs
+cannot start before that gate. Each service must pass `systemctl is-active`;
+a condition-skipped or failed service is not ready. The host's GitHub runner
+inventory detects deleted registrations. There is no immediate post-start
+journal scan: it cannot reliably cover the listener's first failure or restart.
+If the inventory API is unavailable, the 10-minute unservable-queue limit and
+the worker/unknown-state caps still bound uptime. Historical journal lines
+cannot reject a fresh registration.
+Activation installs the agent and directories;
+it never starts a VM directly. Login with an empty queue leaves `ci` stopped.
+
+### Coordinator-only enrollment
+
+The builder never mints a token or registers a runner. After review, activate
+the Home Manager generation through the normal operator path. With `ci`
+stopped, run this **once** in Bash. It makes one POST, saves the complete JSON
+response outside the mount as a 0600 file, prints only its expiry and filename,
+and atomically publishes the one-shot token as `secrets/hausnetz.token` (0600).
+No token goes into argv or the Nix store. If a token file already exists, this
+command refuses to replace it; retire an expired token explicitly first.
+
+```bash
+(
+  set +x
+  set -euo pipefail
+  umask 077
+  set +a
+  unset GH_TOKEN
+  source "$HOME/.inspr/secrets/agents/GH_TOKEN.env"
+  [ -n "${GH_TOKEN:-}" ]
+  set +a
+  export -n GH_TOKEN
+  ci_state="$HOME/.local/state/ci-vm"
+  install -d -m 0700 "$ci_state" "$ci_state/secrets"
+  [ ! -e "$ci_state/secrets/hausnetz.token" ]
+  [ ! -L "$ci_state/secrets/hausnetz.token" ]
+  ci_response=$(mktemp "$ci_state/hausnetz-registration.XXXXXXXX")
+  chmod 0600 "$ci_response"
+  printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
+    curl -q --config - --request POST --fail --silent --show-error \
+      --max-time 30 --proto '=https' \
+      --header 'Accept: application/vnd.github+json' \
+      --header 'X-GitHub-Api-Version: 2022-11-28' \
+      --output "$ci_response" \
+      https://api.github.com/repos/inspr-at/hausnetz/actions/runners/registration-token
+  unset GH_TOKEN
+  jq -er '.expires_at | select(type == "string" and length > 0)' "$ci_response"
+  ci_token_stage=$(mktemp "$ci_state/secrets/.hausnetz.token.XXXXXXXX")
+  jq -er '.token | select(type == "string" and length > 0)' "$ci_response" >"$ci_token_stage"
+  chmod 0600 "$ci_token_stage"
+  mv "$ci_token_stage" "$ci_state/secrets/hausnetz.token"
+  printf 'registration response retained at %s\n' "$ci_response"
+)
+```
+
+Then run `ci-vm start` before the printed expiry. The root pre-start helper
+reads that token only if `.runner` is absent, then runs `config.sh` as the
+dedicated user with `ACTIONS_RUNNER_INPUT_URL`, `_TOKEN`, `_NAME`, `_LABELS`,
+`_UNATTENDED`, `_REPLACE` and `_DISABLEUPDATE`. This mechanism was checked
+against [the pinned runner's CommandSettings.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Listener/CommandSettings.cs)
+(constructor, `GetArg`, `TestFlag`); the constructor registers TOKEN with its
+secret masker and removes the input environment variables. The exchanged
+runner credentials remain in the guest's private runner directory; the
+registration token is never copied there.
+Enrollment also refuses to proceed if a negative read test shows that the
+runner user can read the mounted token.
+The pinned runner's `env.sh` persists PATH and an explicit build-environment
+allowlist; it does not persist any `ACTIONS_RUNNER_INPUT_*` variable.
+
+Verify without printing credentials:
+
+```bash
+colima --profile ci ssh -- sudo systemctl is-active ci-runner-hausnetz.service
+colima --profile ci ssh -- sudo -u ci-hausnetz test -f /var/lib/ci-runners/hausnetz/.runner
+```
+
+The host automatically uses `trash` on the mounted one-shot token once `.runner`
+exists, including when a later service start fails. Confirm the runner name and
+six labels in GitHub, then use `trash` on the retained response file. Enrollment persists across
+boots; an already configured runner never rereads the registration token.
+Switch hausnetz workflows in its owning repository, verify a green Mac run,
+and retire the old agm2 runner in that repository's separate lane.
+
+### Coordinator-only re-enrollment
+
+Before minting a replacement token, remove the old `.runner` and `.credentials*`
+from the guest runner directory. Otherwise registration is skipped and host
+cleanup treats the new token as already consumed. Retire any expired host token
+explicitly, then wait for current jobs to finish. Pause the loaded dispatcher
+with `launchctl bootout "gui/$(id -u)/org.nix-community.home.ci-vm-dispatcher"`
+(leave it unloaded if already paused), and keep it paused throughout reset and
+enrollment. This prevents queued demand from opening the activation gate during
+the provision-only window. Then run:
+
+```bash
+ci-vm stop
+ci-vm start --provision-only
+COLIMA_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/colima" \
+  LIMA_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/colima/_lima" \
+  colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/control reset-enrollment hausnetz
+ci-vm stop
+```
+
+Require each command to succeed before continuing. The fresh provision-only
+boot keeps the activation gate closed. `reset-enrollment` validates the repo ID,
+freezes an active listener, refuses active or uncertain local work, stops its
+unit, and moves only `.runner` / `.credentials*` to the printed root-only
+0700 rollback directory under `/var/lib/ci-vm`. Workspaces and runner binaries
+remain in place. It never contacts GitHub or reads credential contents.
+
+Now use the enrollment snippet above to mint and publish a fresh token, then
+run `ci-vm start` before expiry. Explicit start retries immediately despite an
+earlier failure backoff. Readiness does not scan old registration diagnostics,
+so the reset does not cost another failure cycle. After enrollment and runner
+verification, resume dispatch with
+`launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/org.nix-community.home.ci-vm-dispatcher.plist"`.
+Changing repository, runner name or labels uses this same reviewed procedure.
+
+Operation: `ci-vm`/`ci-vm tick` performs one poll; `ci-vm start` and `ci-vm stop`
+are explicit operator overrides. Normal stop parses the guest's `worker-busy`
+record, retains the VM and returns host exit 3, unless its local-only 60-minute
+cap has expired. It does not expect guest exit 3 to survive Colima. `ci-vm stop --force`
+skips drain for an explicit forced shutdown, including a stuck worker after the
+cap. `ci-vm start --provision-only` boots and checks
+provisioning/QoS/firewall without opening the runner activation gate, for
+pre-enrollment inspection. `ci-vm prepare` only refreshes a stopped profile's
+config. To disable automatic dispatch, set `services.ciVm.enable =
+false` through the reviewed Home Manager path and stop `ci` when its jobs
+finish. Keep the VM disk/enrollment for rollback. No other profile is managed.
+
+Offline tests (Bash 5 is required by the test's false-pass guard):
+
+```bash
+nix-shell -p bash jq python3 coreutils --run 'bash tests/ci-vm-dispatcher-test.sh'
+```
+
+The test evaluates the actual module, executes guest helpers and the rendered
+service start path in filesystem fixtures, and checks demand, pagination,
+uptime caps, backoff, token retirement, deadlines and daemon-lock isolation.
+The Colima stub preserves stdout and maps every nonzero exit to 1; a mutant
+that restores guest exit-code parsing fails the drain-retention contract.
+Mutants cover labels, timing, the runner path, nixbld KVM access, token isolation,
+archive verification and the Colima home. CI runs it in
+`.github/workflows/check.yml`. Live proof additionally requires the real cached
+archive, `systemd-analyze verify`/`security`, a sandboxed KVM derivation, and a
+Mac-loopback positive control alongside denied CI/nixbld connections and working
+guest DNS. It does not require a registration token.
