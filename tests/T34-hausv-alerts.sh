@@ -17,6 +17,9 @@ grep -Fq 'systemd.timers.hausv-alerts =' "${module}"
 grep -Fq 'OnUnitActiveSec = "5m";' "${module}"
 grep -Fq 'StateDirectoryMode = "0700";' "${module}"
 grep -Fq 'SuccessExitStatus' "${module}"
+# HAUSV-918: preserve the delivery channel and transition state while dropping
+# the retired application's snapshot/log checks from the active evaluator.
+grep -Fq -- '--placeholder' "${module}"
 grep -Fq 'pkgs.docker' "${module}"
 grep -Fq 'config.age.secrets.csb1-watchtower-env.path' "${module}"
 grep -Fq '"/run/agenix/csb1-watchtower-env"' "${module}"
