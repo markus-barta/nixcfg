@@ -47,6 +47,19 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
+## Retired csb1 HAUSV runner (T123 / OPS-678)
+
+```bash
+bash tests/T123-csb1-hausv-runner.sh
+```
+
+Evaluates the complete csb1 configuration offline without building. It asserts
+that both the `csb1-hausv` runner entry and its systemd unit are absent, while
+preserving the GHCR pull-token path, permissions and operator access. In-memory
+runner and unit mutations must fail at their respective assertions. CI runs
+this gate in the csb1 evaluation job. Run from a clean commit: the repository's
+deployment-provenance guard requires a Git revision.
+
 ## Aqara nightlight (T117 / OPS-496)
 
 ```bash
