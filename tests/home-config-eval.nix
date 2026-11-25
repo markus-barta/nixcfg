@@ -6,7 +6,9 @@
 let
   system =
     if fullHost then
-      (builtins.getFlake (toString ../.)).nixosConfigurations.hsb1
+      # A plain path flake has no self.rev, even in a clean Git worktree.
+      # Preserve the canonical Git revision required by NIX-348 provenance.
+      (builtins.getFlake ("git+file://" + toString ../.)).nixosConfigurations.hsb1
     else
       import (nixpkgs + "/nixos/lib/eval-config.nix") {
         system = "x86_64-linux";
