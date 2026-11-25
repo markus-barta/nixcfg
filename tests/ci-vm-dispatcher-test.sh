@@ -180,6 +180,20 @@ if [ "${1:-}" = +%s ]; then printf '%s\n' "$CI_TEST_NOW"; else printf 'fixture-t
 STUB
 chmod +x "$work/bin/"*
 
+render_host_helper() {
+  python3 - "$root/hosts/mbp2607/files/ci-vm/host.py" "$CI_VM_HOST_HELPER" "$CI_VM_STATE_DIR" "$LIMA_HOME/colima-ci/ha.pid" "$1" "$work/bin/qos" <<'PY'
+import json
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+for placeholder, value in zip(("@stateDir@", "@pidfile@", "@dispatcher@"), sys.argv[3:6]):
+    source = source.replace(json.dumps(placeholder), json.dumps(value))
+source = source.replace('QOS_COMMAND = (sys.executable, __file__, "qos", PIDFILE)',
+                        'QOS_COMMAND = ' + repr((sys.argv[6],)))
+Path(sys.argv[2]).write_text(source)
+PY
+}
+
 new_case() {
   case_dir=$(mktemp -d "$work/case.XXXXXXXX")
   mkdir -p "$case_dir/home" "$case_dir/state"
@@ -195,15 +209,100 @@ new_case() {
   touch "$COLIMA_HOME/ci/.nixcfg-ci-vm"
   export CI_VM_STATE_DIR="$case_dir/state" CI_VM_CONFIG="$work/declared.yaml"
   export CI_VM_REPOSITORIES="$case_dir/repos.json" CI_VM_AGENT_TOKEN_FILE="$case_dir/agent.env"
-  export CI_VM_HOST_HELPER="$root/hosts/mbp2607/files/ci-vm/host.py" CI_VM_QOS="$work/bin/qos"
+  export CI_VM_HOST_HELPER="$case_dir/host.py"
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
   export CI_TEST_WORKER=1 CI_TEST_DRAIN=0 CI_TEST_START_FAIL=0 CI_TEST_ENROLLED='' CI_TEST_JQ_FAIL=''
   export CI_TEST_SSH_FAIL_ONCE=0 CI_TEST_ENROLL_ON_READY=0 CI_TEST_ENROLLED_FAIL=0
+  render_host_helper "$dispatcher"
 }
-run_tick() { /bin/bash "${1:-$dispatcher}" tick >"$case_dir/out" 2>&1; }
+run_tick() {
+  render_host_helper "${1:-$dispatcher}"
+  /bin/bash "${1:-$dispatcher}" tick >"$case_dir/out" 2>&1
+}
 calls() { grep -c "$1" "$case_dir/calls" || true; }
 unchanged() { [[ "$(calls 'colima start')" == 0 && "$(calls 'colima stop')" == 0 ]]; }
 started() { [[ "$(calls 'colima start')" == 1 && "$(<"$case_dir/vm")" == running ]]; }
+
+new_case
+python3 - "$CI_VM_HOST_HELPER" "$dispatcher" "$case_dir" <<'PY'
+from pathlib import Path
+import subprocess, sys
+helper, dispatcher, directory = sys.argv[1:]
+lockfile = directory + '/state/dispatcher.lock'
+outside = directory + '/unexpected.lock'
+for arguments in [
+    ['run', '1', '/usr/bin/true'],
+    ['run', '1', 'colima', 'stop', 'default'],
+    ['run', '1', 'status --json'],
+    ['run', 'nan', 'status'],
+    ['run', 'inf', 'status'],
+    ['run', '0', 'status'],
+    ['run', '901', 'status'],
+    ['qos', directory + '/unexpected.pid'],
+    ['lock', outside, '/bin/bash', dispatcher, '--locked', 'tick'],
+    ['lock', lockfile, '/usr/bin/touch', outside],
+    ['lock', lockfile, '/bin/bash', dispatcher, '--locked', 'stop', 'default'],
+]:
+    result = subprocess.run([sys.executable, helper, *arguments], capture_output=True, timeout=5)
+    assert result.returncode == 1, arguments
+assert not Path(outside).exists() and not Path(lockfile).exists()
+PY
+[[ ! -s "$case_dir/calls" ]] || fail 'rejected host input reached a CLI stub'
+echo 'ok host inputs: arbitrary commands, foreign paths/profiles and invalid deadlines fail before side effects'
+
+python3 - "$root/tests/ci-vm-live-proof.py" "$case_dir" <<'PY'
+import ast
+from contextlib import nullcontext
+import os
+from pathlib import Path
+import re
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+
+# Exercise the actual selectors without executing the live proof's VM calls.
+tree = ast.parse(Path(sys.argv[1]).read_text())
+nodes = [node for node in tree.body if
+         isinstance(node, ast.FunctionDef) and node.name in {'installed_command', 'evidence_path'} or
+         isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'EVIDENCE_ROOT' for t in node.targets)]
+scope = {'os': os, 'Path': Path, 're': re}
+exec(compile(ast.Module(body=nodes, type_ignores=[]), sys.argv[1], 'exec'), scope)
+
+package = '/nix/store/' + 'a' * 32 + '-ci-vm'
+entries = [
+    SimpleNamespace(name='a' * 32 + '-ci-vm', path=package, is_dir=lambda **kw: not kw['follow_symlinks']),
+    SimpleNamespace(name='b' * 32 + '-ci-vm', path='/nix/store/' + 'b' * 32 + '-ci-vm', is_dir=lambda **kw: False),
+    SimpleNamespace(name='c' * 32 + '-other', path='/nix/store/' + 'c' * 32 + '-other', is_dir=lambda **kw: True),
+]
+def installed(root):
+    assert root == '/nix/store'
+    return nullcontext(entries)
+
+with patch('os.scandir', side_effect=installed):
+    assert scope['installed_command'](package + '/bin/ci-vm') == package + '/bin/ci-vm'
+    for value in ['/bin/true', package + '/bin/other', '/nix/store/' + 'b' * 32 + '-ci-vm/bin/ci-vm',
+                  '/nix/store/' + 'c' * 32 + '-other/bin/ci-vm', package + '/../../tmp/ci-vm']:
+        try:
+            scope['installed_command'](value)
+        except ValueError:
+            continue
+        raise AssertionError('accepted a command outside the installed ci-vm allowlist')
+
+qa = Path(sys.argv[2]) / 'qa'
+qa.mkdir()
+outside = Path(sys.argv[2]) / 'qa-other'
+outside.mkdir()
+(qa / 'escape').symlink_to(outside, target_is_directory=True)
+scope['EVIDENCE_ROOT'] = str(qa)
+assert scope['evidence_path'](str(qa / 'ops669')) == qa / 'ops669'
+for value in [outside, qa / '../qa-other/log', qa / 'escape/log']:
+    try:
+        scope['evidence_path'](str(value))
+    except ValueError:
+        continue
+    raise AssertionError('evidence escaped through traversal, a sibling prefix or a symlink')
+PY
+echo 'ok proof inputs: installed-package selection and evidence traversal/sibling/symlink boundaries pass without a VM'
 
 new_case
 for cli in colima limactl; do
@@ -571,7 +670,9 @@ python3 - "$dispatcher" <<'PY'
 import os, signal, subprocess, sys
 helper = os.environ['CI_VM_HOST_HELPER']
 code = 'import subprocess,sys; p=subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"], close_fds=False, stdout=subprocess.DEVNULL); print(p.pid)'
-child = int(subprocess.check_output([sys.executable, helper, 'lock', os.environ['CI_VM_STATE_DIR'] + '/dispatcher.lock', sys.executable, '-c', code], text=True))
+lockfile = os.environ['CI_VM_STATE_DIR'] + '/dispatcher.lock'
+exercise = f'import runpy,sys; helper=runpy.run_path({helper!r}); sys.exit(helper["lock"]({lockfile!r}, [sys.executable,"-c",{code!r}]))'
+child = int(subprocess.check_output([sys.executable, '-c', exercise], text=True))
 try:
     subprocess.run(['/bin/bash', sys.argv[1], 'tick'], check=True, stdout=subprocess.DEVNULL)
     with open(os.environ['CI_TEST_CALLS']) as f:
@@ -643,7 +744,8 @@ import subprocess, sys, time
 start = time.monotonic()
 child = 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print("ready",flush=True); time.sleep(30)'
 parent = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(30)'
-result = subprocess.run([sys.executable, sys.argv[1], 'run', '.5', sys.executable, '-c', parent], capture_output=True, timeout=7)
+exercise = f'import runpy,sys; helper=runpy.run_path({sys.argv[1]!r}); sys.exit(helper["bounded"](.5, [sys.executable,"-c",{parent!r}]))'
+result = subprocess.run([sys.executable, '-c', exercise], capture_output=True, timeout=7)
 assert result.returncode == 124 and time.monotonic() - start < 7, 'CLI timeout did not terminate its process group'
 PY
 echo 'ok timeout: host CLI process groups have a real deadline'

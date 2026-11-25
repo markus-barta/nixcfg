@@ -423,6 +423,9 @@ path. A failed QoS check still stops immediately.
 Known demand in another repo can still be served when an API
 fails. Backward clocks and missing/corrupt timestamps begin a new grace period.
 Colima status/start/SSH/stop and QoS checks all have process-group deadlines.
+The host helper selects named operations from fixed command arrays scoped to
+`ci`. The module pins its lock, hostagent PID and dispatcher script paths in
+the immutable helper, including the configured XDG home.
 The dispatcher lock remains in a parent process so detached Lima daemons cannot
 inherit it. Logs: `~/.local/share/ops-qa/state/ci-vm-dispatcher.log`.
 

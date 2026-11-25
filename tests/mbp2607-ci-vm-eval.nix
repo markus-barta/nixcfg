@@ -18,17 +18,19 @@ let
     colima = "/fixture/colima";
     jq = "/fixture/jq";
     python3 = "/fixture/python3";
-    writeText = write;
-    writeShellScript =
+    writeText =
       name: text:
       assert lib.assertMsg (
-        name != "ci-vm-qos"
+        name != "ci-vm-host.py"
         || (
-          lib.hasInfix "export COLIMA_HOME=" text
-          && lib.hasInfix ''export LIMA_HOME="$COLIMA_HOME/_lima"'' text
-          && lib.hasInfix ''qos "$COLIMA_HOME/_lima/colima-ci/ha.pid"'' text
+          lib.hasInfix ''STATE_DIR = "/Users/markus/.local/state/ci-vm"'' text
+          && lib.hasInfix ''/colima/_lima/colima-ci/ha.pid"'' text
+          && lib.hasInfix ''DISPATCHER = "/nix/store/'' text
+          && !lib.hasInfix "@stateDir@" text
+          && !lib.hasInfix "@pidfile@" text
+          && !lib.hasInfix "@dispatcher@" text
         )
-      ) "QoS helper must explicitly share the module Colima/Lima homes";
+      ) "Host helper must pin the module state, ci PID and dispatcher paths";
       write name text;
     writeShellScriptBin = write;
   };
@@ -118,7 +120,7 @@ let
     explicitLimaHome = lib.hasInfix ''export LIMA_HOME="$COLIMA_HOME/_lima"'' command;
     configurableXdgHome = lib.hasInfix "export COLIMA_HOME=/Users/markus/ci-xdg-test/colima" (builtins.head customXdg.home.packages)
     .text;
-    qosColimaHome = lib.hasInfix ''qos "$COLIMA_HOME/_lima/colima-ci/ha.pid"'' moduleSource;
+    qosColimaHome = lib.hasInfix "\${colimaHome}/_lima/colima-ci/ha.pid" moduleSource;
     noLegacyColimaHome = lib.all (source: !lib.hasInfix "/.colima" source) sources;
     hardCaps = colima.cpu == 6 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
     linuxKvm = colima.arch == "aarch64" && colima.vmType == "vz" && colima.nestedVirtualization;

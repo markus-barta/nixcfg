@@ -21,7 +21,7 @@ shift
 action=${1:-tick}
 log() { printf '%s ci-vm: %s\n' "$(date '+%F %T')" "$*"; }
 bounded() { python3 "$helper" run "$@"; }
-guest() { bounded "$1" colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/control "${@:2}" </dev/null; }
+guest() { bounded "$1" "$2" </dev/null; }
 scan_started=$SECONDS
 failure_delay=60
 qos_failed=false
@@ -98,7 +98,7 @@ worker_cap_reached() {
   [ "$((now - last))" -ge 3600 ]
 }
 stop_now() {
-  bounded 180 colima stop ci || return 1
+  bounded 180 stop || return 1
   clear_stamp unknown-since
   clear_stamp no-worker-since
   clear_stamp queue-since
@@ -146,7 +146,7 @@ stop_if_idle() {
 
 vm_status() {
   local output
-  if output=$(bounded 20 colima status ci --json 2>&1); then
+  if output=$(bounded 20 status 2>&1); then
     if [ ! -f "$profile/.nixcfg-ci-vm" ] || [ -L "$profile" ]; then
       log 'refusing an unowned running ci profile'
       return 1
@@ -181,7 +181,7 @@ prepare() {
 }
 
 background_vm() {
-  if ! bounded 30 "$CI_VM_QOS"; then
+  if ! bounded 30 qos; then
     qos_failed=true
     return 1
   fi
@@ -238,7 +238,7 @@ activate_runners() {
   if [ "$running" = false ] || { [ "$active" != true ] && ! local_worker_active; }; then
     maintenance=true
   fi
-  if ! bounded 150 colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready </dev/null; then
+  if ! bounded 150 host-ready </dev/null; then
     ready=false
   fi
   # ExecStartPre may have enrolled successfully even if ExecStart then failed.
@@ -255,7 +255,7 @@ ensure_vm() {
   if [ "$running" = false ]; then
     prepare || return 1
     log 'starting ci (6 CPUs, 16 GiB RAM, 150 GiB disk)'
-    bounded 900 taskpolicy -b -c background colima start ci --activate=false --ssh-config=false </dev/null || return 1
+    bounded 900 start </dev/null || return 1
     now=$(date +%s)
     stamp last-demand
     stamp queue-since
@@ -265,7 +265,7 @@ ensure_vm() {
   fi
   background_vm || return 1
   if [ "${1:-}" = --provision-only ]; then
-    bounded 30 colima --profile ci ssh -- sudo /usr/local/libexec/ci-vm/host-ready --provision-only </dev/null || return 1
+    bounded 30 provision-only </dev/null || return 1
     log 'provision verified; no runner activation requested'
   else
     activate_runners || return 1

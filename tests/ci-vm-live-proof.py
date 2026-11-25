@@ -2,12 +2,14 @@
 """Explicit, token-free OPS-669 guest proof; always stops only the ci profile.
 
 Usage: python3 tests/ci-vm-live-proof.py /nix/store/...-ci-vm/bin/ci-vm EVIDENCE_DIR
+EVIDENCE_DIR must be below /Users/markus/.local/share/ops-qa.
 Never runs Home Manager activation, registration, token minting, or a browser.
 """
 
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import socketserver
 import subprocess
@@ -16,9 +18,34 @@ import threading
 import uuid
 
 
-command = Path(sys.argv[1]).resolve()
-evidence = Path(sys.argv[2]).resolve()
-assert str(command).startswith("/nix/store/") and command.name == "ci-vm"
+EVIDENCE_ROOT = "/Users/markus/.local/share/ops-qa"
+
+
+def installed_command(value):
+    # Select only installed ci-vm outputs from the immutable store. argv is a
+    # lookup key; subprocess receives the allowlist value from this fixed root.
+    with os.scandir("/nix/store") as entries:
+        commands = {
+            entry.path + "/bin/ci-vm": entry.path + "/bin/ci-vm"
+            for entry in entries
+            if re.fullmatch(r"[0-9a-df-np-sv-z]{32}-ci-vm", entry.name)
+            and entry.is_dir(follow_symlinks=False)
+        }
+    try:
+        return commands[os.path.realpath(value)]
+    except KeyError:
+        raise ValueError("expected an installed /nix/store/...-ci-vm/bin/ci-vm") from None
+
+
+def evidence_path(value):
+    path = os.path.realpath(value)
+    if not path.startswith(EVIDENCE_ROOT + os.sep):
+        raise ValueError("evidence must stay below " + EVIDENCE_ROOT)
+    return Path(path)
+
+
+command = installed_command(sys.argv[1])
+evidence = evidence_path(sys.argv[2])
 home = Path.home()
 legacy = home / ".colima"
 secrets = home / ".local/state/ci-vm/secrets"
@@ -51,10 +78,10 @@ class LocalhostProof(socketserver.BaseRequestHandler):
 probe = secrets / ".ci-read-probe-r3"
 assert not probe.exists() and not probe.is_symlink()
 before = metadata()
-(evidence / "profiles-before-r3.json").write_text(json.dumps(before, indent=2) + "\n")
+evidence_path(str(evidence / "profiles-before-r3.json")).write_text(json.dumps(before, indent=2) + "\n")
 nix_expression = (Path(__file__).parent / "ci-vm-kvm-proof.nix").read_text()
 
-with (evidence / "live-proof-r3.log").open("w") as log:
+with evidence_path(str(evidence / "live-proof-r3.log")).open("w") as log:
     def checked(args, **kwargs):
         return subprocess.run(args, env=environ, stdout=log, stderr=subprocess.STDOUT,
                               check=True, timeout=kwargs.pop("timeout", 180), **kwargs)
@@ -155,7 +182,7 @@ printf 'Unenrolled runner remains inactive; no registration performed\n'
                                  capture_output=True, text=True, timeout=25)
         assert stopped.returncode != 0 and "not running" in stopped.stderr + stopped.stdout
         after = metadata()
-        (evidence / "profiles-after-r3.json").write_text(json.dumps(after, indent=2) + "\n")
+        evidence_path(str(evidence / "profiles-after-r3.json")).write_text(json.dumps(after, indent=2) + "\n")
         assert before == after, "protected profile metadata changed during proof"
         assert not legacy.exists() and not legacy.is_symlink()
         assert not (secrets / "hausnetz.token").exists()

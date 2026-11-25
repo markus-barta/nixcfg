@@ -3,6 +3,7 @@
 
 import ctypes
 import fcntl
+import math
 import os
 from pathlib import Path
 import signal
@@ -10,6 +11,36 @@ import shlex
 import struct
 import subprocess
 import sys
+
+
+# Rendered by ci-vm.nix, rather than selected by argv or the environment.
+STATE_DIR = "@stateDir@"
+PIDFILE = "@pidfile@"
+DISPATCHER = "@dispatcher@"
+QOS_COMMAND = (sys.executable, __file__, "qos", PIDFILE)
+COMMANDS = {
+    "status": ("colima", "status", "ci", "--json"),
+    "stop": ("colima", "stop", "ci"),
+    "start": ("taskpolicy", "-b", "-c", "background", "colima", "start", "ci",
+              "--activate=false", "--ssh-config=false"),
+    "qos": QOS_COMMAND,
+    "host-ready": ("colima", "--profile", "ci", "ssh", "--", "sudo",
+                   "/usr/local/libexec/ci-vm/host-ready"),
+    "provision-only": ("colima", "--profile", "ci", "ssh", "--", "sudo",
+                       "/usr/local/libexec/ci-vm/host-ready", "--provision-only"),
+    "worker-active": ("colima", "--profile", "ci", "ssh", "--", "sudo",
+                      "/usr/local/libexec/ci-vm/control", "worker-active"),
+    "enrolled": ("colima", "--profile", "ci", "ssh", "--", "sudo",
+                 "/usr/local/libexec/ci-vm/control", "enrolled"),
+    "drain": ("colima", "--profile", "ci", "ssh", "--", "sudo",
+              "/usr/local/libexec/ci-vm/control", "drain"),
+}
+LOCK_COMMANDS = {
+    ("/bin/bash", DISPATCHER, "--locked", *arguments):
+        ("/bin/bash", DISPATCHER, "--locked", *arguments)
+    for arguments in ((), ("tick",), ("prepare",), ("start",),
+                      ("start", "--provision-only"), ("stop",), ("stop", "--force"))
+}
 
 
 def bounded(seconds, command):
@@ -54,10 +85,10 @@ def lock(path, command):
         os.close(fd)
 
 
-def qos(pidfile):
+def qos():
     if sys.platform != "darwin":
         raise RuntimeError("QoS enforcement requires Darwin")
-    pidfile = Path(pidfile)
+    pidfile = Path(PIDFILE)
     pid = int(pidfile.read_text().strip())
     libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
     libproc.proc_pidinfo.argtypes = [
@@ -128,14 +159,25 @@ def qos(pidfile):
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1] == "lock":
-            sys.exit(lock(sys.argv[2], sys.argv[3:]))
-        elif sys.argv[1] == "qos":
-            qos(sys.argv[2])
-        elif sys.argv[1] == "run":
-            sys.exit(bounded(float(sys.argv[2]), sys.argv[3:]))
+        if len(sys.argv) >= 6 and sys.argv[1] == "lock":
+            lockfile = str(Path(STATE_DIR) / "dispatcher.lock")
+            if sys.argv[2] != lockfile:
+                raise RuntimeError("unexpected dispatcher lock path")
+            sys.exit(lock(lockfile, LOCK_COMMANDS[tuple(sys.argv[3:])]))
+        elif len(sys.argv) == 3 and sys.argv[1] == "qos":
+            if sys.argv[2] != PIDFILE:
+                raise RuntimeError("unexpected ci hostagent PID path")
+            qos()
+        elif len(sys.argv) == 4 and sys.argv[1] == "run":
+            seconds = float(sys.argv[2])
+            if not math.isfinite(seconds) or not 0 < seconds <= 900:
+                raise RuntimeError("invalid ci command deadline")
+            sys.exit(bounded(seconds, COMMANDS[sys.argv[3]]))
         else:
             raise RuntimeError("unknown ci-vm host operation")
+    except KeyError:
+        print("ci-vm: unsupported dispatcher command", file=sys.stderr)
+        sys.exit(1)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"ci-vm: {exc}", file=sys.stderr)
         sys.exit(1)

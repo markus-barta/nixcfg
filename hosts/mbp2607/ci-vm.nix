@@ -80,11 +80,20 @@ let
       ];
     }
   );
-  hostHelper = ./files/ci-vm/host.py;
-  qos = pkgs.writeShellScript "ci-vm-qos" ''
-    ${colimaEnvironment}
-    exec ${pkgs.python3}/bin/python3 ${hostHelper} qos "$COLIMA_HOME/_lima/colima-ci/ha.pid"
-  '';
+  hostHelper = pkgs.writeText "ci-vm-host.py" (
+    lib.replaceStrings
+      (map builtins.toJSON [
+        "@stateDir@"
+        "@pidfile@"
+        "@dispatcher@"
+      ])
+      (map builtins.toJSON [
+        stateDir
+        "${colimaHome}/_lima/colima-ci/ha.pid"
+        "${./files/ci-vm/dispatcher.sh}"
+      ])
+      (builtins.readFile ./files/ci-vm/host.py)
+  );
   dispatcher = pkgs.writeShellScriptBin "ci-vm" ''
     ${colimaEnvironment}
     export PATH=${
@@ -97,7 +106,6 @@ let
     export CI_VM_CONFIG=${colimaConfig}
     export CI_VM_REPOSITORIES=${reposFile}
     export CI_VM_HOST_HELPER=${hostHelper}
-    export CI_VM_QOS=${qos}
     exec /usr/sbin/taskpolicy -b -c background /bin/bash ${./files/ci-vm/dispatcher.sh} "$@"
   '';
 in
