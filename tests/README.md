@@ -50,7 +50,7 @@ bash tests/T04-markus-ssh-routes.sh
 ## Retired csb1 HAUSV runner (T121 / OPS-678)
 
 ```bash
-bash tests/T121-csb1-hausv-runner.sh
+bash tests/T123-csb1-hausv-runner.sh
 ```
 
 Evaluates the complete csb1 configuration offline without building. It asserts
