@@ -1230,8 +1230,12 @@ docker start nodered
 `hsb1-home-config.service` snapshots approved Node-RED and Home Assistant
 configuration into **`/home/mba/home-config`**, a local Git repository with no
 remote. It only reads the live directories and never calls Docker or restarts
-either service. Root owns the repository; the `home-config` group lets `mba`
-read it. The declarative system Git configuration trusts exactly this root-owned
+either service. This is a **history-only bare repository inside `.git/`**;
+there are no checked-out snapshot files or shared Git index. Root owns the
+repository; the `home-config` group lets `mba` read it. The top directory is
+setgid mode **2750** and Git uses `core.sharedRepository=group`, so newly created
+objects and refs inherit the reader group, including after manual verification.
+The declarative system Git configuration trusts exactly this root-owned
 path so normal history commands work for `mba`. Reconnect after deployment to
 pick up the new group membership.
 
@@ -1250,7 +1254,9 @@ The positive allowlist in `hosts/hsb1/home-config-snapshot.py` is:
   YAML files under `themes/`, `blueprints/`, and `packages/`, when present.
   Nested directory names and filename stems use ASCII letters, digits, `_`
   and `-`; extensions are `.yaml` or `.yml`. Dotted backup names, hidden
-  entries, `!archiv`, and other file types never match.
+  entries, `!archiv`, and other file types never match. ZIPs, LICENSE files and
+  directory symlinks are skipped without opening their contents; only real,
+  allowlisted directories are traversed.
 - `.storage/core.{area,floor,device,entity,label}_registry`, `.storage/lovelace`,
   `.storage/lovelace_resources`, `.storage/lovelace_dashboards`, and
   `.storage/lovelace.<dashboard>` with the same ASCII dashboard stem rule;
@@ -1261,41 +1267,72 @@ Other files are never read or copied: this includes `flows_cred.json`,
 `.flows_cred*`, `.config.users.json`, context, `secrets.yaml`, auth/config-entry
 storage, databases, logs, cloud/tts data, and backup files. Required inputs are
 `flows.json`, `settings.js` and `configuration.yaml`; their absence aborts
-without deleting history. Selected symlinks, hardlinks, non-regular files,
+without deleting history. Selected file symlinks, hardlinks, non-regular files,
 oversized files and malformed JSON also fail closed.
 
 `settings.js` is parsed as text, never executed. Exactly one literal
 `credentialSecret` property is required. Its value is replaced in memory with
-`"[REDACTED]"` before any snapshot file or Git blob is written. A hard gate
+`"[REDACTED]"` before any snapshot file or Git blob is written. Literal `password`
+and `pass` values inside `adminAuth`, `httpNodeAuth` and `httpStaticAuth` are
+filtered in memory too. Every bcrypt-shaped string is redacted, including
+commented template examples and escaped string literals. Auth objects/passwords
+with unsupported expressions fail closed. A hard gate
 checks the placeholder and compares SHA-256 fingerprints of the original
 decoded value and original literal spelling against the filtered copy,
 including decoded string literals. Unsupported expressions or another copy of
 the credential refuse the snapshot. Gitleaks (default rules plus literal
-credential/authorization rules) scans a private candidate directory before
+credentials, bcrypt, URL user/password credentials, unquoted password-like YAML
+values and query tokens) scans a private candidate directory before
 Git receives its contents, then scans an export of the exact staged blobs
 before each commit. Findings log **rule, relative filename and line only**;
 scanner stdout/stderr and credential values never enter the journal. Inline
 `gitleaks:allow` comments and source-side scanner configuration cannot bypass
-the gate. Scanner failure aborts too. A failed pre-scan leaves history and the
-repository worktree unchanged.
+the gate. YAML `!secret`/`!env_var` references are excluded from the unquoted-value
+rule. Scanner failure aborts too. A failed pre-scan leaves history unchanged and
+creates no Git objects. File I/O failures identify a validated path and errno;
+each run logs only counts of ignored entries and skipped YAML files. A skipped
+directory counts as one entry; its unvisited descendants are not inventoried.
 
 The path unit watches source files and their parent directories to catch
 atomic replacements. Each run waits for **20 seconds of quiet** in the
 allowlisted file metadata; ongoing edits defer the snapshot for at most two
 minutes, then fail for a later retry. A timer runs two minutes after boot and
 15 minutes after the previous run finishes. It also catches nested YAML and
-dashboard edits that directory watches miss. systemd and a shared lock
-serialize runs. Unchanged content creates no commit. Commit messages list
+dashboard edits that directory watches miss; the noisy `.storage` parent is
+left to this timer while named selected files remain watched. systemd and a shared lock
+serialize snapshots, maintenance and manual verification. An unchanged-content
+hash check skips both scanner passes and object writes. Changed runs reuse
+unchanged blobs and build a private index under `/run/hsb1-home-config`.
+Only the fully scanned commit is published by atomically replacing the complete
+`main` ref under that exclusive lock. No worktree/index promotion or blocking
+Git ref lock is left by interruption. Reserved stale runtime directories and
+temporary refs are cleared at the next full run; unknown operator files, shared
+indexes and conventional ref locks are preserved and cause refusal.
+Commit messages list
 the source (`nodered`/`homeassistant`) and changed paths; the author is
 `hsb1-home-config <root@hsb1>`. The sandbox makes sources read-only, denies
 network access and runs with idle I/O scheduling and Nice 19. The production
-command has fixed source, destination and tool paths; its only option is
-`--verify-only`.
+command has fixed source, destination and tool paths. A full snapshot or `--gc`
+requires a systemd invocation; use `--verify-only` manually. Verification reads
+HEAD without modifying repository metadata, permissions or an index. Existing
+non-bare pilot repositories are preserved and refused; the coordinator must
+review/migrate one explicitly rather than deleting its worktree.
+
+The snapshot unit has `restartIfChanged=false`, an eight-minute worker budget
+and a ten-minute systemd timeout. Automatic Git GC/maintenance is disabled in
+snapshot commands. `hsb1-home-config-gc.timer` performs weekly GC in a separate
+network-denied sandbox with a thirty-minute timeout, using the same lock.
+`home-config-watch.timer` uses hsb1's existing OPS-107 alert target every ten
+minutes. A missing success marker, a non-regular marker or one older than
+45 minutes is a problem; two consecutive observations page, and recovery clears
+the alert. Successful changed **and unchanged** snapshots refresh this
+metadata-only witness; manual verification and GC do not.
 
 ```bash
 git -C /home/mba/home-config log --oneline
 git -C /home/mba/home-config diff HEAD~1 HEAD -- homeassistant/automations.yaml
 systemctl status hsb1-home-config.path hsb1-home-config.timer --no-pager
+systemctl status hsb1-home-config-gc.timer home-config-watch.timer --no-pager
 journalctl -u hsb1-home-config.service --since today --no-pager
 sudo systemctl start hsb1-home-config.service
 # Value-free HEAD verification: allowlist, scanner, live credential hash gate, no remote.

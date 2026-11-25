@@ -1,5 +1,10 @@
 # OPS-158: observation only. The local Git history is runtime data, never a remote mirror.
-{ pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 let
   repo = "/home/mba/home-config";
   nodered = "/home/mba/docker/mounts/nodered/data";
@@ -14,6 +19,47 @@ let
     }
     exec ${pkgs.python3}/bin/python3 /etc/hsb1-home-config/snapshot.py "$@"
   '';
+  fleetLib = import ../../modules/shared/fleet-alerts/lib.nix { inherit pkgs lib; };
+  witness = fleetLib.mkPoller {
+    name = "home-config-watch";
+    checks = ./home-config-watch.py;
+    substitutions.NOTIFICATION_ENV = config.age.secrets.hsb1-tailnet-watch-env.path;
+  };
+  historySandbox = {
+    Type = "oneshot";
+    User = "root";
+    Group = "home-config";
+    UMask = "0027";
+    RuntimeDirectory = "hsb1-home-config";
+    RuntimeDirectoryMode = "0700";
+    RuntimeDirectoryPreserve = true;
+    Nice = 19;
+    IOSchedulingClass = "idle";
+    ProtectSystem = "strict";
+    ProtectHome = "read-only";
+    ReadWritePaths = [
+      repo
+      runtime
+    ];
+    InaccessiblePaths = [
+      "-/run/agenix"
+      "-/run/secrets"
+      "-/root"
+    ];
+    PrivateNetwork = true;
+    IPAddressDeny = "any";
+    RestrictAddressFamilies = [ "AF_UNIX" ];
+    PrivateTmp = true;
+    PrivateDevices = true;
+    NoNewPrivileges = true;
+    ProtectKernelTunables = true;
+    ProtectKernelModules = true;
+    ProtectKernelLogs = true;
+    ProtectControlGroups = true;
+    LockPersonality = true;
+    RestrictRealtime = true;
+    RestrictSUIDSGID = true;
+  };
 in
 {
   users.groups.home-config.members = [ "mba" ];
@@ -24,7 +70,7 @@ in
     config.safe.directory = [ repo ];
   };
   # Covered already: restic's /home:/backup/home:ro bind and /backup/home input.
-  systemd.tmpfiles.rules = [ "d ${repo} 0750 root home-config - -" ];
+  systemd.tmpfiles.rules = [ "d ${repo} 2750 root home-config - -" ];
   environment.etc = {
     "hsb1-home-config/snapshot.py".source = ./home-config-snapshot.py;
     "hsb1-home-config/gitleaks.toml".source = ./home-config-gitleaks.toml;
@@ -33,52 +79,22 @@ in
 
   systemd.services.hsb1-home-config = {
     description = "Secret-gated local Node-RED and Home Assistant configuration history (OPS-158)";
+    restartIfChanged = false;
     unitConfig.RequiresMountsFor = [
       repo
       nodered
       homeassistant
     ];
-    serviceConfig = {
-      Type = "oneshot";
-      User = "root";
-      Group = "home-config";
+    serviceConfig = historySandbox // {
       ExecStart = "${command}/bin/hsb1-home-config";
-      UMask = "0027";
-      RuntimeDirectory = "hsb1-home-config";
-      RuntimeDirectoryMode = "0700";
-      RuntimeDirectoryPreserve = true;
-      TimeoutStartSec = "5min";
-      Nice = 19;
-      IOSchedulingClass = "idle";
-      ProtectSystem = "strict";
-      ProtectHome = "read-only";
+      # The worker enforces an eight-minute total budget (debounce <=120 s,
+      # two scanner calls <=75 s each, bounded Git calls), with stop margin.
+      TimeoutStartSec = "10min";
       ReadOnlyPaths = [
         nodered
         homeassistant
       ];
-      ReadWritePaths = [
-        repo
-        runtime
-      ];
-      InaccessiblePaths = [
-        "-/run/agenix"
-        "-/run/secrets"
-        "-/root"
-      ];
-      PrivateNetwork = true;
-      IPAddressDeny = "any";
-      RestrictAddressFamilies = [ "AF_UNIX" ];
-      PrivateTmp = true;
-      PrivateDevices = true;
-      NoNewPrivileges = true;
       CapabilityBoundingSet = [ "CAP_DAC_READ_SEARCH" ];
-      ProtectKernelTunables = true;
-      ProtectKernelModules = true;
-      ProtectKernelLogs = true;
-      ProtectControlGroups = true;
-      LockPersonality = true;
-      RestrictRealtime = true;
-      RestrictSUIDSGID = true;
     };
   };
 
@@ -103,7 +119,6 @@ in
         "${homeassistant}/themes"
         "${homeassistant}/blueprints"
         "${homeassistant}/packages"
-        "${homeassistant}/.storage"
         "${homeassistant}/.storage/core.area_registry"
         "${homeassistant}/.storage/core.floor_registry"
         "${homeassistant}/.storage/core.device_registry"
@@ -124,6 +139,79 @@ in
       OnUnitInactiveSec = "15min";
       AccuracySec = "30s";
       Unit = "hsb1-home-config.service";
+    };
+  };
+
+  systemd.services.hsb1-home-config-gc = {
+    description = "Bounded periodic maintenance of local configuration history (OPS-158)";
+    restartIfChanged = false;
+    unitConfig.RequiresMountsFor = [ repo ];
+    serviceConfig = historySandbox // {
+      ExecStart = "${command}/bin/hsb1-home-config --gc";
+      TimeoutStartSec = "30min";
+      CapabilityBoundingSet = [ ];
+      InaccessiblePaths = historySandbox.InaccessiblePaths ++ [
+        nodered
+        homeassistant
+      ];
+    };
+  };
+  systemd.timers.hsb1-home-config-gc = {
+    description = "Weekly local configuration history maintenance (OPS-158)";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "weekly";
+      RandomizedDelaySec = "1h";
+      Persistent = true;
+      Unit = "hsb1-home-config-gc.service";
+    };
+  };
+
+  # Independent OPS-107 witness: even a killed or never-started snapshotter
+  # cannot keep its own freshness marker healthy. Reuse hsb1's alert target.
+  systemd.services.home-config-watch = {
+    description = "Page when local configuration snapshots stop succeeding (OPS-158)";
+    after = [
+      "network-online.target"
+      "agenix.service"
+    ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.python3}/bin/python3 ${witness}/checks.py";
+      StateDirectory = "home-config-watch";
+      StateDirectoryMode = "0700";
+      SuccessExitStatus = [
+        0
+        1
+      ];
+      TimeoutStartSec = "60";
+      ProtectSystem = "strict";
+      ProtectHome = "read-only";
+      PrivateTmp = true;
+      PrivateDevices = true;
+      NoNewPrivileges = true;
+      ProtectKernelTunables = true;
+      ProtectKernelModules = true;
+      LockPersonality = true;
+      RestrictRealtime = true;
+      RestrictSUIDSGID = true;
+      RestrictAddressFamilies = [
+        "AF_UNIX"
+        "AF_INET"
+        "AF_INET6"
+      ];
+      SystemCallArchitectures = "native";
+    };
+  };
+  systemd.timers.home-config-watch = {
+    description = "Independent local configuration history freshness witness (OPS-158)";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "10min";
+      OnUnitActiveSec = "10min";
+      RandomizedDelaySec = "30s";
+      Unit = "home-config-watch.service";
     };
   };
 }

@@ -12,7 +12,20 @@ let
     else
       import (nixpkgs + "/nixos/lib/eval-config.nix") {
         system = "x86_64-linux";
-        modules = [ ../hosts/hsb1/home-config.nix ];
+        modules = [
+          ../hosts/hsb1/home-config.nix
+          # Only the existing agenix lookup is stubbed for scoped evaluation;
+          # every systemd option and rendered unit uses the real NixOS modules.
+          (
+            { lib, ... }:
+            {
+              options.age.secrets = lib.mkOption {
+                type = lib.types.attrs;
+                default.hsb1-tailnet-watch-env.path = "/run/agenix/hsb1-tailnet-watch-env";
+              };
+            }
+          )
+        ];
       };
   cfg = system.config;
   host = import ../hosts/hsb1/configuration.nix {
@@ -34,15 +47,28 @@ assert builtins.elem ../hosts/hsb1/home-config.nix host.imports;
       serviceConfig
       after
       wants
+      restartIfChanged
       ;
     mounts = cfg.systemd.services.hsb1-home-config.unitConfig.RequiresMountsFor;
   };
   inherit (cfg.systemd.paths.hsb1-home-config) pathConfig;
   inherit (cfg.systemd.timers.hsb1-home-config) timerConfig;
+  maintenance = {
+    inherit (cfg.systemd.services.hsb1-home-config-gc) serviceConfig restartIfChanged;
+    inherit (cfg.systemd.timers.hsb1-home-config-gc) timerConfig;
+  };
+  witness = {
+    inherit (cfg.systemd.services.home-config-watch) serviceConfig;
+    inherit (cfg.systemd.timers.home-config-watch) timerConfig;
+  };
   units = {
     service = cfg.systemd.units."hsb1-home-config.service".text;
     path = cfg.systemd.units."hsb1-home-config.path".text;
     timer = cfg.systemd.units."hsb1-home-config.timer".text;
+    gc = cfg.systemd.units."hsb1-home-config-gc.service".text;
+    gcTimer = cfg.systemd.units."hsb1-home-config-gc.timer".text;
+    witness = cfg.systemd.units."home-config-watch.service".text;
+    witnessTimer = cfg.systemd.units."home-config-watch.timer".text;
   };
   tmpfiles = cfg.systemd.tmpfiles.rules;
   readers = cfg.users.groups.home-config.members;

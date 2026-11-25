@@ -62,13 +62,15 @@ def verify(result):
     assert unit["RestrictAddressFamilies"] == ["AF_UNIX"]
     assert unit["CapabilityBoundingSet"] == ["CAP_DAC_READ_SEARCH"]
     assert unit["Nice"] == 19 and unit["IOSchedulingClass"] == "idle"
-    assert unit["TimeoutStartSec"] == "5min"
+    assert unit["TimeoutStartSec"] == "10min"
+    assert result["service"]["restartIfChanged"] is False
     assert unit["ExecStart"].endswith("/bin/hsb1-home-config")
     assert set(result["service"]["mounts"]) == {destination, nr, ha}
     assert not any("docker" in name or "compose" in name for name in result["service"]["wants"])
     paths = set(result["pathConfig"]["PathChanged"])
-    for name in (nr, nr + "/flows.json", nr + "/settings.js", ha, ha + "/configuration.yaml", ha + "/automations.yaml", ha + "/.storage"):
+    for name in (nr, nr + "/flows.json", nr + "/settings.js", ha, ha + "/configuration.yaml", ha + "/automations.yaml"):
         assert name in paths, name
+    assert ha + "/.storage" not in paths, "unrelated storage writes must not trigger snapshots"
     assert destination not in paths
     assert result["pathConfig"]["Unit"] == "hsb1-home-config.service"
     assert result["timerConfig"]["OnBootSec"] == "2min"
@@ -76,7 +78,22 @@ def verify(result):
     assert result["timerConfig"]["Unit"] == "hsb1-home-config.service"
     assert "mba" in result["readers"]
     assert "[safe]" in result["readerConfig"] and "directory = " + json.dumps(destination) in result["readerConfig"]
-    assert "d " + destination + " 0750 root home-config - -" in result["tmpfiles"]
+    assert "d " + destination + " 2750 root home-config - -" in result["tmpfiles"]
+    gc = result["maintenance"]["serviceConfig"]
+    assert gc["ExecStart"].endswith("/bin/hsb1-home-config --gc")
+    assert gc["TimeoutStartSec"] == "30min" and gc["PrivateNetwork"] is True
+    assert gc["ProtectSystem"] == "strict" and gc["ProtectHome"] == "read-only"
+    assert gc["Group"] == "home-config" and gc["UMask"] == "0027"
+    assert gc["CapabilityBoundingSet"] == []
+    assert {nr, ha} <= set(gc["InaccessiblePaths"])
+    assert result["maintenance"]["restartIfChanged"] is False
+    assert result["maintenance"]["timerConfig"]["OnCalendar"] == "weekly"
+    assert result["maintenance"]["timerConfig"]["Persistent"] is True
+    witness = result["witness"]["serviceConfig"]
+    assert witness["StateDirectory"] == "home-config-watch"
+    assert witness["ProtectHome"] == "read-only" and witness["ProtectSystem"] == "strict"
+    assert witness["SuccessExitStatus"] == [0, 1] and witness["TimeoutStartSec"] == "60"
+    assert result["witness"]["timerConfig"]["OnUnitActiveSec"] == "10min"
     assert result["sources"]["script"].endswith("home-config-snapshot.py")
     assert result["sources"]["scanner"].endswith("home-config-gitleaks.toml")
     assert "/home:/backup/home:ro" in result["backup"]["volumes"]
@@ -86,6 +103,11 @@ def verify(result):
         assert marker in result["units"]["service"], marker
     assert "PathChanged=" + nr + "/flows.json" in result["units"]["path"]
     assert "OnUnitInactiveSec=15min" in result["units"]["timer"]
+    assert "X-RestartIfChanged=false" in result["units"]["service"]
+    assert "TimeoutStartSec=30min" in result["units"]["gc"]
+    assert "OnCalendar=weekly" in result["units"]["gcTimer"]
+    assert "StateDirectory=home-config-watch" in result["units"]["witness"]
+    assert "OnUnitActiveSec=10min" in result["units"]["witnessTimer"]
 
 
 verify(evaluate(False))
