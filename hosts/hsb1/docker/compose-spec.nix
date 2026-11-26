@@ -157,6 +157,7 @@ in
       ];
       volumes = [
         "/home/mba/docker/mounts/funkeykid:/data" # one directory: atomic settings.json (rename), archive/ persists (FUNK-67, OPS-701)
+        "/home/mba/docker/mounts/funkeykid/backup-v1.0:/data/backup-v1.0:ro" # v1 recovery copy stays read-only inside the rw /data mount (OPS-701)
         "/dev/input:/dev/input"
         "/run/user/1001:/run/user/1001"
         "/run/dbus:/run/dbus"
