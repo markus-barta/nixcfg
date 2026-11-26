@@ -64,12 +64,13 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 64: v261123075451.0.0 (sequence 134; hausnetz main 9431bd2d = merge of release PR #417, tag on
-    # 4e6da917). Contents since 63: UI and QA scripts only (web/, scripts/, plus the release files). No nix/, flake,
-    # Go or persisted-format change; no new listener, outbound call or capability; restarts hausnetz only
-    # (HNET-539; standing go Desk 45df1430).
+    # HNET pin 65: v261126120508.0.0 (sequence 135; hausnetz main 65ba40f2 = merge of release PR #434, tag on
+    # c6facac0). "Rooms from Home Assistant, device roles and movable columns". New capability: the optional
+    # read-only Home Assistant reader (services.hausnetz.homeAssistant, nix/module.nix); hsb0 turns it on in
+    # the same change (OPS-703, Markus's go on HNET-556, 2026-11-26). Other module changes: test/VM files
+    # and the vendorHash only. Rollback: previous generation; a re-pin below 65 must drop the HA block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=9431bd2da3348d87e400ecda95bdcad029221c3d";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=65ba40f2bfb47e6ae1a41aee2c17fb8263dea79c";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
