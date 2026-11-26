@@ -64,13 +64,13 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 66: v261126125422.0.0 (sequence 136; hausnetz main ee251604 = merge of hotfix
-    # release PR #436, tag on c5fac78d). "Home Assistant take-over handles rooms only" (HNET-577). Since 65: HA rooms
-    # logic, a Shelly-heal timeout refactor, tests, UI and release files; no nix/, flake or Go-dependency change, no new
-    # listener, outbound call or capability (HNET-578); the HA reader block (OPS-703) is unchanged. Rollback: previous
-    # generation (pin 65); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 67: v261126165633.0.0 (sequence 137; hausnetz main d85957f2 = merge of release PR #441; the tag is on the merge).
+    # HNET-570: guarded UI boot + strict CSP/COOP/no-referrer headers, /readyz, /api/host-capabilities and the
+    # cd-prepare app (not used on hsb0). nix/module.nix unchanged; flake.nix build changes only (doCheck = false, a
+    # bundle-inputs check); no Go-dependency change, no new listener, outbound call or capability (HNET-582). Rollback:
+    # previous generation (pin 66); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=ee251604501bada9f0190897a57bb3f92a504185";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=d85957f287ca071f987238c7b52338919ae3548d";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
