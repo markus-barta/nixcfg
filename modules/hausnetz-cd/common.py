@@ -77,12 +77,13 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
-def run(args, *, timeout=60, data=None, binary=False):
-    # Do not return command lines, remote diagnostics, API bodies or exceptions
-    # to logs: private git diagnostics can contain credential-bearing URLs.
+def run(executable, args, *, timeout=60, data=None, binary=False):
+    # Keep the executable separate from data arguments. Production callers
+    # select it from literals, the Nix-baked config, or a proved store output.
+    # Diagnostics can contain credential-bearing URLs; never return them.
     try:
         result = subprocess.run(
-            [str(a) for a in args], input=data, capture_output=True,
+            [str(executable), *[str(a) for a in args]], input=data, capture_output=True,
             text=not binary, timeout=timeout, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -92,7 +93,7 @@ def run(args, *, timeout=60, data=None, binary=False):
 
 
 def http_get(url, timeout):
-    response = run(["curl", "--disable", "--fail", "--silent", "--noproxy", "*",
+    response = run("curl", ["--disable", "--fail", "--silent", "--noproxy", "*",
                     "--proto", "=http", "--max-time", str(timeout),
                     "--max-filesize", "268435456", "--write-out", "\n%{http_code}", url],
                    timeout=timeout, binary=True)
@@ -113,6 +114,18 @@ def strict_json(data):
         return json.loads(data, object_pairs_hook=unique)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise Manual("unreadable_json") from exc
+
+
+# Production state is fixed. Offline fixtures replace this constant only in
+# their test entrypoint; no production argv/config/env can select a root.
+STATE_ROOT = "/var/lib/hausnetz-cd"
+
+
+def state_path(path):
+    resolved = os.path.realpath(path)
+    if not resolved.startswith(STATE_ROOT + os.sep):
+        raise Manual("unsafe_state_path")
+    return Path(resolved)
 
 
 def private_dir(path):
@@ -156,13 +169,13 @@ def evidence(data):
 
 
 def git(repo, *args):
-    return run(["git", "-C", repo, *args])
+    return run("git", ["-C", repo, *args])
 
 
 def cache_repo(path, url, *revs, worktree=False):
     path = Path(path)
     if not path.exists():
-        run(["git", "clone", *([] if worktree else ["--bare"]), "--quiet", url, path], timeout=90)
+        run("git", ["clone", *([] if worktree else ["--bare"]), "--quiet", url, path], timeout=90)
     require(git(path, "config", "--get", "remote.origin.url").strip() == url,
             "cache_origin_mismatch")
     if worktree:
@@ -189,7 +202,7 @@ def tree_mode(repo, rev, path):
 
 def blob(repo, rev, path):
     tree_mode(repo, rev, path)
-    return run(["git", "-C", repo, "show", rev + ":" + path], binary=True).decode("utf-8")
+    return run("git", ["-C", repo, "show", rev + ":" + path], binary=True).decode("utf-8")
 
 
 def lock_pin(text):

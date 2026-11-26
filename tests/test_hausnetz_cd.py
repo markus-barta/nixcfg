@@ -5,8 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
@@ -17,7 +17,23 @@ from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[1]
-SOURCE = Path(os.environ.get("HAUSNETZ_CD_SOURCE", REPO / "modules/hausnetz-cd"))
+TEMP_ROOT = os.path.realpath("/tmp")
+
+
+def mutant_source(name):
+    if not re.fullmatch(r"t125-mutant-[A-Za-z0-9_-]+", name):
+        raise ValueError("invalid mutant source")
+    resolved = os.path.realpath(Path("/tmp") / name)
+    if not resolved.startswith(TEMP_ROOT + os.sep):
+        raise ValueError("unsafe mutant source")
+    return Path(resolved)
+
+
+SOURCE = REPO / "modules/hausnetz-cd"
+# Mutants are selected only by a strict basename below a fixed temporary root.
+mutant = os.environ.get("HAUSNETZ_CD_SOURCE")
+if mutant is not None:
+    SOURCE = mutant_source(mutant)
 sys.path.insert(0, str(SOURCE))
 from common import (Manual, EXECUTOR_BUDGET, POLL_BUDGET, POLL_INTERVAL, SSH_RETRY_TIMEOUT,
                     UNIT_RUNTIME_MAX, coordinate, gate_closures, gate_g1, gate_g2, gate_g4,
@@ -30,7 +46,9 @@ class Fixture:
     def __init__(self, root):
         root = root.resolve()
         self.root = root
-        self.env = dict(os.environ, CD_FIXTURE=str(root), PYTHONDONTWRITEBYTECODE="1")
+        import common
+        common.STATE_ROOT = str(root / "remote-state")
+        self.env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         self.bin = root / "bin"
         self.bin.mkdir()
         self.env["PATH"] = str(self.bin) + os.pathsep + os.environ["PATH"]
@@ -103,15 +121,19 @@ class Fixture:
             "secondary_telegram_command": [str(self.bin / "secondary-telegram")],
         }
         self.executor_path = root / "execute"
-        template = (SOURCE / "execute.sh").read_text()
-        self.executor_path.write_text(template.replace("@SOURCE@", shlex.quote(str(SOURCE)))
-                                      .replace("@CONFIG@", shlex.quote(str(root / "execute.json"))))
-        self.executor_path.chmod(0o700)
+        # A separate test entrypoint supplies fixture settings; production
+        # entrypoints have no config override via argv or environment.
+        for target, module, settings in ((self.executor_path, "execute", "execute.json"),
+                                         (root / "orchestrate", "orchestrate", "orchestrate.json")):
+            target.write_text("#!" + sys.executable + "\n"
+                              + "import sys\n"
+                              + "sys.path.insert(0, " + repr(str(SOURCE)) + ")\n"
+                              + "import common\ncommon.STATE_ROOT = " + repr(str(root / "remote-state")) + "\n"
+                              + "import " + module + "\n"
+                              + module + ".CONFIG_FILE = " + repr(str(root / settings)) + "\n"
+                              + module + ".main()\n")
+            target.chmod(0o700)
         self.orchestrator_path = root / "orchestrate"
-        template = (REPO / "hosts/mbp2607/hausnetz-cd.sh").read_text()
-        self.orchestrator_path.write_text(template.replace("@SOURCE@", shlex.quote(str(SOURCE)))
-                                          .replace("@CONFIG@", shlex.quote(str(root / "orchestrate.json"))))
-        self.orchestrator_path.chmod(0o700)
         self.save()
 
     @staticmethod
@@ -259,6 +281,33 @@ class TestCD(unittest.TestCase):
     def tearDown(self):
         self.f.stop()
         self.temporary.cleanup()
+
+    def test_production_entrypoints_reject_config_override(self):
+        positional = [self.f.new, self.f.new_hnet, "dry-run", self.f.new_version,
+                      self.f.manifest_sha, self.f.old, "f" * 32]
+        for module, args in (("execute.py", positional), ("orchestrate.py", [])):
+            with self.subTest(module=module):
+                result = subprocess.run(
+                    [sys.executable, "-B", str(SOURCE / module), *args,
+                     "--config", str(self.f.root / "execute.json")],
+                    capture_output=True, text=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("unrecognized arguments: --config", result.stderr)
+        self.assertFalse(self.f.events())
+        self.assertFalse(Path(self.f.executor["state_dir"]).exists())
+
+    def test_state_path_refuses_traversal_prefix_siblings_and_symlinks(self):
+        from common import state_path
+        state = Path(self.f.executor["state_dir"])
+        state.mkdir()
+        (state / "escape").symlink_to(self.f.root)
+        for path in (state / "../outside", Path(str(state) + "-other/file"),
+                     state / "escape/outside"):
+            with self.subTest(path=path), self.assertRaises(Manual) as caught:
+                state_path(path)
+            self.assertEqual(str(caught.exception), "unsafe_state_path")
+        self.assertEqual(state_path(state / "results" / ("f" * 32 + ".json")),
+                         state / "results" / ("f" * 32 + ".json"))
 
     def manual(self):
         self.f.tick()
@@ -1193,8 +1242,8 @@ class TestCD(unittest.TestCase):
     def test_readyz_truthy_nonbooleans_are_rejected(self):
         proof = {"exe": "/fixture/hausnetz", "version": self.f.new_version,
                  "manifest_sha256": self.f.manifest_sha}
-        def process(args, **_kwargs):
-            return proof["exe"] if args[0] == "readlink" else "123"
+        def process(executable, _args, **_kwargs):
+            return proof["exe"] if executable == "readlink" else "123"
         for key in ("engine", "site", "ui", "extra"):
             for value in (1, "true", [True], {"ok": True}):
                 checks = {"engine": True, "site": True, "ui": True, key: value}
@@ -1288,7 +1337,7 @@ def mutants():
         ("Telegram token outside argv", "execute.py", [('"--max-time", "10", "--config", "-"', '"--max-time", "10", "https://api.telegram.org/bot" + lines[0] + "/sendMessage"')], "test_telegram_token_never_in_argv"),
         ("backup parsing", "common.py", [('def parse_export(data):\n', 'def parse_export(data):\n    return "json", hashlib.sha256(data).hexdigest()\n')], "test_bad_backup_prevents_switch"),
         ("offhost backup ack", "execute.py", [('require(ack.is_file() and ack.read_text().strip() == digest,', 'require(True,')], "test_export_copy_ack_required"),
-        ("recorded rollback", "execute.py", [('run([result["old_system"] + "/bin/switch-to-configuration", "switch"]', 'run([result["new_system"] + "/bin/switch-to-configuration", "switch"]')], "test_health_fail_rolls_back_recorded_system"),
+        ("recorded rollback", "execute.py", [('run(result["old_system"] + "/bin/switch-to-configuration", ["switch"]', 'run(result["new_system"] + "/bin/switch-to-configuration", ["switch"]')], "test_health_fail_rolls_back_recorded_system"),
         ("rollback old proof", "execute.py", [('require(health(config, result["old_proof"]), "rollback_health_failed")', 'require(True, "rollback_health_failed")')], "test_rollback_must_prove_old_revision"),
         ("wait for completed rollback", "orchestrate.py", [('or (result.get("phase") == "complete" and result.get("completed_at"))', 'or True')], "test_health_fail_rolls_back_recorded_system"),
         ("rollback Telegram", "execute.py", [('"auto-rollback" if result["rollback"]', '"wrong" if result["rollback"]')], "test_health_fail_rolls_back_recorded_system"),
@@ -1302,7 +1351,7 @@ def mutants():
         ("fresh starting status", "execute.py", [('    save()\n    attempt = state', '    attempt = state')], "test_starting_status_precedes_lock"),
         ("lock parse errors per tick", "orchestrate.py", [('except (Manual, OSError, KeyError, TypeError, ValueError):\n            print("hausnetz-cd: tick skipped;', 'except OSError:\n            print("hausnetz-cd: tick skipped;')], "test_lock_parse_errors_retry_silently"),
         ("built package versus prepared version", "execute.py", [('require(result["new_proof"]["version"] == expected_version,', 'require(True,')], "test_built_version_must_match_prepare"),
-        ("activation never killed by timeout", "execute.py", [('run([new_system + "/bin/switch-to-configuration", "switch"], timeout=None)', 'run([new_system + "/bin/switch-to-configuration", "switch"], timeout=120)')], "test_poll_and_runtime_budgets"),
+        ("activation never killed by timeout", "execute.py", [('run(new_system + "/bin/switch-to-configuration", ["switch"], timeout=None)', 'run(new_system + "/bin/switch-to-configuration", ["switch"], timeout=120)')], "test_poll_and_runtime_budgets"),
         ("remote expected revision regex", "orchestrate.py", [('[[ "$expected" =~ ^[0-9a-f]{40}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
         ("remote run ID regex", "orchestrate.py", [('[[ "$run_id" =~ ^[0-9a-f]{32}$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
         ("remote version regex", "orchestrate.py", [('[[ "$version" =~ ^[0-9]{12}\\.0\\.0$ ]]', 'true')], "test_remote_rev_and_digest_regexes"),
@@ -1319,7 +1368,7 @@ def mutants():
         ("duplicate run refusal terminal", "execute.py", [('result.update(status="manual", phase="complete", reason=reason,', 'result.update(status="running", phase="complete", reason=reason,')], "test_duplicate_run_has_terminal_refusal_without_overwriting_original"),
         ("revision refusal terminal", "execute.py", [('result.update(status="manual", phase="complete", reason=reason,', 'result.update(status="running", phase="complete", reason=reason,')], "test_revision_refusal_is_terminal_before_lock"),
         ("missing lock refusal terminal", "execute.py", [('result.update(status="manual", phase="complete", reason=reason,', 'result.update(status="running", phase="complete", reason=reason,')], "test_missing_deploy_lock_is_terminal_manual"),
-        ("old system GC root", "execute.py", [('run(["nix-store", "--add-root", state / "old-system", "--indirect", "--realise", old_system])', 'pass')], "test_gc_roots_protect_both_systems_through_g3_and_completion"),
+        ("old system GC root", "execute.py", [('run("nix-store", ["--add-root", state / "old-system", "--indirect", "--realise", old_system])', 'pass')], "test_gc_roots_protect_both_systems_through_g3_and_completion"),
         ("new system GC root", "execute.py", [('"--out-link", state / "new-system",', '"--no-link",')], "test_gc_roots_protect_both_systems_through_g3_and_completion"),
         ("ticket retry cap", "orchestrate.py", [('entry.get("ticket_attempts", 0) < 5', 'entry.get("ticket_attempts", 0) < 6')], "test_ticket_attempts_cap_and_durable_local_outbox"),
         ("strict readiness booleans", "execute.py", [('all(value is True for value in checks.values())', 'all(checks.values())')], "test_readyz_truthy_nonbooleans_are_rejected"),
@@ -1330,7 +1379,7 @@ def mutants():
     ]
     def check_mutant(case):
         label, file, edits, test = case
-        with tempfile.TemporaryDirectory(prefix="t125-mutant-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="t125-mutant-", dir="/tmp") as temporary:
             source = Path(temporary)
             for path in SOURCE.glob("*"):
                 if path.suffix in {".py", ".sh"}:
@@ -1342,7 +1391,7 @@ def mutants():
                 text = text.replace(before, after, 1)
             (source / file).write_text(text)
             result = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), "TestCD." + test],
-                                    env=dict(os.environ, HAUSNETZ_CD_SOURCE=str(source)),
+                                    env=dict(os.environ, HAUSNETZ_CD_SOURCE=source.name),
                                     capture_output=True, text=True, timeout=45, check=False)
             if result.returncode == 0:
                 raise AssertionError("SURVIVED guard-removal mutant: " + label)

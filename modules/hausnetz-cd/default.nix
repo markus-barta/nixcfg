@@ -20,7 +20,11 @@ let
       telegram_file = "/run/agenix/hsb0-hausnetz-telegram";
     }
   );
+  entrypoint = pkgs.writeText "hausnetz-cd-execute.py" (
+    builtins.replaceStrings [ "@CONFIG@" ] [ (toString settings) ] (builtins.readFile ./execute.py)
+  );
   runner = pkgs.writeShellApplication {
+    derivationArgs.passthru = { inherit settings entrypoint; };
     name = "hausnetz-cd-execute";
     runtimeInputs = with pkgs; [
       coreutils
@@ -34,8 +38,8 @@ let
     ];
     text =
       builtins.replaceStrings
-        [ "@SOURCE@" "@CONFIG@" ]
-        [ (lib.escapeShellArg "${./.}") (lib.escapeShellArg (toString settings)) ]
+        [ "@SOURCE@" "@ENTRYPOINT@" ]
+        [ (lib.escapeShellArg "${./.}") (lib.escapeShellArg (toString entrypoint)) ]
         (builtins.readFile ./execute.sh);
   };
 in

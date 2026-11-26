@@ -35,7 +35,11 @@ let
         ]
     )
     // {
-      writeText = _: value: value;
+      writeText = name: value: {
+        outPath = "/fixture/" + name;
+        text = value;
+        __toString = self: self.outPath;
+      };
       writeShellApplication = value: value // { outPath = "/fixture/runner"; };
     };
   defaults = options: builtins.mapAttrs (_: value: value.default) options;
@@ -86,6 +90,8 @@ assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
     in
     {
       inherit (runner) text runtimeInputs;
+      settings = runner.derivationArgs.passthru.settings.text;
+      entrypoint = runner.derivationArgs.passthru.entrypoint.text;
     };
   executorTmpfiles = (executor "hsb0").config.systemd.tmpfiles.rules;
   hostAssertion = (builtins.head (executor "hsb0").config.assertions).assertion;
@@ -101,5 +107,7 @@ assert builtins.elem "f /run/hsb0-deploy.lock 0644 root root -"
     in
     {
       inherit (runner) text runtimeInputs;
+      settings = runner.derivationArgs.passthru.settings.text;
+      entrypoint = runner.derivationArgs.passthru.entrypoint.text;
     };
 }

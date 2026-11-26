@@ -26,7 +26,13 @@ let
       paimos = "${config.home.profileDirectory}/bin/paimos";
     }
   );
+  entrypoint = pkgs.writeText "hausnetz-cd-orchestrate.py" (
+    builtins.replaceStrings [ "@CONFIG@" ] [ (toString settings) ] (
+      builtins.readFile (source + "/orchestrate.py")
+    )
+  );
   runner = pkgs.writeShellApplication {
+    derivationArgs.passthru = { inherit settings entrypoint; };
     name = "hausnetz-cd";
     runtimeInputs = with pkgs; [
       coreutils
@@ -37,8 +43,8 @@ let
     ];
     text =
       builtins.replaceStrings
-        [ "@SOURCE@" "@CONFIG@" ]
-        [ (lib.escapeShellArg "${source}") (lib.escapeShellArg (toString settings)) ]
+        [ "@SOURCE@" "@ENTRYPOINT@" ]
+        [ (lib.escapeShellArg "${source}") (lib.escapeShellArg (toString entrypoint)) ]
         (builtins.readFile ./hausnetz-cd.sh);
   };
 in

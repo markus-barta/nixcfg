@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -14,7 +15,8 @@ import urllib.parse
 import zipfile
 
 
-root = Path(os.environ["CD_FIXTURE"])
+# Each fake is copied into its private fixture bin directory.
+root = Path(__file__).resolve().parent.parent
 config = json.loads((root / "fixture.json").read_text())
 scenario = json.loads((root / "scenario.json").read_text())
 command = Path(sys.argv[0]).name
@@ -27,7 +29,13 @@ def event(kind, **fields):
 
 
 def link(path, target):
-    path = Path(path)
+    destinations = {str(root / name): root / name for name in (
+        "current-system", "profile", "system-2-link", "system-3-link",
+        "remote-state/old-system", "remote-state/new-system")}
+    path = destinations[str(path)]
+    resolved = os.path.realpath(target)
+    if not resolved.startswith(str(root) + os.sep):
+        raise ValueError("unsafe fixture target")
     if path.is_symlink():
         path.unlink()
     path.symlink_to(target)
@@ -46,7 +54,12 @@ def active_new():
 
 if command == "sudo":
     assert args.pop(0) == "-n"
-    os.execvp(args[0], args)
+    commands = {name: str(root / "bin" / name) for name in
+                ("systemd-run", "systemctl", "cat", "test", "tee", "chmod")}
+    # Only fixed local fixture programs or system utilities are executable.
+    commands.update({"cat": "/bin/cat", "test": "/bin/test",
+                     "tee": "/usr/bin/tee", "chmod": "/bin/chmod"})
+    os.execv(commands[args[0]], args)
 elif command == "ssh":
     script = sys.stdin.read()
     call = shlex.split(args[-1])
@@ -81,7 +94,12 @@ elif command == "systemd-run":
     event("start", args=args)
     if scenario.get("crash"):
         token = args[-1]
-        path = Path(config["state_dir"]) / "results" / (token + ".json")
+        if not re.fullmatch(r"[0-9a-f]{32}", token):
+            raise ValueError("invalid fixture run ID")
+        path = os.path.realpath(root / "remote-state/results" / (token + ".json"))
+        if not path.startswith(str(root) + os.sep):
+            raise ValueError("unsafe fixture result")
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
             "schema": "inspr.pharos.guarded-deploy-result.v1", "nixcfg_rev": args[position + 1],
@@ -89,7 +107,7 @@ elif command == "systemd-run":
             "status": "running", "phase": "build"}))
     else:
         with (root / "executor.log").open("ab") as output:
-            process = subprocess.Popen(args[position:], stdout=output, stderr=output, start_new_session=True)
+            process = subprocess.Popen([config["executor"], *args[position + 1:]], stdout=output, stderr=output, start_new_session=True)
         (root / "executor.pid").write_text(str(process.pid))
 elif command == "systemctl":
     assert args[0] == "show"
@@ -111,7 +129,7 @@ elif command == "readlink":
         print(exe)
     else:
         assert args == [config["system_profile"]]
-        print(os.readlink(args[0]))
+        print(os.readlink(config["system_profile"]))
 elif command == "nix":
     if args[0] == "run":
         event("prepare", args=args,

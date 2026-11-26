@@ -15,7 +15,7 @@ from common import (ACK_TIMEOUT, BUILD_TIMEOUT, G3_COMMAND_TIMEOUT, HEALTH_TIMEO
                     atomic_bytes, atomic_json, cache_repo, coordinate, digest as validate_digest,
                     evidence, gate_closures, gate_g1, gate_units, http_get, now,
                     parse_export, private_dir, require, revision, run,
-                    run_id as validate_run_id, strict_json)
+                    run_id as validate_run_id, state_path, strict_json)
 
 
 def package_proof(config, system):
@@ -43,10 +43,10 @@ def health(config, proof):
         return value
 
     def process():
-        pid = run(["systemctl", "show", "hausnetz.service", "--property=MainPID", "--value"],
+        pid = run("systemctl", ["show", "hausnetz.service", "--property=MainPID", "--value"],
                   timeout=remaining()).strip()
         require(re.fullmatch(r"[1-9][0-9]*", pid), "hausnetz_pid_missing")
-        executable = run(["readlink", "/proc/" + pid + "/exe"], timeout=remaining()).rstrip("\n")
+        executable = run("readlink", ["/proc/" + pid + "/exe"], timeout=remaining()).rstrip("\n")
         require(executable == proof["exe"], "health_executable_mismatch")
         return pid
 
@@ -85,7 +85,7 @@ def telegram(lines, message):
         data = urllib.parse.urlencode({"chat_id": lines[1], "text": message})
         curl_config = 'url = "https://api.telegram.org/bot' + lines[0] + '/sendMessage"\n'
         curl_config += 'data = "' + data + '"\n'
-        run(["curl", "--disable", "--fail", "--silent", "--noproxy", "*", "--proto", "=https",
+        run("curl", ["--disable", "--fail", "--silent", "--noproxy", "*", "--proto", "=https",
              "--max-time", "10", "--config", "-"], data=curl_config, timeout=12)
         return True
     except (Manual, OSError, KeyError):
@@ -100,7 +100,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
     require(os.geteuid() == 0 or config.get("fixture_root") is True, "executor_requires_root")
     require(mode in {"dry-run", "live"}, "invalid_mode")
     state = private_dir(config["state_dir"])
-    result_path = state / "results" / (run_token + ".json")
+    result_path = state_path(state / "results" / (run_token + ".json"))
     result = {
         "schema": RESULT_SCHEMA, "host": "hsb0", "action": "hausnetz-cd", "mode": mode,
         "run_id": run_token, "nixcfg_rev": new_rev, "hausnetz_rev": expected,
@@ -127,10 +127,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
     if result_path.exists():
         # Preserve the original run's evidence, including a possibly active
         # transaction. The duplicate invocation gets its own terminal refusal.
-        refuse("run_already_started", state / "refusals" / (run_token + ".json"))
+        refuse("run_already_started", state_path(state / "refusals" / (run_token + ".json")))
     # A run-scoped starting record precedes lock checks, source access or work.
     save()
-    attempt = state / "attempted" / (new_rev + ".json")
+    attempt = state_path(state / "attempted" / (new_rev + ".json"))
     if attempt.exists():
         refuse("revision_already_attempted")
     try:
@@ -197,7 +197,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
             # Indirect roots protect both systems from concurrent external GC.
             # Keep the bounded pair of roots after completion for inspection;
             # only a later transaction holding this lock may replace them.
-            run(["nix-store", "--add-root", state / "old-system", "--indirect", "--realise", old_system])
+            run("nix-store", ["--add-root", state / "old-system", "--indirect", "--realise", old_system])
             result["generation"] = result["old_generation"]
             result["old_proof"] = package_proof(config, old_system)
             if mode == "live":
@@ -210,7 +210,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 require(health(config, result["old_proof"]), "old_health_failed")
             save("build")
             target = "git+file://" + str(repo) + "?rev=" + new_rev
-            new_system = run(["nix", "build", "--out-link", state / "new-system", "--print-out-paths",
+            new_system = run("nix", ["build", "--out-link", state / "new-system", "--print-out-paths",
                               "--no-update-lock-file", "--max-jobs", "1", "--cores", "2",
                               target + "#nixosConfigurations.hsb0.config.system.build.toplevel"], timeout=BUILD_TIMEOUT).strip()
             require(re.fullmatch(config["store_pattern"], new_system), "invalid_new_system")
@@ -220,7 +220,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
             result["new_proof"]["manifest_sha256"] = manifest_sha
             require(result["new_proof"]["version"] == expected_version, "built_version_disagrees_with_prepare")
             save("G3")
-            gate_closures(run(["nix", "store", "diff-closures", old_system, new_system],
+            gate_closures(run("nix", ["store", "diff-closures", old_system, new_system],
                               timeout=G3_COMMAND_TIMEOUT, binary=True).decode("utf-8"),
                           old_system, new_system)
             # dry-activate diagnostics are part of the gate, not discarded.
@@ -244,7 +244,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 result.update(backup="ready", export_sha256=digest, export_format=export_format)
                 save("backup_ready")
                 deadline = time.monotonic() + min(config.get("backup_ack_timeout", ACK_TIMEOUT), ACK_TIMEOUT)
-                ack = state / ("ack-" + run_token)
+                ack = state_path(state / ("ack-" + run_token))
                 while not ack.exists() and time.monotonic() < deadline:
                     time.sleep(min(1, max(0, deadline - time.monotonic())))
                 require(ack.is_file() and ack.read_text().strip() == digest, "backup_copy_not_acknowledged")
@@ -257,10 +257,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 # Set this before invoking switch: a nonzero switch can have
                 # partially activated the new generation and needs recovery.
                 switched = True
-                run(["nix-env", "--profile", config["system_profile"], "--set", new_system])
+                run("nix-env", ["--profile", config["system_profile"], "--set", new_system])
                 switching = True
                 try:
-                    run([new_system + "/bin/switch-to-configuration", "switch"], timeout=None)
+                    run(new_system + "/bin/switch-to-configuration", ["switch"], timeout=None)
                 finally:
                     switching = False
                 result["generation"] = str(Path(config["system_profile"]).resolve(strict=True))
@@ -271,7 +271,7 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 require(health(config, result["new_proof"]), "expected_health_failed")
                 result["health"] = "pass"
                 result["status"] = "succeeded"
-                result["generation"] = run(["readlink", config["system_profile"]]).strip()
+                result["generation"] = run("readlink", [config["system_profile"]]).strip()
         except Exception as exc:
             result["reason"] = str(exc) if isinstance(exc, Manual) else "input_or_execution_error"
             gate = result["phase"]
@@ -284,10 +284,10 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
                 result["rollback"] = "failed"
                 save("rollback")
                 try:
-                    run(["nix-env", "--profile", config["system_profile"], "--set", result["old_system"]])
+                    run("nix-env", ["--profile", config["system_profile"], "--set", result["old_system"]])
                     switching = True
                     try:
-                        run([result["old_system"] + "/bin/switch-to-configuration", "switch"], timeout=None)
+                        run(result["old_system"] + "/bin/switch-to-configuration", ["switch"], timeout=None)
                     finally:
                         switching = False
                     require(str(Path(config["current_system"]).resolve(strict=True)) == result["old_system"],
@@ -306,9 +306,12 @@ def execute(config, new_rev, expected, mode, expected_version, manifest_sha, gat
         save("complete")
 
 
+# Nix substitutes this store path before installing the production entrypoint.
+CONFIG_FILE = "@CONFIG@"
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
     parser.add_argument("nixcfg_rev")
     parser.add_argument("hausnetz_rev")
     parser.add_argument("mode", choices=["dry-run", "live"])
@@ -318,7 +321,7 @@ def main():
     parser.add_argument("run_id")
     args = parser.parse_args()
     try:
-        config = strict_json(Path(args.config).read_bytes())
+        config = strict_json(Path(CONFIG_FILE).read_bytes())
         execute(config, args.nixcfg_rev, args.hausnetz_rev, args.mode,
                 args.version, args.manifest_sha256, args.running_nixcfg_rev, args.run_id)
     except (Manual, OSError, KeyError, TypeError, ValueError):

@@ -73,7 +73,7 @@ def remote(config, action, rev="", expected="", mode="", digest="", run_id="",
            version="", manifest_sha="", running="", binary=False):
     args = [action, rev, expected, mode, digest, run_id, version, manifest_sha, running]
     command = "bash -s -- " + " ".join(shlex.quote(value) for value in args)
-    return run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+    return run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                 "-o", "StrictHostKeyChecking=yes", config["target"], command],
                data=REMOTE.encode() if binary else REMOTE, binary=binary, timeout=45)
 
@@ -89,7 +89,7 @@ def log_line(result):
 
 
 def comment(config, message):
-    run([config.get("paimos", "paimos"), "--instance", "ppm", "issue", "comment",
+    run(config.get("paimos", "paimos"), ["--instance", "ppm", "issue", "comment",
          config["release_ticket"], "--body", message], timeout=30)
 
 
@@ -101,7 +101,7 @@ def alarm(config, result, label="ROLLBACK FAILED"):
     for command in (config.get("alarm_command"), config.get("secondary_telegram_command")):
         if command:
             try:
-                run([*command, message], timeout=45)
+                run(command[0], [*command[1:], message], timeout=45)
             except Manual:
                 pass
 
@@ -364,12 +364,15 @@ def tick(config):
         reconcile(config, state)
 
 
+# Nix substitutes this store path before installing the production entrypoint.
+CONFIG_FILE = "@CONFIG@"
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    args = parser.parse_args()
+    parser.parse_args()
     try:
-        config = strict_json(Path(args.config).read_bytes())
+        config = strict_json(Path(CONFIG_FILE).read_bytes())
         tick(config)
     except (Manual, OSError, KeyError, TypeError, ValueError):
         raise SystemExit("hausnetz-cd: manual; configuration, source or evidence unavailable") from None
