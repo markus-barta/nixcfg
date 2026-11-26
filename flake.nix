@@ -64,13 +64,12 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 67: v261126165633.0.0 (sequence 137; hausnetz main d85957f2 = merge of release PR #441; the tag is on the merge).
-    # HNET-570: guarded UI boot + strict CSP/COOP/no-referrer headers, /readyz, /api/host-capabilities and the
-    # cd-prepare app (not used on hsb0). nix/module.nix unchanged; flake.nix build changes only (doCheck = false, a
-    # bundle-inputs check); no Go-dependency change, no new listener, outbound call or capability (HNET-582). Rollback:
-    # previous generation (pin 66); a re-pin below 65 must drop the homeAssistant block.
+    # HNET pin 68: v261126180500.0.0 (sequence 138; hausnetz main 1e3d0545 = merge of release PR #443; the tag is on
+    # the merge). Since 67: UI/CSS (Home Assistant rooms one line per row, Settings picker band), QA scripts, tests and
+    # release files only; no nix/, flake, Go-dependency or server change; no new listener, outbound call or capability
+    # (HNET-583). Rollback: previous generation (pin 67); a re-pin below 65 must drop the homeAssistant block.
     hausnetz = {
-      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=d85957f287ca071f987238c7b52338919ae3548d";
+      url = "git+ssh://git@github.com/inspr-at/hausnetz?rev=1e3d054532e5f4924064976c2d621a8fd9d63114";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
