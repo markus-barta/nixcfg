@@ -94,6 +94,12 @@ let
       ])
       (builtins.readFile ./files/ci-vm/host.py)
   );
+  heavyLockHelper = pkgs.writeText "ci-vm-heavy-lock.py" (
+    lib.replaceStrings
+      [ (builtins.toJSON "/Users/Shared/ci-locks/mbp2607-heavy.lock.d") ]
+      [ (builtins.toJSON cfg.heavyLockPath) ]
+      (builtins.readFile ./files/ci-vm/heavy-lock.py)
+  );
   dispatcher = pkgs.writeShellScriptBin "ci-vm" ''
     ${colimaEnvironment}
     export PATH=${
@@ -105,6 +111,8 @@ let
     }:/usr/bin:/bin:/usr/sbin:/sbin
     export CI_VM_CONFIG=${colimaConfig}
     export CI_VM_REPOSITORIES=${reposFile}
+    export CI_VM_HEAVY_LOCK_HELPER=${heavyLockHelper}
+    export CI_VM_HEAVY_LOCK=${lib.escapeShellArg cfg.heavyLockPath}
     export CI_VM_HOST_HELPER=${hostHelper}
     exec /bin/bash ${./files/ci-vm/dispatcher.sh} "$@"
   '';
@@ -112,6 +120,11 @@ in
 {
   options.services.ciVm = {
     enable = lib.mkEnableOption "the memory-capped, on-demand Colima CI VM";
+    heavyLockPath = lib.mkOption {
+      type = lib.types.str;
+      default = "/Users/Shared/ci-locks/mbp2607-heavy.lock.d";
+      description = "OPS-669 detail spec v1 heavy-CI lock shared with PAPP.";
+    };
     repositories = lib.mkOption {
       default = { };
       description = "Private repositories, each with its own Unix user and runner service.";
