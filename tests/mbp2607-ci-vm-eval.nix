@@ -14,7 +14,7 @@ let
     inherit text;
     outPath = "/fixture/${name}";
   };
-  pkgs = {
+  pkgs = expectedHeavyPath: {
     colima = "/fixture/colima";
     jq = "/fixture/jq";
     python3 = "/fixture/python3";
@@ -31,7 +31,19 @@ let
           && !lib.hasInfix "@dispatcher@" text
         )
       ) "Host helper must pin the module state, ci PID and dispatcher paths";
-      write name text;
+      assert lib.assertMsg (
+        name != "ci-vm-heavy-lock.py"
+        || (
+          lib.hasInfix ("LOCK_PATH = " + builtins.toJSON expectedHeavyPath) text
+          && lib.hasInfix "operate(action, Path(LOCK_PATH)" text
+          && !lib.hasInfix "action, path, pid, now, *extra = sys.argv" text
+          && !lib.hasInfix "os.environ" (lib.last (lib.splitString ''if __name__ == "__main__":'' text))
+        )
+      ) "Heavy helper must bake a constant absolute path and reject CLI path overrides";
+      (write name text)
+      // lib.optionalAttrs (name == "ci-vm-heavy-lock.py") {
+        outPath = "/fixture/${name}-${builtins.hashString "sha256" text}";
+      };
     writeShellScriptBin = write;
   };
   fixture = {
@@ -55,7 +67,10 @@ let
   evaluate =
     settings:
     (lib.evalModules {
-      specialArgs = { inherit lib pkgs; };
+      specialArgs = {
+        inherit lib;
+        pkgs = pkgs (settings.services.ciVm.heavyLockPath or "/Users/Shared/ci-locks/mbp2607-heavy.lock.d");
+      };
       modules = [
         (root + "/hosts/mbp2607/ci-vm.nix")
         fixture
@@ -87,6 +102,18 @@ let
       };
     };
   };
+  customHeavy = evaluate {
+    services.ciVm = {
+      enable = true;
+      heavyLockPath = "/fixture/custom-heavy.lock.d";
+      repositories.hausnetz.repository = "inspr-at/hausnetz";
+    };
+  };
+  helperLine =
+    cfg:
+    builtins.filter (line: lib.hasPrefix "export CI_VM_HEAVY_LOCK_HELPER=" line) (
+      lib.splitString "\n" (builtins.head cfg.home.packages).text
+    );
   disabled = evaluate { services.ciVm.enable = false; };
   invalid = evaluate {
     services.ciVm = {
@@ -110,7 +137,7 @@ let
     (builtins.readFile (root + "/hosts/mbp2607/README.md"))
   ]
   ++ map (name: builtins.readFile (ciFiles + "/${name}")) (
-    builtins.attrNames (builtins.readDir ciFiles)
+    builtins.attrNames (lib.filterAttrs (_: kind: kind == "regular") (builtins.readDir ciFiles))
   );
   checks = {
     enabled = agent.enable && host.services.ciVm.enable;
@@ -121,6 +148,14 @@ let
     configurableXdgHome = lib.hasInfix "export COLIMA_HOME=/Users/markus/ci-xdg-test/colima" (builtins.head customXdg.home.packages)
     .text;
     qosColimaHome = lib.hasInfix "\${colimaHome}/_lima/colima-ci/ha.pid" moduleSource;
+    sharedHeavyLock =
+      module.services.ciVm.heavyLockPath == "/Users/Shared/ci-locks/mbp2607-heavy.lock.d"
+      && lib.hasInfix "export CI_VM_HEAVY_LOCK=/Users/Shared/ci-locks/mbp2607-heavy.lock.d" command
+      && lib.hasInfix "export CI_VM_HEAVY_LOCK_HELPER=/fixture/ci-vm-heavy-lock.py" command;
+    configurableHeavyLock =
+      lib.hasInfix "export CI_VM_HEAVY_LOCK=/fixture/custom-heavy.lock.d" (builtins.head customHeavy.home.packages)
+      .text
+      && helperLine module != helperLine customHeavy;
     noLegacyColimaHome = lib.all (source: !lib.hasInfix "/.colima" source) sources;
     hardCaps = colima.cpu == 4 && colima.memory == 16 && colima.disk == 150 && colima.rootDisk == 150;
     linuxKvm = colima.arch == "aarch64" && colima.vmType == "vz" && colima.nestedVirtualization;

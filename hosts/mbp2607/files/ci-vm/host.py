@@ -24,6 +24,8 @@ COMMANDS = {
     "start": ("colima", "start", "ci",
               "--activate=false", "--ssh-config=false"),
     "qos": QOS_COMMAND,
+    "hostagent": (sys.executable, __file__, "hostagent"),
+    "hostagent-state": (sys.executable, __file__, "hostagent-state"),
     "host-ready": ("colima", "--profile", "ci", "ssh", "--", "sudo",
                    "/usr/local/libexec/ci-vm/host-ready"),
     "provision-only": ("colima", "--profile", "ci", "ssh", "--", "sudo",
@@ -85,7 +87,31 @@ def lock(path, command):
         os.close(fd)
 
 
-def qos():
+class NotHostagent(RuntimeError):
+    """Process inspection positively identified an unrelated/reused PID."""
+
+
+def hostagent_state():
+    """Zero only proves absence/death; inspection failure remains unknown."""
+    try:
+        pid = int(Path(PIDFILE).read_text().strip())
+    except FileNotFoundError:
+        return 0
+    if pid <= 0:
+        raise RuntimeError("invalid ci hostagent PID")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return 0
+    except PermissionError:
+        return pid
+    try:
+        return hostagent()[0]
+    except NotHostagent:
+        return 0
+
+
+def hostagent():
     if sys.platform != "darwin":
         raise RuntimeError("QoS enforcement requires Darwin")
     pidfile = Path(PIDFILE)
@@ -110,13 +136,19 @@ def qos():
         return Path(os.fsdecode(buf.value)).name
 
     if info(pid)[5] != os.getuid() or executable(pid) not in {"limactl", ".limactl-wrapped"}:
-        raise RuntimeError("ci hostagent PID has the wrong owner or executable")
+        raise NotHostagent("ci hostagent PID has the wrong owner or executable")
     args = shlex.split(subprocess.check_output(
         ["/bin/ps", "-p", str(pid), "-o", "command="], text=True
     ))
     if "hostagent" not in args or not any(str(pidfile) in arg for arg in args):
-        raise RuntimeError("PID does not identify this ci instance's hostagent")
+        raise NotHostagent("PID does not identify this ci instance's hostagent")
 
+    return pid, libproc, info, executable
+
+
+def qos():
+    pid, libproc, info, executable = hostagent()
+    pidfile = Path(PIDFILE)
     targets = [(pid, "ci-hostagent")]
     # A responsibility PID can be shared by several VMs launched from one
     # terminal. Instead use this hostagent's launchd domain AND its open disk.
@@ -173,6 +205,10 @@ if __name__ == "__main__":
             if sys.argv[2] != lockfile:
                 raise RuntimeError("unexpected dispatcher lock path")
             sys.exit(lock(lockfile, LOCK_COMMANDS[tuple(sys.argv[3:])]))
+        elif len(sys.argv) == 2 and sys.argv[1] == "hostagent-state":
+            print(hostagent_state())
+        elif len(sys.argv) == 2 and sys.argv[1] == "hostagent":
+            print(hostagent()[0])
         elif len(sys.argv) == 3 and sys.argv[1] == "qos":
             if sys.argv[2] != PIDFILE:
                 raise RuntimeError("unexpected ci hostagent PID path")

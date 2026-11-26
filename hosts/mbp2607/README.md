@@ -604,6 +604,81 @@ config. To disable automatic dispatch, set `services.ciVm.enable =
 false` through the reviewed Home Manager path and stop `ci` when its jobs
 finish. Keep the VM disk/enrollment for rollback. No other profile is managed.
 
+### Shared heavy-CI lock (OPS-707)
+
+The dispatcher and PAPP share `/Users/Shared/ci-locks/mbp2607-heavy.lock.d`
+under **OPS-669 detail spec v1.1**. The first holder creates the parent with mode
+1777; it is never deleted. `services.ciVm.heavyLockPath` bakes the path into
+the helper at build time; the production CLI accepts no path override. Tests
+invoke a separate fixture entry point. Atomic `mkdir` precedes every stopped-VM boot,
+including operator start. An atomic `owner.json` write records the dispatcher
+PID, then the validated Colima `ci` hostagent PID immediately after boot.
+An already-running VM keeps a valid hostagent record unchanged. If a lock is
+missing or still records a dead boot tick, the dispatcher reasserts its verified
+live hostagent without breaking a foreign lock. The lock directory is 0755 and
+the record is made 0644 before its atomic rename. A failed retain attempt logs
+its cause and continues to the existing health checks and stop policy; release
+still requires verified stopped status and no live hostagent.
+
+Busy runs persist their first-seen time per run ID and attempt across the
+60-second ticks. Waits reset when a run leaves the queue, acquires the lock or
+is cancelled; a rerun gets its full wait. Run state older than seven days is
+pruned. The
+`.github/workflows/nightly.yml` wait is 45 minutes; `.github/workflows/nix.yml`
+and all other workflows wait 10 minutes. At the limit, the dispatcher cancels
+the run and comments with its URL and the holder/reason on the PR, or, for runs
+without a PR, on the open issue titled `CI nightly: host busy / cancellations`
+in the same repository (created once if absent). Only a confirmed HTTP 202 cancellation permits a comment. Definite HTTP 4xx
+failures are logged once as `cancel_failed`, without a comment. Uncertain
+cancellations retry on subsequent ticks, at most three times per run attempt,
+then remain marked uncertain for operator inspection. Comment failures are
+logged and retried up to three times. Confirmed outcomes prevent repeated
+cancels and comments. An incomplete or failed demand scan never cancels runs.
+The fixed issue number is cached and rechecked for open/unlocked status before
+reuse. Closed, locked or deleted issues are replaced through title lookup.
+Definite creation rejections permit retry; uncertain creation is reconciled by
+title without repeating creation. If creation remains uncertain and no issue
+exists, an operator must verify the repository and prior API outcome, then trash
+only `heavy-issue-<owner>-<repo>.create-uncertain` in the dispatcher state directory
+to permit another create. Each run still has at most three comment attempts.
+
+The agent token needs **Actions: write** to cancel, **Issues: write** for the
+fixed issue, and **Pull requests: write** for PR comments. The coordinator
+verified the current classic token has `repo, workflow` scopes and repository
+admin access; retain those permissions when replacing it.
+
+A foreign lock is stale only when its PID is dead **and** its start is over
+three hours old. Each owner field is parsed independently: UTC timestamps
+accept fractional seconds and `Z` or `+00:00`; an absent or invalid URL is
+shown as unknown without discarding the owner or PID. An unparseable start
+uses the directory mtime. Only a truly missing record inside a readable
+directory, or malformed but readable JSON, also uses the mtime. Permission
+failures and other I/O errors on the record or directory mean busy with an
+unknown owner, never stale; normal waits and cancellation still apply. An
+invalid PID in a readable record is unknown, never evidence of death.
+Across users, `kill -0` returning `EPERM` means the PID is alive; only a missing
+process proves death. Cancellation comments include an inspection hint for
+lock I/O failures or a `.blocked` marker, even when the holder is unknown.
+Stale locks are atomically renamed to `.stale-<UTC>-<pid>` siblings and logged;
+the coordinator trashes them later. A changed record detected after the stale
+rename leaves a sibling `.blocked` marker that prevents further boots. The
+coordinator must inspect both paths, restore any live holder and remove the
+marker only after resolving ownership. Our own residue can be released sooner
+only after verifying `ci` is stopped, no `ci` hostagent is present, and its
+recorded PID is dead or reused. Never release while the VM or a hostagent
+runs. Operator start uses `https://github.com/<configured-repo>/actions` for
+its ownership URL. Stop `ci` before rolling out the lock protocol to an
+already-running VM. Normal
+idle/drain/failure/operator stops and failed boots release only our own holder
+record, after verifying stopped status, by removing `owner.json` then the empty
+lock directory. The parent remains.
+
+Inspect the shared, value-free ownership record with:
+
+```bash
+cat /Users/Shared/ci-locks/mbp2607-heavy.lock.d/owner.json
+```
+
 Offline tests (Bash 5 is required by the test's false-pass guard):
 
 ```bash
