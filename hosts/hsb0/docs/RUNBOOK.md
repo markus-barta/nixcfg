@@ -370,7 +370,7 @@ The `br-+` iptables wildcard intentionally covers every user-defined Docker
 bridge, not only hsb0-home's bridge; this round leaves that rule unchanged.
 
 The private flake input is pinned to `d85957f287ca071f987238c7b52338919ae3548d`
-(`v261126165633.0.0`, HNET pin 67; OPS-710).
+(`v261126165633.0.0`, HNET pin 67, release sequence 137; OPS-710).
 Since pin 65, hausnetz reads floors, areas and devices from Home Assistant on
 hsb1 (`services.hausnetz.homeAssistant`, http to the literal LAN IP inside
 `localNetworks`; Markus's go recorded on HNET-556). It authenticates as the

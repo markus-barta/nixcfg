@@ -64,7 +64,7 @@
       url = "github:markus-barta/hostdash/cf515a6c28ddc888e40bb966518801f183c35aa5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # HNET pin 67: v261126165633.0.0 (hausnetz main d85957f2 = merge of release PR #441; the tag is on the merge).
+    # HNET pin 67: v261126165633.0.0 (sequence 137; hausnetz main d85957f2 = merge of release PR #441; the tag is on the merge).
     # HNET-570: guarded UI boot + strict CSP/COOP/no-referrer headers, /readyz, /api/host-capabilities and the
     # cd-prepare app (not used on hsb0). nix/module.nix unchanged; flake.nix build changes only (doCheck = false, a
     # bundle-inputs check); no Go-dependency change, no new listener, outbound call or capability (HNET-582). Rollback:
