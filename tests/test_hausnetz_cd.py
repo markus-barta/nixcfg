@@ -658,8 +658,14 @@ class TestCD(unittest.TestCase):
                     block = block.replace(before, after)
                 text = text[:start] + block + text[end + 1:]
             else:
-                for before, after in replacements:
+                # OPS-711: never replace a bare number across a whole document
+                # (revCount 1800 also occurs in an unrelated RUNBOOK image tag).
+                # The 40-hex rev and the narHash are unique; the integers only
+                # change on T99's own assertion lines.
+                for before, after in replacements[:2]:
                     text = text.replace(before, after)
+                for key, (before, after) in zip(("lastModified", "revCount"), replacements[2:]):
+                    text = re.sub(r"(\['" + key + r"'\] == )" + before + r"\b", r"\g<1>" + after, text)
             (self.f.repo / path).write_text(text)
         new = self.f.commit(self.f.repo)
         self.assertEqual(self.f.git(self.f.repo, "ls-tree", new, "--", paths[-1]).split()[0], "100755")
