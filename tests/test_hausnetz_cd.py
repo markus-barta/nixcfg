@@ -644,8 +644,22 @@ class TestCD(unittest.TestCase):
         replacements += [(str(node[k]), str(node[k] + 1)) for k in ("lastModified", "revCount")]
         for path in paths:
             text = (self.f.repo / path).read_text()
-            for before, after in replacements:
-                text = text.replace(before, after)
+            if path == "flake.lock":
+                # OPS-710: short values such as revCount 1789 also occur inside other
+                # nodes' timestamps, so bump them only inside the hausnetz node.
+                start = text.index('"hausnetz": {', text.index('"nodes": {'))
+                depth, end = 0, start
+                for end in range(text.index("{", start), len(text)):
+                    depth += {"{": 1, "}": -1}.get(text[end], 0)
+                    if depth == 0:
+                        break
+                block = text[start:end + 1]
+                for before, after in replacements:
+                    block = block.replace(before, after)
+                text = text[:start] + block + text[end + 1:]
+            else:
+                for before, after in replacements:
+                    text = text.replace(before, after)
             (self.f.repo / path).write_text(text)
         new = self.f.commit(self.f.repo)
         self.assertEqual(self.f.git(self.f.repo, "ls-tree", new, "--", paths[-1]).split()[0], "100755")
