@@ -441,8 +441,10 @@ For each pin bump, update the explicit revision in `flake.nix` and only the
 hausnetz node in `flake.lock`; verify the release revision and NAR hash and
 run the local contracts and full CI evaluation below. On hsb0, after the
 reviewed change is merged and pulled, run `just nix-build` first (root fetch
-and build), then `just switch`. Roll back this bump by reverting its reviewed
-commit(s), restoring pin 59
+and build), then `just switch`. Rollback of the current pin: see the pin
+paragraph above (previous generation; a re-pin below 65 drops the
+`homeAssistant` block). Historical, for the pin 60 bump only: roll back by
+reverting its reviewed commit(s), restoring pin 59
 `429d590760b0cb8b5742a68991714111163155fb` (`v261102165603.0.0`), its lock
 node and the T99 pin/hash/time expectations. Remove `sheetsDir` and mba's
 `hausnetz-sheets` membership, and restore the previous reader-group contract
