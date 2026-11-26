@@ -139,7 +139,9 @@ class HeavyLockTest(unittest.TestCase):
         self.fixture()
         for error in (PermissionError, OSError):
             with self.subTest(error=error), patch.object(Path, "read_text", side_effect=error):
-                self.assertTrue(self.acquire()["busy"])
+                result = self.acquire()
+                self.assertTrue(result["busy"])
+                self.assertEqual(result["error"], f"lock I/O failed ({error.__name__}); operator inspection required")
         with patch.object(Path, "rename", side_effect=PermissionError):
             self.assertTrue(self.acquire()["busy"])
         with patch.object(Path, "mkdir", side_effect=PermissionError):
@@ -156,7 +158,9 @@ class HeavyLockTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "boots blocked"):
                 self.acquire()
         self.assertFalse(self.path.exists())
-        self.assertTrue(self.acquire()["busy"])
+        result = self.acquire()
+        self.assertTrue(result["busy"])
+        self.assertEqual(result["error"], "lock recovery blocked by .blocked marker; operator inspection required")
         self.assertFalse(self.path.exists())
 
     def test_running_lock_recovery(self):

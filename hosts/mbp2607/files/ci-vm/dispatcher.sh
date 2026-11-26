@@ -444,20 +444,38 @@ heavy_acquire() {
 
 heavy_retain() {
   local hostagent repo
-  hostagent=$(bounded 20 hostagent-state 2>/dev/null) || return 1
-  [[ "$hostagent" =~ ^[1-9][0-9]*$ ]] || return 1
-  repo=$(jq -er '.[0].repository' "$CI_VM_REPOSITORIES") || return 1
-  heavy_operation retain "$$" "https://github.com/$repo/actions" "$hostagent" || return 1
+  hostagent=$(bounded 20 hostagent-state 2>/dev/null) || {
+    heavy_retain_error='hostagent state unavailable'
+    log "heavy lock retain: $heavy_retain_error"
+    return 1
+  }
+  [[ "$hostagent" =~ ^[1-9][0-9]*$ ]] || {
+    heavy_retain_error='no verified live hostagent PID'
+    log "heavy lock retain: $heavy_retain_error"
+    return 1
+  }
+  repo=$(jq -er '.[0].repository' "$CI_VM_REPOSITORIES") || {
+    heavy_retain_error='configured repository unavailable'
+    log "heavy lock retain: $heavy_retain_error"
+    return 1
+  }
+  heavy_operation retain "$$" "https://github.com/$repo/actions" "$hostagent" || {
+    heavy_retain_error='lock helper retain operation failed'
+    log "heavy lock retain: $heavy_retain_error"
+    return 1
+  }
   if jq -e '.busy' <<<"$heavy_result" >/dev/null; then
     log 'ERROR: running ci cannot reassert heavy lock; operator inspection required'
   fi
 }
 
 busy_runs() {
-  local run repo id url workflow pr key waited limit owner reason response issue issue_file page count found retries attempt
+  local run repo id url workflow pr key waited limit owner reason lock_error response issue issue_file page count found retries attempt
   local mode=${1:-queued} file
   owner=$(jq -r '.owner | "\(.owner // "unknown") since \(.started_at // "unknown") (\(.job_url // "unknown"))"' <<<"$heavy_result") || return 1
   reason="host busy: mbp2607 heavy-CI lock held by $owner"
+  lock_error=$(jq -r '.error // empty' <<<"$heavy_result") || return 1
+  if [ -n "$lock_error" ]; then reason="$reason; $lock_error"; fi
   while IFS= read -r run; do
     repo=$(jq -r .repository <<<"$run") || return 1
     id=$(jq -r .id <<<"$run") || return 1
@@ -636,7 +654,7 @@ now=$(date +%s)
 case "$action" in
 start)
   vm_status
-  if [ "$running" = true ]; then heavy_retain; fi
+  if [ "$running" = true ]; then heavy_retain || log "ERROR: heavy lock retain failed: $heavy_retain_error"; fi
   if [ -n "${2:-}" ] && [ "$2" != --provision-only ]; then exit 2; fi
   if [ "$running" = false ]; then
     if heavy_acquire; then :; else
@@ -701,7 +719,7 @@ reconcile_heavy_waits "$complete_scan"
 # must still retry after that, independently of the current VM/lock state.
 busy_runs pending
 vm_status
-if [ "$running" = true ]; then heavy_retain; fi
+if [ "$running" = true ]; then heavy_retain || log "ERROR: heavy lock retain failed: $heavy_retain_error"; fi
 if [ "$running" = false ] && [ -d "$heavy_lock" ]; then
   residue_hostagent=$(bounded 20 hostagent-state 2>/dev/null) || residue_hostagent=-1
   heavy_operation residue "$$" "" "$residue_hostagent"

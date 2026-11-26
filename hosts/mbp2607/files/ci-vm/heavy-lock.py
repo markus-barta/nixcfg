@@ -124,18 +124,20 @@ def release(path, stat, owner):
 def operate(action, path, pid, now, job_url="", hostagent=0):
     try:
         return _operate(action, path, pid, now, job_url, hostagent)
-    except OSError:
+    except OSError as exc:
         if action not in {"acquire", "residue", "retain"}:
             raise
         # Includes sticky-parent rename/mkdir denial and all unreadable records.
         # Preserve the busy path so wait limits and notifications still run.
-        return {"transitions": [], "busy": True, "owner": {"pid": None}}
+        return {"transitions": [], "busy": True, "owner": {"pid": None},
+                "error": f"lock I/O failed ({type(exc).__name__}); operator inspection required"}
 
 
 def _operate(action, path, pid, now, job_url="", hostagent=0):
     blocked = path.with_name(path.name + ".blocked")
     if action in {"acquire", "retain"} and blocked.exists():
-        return {"transitions": [], "busy": True, "owner": {"pid": None}}
+        return {"transitions": [], "busy": True, "owner": {"pid": None},
+                "error": "lock recovery blocked by .blocked marker; operator inspection required"}
     if action == "retain":
         if hostagent <= 0 or not valid_url(job_url):
             raise RuntimeError("running lock requires a verified hostagent and https URL")

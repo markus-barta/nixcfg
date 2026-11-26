@@ -52,6 +52,25 @@ PY
   grep -q "OPS-669 eval failed: $contract" "$work/$mutation.err" || fail "$mutation eval failed for the wrong reason"
 done
 echo 'ok eval must-fail: cpu=6, ProcessType=Background, LowPriorityIO, LowPriorityBackgroundIO and taskpolicy starter wrapper are rejected by their contracts'
+cp "$root/hosts/mbp2607/ci-vm.nix" "$mutant_root/hosts/mbp2607/ci-vm.nix"
+for mutation in wrong-heavy-path heavy-cli-env; do
+  python3 - "$root/hosts/mbp2607/files/ci-vm/heavy-lock.py" "$mutant_root/hosts/mbp2607/files/ci-vm/heavy-lock.py" "$mutation" <<'PY_HEAVY_EVAL'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+old, new = {
+    "wrong-heavy-path": ('LOCK_PATH = "/Users/Shared/ci-locks/mbp2607-heavy.lock.d"', 'LOCK_PATH = "/fixture/wrong-heavy.lock.d"'),
+    "heavy-cli-env": ('        action, pid, now, *extra = sys.argv[1:]', '        os.environ.get("CI_VM_HEAVY_LOCK")\n        action, pid, now, *extra = sys.argv[1:]'),
+}[sys.argv[3]]
+assert source.count(old) == 1
+Path(sys.argv[2]).write_text(source.replace(old, new))
+PY_HEAVY_EVAL
+  if nix-instantiate --eval --strict --json --arg root "$mutant_root" "$root/tests/mbp2607-ci-vm-eval.nix" >"$work/$mutation.json" 2>"$work/$mutation.err"; then
+    fail "$mutation eval mutant survived"
+  fi
+  grep -q 'Heavy helper must bake a constant absolute path and reject CLI path overrides' "$work/$mutation.err" || fail "$mutation eval failed for the wrong reason"
+done
+echo 'ok eval heavy must-fail: wrong baked path and production CLI environment access rejected'
 python3 "$root/tests/ci-vm-host-test.py"
 python3 "$root/tests/ci-vm-guest-test.py" "$root" "$work" "$work/module.json"
 mkdir -p "$work/bin"
@@ -263,6 +282,7 @@ STUB
 cat >"$work/bin/qos" <<'STUB'
 #!/usr/bin/env bash
 printf 'qos ci\n' >>"$CI_TEST_CALLS"
+if [[ "$(<"$CI_TEST_VM")" == running && ( "${CI_TEST_HA_UNKNOWN:-0}" == 1 || "${CI_TEST_HA_ZERO:-0}" == 1 ) ]]; then exit 1; fi
 exit "${CI_TEST_QOS_FAIL:-0}"
 STUB
 cat >"$work/bin/hostagent" <<'STUB'
@@ -274,7 +294,9 @@ STUB
 cat >"$work/bin/hostagent-state" <<'STUB'
 #!/usr/bin/env bash
 [[ "${CI_TEST_HA_UNKNOWN:-0}" != 1 ]] || exit 1
-if [[ "${CI_TEST_HA_LIVE:-0}" == 1 || "$(<"$CI_TEST_VM")" == running ]]; then
+if [[ "$(<"$CI_TEST_VM")" == running && "${CI_TEST_HA_ZERO:-0}" == 1 ]]; then
+  printf '0\n'
+elif [[ "${CI_TEST_HA_LIVE:-0}" == 1 || "$(<"$CI_TEST_VM")" == running ]]; then
   printf '%s\n' "$CI_TEST_HA_PID"
 else
   printf '0\n'
@@ -332,7 +354,7 @@ source += '\nif __name__ == "__main__":\n    action, pid, now, *extra = sys.argv
 Path(sys.argv[2]).write_text(source)
 PY_HEAVY_FIXTURE
   export CI_TEST_ISSUE_STATE=open
-  export CI_TEST_CANCEL=ok CI_TEST_COMMENT=ok CI_TEST_ISSUE=ok CI_TEST_HANDOFF_FAIL=0 CI_TEST_HA_LIVE=0 CI_TEST_HA_UNKNOWN=0 CI_TEST_RUN_ATTEMPT=1
+  export CI_TEST_CANCEL=ok CI_TEST_COMMENT=ok CI_TEST_ISSUE=ok CI_TEST_HANDOFF_FAIL=0 CI_TEST_HA_LIVE=0 CI_TEST_HA_UNKNOWN=0 CI_TEST_HA_ZERO=0 CI_TEST_RUN_ATTEMPT=1
   export CI_TEST_RUN_ID=11 CI_TEST_WORKFLOW=.github/workflows/nix.yml CI_TEST_NIGHTLY=0
   export CI_TEST_SCENARIO=empty CI_TEST_NOW=1000 CI_TEST_CALLS="$case_dir/calls" CI_TEST_VM="$case_dir/vm" CI_TEST_QOS_FAIL=0 CI_TEST_READY_FAIL=0 CI_TEST_REQUIRE_CLOSED_STDIN=0
   export CI_TEST_WORKER=1 CI_TEST_DRAIN=0 CI_TEST_START_FAIL=0 CI_TEST_ENROLLED='' CI_TEST_JQ_FAIL=''
@@ -1023,6 +1045,37 @@ if /bin/bash "$dispatcher" stop --force >"$case_dir/out" 2>&1; then fail 'unveri
 [[ -d "$CI_VM_HEAVY_LOCK" ]] || fail 'still-running VM lost its lock after unsuccessful stop'
 echo 'ok heavy release: idle stop, failed boot and operator stop release only own lock; parent retained'
 
+retain_failure_contract() {
+  local script=${1:-$dispatcher} action=${2:-tick} kind
+  for kind in unknown zero zero-live; do
+    new_case
+    heavy_owner hausnetz-ci-vm "$$"
+    echo running >"$case_dir/vm"
+    echo 1000 >"$CI_VM_STATE_DIR/last-demand"
+    export CI_TEST_NOW=2200
+    if [[ "$kind" == unknown ]]; then export CI_TEST_HA_UNKNOWN=1; else export CI_TEST_HA_ZERO=1; fi
+    if [[ "$kind" == zero-live ]]; then export CI_TEST_HA_LIVE=1; fi
+    render_host_helper "$script"
+    if /bin/bash "$script" "$action" >"$case_dir/out" 2>&1; then return 1; fi
+    [[ "$(calls 'qos ci')" == 1 && "$(calls 'colima stop')" == 1 && "$(<"$case_dir/vm")" == stopped ]] || return 1
+    grep -q 'ERROR: heavy lock retain failed:' "$case_dir/out" || return 1
+    if [[ "$kind" == zero ]]; then
+      [[ ! -d "$CI_VM_HEAVY_LOCK" ]] || return 1
+      grep -q 'heavy lock released' "$case_dir/out" || return 1
+    else
+      [[ -f "$CI_VM_HEAVY_LOCK/owner.json" ]] || return 1
+      ! grep -q 'heavy lock released' "$case_dir/out" || return 1
+      # A later tick can release residue once absence is actually verified.
+      export CI_TEST_HA_UNKNOWN=0 CI_TEST_HA_LIVE=0 CI_TEST_HA_ZERO=0
+      run_tick "$script" || return 1
+      [[ ! -d "$CI_VM_HEAVY_LOCK" ]] || return 1
+    fi
+  done
+}
+retain_failure_contract || fail 'retain failure skipped tick health/stop checks or released an unverified holder'
+retain_failure_contract "$dispatcher" start || fail 'retain failure skipped start health/stop checks or released an unverified holder'
+echo 'ok heavy retain failure: tick and start reach QoS and stop for unknown/zero hostagent; release only after stopped and no live hostagent'
+
 new_case
 heavy_owner papp-night "$$"
 chmod 000 "$CI_VM_HEAVY_LOCK/owner.json"
@@ -1033,8 +1086,20 @@ run_tick
 [[ "$(calls 'POST .*cancel')" == 1 && "$(calls 'POST .*issues/42/comments')" == 1 ]] || fail 'unreadable lock did not use normal busy cancellation'
 unchanged || fail 'unreadable lock booted VM'
 [[ -f "$CI_VM_HEAVY_LOCK/owner.json" ]] || fail 'unreadable lock was removed'
+grep -q 'COMMENT .*lock I/O failed (PermissionError); operator inspection required' "$case_dir/calls" || fail 'unreadable lock comment hid the inspection cause'
 chmod 644 "$CI_VM_HEAVY_LOCK/owner.json"
 echo 'ok heavy unreadable record: busy wait and visible cancellation apply; no boot or stale break'
+
+new_case
+mkdir -p "${CI_VM_HEAVY_LOCK%/*}"
+touch "${CI_VM_HEAVY_LOCK}.blocked"
+export CI_TEST_SCENARIO=queued
+run_tick
+export CI_TEST_NOW=1600
+run_tick
+unchanged || fail 'blocked recovery booted VM'
+grep -q 'COMMENT .*lock recovery blocked by .blocked marker; operator inspection required' "$case_dir/calls" || fail 'blocked lock comment hid the recovery cause'
+echo 'ok heavy busy diagnostics: unreadable and blocked locks include actionable causes in cancellation comments'
 
 failed_boot_hostagent_contract() {
   new_case
@@ -1326,6 +1391,8 @@ for name, old, new in [
     ("false-cancel", '[ "$post_code" = 202 ] && [ "$post_transport" = 0 ]', '[ "$post_code" = 403 ]'),
     ("wait-reset", '  clear_heavy_waits\n}', '  :\n}'),
     ("failed-boot-agent", '    [ "$remaining_hostagent" = 0 ] || return 1', '    :'),
+    ("retain-start", '  if [ "$running" = true ]; then heavy_retain || log "ERROR: heavy lock retain failed: $heavy_retain_error"; fi', '  if [ "$running" = true ]; then heavy_retain; fi'),
+    ("retain-tick", '\nif [ "$running" = true ]; then heavy_retain || log "ERROR: heavy lock retain failed: $heavy_retain_error"; fi', '\nif [ "$running" = true ]; then heavy_retain; fi'),
     ("handoff-ignore", 'hostagent=$(bounded 20 hostagent) || return 1', 'hostagent=$(bounded 20 hostagent) || return 0')]:
     assert source.count(old) == 1, (name, source.count(old))
     Path(sys.argv[3], name + '-mutant.sh').write_text(source.replace(old, new))
@@ -1337,6 +1404,9 @@ for name, old, new in [
     Path(sys.argv[3], name + '-mutant.py').write_text(helper.replace(old, new))
 PY_MUTANTS
 if failed_boot_hostagent_contract "$work/failed-boot-agent-mutant.sh"; then fail 'failed boot live hostagent mutant survived'; fi
+if retain_failure_contract "$work/retain-tick-mutant.sh"; then fail 'fatal retain tick mutant survived'; fi
+if retain_failure_contract "$work/retain-start-mutant.sh" start; then fail 'fatal retain start mutant survived'; fi
+echo 'ok heavy retain must-fail mutants: fatal calls in tick and start rejected'
 if unknown_busy_contract "$work/unknown-busy-mutant.sh"; then fail 'unknown busy scan mutant survived'; fi
 if uncertain_cancel_contract "$work/uncertain-busy-mutant.sh"; then fail 'unbounded uncertain cancel mutant survived'; fi
 if forbidden_cancel_contract "$work/false-cancel-mutant.sh"; then fail 'false cancellation on 403 mutant survived'; fi

@@ -616,7 +616,9 @@ PID, then the validated Colima `ci` hostagent PID immediately after boot.
 An already-running VM keeps a valid hostagent record unchanged. If a lock is
 missing or still records a dead boot tick, the dispatcher reasserts its verified
 live hostagent without breaking a foreign lock. The lock directory is 0755 and
-the record is made 0644 before its atomic rename.
+the record is made 0644 before its atomic rename. A failed retain attempt logs
+its cause and continues to the existing health checks and stop policy; release
+still requires verified stopped status and no live hostagent.
 
 Busy runs persist their first-seen time per run ID and attempt across the
 60-second ticks. Waits reset when a run leaves the queue, acquires the lock or
@@ -654,6 +656,9 @@ directory, or malformed but readable JSON, also uses the mtime. Permission
 failures and other I/O errors on the record or directory mean busy with an
 unknown owner, never stale; normal waits and cancellation still apply. An
 invalid PID in a readable record is unknown, never evidence of death.
+Across users, `kill -0` returning `EPERM` means the PID is alive; only a missing
+process proves death. Cancellation comments include an inspection hint for
+lock I/O failures or a `.blocked` marker, even when the holder is unknown.
 Stale locks are atomically renamed to `.stale-<UTC>-<pid>` siblings and logged;
 the coordinator trashes them later. A changed record detected after the stale
 rename leaves a sibling `.blocked` marker that prevents further boots. The

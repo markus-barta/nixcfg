@@ -14,7 +14,7 @@ let
     inherit text;
     outPath = "/fixture/${name}";
   };
-  pkgs = {
+  pkgs = expectedHeavyPath: {
     colima = "/fixture/colima";
     jq = "/fixture/jq";
     python3 = "/fixture/python3";
@@ -34,9 +34,10 @@ let
       assert lib.assertMsg (
         name != "ci-vm-heavy-lock.py"
         || (
-          lib.hasInfix ''LOCK_PATH = "/'' text
+          lib.hasInfix ("LOCK_PATH = " + builtins.toJSON expectedHeavyPath) text
           && lib.hasInfix "operate(action, Path(LOCK_PATH)" text
           && !lib.hasInfix "action, path, pid, now, *extra = sys.argv" text
+          && !lib.hasInfix "os.environ" (lib.last (lib.splitString ''if __name__ == "__main__":'' text))
         )
       ) "Heavy helper must bake a constant absolute path and reject CLI path overrides";
       (write name text)
@@ -66,7 +67,10 @@ let
   evaluate =
     settings:
     (lib.evalModules {
-      specialArgs = { inherit lib pkgs; };
+      specialArgs = {
+        inherit lib;
+        pkgs = pkgs (settings.services.ciVm.heavyLockPath or "/Users/Shared/ci-locks/mbp2607-heavy.lock.d");
+      };
       modules = [
         (root + "/hosts/mbp2607/ci-vm.nix")
         fixture
