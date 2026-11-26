@@ -62,7 +62,7 @@ class StandardPolicyTest(unittest.TestCase):
             self.assertIn(pid, (101, 202))
             self.clears.append(pid)
             if not self.stuck:
-                self.flags[pid] = 0
+                self.flags[pid] &= ~0x10000
             if self.unreadable == "after-clear":
                 self.unreadable = pid
 
@@ -91,41 +91,64 @@ class StandardPolicyTest(unittest.TestCase):
         self.verify()
         self.assertEqual(self.clears, [])
 
-    def test_either_background_flag_is_cleared_once_on_either_pid(self):
-        for pid in (101, 202):
-            for flag in (0x8000, 0x10000, 0x18000):
-                with self.subTest(pid=pid, flag=flag):
-                    self.clears.clear()
-                    self.flags[pid] = flag
-                    self.verify()
-                    self.assertEqual(self.clears, [pid])
+    def test_start_command_has_no_taskpolicy_wrapper(self):
+        self.assertFalse(any(Path(arg).name == "taskpolicy" for arg in host.COMMANDS["start"]))
 
-    def test_both_pids_are_cleared(self):
-        self.flags.update({101: 0x8000, 202: 0x10000})
+    def test_must_fail_start_command_with_bare_or_absolute_taskpolicy(self):
+        for executable in ("taskpolicy", "/usr/sbin/taskpolicy"):
+            with self.subTest(executable=executable), patch.dict(
+                host.COMMANDS, {"start": (executable, "-b", *host.COMMANDS["start"])}
+            ):
+                with self.assertRaises(AssertionError):
+                    self.test_start_command_has_no_taskpolicy_wrapper()
+
+    def test_external_background_flag_is_cleared_once_on_either_pid(self):
+        for pid in (101, 202):
+            with self.subTest(pid=pid):
+                self.clears.clear()
+                self.flags[pid] = 0x10000
+                self.verify()
+                self.assertEqual(self.clears, [pid])
+
+    def test_both_pids_external_flags_are_cleared(self):
+        self.flags.update({101: 0x10000, 202: 0x10000})
         self.verify()
         self.assertEqual(self.clears, [101, 202])
 
-    def test_must_fail_if_background_survives_clear(self):
-        self.stuck = True
+    def test_inherited_background_fails_after_one_clear_attempt(self):
         for pid in (101, 202):
-            for flag in (0x8000, 0x10000, 0x18000):
+            for flag in (0x8000, 0x18000):
                 with self.subTest(pid=pid, flag=flag):
                     self.flags.update({101: 0, 202: 0, pid: flag})
                     self.clears.clear()
-                    with redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, f"background policy still set for PID {pid}"):
+                    with redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError) as error:
                         host.qos()
+                    self.assertEqual(str(error.exception),
+                                     f"inherited background policy (0x8000) on PID {pid}: "
+                                     "restart ci from the new starter")
                     self.assertEqual(self.clears, [pid])
+                    self.assertEqual(self.flags[pid], 0x8000)
+
+    def test_must_fail_if_external_background_survives_clear(self):
+        self.stuck = True
+        for pid in (101, 202):
+            with self.subTest(pid=pid):
+                self.flags.update({101: 0, 202: 0, pid: 0x10000})
+                self.clears.clear()
+                with redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, f"background policy still set for PID {pid}"):
+                    host.qos()
+                self.assertEqual(self.clears, [pid])
 
     def test_must_fail_if_reverification_cannot_run(self):
         for pid in (101, 202):
             with self.subTest(pid=pid):
                 self.unreadable = "after-clear"
-                self.flags.update({101: 0, 202: 0, pid: 0x8000})
+                self.flags.update({101: 0, 202: 0, pid: 0x10000})
                 with redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, f"cannot inspect PID {pid}"):
                     host.qos()
 
     def test_must_fail_if_clear_command_fails(self):
-        self.flags[101] = 0x8000
+        self.flags[101] = 0x10000
         host.subprocess.run.side_effect = subprocess.CalledProcessError(1, "taskpolicy")
         with self.assertRaises(subprocess.CalledProcessError):
             host.qos()
@@ -136,6 +159,7 @@ class StandardPolicyTest(unittest.TestCase):
             host.qos()
 
     def test_foreign_hostagent_is_rejected_before_clearing(self):
+        self.flags[101] = 0x10000
         for field, value in ((self.owners, 502), (self.executables, "other")):
             original = field[101]
             field[101] = value
@@ -148,6 +172,7 @@ class StandardPolicyTest(unittest.TestCase):
         self.assertEqual(self.clears, [])
 
     def test_missing_or_ambiguous_disk_owner_is_rejected_before_clearing(self):
+        self.flags.update({101: 0x10000, 202: 0x10000, 303: 0x10000})
         for disk in ("other-disk", "disk"):
             with self.subTest(disk=disk):
                 self.disks[202 if disk == "other-disk" else 303] = disk

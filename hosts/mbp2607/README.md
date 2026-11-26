@@ -463,9 +463,11 @@ cores and throttled I/O, making CI about twice as slow; standard priority with
 hostagent's PID, owner and executable, finds its Virtualization XPC service
 in **that PID's launchd domain**, and requires that service to hold **that
 instance's disk** open. It requires Darwin's background flags to be absent
-on both PIDs, clears a leftover flag once with `taskpolicy -B -p`, and
-re-verifies with `proc_pidinfo`. A remaining flag or failed verification stops
-`ci`. The `/run/ci-vm-host-qos-ready` marker means host policy verified.
+on both PIDs. A single `taskpolicy -B -p` attempt clears only the external
+flag (`0x10000`), then `proc_pidinfo` re-verifies. An inherited internal flag
+(`0x8000`) fails closed and requires restarting ci from the new starter.
+A remaining flag or failed verification stops `ci`. For rollout, switch while
+ci is stopped, then restart ci after this change. The `/run/ci-vm-host-qos-ready` marker means host policy verified.
 Runner services retain `Nice=10`,
 `CPUWeight=10` and `IOWeight=10` inside the VM.
 

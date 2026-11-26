@@ -149,12 +149,19 @@ def qos():
         raise RuntimeError("cannot uniquely associate a Virtualization XPC process with ci's disk")
 
     for target, role in targets:
-        # SDK mach/task_policy.h: PROC_FLAG_DARWINBG / EXT_DARWINBG.
+        # sys/proc_info.h: PROC_FLAG_DARWINBG / PROC_FLAG_EXT_DARWINBG.
         flags = info(target)[0]
         if flags & (0x8000 | 0x10000):
+            # -B clears only the external flag (0x10000); inherited
+            # internal background policy (0x8000) requires a fresh starter.
             subprocess.run(["/usr/sbin/taskpolicy", "-B", "-p", str(target)], check=True)
             flags = info(target)[0]
-            if flags & (0x8000 | 0x10000):
+            if flags & 0x8000:
+                raise RuntimeError(
+                    f"inherited background policy (0x8000) on PID {target}: "
+                    "restart ci from the new starter"
+                )
+            if flags & 0x10000:
                 raise RuntimeError(f"background policy still set for PID {target}")
         print(f"ci-vm: {role} pid={target} background=false flags={flags:#x}")
 

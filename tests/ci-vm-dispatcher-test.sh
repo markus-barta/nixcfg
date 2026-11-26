@@ -21,28 +21,37 @@ jq -e '.checks | all' "$work/module.json" >/dev/null || fail 'module evaluation'
 jq .colima "$work/module.json" >"$work/declared.yaml"
 jq .repos "$work/module.json" >"$work/repos.json"
 echo "ok module: $(jq '.checks | length' "$work/module.json") evaluated contracts"
-# Mutate only disposable copies: the eval contract must reject either regression.
+# Mutate only disposable copies: the eval contracts must reject each regression.
 mutant_root="$work/eval-mutant"
 mkdir -p "$mutant_root/hosts/mbp2607/files"
 cp -R "$root/hosts/mbp2607/files/ci-vm" "$mutant_root/hosts/mbp2607/files/"
 cp "$root/hosts/mbp2607/README.md" "$mutant_root/hosts/mbp2607/README.md"
-for mutation in cpu background; do
+for mutation in cpu background low-io low-background-io starter; do
   python3 - "$root/hosts/mbp2607/ci-vm.nix" "$mutant_root/hosts/mbp2607/ci-vm.nix" "$mutation" <<'PY'
 from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
-old, new = ('cpu = 4;', 'cpu = 6;') if sys.argv[3] == 'cpu' else ('ProcessType = "Standard";', 'ProcessType = "Background";')
+old, new = {
+    'cpu': ('cpu = 4;', 'cpu = 6;'),
+    'background': ('ProcessType = "Standard";', 'ProcessType = "Background";'),
+    'low-io': ('ProcessType = "Standard";', 'ProcessType = "Standard"; LowPriorityIO = true;'),
+    'low-background-io': ('ProcessType = "Standard";', 'ProcessType = "Standard"; LowPriorityBackgroundIO = true;'),
+    'starter': ('exec /bin/bash', 'exec /usr/sbin/taskpolicy -b -c background /bin/bash'),
+}[sys.argv[3]]
 assert source.count(old) == 1
 Path(sys.argv[2]).write_text(source.replace(old, new))
 PY
   if nix-instantiate --eval --strict --json --arg root "$mutant_root" "$root/tests/mbp2607-ci-vm-eval.nix" >"$work/$mutation.json" 2>"$work/$mutation.err"; then
     fail "$mutation eval mutant survived"
   fi
-  contract=hardCaps
-  if [[ "$mutation" == background ]]; then contract=standardPolicy; fi
+  case "$mutation" in
+  cpu) contract=hardCaps ;;
+  starter) contract=noBackgroundStarter ;;
+  *) contract=standardPolicy ;;
+  esac
   grep -q "OPS-669 eval failed: $contract" "$work/$mutation.err" || fail "$mutation eval failed for the wrong reason"
 done
-echo 'ok eval must-fail: cpu=6 and ProcessType=Background are rejected by their contracts'
+echo 'ok eval must-fail: cpu=6, ProcessType=Background, LowPriorityIO, LowPriorityBackgroundIO and taskpolicy starter wrapper are rejected by their contracts'
 python3 "$root/tests/ci-vm-host-test.py"
 python3 "$root/tests/ci-vm-guest-test.py" "$root" "$work" "$work/module.json"
 mkdir -p "$work/bin"
