@@ -507,7 +507,60 @@ hosts; hsb0 and hsb1 retain their existing failure behavior. Other mbp2607
 failures still fail the unit and log the last five error lines with URL query
 strings removed.
 
-Local contracts: `bash tests/T99-hausnetz-hsb0.sh` and, under Bash 5,
+### Guarded hausnetz CD (OPS-705, dry-run first)
+
+`hausnetz-cd-execute` is installed only on hsb0 with `allowLive = false`.
+mbp2607 imports `hausnetz-cd.nix`; its two-minute launchd agent and script are
+disabled by default (`inspr.hausnetzCdOrchestrator.enable = false`). Pause by
+disabling that option and applying Home Manager. An already detached executor
+finishes its transaction; pausing the timer does not interrupt recovery.
+Live activation is a separate LEAD gate after attended dry-run trials.
+
+Only a strict pin bump relative to the **running** `source_revision` in
+`/etc/pharos-deployment/evidence.json` can qualify: the hausnetz URL and adjacent
+comments, its lock leaf values, and the existing RUNBOOK/T99 pin lines. Every
+other change stays manual. Both machines recheck G1 and the byte-identical
+capability manifest (G2). HNET-570's manifest path, version URL/JSON field and
+health URL have no inferred defaults; missing contracts force manual handling.
+After the root build (`--max-jobs 1 --cores 2`), G3 accepts only hausnetz and
+etc/deployment-evidence closure changes, stop/start/restart of hausnetz/polkit,
+and reload of dbus-broker. Unknown output, extra units and errors stay manual.
+Dry-run builds and checks these gates, then reports the proposed actions. Export,
+switch and Telegram steps run only in live mode.
+
+**Every manual hsb0 switch must take the same lock as the executor**, e.g.
+`sudo flock /run/hsb0-deploy.lock nixos-rebuild switch --flake /path/to/nixcfg#hsb0`.
+Keep that lock around the entire manual build/switch procedure. A busy lock
+skips the CD tick. The transient root unit is detached with Nice=19,
+CPUQuota=200%, IOSchedulingClass=idle. No credential moves between hosts.
+
+Root-only status and the latest export live in `/var/lib/hausnetz-cd/` (0700,
+files 0600); inspect `sudo cat /var/lib/hausnetz-cd/results/<nixcfg-rev>.json`.
+Status records phase/timestamps, old/new systems and generation, each gate,
+health, backup and rollback. On mbp2607 the cache is
+`~/.local/share/hausnetz-cd/`, attempt/failed/last-deployed state is
+`~/.local/share/ops-qa/state/hsb0-hausnetz-cd.json`, and exports are in
+`~/.local/share/ops-qa/hsb0-hausnetz-exports/` (newest 20). Failed or uncertain
+attempts are never restarted automatically; a busy-lock skip may retry.
+
+Live mode requires a parsed, nonempty local `/api/export` backup (JSON or ZIP),
+copied and checksum-acknowledged by the Mac before switching. Health polls
+locally for at most two minutes and must prove the exact expected Git revision
+and pass healthz. Failure switches back to the recorded old store path and
+checks the old revision. The existing local bot reports `auto-rollback` or
+`ROLLBACK FAILED`. The Mac also persists an alarm and comments on the configured
+HNET release ticket; configurable alarm argv and an independent argv invoking
+csb1's existing sender keep credentials on their owning host. The independent
+sender must be configured before live mode. A durable reporting outbox retries
+ticket delivery without repeating deployment.
+Lost live executor status also raises an independent `ROLLBACK STATUS UNKNOWN`
+alarm and preserves the once-only reservation for manual reconciliation.
+
+TODO (outside v1): rehearse restoring an export in a throwaway hausnetz **only
+in the workstation Colima VM**, after HNET supplies its import contract.
+Never run the restore drill on a fleet host.
+
+Local contracts: `bash tests/T125-hausnetz-cd.sh`, `bash tests/T99-hausnetz-hsb0.sh` and, under Bash 5,
 `bash tests/T14-pharos-system-update.sh`. OPS runs this exact CI command from
 the clean committed checkout, with network/private-input access (root on hsb0
 after activation, or the CI-specific key and pinned known_hosts above):
