@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from urllib.parse import urlparse
 
 OWNER = "hausnetz-ci-vm"
 SCHEMA = "mbp2607-heavy-lock.v1"
@@ -28,27 +29,50 @@ def alive(pid):
         return True
 
 
+def valid_url(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme == "https" and bool(parsed.netloc) and not any(c.isspace() for c in value)
+    except ValueError:
+        return False
+
+
+def dead(owner):
+    # Unknown PID is not evidence of death. An unreadable/missing record has
+    # no process identity at all and follows the spec's directory-mtime rule.
+    return not owner or (owner.get("pid") is not None and not alive(owner["pid"]))
+
+
 def snapshot(path):
     stat = path.lstat()
     if path.is_symlink() or not path.is_dir():
         raise RuntimeError("unsafe heavy lock path")
     owner = {}
+    started = stat.st_mtime
     try:
         if (path / "owner.json").is_symlink():
             raise ValueError("symlinked owner")
-        owner = json.loads((path / "owner.json").read_text())
-        if (owner.get("schema") != SCHEMA or not isinstance(owner.get("owner"), str)
-                or not isinstance(owner.get("pid"), int) or isinstance(owner["pid"], bool)
-                or owner["pid"] <= 0 or not isinstance(owner.get("job_url"), str)
-                or owner.get("host") != "mbp2607"):
-            raise ValueError("invalid owner")
-        started = datetime.datetime.strptime(owner["started_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        # Retain a parseable PID even in an otherwise invalid record: uncertain
-        # metadata is never a reason to quarantine a process known to be alive.
-        pid = owner.get("pid") if isinstance(owner, dict) else None
-        owner = {"pid": pid} if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else {}
-        started = stat.st_mtime
+        data = json.loads((path / "owner.json").read_text())
+        if isinstance(data, dict) and data:
+            # Independent fields: an optional URL must not discard a valid PID,
+            # owner or start time from another participant's record.
+            for key in ("schema", "owner", "started_at", "host"):
+                if isinstance(data.get(key), str):
+                    owner[key] = data[key]
+            pid = data.get("pid")
+            owner["pid"] = pid if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else None
+            url = data.get("job_url")
+            owner["job_url"] = url if valid_url(url) else "unknown"
+            try:
+                value = datetime.datetime.fromisoformat(owner["started_at"].replace("Z", "+00:00"))
+                if value.utcoffset() == datetime.timedelta(0):
+                    started = value.timestamp()
+            except (ValueError, KeyError, OverflowError):
+                pass
+    except (OSError, ValueError, TypeError):
+        pass
     return stat, owner, started
 
 
@@ -84,6 +108,8 @@ def release(path, stat, owner):
 
 def operate(action, path, pid, now, job_url="", hostagent=0):
     if action == "acquire":
+        if not valid_url(job_url):
+            raise ValueError("acquisition requires an https job_url")
         try:
             path.parent.mkdir(mode=0o1777, parents=True)
         except FileExistsError:
@@ -95,14 +121,21 @@ def operate(action, path, pid, now, job_url="", hostagent=0):
             try:
                 path.mkdir(mode=0o755)
             except FileExistsError:
-                stat, owner, started = snapshot(path)
+                try:
+                    stat, owner, started = snapshot(path)
+                except FileNotFoundError:
+                    continue
                 # Caller verified ci is stopped. An unrelated live PID may be
                 # reuse, but only for our own residue, never another holder.
-                if owner.get("owner") == OWNER and (not alive(owner["pid"]) or owner["pid"] != hostagent):
+                if (owner.get("owner") == OWNER and hostagent == 0
+                        and owner.get("pid") is not None
+                        and (not alive(owner["pid"]) or owner["pid"] != hostagent)):
                     if release(path, stat, owner):
                         transitions.append("residue-released")
                         continue
-                if not alive(owner.get("pid")) and now - started > 10800:
+                if dead(owner) and now - started > 10800:
+                    if owner.get("owner") == OWNER and hostagent != 0:
+                        return {"transitions": transitions, "busy": True, "owner": owner}
                     if not same(path, stat, owner):
                         continue
                     stale = path.with_name(path.name + f".stale-{utc(now)}-{pid}")
@@ -110,6 +143,8 @@ def operate(action, path, pid, now, job_url="", hostagent=0):
                     if stale.exists():
                         return {"transitions": transitions, "busy": True, "owner": owner}
                     path.rename(stale)
+                    if not same(stale, stat, owner):
+                        raise RuntimeError("heavy lock changed during stale rename; quarantined for inspection")
                     transitions.append(f"stale-broken {stale}")
                     continue
                 return {"transitions": transitions, "busy": True, "owner": owner}
@@ -126,12 +161,15 @@ def operate(action, path, pid, now, job_url="", hostagent=0):
         return {"transitions": []}
     stat, owner, _ = snapshot(path)
     if action == "residue":
-        if (owner.get("owner") == OWNER
+        if (owner.get("owner") == OWNER and hostagent == 0
+                and owner.get("pid") is not None
                 and (not alive(owner["pid"]) or owner["pid"] != hostagent)
                 and release(path, stat, owner)):
             return {"transitions": ["residue-released"]}
         return {"transitions": []}
     if action == "handoff":
+        if hostagent <= 0:
+            raise RuntimeError("invalid hostagent handoff PID")
         if owner.get("owner") != OWNER or owner.get("pid") != pid or not same(path, stat, owner):
             raise RuntimeError("heavy lock ownership changed before hostagent handoff")
         owner["pid"] = hostagent

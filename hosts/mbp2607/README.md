@@ -614,21 +614,41 @@ including operator start. An atomic `owner.json` write records the dispatcher
 PID, then the validated Colima `ci` hostagent PID immediately after boot.
 An already-running VM keeps its existing lock unchanged.
 
-Busy runs persist their first-seen time across the 60-second ticks. The
+Busy runs persist their first-seen time per run ID and attempt across the
+60-second ticks. Waits reset when a run leaves the queue, acquires the lock or
+is cancelled; a rerun gets its full wait. Run state older than seven days is
+pruned. The
 `.github/workflows/nightly.yml` wait is 45 minutes; `.github/workflows/nix.yml`
 and all other workflows wait 10 minutes. At the limit, the dispatcher cancels
 the run and comments with its URL and the holder/reason on the PR, or, for runs
 without a PR, on the open issue titled `CI nightly: host busy / cancellations`
-in the same repository (created once if absent). Cancellation and comment
-attempt markers prevent repeated requests per run, including after uncertain
-API failures; inspect logged uncertain outcomes before retrying manually.
+in the same repository (created once if absent). Only a confirmed HTTP 202 cancellation permits a comment. Definite HTTP 4xx
+failures are logged once as `cancel_failed`, without a comment. Uncertain
+cancellations retry on subsequent ticks, at most three times per run attempt,
+then remain marked uncertain for operator inspection. Comment failures are
+logged and retried up to three times. Confirmed outcomes prevent repeated
+cancels and comments. An incomplete or failed demand scan never cancels runs.
+The fixed issue number is cached after confirmation; an uncertain creation is
+reconciled by title before any further comments, without repeating creation.
+
+The agent token needs **Actions: write** to cancel, **Issues: write** for the
+fixed issue, and **Pull requests: write** for PR comments. The coordinator
+verified the current classic token has `repo, workflow` scopes and repository
+admin access; retain those permissions when replacing it.
 
 A foreign lock is stale only when its PID is dead **and** its start is over
-three hours old. Missing or invalid owner records use the directory mtime.
+three hours old. Each owner field is parsed independently: UTC timestamps
+accept fractional seconds and `Z` or `+00:00`; an absent or invalid URL is
+shown as unknown without discarding the owner or PID. An unparseable start
+uses the directory mtime. Missing or unreadable records also use the mtime;
+an invalid PID in a readable record is unknown, never evidence of death.
 Stale locks are atomically renamed to `.stale-<UTC>-<pid>` siblings and logged;
 the coordinator trashes them later. Our own residue can be released sooner
-only after verifying `ci` is stopped and its recorded PID is dead or is no
-longer the validated `ci` hostagent. Never release while the VM runs. Normal
+only after verifying `ci` is stopped, no `ci` hostagent is present, and its
+recorded PID is dead or reused. Never release while the VM or a hostagent
+runs. Operator start uses `https://github.com/<configured-repo>/actions` for
+its ownership URL. Stop `ci` before rolling out the lock protocol to an
+already-running VM; a running VM keeps its existing ownership record. Normal
 idle/drain/failure/operator stops and failed boots release only our own holder
 record, after verifying stopped status, by removing `owner.json` then the empty
 lock directory. The parent remains.

@@ -138,14 +138,15 @@ worker_cap_reached() {
   [ "$((now - last))" -ge 3600 ]
 }
 stop_now() {
-  local holder=0
-  if [ -f "$heavy_lock/owner.json" ]; then
-    holder=$(jq -r 'if (.pid | type) == "number" and .pid > 0 and .pid == (.pid | floor) then .pid else 0 end' "$heavy_lock/owner.json" 2>/dev/null) || holder=0
-  fi
+  local holder remaining_hostagent
+  # Capture the independently validated process identity before stopping it.
+  holder=$(bounded 20 hostagent 2>/dev/null) || holder=$$
   bounded 180 stop || return 1
   # A successful stop plus a fresh stopped status is required before release.
   vm_status || return 1
   if [ "$running" != false ]; then return 1; fi
+  remaining_hostagent=$(bounded 20 hostagent-state 2>/dev/null) || return 1
+  [ "$remaining_hostagent" = 0 ] || return 1
   heavy_operation release "$holder" || return 1
   clear_stamp unknown-since
   clear_stamp no-worker-since
@@ -361,8 +362,52 @@ api_request() (
 )
 
 api_get() { api_request "$1"; }
-api_post() { api_request "$1" --request POST --header 'Content-Type: application/json' --data "$2"; }
+api_post() { api_request "$1" --request POST --header 'Content-Type: application/json' --data-raw "$2" "${@:3}"; }
 
+# Preserve both the HTTP status and transport outcome, including curl --fail.
+post_outcome() {
+  local output
+  post_transport=0
+  output=$(api_post "$1" "$2" --write-out $'\n%{http_code}') || post_transport=$?
+  post_code=${output##*$'\n'}
+  post_body=${output%$'\n'*}
+}
+
+clear_heavy_waits() {
+  local file
+  for file in "$state"/heavy-wait-*.wait; do
+    [ ! -s "$file" ] || : >"$file"
+  done
+}
+
+# A complete scan can retire waits for runs no longer queued. Keep outcome
+# files for bounded retries/deduplication, and prune all run state after 7 days.
+reconcile_heavy_waits() {
+  python3 - "$state" "$now" "$1" <<'PY_STATE'
+import json
+from pathlib import Path
+import sys
+state, now, complete = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3] == "true"
+keys = set()
+for line in (state / "heavy-demand.jsonl").read_text().splitlines():
+    run = json.loads(line)
+    keys.add("heavy-wait-" + run["repository"].replace("/", "-") + "-" + str(run["id"]) + "-" + str(run["run_attempt"]) + ".wait")
+for path in state.glob("heavy-wait-*"):
+    if path.is_file():
+        if now - path.stat().st_mtime > 7 * 86400:
+            path.unlink()
+        elif complete and path.name.endswith(".wait") and path.name not in keys and path.stat().st_size:
+            path.write_text("")
+PY_STATE
+}
+
+retry_count() {
+  retries=0
+  if [ -f "$state/$1" ]; then read -r retries <"$state/$1" || retries=0; fi
+  if ! [[ "$retries" =~ ^[0-3]$ ]]; then retries=0; fi
+}
+
+comment_processed="|"
 heavy_acquired=false
 heavy_result='{}'
 heavy_operation() {
@@ -373,76 +418,126 @@ heavy_operation() {
   done < <(jq -r '.transitions[]' <<<"$heavy_result")
 }
 heavy_acquire() {
-  local job_url hostagent=0
-  job_url=$(jq -sr '.[0].html_url // ""' "$state/heavy-demand.jsonl") || return 1
+  local job_url hostagent=0 repo
+  repo=$(jq -er '.[0].repository' "$CI_VM_REPOSITORIES") || return 1
+  job_url=$(jq -sr --arg repo "$repo" '.[0].html_url // ("https://github.com/" + $repo + "/actions")' "$state/heavy-demand.jsonl") || return 1
   # This identifies PID reuse conservatively; a real hostagent remains live
   # even if an inconsistent Colima status reports stopped.
-  hostagent=$(bounded 20 hostagent 2>/dev/null) || hostagent=0
+  hostagent=$(bounded 20 hostagent-state 2>/dev/null) || return 1
   heavy_operation acquire "$$" "$job_url" "$hostagent" || return 1
   if jq -e '.busy' <<<"$heavy_result" >/dev/null; then return 75; fi
   heavy_acquired=true
+  clear_heavy_waits
 }
 
 busy_runs() {
-  local run repo id url workflow pr key waited limit owner reason response issue page count found
+  local run repo id url workflow pr key waited limit owner reason response issue issue_file page count found retries attempt
+  local mode=${1:-queued} file
   owner=$(jq -r '.owner | "\(.owner // "unknown") since \(.started_at // "unknown") (\(.job_url // "unknown"))"' <<<"$heavy_result") || return 1
   reason="host busy: mbp2607 heavy-CI lock held by $owner"
   while IFS= read -r run; do
     repo=$(jq -r .repository <<<"$run") || return 1
     id=$(jq -r .id <<<"$run") || return 1
+    attempt=$(jq -r .run_attempt <<<"$run") || return 1
     url=$(jq -r .html_url <<<"$run") || return 1
     workflow=$(jq -r .path <<<"$run") || return 1
     pr=$(jq -r '.pull_requests[0].number // empty' <<<"$run") || return 1
-    key="heavy-wait-${repo//\//-}-$id"
-    read_stamp "$key"
-    waited=$((now - last))
-    limit=600
-    if [ "$workflow" = .github/workflows/nightly.yml ]; then limit=2700; fi
-    log "heavy lock busy-waiting run=$id waited=${waited}s limit=${limit}s; $reason"
-    [ "$waited" -ge "$limit" ] || continue
-    # Persist intent BEFORE each side effect: uncertain requests are never
-    # repeated automatically. Leave the marker and log failures for operators.
-    if [ ! -e "$state/$key.cancel-attempted" ]; then
-      stamp "$key.cancel-attempted"
+    key="heavy-wait-${repo//\//-}-$id-$attempt"
+    reason=$(jq -r --arg reason "$reason" ' .busy_reason // $reason' <<<"$run") || return 1
+    if [ "$mode" != pending ] && [ ! -e "$state/$key.cancel-attempted" ]; then
+      read_stamp "$key.wait"
+      waited=$((now - last))
+      limit=600
+      if [ "$workflow" = .github/workflows/nightly.yml ]; then limit=2700; fi
+      log "heavy lock busy-waiting run=$id attempt=$attempt waited=${waited}s limit=${limit}s; $reason"
+      [ "$waited" -ge "$limit" ] || continue
+      retry_count "$key.cancel-tries"
+      [ "$retries" -lt 3 ] || continue
+      retries=$((retries + 1))
+      printf '%s\n' "$retries" >"$state/$key.cancel-tries"
       scan_started=$SECONDS
-      if api_post "https://api.github.com/repos/$repo/actions/runs/$id/cancel" '{}' >/dev/null; then
+      post_outcome "https://api.github.com/repos/$repo/actions/runs/$id/cancel" '{}'
+      if [ "$post_code" = 202 ] && [ "$post_transport" = 0 ]; then
         stamp "$key.cancelled"
+        stamp "$key.cancel-attempted"
+        jq -c --arg reason "$reason" '. + {busy_reason:$reason}' <<<"$run" >"$state/$key.pending.json" || return 1
+        clear_stamp "$key.wait"
         log "heavy lock cancelled run=$id $url; $reason"
+      elif [[ "$post_code" =~ ^4[0-9][0-9]$ ]]; then
+        stamp "$key.cancel_failed"
+        stamp "$key.cancel-attempted"
+        log "ERROR: heavy lock cancel_failed run=$id HTTP $post_code; no cancellation comment"
       else
-        log "heavy lock cancel uncertain run=$id; inspect before retrying manually"
+        log "heavy lock cancel uncertain run=$id HTTP $post_code transport=$post_transport attempt=$retries/3"
+        if [ "$retries" -ge 3 ]; then stamp "$key.cancel_uncertain"; fi
       fi
     fi
     [ -e "$state/$key.cancelled" ] || continue
-    [ ! -e "$state/$key.comment-attempted" ] || continue
+    [ ! -e "$state/$key.commented" ] || continue
+    [[ "$comment_processed" != *"|$key|"* ]] || continue
+    comment_processed="$comment_processed$key|"
+    retry_count "$key.comment-tries"
+    [ "$retries" -lt 3 ] || continue
+    retries=$((retries + 1))
+    printf '%s\n' "$retries" >"$state/$key.comment-tries"
     scan_started=$SECONDS
     issue=$pr
     if [ -z "$issue" ]; then
-      page=1 found=false
-      while :; do
-        response=$(api_get "https://api.github.com/repos/$repo/issues?state=open&per_page=100&page=$page") || return 1
-        jq -e 'type == "array"' <<<"$response" >/dev/null || return 1
+      page=1 found=false count=-1
+      # Cache the confirmed issue number, but reconcile an uncertain creation
+      # through GET before trying again. Never repeat an uncertain create.
+      issue_file="$state/heavy-issue-${repo//\//-}"
+      if [ -s "$issue_file" ]; then
+        read -r issue <"$issue_file" || issue=''
+        if [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then found=true; fi
+      fi
+      while [ "$found" = false ]; do
+        response=$(api_get "https://api.github.com/repos/$repo/issues?state=open&per_page=100&page=$page") || break
+        jq -e 'type == "array"' <<<"$response" >/dev/null || break
         issue=$(jq -r '[.[] | select(.title == "CI nightly: host busy / cancellations" and (has("pull_request") | not)) | .number][0] // empty' <<<"$response") || return 1
         if [ -n "$issue" ]; then
           found=true
+          printf '%s\n' "$issue" >"$issue_file"
           break
         fi
         count=$(jq length <<<"$response") || return 1
         [ "$count" -eq 100 ] || break
-        [ "$page" -lt 100 ] || return 1
+        [ "$page" -lt 100 ] || break
         page=$((page + 1))
       done
-      if [ "$found" = false ]; then
-        response=$(api_post "https://api.github.com/repos/$repo/issues" '{"title":"CI nightly: host busy / cancellations","body":"CI runs cancelled because the shared mbp2607 heavy-CI host is busy are recorded here."}') || return 1
-        issue=$(jq -er '.number | select(type == "number" and . > 0 and . == floor)' <<<"$response") || return 1
+      if [ "$found" = false ] && [ "$count" -ge 0 ] && [ "$count" -lt 100 ] && [ ! -e "$issue_file.create-uncertain" ]; then
+        # Even a 201 with a lost/malformed body must not duplicate creation.
+        stamp "${issue_file##*/}.create-uncertain"
+        post_outcome "https://api.github.com/repos/$repo/issues" '{"title":"CI nightly: host busy / cancellations","body":"CI runs cancelled because the shared mbp2607 heavy-CI host is busy are recorded here."}'
+        if [ "$post_code" = 201 ] && [ "$post_transport" = 0 ]; then
+          issue=$(jq -er '.number | select(type == "number" and . > 0 and . == floor)' <<<"$post_body") || issue=''
+          if [ -n "$issue" ]; then printf '%s\n' "$issue" >"$issue_file"; fi
+        else
+          stamp "${issue_file##*/}.create-uncertain"
+          log "heavy lock issue creation uncertain HTTP $post_code; reconcile by title next tick"
+        fi
       fi
     fi
-    [[ "$issue" =~ ^[1-9][0-9]*$ ]] || return 1
-    stamp "$key.comment-attempted"
-    response=$(jq -nc --arg body "$url: $reason" '{body:$body}') || return 1
-    if ! api_post "https://api.github.com/repos/$repo/issues/$issue/comments" "$response" >/dev/null; then
-      log "heavy lock comment uncertain run=$id; inspect before retrying manually"
+    if ! [[ "$issue" =~ ^[1-9][0-9]*$ ]]; then
+      log "heavy lock comment failed run=$id: no confirmed issue; attempt=$retries/3"
+      continue
     fi
-  done < <(jq -sc 'unique_by([.repository,.id])[]' "$state/heavy-demand.jsonl")
+    response=$(jq -nc --arg body "$url: $reason" '{body:$body}') || return 1
+    post_outcome "https://api.github.com/repos/$repo/issues/$issue/comments" "$response"
+    if [ "$post_code" = 201 ] && [ "$post_transport" = 0 ]; then
+      stamp "$key.commented"
+    else
+      log "heavy lock comment failed run=$id HTTP $post_code transport=$post_transport attempt=$retries/3"
+    fi
+  done < <(
+    if [ "$mode" = pending ]; then
+      for file in "$state"/heavy-wait-*.pending.json; do
+        [ ! -f "$file" ] || cat "$file"
+      done
+    else
+      cat "$state/heavy-demand.jsonl"
+    fi | jq -sc 'unique_by([.repository,.id,.run_attempt])[]'
+  )
 }
 
 # Scan all pages; malformed/failed/truncated responses mean UNKNOWN, not idle.
@@ -459,7 +554,7 @@ demand_for_repo() {
     page=1
     while :; do
       response=$(api_get "https://api.github.com/repos/$repo/actions/runs?status=$status&per_page=100&page=$page") || return 2
-      jq -e '(.workflow_runs | type == "array") and (.total_count | type == "number" and . >= 0 and . <= 100000000 and . == floor) and all(.workflow_runs[]; (.id | type == "number" and . > 0 and . <= 9007199254740991 and . == floor))' <<<"$response" >/dev/null || return 2
+      jq -e '(.workflow_runs | type == "array") and (.total_count | type == "number" and . >= 0 and . <= 100000000 and . == floor) and all(.workflow_runs[]; (.id | type == "number" and . > 0 and . <= 9007199254740991 and . == floor) and ((.run_attempt // 1) | type == "number" and . > 0 and . <= 9007199254740991 and . == floor))' <<<"$response" >/dev/null || return 2
       count=$(jq '.workflow_runs | length' <<<"$response") || return 2
       total=$(jq .total_count <<<"$response") || return 2
       ids=$(jq -r '.workflow_runs[].id' <<<"$response") || return 2
@@ -476,7 +571,7 @@ demand_for_repo() {
           if [ "$match" = queued ]; then
             queued=true
             jq -c --argjson id "$run_id" --arg repo "$repo" '.workflow_runs[] | select(.id == $id) |
-              {id, repository:$repo, html_url:(.html_url // ("https://github.com/" + $repo + "/actions/runs/" + (.id|tostring))),
+              {id, run_attempt:(.run_attempt // 1), repository:$repo, html_url:(.html_url // ("https://github.com/" + $repo + "/actions/runs/" + (.id|tostring))),
                path:(.path // ""), pull_requests:(.pull_requests // [])}' <<<"$response" >>"$state/heavy-demand.jsonl" || return 2
           fi
           job_count=$(jq '.jobs | length' <<<"$jobs") || return 2
@@ -560,9 +655,15 @@ while IFS= read -r repo; do
   fi
 done <<<"$repositories"
 now=$(date +%s)
+complete_scan=false
+if [ "$unknown" = false ] && [ "$active" = false ]; then complete_scan=true; fi
+reconcile_heavy_waits "$complete_scan"
+# Cancellation removes runs from the next queue scan. Persisted notifications
+# must still retry after that, independently of the current VM/lock state.
+busy_runs pending
 vm_status
 if [ "$running" = false ] && [ -d "$heavy_lock" ]; then
-  residue_hostagent=$(bounded 20 hostagent 2>/dev/null) || residue_hostagent=0
+  residue_hostagent=$(bounded 20 hostagent-state 2>/dev/null) || residue_hostagent=-1
   heavy_operation residue "$$" "" "$residue_hostagent"
 fi
 if [ "$active" = true ] || [ "$running" = false ]; then
@@ -580,7 +681,7 @@ if [ "$active" = true ] || [ "$queued" = true ]; then
     if heavy_acquire; then :; else
       rc=$?
       if [ "$rc" -eq 75 ]; then
-        busy_runs
+        if [ "$unknown" = false ]; then busy_runs; fi
         exit 0
       fi
       exit "$rc"

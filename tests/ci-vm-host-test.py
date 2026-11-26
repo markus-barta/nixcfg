@@ -107,10 +107,86 @@ class HeavyLockTest(unittest.TestCase):
         self.fixture(owner=heavy.OWNER, age=1)
         self.assertEqual(self.acquire()["transitions"], ["residue-released", "acquired"])
         # Same PID is a verified hostagent: retain even with stopped status.
-        result = heavy.operate("acquire", self.path, os.getpid(), self.now, "", os.getpid())
+        result = heavy.operate("acquire", self.path, os.getpid(), self.now, "https://github.com/fixture/repo/actions", os.getpid())
         self.assertTrue(result["busy"])
         # A live unrelated/reused PID is residue only after caller verified stopped.
         self.assertEqual(self.acquire()["transitions"], ["residue-released", "acquired"])
+
+    def test_papp_optional_fields_preserve_identity_and_start(self):
+        for suffix in ("Z", "+00:00"):
+            for url in (None, "", "http://example.test/papp", 17):
+                with self.subTest(suffix=suffix, url=url):
+                    self.now += 1
+                    self.fixture(pid=os.getpid())
+                    data = json.loads((self.path / "owner.json").read_text())
+                    data.update(started_at=heavy.utc(self.now - 10801)[:-1] + ".123456" + suffix, job_url=url)
+                    heavy.write_owner(self.path, data)
+                    _, owner, started = heavy.snapshot(self.path)
+                    self.assertEqual(owner["owner"], "papp-night")
+                    self.assertEqual(owner["pid"], os.getpid())
+                    self.assertEqual(owner["job_url"], "unknown")
+                    self.assertAlmostEqual(started, self.now - 10801 + .123456)
+                    self.assertTrue(self.acquire()["busy"])
+                    data["pid"] = 99999999
+                    heavy.write_owner(self.path, data)
+                    self.assertFalse(self.acquire()["busy"])
+
+    def test_unknown_pid_is_never_dead_by_itself(self):
+        for pid in (None, 0, -1, True, "123", 1.5):
+            with self.subTest(pid=pid):
+                self.fixture(pid=99999999)
+                data = json.loads((self.path / "owner.json").read_text())
+                data["pid"] = pid
+                heavy.write_owner(self.path, data)
+                self.assertTrue(self.acquire()["busy"])
+
+    def test_start_fallback_uses_mtime_without_losing_owner(self):
+        self.fixture()
+        data = json.loads((self.path / "owner.json").read_text())
+        data.update(started_at="bad", job_url=None)
+        heavy.write_owner(self.path, data)
+        os.utime(self.path, (self.now - 100, self.now - 100))
+        self.assertTrue(self.acquire()["busy"])
+        _, owner, _ = heavy.snapshot(self.path)
+        self.assertEqual(owner["owner"], "papp-night")
+        os.utime(self.path, (self.now - 10801, self.now - 10801))
+        self.assertFalse(self.acquire()["busy"])
+
+    def test_live_hostagent_prevents_residue_and_stale_release(self):
+        self.fixture(owner=heavy.OWNER, age=20000)
+        for action in ("residue", "acquire"):
+            result = heavy.operate(action, self.path, os.getpid(), self.now,
+                                   "https://github.com/fixture/repo/actions", os.getpid())
+            self.assertEqual(result["transitions"], [])
+            self.assertTrue(self.path.exists())
+
+    def test_release_race_during_acquire_retries(self):
+        original = heavy.snapshot
+        def disappeared(path):
+            if not hasattr(disappeared, "done"):
+                disappeared.done = True
+                (path / "owner.json").unlink()
+                path.rmdir()
+                raise FileNotFoundError()
+            return original(path)
+        self.fixture()
+        with patch.object(heavy, "snapshot", side_effect=disappeared):
+            self.assertEqual(self.acquire()["transitions"], ["acquired"])
+
+    def test_must_fail_parsing_and_live_hostagent_mutants(self):
+        original = source.with_name("heavy-lock.py").read_text()
+        for old, new, contract in [
+            ('value = datetime.datetime.fromisoformat(owner["started_at"].replace("Z", "+00:00"))',
+             'value = datetime.datetime.strptime(owner["started_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)',
+             "test_papp_optional_fields_preserve_identity_and_start"),
+            (' and hostagent == 0', '', "test_live_hostagent_prevents_residue_and_stale_release")]:
+            self.assertIn(old, original)
+            namespace = {"__name__": "mutant"}
+            exec(compile(original.replace(old, new), "heavy-lock-mutant.py", "exec"), namespace)
+            with patch.object(heavy, "operate", namespace["operate"]), patch.object(heavy, "snapshot", namespace["snapshot"]):
+                result = unittest.TestResult()
+                HeavyLockTest(contract).run(result)
+                self.assertFalse(result.wasSuccessful(), "heavy lock mutant survived")
 
     def test_release_requires_own_owner_and_exact_pid(self):
         self.fixture(pid=os.getpid())
@@ -127,8 +203,8 @@ class HeavyLockTest(unittest.TestCase):
     def test_must_fail_stale_or_and_foreign_release_mutants(self):
         original = source.with_name("heavy-lock.py").read_text()
         for old, new, contract in [
-            ('not alive(owner.get("pid")) and now - started > 10800',
-             'not alive(owner.get("pid")) or now - started > 10800', "test_stale_requires_both_dead_and_old"),
+            ('dead(owner) and now - started > 10800',
+             'dead(owner) or now - started > 10800', "test_stale_requires_both_dead_and_old"),
             ('owner.get("owner") != OWNER or not same(path, stat, owner)',
              'not same(path, stat, owner)', "test_release_requires_own_owner_and_exact_pid")]:
             self.assertEqual(original.count(old), 1)
@@ -206,6 +282,22 @@ class StandardPolicyTest(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         for line, role, pid in zip(lines, ("ci-hostagent", "ci-virtualization-xpc"), (101, 202)):
             self.assertEqual(line, f"ci-vm: {role} pid={pid} background=false flags=0x0")
+
+    def test_hostagent_state_proves_absence_or_retains_unknown(self):
+        with patch.object(Path, "read_text", side_effect=FileNotFoundError):
+            self.assertEqual(host.hostagent_state(), 0)
+        with patch.object(host.os, "kill", side_effect=ProcessLookupError):
+            self.assertEqual(host.hostagent_state(), 0)
+        with patch.object(host.os, "kill", side_effect=PermissionError):
+            self.assertEqual(host.hostagent_state(), 101)
+        with patch.object(host.os, "kill"):
+            self.assertEqual(host.hostagent_state(), 101)
+            with patch.object(host, "hostagent", side_effect=RuntimeError("inspection failed")):
+                with self.assertRaisesRegex(RuntimeError, "inspection failed"):
+                    host.hostagent_state()
+        with patch.object(Path, "read_text", return_value="bad"):
+            with self.assertRaises(ValueError):
+                host.hostagent_state()
 
     def test_hostagent_identity_for_lock_handoff(self):
         self.assertEqual(host.hostagent()[0], 101)

@@ -110,7 +110,7 @@ let
     (builtins.readFile (root + "/hosts/mbp2607/README.md"))
   ]
   ++ map (name: builtins.readFile (ciFiles + "/${name}")) (
-    builtins.attrNames (builtins.readDir ciFiles)
+    builtins.attrNames (lib.filterAttrs (_: kind: kind == "regular") (builtins.readDir ciFiles))
   );
   checks = {
     enabled = agent.enable && host.services.ciVm.enable;

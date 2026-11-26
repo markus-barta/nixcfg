@@ -25,6 +25,7 @@ COMMANDS = {
               "--activate=false", "--ssh-config=false"),
     "qos": QOS_COMMAND,
     "hostagent": (sys.executable, __file__, "hostagent"),
+    "hostagent-state": (sys.executable, __file__, "hostagent-state"),
     "host-ready": ("colima", "--profile", "ci", "ssh", "--", "sudo",
                    "/usr/local/libexec/ci-vm/host-ready"),
     "provision-only": ("colima", "--profile", "ci", "ssh", "--", "sudo",
@@ -84,6 +85,23 @@ def lock(path, command):
         return subprocess.call(command, close_fds=True)
     finally:
         os.close(fd)
+
+
+def hostagent_state():
+    """Zero only proves absence/death; inspection failure remains unknown."""
+    try:
+        pid = int(Path(PIDFILE).read_text().strip())
+    except FileNotFoundError:
+        return 0
+    if pid <= 0:
+        raise RuntimeError("invalid ci hostagent PID")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return 0
+    except PermissionError:
+        return pid
+    return hostagent()[0]
 
 
 def hostagent():
@@ -180,6 +198,8 @@ if __name__ == "__main__":
             if sys.argv[2] != lockfile:
                 raise RuntimeError("unexpected dispatcher lock path")
             sys.exit(lock(lockfile, LOCK_COMMANDS[tuple(sys.argv[3:])]))
+        elif len(sys.argv) == 2 and sys.argv[1] == "hostagent-state":
+            print(hostagent_state())
         elif len(sys.argv) == 2 and sys.argv[1] == "hostagent":
             print(hostagent()[0])
         elif len(sys.argv) == 3 and sys.argv[1] == "qos":
