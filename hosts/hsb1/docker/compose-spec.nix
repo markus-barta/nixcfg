@@ -156,10 +156,7 @@ in
         "/run/agenix/hsb1-funkeykid-api-env" # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
       ];
       volumes = [
-        "/home/mba/docker/mounts/funkeykid/settings.json:/data/settings.json"
-        "/home/mba/docker/mounts/funkeykid/sounds:/data/sounds"
-        "/home/mba/docker/mounts/funkeykid/images:/data/images"
-        "/home/mba/docker/mounts/funkeykid/ai-generated:/data/ai-generated"
+        "/home/mba/docker/mounts/funkeykid:/data" # one directory: atomic settings.json (rename), archive/ persists (FUNK-67, OPS-701)
         "/dev/input:/dev/input"
         "/run/user/1001:/run/user/1001"
         "/run/dbus:/run/dbus"
