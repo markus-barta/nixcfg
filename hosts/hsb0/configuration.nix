@@ -106,6 +106,7 @@ assert joeSet.pusher != null && joeSet.executor != null;
     ../../modules/kernel-cve-guard.nix
     ../../modules/adguard-users-secret.nix # OPS-372 — runtime-only admin verifier
     inputs.hausnetz.nixosModules.default # OPS-207 — only hsb0 runs hausnetz
+    ../../modules/hausnetz-cd # OPS-705 — installed, live execution refused
     ./lg-devmode-renew.nix # OPS-309 — daily webOS Developer Mode renewal
     ./fritz-guest-uplink.nix # OPS-401 — transit uplink for the 7530's guest network (wallboxes)
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
@@ -139,6 +140,11 @@ assert joeSet.pusher != null && joeSet.executor != null;
   # reads only the copy (:333-385,462-463). Leases are optional enrichment, not
   # a dependency.
   # The module owns the initially empty StateDirectory (:428); no data import.
+  inspr.hausnetzCd = {
+    enable = true;
+    allowLive = false; # Separate LEAD gate after attended dry-run trials.
+  };
+
   services.hausnetz = {
     enable = true;
     listen = "0.0.0.0:8377";

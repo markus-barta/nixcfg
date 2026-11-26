@@ -47,6 +47,18 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
+## hausnetz continuous delivery (T125 / OPS-705)
+
+```bash
+bash tests/T125-hausnetz-cd.sh
+```
+
+Offline executor/orchestrator transactions use fixture Git repositories and
+PATH fakes for SSH, systemd, Nix, HTTP, switching and notifications. No network,
+NixOS evaluation/build or fleet access. Each core safety contract also runs
+against a guard-removal mutant that must fail. This `T*.sh` entry is included
+by the general runner above and the hsb0 CI shard alongside T99.
+
 ## Retired csb1 HAUSV runner (T123 / OPS-678)
 
 ```bash

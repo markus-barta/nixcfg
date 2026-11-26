@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+export GIT_TERMINAL_PROMPT=0
+export PYTHONPATH=@SOURCE@
+exec python3 -B @ENTRYPOINT@ "$@"
